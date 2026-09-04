@@ -1,9 +1,11 @@
 # A document's restrictions are the reader's to set, and they have levels
 
-Status: **the reading, the four levels, the verdict, the events and the command are built (ADR
-0212, session 373; ADR 0803, session 872; ADR 0814, session 885); what is left is a way for a
-person to *choose* a level and a dialogue to answer the question with.** No user interface is to
-be built until the project owner asks for one.
+Status: **the reading, the four levels, the verdict, the events, the command and — since session
+916 — the *question* are built (ADR 0212, session 373; ADR 0803, session 872; ADR 0814, session
+885; ADRs 0874 and 0875, session 916). Two faces put the question to a person today: KIO through
+`WorkerBase::messageBox`, and `pdf-transform` on a terminal. What is left is a way for a person to
+*choose* a level, and a dialogue in the three windows.** No user interface is to be built until
+the project owner asks for one.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
@@ -90,8 +92,10 @@ C ABI as `PDFV_RESTRICT_ASK`, `PDFV_RESTRICT_WARN`, `pdfv_answer` and three even
 
 **No window has a dialogue yet**, by the owner's word that the gestures follow the HTML mockups, so
 each of the four answers *ask* with `viewer_host::unanswerable` and `proceed: false` — out loud, the
-same closed-dialogue choice `pdf-transform` makes with `Refusal::Unanswered`. That is what keeps the
-level from silently behaving like *on*, and it is the one thing a window still owes.
+same closed-dialogue choice `pdf-transform` made with `Refusal::Unanswered`. That is what keeps the
+level from silently behaving like *on*, and it is the one thing a window still owes. **A C host of
+`viewer-ffi` is not in that sentence and never was**: `PDFV_EVENT_KIND_ASKING` and `pdfv_answer` are
+a channel *and* an answer, so a host on that boundary has been able to ask since this round.
 
 **§7.11.4's attach and detach are the levels' second consumer**, and the third if `pdf-transform`
 counts. `Edit::Attach { bytes, name, description, mime, home }` and `Edit::Detach { name }` are
@@ -105,13 +109,49 @@ text annotations", because that clause makes the file part of the annotation and
 hands whatever bit 6 controls to bit 6, so `Operation::Annotate`. The consequence is pinned by a
 test: a certification at §12.8.2.2's level 3 admits a file on a page and withholds one in the tree.
 
+## What the nine-hundred-and-sixteenth session built
+
+**The *ask* level became askable, and this file's own claim that "nothing in the core has to change
+for it" was the thing that was wrong.** Round 913 found it by building the KIO face: RFC 0003 §6
+puts every byte of parsing in a confined process and the restriction decision is taken *inside* it,
+so the level degraded to a refusal in every face — including the one face with a real question
+channel. ADR 0869 §3 costed two ways out; ADR 0874 implemented the one it recommended.
+
+**Two round trips.** `pdf_transform::consult(level, document, operation) -> Consulted` is the
+question — the four verdicts, the operation's word, the document's reasons, and
+`Consulted::question` for the one verdict that is a question — and `apply` itself now asks it, so a
+host that asks and then acts is answered by one reading rather than by two that could disagree.
+Across `pdf-vfs`'s confinement it is `Query::Consult { operation }` out and `Answer::Consulted`
+back; the operation afterwards is `Query::Consented(Box<Query>)`, which runs the inner query at
+`Level::Off` — **the answer crossing, never a second copy of the policy**. `Vfs::consult(path, verb)`
+and `Vfs::answer(proceed)` are the broker's shape; the consent is held beside the *worker for that
+generation*, so it is spent once, spent only by the operation it was given for, and gone when the
+document moves underneath the mount.
+
+| face | can it ask | how | where its level comes from |
+|---|---|---|---|
+| KIO | **yes** | `WorkerBase::messageBox`, `QuestionTwoActions`; a decline is `ERR_USER_CANCELED` | `PDF_KIO_RESTRICTIONS`, default `off` |
+| `pdf-transform` | **yes, on a terminal** | the question on stderr, a line read back; `--restrictions=ask` is a level rather than a usage error | `--restrictions=off\|on\|ask\|warn` |
+| a C host of `viewer-ffi` | **yes, since session 885** | `PDFV_EVENT_KIND_ASKING`, `pdfv_answer` | `pdfv_restrict` |
+| `pdf-fuse` | **no** — a mount has no dialogue | `EACCES` and the sentence, in full, in the log | `Config::policy`, default `off` |
+| the three windows | **not yet** | `viewer_host::unanswerable`, `proceed: false` | `viewer_host::IGNORE_RESTRICTIONS` |
+
+**The default did not move anywhere**, which is the owner's rule: every face still opens at `off`.
+And `Refusal::Declined` is a third sentence beside `Restricted` and `Unanswered`, because "this
+program is obeying the document", "a reader decided" and "nobody was asked" are three events and
+were two.
+
 ## What is left
 
-- **A way to choose a level, and a dialogue to answer with.** A menu with four entries and,
+- **A way to choose a level, and a dialogue in the three windows.** A menu with four entries and,
   probably, the per-document override the viewer-wide value does not express today — plus a prompt
   for `Event::Asking` in each window. **A command line is not one**, which is worth restating
   because it is what kept two hosts without any way out for the whole of their lives: nothing in
-  the owner's instruction was blocking the flag, and nobody checked.
+  the owner's instruction was blocking the flag, and nobody checked. **Nor is an environment
+  variable**: `PDF_KIO_RESTRICTIONS` is the only channel a `kioworker` has and it is a placeholder
+  for a configuration page, said so in `pdfworker.cpp` rather than left to be discovered.
+  The *dialogue* half of this entry is done in two faces (ADR 0875); the *choosing* half is owed
+  everywhere but the command line.
 - **The gestures that send `Edit::Attach` and `Edit::Detach`.** No drag-and-drop, no command
   palette, no file dialog was built in the eight-hundred-and-eighty-fifth session, by the owner's
   word that the mockups are being reviewed first. What each window gained is the *display* half:

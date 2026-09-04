@@ -160,15 +160,28 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 /// `doc/todo/30`'s rule is about the tree rather than about one crate, so the check that matters
 /// is the one that would notice a third exemption appearing somewhere else. This test said
 /// `viewer-ffi` "will be the second when it arrives, and this test is where that has to be
-/// written down"; it arrived in the four-hundred-and-eleventh session (ADR 0247), so the list has
-/// **two** names on it, each with a test of its own on where its `unsafe` sits — this file, and
+/// written down"; it arrived in the four-hundred-and-eleventh session (ADR 0247) and
+/// `pdf-vfs-ffi` in the nine-hundred-and-thirteenth (ADR 0868), so the list has **three** names
+/// on it, each with a test of its own on where its `unsafe` sits — this file,
 /// `crates/viewer-ffi/tests/unsafe_position.rs`, which additionally asserts that every crate
-/// touching PDF bytes still *forbids* the permission.
+/// touching PDF bytes still *forbids* the permission, and
+/// `crates/pdf-vfs-ffi/tests/unsafe_position.rs`.
 ///
-/// A third name appearing here is a change to a rule the project owner stated, and it belongs in
-/// an ADR rather than in a commit that widens this list.
+/// **A third name arrived in the nine-hundred-and-thirteenth session, and this is where it was
+/// argued for.** `pdf-vfs-ffi` is RFC 0003's C ABI over `pdf-vfs` — the boundary a KIO worker
+/// forwards over, because RFC 0003 section 7 records that KF6 admits no Rust worker and
+/// `KIO::WorkerBase` is a C++ class. It is the *same* reason the first name is on the list: a C
+/// caller cannot be handed a `Result` or an owned `Vec`, so something has to hold raw pointers,
+/// and `doc/todo/30`'s rule is that the something is one module with a test on where its `unsafe`
+/// sits. `crates/pdf-vfs-ffi/tests/unsafe_position.rs` is that test, and ADR 0868 is the record.
+///
+/// The rule this list enforces is unchanged and is worth restating rather than assuming: **no
+/// crate that touches PDF bytes lifts the denial**, and none of these three does — `pdf-vfs-ffi`
+/// parses nothing at all, because RFC 0003 section 6 puts every byte of parsing in a confined
+/// process. A fourth name appearing here is a change to a rule the project owner stated, and it
+/// belongs in an ADR rather than in a commit that widens this list.
 #[test]
-fn only_the_two_named_crates_in_the_tree_lift_the_denial() {
+fn only_the_three_named_crates_in_the_tree_lift_the_denial() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let Ok(entries) = std::fs::read_dir(&crates) else {
         println!("skipped: the crates directory is not readable from here");
@@ -202,7 +215,11 @@ fn only_the_two_named_crates_in_the_tree_lift_the_denial() {
     lifting.dedup();
     assert_eq!(
         lifting,
-        vec!["viewer-ffi".to_owned(), "viewer-qt".to_owned()],
-        "only the C ABI and the crate with the C++ bridge lift it"
+        vec![
+            "pdf-vfs-ffi".to_owned(),
+            "viewer-ffi".to_owned(),
+            "viewer-qt".to_owned(),
+        ],
+        "only the two C ABIs and the crate with the C++ bridge lift it"
     );
 }

@@ -44,7 +44,8 @@ use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::split::{Pieces, SplitPlan};
 use pdf_transform::update::{self, UpdatePlan};
 use pdf_transform::{
-    Budget, MemorySinks, Plan, Policy, Refusal, Report, Secret, Source, apply_borrowed, pattern,
+    Budget, Consulted, Level, MemorySinks, Operation, Plan, Policy, Refusal, Report, Secret,
+    Source, apply_borrowed, consult, pattern,
 };
 
 /// One question about the document, as data.
@@ -125,6 +126,72 @@ pub enum Query {
         /// The file the caller wrote.
         json: Vec<u8>,
     },
+    /// **Would this operation be restricted, and why** — the first of ADR 0874's two round
+    /// trips, and the only query here that changes nothing and reads no page.
+    ///
+    /// RFC 0003 section 6 puts every byte of parsing in a process with no channel to a person,
+    /// and `CLAUDE.md` principle 3's *ask* level needs one. So the question crosses as data and
+    /// comes back as [`Answer::Consulted`]: the level's verdict, the operation and the document's
+    /// own reasons, worded once by `pdf_transform::consult`. A face with somewhere to put the
+    /// question puts it; a face with nowhere says so.
+    Consult {
+        /// What the caller is about to do.
+        operation: Operation,
+    },
+    /// The second round trip: this query, with a person's *yes* behind it.
+    ///
+    /// The wrapper carries the **answer**, never a second copy of the policy — the inner query
+    /// runs at `Level::Off`, which is the level `CLAUDE.md` says "shall always be possible" and
+    /// is what a person consenting to one operation has chosen for it. A broker sends this only
+    /// where a [`Query::Consult`] asked and was answered yes; nothing here can tell, which is
+    /// why the answer is `crate::Vfs`'s to keep and this is only how it crosses.
+    ///
+    /// Boxed because `Query` would otherwise be infinitely sized; a `Consented` inside a
+    /// `Consented` is not a shape the broker builds and needs no special case — running an inner
+    /// `Consented` at `Off` gives the same answer as running it at whatever it held.
+    Consented(Box<Query>),
+}
+
+impl Query {
+    /// Which of `pdf_model::restriction`'s operations this question performs, if any.
+    ///
+    /// **The broker's copy of `pdf_transform::Plan::operation`**, and it exists because a
+    /// consent is spent against an operation rather than against a query: a person who said yes
+    /// to deleting a page said yes to `Operation::Assemble`, and the broker has to be able to
+    /// tell that the query it is about to send is the one that was asked about.
+    ///
+    /// `tests/a_write.rs` holds it to the plan's own answer rather than to this list, because
+    /// two mappings that must agree and are only *said* to agree is how they stop agreeing.
+    #[must_use]
+    pub fn operation(&self) -> Option<Operation> {
+        match self {
+            // Read-only questions no Table 22 bit names: a count, a listing, §14.3's metadata,
+            // §12.3.3's outline. `Query::PageText` is here for a reason of its own —
+            // `doc/todo/38` holds Table 22 bit 5's "copy or otherwise extract" for the day a
+            // host can say *this is a copy*, and until then this crate does not invent one.
+            Self::PageCount
+            | Self::PageText { .. }
+            | Self::AttachmentInventory
+            | Self::Information
+            | Self::MetadataStream
+            | Self::Outline
+            | Self::Consult { .. } => None,
+            // Table 22 bit 11 names all three in as many words: "[a]ssemble the document
+            // (insert, rotate, or delete pages …)", and a page taken *out* of the mount is
+            // `pdf_transform split`'s own output, which is a file made of pages the source
+            // stated.
+            Self::ExtractPage { .. } | Self::InsertPages { .. } | Self::DeletePage { .. } => {
+                Some(Operation::Assemble)
+            }
+            Self::RenderPage { .. } => Some(Operation::Print),
+            Self::ExtractImages { .. } | Self::ExtractAttachment { .. } => Some(Operation::Extract),
+            Self::Attach { .. } | Self::Detach { .. } | Self::SetInformation { .. } => {
+                Some(Operation::Modify)
+            }
+            // The operation is the inner query's; the wrapper is an answer about it.
+            Self::Consented(inner) => inner.operation(),
+        }
+    }
 }
 
 /// One answer.
@@ -161,6 +228,12 @@ pub enum Answer {
         /// that proceed and speak.
         warnings: Vec<String>,
     },
+    /// What [`Query::Consult`] came back with: the verdict, the operation and the reasons.
+    ///
+    /// Never a refusal, even when the verdict is one — a question answered is an answer. What a
+    /// broker does with it is `crate::Vfs::consult`'s, and what a *face* does with it is the
+    /// face's, which is the whole point of asking before acting.
+    Consulted(Consulted),
 }
 
 /// Why a question could not be answered.
@@ -270,6 +343,25 @@ pub trait Worker: Send + Sync + std::fmt::Debug {
     /// [`WorkerError::Transport`] where a confined worker is gone.
     fn ask(&self, query: &Query) -> Result<Answer, WorkerError>;
 
+    /// The same question, with a person's *yes* behind it — `CLAUDE.md` principle 3's *ask*
+    /// level, answered.
+    ///
+    /// **The second of ADR 0874's two round trips.** The first is [`Query::Consult`], which a
+    /// broker puts to this worker and a face puts to a person; this is the operation issued
+    /// afterwards, at the level a consent *is* — `Level::Off`, the one `CLAUDE.md` says "shall
+    /// always be possible", for this one operation and no other.
+    ///
+    /// Defaulted to [`Worker::ask`], which is the safe direction rather than a convenience: an
+    /// implementation that does not override it refuses the operation again instead of
+    /// performing something nobody consented to. Both implementations in this crate override it.
+    ///
+    /// # Errors
+    ///
+    /// [`Worker::ask`]'s.
+    fn ask_consented(&self, query: &Query) -> Result<Answer, WorkerError> {
+        self.ask(query)
+    }
+
     /// Whether this worker can still be asked anything.
     ///
     /// **What makes "the next query gets a fresh worker" a property rather than a hope.** A
@@ -372,8 +464,12 @@ impl InProcess {
     }
 
     /// Runs one plan and hands back every output it wrote, by name.
-    fn run(&self, plan: &Plan) -> Result<(Report, BTreeMap<String, Vec<u8>>), WorkerError> {
-        self.run_beside(plan, None)
+    fn run(
+        &self,
+        plan: &Plan,
+        level: Level,
+    ) -> Result<(Report, BTreeMap<String, Vec<u8>>), WorkerError> {
+        self.run_beside(plan, None, level)
     }
 
     /// [`InProcess::run`], with a second document opened beside the mounted one.
@@ -385,11 +481,19 @@ impl InProcess {
         &self,
         plan: &Plan,
         beside: Option<&Source>,
+        level: Level,
     ) -> Result<(Report, BTreeMap<String, Vec<u8>>), WorkerError> {
         let mut sources: Vec<&Source> = vec![&self.source];
         sources.extend(beside);
         let sinks = MemorySinks::new();
-        let report = apply_borrowed(plan, &sources, &sinks, &self.policy, &self.budget)?;
+        // The whole of `Policy` is the level today, so this is a copy with one field replaced
+        // rather than a struct update — and it is written out so that a second field added to
+        // `Policy` fails to compile here rather than being silently dropped for a consented
+        // operation.
+        let policy = Policy {
+            restrictions: level,
+        };
+        let report = apply_borrowed(plan, &sources, &sinks, &policy, &self.budget)?;
         let files = sinks.into_outputs().into_iter().collect();
         Ok((report, files))
     }
@@ -399,13 +503,18 @@ impl InProcess {
     /// The output is §7.5.6's: "the contents of a PDF file can be updated incrementally without
     /// rewriting the entire file … changes shall be appended to the end of the file, leaving its
     /// original contents intact", so what comes back is the source's bytes and then the update.
-    fn amend(&self, edit: update::Edit, beside: Option<&Source>) -> Result<Answer, WorkerError> {
+    fn amend(
+        &self,
+        edit: update::Edit,
+        beside: Option<&Source>,
+        level: Level,
+    ) -> Result<Answer, WorkerError> {
         let plan = Plan::Update(UpdatePlan {
             source: 0,
             edit,
             names: page_pattern()?,
         });
-        let (report, files) = self.run_beside(&plan, beside)?;
+        let (report, files) = self.run_beside(&plan, beside, level)?;
         if let Some(declined) = report.refused.first() {
             return Err(WorkerError::Declined {
                 subject: declined.subject.clone(),
@@ -427,8 +536,8 @@ impl InProcess {
     }
 
     /// The one output a single-file plan wrote, or the reason there is none.
-    fn only(&self, plan: &Plan) -> Result<Answer, WorkerError> {
-        let (report, files) = self.run(plan)?;
+    fn only(&self, plan: &Plan, level: Level) -> Result<Answer, WorkerError> {
+        let (report, files) = self.run(plan, level)?;
         if let Some(declined) = report.refused.first() {
             return Err(WorkerError::Declined {
                 subject: declined.subject.clone(),
@@ -454,31 +563,65 @@ impl InProcess {
 impl Worker for InProcess {
     fn ask(&self, query: &Query) -> Result<Answer, WorkerError> {
         match query {
+            // **ADR 0874's second round trip, and the one place a level other than this
+            // worker's own is used.** The wrapper says a person was asked about this operation
+            // and said yes, so the operation runs at the level `CLAUDE.md` says "shall always be
+            // possible" — which is what a yes *is*. Nothing here can check that the question was
+            // put; that is `crate::Vfs`'s, which is the only thing that builds this wrapper.
+            Query::Consented(inner) => self.answer(inner, Level::Off),
+            other => self.answer(other, self.policy.restrictions),
+        }
+    }
+
+    fn ask_consented(&self, query: &Query) -> Result<Answer, WorkerError> {
+        self.answer(query, Level::Off)
+    }
+}
+
+impl InProcess {
+    /// One question, under the level that governs *this* question.
+    ///
+    /// The level is a parameter rather than `self.policy`'s because of
+    /// [`Query::Consented`]: everything else about the worker is the same, and a second worker
+    /// at a second level would be a second confinement, a second parse and a second copy of
+    /// §7.6.4.1's password.
+    fn answer(&self, query: &Query, level: Level) -> Result<Answer, WorkerError> {
+        match query {
+            // `CLAUDE.md` principle 3's two round trips, split off so that this function stays
+            // under this tree's own line-count lint — and split at the line the round drew
+            // anyway: neither of them is a question about what the document *contains*.
+            Query::Consult { .. } | Query::Consented(_) => self.policy_answer(query, level),
             Query::PageCount => {
                 let document = self.document()?;
                 Ok(Answer::Count(Pages::new(&document).len()))
             }
-            Query::ExtractPage { page } => self.only(&Plan::Split(SplitPlan {
-                source: 0,
-                pages: Self::one_page(*page)?,
-                pieces: Pieces::EachPage,
-                names: page_pattern()?,
-            })),
-            Query::RenderPage { page, dpi } => self.only(&Plan::Render(RenderPlan {
-                source: 0,
-                pages: Self::one_page(*page)?,
-                // Dots per inch over ISO 32000-2 §8.3.2.3's 72 units to the inch, which is
-                // `Sizing::Dpi`'s own statement of the conversion; nothing is computed here.
-                size: Sizing::Dpi(dpi_as_scale(*dpi)),
-                format: ImageFormat::Png,
-                page_box: None,
-                annotations: true,
-                names: page_pattern()?,
-                strips: self.strips,
-            })),
+            Query::ExtractPage { page } => self.only(
+                &Plan::Split(SplitPlan {
+                    source: 0,
+                    pages: Self::one_page(*page)?,
+                    pieces: Pieces::EachPage,
+                    names: page_pattern()?,
+                }),
+                level,
+            ),
+            Query::RenderPage { page, dpi } => self.only(
+                &Plan::Render(RenderPlan {
+                    source: 0,
+                    pages: Self::one_page(*page)?,
+                    // Dots per inch over ISO 32000-2 §8.3.2.3's 72 units to the inch, which is
+                    // `Sizing::Dpi`'s own statement of the conversion; nothing is computed here.
+                    size: Sizing::Dpi(dpi_as_scale(*dpi)),
+                    format: ImageFormat::Png,
+                    page_box: None,
+                    annotations: true,
+                    names: page_pattern()?,
+                    strips: self.strips,
+                }),
+                level,
+            ),
             Query::ExtractImages { page } => {
                 let (report, files) =
-                    self.run(&Plan::Images(images_plan(Self::one_page(*page)?)?))?;
+                    self.run(&Plan::Images(images_plan(Self::one_page(*page)?)?), level)?;
                 if files.is_empty()
                     && let Some(declined) = report.refused.first()
                 {
@@ -509,10 +652,13 @@ impl Worker for InProcess {
                 ))
             }
             Query::AttachmentInventory => {
-                let (report, _) = self.run(&Plan::Attachments(AttachmentsPlan {
-                    source: 0,
-                    action: Action::List,
-                }))?;
+                let (report, _) = self.run(
+                    &Plan::Attachments(AttachmentsPlan {
+                        source: 0,
+                        action: Action::List,
+                    }),
+                    level,
+                )?;
                 Ok(Answer::Attachments(
                     report
                         .listed
@@ -524,13 +670,16 @@ impl Worker for InProcess {
                         .collect(),
                 ))
             }
-            Query::ExtractAttachment { name } => self.only(&Plan::Attachments(AttachmentsPlan {
-                source: 0,
-                action: Action::Save {
-                    name: name.clone(),
-                    names: page_pattern()?,
-                },
-            })),
+            Query::ExtractAttachment { name } => self.only(
+                &Plan::Attachments(AttachmentsPlan {
+                    source: 0,
+                    action: Action::Save {
+                        name: name.clone(),
+                        names: page_pattern()?,
+                    },
+                }),
+                level,
+            ),
             // Named rather than caught, so that a query added to this module fails to compile
             // here as well as on the wire.
             meta @ (Query::Information | Query::MetadataStream | Query::Outline) => {
@@ -540,12 +689,47 @@ impl Worker for InProcess {
             | Query::DeletePage { .. }
             | Query::Attach { .. }
             | Query::Detach { .. }
-            | Query::SetInformation { .. }) => self.write_answer(write),
+            | Query::SetInformation { .. }) => self.write_answer(write, level),
         }
     }
-}
 
-impl InProcess {
+    /// `CLAUDE.md` principle 3's two round trips: the question, and the operation with a yes
+    /// behind it.
+    ///
+    /// `pdf_transform::consult` is the same call `apply` makes, so a face that asks and then
+    /// acts is answered by one reading rather than by two that could disagree (ADR 0874).
+    fn policy_answer(&self, query: &Query, level: Level) -> Result<Answer, WorkerError> {
+        match query {
+            Query::Consult { operation } => Ok(Answer::Consulted(consult(
+                level,
+                &self.document()?,
+                *operation,
+            ))),
+            // Unreachable through `Worker::ask`, which strips the wrapper before this is called;
+            // named rather than caught so that the wire cannot smuggle one past.
+            Query::Consented(inner) => self.answer(inner, Level::Off),
+            // `InProcess::answer` is this function's one caller and names the two it sends.
+            Query::PageCount
+            | Query::ExtractPage { .. }
+            | Query::RenderPage { .. }
+            | Query::ExtractImages { .. }
+            | Query::PageText { .. }
+            | Query::AttachmentInventory
+            | Query::ExtractAttachment { .. }
+            | Query::Information
+            | Query::MetadataStream
+            | Query::Outline
+            | Query::InsertPages { .. }
+            | Query::DeletePage { .. }
+            | Query::Attach { .. }
+            | Query::Detach { .. }
+            | Query::SetInformation { .. } => Err(WorkerError::Mismatched {
+                got: "a question about the document",
+                wanted: "a consultation or a consent",
+            }),
+        }
+    }
+
     /// The three answers `meta/` holds, which are the ones no transform verb covers: §14.3.3's
     /// information dictionary, §14.3.2's stream and §12.3.3's outline.
     fn meta_answer(&self, query: &Query) -> Result<Answer, WorkerError> {
@@ -577,7 +761,9 @@ impl InProcess {
             | Query::DeletePage { .. }
             | Query::Attach { .. }
             | Query::Detach { .. }
-            | Query::SetInformation { .. } => Err(WorkerError::Mismatched {
+            | Query::SetInformation { .. }
+            | Query::Consult { .. }
+            | Query::Consented(_) => Err(WorkerError::Mismatched {
                 got: "a question about the document",
                 wanted: "one of meta/'s three",
             }),
@@ -587,7 +773,7 @@ impl InProcess {
     /// The five write queries, split off so that `Worker::ask` stays under this tree's own
     /// line-count lint — and split at the line the round drew anyway: everything above answers a
     /// question about the document, everything here changes it.
-    fn write_answer(&self, query: &Query) -> Result<Answer, WorkerError> {
+    fn write_answer(&self, query: &Query, level: Level) -> Result<Answer, WorkerError> {
         match query {
             Query::InsertPages { at, document } => {
                 // The incoming document is opened for this one operation and let go of again:
@@ -596,36 +782,43 @@ impl InProcess {
                 self.amend(
                     update::Edit::InsertPages { from: 1, at: *at },
                     Some(&beside),
+                    level,
                 )
             }
             Query::DeletePage { page } => {
-                self.amend(update::Edit::DeletePage { page: *page }, None)
+                self.amend(update::Edit::DeletePage { page: *page }, None, level)
             }
             Query::Attach { name, bytes } => {
-                let (report, files) = self.run(&Plan::Attachments(AttachmentsPlan {
-                    source: 0,
-                    action: Action::Attach {
-                        payload: Payload::new(bytes.clone()),
-                        name: name.clone(),
-                        description: None,
-                        // No clock in this tree, and none here: the same file attached twice is
-                        // the same bytes (RFC 0002 section 9's first layer). A face that wants
-                        // Table 45's dates states them, and none does yet.
-                        date: None,
-                        names: page_pattern()?,
-                        on_page: None,
-                    },
-                }))?;
+                let (report, files) = self.run(
+                    &Plan::Attachments(AttachmentsPlan {
+                        source: 0,
+                        action: Action::Attach {
+                            payload: Payload::new(bytes.clone()),
+                            name: name.clone(),
+                            description: None,
+                            // No clock in this tree, and none here: the same file attached twice is
+                            // the same bytes (RFC 0002 section 9's first layer). A face that wants
+                            // Table 45's dates states them, and none does yet.
+                            date: None,
+                            names: page_pattern()?,
+                            on_page: None,
+                        },
+                    }),
+                    level,
+                )?;
                 written(report, files)
             }
             Query::Detach { name } => {
-                let (report, files) = self.run(&Plan::Attachments(AttachmentsPlan {
-                    source: 0,
-                    action: Action::Remove {
-                        name: name.clone(),
-                        names: page_pattern()?,
-                    },
-                }))?;
+                let (report, files) = self.run(
+                    &Plan::Attachments(AttachmentsPlan {
+                        source: 0,
+                        action: Action::Remove {
+                            name: name.clone(),
+                            names: page_pattern()?,
+                        },
+                    }),
+                    level,
+                )?;
                 written(report, files)
             }
             Query::SetInformation { json } => self.amend(
@@ -633,6 +826,7 @@ impl InProcess {
                     entries: information_entries(json)?,
                 },
                 None,
+                level,
             ),
             // Every question about the document is `Worker::ask`'s, which is this function's one
             // caller; naming them keeps the wire's own property — nothing is dropped in silence.
@@ -645,7 +839,9 @@ impl InProcess {
             | Query::ExtractAttachment { .. }
             | Query::Information
             | Query::MetadataStream
-            | Query::Outline => Err(WorkerError::Mismatched {
+            | Query::Outline
+            | Query::Consult { .. }
+            | Query::Consented(_) => Err(WorkerError::Mismatched {
                 got: "a question",
                 wanted: "a write",
             }),

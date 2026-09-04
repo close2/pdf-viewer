@@ -125,6 +125,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 28 | A recovery's guard is a claim, and the comment above it is a *different* claim | parsers |
 | 29 | A bound lifted in a scratch build is lifted only where the code reads the constant | instruments |
 | 30 | A sink keyed by name hands its outputs back in the order they were *opened* | instruments |
+| 31 | A fallible filesystem call is not a *safe* filesystem call inside the confinement | instruments |
 
 ---
 
