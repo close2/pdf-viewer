@@ -665,7 +665,7 @@ dictionary; of those, these name the exclusion as a *debt* rather than in passin
 | §12.6.4 | `partial` | one of the nine refused action types in the Table 201 summary |
 | §12.7.3 | `partial` | Table 224's `/CO`, "which is §12.6.3's calculation order and needs the script engine principle 5 excludes" |
 | §12.7.8.3.1 | `partial` | Table 246's `/JavaScript` in an FDF file |
-| §12.11.5 | `partial` | the row's whole premise: "[t]his program runs no ECMAScript (principle 5), so there is nothing to disable" |
+| §12.11.5 | `out-of-scope` | the clause entire. **It was `partial` on the premise "[t]his program runs no ECMAScript (principle 5), so there is nothing to disable" until session 928**, which read the clause and found every requirement in it addressed to a processor that *invokes* a handler — Table 276 admits only `JS` and `NoOp` — so the exclusion covers it whole rather than leaving a debt (ADR 0896) |
 | §12.6.3 | `partial` | Table 197–200's triggers are *read and raised*; what is missing is what an `/AA` entry's ECMAScript would do |
 
 **§12.6.3's row is the highest-leverage of them and says so in its own words**, which is worth
@@ -680,7 +680,7 @@ exists and the payload is what is missing**, which is a much cheaper starting po
 other refusal in this tree.
 
 **Two rows would move the wrong way, and a proposal that hid that would be worth nothing.**
-§12.11.1 and §12.11.2 are `implemented` and §12.11.5 is `partial` *because* nothing runs. §12.11.1's
+§12.11.1 and §12.11.2 are `implemented` and §12.11.5 is `out-of-scope` — `partial` when this was written, and moved in session 928 (ADR 0896) — *because* nothing runs. §12.11.1's
 note says it outright: Table 273's `/RH` "is unread, and the requirement it carries is met by
 construction rather than skipped … `CLAUDE.md` excludes ECMAScript, so every handler a file could
 name is disabled here whatever the file says." Add an engine and that construction collapses: `/RH`
@@ -695,7 +695,7 @@ section from the other direction and is the kind of cost an amendment argument h
 §12.6.4.17 would move `out-of-scope` → `partial` (the action executes; the API is a subset),
 §12.7.3 would lose its `/CO` debt, §7.7.4 would lose one of its three trees, §12.6.4's summary
 would move a name from the refused list to the performed one, and §12.11.5 would need rewriting
-from the ground up because its argument is that there is nothing to disable. §12.7.8.3.1's debt is
+from the ground up — and would have to come back *into* scope, which is a sharper cost than it was when this said `partial`, because its argument is that there is nothing to disable. §12.7.8.3.1's debt is
 an FDF import and would not move.
 
 **So the compliance case is real but small: one row settled, five amended, and three that go

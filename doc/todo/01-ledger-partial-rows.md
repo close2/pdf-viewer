@@ -5833,3 +5833,59 @@ something the reading would not have:
   differently with the base dropped. A `shall` implemented, exercised in the wild, and held by
   nothing — which is the shape this ratchet exists to surface, arriving through a *plant* rather
   than through the count.
+
+## The blame list's head taken again in the nine-hundred-and-twenty-eighth, and three of the five owed a permission
+
+The ordering, over a base of **1389** commits and **217** `partial` rows: the head is a band of
+five at rank 646 — `0a431506`, the round that made the second sweep a program — with the next
+eleven commits above it. §12.11.5, §14.12.4.1, §14.13.8, §14.7.4.2, §14.9.2, and §14.9.2.2 read
+beside its parent because it is the same debt one level down. **Five of the six moved or changed
+what they rest on, and none of the six was wrong about the tree** — which is the finding: the
+notes were accurate and three of the statuses were claims nobody had made.
+
+**The shape, and it is new here: a `partial` whose stated debt is a *permission*.** The ledger
+defines `partial` as "some [normative requirements] are [executed]; the note says which are not",
+so a row `partial` for an entry the standard offers with *may* or *can* says a requirement is
+unexecuted where the standard states none. §12.11.5's `/RH`, §14.9.2's and §14.9.2.2's Table 122
+`/Lang`, and §14.7.4.2's `/Schema` are four instances in one band. `CLAUDE.md` decides the
+direction in the sentence it uses about flatness: "a clause that permits is a clause that has been
+read, and it is a stronger answer than one that does not apply". ADR 0896.
+
+**No sweep here can print it**, and the reason is structural rather than an omission: every sweep
+in this file reads a row that owes something and asks whether the owed thing exists in the tree.
+This one is a row that owes nothing and says so, and the discriminator is the *clause's modal
+verb* rather than anything on either side of the comparison. The cheapest instrument is a grep
+rather than a sweep — **a `partial` note whose debt sentence contains "may", "can" or "is
+permitted"** — and it is offered to whichever round next has minutes to spare, because a grep that
+prints its own false positives is worth more here than a program that has to decide which *may* is
+load-bearing.
+
+**And the band's fourth row is the shape running the other way.** §14.7.4.2 was `partial` for
+`/Schema` — a permission — while the clause's actual `shall` on a reader sat in the prose *after*
+Table 356 and had never been named in the row at all: an attribute object's owner given by an `/NS`
+entry, where "the namespace name shall be considered as identifying the owner" and, for names
+corresponding to Table 376's owner values, "they shall be considered equivalent". It has a live
+consumer in `Tree::attribute`'s filter, and **§14.8.5.3's row has carried the open question about
+that exact filter since the eight-hundred-and-eleventh** without either row citing the other. That
+is `doc/ledger-and-claims.md`'s seventh shape in a form its description does not cover — the two
+rows do not *disagree*, one states the mechanism and the other is silent, and a silence contradicts
+nothing. The row stays `partial`, for the equivalence sentence now, and the pair names itself in
+both directions. ADR 0897.
+
+**The instrument that suggests, and it is not built**: for each `partial` row, the clause's `shall`
+sentences that are **not inside a table**. `--bin entries` reads the entries a clause states;
+nothing reads the sentences between them, and a note that opens "Table 356's namespace dictionary:"
+has already chosen which half of its clause to read.
+
+**Two cited tests did not assert what their row said**, both found by reading the row rather than
+by `--bin pointers`, which checks that a named site *exists*. §12.11.5 cited
+`a_requirement_states_a_type_a_version_and_a_penalty`, which asserts Table 273's entries — its
+parent's subject — and went with the status. §14.13.8 cited
+`an_associated_file_carries_its_relationship`, which asserted `/AF` on a catalog and on a structure
+element, while the row's claim is that the array "reads like any other" on a `DPart`; the test
+states one now, calibrated by planting the defect the claim denies.
+
+**The next band is rank 657** — `fc41aff8`, three rows, §12.7.7, §12.7.8.3.2 and §12.7.8.3.3, each
+already carrying a read-and-kept sentence from the round that wrote them — **and then rank 668**,
+seven rows, of which §11.7.4.4 is the one that can change a pixel and is therefore the one to take
+on a round that is running the whole sequence anyway.
