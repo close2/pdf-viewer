@@ -688,6 +688,32 @@ end-to-end witness is kept beside it while being honest about the one run where 
 (`cargo nextest run --workspace`, whose worker is a `dev` build). It is ADR 0498's lesson from the
 other side: there a gate turned a shipped *setting* off, here a gate profile turns a *check* off.
 
+### 33. A counter of what was *produced* cannot see a cost paid in *validation*
+
+`pdf_vfs::Vfs::generated` counts how many virtual files the tree has produced the bytes of. It is
+the right instrument for the thing it was built for — ADR 0865 §3's size notes, whose whole claim
+is that a second `stat` produces nothing — and `tests/read_corpus.rs` and `tests/a_write.rs` both
+assert on it.
+
+It read **1** while a mount spent 176 ms on each of twenty thousand questions about one directory,
+because the extraction was being re-run to check that a *name* existed rather than to make bytes
+(ADR 0886). The bytes were produced once, cached, and served from the cache every time; the
+counter's own sentence stayed true throughout, and the defect was a hundredfold. Two corpus walks,
+a whole gate sequence and a `regenerated` report all looked straight at it and saw nothing; what
+saw it was a wall clock in an example.
+
+**So a property about how often something runs has to count that thing running.** The general
+shape: a counter names an *event*, and a cost is only visible to it where the cost is that event.
+Work done to answer a question — resolving a path, validating a name, deciding a refusal — is
+invisible to every counter of outputs, and it is exactly where an accidental quadratic hides,
+because it looks like nothing at all: no allocation, no output, no error. Where the property is
+"the expensive call happens once", wrap the expensive call and count *it* — a counting decorator
+over the worker, the generator, the trait, whichever thing you mean — rather than asserting on a
+count that is nearby and cheaper to reach.
+
+It is trap 25's shape one level in: there the population was wrong, here the *event* is, and both
+fail by returning a clean answer to a question nobody asked.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic

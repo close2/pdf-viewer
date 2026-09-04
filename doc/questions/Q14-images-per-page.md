@@ -11,6 +11,16 @@ A flat directory cannot be listed without extracting every image first, because 
 
 Built per page, with the argument recorded.
 
+**Session 923 adds a measurement, and it is for the departure rather than against it.** Session 919
+found a corpus document — `corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf`, 10 084
+images on one page — holding a walk for twenty-five minutes, and the natural suspicion was that the
+per-page directory was the shape at fault. It was not: a *listing* of `images/NNNN/` is one
+extraction of one page, where the flat directory §4 proposes would have been one extraction of the
+whole document. What cost the time was the core validating each name by re-running the extraction
+that produced it, which is a question the layout does not reach and which ADR 0886 fixed in
+`pdf-vfs`. That document's whole ten-thousand-entry directory is now listed, `stat`ed and read in a
+quarter of a second. Nothing in this changes what the question asks.
+
 ## Recommendation
 
 Ratify. The alternative makes a plain listing cost a full extraction of the document.
