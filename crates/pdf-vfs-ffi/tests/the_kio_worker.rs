@@ -23,11 +23,16 @@
 //! configure or the build is a failure, because a plugin that will not compile against a
 //! toolchain that *is* there is a defect rather than an absence.
 
-// **No `#![expect(clippy::expect_used)]` here, and that is a finding rather than an omission.**
-// `clippy.toml` sets `allow-expect-in-tests`, so the lint fires only outside a `#[test]`
-// function — and every `.expect` in this file is inside one. An expectation would therefore be
-// *unfulfilled*, which is itself an error under `RUSTFLAGS="-D warnings"`. The two tests beside
-// this one do carry the attribute, because their helpers are ordinary functions.
+// `clippy.toml` sets `allow-expect-in-tests`, so this attribute is fulfilled by the `.expect`s in
+// `what_came_back` — an ordinary function — and by none of the ones inside the `#[test]` itself.
+// Worth knowing, because an expectation nothing fulfils is *itself* an error under
+// `RUSTFLAGS="-D warnings"`: this file had no helper for one revision of it and the attribute
+// failed the build.
+#![expect(
+    clippy::expect_used,
+    reason = "test code: a figure the harness did not print must fail loudly rather than pass by \
+              doing nothing"
+)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -164,11 +169,17 @@ fn what_came_back(said: &str) {
         // RFC 0003 section 4's tree, through a `listDir` a file manager would make.
         "root: pages renders images text attachments meta",
         "pages: 0001.pdf 0002.pdf 0003.pdf 0004.pdf 0005.pdf",
-        // A `stat` whose size is the file's own — RFC 0003 section 5.5 — and a `get` of exactly
-        // that many bytes, which is what "agreeing with the stat 1" says. An estimate here would
-        // truncate the page for every reader, which is the ffmpegfs lesson section 5.5 records.
-        "stat: 0001.pdf, directory 0, 36265 byte(s), type application/pdf",
-        "get: 36265 byte(s), beginning %PDF-, agreeing with the stat 1",
+        // A `get` of exactly as many bytes as the `stat` promised, which is what "agreeing with
+        // the stat 1" says and is RFC 0003 section 5.5's whole point: an estimate would truncate
+        // the page for every reader, the ffmpegfs lesson that section records. **The number is
+        // not written here**, and that is a correction rather than laziness — it was, and the
+        // merge that brought rounds 910 and 911 in moved an extracted page from 36 265 bytes to
+        // 36 997 with nothing about this face changed. A derived file's length is the writer's
+        // figure, so pinning it here would make this face's gate fail for the transform suite's
+        // reasons. What binds is the agreement, and it is read off both lines below.
+        "stat: 0001.pdf, directory 0, ",
+        ", type application/pdf",
+        "beginning %PDF-, agreeing with the stat 1",
         // Section 5.3's three refusals, each reaching the *job's* error string as the core's own
         // sentence rather than as KIO's canned category. This is the half FUSE cannot carry, and
         // the reason this face is worth building at all.
@@ -195,5 +206,25 @@ fn what_came_back(said: &str) {
         said.matches("(EPERM)").count(),
         3,
         "each of section 5.3's three refusals carries the core's own errno"
+    );
+    // The two byte counts, read off the lines rather than written down. They have to be equal —
+    // that is RFC 0003 section 5.5 — and the page has to be a page rather than an empty answer
+    // that would satisfy equality trivially.
+    let number_after = |prefix: &str| -> Option<u64> {
+        said.lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .and_then(|rest| rest.split(' ').next())
+            .and_then(|count| count.parse::<u64>().ok())
+    };
+    let stated = number_after("stat: 0001.pdf, directory 0, ")
+        .expect("the harness prints the size the stat stated");
+    let read = number_after("get: ").expect("the harness prints the size the get returned");
+    assert_eq!(
+        stated, read,
+        "a stat that states a size the get does not deliver truncates the page for every reader"
+    );
+    assert!(
+        stated > 1000,
+        "{stated} bytes is not a page of the application note"
     );
 }

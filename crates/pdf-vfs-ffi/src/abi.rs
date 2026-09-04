@@ -223,7 +223,7 @@ pub unsafe extern "C" fn pdfvfs_split(
     url_path: *const c_char,
     document_length: *mut usize,
 ) -> c_int {
-    let path = match borrowed_text(url_path) {
+    let path = match owned_text(url_path) {
         Ok(Some(path)) => path,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn pdfvfs_mount_open(
     out: *mut *mut Mount,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let path = match borrowed_text(document) {
+    let path = match owned_text(document) {
         Ok(Some(path)) => path,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -421,7 +421,7 @@ pub unsafe extern "C" fn pdfvfs_list(
     out: *mut *mut Listing,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let inside = match borrowed_text(path) {
+    let inside = match owned_text(path) {
         Ok(Some(inside)) => inside,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -525,7 +525,7 @@ pub unsafe extern "C" fn pdfvfs_stat(
     out: *mut PdfvfsAttributes,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let inside = match borrowed_text(path) {
+    let inside = match owned_text(path) {
         Ok(Some(inside)) => inside,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -562,7 +562,7 @@ pub unsafe extern "C" fn pdfvfs_write_meaning(
     on_write: *mut u32,
     on_delete: *mut u32,
 ) -> c_int {
-    let inside = match borrowed_text(path) {
+    let inside = match owned_text(path) {
         Ok(Some(inside)) => inside,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -595,7 +595,7 @@ pub unsafe extern "C" fn pdfvfs_open(
     out: *mut *mut File,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let inside = match borrowed_text(path) {
+    let inside = match owned_text(path) {
         Ok(Some(inside)) => inside,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -695,7 +695,7 @@ pub unsafe extern "C" fn pdfvfs_write(
     out: *mut *mut Commit,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let inside = match borrowed_text(path) {
+    let inside = match owned_text(path) {
         Ok(Some(inside)) => inside,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -734,7 +734,7 @@ pub unsafe extern "C" fn pdfvfs_remove(
     out: *mut *mut Commit,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let inside = match borrowed_text(path) {
+    let inside = match owned_text(path) {
         Ok(Some(inside)) => inside,
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
@@ -836,7 +836,7 @@ pub unsafe extern "C" fn pdfvfs_rename(
     to: *const c_char,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let (Ok(Some(from)), Ok(Some(to))) = (borrowed_text(from), borrowed_text(to)) else {
+    let (Ok(Some(from)), Ok(Some(to))) = (owned_text(from), owned_text(to)) else {
         return Status::NullArgument.code();
     };
     let Some(mount) = mount.as_ref() else {
@@ -859,7 +859,7 @@ pub unsafe extern "C" fn pdfvfs_create_directory(
     path: *const c_char,
     why: *mut *mut Refusal,
 ) -> c_int {
-    let Ok(Some(inside)) = borrowed_text(path) else {
+    let Ok(Some(inside)) = owned_text(path) else {
         return Status::NullArgument.code();
     };
     let Some(mount) = mount.as_ref() else {
@@ -885,7 +885,7 @@ pub unsafe extern "C" fn pdfvfs_create_directory(
 /// # Safety
 ///
 /// `text` is null or points at a NUL-terminated sequence of bytes.
-unsafe fn borrowed_text(text: *const c_char) -> Result<Option<String>, ()> {
+unsafe fn owned_text(text: *const c_char) -> Result<Option<String>, ()> {
     if text.is_null() {
         return Ok(None);
     }

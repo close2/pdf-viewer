@@ -64,12 +64,28 @@ QString sentenceOf(const pdfvfs_refusal *why)
     return QString::fromUtf8(room.data());
 }
 
-/*! The MIME type of a name, by its extension. Every name in this tree carries a true one. */
+/*!
+ * The MIME type of a name, by its extension, or an empty string where the extension decides
+ * nothing.
+ *
+ * Every *generated* name in this tree carries a true extension — `.pdf`, `.png`, `.txt`,
+ * `.json`, `.xml` — so an extension is the honest answer for them and costs nothing. The two
+ * kinds it cannot answer for are a directory and an embedded file the document named without
+ * one, and the caller decides what to do about each; answering `application/octet-stream` here
+ * would make those two indistinguishable from a file that really is opaque bytes.
+ */
 QString typeOf(const QString &name)
 {
     QMimeDatabase types;
     const QMimeType found = types.mimeTypeForFile(name, QMimeDatabase::MatchExtension);
-    return found.isValid() ? found.name() : QStringLiteral("application/octet-stream");
+    return found.isValid() && !found.isDefault() ? found.name() : QString();
+}
+
+/*! [`typeOf`] with the fallback a listing wants: opaque bytes rather than nothing. */
+QString typeOrBytes(const QString &name)
+{
+    const QString found = typeOf(name);
+    return found.isEmpty() ? QStringLiteral("application/octet-stream") : found;
 }
 
 } // namespace
@@ -239,7 +255,7 @@ KIO::WorkerResult PdfWorker::listDir(const QUrl &url)
         /* Decision 2: no UDS_SIZE here. A listing that stated one would generate every file. */
         entry.fastInsert(KIO::UDSEntry::UDS_ACCESS, directory ? 0555 : 0444);
         if (!directory) {
-            entry.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE, typeOf(name));
+            entry.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE, typeOrBytes(name));
         }
         listEntry(entry);
     }
@@ -282,7 +298,7 @@ KIO::WorkerResult PdfWorker::stat(const QUrl &url)
         entry.fastInsert(KIO::UDSEntry::UDS_SIZE, static_cast<long long>(attributes.size));
     }
     if (!directory) {
-        entry.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE, typeOf(name));
+        entry.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE, typeOrBytes(name));
     }
     statEntry(entry);
     return KIO::WorkerResult::pass();
@@ -301,7 +317,28 @@ KIO::WorkerResult PdfWorker::mimetype(const QUrl &url)
         return why;
     }
     const QString name = QString::fromUtf8(located.inside).section(QLatin1Char('/'), -1);
-    mimeType(name.isEmpty() ? QStringLiteral("inode/directory") : typeOf(name));
+    const QString byName = typeOf(name);
+    if (!byName.isEmpty()) {
+        mimeType(byName);
+        return KIO::WorkerResult::pass();
+    }
+
+    /*
+     * The extension decided nothing, so the *core* is asked. That is a directory — `pages`,
+     * `renders`, `150dpi` — or an embedded file the document named without an extension, and
+     * telling a file manager that `pages/` is opaque bytes would stop it entering the directory
+     * at all. A `stat` of a directory generates nothing (its size is not a number), so this is
+     * free for the case it exists for; for the extension-less attachment it costs the generation
+     * a `get` would have cost anyway, and the core's cache keeps it.
+     */
+    pdfvfs_attributes attributes;
+    pdfvfs_refusal *refusal = nullptr;
+    if (pdfvfs_stat(m_mount, located.inside.constData(), &attributes, &refusal) != PDFVFS_OK) {
+        return refused(refusal, url);
+    }
+    mimeType(attributes.kind == PDFVFS_KIND_DIRECTORY
+                 ? QStringLiteral("inode/directory")
+                 : QStringLiteral("application/octet-stream"));
     return KIO::WorkerResult::pass();
 }
 
@@ -325,7 +362,7 @@ KIO::WorkerResult PdfWorker::get(const QUrl &url)
                                        QStringLiteral("an open file that would not say its size"));
     }
     const QString name = QString::fromUtf8(located.inside).section(QLatin1Char('/'), -1);
-    mimeType(typeOf(name));
+    mimeType(typeOrBytes(name));
     totalSize(size);
 
     QByteArray chunk;
