@@ -22,11 +22,13 @@ rather than about the standard (ADR 0455).
 vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
 an account of the requirement that is not the clause's — which is the half no sweep reads, because
 a claim that nothing is owed has no missing thing to grep for (ADR 0465).
-**Twenty-three sweeps** — nineteen of them here, one over the corpus (ADR 0405), one
+**Twenty-four sweeps** — twenty of them here, one over the corpus (ADR 0405), one
 in `tools/spec-errata`, where the errata are (ADR 0426), **the twenty-second built in the
 seven-hundred-and-sixty-ninth, the only one whose right-hand side is the workspace's own
-membership** (ADR 0709), and **the twenty-third in the eight-hundred-and-thirtieth, whose
-right-hand side is the corpora on disk** (ADR 0758). **The eighteenth was built in
+membership** (ADR 0709), **the twenty-third in the eight-hundred-and-thirtieth, whose
+right-hand side is the corpora on disk** (ADR 0758), and **the twenty-fourth in the
+nine-hundred-and-thirtieth, the only one whose discriminator is on neither side of the
+comparison the other twenty-three make — it is the standard's own modal verb** (ADR 0900). **The eighteenth was built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
 against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
 declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
@@ -249,6 +251,26 @@ depends on nothing but `thiserror`.
   itself on its neighbour's keys. The noise it leaves is a partitive with no table to divide it
   ("three of the four locations a `/Lang` may occupy"), which is left to the reader on purpose.
   Its first run found two live defects, §9.9.1's and §9.7.6's, both below.
+- **One asks what verb governs the sentence a row's debt rests on**: `cargo run --release -p
+  conformance --bin permitted`, seconds, over `ledger.toml`, `doc/md/` and the standard's own
+  tables — the twenty-fourth sweep and the eighteenth to be a program (ADR 0900). Every other
+  sweep here reads a row that owes something and asks whether the owed thing exists in the tree;
+  this reads a row that owes **nothing** and says so, which is why none of them can print it and
+  why the discriminator is neither side of that comparison. Two halves, because neither finds what
+  the other does: the note's quotations located in `doc/md/` with the verb read off *the
+  standard's* sentence holding each — word by word, never by substring, since *cannot* holds *can*
+  — and every `(table, key)` the note attributes looked up in the table's own row, where a row all
+  of whose named entries the standard states as **optional** is ADR 0896's shape read off the
+  tables. Beside each hit it prints ADR 0897's column, the clause's `shall` sentences outside its
+  tables and NOTEs, which is also the tie-break within a rank: a hit over a clause stating none is
+  a status with nothing under it, and a hit over a clause stating several is a row that has read
+  the wrong half of it. **Calibrated per trap 13 against session 928's own four rows restored**,
+  and the calibration is what set the rank — under *optional and described with no `shall`* three
+  of the four are silent, because Table 122's `/Lang` constrains its **value** with a `shall` a
+  reader declining the entry never reaches. At the loosened rule three of the four are named and
+  the fourth is silent because it is not the defect. The noise is a note quoting the standard for
+  the half of the clause it **executes**, which is at least as common as quoting the half it owes,
+  and which nothing mechanical separates: §12.7.7 was wrong and unflagged for exactly that reason.
 - **One reads no row at all**: `cargo run --release -p conformance --bin
   overtaken`, a fraction of a second, over the tree's **page-list notes** and `doc/adr/` — the
   nineteenth sweep and the fourteenth to be a program (ADR 0491). A page-list note is the doc
@@ -5889,3 +5911,42 @@ states one now, calibrated by planting the defect the claim denies.
 already carrying a read-and-kept sentence from the round that wrote them — **and then rank 668**,
 seven rows, of which §11.7.4.4 is the one that can change a pixel and is therefore the one to take
 on a round that is running the whole sequence anyway.
+
+## The modal verb measured over the whole population in the nine-hundred-and-thirtieth, and five rows read
+
+The question session 928 could not answer was whether its band's finding was a band's accident.
+`--bin permitted` answers it with a number rather than an impression: of the **214** `partial` rows
+that round found, before its own two moves,
+**105 quote a requirement of the standard** and 109 do not — 49 of those naming only entries the
+standard states as optional, 3 whose strongest quoted verb is a permission, 12 quoting it with no
+modal verb at all, 7 resting on a recommendation, and 37 quoting nothing the conversion holds.
+Half the population lands on the reading list, which is `doc/todo/01`'s standing answer for a
+sweep with that ratio (ADR 0249) and the reason this one exits zero.
+
+**A flag is a reading list and never a verdict, and this round is its own witness both ways.**
+§8.11.1 is flagged and correct — its note names §8.11.4.5's "shall be reapplied" beside Table 98's
+`/Configs` permission, and a three-word quotation is under `quote::MIN_WORDS`, so the sweep saw
+only the permission. §12.7.7 is **not** flagged and was wrong, because it quotes the four `shall`s
+it implements while its debt is the clause's "[a] script executed by an ECMAScript action **can**
+add the named page" — a permission on principle 5's closed exclusion list. Two rows moved to
+`implemented` this round and the sweep produced the evidence for one of them.
+
+**The one that reached code is ADR 0897's shape a second time.** §12.5.6.18 was `partial` for
+Table 190's `/MK`, an optional entry with no `shall` on a reader in it, while both of the clause's
+reader-facing `shall`s sit in the prose *after* the table. One of them was not met: "If AP is not
+present, the screen annotation shall not have a default visual appearance and shall not be
+printed", where this tree answered `its clause states no geometry` — the third correction of the
+same catch-all arm, after §12.5.6.11's caret and §12.5.6.23's redaction, and each time because the
+clause did speak and the arm had not been asked. ADR 0901.
+
+**And a bare identifier in a note is checked by nothing.** §11.7.4.4's read-and-kept sentence
+named `knockout_is_drawable`, a function this tree has not had for hundreds of sessions; the gate
+is `content::transparency::knockout_group_elements`. `--bin pointers` resolves a path and a
+`file::symbol` fragment and a lone name is neither, so the repair is one grep per row read.
+
+**The next band is rank 668** (`bad96d5f`, session 510), which this round entered by its
+pixel-changing row alone: §11.7.4.4 is read and kept — its departure is live and reported, and
+moving it is §11.4.6's work, because §11.4.4's NOTE 3 is what lets a non-isolated knockout group
+be composited onto transparency and a blending element is where that cancellation stops holding.
+The other six of that band are unread, and so are §12.7.8.3.2 and §12.7.8.3.3 of rank 657 — the
+sweep flags both as quoting the standard with no modal verb, and neither was read here.
