@@ -721,3 +721,36 @@ fail by returning a clean answer to a question nobody asked.
   back to in-process decoding when the worker fails to start.
 - **Debug builds are ~15× slower here**, and it changes what a test can assert: the corpus gate is
   2 s in release and minutes in debug. Run timing assertions in release and say so.
+
+### 34. A guard has to be made of the same stuff as the figure it guards
+
+`crates/viewer-ui/tests/launch_path.rs` measures principle 2's four numbers, and every clock figure
+it judges is **one first pass in a fresh process** — an open, a first page, a page turn, done once,
+by a process that has not done it before. The guard that decides whether the machine was the
+machine the bands were taken on is a fixed piece of the same work run **fifty times inside one
+process, after that process has already run its phase, of which the quickest is kept**.
+
+Those are two different measurements. By pass fifty the allocator, the caches, the branch
+predictors and the core's own clock have been warmed by the forty-nine before it; a first pass has
+none of that, and neither does any figure the gate judges. Session 931 measured the gap over
+twenty-six consecutive runs on `main`: the probe moved **1.3 %** — 0.703 to 0.749 ms — while a
+five-page document's *warm* open read 0.45 ms in nine runs and **1.01** in another, with the probe
+at 0.705 in both. The same fixed work measured as one first pass reads about **1.6 times** the
+fifty-pass minimum, and it is that ratio, not either number, that a contended machine moves.
+
+ADR 0884's own sentence — *a guard has to sense every subsystem the figure it guards is made of* —
+is the version of this about **which** subsystems, and the gate satisfied it: there is a processor
+probe and a disk probe. This is the version about the **state** those subsystems are in, and it
+does not follow from the first: a probe can touch every subsystem a figure touches and still
+measure all of them warm.
+
+**So when a probe and a figure disagree, ask how each was taken before asking what moved.** A
+minimum over repetitions, a mean, a warm cache, a second run of the same loop — each is a filter,
+and a filter that removes exactly the thing the figure is exposed to makes a guard that cannot
+fail. The cheap check is to measure the *same work both ways in the same process* and print both:
+where the two track each other the probe is sound, and where they do not the difference is the
+guard's blind spot, in the units the figure is in.
+
+It is trap 33's shape in the other dimension. There a counter named the wrong **event**; here a
+probe names the right work in the wrong **state**, and both come back with a clean number about a
+question nobody asked.
