@@ -15,7 +15,21 @@
 //!    it, `images/` and each page's directory under it, `text/`, `attachments/`, `meta/`;
 //! 2. **every entry is `stat`ed**, which by RFC 0003 section 5.5's rule *generates*;
 //! 3. **every file is read**, and held against the reader the layout says it delegates to;
-//! 4. **the listings are read a second time**, and what that costs is counted rather than timed.
+//! 4. **the listings are read a second time**, and what that costs is counted rather than timed;
+//! 5. **and the questions the mount put to its worker are counted**, so that a generator run twice
+//!    for one subject fails the run unless the cache had stopped holding what it produced.
+//!
+//! # The cost floor is a count, and that is the whole of why it is a gate
+//!
+//! `doc/todo/58` §5 owed this crate a perf floor and said what its absence had cost: ADR 0886's
+//! hundredfold regression lived here for four sessions with this walk passing twice. A wall clock
+//! could not have caught it either, because a wall clock over a corpus on this machine is the
+//! worst signal available — two classes of core, an unpinned spread of 100 % to 400 %, and three
+//! recorded false failures (`doc/todo/02` §2, ADR 0884). So what is asserted is a **count**:
+//! `Vfs::questions` says how many questions this mount put to its worker and how many of them were
+//! about a subject it had already answered, and `Vfs::forgotten` says how many generated outputs
+//! the cache stopped holding — which is the only honest reason to ask twice. `repeated ≤ forgotten`,
+//! per document. Neither side of that can be moved by a neighbouring round's load. ADR 0894.
 //!
 //! # The population is every corpus on the disk, and it is classified
 //!
@@ -484,6 +498,17 @@ struct Tally {
     classes: BTreeMap<Class, ClassTally>,
     /// Every document's wall clock, so that the slowest few can be printed.
     took: Vec<(String, f64)>,
+    /// Questions put to the workers, over the whole population.
+    asked: u64,
+    /// Questions put to a worker about a subject it had already answered.
+    repeated: u64,
+    /// Generated outputs the caches stopped holding, which is what a repeat may be explained by.
+    forgotten: u64,
+    /// Questions put about a subject whose last answer was a refusal, which leaves nothing to
+    /// remember: not part of the floor, and `doc/todo/58` §5's newest shortfall.
+    reasked: u64,
+    /// A document whose repeats outnumber what its cache forgot, with both figures.
+    unexplained: Vec<(String, String)>,
 }
 
 /// One row of the matrix the run prints.
@@ -542,6 +567,21 @@ struct Local {
     refused_open: Option<String>,
     /// Whether the mount answered one more question after the walk (session 902's recovery).
     recovered: bool,
+    /// What the mount asked its worker over this document's whole walk.
+    ///
+    /// **The cost floor, and it is a count rather than a clock.** `doc/todo/58` §5 named the
+    /// absence of one as the sharpest thing missing here after session 923: a hundredfold
+    /// regression lived in this crate for four sessions with two corpus walks and the whole gate
+    /// sequence green, because it was paid in *validating a name* and every instrument in front
+    /// of it counted bytes produced (trap 33, ADR 0886). A count does not care which class of
+    /// core the scheduler put this thread on, which is what makes it a gate on a machine three
+    /// rounds are running on (ADR 0884's problem, avoided rather than solved).
+    questions: pdf_vfs::Questions,
+    /// What that mount's cache stopped holding, which is the only honest explanation for a
+    /// repeat: an entry evicted to make room, or one larger than the whole budget.
+    forgotten: u64,
+    /// Which generators were run twice, so that a failure names them rather than counting them.
+    twice: Vec<String>,
     /// What this document cost, wall clock, on one rayon task.
     ///
     /// Printed for the slowest few rather than asserted on: a document that costs minutes is a
@@ -1261,6 +1301,12 @@ fn examine(chosen: &Chosen, tally: &Mutex<Tally>) {
             attachments(&vfs, &mut local, name, path);
             meta(&vfs, &here, &mut local, path, name);
             again(&vfs, &mut local);
+            // Before the recovery question below, because a worker that had to be replaced is a
+            // new generation with a counter of its own — and taking the figure after it would
+            // read as a mount that asked nothing.
+            local.questions = vfs.questions();
+            local.forgotten = vfs.forgotten();
+            local.twice = vfs.asked_twice();
         }
         Err(error) => local.refused_open = Some(error.to_string()),
     }
@@ -1308,6 +1354,22 @@ fn merge(chosen: &Chosen, local: Local, tally: &Mutex<Tally>) {
             t.refused_open.push((name.clone(), why));
         }
         t.took.push((name.clone(), local.took.as_secs_f64()));
+        t.asked = t.asked.saturating_add(local.questions.asked);
+        t.repeated = t.repeated.saturating_add(local.questions.repeated);
+        t.forgotten = t.forgotten.saturating_add(local.forgotten);
+        t.reasked = t
+            .reasked
+            .saturating_add(local.questions.reasked_after_a_refusal);
+        if local.questions.repeated > local.forgotten {
+            t.unexplained.push((
+                name.clone(),
+                format!(
+                    "{} of {} questions were about a subject already answered, the cache forgot \
+                     {}, and the generators run twice were {:?}",
+                    local.questions.repeated, local.questions.asked, local.forgotten, local.twice
+                ),
+            ));
+        }
         t.walked = t.walked.saturating_add(usize::from(local.walked));
         t.pageless = t.pageless.saturating_add(usize::from(local.pageless));
         t.directories = t.directories.saturating_add(local.directories);
@@ -1431,6 +1493,12 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
     print_list("read twice, two answers", &tally.unstable);
     print_list("a second stat generated again", &tally.regenerated);
     print_list("the two transports disagree", &tally.transport_differ);
+    println!(
+        "vfs-read:   questions put to the workers: {}, about a subject already answered: {}, \
+         outputs the caches forgot: {}, asked again after a refusal: {}",
+        tally.asked, tally.repeated, tally.forgotten, tally.reasked
+    );
+    print_list("a repeat the cache cannot explain", &tally.unexplained);
     print_list("panicked", &tally.panicked);
     print_list("killed", &tally.killed);
     println!("vfs-read:   did not recover: {}", tally.unrecovered.len());
@@ -1502,6 +1570,26 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
     assert!(
         tally.transport_differ.is_empty(),
         "ADR 0841 section 2: the confinement is a transport change and nothing else"
+    );
+    // **This walk's cost floor** (ADR 0894), and it is a count rather than a clock for the reason
+    // `Local::questions` states. What it says: a generator is run once per subject per generation,
+    // and the only thing that may make it run again is the cache having stopped holding what it
+    // produced — an eviction, or an entry larger than the whole budget, both of which
+    // `Vfs::forgotten` counts and neither of which a neighbouring round's load can cause. Per
+    // document rather than in total, because a total lets one document's honest evictions pay for
+    // another's quadratic.
+    assert!(
+        tally.unexplained.is_empty(),
+        "a mount ran a generator again for a subject it had already answered, more often than its \
+         cache forgot anything — which is work done to *answer* a question rather than to produce \
+         bytes, and is the shape of ADR 0886's hundredfold regression:\n{}",
+        tally
+            .unexplained
+            .iter()
+            .take(40)
+            .map(|(name, why)| format!("    {name}: {why}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 
     for (name, why) in &tally.differ {

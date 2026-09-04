@@ -374,6 +374,27 @@ Three things this item still owes, none of them blocking a face:
   manager opening such a mount waits three minutes. What would answer it is a generator that can
   state a piece's length without writing it, which nothing in the transform layer offers, or a
   listing that reports no size until asked — which §5.5 forbids for the reason ffmpegfs paid for.
+- **The cost floor is here, and it is a count.** Session 927's, and it closes what the entry below
+  calls the sharpest thing missing: `Vfs::questions` counts the questions a mount puts to its worker
+  and how many of them are about a subject it had already answered (`Query::subject`), and
+  `Vfs::forgotten` counts what the cache stopped holding within a generation — an eviction, or an
+  entry larger than the whole budget. The floor is **`repeated ≤ forgotten`, per document**, held in
+  two places: `tests/a_face.rs` walks three documents' trees twice under
+  `cargo nextest run --workspace`, which every round runs whatever it touched, and
+  `tests/read_corpus.rs` holds the same inequality over the whole population. A count rather than a
+  clock on purpose — ADR 0884's five-part construction is what a duration costs on this machine, and
+  a corpus walk cannot be pinned — so no neighbouring round's load can move either side of it. It
+  found a defect of its own on the first run (§14.3.2's stream, ADR 0895 §1). ADR 0894.
+- **A refusal is not remembered, so it is paid for on every question.** Session 927's floor found
+  it: a page whose codec this reader does not have, or a plan `pdf_transform` declines by name,
+  produces no bytes — so there is nothing for the cache to hold and the next `stat` or `open` of
+  that path runs the generator again. Over the corpus it is the whole of the walk's
+  `asked again after a refusal` column, one or two questions on each of about three dozen
+  documents. It is a *shortfall* rather than the defect the floor is for, and the reason it is not
+  simply fixed is that a refusal is not obviously the same refusal next time — one taken under a
+  `Budget` depends on the budget. What would answer it is a fourth kind of note beside the sizes
+  and the inventories, holding the refusal's own sentence, with a rule for which refusals may be
+  remembered. ADR 0895 §2.
 - **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
   prints, per document: a worker per generation in each transport, one question of each shape in
   each transport, the largest answer and the bound past which the confinement refuses one, a
@@ -382,8 +403,12 @@ Three things this item still owes, none of them blocking a face:
   What is *not* measured, and what the next round of this stream should take: `text/document.txt`
   on a long document, which is the streaming shortfall above, priced. And none of it is a floor:
   RFC 0002's suite got its perf floor in its second round (ADR 0801) and this crate still has no
-  line in `doc/todo/02` §2 beyond the core's — **which is now the sharpest thing missing here**,
+  line in `doc/todo/02` §2 beyond the core's — **which was the sharpest thing missing here**,
   because the defect ADR 0886 fixed was a hundredfold and no gate in the sequence could see it.
+  **Session 927 took that**, and the entry above is what it built; what is still unfloored is
+  everything a *count* cannot state — `ls images/` on a scanned book, the cache's hit rate under a
+  `cp -r`, `text/document.txt` on a long document — because each of those is a duration and ADR
+  0895 §3 says what a duration costs to make believable here.
 - A directory the document would fill past `Config::max_entries` is refused rather than truncated,
   and no document on this disk reaches it — so the ceiling is a decision without a witness.
 

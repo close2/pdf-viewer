@@ -130,6 +130,20 @@ struct Held {
     /// Names rather than bytes, so the byte budget is untouched and this is bounded by the document:
     /// one entry per directory per generation, dropped by [`Cache::retain`] with everything else.
     inventories: HashMap<Key, Arc<[String]>>,
+    /// How many entries this cache has stopped holding *within* a generation.
+    ///
+    /// **The only honest explanation for a generator being run twice**, and that is what it is
+    /// for. [`crate::Vfs::questions`] counts a question the worker was asked about a subject it
+    /// had already answered; every such repeat is preceded by the entry for it leaving this
+    /// cache, either evicted to make room or refused for being larger than the whole budget. A
+    /// repeat with no forgetting behind it is work done to answer a question rather than to
+    /// produce bytes, which is `doc/traps/instruments-and-reports.md`'s trap 33 and is what ADR
+    /// 0886 found after it had cost a hundredfold for four sessions.
+    ///
+    /// [`Cache::retain`]'s drops are deliberately **not** counted: those belong to a generation
+    /// the document no longer has, and a question about a generation that is gone is a new
+    /// question rather than a repeat.
+    forgotten: u64,
 }
 
 impl Cache {
@@ -174,6 +188,10 @@ impl Cache {
         held.sizes
             .insert(key.clone(), u64::try_from(shared.len()).unwrap_or(u64::MAX));
         if shared.len() > self.budget {
+            // Answered and not stored, so every later question about this path runs the
+            // generator again: one forgetting per refusal, which is what makes the count an
+            // upper bound on the repeats it can explain.
+            held.forgotten = held.forgotten.saturating_add(1);
             return shared;
         }
         held.tick = held.tick.saturating_add(1);
@@ -192,6 +210,7 @@ impl Cache {
             };
             if let Some(removed) = held.entries.remove(&oldest) {
                 held.bytes = held.bytes.saturating_sub(removed.bytes.len());
+                held.forgotten = held.forgotten.saturating_add(1);
             }
         }
         held.bytes = held.bytes.saturating_add(shared.len());
@@ -276,6 +295,15 @@ impl Cache {
         self.lock().bytes
     }
 
+    /// How many entries this cache has stopped holding within a generation.
+    ///
+    /// [`Held::forgotten`] says what the number is for: it is the ceiling on how many times a
+    /// generator can honestly be run twice for the same subject.
+    #[must_use]
+    pub fn forgotten(&self) -> u64 {
+        self.lock().forgotten
+    }
+
     /// The lock, with a poisoned one taken anyway: a panic in another thread's `put` cannot make
     /// the mount stop answering, and the invariant a poisoned lock protects here is a byte count
     /// that [`Self::retain`] recomputes from the entries themselves.
@@ -346,6 +374,27 @@ mod tests {
         assert!(cache.inventory(generation(2), "/images/0001").is_none());
         cache.retain(generation(2));
         assert!(cache.inventory(generation(1), "/images/0001").is_none());
+    }
+
+    #[test]
+    fn what_the_cache_stops_holding_is_counted_because_it_is_what_explains_a_repeat() {
+        let cache = Cache::new(8);
+        assert_eq!(cache.forgotten(), 0);
+        cache.put(generation(1), "/a", vec![0; 4]);
+        cache.put(generation(1), "/b", vec![0; 4]);
+        assert_eq!(cache.forgotten(), 0, "nothing has been dropped yet");
+        cache.put(generation(1), "/c", vec![0; 4]);
+        assert_eq!(cache.forgotten(), 1, "one entry was evicted to make room");
+        cache.put(generation(1), "/big", vec![0; 16]);
+        assert_eq!(
+            cache.forgotten(),
+            2,
+            "an entry past the budget is stored nowhere"
+        );
+        // A generation the document no longer has is not a forgetting: a question about it is a
+        // new question rather than a repeat, which is why `retain` does not count.
+        cache.retain(generation(2));
+        assert_eq!(cache.forgotten(), 2);
     }
 
     #[test]
