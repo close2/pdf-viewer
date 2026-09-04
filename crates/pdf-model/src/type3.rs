@@ -47,7 +47,66 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_render::Transform;
-use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
+
+/// What is known about a `/CharProcs` dictionary the file states only in part.
+///
+/// ISO 32000-2 §7.3.7 states no extent for a dictionary beyond its closing `>>`, so the entries
+/// read whole before the damage are a **subset of the producer's own entries** rather than the
+/// dictionary — ADR 0784's sentence, and the reason
+/// [`pdf_syntax::Document::damaged_dictionary`] is a door a caller comes through by name.
+///
+/// What makes this consumer able to come through it is §9.6.4's step b), which states the
+/// outcome for every key the subset does not have:
+///
+/// > If the name is not present as a key in CharProcs , no glyph shall be painted.
+///
+/// So the residue is an **omission the clause itself defines**, not a default this reader chose
+/// and not a substitute mark; and §9.6.5.3 with Table 110's `/Encoding` cell make `/Differences`
+/// "the complete character encoding for this font", stated in the font dictionary, which is
+/// whole — so the glyphs that will paint nothing can be named one by one rather than guessed at.
+/// ADR 0866 is the argument and [`Self::undescribed`] is the naming.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharProcsDamage {
+    /// How many key–value pairs `/CharProcs` states readably before the damage.
+    pub entries: usize,
+    /// The byte offset in the file at which reading the dictionary stopped.
+    pub stopped_at: usize,
+    /// What stopped it, in the parser's own words.
+    pub reason: String,
+    /// The glyph names §9.6.4's step a) can produce that the prefix has no key for.
+    ///
+    /// Every one of these paints nothing, which is what step b) says an absent key means. Held
+    /// as [`Name`] rather than `String` because §7.3.5 makes the lookup a comparison of bytes.
+    pub undescribed: Vec<Name>,
+    /// How many of the encoding's names *do* have a description here.
+    ///
+    /// Each of those descriptions is the producer's own, read under an unbroken tokenisation
+    /// from the dictionary's `<<` (ADR 0787).
+    pub described: usize,
+}
+
+impl CharProcsDamage {
+    /// The report a page carries for a font drawn from part of its `/CharProcs`.
+    ///
+    /// Trap 5: what is drawn is the producer's own and what is not drawn is named, so the
+    /// sentence has to carry both halves and the clause that decides the second.
+    #[must_use]
+    pub fn detail(&self, name: &str) -> String {
+        format!(
+            "font /{name}'s /CharProcs states {} entr(ies) and then stops being readable at byte \
+             {} ({}), so the font is drawn from those entries alone; {} of the {} glyph names its \
+             /Encoding states have a description here and {} do not and paint nothing, which is \
+             §9.6.4 step b)'s own outcome for a name /CharProcs has no key for",
+            self.entries,
+            self.stopped_at,
+            self.reason,
+            self.described,
+            self.described.saturating_add(self.undescribed.len()),
+            self.undescribed.len(),
+        )
+    }
+}
 
 /// Why a Type 3 font could not be drawn.
 ///
@@ -58,6 +117,10 @@ use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
 #[non_exhaustive]
 pub enum Type3Error {
     /// No `/CharProcs`, so the font carries no glyph descriptions at all.
+    ///
+    /// Raised where the entry is absent, is not a dictionary, or resolves to §7.3.10's null
+    /// over an object this file states no readable prefix of. Where it *does* state one, the
+    /// prefix is taken and [`CharProcsDamage`] carries what that cost — ADR 0866.
     #[error("font /{name} is a Type 3 font with no /CharProcs dictionary")]
     NoCharProcs {
         /// The resource name, for diagnosis.
@@ -97,6 +160,14 @@ pub struct Type3Font {
     encoding: BTreeMap<u8, Name>,
     /// The glyph descriptions, keyed by the names the encoding produces.
     char_procs: Dictionary,
+    /// Set where `char_procs` is only the part of `/CharProcs` the file states readably.
+    ///
+    /// `None` for every font whose `/CharProcs` object parses, which is every font of every
+    /// conforming file. Where it is set, each entry in `char_procs` is the producer's own and
+    /// every entry written after the damage is missing — which §9.6.4's step b) already
+    /// defines as painting nothing, so nothing is substituted and the residue is namable.
+    /// ADR 0866.
+    char_procs_damage: Option<CharProcsDamage>,
     /// `/Widths`, in glyph space, starting at `/FirstChar`.
     widths: Vec<f32>,
     /// `/FirstChar`: the code `widths[0]` describes.
@@ -126,11 +197,8 @@ impl Type3Font {
             name: name.to_owned(),
         })?;
 
-        let char_procs = document
-            .get_key(dict, "CharProcs")
-            .as_dict()
-            .cloned()
-            .ok_or_else(|| Type3Error::NoCharProcs {
+        let (char_procs, damaged) =
+            char_procs(document, dict).ok_or_else(|| Type3Error::NoCharProcs {
                 name: name.to_owned(),
             })?;
 
@@ -140,6 +208,37 @@ impl Type3Font {
                 name: name.to_owned(),
             });
         }
+
+        // What the prefix cost, in the only terms §9.6.4 states an outcome in: the glyph names
+        // step a) can produce. The encoding is read out of the font dictionary, which is whole,
+        // so this is a list rather than an estimate.
+        let char_procs_damage = damaged.map(|(stopped_at, reason)| {
+            let mut described = 0_usize;
+            let mut undescribed = Vec::new();
+            let mut seen: Vec<&Name> = Vec::new();
+            for glyph in encoding.values() {
+                if seen.contains(&glyph) {
+                    continue;
+                }
+                seen.push(glyph);
+                if document
+                    .get_key_by_name(&char_procs, glyph)
+                    .as_stream()
+                    .is_some()
+                {
+                    described = described.saturating_add(1);
+                } else {
+                    undescribed.push(glyph.clone());
+                }
+            }
+            CharProcsDamage {
+                entries: char_procs.len(),
+                stopped_at,
+                reason,
+                undescribed,
+                described,
+            }
+        });
 
         let first_char = document
             .get_key(dict, "FirstChar")
@@ -161,6 +260,7 @@ impl Type3Font {
             font_matrix,
             encoding,
             char_procs,
+            char_procs_damage,
             widths,
             first_char,
             resources: document.get_key(dict, "Resources").as_dict().cloned(),
@@ -172,6 +272,15 @@ impl Type3Font {
                     .unwrap_or_else(|| Arc::from([])),
             ),
         })
+    }
+
+    /// What was lost where this font's `/CharProcs` is only the part the file states readably.
+    ///
+    /// `None` for every font whose `/CharProcs` object parses. The caller owes the page a report
+    /// where it is `Some`, which is trap 5 and which [`CharProcsDamage::detail`] words.
+    #[must_use]
+    pub fn char_procs_damage(&self) -> Option<&CharProcsDamage> {
+        self.char_procs_damage.as_ref()
     }
 
     /// The glyph description a character code selects, if it reaches one.
@@ -361,6 +470,61 @@ impl Type3Font {
     }
 }
 
+/// Reads `/CharProcs`, taking the part of it the file states where the object will not parse.
+///
+/// Table 110 requires the entry, and the ordinary answer is the first line: the reference
+/// resolves to a dictionary and there is nothing more to say.
+///
+/// # The second answer, and why this consumer may have it
+///
+/// Where the reference resolves to §7.3.10's null because the object's dictionary stops
+/// part-way, [`Document::damaged_dictionary`] offers the entries that were whole — a **subset of
+/// the producer's own entries**, never "the dictionary", because §7.3.7 makes the entries
+/// "unordered even though an arbitrary order may be imposed upon them when written in a file"
+/// (ADR 0784). ADR 0784 built that door for `Pages`' recovery and left it shut for everything
+/// else; this is the second consumer through it, on a test ADR 0866 states and this entry meets
+/// in three parts:
+///
+/// - **The clause states the outcome for an absent key, and states it as an omission.** §9.6.4
+///   step b): "If the name is not present as a key in `CharProcs`, no glyph shall be painted."
+///   So no entry the damage took becomes a default this reader chose, and none becomes a
+///   substitute mark — which is what ADR 0836 refuses a damaged *font program* for, since there
+///   §9.6.5.4's closing permission puts marks on the page in place of the producer's. The
+///   residue here is the clause's own answer.
+/// - **The advances do not move.** Table 110's `/Widths` is an array in the font dictionary,
+///   which is whole, so a glyph that paints nothing still advances by what the producer stated
+///   and the rest of the line stays where it was put.
+/// - **What is lost can be named.** Table 110's `/Encoding` cell and §9.6.5.3 make
+///   `/Differences` "the complete character encoding for this font", also in the whole font
+///   dictionary, so the glyph names with no description are a list rather than a number.
+///
+/// `Document::get` is asked first and has to have answered null, which is the identity condition
+/// ADR 0784 section 3 states: the prefix is taken for an object the file's own reference names and that
+/// nothing readable in the file bears.
+///
+/// Returns `None` where Table 110's entry is genuinely absent — no entry, a direct value that is
+/// not a dictionary, a reference to an object that resolves to something else, or one this file
+/// states no readable prefix of — which is [`Type3Error::NoCharProcs`].
+fn char_procs(
+    document: &Document,
+    dict: &Dictionary,
+) -> Option<(Dictionary, Option<(usize, String)>)> {
+    if let Some(whole) = document.get_key(dict, "CharProcs").as_dict() {
+        return Some((whole.clone(), None));
+    }
+    let id: ObjectId = dict.get("CharProcs")?.as_reference()?;
+    // The prefix is a second answer to a caller *already refused*, so the refusal has to have
+    // happened: an object number bearing something readable is not this population.
+    if !matches!(document.get(id), Object::Null) {
+        return None;
+    }
+    let damaged = document.damaged_dictionary(id)?;
+    Some((
+        damaged.entries,
+        Some((damaged.stopped_at, damaged.error.to_string())),
+    ))
+}
+
 /// Reads `/FontMatrix`, which Table 110 requires and this does not invent.
 fn matrix(document: &Document, dict: &Dictionary) -> Option<Transform> {
     let entry = document.get_key(dict, "FontMatrix");
@@ -455,6 +619,7 @@ mod tests {
             font_matrix: Transform::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
             encoding: BTreeMap::new(),
             char_procs: Dictionary::default(),
+            char_procs_damage: None,
             widths: vec![1.0],
             first_char: 97,
             resources: None,

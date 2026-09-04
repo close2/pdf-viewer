@@ -121,9 +121,16 @@ nothing in the document graph reads less of the file than it did; `Parser::parse
 is a second door a caller opens **by name** and which hands back the offset the reading stopped at,
 so no consumer can hold a prefix while believing it has a dictionary; and both readings are one
 function, so the null rule, the duplicate key and the length bound cannot disagree between them.
-The one consumer is `pdf_model::Pages`' recovery, and it takes a prefix by **two doors**: where the
-entries that were whole *themselves* state Table 31's `/Type /Page`, and — since ADR 0786 — where
-§7.7.3.2's `/Kids` names the object and the entries hold one only a page object may carry. **The
+`pdf_model::Pages`' recovery was the one consumer for fifty-two sessions, and it takes a prefix by
+**two doors**: where the entries that were whole *themselves* state Table 31's `/Type /Page`, and —
+since ADR 0786 — where §7.7.3.2's `/Kids` names the object and the entries hold one only a page
+object may carry. **A second consumer arrived in the nine-hundred-and-twelfth session, and what
+lets it in is a sentence of its own clause rather than of this one**: §9.6.4's step b) says a name
+a `/CharProcs` has no key for paints no glyph, so a subset of a Type 3 font's glyph procedures
+substitutes nothing — which is the test ADR 0866 states, ADR 0867 applies to the other 327
+such references in the 90 535 documents of `doc/pdf.js`, `doc/corpora/`, `corpus-cache/openpreserve`,
+`corpus-cache/tika-issue-tracker` and `corpus-cache/safedocs/cc-main-2021-31`, and ADR 0836's refusal of a damaged font *program* is the other side
+of, since there §9.6.5.4 puts a processor's own glyphs where the producer's were. **The
 general form is worth more than the clause**: where the standard says a thing's parts are unordered,
 the ordering that produced a prefix is not evidence about the thing, so the prefix is answerable as a
 *subset* and never as the thing. ADR 0784.

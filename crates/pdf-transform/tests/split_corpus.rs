@@ -42,6 +42,7 @@
               is the point of the run"
 )]
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -50,12 +51,12 @@ use pdf_syntax::{Document, Limits, Object, SyntaxError};
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::split::{Pieces, SplitPlan};
-use pdf_transform::{Budget, MemorySinks, Plan, Policy, Refusal, Secret, Source, apply};
+use pdf_transform::{Budget, MemorySinks, Origin, Plan, Policy, Refusal, Secret, Source, apply};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 mod support;
 
-use support::check_structure;
+use support::{check_navigation, check_structure};
 
 /// The dots per inch both rasters are drawn at.
 ///
@@ -116,6 +117,26 @@ struct Tally {
     structure_resolved: usize,
     /// Outputs whose §14.7 structure states something a clause forbids.
     structure_faults: Vec<(String, String)>,
+    /// Pieces that carry §12.3.3's outline, and the items in them that resolve to a page.
+    outlines_carried: usize,
+    /// Outline items in the pieces that resolve to a page the piece holds.
+    outline_items: usize,
+    /// Pieces that carry §12.4.2's labels.
+    labels_carried: usize,
+    /// §12.3.2.4 destination entries the pieces carry.
+    destinations_carried: usize,
+    /// Pieces whose §12.3.3, §12.4.2 or §12.3.2.4 states something a clause forbids.
+    navigation_faults: Vec<(String, String)>,
+    /// Pieces whose page 1 is not labelled what the source's page 1 was.
+    label_differs: Vec<(String, String)>,
+    /// Documents whose outline names two or more pages at level 1, so `--at-bookmarks` cuts.
+    bookmarked: usize,
+    /// Documents `--at-bookmarks` refused by name, by reason.
+    bookmarks_refused: Vec<(String, String)>,
+    /// `--at-bookmarks` splits whose pieces do not cover the document's pages exactly once.
+    coverage_faults: Vec<(String, String)>,
+    /// `--at-bookmarks` pieces that began on a page no level-1 outline item lands on.
+    boundary_faults: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -323,6 +344,125 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     }
 
     reread_and_draw(&name, &document, &bytes, &piece, tally);
+    at_bookmarks(&name, &document, &bytes, tally);
+}
+
+/// §12.3.3, §12.4.2 and §12.3.2.4 over one piece, judged the same way §14.7 is: what the
+/// *output* states, against the clauses, never against what `split` meant to write.
+fn check_the_navigation(name: &str, document: &Document, read: &Document, tally: &Mutex<Tally>) {
+    let navigation = check_navigation(read);
+    record(tally, |t| {
+        if navigation.outline {
+            t.outlines_carried = t.outlines_carried.saturating_add(1);
+        }
+        t.outline_items = t.outline_items.saturating_add(navigation.items_resolving);
+        if navigation.labels {
+            t.labels_carried = t.labels_carried.saturating_add(1);
+        }
+        t.destinations_carried = t
+            .destinations_carried
+            .saturating_add(navigation.destinations);
+        for fault in &navigation.faults {
+            t.navigation_faults.push((name.to_owned(), fault.clone()));
+        }
+    });
+    // §12.4.2 seen from the source: a piece of page 1 begins where the document begins, so its
+    // own page 0 shall be labelled what the source's page 0 was.
+    let before = pdf_model::page_label::PageLabels::read(document);
+    let after = pdf_model::page_label::PageLabels::read(read);
+    if !before.is_empty() && before.label(0) != after.label(0) {
+        record(tally, |t| {
+            t.label_differs.push((
+                name.to_owned(),
+                format!("{:?} became {:?}", before.label(0), after.label(0)),
+            ));
+        });
+    }
+}
+
+/// RFC 0002 section 6.1's `--at-bookmarks` over the documents whose outline says where to cut.
+///
+/// Two properties, both derived rather than compared: **the pieces cover the document's pages
+/// exactly once** — a verb that writes every page of its input into exactly one output is what
+/// `split` means, and a mode that lost the front matter would still look right piece by piece —
+/// and **every piece but the leading one begins on a page a level-1 item resolves to**, which is
+/// the mode's own rule stated back to it out of §12.3.3 and §12.3.2.
+fn at_bookmarks(name: &str, document: &Document, bytes: &[u8], tally: &Mutex<Tally>) {
+    let pages = pdf_model::Pages::new(document);
+    let outline = pdf_model::outline::Outline::read(document, &pages);
+    let marks: BTreeSet<usize> = pdf_model::retrieval::sections(document, &pages, &outline)
+        .into_iter()
+        .filter(|section| section.depth == 0)
+        .map(|section| section.first_page)
+        .collect();
+    if marks.len() < 2 {
+        return;
+    }
+    record(tally, |t| t.bookmarked = t.bookmarked.saturating_add(1));
+    let sinks = MemorySinks::new();
+    let report = match apply(
+        &Plan::Split(SplitPlan {
+            source: 0,
+            pages: "1-end".parse::<Selection>().expect("a selection"),
+            pieces: Pieces::AtBookmarks(1),
+            names: "piece-%d.pdf".parse().expect("a pattern"),
+        }),
+        &[source(name, bytes)],
+        &sinks,
+        &Policy::default(),
+        &budget(),
+    ) {
+        Ok(report) => report,
+        Err(error) => {
+            record(tally, |t| {
+                t.bookmarks_refused
+                    .push((name.to_owned(), error.to_string()));
+            });
+            return;
+        }
+    };
+    let mut covered: Vec<usize> = Vec::new();
+    let mut starts: Vec<usize> = Vec::new();
+    for output in &report.outputs {
+        if let Origin::Piece {
+            first_page,
+            pages: held,
+            ..
+        } = output.origin
+        {
+            let start = first_page.saturating_sub(1);
+            starts.push(start);
+            covered.extend(start..start.saturating_add(held));
+        }
+    }
+    covered.sort_unstable();
+    if covered != (0..pages.len()).collect::<Vec<_>>() {
+        record(tally, |t| {
+            t.coverage_faults.push((
+                name.to_owned(),
+                format!(
+                    "{} page(s) covered by {} piece(s), {} in the document",
+                    covered.len(),
+                    report.outputs.len(),
+                    pages.len()
+                ),
+            ));
+        });
+    }
+    starts.sort_unstable();
+    for start in starts.iter().skip(usize::from(!marks.contains(&0))) {
+        if !marks.contains(start) {
+            record(tally, |t| {
+                t.boundary_faults.push((
+                    name.to_owned(),
+                    format!(
+                        "a piece begins on page {} and no level-1 outline item lands there",
+                        start.saturating_add(1)
+                    ),
+                ));
+            });
+        }
+    }
 }
 
 /// RFC 0002 section 9's layers 2 and 3 over one piece.
@@ -390,6 +530,8 @@ fn reread_and_draw(
         }
     });
 
+    check_the_navigation(&name, document, &read, tally);
+
     // Layer 3, the load-bearing one.
     match (draw(&name, bytes), draw(&name, piece)) {
         (Some(before), Some(after)) if before == after => {
@@ -438,6 +580,61 @@ fn print_list(what: &str, entries: &[(String, String)]) {
     }
 }
 
+/// The whole census, so that the walk itself stays a walk.
+fn print_census(tally: &Tally) {
+    print_list("refused open", &tally.refused_open);
+    print_list("no page to split", &tally.pageless);
+    print_list("split refused by name", &tally.split_refused);
+    println!(
+        "transform-split:   split, re-read as one page: {}",
+        tally.split
+    );
+    println!(
+        "transform-split:   drawn bit-identically to the source page: {}",
+        tally.identical
+    );
+    print_list("nothing drawn on one side or both", &tally.undrawn);
+    print_list(
+        "the content stream did not cross byte for byte",
+        &tally.contents_differ,
+    );
+    print_list("drew differently", &tally.differ);
+    println!(
+        "transform-split:   §14.7 structure trees carried: {}, elements: {}, parent-tree keys resolving: {}",
+        tally.structure_carried, tally.structure_elements, tally.structure_resolved
+    );
+    print_list("§14.7 structure faults", &tally.structure_faults);
+    println!(
+        "transform-split:   §12.3.3 outlines carried: {}, items resolving: {}; §12.4.2 labels \
+         carried: {}; §12.3.2.4 destinations carried: {}",
+        tally.outlines_carried,
+        tally.outline_items,
+        tally.labels_carried,
+        tally.destinations_carried
+    );
+    print_list(
+        "§12.3.3, §12.4.2 or §12.3.2.4 faults",
+        &tally.navigation_faults,
+    );
+    print_list("page 1's §12.4.2 label changed", &tally.label_differs);
+    println!(
+        "transform-split:   --at-bookmarks: {} document(s) whose outline names two or more pages \
+         at level 1",
+        tally.bookmarked
+    );
+    print_list("--at-bookmarks refused by name", &tally.bookmarks_refused);
+    print_list(
+        "--at-bookmarks lost or duplicated a page",
+        &tally.coverage_faults,
+    );
+    print_list(
+        "--at-bookmarks cut where nothing lands",
+        &tally.boundary_faults,
+    );
+    print_list("two splits, two files", &tally.nondeterministic);
+    print_list("panicked", &tally.panicked);
+}
+
 /// The walk.
 #[test]
 #[ignore = "corpus-scale: every document's first page split, re-read and drawn twice; run explicitly under the gates profile"]
@@ -472,30 +669,7 @@ fn every_corpus_documents_first_page_survives_being_split_out() {
         elapsed.as_secs_f64(),
         rayon::current_num_threads()
     );
-    print_list("refused open", &tally.refused_open);
-    print_list("no page to split", &tally.pageless);
-    print_list("split refused by name", &tally.split_refused);
-    println!(
-        "transform-split:   split, re-read as one page: {}",
-        tally.split
-    );
-    println!(
-        "transform-split:   drawn bit-identically to the source page: {}",
-        tally.identical
-    );
-    print_list("nothing drawn on one side or both", &tally.undrawn);
-    print_list(
-        "the content stream did not cross byte for byte",
-        &tally.contents_differ,
-    );
-    print_list("drew differently", &tally.differ);
-    println!(
-        "transform-split:   §14.7 structure trees carried: {}, elements: {}, parent-tree keys resolving: {}",
-        tally.structure_carried, tally.structure_elements, tally.structure_resolved
-    );
-    print_list("§14.7 structure faults", &tally.structure_faults);
-    print_list("two splits, two files", &tally.nondeterministic);
-    print_list("panicked", &tally.panicked);
+    print_census(&tally);
 
     assert!(
         tally.panicked.is_empty(),
@@ -516,6 +690,22 @@ fn every_corpus_documents_first_page_survives_being_split_out() {
     assert!(
         tally.structure_faults.is_empty(),
         "§14.7: a carried structure tree states what its clauses require, or none at all"
+    );
+    assert!(
+        tally.navigation_faults.is_empty(),
+        "§12.3.3, §12.4.2 and §12.3.2.4: a carried construct states what its clause requires"
+    );
+    assert!(
+        tally.label_differs.is_empty(),
+        "§12.4.2: a piece's page carries the label its source page carried"
+    );
+    assert!(
+        tally.coverage_faults.is_empty(),
+        "RFC 0002 section 6.1: --at-bookmarks writes every page into exactly one piece"
+    );
+    assert!(
+        tally.boundary_faults.is_empty(),
+        "RFC 0002 section 6.1: a piece begins where §12.3.3's outline lands"
     );
 
     for (name, why) in &tally.differ {

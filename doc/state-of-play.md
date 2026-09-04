@@ -323,11 +323,19 @@ structure and never content: §7.5.2's header, a body of indirect objects, §7.5
 identifiers, with every stream's bytes crossing encoded and untouched and only its `/Length`
 re-derived from what was written; a reference to an object the output does not hold becomes
 §7.3.10's null and is counted. `split` is the first verb on it — one file per page, per group of
-*n*, or per comma-separated group of the selection — each piece the source's own page objects
-under a new one-level page tree, §7.7.3.4's four inheritable attributes flattened onto each page
-because the ancestors that carried them are not coming along, and the whole object closure
-carried with them. What a piece does not carry — the outline, the name trees, `/PageLabels`,
-`/Metadata` — is named in the report rather than dropped in silence. **`merge` is
+*n*, per comma-separated group of the selection, or **at §12.3.3's outline**, where a piece begins
+on every page an item at the stated depth resolves to and the front matter ahead of the first is a
+piece of its own. Each piece is the source's own page objects under a new one-level page tree,
+§7.7.3.4's four inheritable attributes flattened onto each page because the ancestors that carried
+them are not coming along, and the whole object closure carried with them. **What a piece carries
+beside its pages is three clauses with three different answers**: §12.3.3's outline is permitted,
+so the subset that reaches the piece's pages is written with Table 150's and Table 151's every
+conditional entry rebuilt over it; §12.4.2's labels are permitted and the source's *tree* is
+forbidden, because "[t]he tree shall include a value for page index 0" and a piece's indices are
+its own, so the labels are recomputed one entry per page; and §12.3.2.4's named destinations are
+subsetted to those that resolve inside the piece, because a name is not an indirect reference and
+§7.3.10's null cannot stand in for one. `/Metadata` and the seven document-level constructs beside
+it are still left behind, each named in the report rather than dropped in silence. **`merge` is
 the second verb on the serializer, and its substance is the document-level reconciliations rather
 than the machinery**: §8.11's optional content groups concatenated with their initial states
 rewritten as one default configuration, §7.9.6's name trees merged with a colliding key renamed

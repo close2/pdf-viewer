@@ -633,3 +633,197 @@ fn collect(
         _ => {}
     }
 }
+
+/// What §12.3.3, §12.4.2 and §12.3.2.4 say about a derived document's navigation.
+///
+/// The same discipline as [`check_structure`] and for the same reason (trap 8): every property
+/// below is a sentence of ISO 32000-2 asked of the *output*, never a comparison with what
+/// `split` meant to write. A piece that carried its source's outline whole would satisfy every
+/// "did the writer do what it intended" check and fail the first of these.
+pub(crate) struct NavigationCheck {
+    /// The document states §12.3.3's outline.
+    pub(crate) outline: bool,
+    /// Outline items whose destination resolves to a page this document holds.
+    pub(crate) items_resolving: usize,
+    /// §12.3.2.4 destination entries the document states, in either home.
+    pub(crate) destinations: usize,
+    /// The document states §12.4.2's `/PageLabels`.
+    pub(crate) labels: bool,
+    /// Everything the clauses forbid that this document does.
+    pub(crate) faults: Vec<String>,
+}
+
+/// Reads a derived document's navigation and checks what the three clauses require of it.
+///
+/// 1. **§12.3.3, through §12.3.2.** An outline is "a visual table of contents to display the
+///    document's structure to the user", and an item's destination names a page. Every item that
+///    states one shall therefore resolve to a page *this* document holds — the property that
+///    separates a pruned outline from a carried one.
+/// 2. **Table 150 and Table 151's hierarchy.** `/First` and `/Last` are "( Required if there are
+///    any open or closed outline entries )"; "[t]he parent of a top-level item shall be the
+///    outline dictionary itself"; `/Prev` is "( Required for all but the first item at each
+///    level )" and `/Next` "( Required for all but the last item at each level )", so the first
+///    item of a level states no `/Prev` and the last states no `/Next`.
+/// 3. **§12.4.2's number tree.** "The tree shall include a value for page index 0", "[l]abelling
+///    ranges shall not overlap", and a key is "the page index of the first page in a labelling
+///    range" — so every key is a page this document has, and no key appears twice.
+/// 4. **§12.3.2.4's tables.** A named destination is looked up in the catalog's `/Dests` or the
+///    name dictionary's, and what it names is a page — of this document, since a name is not an
+///    indirect reference for §7.3.10 to answer.
+pub(crate) fn check_navigation(read: &Document) -> NavigationCheck {
+    let pages = pdf_model::Pages::new(read);
+    let mut out = NavigationCheck {
+        outline: false,
+        items_resolving: 0,
+        destinations: 0,
+        labels: false,
+        faults: Vec::new(),
+    };
+    let Ok(catalog) = read.catalog() else {
+        return out;
+    };
+
+    let outline = pdf_model::outline::Outline::read(read, &pages);
+    out.outline = !outline.is_empty();
+    if out.outline {
+        let indices = pages.indices();
+        check_items(read, &pages, &indices, &outline.items, &mut out);
+        let root = read.get_key(&catalog, "Outlines");
+        if let Some(root) = root.as_dict() {
+            let dictionary = catalog.get("Outlines").and_then(Object::as_reference);
+            if root.get("First").is_none() || root.get("Last").is_none() {
+                out.faults.push(
+                    "Table 150: the outline holds entries and states no /First or no /Last"
+                        .to_owned(),
+                );
+            }
+            check_level(read, root, dictionary, &outline.items, &mut out);
+        } else {
+            out.faults
+                .push("§12.3.3: /Outlines is not a dictionary".to_owned());
+        }
+    }
+
+    let labels = read.get_key(&catalog, "PageLabels");
+    if let Some(root) = labels.as_dict() {
+        out.labels = true;
+        let pairs = pdf_syntax::tree::number_pairs(root, &|object| read.resolve(object));
+        let keys: BTreeSet<i64> = pairs.iter().map(|(key, _)| *key).collect();
+        if !keys.contains(&0) {
+            out.faults
+                .push("§12.4.2: \"[t]he tree shall include a value for page index 0\"".to_owned());
+        }
+        if keys.len() != pairs.len() {
+            out.faults.push(
+                "§12.4.2: \"[l]abelling ranges shall not overlap\" and a key is stated twice"
+                    .to_owned(),
+            );
+        }
+        let count = i64::try_from(pages.len()).unwrap_or(i64::MAX);
+        for key in &keys {
+            if *key < 0 || *key >= count {
+                out.faults.push(format!(
+                    "§12.4.2: a labelling range starts at page index {key} and the document has \
+                     {count} page(s)"
+                ));
+            }
+        }
+    }
+
+    for (key, value) in destination_entries(read, &catalog) {
+        out.destinations = out.destinations.saturating_add(1);
+        let landed = pdf_model::destination::Destination::read(read, &value)
+            .and_then(|destination| destination.page_index(read, &pages));
+        if landed.is_none_or(|index| index >= pages.len()) {
+            out.faults.push(format!(
+                "§12.3.2.4: the destination named {:?} resolves to no page of this document",
+                String::from_utf8_lossy(&key)
+            ));
+        }
+    }
+    out
+}
+
+/// §12.3.2.4's two homes, as key bytes and unresolved values.
+fn destination_entries(read: &Document, catalog: &Dictionary) -> Vec<(Vec<u8>, Object)> {
+    let mut out = Vec::new();
+    if let Some(dests) = read.get_key(catalog, "Dests").as_dict() {
+        for (key, value) in dests.iter() {
+            out.push((key.as_bytes().to_vec(), value.clone()));
+        }
+    }
+    if let Some(names) = read.get_key(catalog, "Names").as_dict()
+        && let Some(root) = read.get_key(names, "Dests").as_dict()
+    {
+        out.extend(pdf_syntax::tree::name_entries(root, &|object| {
+            read.resolve(object)
+        }));
+    }
+    out
+}
+
+/// Property 1, over the whole hierarchy.
+fn check_items(
+    read: &Document,
+    pages: &pdf_model::Pages<'_>,
+    indices: &std::collections::BTreeMap<ObjectId, usize>,
+    items: &[pdf_model::outline::Item],
+    out: &mut NavigationCheck,
+) {
+    for item in items {
+        if let Some(destination) = &item.destination {
+            match destination.page_index_with(read, pages, indices) {
+                Some(index) if index < pages.len() => {
+                    out.items_resolving = out.items_resolving.saturating_add(1);
+                }
+                other => out.faults.push(format!(
+                    "§12.3.3: the outline item {:?} states a destination resolving to {other:?} \
+                     in a {}-page document",
+                    item.title.chars().take(40).collect::<String>(),
+                    pages.len()
+                )),
+            }
+        }
+        check_items(read, pages, indices, &item.children, out);
+    }
+}
+
+/// Property 2, one level at a time.
+fn check_level(
+    read: &Document,
+    parent_dict: &Dictionary,
+    parent: Option<ObjectId>,
+    level: &[pdf_model::outline::Item],
+    out: &mut NavigationCheck,
+) {
+    let _ = parent_dict;
+    for (position, item) in level.iter().enumerate() {
+        let dict = read.get(item.id);
+        let Some(dict) = dict.as_dict() else {
+            out.faults
+                .push("§12.3.3: an outline item is not a dictionary".to_owned());
+            continue;
+        };
+        if position == 0 && dict.get("Prev").is_some() {
+            out.faults.push(format!(
+                "Table 151: {:?} is the first item at its level and states /Prev",
+                item.title.chars().take(40).collect::<String>()
+            ));
+        }
+        if position.saturating_add(1) == level.len() && dict.get("Next").is_some() {
+            out.faults.push(format!(
+                "Table 151: {:?} is the last item at its level and states /Next",
+                item.title.chars().take(40).collect::<String>()
+            ));
+        }
+        if let Some(parent) = parent
+            && dict.get("Parent").and_then(Object::as_reference) != Some(parent)
+        {
+            out.faults.push(format!(
+                "Table 151: {:?} does not name its own parent",
+                item.title.chars().take(40).collect::<String>()
+            ));
+        }
+        check_level(read, dict, Some(item.id), &item.children, out);
+    }
+}

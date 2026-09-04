@@ -332,7 +332,7 @@ const NOT_CARRIED: [&str; 9] = [
 ///
 /// `/Dests` is first because it is the one whose renames are chased into the objects that state
 /// them; the rest are renamed and reported.
-const NAME_TREES: [&str; 10] = [
+pub(crate) const NAME_TREES: [&str; 10] = [
     "Dests",
     "AP",
     "JavaScript",
@@ -1635,7 +1635,7 @@ fn destination_keys(document: &Document) -> Vec<Vec<u8>> {
 }
 
 /// The catalog's PDF 1.1 `/Dests` dictionary, as key bytes and unresolved values.
-fn catalog_dests(document: &Document) -> Vec<(Vec<u8>, Object)> {
+pub(crate) fn catalog_dests(document: &Document) -> Vec<(Vec<u8>, Object)> {
     let Ok(catalog) = document.catalog() else {
         return Vec::new();
     };
@@ -1650,7 +1650,7 @@ fn catalog_dests(document: &Document) -> Vec<(Vec<u8>, Object)> {
 }
 
 /// One §7.9.6 name tree of a document's `/Names` dictionary, as the leaves state it.
-fn tree_entries(document: &Document, category: &str) -> Vec<(Vec<u8>, Object)> {
+pub(crate) fn tree_entries(document: &Document, category: &str) -> Vec<(Vec<u8>, Object)> {
     let Ok(catalog) = document.catalog() else {
         return Vec::new();
     };
@@ -2018,13 +2018,24 @@ fn reconcile(
         names,
         dests,
         outlines,
-        page_labels: merge_page_labels(merge, scope.order),
+        page_labels: page_labels(
+            &merge
+                .documents
+                .iter()
+                .map(PageLabels::read)
+                .collect::<Vec<_>>(),
+            &scope
+                .order
+                .iter()
+                .map(|place| (place.at, place.page))
+                .collect::<Vec<_>>(),
+        ),
         intents,
     })
 }
 
 /// A key's bytes, for a sentence a person reads.
-fn printable(key: &[u8]) -> String {
+pub(crate) fn printable(key: &[u8]) -> String {
     String::from_utf8_lossy(key).escape_debug().to_string()
 }
 
@@ -2686,15 +2697,21 @@ fn final_key(merge: &Merge<'_>, at: usize, key: &[u8]) -> Vec<u8> {
 ///
 /// `None` where no contributing document states any, which is most of them: a merged document
 /// that labels nothing is a merged document with no `/PageLabels`, exactly as its sources were.
-fn merge_page_labels(merge: &mut Merge<'_>, order: &[Placement]) -> Option<Object> {
-    let documents = merge.documents;
-    let labels: Vec<PageLabels> = documents.iter().map(PageLabels::read).collect();
+///
+/// Shared with `split`, whose pieces have the same problem seen from the other side, and which
+/// is why this takes the labels and the order rather than a [`Merge`]: **a page label is a
+/// position**, so neither a merged document's nor a piece's labels are any source's. §12.4.2
+/// makes the page index "the page's relative position within the document" and requires the
+/// number tree to "include a value for page index 0", so a derived document whose first page
+/// is not its source's first page cannot carry the source's tree at all.
+///
+/// `order` is one `(document, zero-based page)` pair per output page, in output order.
+pub(crate) fn page_labels(labels: &[PageLabels], order: &[(usize, usize)]) -> Option<Object> {
     if labels.iter().all(PageLabels::is_empty) {
         return None;
     }
     let mut nums = Vec::new();
-    for (position, place) in order.iter().enumerate() {
-        let (at, index) = (&place.at, &place.page);
+    for (position, (at, index)) in order.iter().enumerate() {
         let mut entry = Dictionary::new();
         // "There is no default numbering style; if no S entry is present, page labels shall
         // consist solely of a label prefix with no numeric portion."
