@@ -724,13 +724,18 @@ mod tests {
         assert_eq!(attachment.name, "source data", "the tree's key wins");
     }
 
-    /// §14.13's `/AF`, read from the two places the corpus puts it.
+    /// §14.13's `/AF`, read from the two places the corpus puts it and the one it does not.
     ///
     /// The clause lists seven objects that may carry the array and says the same sentence about
     /// each; the corpus states 6 on catalogs and 30 on structure elements, and the fixture is
     /// §14.13.10's own EXAMPLE 1 shape — a catalog `/AF` naming a file specification with an
     /// `/AFRelationship` and an `/EF`. The second half is what a structure element carries, which
     /// is the same function against a different dictionary.
+    ///
+    /// The third is §14.12.4.1 Table 409's `/AF` on a `DPart` dictionary, which §14.13.8 is the
+    /// row for and which no corpus document states. It is here because the ledger row's claim is
+    /// that the array "reads like any other" there, and a claim about a dictionary type no
+    /// document in reach carries is held by a fixture or by nothing.
     #[test]
     fn an_associated_file_carries_its_relationship() {
         let doc = document(&[
@@ -745,6 +750,10 @@ mod tests {
             "<< /Type /Filespec /F (mathml-1.xml) /AFRelationship /Supplement \
              /EF << /F 9 0 R >> >>",
             "<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length 3 >>\nstream\nxyz\nendstream",
+            "<< /Type /DPart /AF [11 0 R] >>",
+            "<< /Type /Filespec /F (job-ticket.jdf) /AFRelationship /Data \
+             /EF << /F 12 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\njdf\nendstream",
         ]);
         let catalog = doc.catalog().expect("a catalog");
         let files = super::associated(&doc, &catalog);
@@ -769,6 +778,21 @@ mod tests {
             Some(super::Relationship::Supplement),
             "the commonest relationship in the corpus, and what a MathML equation is"
         );
+
+        // §14.13.8: the same array on a `DPart` dictionary. Nothing in this tree enumerates the
+        // document part hierarchy, so this asserts what `associated` answers for one rather than
+        // that anything reaches it — which is exactly what §14.13.8's row claims and no more.
+        let part = doc.get(pdf_syntax::ObjectId {
+            number: 10,
+            generation: 0,
+        });
+        let part = part.as_dict().expect("the DPart dictionary");
+        let ticket = super::associated(&doc, part);
+        let [ticket] = ticket.as_slice() else {
+            panic!("one associated file on the DPart, got {ticket:?}");
+        };
+        assert_eq!(ticket.relationship, super::Relationship::Data);
+        assert_eq!(ticket.name, "job-ticket.jdf");
     }
 
     /// An `/AFRelationship` outside Table 43's eight is kept, not flattened to `Unspecified`.
