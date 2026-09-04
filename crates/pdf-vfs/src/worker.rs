@@ -1010,7 +1010,7 @@ fn outline_json(
                 outline
                     .items
                     .iter()
-                    .map(|item| item_json(document, pages, labels, &indices, item))
+                    .map(|item| item_json(document, labels, &indices, item))
                     .collect(),
             ),
         ),
@@ -1021,14 +1021,13 @@ fn outline_json(
 /// One outline item, and its children under it.
 fn item_json(
     document: &Document,
-    pages: &Pages<'_>,
     labels: &PageLabels,
     indices: &BTreeMap<pdf_syntax::ObjectId, usize>,
     item: &Item,
 ) -> Value {
     let index = item
         .destination
-        .and_then(|destination| destination.page_index_with(document, pages, indices));
+        .and_then(|destination| destination.page_index_with(document, indices));
     Value::Object(vec![
         ("title".to_owned(), Value::text(item.title.clone())),
         (
@@ -1047,7 +1046,7 @@ fn item_json(
             Value::Array(
                 item.children
                     .iter()
-                    .map(|child| item_json(document, pages, labels, indices, child))
+                    .map(|child| item_json(document, labels, indices, child))
                     .collect(),
             ),
         ),

@@ -772,7 +772,7 @@ fn check_items(
 ) {
     for item in items {
         if let Some(destination) = &item.destination {
-            match destination.page_index_with(read, pages, indices) {
+            match destination.page_index_with(read, indices) {
                 Some(index) if index < pages.len() => {
                     out.items_resolving = out.items_resolving.saturating_add(1);
                 }

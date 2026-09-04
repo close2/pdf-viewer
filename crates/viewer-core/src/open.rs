@@ -4,6 +4,7 @@
 //! viewport they share, while everything here is per document: which page is showing, how large
 //! it is drawn, and the pixels that showed it last.
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -56,6 +57,20 @@ pub(crate) struct Open {
     pub(crate) labels: PageLabels,
     /// §12.3.3's outline, read once for the same reason.
     pub(crate) outline: Outline,
+    /// §7.7.3's whole page tree, placed once: which page each object in it is.
+    ///
+    /// **The largest single item in a large document's open, and it was being paid again on
+    /// every page turn.** [`Outline::section_at`] needs an item's destination resolved to a page
+    /// number, and resolving many of them one at a time is a tree walk apiece (ADR 0058), so it
+    /// builds this map — 1023 pages of ISO 32000-2, about six milliseconds. The document is
+    /// immutable, so the map is a function of the file and the same map every time; held here,
+    /// the walk is paid once for as long as the document is open rather than once per arrow key.
+    ///
+    /// A [`OnceCell`] rather than a field of [`Self::around`], because a document with no
+    /// outline never needs it at all — and because the walk is exactly the "full page-tree walk"
+    /// `CLAUDE.md` principle 2 says is not on the launch path, so what remains of it there is
+    /// something to be able to point at (session 925, ADR 0890).
+    pub(crate) page_indices: OnceCell<BTreeMap<ObjectId, usize>>,
     /// How many pages, counting §12.7.8.3.3's imported template pages after the document's own.
     pub(crate) page_count: usize,
     /// Which page is showing, zero-based.
@@ -715,6 +730,7 @@ impl Open {
             view,
             labels,
             outline,
+            page_indices: OnceCell::new(),
             page_count,
             page_index,
             layout,

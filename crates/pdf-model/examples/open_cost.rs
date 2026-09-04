@@ -35,6 +35,54 @@ fn outline_items(level: &[pdf_model::outline::Item]) -> usize {
     })
 }
 
+/// What `viewer_core::Viewer::announce_page` does the moment a document opens, and again on
+/// every page turn: §12.3.3's innermost item covering the page being shown.
+///
+/// It is on this path and this example did not measure it — which is how `Pages::indices`, a walk
+/// of every node of the page tree, came to be on the launch path of a claim that says there is no
+/// full page-tree walk on it (session 925, ADR 0890).
+///
+/// The three lines are the A and the B of that session's change in one binary: the walk, what a
+/// page turn costs with it done again per turn, and what it costs against a map the viewer now
+/// keeps.
+fn announce_page_cost(
+    document: &Document,
+    pages: &pdf_model::Pages<'_>,
+    outline: &pdf_model::outline::Outline,
+) {
+    let started = Instant::now();
+    let indices = pages.indices();
+    println!(
+        "{:8.3} ms  Pages::indices  (§7.7.3's whole tree, {} pages placed)",
+        ms(started),
+        indices.len()
+    );
+
+    let started = Instant::now();
+    let section = outline.section_at(document, pages, 0);
+    println!(
+        "{:8.3} ms  section_at      (§12.3.3 with the walk, {})",
+        ms(started),
+        if section.is_some() {
+            "a section covers page one"
+        } else {
+            "none"
+        }
+    );
+
+    let started = Instant::now();
+    let section = outline.section_at_with(document, &indices, 0);
+    println!(
+        "{:8.3} ms  section_at_with (§12.3.3 against a kept map, {})",
+        ms(started),
+        if section.is_some() {
+            "a section covers page one"
+        } else {
+            "none"
+        }
+    );
+}
+
 fn main() {
     let path = std::env::args()
         .nth(1)
@@ -96,6 +144,8 @@ fn main() {
         outline_items(&outline.items),
         outline.items.len()
     );
+
+    announce_page_cost(&document, &pages, &outline);
 
     let started = Instant::now();
     let action = pdf_model::destination::Destination::open_action(&document);

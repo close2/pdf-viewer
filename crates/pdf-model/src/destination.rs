@@ -369,7 +369,7 @@ impl Destination {
     /// tree does not hold can be §12.3.2.3's structure element.
     #[must_use]
     pub fn page_index(&self, document: &Document, pages: &Pages<'_>) -> Option<usize> {
-        self.resolve(document, pages, None)
+        self.resolve(document, &|id| pages.index_of(id))
     }
 
     /// As [`Self::page_index`], against a page index prepared once by [`Pages::indices`].
@@ -378,27 +378,26 @@ impl Destination {
     /// subtree, so resolving *many* destinations one at a time is a tree walk apiece. §12.3.3's
     /// outline is the caller that showed it — 988 items over 1023 pages, 344 ms of every page
     /// turn until the hundred-and-forty-first session.
+    ///
+    /// **It takes no [`Pages`], and that is the point rather than a tidy-up.** A prepared index
+    /// is the whole of what this needs — the page tree was asked once to build it — so a caller
+    /// holding one asks nothing of the tree, and `viewer_core`'s page turn stopped constructing
+    /// a [`Pages`] per turn when this parameter went (session 925).
     #[must_use]
     pub fn page_index_with(
         &self,
         document: &Document,
-        pages: &Pages<'_>,
         indices: &BTreeMap<ObjectId, usize>,
     ) -> Option<usize> {
-        self.resolve(document, pages, Some(indices))
+        self.resolve(document, &|id| indices.get(&id).copied())
     }
 
-    /// The page this destination names, with or without a prepared index.
+    /// The page this destination names, however the caller can place a page object.
     fn resolve(
         &self,
         document: &Document,
-        pages: &Pages<'_>,
-        indices: Option<&BTreeMap<ObjectId, usize>>,
+        locate: &dyn Fn(ObjectId) -> Option<usize>,
     ) -> Option<usize> {
-        let locate = |id| match indices {
-            Some(indices) => indices.get(&id).copied(),
-            None => pages.index_of(id),
-        };
         let Target::Object(id) = self.target else {
             return None;
         };
