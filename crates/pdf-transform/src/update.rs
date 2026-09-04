@@ -602,7 +602,7 @@ enum Placed {
 /// and the indices that tree is keyed by "shall be fixed, running consecutively through the
 /// document starting from 0 for the first page", so a page taken out or put in moves every later
 /// index and no range of the document's own tree survives the edit. One entry per page, each stating
-/// the label the page already had as Table 159's `/P` prefix with no numeric portion —
+/// the label the page already had as Table 161's `/P` prefix with no numeric portion —
 ///
 /// > There is no default numbering style; if no S entry is present, page labels shall consist
 /// > solely of a label prefix with no numeric portion.
