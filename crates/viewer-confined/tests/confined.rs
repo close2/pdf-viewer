@@ -1618,6 +1618,31 @@ fn a_confined_interpreter_cannot_reach_the_network() {
     );
 }
 
+/// A confined interpreter can stand in for a font it cannot look up.
+///
+/// **The defect this is about was found in `pdf-vfs`'s corpus walk and is the viewer's too**
+/// (round 914, ADR 0870): a page naming a face the machine has and the document does not embed
+/// sends `pdf_font::substitute` walking `/usr/share/fonts`, and `read_dir` is `openat`, which is
+/// off the allow-list. `SECCOMP_RET_KILL_PROCESS` does not hand back the `Err` that code is
+/// written to shrug off — it ends the worker, and the viewer loses the page rather than a glyph.
+/// Four of the first sixty corpus documents that walk read do exactly this.
+///
+/// So `viewer_confined::confine` states, before the confinement, that this process has no machine
+/// fonts; substitution then answers from the compiled-in faces, which
+/// `pdf_font::substitute::find` guarantees never fails, and §9.10.2's coverage note is what says
+/// a glyph is missing. Calibrated: with that line commented out, this probe is killed by `SIGSYS`.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_interpreter_can_stand_in_for_a_font_it_cannot_look_up() {
+    let status = run_probe("substitute");
+    assert_eq!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined interpreter could not substitute a font: {status:?} — a `SIGSYS` here is the \
+         walk over the machine's font directories"
+    );
+}
+
 /// A confined interpreter cannot start another program.
 ///
 /// The one that makes the interpreter profile's extra system calls defensible: it permits a
@@ -1870,6 +1895,18 @@ fn confined_probe() {
                 .is_ok_and(|read| read == 5 && &header == b"%PDF-")
         }
         "fstat" => handle.metadata().is_ok(),
+        // A `/BaseFont` that is *not* one of ISO 32000-2 §9.6.2.2's fourteen, so the answer is
+        // looked for on the machine before the compiled-in faces — which is the path that reads a
+        // directory.
+        "substitute" => {
+            let (face, _) = pdf_font::substitute::find(pdf_font::substitute::Request {
+                family: pdf_font::substitute::Family::Serif,
+                bold: false,
+                italic: false,
+                standard: false,
+            });
+            !face.is_empty() && !pdf_font::substitute::machine_fonts()
+        }
         "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
         "spawn" => std::process::Command::new("/bin/true").status().is_ok(),
         // Writing one line to whatever standard error the parent handed over. With a file it

@@ -585,6 +585,34 @@ fn a_confined_generator_cannot_stat_a_descriptor_it_holds() {
     );
 }
 
+/// A substituted font is looked for on the machine, and a confined generator has no machine.
+///
+/// **The nine-hundred-and-fourteenth session's corpus walk found this on its first sixty
+/// documents, and every probe in this file passed while it was broken** — which is the same
+/// sentence the two-images test above carries, one layer further in. Four of those sixty name a
+/// CJK or Arabic face without embedding it; `pdf_font::substitute` then walks
+/// `/usr/share/fonts` to stand in for it, and `read_dir` is `openat`, which is off the
+/// allow-list. A filter whose action is `SECCOMP_RET_KILL_PROCESS` does not return the `Err`
+/// that code is written to shrug off: the generator dies, and the mount loses the generation.
+///
+/// So the reachability of the machine's fonts is *stated* before the confinement — that is what
+/// `pdf_vfs::confine` does and what this probe exercises — and a confined worker then behaves
+/// like a machine with no fonts installed, which `substitute::find` already guarantees never
+/// fails. ADR 0870.
+///
+/// Calibrated against the tree without the fix: with the `no_machine_fonts` line in
+/// `serve::confine` commented out, this probe is killed by `SIGSYS`.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_generator_can_stand_in_for_a_font_it_cannot_look_up() {
+    let status = run_probe("substitute");
+    assert_eq!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined generator could not substitute a font: {status:?} — a `SIGSYS` here is the          walk over the machine's font directories"
+    );
+}
+
 /// And it *can* still derive every file the layout offers.
 ///
 /// The other half of the four above: a filter that refused everything would pass them all and be
@@ -636,6 +664,17 @@ fn confined_probe() {
                 .is_ok_and(|read| read == 5 && &header == b"%PDF-")
         }
         "fstat" => handle.metadata().is_ok(),
+        // A `/BaseFont` that is *not* one of §9.6.2.2's fourteen, so the answer is looked for on
+        // the machine before the compiled-in faces — which is the path that reads a directory.
+        "substitute" => {
+            let (bytes, _) = pdf_font::substitute::find(pdf_font::substitute::Request {
+                family: pdf_font::substitute::Family::Serif,
+                bold: false,
+                italic: false,
+                standard: false,
+            });
+            !bytes.is_empty() && !pdf_font::substitute::machine_fonts()
+        }
         "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
         "spawn" => std::process::Command::new("/bin/true").status().is_ok(),
         "derive" => {

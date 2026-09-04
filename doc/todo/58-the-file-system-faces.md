@@ -234,6 +234,16 @@ item still owes on the write side is three things, none of them blocking a face:
 question, both ways, over a real document. A face chooses it in one line and inherits the posture.
 ADR 0847 is the record: the allow-list, what crosses and its bound, what a death becomes.
 
+**And one thing it does not have, which is the fourth of the three below and the largest**: a
+confined worker has **no fonts**. ADR 0870 is the record — a document naming a face the machine has
+and the document does not embed sent `pdf_font::substitute` walking `/usr/share/fonts`, and
+`SECCOMP_RET_KILL_PROCESS` ended the worker rather than returning the `Err` that code is written to
+shrug off. It is stated now (`no_machine_fonts`, before the confinement, in both workers), so the
+worker lives and draws from the compiled-in faces; **what is owed is the fidelity**, and the shape
+of the answer is the one ADR 0812 already used for the document: the broker is unconfined, so the
+broker hands the face across. Until it does, a confined mount and the confined viewer draw a
+CJK or Arabic page the way a machine with no such font installed draws it.
+
 Three things this item still owes, none of them blocking a face:
 
 - **A worker is per generation and per `Vfs`, so a face mounting a hundred documents starts a
@@ -273,12 +283,23 @@ Three things this item still owes, none of them blocking a face:
   the cache, and a read puts the whole run's outputs there at once so that `cp -r` of one page's
   images costs one extraction. Caching the listing itself is a second kind of entry the cache does
   not have.
-- **The write side has a corpus walk — done in session 909** (ADR 0860), and `doc/todo/02` §2
-  gained its two lines. What is *still* unmeasured is the **read** side: every read generator —
-  `renders/`, `images/`, `text/`, `meta/` — is measured against every corpus document by nothing,
-  and `tests/a_face.rs` is four committed documents. The walk that would answer it is the same
-  shape and would cost more, because `images/` and `renders/` are where the expensive generators
-  are.
+- **Both sides now have a corpus walk** — the write side in session 909 (ADR 0860), the read side
+  in session 914 (ADR 0871), each with its line in `doc/todo/02` §2. `tests/read_corpus.rs` lists
+  the whole layout for every corpus document, `stat`s every entry, reads every file and holds each
+  against the generator the table delegates to, over the **confined** transport. What it found on
+  its first sixty documents is ADR 0870 and is below. Two things it does *not* measure, and they
+  are the shortfalls this round created rather than closed:
+  - **The substitution gap ADR 0870 opened.** A confined worker has no machine fonts, so a document
+    naming an uninstalled face is drawn from the compiled-in ones; the walk puts its own process in
+    that posture so that its columns measure the transport rather than two machines. **What closes
+    it is the broker supplying the face** — the broker is unconfined, it already hands the document
+    across as a descriptor (ADR 0812), and a face is a file like any other. Until then a confined
+    mount and a confined viewer draw such a page the way a machine with no fonts installed draws
+    it, and `pdf_model::interpret` says so per font (§9.10.2's coverage note).
+  - **The tail of long documents.** `PAGES_READ` bounds the pages whose files are read; the
+    listings are always whole. The corpus's own distribution is why the figure is affordable, and a
+    population with more long documents — `doc/todo/03`'s crawls — would be a stronger denominator
+    for `renders/` exactly as it would for the deletion verb below.
 - **`Plan::Update`'s output is read by nobody else.** `pdf-transform`'s `foreign_corpus` puts the
   other five writers' output through `qpdf --check`, `pdftoppm` and `mutool draw`; the in-place
   update is not in that walk, so the only reader that has ever judged it is this one. RFC 0002
