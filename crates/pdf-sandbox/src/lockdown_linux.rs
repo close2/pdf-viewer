@@ -57,7 +57,10 @@ use landlock::{
     ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible as _, RulesetAttr as _,
     RulesetStatus, Scope,
 };
-use seccompiler::{SeccompAction, SeccompFilter, TargetArch};
+use seccompiler::{
+    SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule,
+    TargetArch,
+};
 
 /// Ceiling on a decoder's address space, in bytes.
 ///
@@ -187,7 +190,9 @@ fn deny_filesystem_and_network() -> LandlockLevel {
 ///   on every machine, and a decoder that measures its own progress must not die for it.
 ///
 /// Notably absent: `openat`, `socket`, `connect`, `execve`, `clone`, `ptrace`, `prctl`,
-/// `ioctl`. There is no path from decoding an image to any of them.
+/// `ioctl`, `fcntl`. There is no path from decoding an image to any of them — the last of those
+/// because a decoder is handed no descriptor and so never gives one back, which is what
+/// [`PERMITTED_INTERPRETER_NARROWED`] is about and why it is not on this list.
 /// The type is `i64` because that is what `seccompiler` keys a filter by. On a 32-bit
 /// target `libc::SYS_*` is an `i32` and this will not compile — which is the right outcome,
 /// because the rest of the list would need reviewing for that architecture anyway.
@@ -268,6 +273,56 @@ const PERMITTED_INTERPRETER_EXTRA: &[i64] = &[
     libc::SYS_pread64,
 ];
 
+/// The one system call an interpreter may make **for a single value of a single argument**, and
+/// the only entry in this file that is narrower than a number.
+///
+/// `fcntl(fd, F_GETFD)`, and nothing else `fcntl` can do. It is here because of what an
+/// interpreter is *given*: ADR 0812 hands the worker a descriptor per document opened on disk, and
+/// `Command::Close` drops it — `std::os::fd::OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before
+/// `close`, under `core::ub_checks::check_library_ub()`, to catch a double close. There is no way
+/// to close a descriptor from safe Rust without that question being asked, so a worker that is
+/// handed a descriptor and forbidden `fcntl` can never give it back. Session 920 found it and
+/// declined to fix it (ADR 0880 section 6, trap 32); ADR 0888 is the decision and prices what else was
+/// available. In short: the two alternatives both **leak**, and leaking is arithmetic rather than
+/// taste — [`DESCRIPTOR_LIMIT`] is 8, three are inherited, so the fifth document a viewer opens
+/// and closes would be the last it could open at all.
+///
+/// **What admitting it costs, stated rather than asserted.** `F_GETFD` reads the close-on-exec
+/// flag of a descriptor the process already holds. It takes no path, opens nothing, creates
+/// nothing, and changes nothing; the most a hostile interpreter learns from it is which of its
+/// eight descriptor numbers are open, which `close` and `read` already tell it. Every other
+/// command of the same call is refused with the same kill as before — `F_SETFD` cannot clear
+/// close-on-exec (which would matter if `execve` were reachable, and it is not), `F_DUPFD` and
+/// `F_DUPFD_CLOEXEC` cannot manufacture a descriptor, `F_SETFL` cannot turn a blocking read into a
+/// spin, and `F_GETFL`, the locking commands and `F_ADD_SEALS` are all as absent as they were.
+/// `a_confined_interpreter_can_close_a_descriptor_it_was_handed` and
+/// `a_confined_interpreter_cannot_set_a_descriptors_flags` are the two directions, and
+/// `pdf-sandbox`'s own `a_confined_decoder_cannot_ask_about_a_descriptor_at_all` is the third: the
+/// **decoder** list did not move, because a decoder is handed no descriptor and needs none.
+///
+/// This is `doc/todo/61`'s rule surviving rather than bending. That item forbids answering an
+/// *environment probe* with a permission, and this is not one: nothing is being asked about the
+/// machine, and the fix is not "the worker wanted something, so the filter grew". It is the
+/// standard library checking a precondition on a resource the worker legitimately owns, at the
+/// one moment it gives that resource back.
+const PERMITTED_INTERPRETER_NARROWED: i64 = libc::SYS_fcntl;
+
+/// Which argument of [`PERMITTED_INTERPRETER_NARROWED`] the condition reads, counted from zero.
+///
+/// `fcntl(int fd, int cmd, ...)`, so the command is argument 1.
+const FCNTL_COMMAND_ARGUMENT: u8 = 1;
+
+/// `F_GETFD`, the only command [`PERMITTED_INTERPRETER_NARROWED`] permits.
+///
+/// A literal rather than a cast of `libc::F_GETFD`, because a security-relevant constant should
+/// not depend on a sign conversion to be right; the assertion below is what keeps the two equal,
+/// and it is a compile error rather than a test if they ever differ.
+const F_GETFD_COMMAND: u64 = 1;
+const _: () = assert!(
+    libc::F_GETFD == 1,
+    "F_GETFD_COMMAND is the value this platform's F_GETFD has"
+);
+
 /// Installs the seccomp-BPF allow-list.
 ///
 /// The mismatch action is `KillProcess` rather than `Errno`: a worker that reaches a
@@ -283,14 +338,36 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
         Profile::Decoder => &[],
         Profile::Interpreter => PERMITTED_INTERPRETER_EXTRA,
     };
-    // An empty rule vector means "this call, unconditionally". Conditions exist for
-    // narrowing by argument; nothing here needs one, because every permitted call is
-    // permitted for every argument the worker could pass.
-    let rules = PERMITTED
+    // An empty rule vector means "this call, unconditionally", which is what every entry of
+    // both lists above is: each is permitted for every argument the worker could pass.
+    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> = PERMITTED
         .iter()
         .chain(extra)
         .map(|number| (*number, Vec::new()))
         .collect();
+    if profile == Profile::Interpreter {
+        // The one exception, and [`PERMITTED_INTERPRETER_NARROWED`] is why. A non-empty rule
+        // vector matches only where its conditions hold, so `fcntl` reaches the match action —
+        // `Allow` — for `F_GETFD` and falls to the mismatch action — `KillProcess` — for every
+        // other command, exactly as it did when the number was on no list at all.
+        //
+        // **`Dword`, not `Qword`, and the reason is the kernel's declaration rather than a
+        // preference.** `SYSCALL_DEFINE3(fcntl, unsigned int fd, unsigned int cmd, unsigned long
+        // arg)`: the command the kernel dispatches on is 32 bits, so comparing 32 bits is
+        // comparing what the kernel will act on. A 64-bit comparison would refuse a request whose
+        // upper half is dirty and whose lower half the kernel would read as `F_GETFD` — stricter,
+        // and therefore safe, but it would be a filter that disagrees with the call it is
+        // filtering, which is how an argument-narrowed rule becomes wrong somewhere else.
+        rules.insert(
+            PERMITTED_INTERPRETER_NARROWED,
+            vec![SeccompRule::new(vec![SeccompCondition::new(
+                FCNTL_COMMAND_ARGUMENT,
+                SeccompCmpArgLen::Dword,
+                SeccompCmpOp::Eq,
+                F_GETFD_COMMAND,
+            )?])?],
+        );
+    }
 
     let filter = SeccompFilter::new(
         rules,

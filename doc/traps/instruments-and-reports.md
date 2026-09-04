@@ -668,10 +668,25 @@ gate is red". And **no filesystem call appears anywhere in the code**: the popul
 lets it go*.
 
 There is no way to close one from safe Rust that avoids the check, because every std type that owns
-a descriptor closes through `OwnedFd`. So the answer is not to hold a descriptor a confined worker
-will ever drop: ADR 0880's port sends the resource's **bytes** on the frame instead, and the
-document's own descriptor — which ADR 0812 does hand over — is the outstanding instance, because
-closing a document drops it. `doc/todo/61` carries that as owed work rather than as a fixed defect.
+a descriptor closes through `OwnedFd`. So the first answer is not to hold a descriptor a confined
+worker will ever drop: ADR 0880's port sends the resource's **bytes** on the frame instead, which is
+what a *face* does.
+
+**The document's descriptor cannot take that road, and session 924 is where the second answer was
+spent** (ADR 0888). ADR 0812 hands it over precisely so that a 6 GB file does not cross as bytes, so
+`fcntl` is admitted for the interpreter profile alone, **narrowed by argument** to `F_GETFD` and a
+kill for every other command. `doc/todo/61`'s table now has two shapes in it and says which answer
+belongs to which; the order still matters, and "can the resource cross another way?" is asked first.
+
+**And the trap has a second half, about the test rather than the defect** (ADR 0889). Because the
+check is compiled per build, a probe written the natural way — hand the process a descriptor, drop
+it, see whether it survived — **issues no system call at all** under `--profile gates`, which
+inherits `release`. It would be green on the day the rule was reverted, in the profile most of
+`doc/todo/02` §2 runs under. So a probe for a behaviour that exists only in some build profiles
+**issues the call it is about, by name** — `rustix::io::fcntl_getfd` rather than a `drop` — and the
+end-to-end witness is kept beside it while being honest about the one run where it binds
+(`cargo nextest run --workspace`, whose worker is a `dev` build). It is ADR 0498's lesson from the
+other side: there a gate turned a shipped *setting* off, here a gate profile turns a *check* off.
 
 ## Things worth knowing
 

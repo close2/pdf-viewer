@@ -21,8 +21,11 @@ Code: `crates/viewer-confined`, `crates/pdf-sandbox/src/lockdown.rs`
 seccomp-BPF, Landlock and a 4 GiB address-space ceiling, with no filesystem and no network.
 `viewer_confined::Confined` is the host side: `Command` in, `Event` out, `Query` → `Reply`, and the
 rasters cross as pixels because the confined process owns the rasteriser. `pdf_sandbox::lockdown`
-grew a `Profile`, so the decoder's allow-list is untouched and the interpreter's is a second one,
-four system calls longer.
+grew a `Profile`, so the decoder's allow-list is untouched and the interpreter's is a second one —
+four system calls longer when it was written, seven since ADR 0812's descriptor, and since ADR 0888
+one more that is **narrower than a system call number**: `fcntl` for the single command
+`F_GETFD`, and a kill for every other. Its own constant says why, and
+`crates/pdf-sandbox/src/lockdown_linux.rs` is the list rather than this sentence.
 
 What the tests establish, on this kernel: a page byte-identical to the one drawn in process; a page
 turn and a magnification; a JBIG2 document decoded *inside* the confinement; a confined process that
@@ -252,6 +255,15 @@ allow-list gains is `recvmsg` on a socket it did not create and cannot create, p
 the file it was handed — and `a_confined_interpreter_cannot_reach_the_network` is untouched, with
 two probes beside it pinning that the worker can read the descriptor and cannot `stat` it. The
 `memfd` question above is unchanged: that was about *mapping*, and nothing here maps.
+
+**A descriptor a worker is handed is also a descriptor it has to give back, and that cost was found
+forty-one sessions later** (session 924, ADR 0888). `OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before
+`close` under `core::ub_checks::check_library_ub()`, so closing a document killed every build with
+library-UB checks compiled in while the release build passed — the shape trap 32 is about. The
+allow-list gains one *command* for it, narrowed by argument, on the interpreter profile alone; the
+alternatives were both leaks and `DESCRIPTOR_LIMIT` is the arithmetic that refuses them. Five probes
+now stand where two did: the worker can read the descriptor, cannot `stat` it, can ask `F_GETFD`
+about it, cannot `F_SETFD` it, and cannot duplicate it — and a decoder cannot ask any of them.
 
 ## Two things that stayed true and are worth keeping
 

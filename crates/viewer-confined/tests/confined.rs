@@ -1701,6 +1701,78 @@ fn a_confined_interpreter_cannot_stat_a_descriptor_it_holds() {
     );
 }
 
+/// And it *can* give a descriptor back, which is one system call and was not on the list.
+///
+/// **The positive half of ADR 0888.** `std::os::fd::OwnedFd::drop` asks `fcntl(fd, F_GETFD)`
+/// before `close`, under `core::ub_checks::check_library_ub()`, so a worker handed a descriptor
+/// per document (ADR 0812) could not close one in any build with library-UB checks on — a release
+/// build survived and every debug build died, which is the worst shape a defect can take
+/// (trap 32). The rule admitted for it is narrowed by argument to that one command.
+///
+/// The probe asks the question **explicitly** rather than by dropping a handle, and that is
+/// deliberate: `OwnedFd::drop` issues the call only where those checks are compiled in, so a probe
+/// written as a `drop` would pass by doing nothing under `--profile gates`, which inherits
+/// `release`. `a_document_closed_in_the_confined_process_leaves_a_worker_that_still_answers` is
+/// the end-to-end half and is the one that runs in the profile where the check is on.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_interpreter_can_close_a_descriptor_it_was_handed() {
+    let status = run_probe("fcntl-getfd");
+    assert_eq!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined interpreter could not ask `F_GETFD` about a descriptor it holds, so it \
+         cannot close one either: {status:?}"
+    );
+}
+
+/// And it cannot use the *same system call* to change that descriptor.
+///
+/// **This is what makes ADR 0888's rule a narrowing rather than a permission**, and it is the test
+/// that fails if somebody ever writes `libc::SYS_fcntl` into
+/// `PERMITTED_INTERPRETER_EXTRA` alongside the others. `F_SETFD` is the command next to the one
+/// admitted — it writes the close-on-exec flag — and the filter's condition is on the command
+/// argument, so this call reaches the mismatch action and the kill, exactly as every `fcntl` did
+/// before the rule existed.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_interpreter_cannot_set_a_descriptors_flags() {
+    let status = run_probe("fcntl-setfd");
+    assert_ne!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined interpreter changed a descriptor's flags, so `fcntl` is permitted for more \
+         than the one command ADR 0888 narrowed it to"
+    );
+    assert!(
+        refused(status),
+        "expected `F_SETFD` to be refused or the process killed, got {status:?}"
+    );
+}
+
+/// And it cannot use it to *manufacture* a descriptor.
+///
+/// The second forbidden command, and the one that would matter: `F_DUPFD_CLOEXEC` is how a
+/// process makes a new descriptor out of one it holds, which is the only thing in `fcntl`'s
+/// dispatch table that creates anything. It is what `std::fs::File::try_clone` issues on Linux, so
+/// the probe is written as the ordinary safe operation a future round would reach for rather than
+/// as a raw command number — and a standard library that changed it to `dup3` would still be
+/// killed, because that is on no list either.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_interpreter_cannot_duplicate_a_descriptor_it_holds() {
+    let status = run_probe("fcntl-dupfd");
+    assert_ne!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined interpreter duplicated a descriptor it holds"
+    );
+    assert!(
+        refused(status),
+        "expected the duplication to be refused or the process killed, got {status:?}"
+    );
+}
+
 /// And it *can* still interpret and draw a page.
 ///
 /// The other half of the previous three: a filter that refused everything would pass them all and
@@ -1895,6 +1967,17 @@ fn confined_probe() {
                 .is_ok_and(|read| read == 5 && &header == b"%PDF-")
         }
         "fstat" => handle.metadata().is_ok(),
+        // The one `fcntl` command ADR 0888 admits, asked directly so that it is issued whatever
+        // the profile's library-UB checks are set to. `OwnedFd::drop` asks exactly this.
+        "fcntl-getfd" => rustix::io::fcntl_getfd(&handle).is_ok(),
+        // The command beside it, which must still be a kill. Writing back the flags the call
+        // above would have read is the smallest possible widening and is therefore the one worth
+        // pinning: nothing about this process changes if it succeeds, and everything about the
+        // rule does.
+        "fcntl-setfd" => rustix::io::fcntl_setfd(&handle, rustix::io::FdFlags::CLOEXEC).is_ok(),
+        // And the command that would make a descriptor: `File::try_clone` is `F_DUPFD_CLOEXEC`
+        // here.
+        "fcntl-dupfd" => handle.try_clone().is_ok(),
         // A `/BaseFont` that is *not* one of ISO 32000-2 §9.6.2.2's fourteen, so the answer is
         // looked for on the machine before the compiled-in faces — which is the path that reads a
         // directory.
@@ -2349,23 +2432,16 @@ fn a_face_this_host_can_look_up_reaches_a_worker_that_cannot() {
 /// waiting, and because the claim "nothing in this tree closes a document in a confined worker"
 /// was one nobody had run. The worker is alive afterwards, and *that* is the assertion.
 ///
-/// **It is `#[ignore]`d because it fails, and the failure is the finding rather than a regression
-/// this round introduced.** Session 920 ran it both ways and the answer is exactly trap 32's:
-///
-/// ```text
-/// cargo nextest run -p viewer-confined -E 'test(a_document_closed_in_the_confined)'
-///     -> killed by signal 31 (SIGSYS: a system call the confinement forbids)
-/// PDF_VIEW_WORKER=…/release/pdf-view-worker  (the same command)
-///     -> PASS
-/// ```
-///
-/// So the shipped binary is not affected and every debug worker is. Fixing it is `doc/todo/61`
-/// §3's, and it is not this round's: the only fix that does not leak a descriptor is a seccomp
-/// rule for `fcntl` **narrowed by argument** to `F_GETFD`, and widening the allow-list — even by a
-/// read-only query about a descriptor the process already holds — is a decision that item exists
-/// to make deliberately rather than as a side effect of a round about fonts.
+/// **It was `#[ignore]`d when it was written, because it failed.** Session 920 ran it both ways
+/// and the answer was exactly trap 32's — killed by `SIGSYS` under a debug worker, passing under a
+/// release one — and that round declined to fix it, because the only fix that leaks nothing is a
+/// seccomp rule for `fcntl` narrowed by argument and widening the allow-list is `doc/todo/61`'s
+/// decision to take deliberately. **ADR 0888 took it**, so this runs. It is the end-to-end half of
+/// `a_confined_interpreter_can_close_a_descriptor_it_was_handed`, and the half that matters most
+/// under `cargo nextest run --workspace`, where the worker beside it is a `dev` build and the
+/// library-UB check is therefore compiled in — `--profile gates` inherits `release` and would not
+/// issue the call at all.
 #[test]
-#[ignore = "a witness for doc/todo/61 §3 and trap 32: a confined worker is killed for dropping the descriptor it was handed, in a build with library-UB checks on. Run it explicitly."]
 #[cfg(unix)]
 fn a_document_closed_in_the_confined_process_leaves_a_worker_that_still_answers() {
     let on_disk = pdf_syntax::FileBytes::on_disk(&specification_path())

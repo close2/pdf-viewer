@@ -44,6 +44,11 @@ workspace = true
 
 # The confinement probes need signal numbers to tell "killed by the seccomp filter" apart from
 # every other way a process can end — which is a question only the platform with a filter can be
-# asked.
+# asked. And they need to issue one `fcntl` command and the two beside it *by name*, which is what
+# ADR 0888's rule is narrowed by: `rustix::io::fcntl_getfd` and `fcntl_setfd` are safe wrappers
+# over exactly one command each, so a probe says which command it asked for rather than depending
+# on what a standard-library operation happens to compile to. Both are already in the tree —
+# `pdf-sandbox` uses `rustix` for the resource limits — so this buys no dependency.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 libc.workspace = true
+rustix.workspace = true

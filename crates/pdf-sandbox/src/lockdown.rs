@@ -35,8 +35,12 @@
 /// found by running that work under `strace` and reading what appeared. So there are two, each
 /// named for a program in this workspace, and adding a third means measuring a third.
 ///
-/// The difference between them is exactly two things — threads, and how much address space —
-/// and both follow from the second doing more than decode one image.
+/// **The difference between them used to be exactly two things, and this line said so for
+/// dozens of sessions after it stopped being true.** Threads and address space were the whole of
+/// it in ADR 0218; ADR 0812 then added `recvmsg` and `pread64`, which are neither, and ADR 0888
+/// added the one argument-narrowed rule in the crate. What they have in common is the honest
+/// heading and is why the profile is not a set of options: every one of them follows from the
+/// second profile being handed **a descriptor** and being asked to draw a page with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Profile {
     /// One image, decoded on one thread: `pdf-sandbox-worker`.
@@ -56,6 +60,12 @@ pub enum Profile {
     /// - **Address space.** A rasteriser holds a page's pixels, and `viewer_core`'s own budget
     ///   for one is 2²⁸ pixels — a gibibyte of RGBA before the document, the display list or a
     ///   glyph cache is counted.
+    /// - **The document's descriptor**, which ADR 0812 hands across: `recvmsg` is how it arrives
+    ///   and `pread64` is how it is read, and since ADR 0888 `fcntl` **narrowed by argument to
+    ///   `F_GETFD`** is how it is given back — the standard library asks that question inside
+    ///   `OwnedFd::drop`, so a worker forbidden it can be handed a descriptor and can never
+    ///   close one. It is the only conditional rule in this crate, and
+    ///   `lockdown_linux::PERMITTED_INTERPRETER_NARROWED` is what it costs and what it does not.
     Interpreter,
 }
 

@@ -168,9 +168,12 @@ section_writer() {
         cargo test --profile gates -p pdf-transform --test foreign_corpus -- --ignored --nocapture
 }
 
-# RFC 0003 section 5.2's five write verbs, over every corpus document the core opens. The `--bins`
-# build is trap 10: a `--profile gates --test` line builds one test target and nothing else, so
-# `pdf-vfs-worker` beside it would otherwise be whatever an earlier round left.
+# RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document
+# the core opens. The `--bins` build is trap 10: a `--profile gates --test` line builds one test
+# target and nothing else, so `pdf-vfs-worker` beside it would otherwise be whatever an earlier
+# round left. There is no third line here: session 917's `awkward_classes` became the read walk's
+# population in session 919 (ADR 0878), and the walk of the *other* confined program that inherited
+# the name is `doc/verify.md`'s rather than `doc/todo/02` §2's.
 section_vfs() {
     gate_binaries
     cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
@@ -180,9 +183,6 @@ section_vfs() {
     run "the whole layout listed, stat'd and read over the corpus (RFC 0003 section 4)" \
         '^vfs-read:' \
         cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
-    run "a document of each awkward class, from every corpus on the disk, through the worker" \
-        '^vfs-awkward:' \
-        cargo test --profile gates -p pdf-vfs --test awkward_classes -- --ignored --nocapture
 }
 
 section_dates() {

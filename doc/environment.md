@@ -42,6 +42,17 @@ can and cannot open a window on, and where the build lands.
   round knows the pid of everything it launched; that is the only handle on the machine that names
   *your* process and no sibling's.
 
+  **A background command launched through the harness is *two* process groups, and killing the
+  first is not killing the job.** The harness wraps the command in a `bash -c` of its own, and that
+  wrapper and the script it runs are each a group leader — so `ps … | grep <script> | head -1`
+  picks the **wrapper**, whose group contains the wrapper and not the script. The
+  nine-hundred-and-twenty-fourth session did exactly that, watched the harness report the job
+  killed, and started a second gate sequence beside the first: two runs competed for the machine
+  and appended to one log by name, which is how a `nextest` line and a `fixed_documents` line came
+  to sit next to each other in a file that only has one of each. **Grep for every match and kill
+  every distinct `pgid`**, then confirm with a second `ps` that the pattern is gone — the confirming
+  `ps` is the whole guard, because the failure looks exactly like success.
+
   **`pkill -x <exact-name>` is not the safe form, and this paragraph offered it as one until a
   round was bitten by it.** `-x` bounds the match to the executable's *name*, and says nothing whatever
   about whose process it is — so for a program every round runs under one name (`cargo`, `rustc`,

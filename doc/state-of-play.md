@@ -238,9 +238,13 @@ pass.
   matches, reads and answers. **The allow-list did not move for it and no host can move it**; what
   a host can do is decline, which is the default everywhere. Over `doc/pdf.js` it is 40 pages that
   differed from what this machine draws unconfined and are now byte-identical to it, twelve of them
-  blank before. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657, 0870, 0880; `doc/todo/34`, `doc/todo/15`,
-  `doc/todo/59`.
+  blank before. **The allow-list did move one round later, and by one *command* rather than one
+  call** (ADR 0888): a worker handed a descriptor has to give it back, and `OwnedFd::drop` asks
+  `fcntl(fd, F_GETFD)` first — so that command is permitted on the interpreter profile and every
+  other command of the same call still kills, which three probes and a decoder's fourth say rather
+  than claim. ADRs 0218, 0223,
+  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657, 0870, 0880, 0888, 0889; `doc/todo/34`,
+  `doc/todo/15`, `doc/todo/59`, `doc/todo/61`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three

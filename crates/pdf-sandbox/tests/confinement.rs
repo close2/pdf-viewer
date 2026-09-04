@@ -265,6 +265,35 @@ fn a_confined_process_cannot_reach_the_network() {
     );
 }
 
+/// And a confined *decoder* cannot ask about a descriptor at all.
+///
+/// **The negative half of ADR 0888, and the one that says the widening is narrow.** The
+/// interpreter profile admits `fcntl(fd, F_GETFD)` — one command of one call, because it is what
+/// `OwnedFd::drop` asks before `close` and an interpreter is handed a descriptor per document.
+/// A decoder is handed none and closes none, so [`Profile::Decoder`]'s list did not move, and this
+/// is what fails if somebody ever "tidies" the rule into the shared list.
+///
+/// The descriptor asked about is standard input, which every child of [`run_probe`] holds: the
+/// question is about the *filter* rather than about the descriptor, so the one that is certain to
+/// exist is the right one to use.
+///
+/// [`Profile::Decoder`]: pdf_sandbox::lockdown::Profile::Decoder
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_decoder_cannot_ask_about_a_descriptor_at_all() {
+    let status = run_probe("fcntl");
+    assert_ne!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined decoder was answered about a descriptor, so `fcntl` has reached the \
+         decoder's allow-list"
+    );
+    assert!(
+        refused(&status),
+        "expected the query to be refused or the process killed, got {status:?}"
+    );
+}
+
 /// Whether a probe was stopped rather than served.
 ///
 /// Two outcomes count. `SIGSYS` is the seccomp filter firing, which is what happens when the
@@ -313,6 +342,9 @@ fn confined_probe() {
         // a missing file.
         "open" => std::fs::File::open("/proc/self/maps").is_ok(),
         "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+        // `fcntl(0, F_GETFD)`. ADR 0888 admits exactly this for the *interpreter*; here it must
+        // still be a kill, which is what makes that rule a narrowing rather than a habit.
+        "fcntl" => rustix::io::fcntl_getfd(std::io::stdin()).is_ok(),
         other => panic!("no probe named {other}"),
     };
 
