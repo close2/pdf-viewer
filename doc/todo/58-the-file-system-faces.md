@@ -17,10 +17,12 @@ Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`),
 §7.7.3.3, §7.7.3.4, §7.9.4, §7.11.4, §8.9.5, §12.3.3, §12.4.2, §12.5.6.15, §12.7.4.2, §14.3.2,
 §14.3.3, §14.3.4, §14.7.5.4, §14.8.2.5.1.
 Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/write_corpus.rs`,
-`tests/confined.rs` and `examples/vfs_cost.rs`, `crates/pdf-fuse/` and its `tests/a_face.rs`,
-`crates/pdf-vfs-ffi/` and its four tests, `kio/`,
+`tests/read_corpus.rs`, `tests/confined.rs` and `examples/vfs_cost.rs`, `crates/corpus-classes/`
+(the read walk's population, shared with `viewer-confined`'s sweep), `crates/pdf-fuse/` and its
+`tests/a_face.rs`, `crates/pdf-vfs-ffi/` and its four tests, `kio/`,
 `crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
-ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0864, 0865, 0868, 0869.
+ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0864, 0865, 0868, 0869, 0871, 0877, 0878,
+0879.
 
 ## What is done
 
@@ -270,23 +272,25 @@ Three things this item still owes, none of them blocking a face:
   exists and `Vfs` holds `Box<dyn Worker>`, so a face that wants to end a render a person navigated
   away from has to hold its own factory the way `tests/confined.rs` does. That is a small piece of
   `Vfs` API and it wants a face's requirement to shape it.
-- **The awkward classes are swept rather than waited for, and the sweep should not stay a second
-  instrument** (session 917, ADR 0877). `tests/awkward_classes.rs` classifies a stride-sample of
-  every corpus root on the disk — `doc/pdf.js`, the four `doc/corpora` submodules, the three
-  `corpus-cache` collections — into ten classes (encrypted, locked, an encryption this reader does
-  not implement, pageless, damaged, unopenable, huge, JBIG2, JPEG 2000, and plain as the control),
-  and walks the whole layout of a few of each through the **confined** transport asking one
-  question: does the worker survive. It found nothing, and with `no_machine_fonts()` removed it
-  finds 76 deaths in six of the ten classes — more in the control than in the encrypted one, which
-  is ADR 0876's misattribution reproduced at corpus scale.
+- **The awkward classes are the read walk's population now — done in session 919** (ADR 0878).
+  Session 917's `tests/awkward_classes.rs` asked whether the confined worker survives, over a
+  population drawn from every corpus root on the disk; session 914's `tests/read_corpus.rs` asked
+  whether the two transports agree, byte for byte, over `doc/pdf.js`. §4 of this file said which
+  way the two merge and that is what happened: the read walk now takes `doc/pdf.js` whole *and* a
+  class-balanced sample of every other root, so those documents are held to their generators'
+  bytes rather than only to survival, and the matrix file is deleted rather than inherited. What
+  came over with the population is the half a byte comparison does not have — a **death** is told
+  from a refusal by the sentence `confined-transport` words it with, any death fails the run
+  wherever it appears, and each mount is asked one more question afterwards so that session 902's
+  recovery is measured. The classes, the roots and the stride are `crates/corpus-classes`, a crate
+  rather than a helper, because the *viewer's* worker is swept over the same population and two
+  copies of a population are two populations (ADR 0879).
 
-  **How it relates to `tests/read_corpus.rs`, so that a later round merges them rather than keeping
-  both**: that walk (ADR 0871) asks whether the two transports *agree*, byte for byte, over
-  `doc/pdf.js`'s 974 documents; this one asks only whether the worker *survives*, over a population
-  drawn from all eight roots — which is where damaged, huge and JPEG 2000 documents actually live.
-  The merge is the walk's: widen `read_corpus.rs` past `doc/pdf.js` and its byte comparison covers
-  these classes too, at which point `awkward_classes.rs` is deleted rather than inherited. What
-  stops that today is cost, and cost is a reason to keep two instruments, never two designs.
+  **What is owed of it is the cost**, which is the reason session 917 gave for keeping two
+  instruments and which the merge has to carry instead: the widening is bounded by `PER_CLASS`
+  documents a class a root, and that constant is set against this walk's own wall clock rather
+  than for coverage. A round that finds the line too slow lowers it and says so; a round that
+  wants a class swept deeper raises it for a run and does not commit the raise.
 
 ## 5. What the core still owes, each named in `Vfs::shortfalls`
 
@@ -329,7 +333,19 @@ Three things this item still owes, none of them blocking a face:
   page, and `update` refuses to delete a document's last one; the walk counts the refusal by name
   and the number is in its own output. A population with more multi-page documents — the SafeDocs
   crawl, `format-corpus` — would be a stronger denominator for that one verb.
-- **A `stat` generates, and on a large document that is minutes.** `ls -l pages/` on ISO
+- **A `stat` generates, and on a *wide* directory that is worse than on a long document** —
+  session 919's witness, and the sharper one. `corpus-cache/tika-issue-tracker/batch1/PDFBOX/
+  PDFBOX-186-0.pdf` states **10 084 images on one page**, each two pixels by one, so
+  `/images/0001/` is a directory of ten thousand files; every one of them `stat`ed and read is
+  twenty thousand questions, and because a whole extraction run is put in the cache **at once** and
+  a run too large for the cache's budget is put nowhere at all (ADR 0865 §3, round 911's finding),
+  each of those questions re-ran an extraction of ten thousand images. Session 919's walk was
+  inside that one document for **twenty-five minutes** before it was bounded (ADR 0878). Nothing is
+  wrong with any single answer — `examples/vfs_cost` gives that document's page count in 131 ms and
+  its images in 200 ms — and a face reaching for `cp -r images/0001/` would still be there an hour
+  later. What would answer it is a cache that admits a run larger than its budget in parts, or a
+  listing that does not have to generate; §5.5 forbids the third way out, which is stating no size.
+- **And on a long document it is minutes too.** `ls -l pages/` on ISO
   32000-2's 1023 pages took **2 min 45 s** (round 911), which is 1023 page extractions at about
   160 ms each, and the pieces are about **1.8 MB** apiece — the closure of a heavily shared
   document — so `pages/` reports 1.9 GB for a 12 MB file. A second listing is now free (ADR 0865

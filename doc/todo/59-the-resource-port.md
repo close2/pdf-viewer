@@ -67,7 +67,8 @@ document's.
 3. The hosts: a flag for the command line, a setting for the windows, and whatever the KIO and FUSE
    faces can honestly offer.
 4. The measurement `no_machine_fonts()` cost us, taken again with the port on: the four documents
-   above, and the population `read_corpus`/`awkward_classes` can name.
+   above, and the population `crates/corpus-classes` names — which both confined sweeps now walk,
+   so the instrument that will say the port works is already there (ADRs 0878, 0879).
 5. An amendment to `CLAUDE.md` principle 3's sentence — **as a clarification of what the broker may
    do, not a weakening of what the worker may** — once the port exists.
 

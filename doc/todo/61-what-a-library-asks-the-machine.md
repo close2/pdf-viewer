@@ -27,12 +27,16 @@ that item precisely because it is the exception.
 
 ## What is owed
 
-1. **Find the fifth instance before it finds us.** Session 917's `awkward_classes.rs` is the
-   instrument: ten document classes through the confined transport, with the fix removed as its own
-   calibration. It should be widened past `doc/pdf.js` and reconciled with `read_corpus.rs`, as
-   `doc/todo/58` §4 records, rather than kept beside it.
-2. **The same sweep through `pdf-view-worker`**, which has ADR 0870's probe and has never had the
-   class sweep — session 914's finding that the viewer loses pages rather than glyphs came from
-   reading, not from measuring.
+1. **Find the fifth instance before it finds us — the instrument exists and runs.** Session 917's
+   ten classes are `crates/pdf-vfs/tests/read_corpus.rs`'s population since session 919 (ADR 0878),
+   over every corpus root on the disk, with the fix removed as its own calibration. What is owed is
+   not another instrument: it is that a round taking a *new* dependency into either confined worker
+   runs the two sweeps below and says what they printed.
+2. **The same sweep through `pdf-view-worker` — done in session 919** (ADR 0879).
+   `crates/viewer-confined/tests/awkward_classes.rs` opens and draws the same population through
+   the confined viewer, which is the program whose death costs a person the page they were reading
+   rather than one generated file. `doc/verify.md` has the line; it is not a `doc/todo/02` §2 gate,
+   because the read walk gates the same class of defect every round and this is the run a round
+   touching the confinement owes.
 3. A standing note wherever a new dependency is weighed (`doc/stack.md`): a crate that probes its
    environment costs a confined worker, and the cost is paid at the spawn or not at all.

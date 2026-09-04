@@ -32,6 +32,9 @@ thiserror.workspace = true
 viewer-core.workspace = true
 
 [dev-dependencies]
+# The population `tests/awkward_classes.rs` sweeps, shared with `pdf-vfs`'s read walk so that the
+# two confined programs are asked about the same documents (ADR 0879).
+corpus-classes.workspace = true
 # `examples/confined_page` writes the raster it was handed, so that a person can look at the page
 # a confined process drew rather than at a count of its dark pixels.
 png.workspace = true
