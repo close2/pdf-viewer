@@ -1001,7 +1001,7 @@ fn decided(
     // value, so the stream's `/Tx` marked-content region is rewritten in place. Everything
     // outside it is the file's own artwork and stays, which is what makes this a splice rather
     // than a second construction — see `crate::appearance::regenerate`.
-    let mut owed = missing_bbox;
+    let mut owed = missing_bbox.or_else(|| fixed_print_owed(document, annotation, &subtype, &name));
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype, view.value)
         && let Some(regenerated) =
@@ -1065,6 +1065,26 @@ fn construct(
     // excludes. Table 166 names both, with `Link`, as the subtypes a writer need not give an
     // appearance dictionary at all.
     if subtype == b"Projection" {
+        return Decision::Nothing;
+    }
+
+    // **§12.5.6.18 states this reader's answer outright**, and it states it in the prose after
+    // Table 190 rather than in the table — which is why a row that enumerated the table's five
+    // entries never named it (ADR 0901):
+    //
+    // > If AP is not present, the screen annotation shall not have a default visual appearance
+    // > and shall not be printed.
+    //
+    // This path is exactly `/AP` not being present ([`Normal::Absent`]), so the requirement is
+    // met by drawing nothing and *reporting* nothing. The catch-all in
+    // [`crate::appearance::construct`] answered `its clause states no geometry`, which is false
+    // of a clause that states the absence of one — trap 11's shape, and the same correction
+    // §12.5.6.11's caret and §12.5.6.23's redaction each took out of that arm.
+    //
+    // The clause's other reader-facing `shall` is the `/P` bullet above it, and it binds a
+    // processor that performs a **rendition action**: §12.6.4.14 is `out-of-scope` on principle
+    // 5's clause 13 exclusion, so nothing here reaches the condition it is written for.
+    if subtype == b"Screen" {
         return Decision::Nothing;
     }
 
@@ -1364,6 +1384,57 @@ fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
         .then(scale)
         .then(Transform::translate(rect[0], rect[1]));
     matrix.then(align)
+}
+
+/// ISO 32000-2 §12.5.6.22: what a watermark annotation's `/FixedPrint` dictionary asks for, and
+/// this reader does not do.
+///
+/// The clause introduces its behaviour as a requirement on *rendering* rather than on printing —
+/// "When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
+/// occur" — and the second of the two bullets it then states is where the departure is:
+///
+/// > it shall be used in place of the annotation rectangle referred to in steps 2 and 3 of
+/// > "Algorithm: appearance streams"
+///
+/// [`placement`] carries out those two steps against `/Rect` itself, so an annotation stating a
+/// fixed print dictionary is placed where the file's rectangle says and not where the clause
+/// says. **The reason §12.5.6.22's ledger row gave for that — "printing, which this program does
+/// not do" — is the clause's subject rather than its condition**, and the clause forecloses it in
+/// the paragraph above the table: "interactive PDF processors shall use the dimensions of the
+/// media box" when displaying one on-screen, and Table 194's own `/FixedPrint` row says drawing
+/// "shall be done relative to the dimensions specified by the page's MediaBox entry" wherever the
+/// target media are unknown. So the media dimensions a screen needs are stated twice over, and
+/// what is owed is the transformation rather than a printer.
+///
+/// It is *reported* rather than applied because two of the transformation's terms are not owed by
+/// the same reading: the `/Matrix` and the `/H`/`/V` translations are stated outright, and the
+/// cancellation of "a matrix B that maps a scaled and rotated page into the default user space"
+/// is stated against a media origin whose relationship to this tree's page space is a derivation
+/// nobody here has made. Drawing the mark in the wrong place is worse than naming the entry
+/// (trap 5), and `doc/todo/25` prices the rest.
+#[expect(
+    clippy::doc_markdown,
+    reason = "verbatim quotations: §12.5.6.22 and Table 194 spell FixedPrint and MediaBox without \
+              backticks, and adding them inside the quotation marks would make the conformance \
+              gate's quotation check fail"
+)]
+fn fixed_print_owed(
+    document: &Document,
+    annotation: &Dictionary,
+    subtype: &[u8],
+    name: &str,
+) -> Option<String> {
+    (subtype == b"Watermark"
+        && document
+            .get_key(annotation, "FixedPrint")
+            .as_dict()
+            .is_some())
+    .then(|| {
+        format!(
+            "{name}: /FixedPrint states a fixed size and position relative to the media, which \
+             is not applied to the appearance's placement"
+        )
+    })
 }
 
 /// Whether a rectangle covers no area, in either axis.

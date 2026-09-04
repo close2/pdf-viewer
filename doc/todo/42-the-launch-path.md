@@ -105,9 +105,32 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
+**And the figure that fails now is the one with no clock in it, which is new in the
+nine-hundred-and-thirty-third.** Everything above is about clocks, and a clock the gate can decline
+to judge; `peak_mib` cannot be declined by any probe, because contention does not lower a memory
+high-water. In session 933's full sequence — under `release`, calibrations 0.712 .. 0.720 ms, all
+inside the band, so the run *was* judging — all four rows failed together **below** their floors:
+
+| document | `peak_mib` band | this run | again, alone |
+|---|---|---|---|
+| `PDF20_AN001-BPC.pdf` | 127 .. 209 | 109.035 | 109.918 |
+| `Well-Tagged-PDF-WTPDF-1.0.pdf` | 131 .. 214 | 114.082 | 113.902 |
+| `ISO_32000-2_sponsored_EC3.pdf` | 132 .. 215 | 114.625 | 114.535 |
+| `bug1815476.pdf` | 143 .. 231 | 126.504 | 126.227 |
+
+Reproduced within a kilobyte on the second run, so it is neither noise nor a neighbour: it is the
+same *thing* `doc/checks/launch-path.toml`'s own header records — "an hour later — same tree, same
+binary, idle machine — all four rows had fallen together by about 12%. What moved is the driver's
+allocation" — happening again and landing about 13% under the floors that were widened to span it.
+**No band was moved, for the third round running**, and by a round that did not touch the launch
+path at all: the figure that would have to be re-derived is a property of the graphics driver, and
+a coverage round widening a band it did not measure is how a guard becomes a formality. What is
+owed is one derivation on an idle machine of what this driver now allocates — the same ten minutes
+`Q29`'s first option asks for, on the one figure a loaded machine could not have caused.
+
 ## The figure that failed next is not a clock at all — the nine-hundred-and-thirty-fourth
 
-**No band was moved for the third round running either**, and the machine was quieter for none of
+**No band was moved for the fourth round running either**, and the machine was quieter for none of
 it: session 934 sampled the one-minute load average every thirty seconds for seventy-five minutes —
 151 samples, **minimum 3.30, median 12.86, maximum 61.55, and 62 % of them above 10** — with three
 neighbouring rounds rather than two: 932, 933 and a 935 that appeared during the round and ran

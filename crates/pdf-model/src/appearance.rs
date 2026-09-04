@@ -52,11 +52,32 @@
 //! appearance without stating what it looks like is refused and reported, because there is
 //! nothing to derive:
 //!
-//! - `FileAttachment`, `Sound` and `Stamp` display an *icon* whose artwork no clause states.
-//!   §12.5.6.12, §12.5.6.15 and §12.5.6.16 each say a reader "**should** provide predefined
-//!   icon appearances" for the names their tables list — a recommendation, and an invention
-//!   with only a recommendation behind it is a mark the document never described.
-//! - `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no geometry of their own.
+//! - `Stamp` displays an *icon* whose artwork no clause states. §12.5.6.12 says a reader
+//!   "**should** provide predefined icon appearances" for the names its table lists — a
+//!   recommendation, and an invention with only a recommendation behind it is a mark the document
+//!   never described.
+//!
+//!   **This bullet named `FileAttachment` and `Sound` beside it, and had been false about both
+//!   since the round that drew them** — found in the nine-hundred-and-thirty-third session while
+//!   sweeping the arm below, which is `doc/habits.md`'s *a comment that names a refusal outlives
+//!   the refusal* happening a second time in this very module header (ADR 0105 was the first).
+//!   §12.5.6.15's `Graph`, `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic`
+//!   name **objects** rather than legends, so their artwork is argued from the clause's own words
+//!   and [`symbol_icon`] draws all six; what is still refused is a `/Name` outside those lists,
+//!   which is a different sentence. §12.5.6.12's names are the ones that are legends, and its arm
+//!   below says so.
+//! - `PrinterMark` and `TrapNet` are each a mark whose *whole* visual presentation the standard
+//!   makes the appearance stream: §14.11.3 and §14.11.6.2 say so in one sentence apiece and then
+//!   require `/AP` to be present. There is no second statement of the artwork to fall back on.
+//! - `3D` and `RichMedia` are the same shape inside principle 5's clause 13 exclusion: §13.6.2
+//!   and §13.7.2 each require the annotation to "provide an appearance stream in its AP entry",
+//!   and what the inactive state displays *is* that stream. Without it there is only artwork a
+//!   media engine renders.
+//! - `Movie` and `Watermark` are each refused for a reason of their own, and neither is "no
+//!   geometry" — [`construct`]'s arms carry the readings. §12.5.6.17's movie dictionary states a
+//!   poster *image* (§13.4, Table 306), which is clause 13 rather than a silence; §12.5.6.22's
+//!   Table 194 states a transformation of the annotation rectangle, which is where an appearance
+//!   goes rather than what it contains.
 //! - `Caret` is refused for a **third** reason and shared the second one's sentence until the
 //!   six-hundred-and-twenty-second session (ADR 0457). §12.5.6.11's Table 183 states geometry
 //!   and a symbol; what it does not state is the caret, and its `/RD` row says the pilcrow is
@@ -69,11 +90,22 @@
 //!   redaction: every overlay entry in that table begins after the content has been removed, and
 //!   removing it is the one edit §7.5.6's incremental update cannot express.
 //!
-//! **Six subtypes shared one sentence and it was false of two of them**, which is worth its own
-//! line because no ledger sweep can see it: a catch-all names no blocker, no missing vocabulary
-//! and no absent architecture, so it passes every sweep `doc/habits.md` lists while being wrong
-//! about whichever member is least like the rest. Both corrections came from reading the *table*
-//! of one grouped subtype against the sentence the group shares.
+//! **Six subtypes shared one sentence — "its clause states no geometry" — and it was false of
+//! every one of them that was ever read.** Four sessions took a member out of that catch-all one
+//! at a time, each having read the clause the sentence was about: §12.5.6.11's caret (ADR 0457),
+//! §12.5.6.23's redaction (ADR 0461), §12.5.6.18's screen annotation (ADR 0901), and then the
+//! nine-hundred-and-thirty-third swept the remainder rather than waiting for a fifth. No ledger
+//! sweep can see this shape: a catch-all names no blocker, no missing vocabulary and no absent
+//! architecture, so it passes every sweep `doc/habits.md` lists while being wrong about whichever
+//! member is least like the rest — and *every* member is least like the rest, because a group
+//! defined by a sentence nobody checked has no other property in common.
+//!
+//! **What the sweep leaves is a population of one, and the arm now says what is true of it.**
+//! Table 171 has twenty-eight subtypes; `Popup`, `Projection` and `Screen` are answered before
+//! this module is reached, a subtype outside Table 171 is answered by Table 167's `Invisible`
+//! row, and the twenty-five that remain each have an arm. What falls through is an annotation
+//! stating **no `/Subtype` at all**, which has no subtype clause to state anything — so the
+//! catch-all's own sentence is Table 166's requirement rather than a claim about a clause.
 //!
 //! Guessing at either would put marks on the page the document never described, which is the
 //! failure principle 5 exists to prevent.
@@ -380,7 +412,83 @@ pub(crate) fn construct(
             "its clause states the region to be removed rather than a mark to draw, and Table \
              195's overlay entries all describe the page after the content has been removed",
         )),
-        _ => Err(Refusal::NotDerivable("its clause states no geometry")),
+        // **§12.5.6.20 and §12.5.6.21 are one shape, and it is the strongest form a refusal
+        // takes here**: the clause does not merely leave the artwork unstated, it says the
+        // appearance stream *is* the artwork. §14.11.3, which §12.5.6.20 sends the reader to:
+        //
+        // > shall be defined by a form XObject specified as an appearance stream in the N
+        // > (normal) entry
+        //
+        // and §14.11.6.2 says it of a trap network in the same words. Both then require the
+        // entry — "The AP (appearances) and F (flags) entries (which is ordinarily optional)
+        // shall be present" — so a file with none has broken the clause rather than left a
+        // reader a choice, and the report names the entry rather than a silence. Table 398's
+        // `/MN` and Table 403's `/LastModified`, `/Version`, `/AnnotStates` and `/FontFauxing`
+        // state no mark: `/MN` "identif[ies] the type of printer's mark" and the other four are
+        // how a *writer* tells whether its traps are stale.
+        b"PrinterMark" | b"TrapNet" => Err(Refusal::NotDerivable(
+            "its clause makes the appearance stream the whole of the mark's visual presentation \
+             and requires /AP to be present",
+        )),
+        // **§13.6.2 and §13.7.2 are that same shape one exclusion over.** Each says "a 3D
+        // annotation shall provide an appearance stream in its AP entry" — the RichMedia
+        // sentence differs only in the subtype's name — and each then says what the annotation
+        // shows before it is activated: "Inactive (the default initial state): the annotation
+        // displays the annotation's normal appearance". So the stream is not one of two ways to
+        // draw these; it is the *only* thing a processor that does not render the artwork can
+        // show, and the artwork is clause 13, which principle 5 excludes. §12.5.6.25 is the
+        // §12.5.6 subclause that hands both over, and its ledger row is `out-of-scope`.
+        b"3D" | b"RichMedia" => Err(Refusal::NotDerivable(
+            "its clause requires the appearance stream for the annotation's inactive state, and \
+             the artwork behind it is clause 13's",
+        )),
+        // **§12.5.6.17 is not the catch-all's case, and it is the fourth subtype to be told its
+        // clause states no geometry while a clause states some.** Table 189 makes `/Movie`
+        // required — "[a] movie dictionary that shall describe the movie's static
+        // characteristics" — and §13.4's Table 306 gives that dictionary a `/Poster`, whose
+        // stream form is stated as a *shape* rather than as a frame of film:
+        //
+        // > it shall contain an image XObject (see 8.9, "Images") to be displayed as the poster
+        //
+        // An image `XObject` is something this module's caller draws on every page it opens, so
+        // what refuses it is principle 5's clause 13 exclusion and not a silence — and the two
+        // are different findings, because only the first can be revisited by argument. The
+        // boolean form is the other reading and does need the media engine: "if it is the
+        // boolean value true, the poster image shall be retrieved from the movie file". The
+        // §12.5.6.17 ledger row asserted the second of those two about both, which is why the
+        // sentence a person reads said the clause states nothing. `doc/questions/Q33` asks the
+        // owner whether the stream form comes off the exclusion list.
+        b"Movie" => Err(Refusal::NotDerivable(
+            "its clause states a poster image in §13.4's movie dictionary, which principle 5 \
+             excludes with the rest of clause 13",
+        )),
+        // **§12.5.6.22 states geometry and it is not a mark.** Table 193's `/FixedPrint` and
+        // Table 194's `/Matrix`, `/H` and `/V` describe what happens to the annotation's
+        // *rectangle*, under a sentence that is a `shall` on rendering rather than on printing —
+        // "When rendering a watermark annotation with a FixedPrint entry, the following
+        // behaviour shall occur" — ending:
+        //
+        // > it shall be used in place of the annotation rectangle referred to in steps 2 and 3
+        // > of "Algorithm: appearance streams"
+        //
+        // Steps 2 and 3 of §12.5.5 are what place a *stored* stream, so every word of it is
+        // about where an appearance goes and none of it about what an appearance contains.
+        // A watermark with no `/AP` therefore has nothing to derive, for a reason that is the
+        // opposite of a silence: the clause is entirely about the annotation this reader is not
+        // being given. What the placement side of it owes is `crate::annotation::fixed_print_owed`,
+        // which reports it on the annotations that *do* carry an appearance stream.
+        b"Watermark" => Err(Refusal::NotDerivable(
+            "its clause states where an appearance stream is placed rather than a mark to draw, \
+             and Table 194's entries all transform the annotation rectangle",
+        )),
+        // Every subtype Table 171 defines has an arm above, or was answered before this module
+        // was reached, so what is left is an annotation that states no `/Subtype` — required by
+        // Table 166, and `issue7446.pdf` is the corpus witness. It has no subtype clause, so a
+        // sentence about one would be false of the only case that can arrive here.
+        _ => Err(Refusal::NotDerivable(
+            "Table 166 makes /Subtype required and this annotation states none, so no subtype \
+             clause says what to draw",
+        )),
     };
 
     let painted = match outcome {
