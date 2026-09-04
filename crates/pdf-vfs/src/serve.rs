@@ -133,7 +133,10 @@ pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64) -> u64 {
 ///
 /// **Five steps in this order, and each is where it is for a reason the next one makes true.**
 ///
-/// 1. **Image decoding moves in-process**, because after step 4 nothing can be spawned.
+/// 1. **Image decoding moves in-process**, because after step 4 nothing can be spawned, and
+///    **the machine's fonts are declared unreachable**, because after step 4 there is no
+///    filesystem and `pdf_font::substitute` would otherwise walk `/usr/share/fonts` and be
+///    *killed* rather than told no (ADR 0870).
 /// 2. **How many processors this machine has is asked now, and mostly thrown away.**
 ///    `std::thread::available_parallelism` reads `/proc/self/cgroup` on Linux, so a confined
 ///    process asking it is *killed* rather than told no — and this is the one place it can be
@@ -151,6 +154,13 @@ pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64) -> u64 {
 /// caller that gets one must not go on to read anything: it is not confined.
 pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    // A substitute font is read off the machine, and a confined process cannot read
+    // anything: `openat` is not on the seccomp allow-list, whose action is
+    // `SECCOMP_RET_KILL_PROCESS`, so the walk over the font directories ends this
+    // process instead of returning an `Err` it is already written to shrug off. Stated
+    // here for the same reason as the two steps below — this is the last moment it can
+    // be stated at all.
+    pdf_font::substitute::no_machine_fonts();
 
     let machine = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     let threads = usize::try_from(RASTERISING_THREADS)

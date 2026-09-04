@@ -3254,6 +3254,7 @@ version = "0.1.0"
 dependencies = [
  "confined-transport",
  "libc",
+ "pdf-font",
  "pdf-model",
  "pdf-sandbox",
  "pdf-syntax",
@@ -4787,6 +4788,7 @@ version = "0.1.0"
 dependencies = [
  "confined-transport",
  "libc",
+ "pdf-font",
  "pdf-model",
  "pdf-render",
  "pdf-sandbox",

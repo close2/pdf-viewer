@@ -621,6 +621,30 @@ is wrong. The same applies to any report, listing or map whose producer is paral
 `outputs` *are* in plan order because the verb assembles them that way after the join, and the
 difference between the two vectors is exactly the kind of thing no type says out loud.
 
+### 31. A fallible filesystem call is not a *safe* filesystem call inside the confinement
+
+`pdf_font::substitute` walks `/usr/share/fonts` to stand in for a font a document names and does
+not embed, and it is written to shrug the walk off: `let Ok(entries) = std::fs::read_dir(dir) else
+{ return; };`, and `find` then answers from the compiled-in faces, because a machine with no fonts
+installed is a supported deployment. Every line of that is correct and none of it runs inside
+`Profile::Interpreter`. **`SECCOMP_RET_KILL_PROCESS` does not return an `Err`** — the `openat`
+ends the process, the `else` branch is never reached, and the mount loses the whole generation
+(the viewer, the page). Four of the first sixty documents the read side's corpus walk touched did
+this, each of them naming a CJK or Arabic face; ADR 0870.
+
+So the population to look at when a crate is linked into a confined worker is not "code that
+unwraps" or "code that can fail" — it is **code that opens**, however carefully it handles the
+failure. And the fix is never to widen the filter: a process that needs something off the disk is
+told, before the confinement, that the disk is not there, so that it takes the path it already has
+for a machine that does not have the thing. `pdf_vfs::confine` and `viewer_confined::confine` are
+where such a statement goes; both already ask `available_parallelism` and `address_space_in_use`
+there, each under a comment saying this is the last moment it can be asked.
+
+**And the probe for it is cheap, which is why there is no excuse.** A test that re-executes itself,
+confines itself exactly as the worker does, and then does the suspect thing costs one exit code and
+is calibratable against the tree without the fix (trap 13) — `unix_wait_status(159)` is signal 31,
+`SIGSYS`, and is what "it was killed" looks like from the parent.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
