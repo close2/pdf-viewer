@@ -933,6 +933,20 @@ of the page tree — 988 items over 1023 pages, `O(items × pages)`, on the path
 gate turns a page in a viewer and the specification's own PDF is in none of them — and the two
 regression tests are *ratios* against a walk the test performs itself.
 
+**And that walk was still being done once per turn, and it is the largest item in a large
+document's open** (session 925, ADR 0890). `Pages::indices` resolves every node of §7.7.3's tree;
+`Document` is immutable, so the map is a function of the file and the same map every time — held
+on `Open` now, it costs one walk for the life of the document instead of one per arrow key, and
+`announce_page` builds no `Pages` at all. On ISO 32000-2 that is 0.77 ms off every turn.
+**The open still pays it once, and that is where 41% of a 1023-page document's open goes** — more
+than §7.5's cross-reference table, which is 37%, and more than §12.3.3's outline, which is 26%.
+The three are linear in three different populations: 112 269 cross-reference entries, 1023 pages,
+988 outline items. `cargo run --release -p pdf-model --example open_cost -- <file>` prints the
+split, step by step, and `tools/state.sh launch` prints the open the gate bands. **The gates could
+not see any of this either**, which is the sentence above one round later and is why the example
+now measures `announce_page`: it is on the launch path and the example that claims to measure the
+launch path did not have it.
+
 **The GPU backend's own question is open and has a plan** (ADR 0128, session 143), **and step 2
 of that plan has been executed as a measurement and the answer is no** (ADR 0131, session 146).
 Page 6 is 5933 fills of **107 distinct outlines**, and Vello re-flattens all 5933 every frame —
