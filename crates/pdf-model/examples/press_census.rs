@@ -115,6 +115,40 @@ fn sampling_gap(profile: &pdf_model::icc::Profile, side: usize) -> f32 {
     sampling_gap_in(profile, side, false)
 }
 
+/// How closely `pdf_model::colour`'s sampled `Y` reproduces the profile's own, and what
+/// sampling it costs (ISO 32000-2 §11.5.3; ADR 0857).
+///
+/// §11.5.3 sends a `/Luminosity` mask group in a four-component `ICCBased` space down its
+/// colorimetric branch — "convert to the CIE 1931 XYZ space and use the Y component as the
+/// luminosity" — and that `Y` is one function of all four composited components. `Press`
+/// samples it on the same `PRESS_SIDE` grid the conversion out already uses, so the number
+/// this prints is the same kind [`sampling_gap`] prints one quantity over: the worst
+/// difference, in levels of 255, between interpolating the grid and evaluating the profile,
+/// over the same 20 000 ink quadruples.
+///
+/// The wall clock beside it is what decides where the grid is built. It is behind a
+/// `OnceLock` on the press rather than inside `sample_press`, because almost every press a
+/// document names is a page's and never carries a mask.
+fn luminance_gap(profile: &pdf_model::icc::Profile) -> Option<(f32, std::time::Duration)> {
+    let press = pdf_model::colour::press_for_profile(profile)?;
+    let started = std::time::Instant::now();
+    let luminance = press.luminance()?;
+    let cost = started.elapsed();
+    let mut worst = 0.0f32;
+    for step in 0..20_000usize {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a residue below 101, exact in f32"
+        )]
+        let axis = |factor: usize| (step.saturating_mul(factor) % 101) as f32 / 100.0;
+        let inks = [axis(7), axis(13), axis(29), axis(47)];
+        // The clause's own `Y`, with no black point compensation, which is what the grid holds.
+        let direct = profile.to_xyz_with(&inks, false)[1];
+        worst = worst.max((luminance.of(&inks) - direct).abs() * 255.0);
+    }
+    Some((worst, cost))
+}
+
 /// sRGB's own transfer function and its inverse, IEC 61966-2-1's.
 fn decode_srgb(value: f32) -> f32 {
     if value <= 0.040_45 {
@@ -210,8 +244,16 @@ fn main() {
     let mut presses: BTreeSet<u128> = BTreeSet::new();
     let mut gaps: Vec<(String, f32, f32, f32)> = Vec::new();
     let sampling = std::env::args().any(|argument| argument == "--sample");
+    // §11.5.3's `Y` over the same four axes, which is a different quantity sampled off the
+    // same grid points and so a different gap. Its own flag, because a round asking what the
+    // mask costs is not asking what the page's colours cost.
+    let mut luminances: Vec<(String, f32, std::time::Duration)> = Vec::new();
+    let luminance = std::env::args().any(|argument| argument == "--luminance");
 
-    for path in std::env::args().skip(1).filter(|name| name != "--sample") {
+    for path in std::env::args()
+        .skip(1)
+        .filter(|name| name != "--sample" && name != "--luminance")
+    {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
@@ -268,6 +310,15 @@ fn main() {
                 sampling_gap_in(&profile, 17, true),
             ));
         }
+        if luminance
+            && let Some(profile) = profile
+                .as_ref()
+                .and_then(|facts| pdf_model::icc::Profile::parse(&facts.data))
+            && profile.channels() == 4
+            && let Some((gap, cost)) = luminance_gap(&profile)
+        {
+            luminances.push((name.clone(), gap, cost));
+        }
         lines.push(format!(
             "  {name}: {} | {}",
             describe(&press),
@@ -314,6 +365,20 @@ fn main() {
                 "  sampled {name}: sRGB 9 {nine:.2}, sRGB 17 {seventeen:.2}, \
                  linear 17 {thirty_three:.2}"
             );
+        }
+    }
+    if luminance {
+        let worst = luminances
+            .iter()
+            .fold(0.0f32, |held, row| if row.1 > held { row.1 } else { held });
+        let slowest = luminances.iter().map(|row| row.2).max().unwrap_or_default();
+        println!(
+            "  {} press(es) asked for §11.5.3's Y: worst gap {worst:.2} of 255, slowest \
+             sampling {slowest:?}",
+            luminances.len()
+        );
+        for (name, gap, cost) in &luminances {
+            println!("  luminance {name}: gap {gap:.2} of 255, sampled in {cost:?}");
         }
     }
     let stated: usize = rows
