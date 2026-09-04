@@ -956,6 +956,16 @@ fn what_a_drag_selects_agrees_with_poppler_and_with_the_page() {
         "extraction cache: {} hits, {} misses, {} remembered timeouts",
         stats.hits, stats.misses, stats.remembered_timeouts
     );
+    // The cost floor, on `pdfref::Runs`'s rules and for its reason: the line above counts
+    // lookups, this one counts `pdftotext` actually being spawned, and a page extracted twice
+    // in one census is work done to answer a question already answered. ADR 0898.
+    let runs = cache.runs();
+    println!("extractors: {runs}");
+    assert!(
+        runs.holds(),
+        "an extractor ran again for a page the cache had kept: {runs}, repeated: {:?}",
+        cache.repeated_keys()
+    );
 
     assert!(
         census.panicked.is_empty(),

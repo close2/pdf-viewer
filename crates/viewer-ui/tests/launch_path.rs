@@ -275,6 +275,16 @@ fn document_of_the_child() -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Prints a phase's own fields with [`calibration_fields`]'s two after them.
+///
+/// Every phase but `calibrate` says it this way, so that a figure and the state of the machine
+/// that produced it arrive on one line and cannot be paired wrongly by the parent.
+fn measured_beside_the_machine(fields: &[(&str, String)]) {
+    let mut all: Vec<(&str, String)> = fields.to_vec();
+    all.extend(calibration_fields());
+    measured(&all);
+}
+
 /// Prints one `key=value` line, which is the only thing a child says.
 ///
 /// **The leading newline is load-bearing.** libtest prints `test launch_probe ... ` without one
@@ -311,12 +321,11 @@ fn phase_open() {
         (Some(after), Some(before)) => Some(after.saturating_sub(before)),
         _ => None,
     };
-    measured(&[
+    measured_beside_the_machine(&[
         ("open_ms", format!("{elapsed:.3}")),
         ("pages", pages.to_string()),
         ("read_bytes", or_absent(read)),
         ("peak_kib", or_absent(peak_resident_kib())),
-        calibration_field(),
     ]);
 }
 
@@ -340,11 +349,10 @@ fn phase_bring_up() {
             std::process::exit(1);
         }
     };
-    measured(&[
+    measured_beside_the_machine(&[
         ("bring_up_ms", format!("{elapsed:.3}")),
         ("adapter", adapter),
         ("peak_kib", or_absent(peak_resident_kib())),
-        calibration_field(),
     ]);
 }
 
@@ -389,7 +397,7 @@ fn phase_first_page() {
         (Some(after), Some(before)) => Some(after.saturating_sub(before)),
         _ => None,
     };
-    measured(&[
+    measured_beside_the_machine(&[
         ("first_page_ms", format!("{elapsed:.3}")),
         ("device_ms", format!("{device:.3}")),
         ("joined_ms", format!("{joined:.3}")),
@@ -398,7 +406,6 @@ fn phase_first_page() {
         ("pixels", pixels.to_string()),
         ("read_bytes", or_absent(read)),
         ("peak_kib", or_absent(peak_resident_kib())),
-        calibration_field(),
     ]);
 }
 
@@ -450,29 +457,43 @@ fn phase_page_turn() {
     }
     let slowest = turns.iter().copied().fold(0.0_f64, f64::max);
     let quickest = turns.iter().copied().fold(f64::INFINITY, f64::min);
-    measured(&[
+    measured_beside_the_machine(&[
         ("turn_ms", format!("{quickest:.3}")),
         ("slowest_turn_ms", format!("{slowest:.3}")),
         ("turns", turns.len().to_string()),
         ("pages", pages.to_string()),
         ("commands", commands.to_string()),
         ("peak_kib", or_absent(peak_resident_kib())),
-        calibration_field(),
     ]);
 }
 
 /// **Phase `calibrate`**: is this machine the machine the bands were taken on, and is it busy?
 ///
 /// A fixed, serial, in-memory piece of this tree's own work — the smallest document opened from
-/// bytes already in memory and its first page interpreted, the quickest of
-/// [`CALIBRATION_PASSES`]. No file is read after the first, no device is created and no
-/// subprocess is spawned, so what moves it is the processor this run got: a core class, or a
-/// neighbour.
+/// bytes already in memory and its first page interpreted, [`CALIBRATION_PASSES`] times. No file
+/// is read after the first, no device is created and no subprocess is spawned, so what moves it
+/// is the processor this run got: a core class, or a neighbour.
 ///
 /// **A child rather than the parent's own work**, so that it is drawn from the same lottery as
 /// every figure it stands guard over — same pinning, same fresh process, same minimum over
 /// [`SAMPLES`] of them.
-fn calibration_pass() -> (f64, usize) {
+///
+/// **Two numbers come back, and the second exists because the first cannot see what the figures
+/// see.** The quickest of fifty passes is the machine's *identity* — its spread over sixteen
+/// consecutive quiet runs is under a percent, which is what makes it able to say "this is that
+/// processor". It is a poor answer to the other half of the question this probe is asked, *and
+/// is it busy*, because by pass fifty the allocator, the caches, the branch predictors and the
+/// core's own clock have all been warmed by the forty-nine before it — while **every figure this
+/// gate judges is one first pass in a fresh process**. Session 931 measured the gap: over twelve
+/// consecutive runs the fifty-pass minimum moved 1.3% (0.703 to 0.749 ms) while the figures it
+/// guards moved by factors of two — a five-page document's *warm* open, which has no disk in it
+/// at all, read 0.45 ms in nine runs and 1.01 in another, with the probe at 0.705 in both. So the
+/// first pass is reported beside it, and it is the one made of the same stuff as a figure.
+///
+/// It is **printed and not judged** — `doc/todo/05`'s rule for a new figure — because a band for
+/// it has to be derived on a quiet machine and this round had none. `doc/todo/42` says what that
+/// derivation is.
+fn calibration_pass() -> (f64, f64, usize) {
     let Ok(path) = std::env::var(CALIBRATION_PATH) else {
         println!("failed no {CALIBRATION_PATH}");
         std::process::exit(1);
@@ -483,8 +504,9 @@ fn calibration_pass() -> (f64, usize) {
         std::process::exit(1);
     };
     let mut quickest = f64::INFINITY;
+    let mut first = f64::INFINITY;
     let mut commands = 0;
-    for _ in 0..CALIBRATION_PASSES {
+    for pass in 0..CALIBRATION_PASSES {
         let began = Instant::now();
         let Ok(opened) = pdf_syntax::Document::open(bytes.clone()) else {
             println!("failed the calibration document does not open");
@@ -499,15 +521,18 @@ fn calibration_pass() -> (f64, usize) {
         let elapsed = ms(began);
         commands = interpreted.display_list.command_count();
         quickest = quickest.min(elapsed);
+        if pass == 0 {
+            first = elapsed;
+        }
     }
     if commands == 0 {
         println!("failed the calibration document's first page draws nothing");
         std::process::exit(1);
     }
-    (quickest, commands)
+    (quickest, first, commands)
 }
 
-/// The calibration this child measured, as a field to print beside its figure.
+/// The calibration this child measured, as the two fields to print beside its figure.
 ///
 /// **Every child runs it, after its own phase, and that pairing is the point.** A calibration
 /// taken once by the parent says what the machine was like when the run began; a figure taken
@@ -518,9 +543,16 @@ fn calibration_pass() -> (f64, usize) {
 ///
 /// After the phase rather than before it, because before it would warm the allocator and the page
 /// cache of a document one of the rows is measured on.
-fn calibration_field() -> (&'static str, String) {
-    let (quickest, _) = calibration_pass();
-    ("calibration_ms", format!("{quickest:.3}"))
+///
+/// Both of [`calibration_pass`]'s numbers go out, because a figure that is declined should be able
+/// to say which probe declined it and what that probe read — which this gate could not say, and
+/// which is why `doc/todo/42` carried three hypotheses for a round to separate rather than one.
+fn calibration_fields() -> [(&'static str, String); 2] {
+    let (quickest, first, _) = calibration_pass();
+    [
+        ("calibration_ms", format!("{quickest:.3}")),
+        ("calibration_first_ms", format!("{first:.3}")),
+    ]
 }
 
 /// The one test a child runs: a no-op in the parent's own run, one phase in a child's.
@@ -536,9 +568,10 @@ fn launch_probe() {
     };
     match phase.as_str() {
         "calibrate" => {
-            let (quickest, commands) = calibration_pass();
+            let (quickest, first, commands) = calibration_pass();
             measured(&[
                 ("calibration_ms", format!("{quickest:.3}")),
+                ("calibration_first_ms", format!("{first:.3}")),
                 ("commands", commands.to_string()),
             ]);
         }
@@ -642,6 +675,14 @@ struct Check {
     calibration_document: String,
     /// The band the calibration probe must land in for anything below to be judged.
     calibration_ms: Option<Band>,
+    /// The band the *first pass* of that same work must land in, where the file states one.
+    ///
+    /// **`None` is the file saying nothing, and then nothing is judged on it** — which is where
+    /// this stands since session 931 added the measurement: the quantity is the one every figure
+    /// is made of (see [`calibration_pass`]), the band for it has to be derived on a quiet
+    /// machine, and that round had none. The code is here so that deriving it is an edit to the
+    /// check file rather than to this harness. ADR 0903, `doc/questions/Q29`.
+    calibration_first_ms: Option<Band>,
     /// The band on a cold graphics bring-up, which principle 2 makes a gate of its own.
     bring_up_ms: Option<Band>,
     /// The band a cold read of [`IO_PROBE_BYTES`] must land in for a *cold* figure to be judged.
@@ -794,6 +835,7 @@ fn parse(text: &str) -> Result<Check, String> {
             "profile" => check.profile = quoted()?,
             "calibration_document" => check.calibration_document = quoted()?,
             "calibration_ms" => check.calibration_ms = band(value, at)?.band(),
+            "calibration_first_ms" => check.calibration_first_ms = band(value, at)?.band(),
             "bring_up_ms" => check.bring_up_ms = band(value, at)?.band(),
             "io_ms" => check.io_ms = band(value, at)?.band(),
             other => return Err(format!("line {at} states an unknown key `{other}`")),
@@ -1132,6 +1174,63 @@ struct Judged {
     /// `None` for every figure but the cold open, which is the only one with a disk in it; a
     /// figure with no `io_ms` is not held to the disk's band. See [`cold_read_ms`].
     io: Option<f64>,
+    /// What one *first* pass of the calibration work cost in that same child.
+    ///
+    /// **Printed and not judged**, which is `doc/todo/05`'s rule for a figure whose band has not
+    /// been derived yet. It is here because it is the quantity every figure above is made of —
+    /// one pass, once, in a process that has not done it before — where [`Self::calibration`] is
+    /// the best of fifty in a warmed one. See [`calibration_pass`] and `doc/todo/42`.
+    calibration_first: Option<f64>,
+}
+
+/// Which of a figure's three conditions failed, in the order they are asked.
+///
+/// An enumeration rather than three flags, because three booleans in a signature is a place to
+/// pass the wrong one — and because the *order* is the answer: a run that is not judging at all
+/// says nothing about the disk.
+#[derive(Clone, Copy)]
+enum Declined {
+    /// The whole run declined — a profile, a sample override, or the headline probe.
+    TheRun,
+    /// The child that produced this figure was not on the machine's own clock.
+    ItsProbe,
+    /// That child's *first* pass of the same work was outside its band.
+    ItsFirstPass,
+    /// The disk was outside its band when this figure's sample was prepared.
+    TheDisk,
+    /// Nothing declined it — the figure was judged, and these are the readings beside it.
+    Nothing,
+}
+
+/// Why one figure was not judged, in the words of the probe that declined it.
+///
+/// **A gate that declines has to say what declined it.** Session 926 read four runs of this gate
+/// in which one cold open was outside its band, could not tell a figure the processor declined
+/// from one the disk declined, and wrote three hypotheses into `doc/todo/42` for a later round to
+/// separate. The reading each probe took goes out beside the reason, because the reason alone
+/// does not say by how much.
+fn why_not(declined: Declined, figure: &Judged) -> String {
+    let reading = |what: &str, value: Option<f64>| match value {
+        Some(value) => format!("{what} {value:.3} ms"),
+        None => format!("{what} not reported"),
+    };
+    let machine = format!(
+        "{}, {}, {}",
+        reading("this child's calibration", figure.calibration),
+        reading("its first pass", figure.calibration_first),
+        reading("the disk", figure.io)
+    );
+    let said = match declined {
+        Declined::TheRun => "the run is not judging at all",
+        Declined::ItsProbe => "the child that produced it was not on the machine's own clock",
+        Declined::ItsFirstPass => {
+            "the child's first pass of that same work was outside its band, so the machine was \
+             busy in the way a figure feels and the fifty-pass minimum cannot see"
+        }
+        Declined::TheDisk => "the disk was outside its band when this sample was prepared",
+        Declined::Nothing => return machine,
+    };
+    format!("{said} — {machine}")
 }
 
 /// Remembers a figure against the band its row states, and nothing where the row states `none`.
@@ -1154,6 +1253,7 @@ fn band_it(
                 steady,
                 calibration: field(fields, "calibration_ms"),
                 io: field(fields, "io_ms"),
+                calibration_first: field(fields, "calibration_first_ms"),
             },
         ));
     }
@@ -1233,6 +1333,22 @@ fn the_launch_path_stays_inside_its_bands() {
             |band| format!("{:.3} .. {:.3}", band.low, band.high)
         )
     );
+    // The same fixed work measured the way every figure below is measured — once, in a process
+    // that has not done it before. Printed and not judged; `doc/todo/42` says what deriving a
+    // band for it needs and why this round could not.
+    match quickest(
+        "calibrate",
+        "calibration_first_ms",
+        Some(&calibration_document),
+        samples,
+        &mut || Ok(Vec::new()),
+    ) {
+        Ok((first, _)) => println!(
+            "launch-path: the same work as one first pass {first:.3} ms, no band — the quantity \
+             every figure below is made of"
+        ),
+        Err(complaint) => println!("launch-path: no first-pass calibration: {complaint}"),
+    }
 
     let judging = machine_is_the_machine && sampling_is_the_file_s && profile == check.profile;
     if !judging {
@@ -1483,17 +1599,53 @@ fn the_launch_path_stays_inside_its_bands() {
         // whatever the machine is doing; every other one is judged only where the process that
         // produced it says the machine was the machine — see [`Judged::steady`] and
         // [`calibration_field`].
-        let machine_was_right = calibration_band
-            .is_some_and(|band| figure.calibration.is_some_and(|its| band.holds(its)))
-            && check
-                .io_ms
-                .is_none_or(|band| figure.io.is_none_or(|its| band.holds(its)));
+        let probe_held = calibration_band
+            .is_some_and(|band| figure.calibration.is_some_and(|its| band.holds(its)));
+        let first_held = check
+            .calibration_first_ms
+            .is_none_or(|band| figure.calibration_first.is_none_or(|its| band.holds(its)));
+        let disk_held = check
+            .io_ms
+            .is_none_or(|band| figure.io.is_none_or(|its| band.holds(its)));
+        let machine_was_right = probe_held && first_held && disk_held;
         if !(figure.steady || (judging && machine_was_right)) {
             unjudged = unjudged.saturating_add(1);
+            let declined = if judging {
+                if probe_held {
+                    if first_held {
+                        Declined::TheDisk
+                    } else {
+                        Declined::ItsFirstPass
+                    }
+                } else {
+                    Declined::ItsProbe
+                }
+            } else {
+                Declined::TheRun
+            };
+            // **Which probe declined it, and what it read.** Session 926 had four runs of this
+            // gate and no way to tell a figure declined by the processor from one declined by
+            // the disk, which is most of why `doc/todo/42` carried three hypotheses instead of a
+            // finding. One line answers it.
+            println!(
+                "launch-path:   ({what}) not judged: {}",
+                why_not(declined, figure)
+            );
         }
         if !held && (figure.steady || (judging && machine_was_right)) {
+            // **A complaint carries the machine's readings too, and not only a declined figure
+            // does.** Session 931 read twenty-six runs of this gate in which eight figures failed
+            // and could not ask what their children's probes had said, because only the declined
+            // ones printed any — so the question "would a tighter guard have declined this
+            // instead of failing it" had no answer in the output. A figure with no clock in it
+            // says so rather than printing three dashes.
+            let machine = if figure.steady {
+                "no clock in this figure".to_owned()
+            } else {
+                why_not(Declined::Nothing, figure)
+            };
             complaints.push(format!(
-                "{what} is {:.3}, outside {} {:.3} .. {:.3}",
+                "{what} is {:.3}, outside {} {:.3} .. {:.3} ({machine})",
                 figure.value, figure.key, figure.band.low, figure.band.high
             ));
         } else if !held {

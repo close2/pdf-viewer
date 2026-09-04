@@ -338,32 +338,47 @@ pub struct ExtractionCache {
     hits: AtomicU64,
     misses: AtomicU64,
     remembered_timeouts: AtomicU64,
+    /// **The cost instrument**, on [`crate::cache::Runs`]'s rules and for its reasons: the
+    /// keys an extractor has actually been *run* for, so that a second run of one is counted
+    /// rather than inferred from a lookup tally that a bypass never touches.
+    ran: Mutex<std::collections::HashSet<String>>,
+    /// How many times an extractor was run.
+    runs: AtomicU64,
+    /// How many of those were for a key this run had already run.
+    repeated: AtomicU64,
+    /// The keys [`Self::repeated`] counted, each named once.
+    repeats: Mutex<std::collections::HashSet<String>>,
+    /// How many runs produced something the cache did not keep.
+    unstored: AtomicU64,
 }
 
 impl ExtractionCache {
     /// A cache stored under `root`.
     #[must_use]
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Self {
-            root: Some(root.into()),
-            documents: Mutex::new(std::collections::HashMap::new()),
-            identities: Mutex::new(std::collections::HashMap::new()),
-            hits: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
-            remembered_timeouts: AtomicU64::new(0),
-        }
+        Self::with_root(Some(root.into()))
     }
 
     /// A cache that stores nothing and answers nothing, for a run that must not be cached.
     #[must_use]
     pub fn disabled() -> Self {
+        Self::with_root(None)
+    }
+
+    /// The two constructors above, which differ in one field and are otherwise one thing.
+    fn with_root(root: Option<PathBuf>) -> Self {
         Self {
-            root: None,
+            root,
             documents: Mutex::new(std::collections::HashMap::new()),
             identities: Mutex::new(std::collections::HashMap::new()),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             remembered_timeouts: AtomicU64::new(0),
+            ran: Mutex::new(std::collections::HashSet::new()),
+            runs: AtomicU64::new(0),
+            repeated: AtomicU64::new(0),
+            repeats: Mutex::new(std::collections::HashSet::new()),
+            unstored: AtomicU64::new(0),
         }
     }
 
@@ -374,6 +389,45 @@ impl ExtractionCache {
             hits: self.hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
             remembered_timeouts: self.remembered_timeouts.load(Ordering::Relaxed),
+        }
+    }
+
+    /// What the **extractors** did so far, which is what a cost floor is built on.
+    ///
+    /// [`crate::cache::Runs`] states the invariant and why it is sound with no clock in it; the
+    /// mechanism here is the same one, one program along.
+    #[must_use]
+    pub fn runs(&self) -> crate::cache::Runs {
+        crate::cache::Runs {
+            ran: self.runs.load(Ordering::Relaxed),
+            repeated: self.repeated.load(Ordering::Relaxed),
+            unstored: self.unstored.load(Ordering::Relaxed),
+        }
+    }
+
+    /// What [`crate::cache::Runs::repeated`] counted, said rather than totalled.
+    #[must_use]
+    pub fn repeated_keys(&self) -> Vec<String> {
+        self.repeats
+            .lock()
+            .map(|held| {
+                let mut named: Vec<String> = held.iter().cloned().collect();
+                named.sort();
+                named
+            })
+            .unwrap_or_default()
+    }
+
+    /// Records that an extractor is about to be run for `key`, counting a second run of one.
+    fn record_run(&self, key: &str) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut ran) = self.ran.lock()
+            && !ran.insert(key.to_owned())
+        {
+            self.repeated.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut repeats) = self.repeats.lock() {
+                repeats.insert(key.to_owned());
+            }
         }
     }
 
@@ -390,7 +444,12 @@ impl ExtractionCache {
         page: u32,
         work_dir: &Path,
     ) -> Result<String, ExtractionError> {
+        let key = format!("{}:{}:{page}", extractor.name(), pdf.display());
         let Some(entry) = self.entry_for(extractor, pdf, page) else {
+            // Nothing can be stored, so the next question about this page runs the extractor
+            // again; that is what [`crate::cache::Runs::unstored`] is the ceiling for.
+            self.record_run(&key);
+            self.unstored.fetch_add(1, Ordering::Relaxed);
             return extractor.extract(pdf, page, work_dir);
         };
 
@@ -403,8 +462,11 @@ impl ExtractionCache {
         }
         self.misses.fetch_add(1, Ordering::Relaxed);
 
+        self.record_run(&key);
         let produced = extractor.extract(pdf, page, work_dir);
-        write_entry(&entry, &produced);
+        if !write_entry(&entry, &produced) {
+            self.unstored.fetch_add(1, Ordering::Relaxed);
+        }
         produced
     }
 
@@ -497,12 +559,16 @@ fn read_timeout(entry: &Path, extractor: Extractor) -> Option<Result<String, Ext
 /// its warrant; a missing extractor not at all, because that is a fact about the machine.
 /// Every write goes to a temporary name and is renamed into place, and errors are ignored
 /// throughout: a cache that cannot write is a cache that is slow, not a gate that is wrong.
-fn write_entry(entry: &Path, produced: &Result<String, ExtractionError>) {
+///
+/// Answers **whether anything was stored**, on [`crate::cache::write_entry`]'s rule and for its
+/// reason: every early return here is an extractor that will be run again for this page, and
+/// [`crate::cache::Runs::unstored`] is what counts them.
+fn write_entry(entry: &Path, produced: &Result<String, ExtractionError>) -> bool {
     let Some(parent) = entry.parent() else {
-        return;
+        return false;
     };
     if std::fs::create_dir_all(parent).is_err() {
-        return;
+        return false;
     }
 
     let (extension, contents) = match produced {
@@ -514,7 +580,7 @@ fn write_entry(entry: &Path, produced: &Result<String, ExtractionError>) {
                 .unwrap_or(u64::MAX)
                 .to_string(),
         ),
-        Err(ExtractionError::Missing { .. }) => return,
+        Err(ExtractionError::Missing { .. }) => return false,
     };
 
     let temporary = entry.with_extension(format!(
@@ -523,9 +589,10 @@ fn write_entry(entry: &Path, produced: &Result<String, ExtractionError>) {
         NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed)
     ));
     if std::fs::write(&temporary, contents).is_ok() {
-        let _ = std::fs::rename(&temporary, entry.with_extension(extension));
+        std::fs::rename(&temporary, entry.with_extension(extension)).is_ok()
     } else {
         let _ = std::fs::remove_file(&temporary);
+        false
     }
 }
 

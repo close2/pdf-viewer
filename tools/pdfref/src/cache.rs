@@ -88,7 +88,7 @@
 //! `PDFREF_CACHE=off`, so the whole 1794-page run can be made to ask the renderers again and
 //! its numbers compared against a cached run's.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -133,6 +133,81 @@ pub struct Cache {
     hits: AtomicU64,
     misses: AtomicU64,
     remembered_timeouts: AtomicU64,
+    /// **The cost instrument.** Every key a reference renderer has actually been *run* for,
+    /// each named once, so that a second run of the same one is counted rather than inferred.
+    ///
+    /// [`Statistics`] answers what the cache did; this answers what the expensive thing did,
+    /// and trap 33's rule is that those are different questions — a lookup that never reaches
+    /// the cache at all moves neither `hits` nor `misses` and spawns a program regardless.
+    /// The key is the run's own identity rather than the entry path, because the uncached
+    /// fall-through has no entry path and is exactly the case a floor needs to see.
+    ran: Mutex<HashSet<String>>,
+    /// How many times a renderer was run, of every shape.
+    runs: AtomicU64,
+    /// How many of those were for a key this run had already run.
+    repeated: AtomicU64,
+    /// How many runs produced something the cache did not keep.
+    unstored: AtomicU64,
+    /// The keys [`Self::repeated`] counted, each named once, so a failing gate can say which.
+    repeats: Mutex<HashSet<String>>,
+}
+
+/// What the reference renderers did over a run, which is not what the cache did.
+///
+/// [`Statistics`] counts lookups; this counts **invocations of another program**, which is the
+/// expensive call this cache exists to avoid and the only quantity a cost floor can be built
+/// on. The two differ wherever a lookup does not reach the cache — a document that cannot be
+/// hashed, a renderer that cannot be identified, `PDFREF_CACHE=off` — and that difference is
+/// the class of defect `hits`/`misses` are blind to.
+///
+/// # The invariant
+///
+/// **A reference renderer runs at most once per key per run, and the only thing that may make it
+/// run again is the cache not having kept what it produced.** Stated without quotation marks
+/// deliberately: it is this tree's rule about its own harness rather than a sentence of ISO
+/// 32000-2's, and a blockquote here would claim a clause it does not have.
+///
+/// `repeated <= unstored`, and it is sound by construction rather than by measurement: between
+/// two runs for one key the first run's outcome must have been unreadable from the cache, and
+/// every way of that happening — nothing storable, [`write_entry`] storing nothing — increments
+/// [`Self::unstored`]. So the ceiling can only be too generous, and a repeat above it is a
+/// renderer spawned to answer a question that was already answered. There is no clock in either
+/// side, so a neighbouring round's load cannot move it (ADR 0894).
+///
+/// The one thing that fails it without a defect of *ours* is two threads missing on one key at
+/// the same instant; that is duplicated work either way, and the corpus walks measure it at
+/// zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Runs {
+    /// How many times a reference renderer was run.
+    pub ran: u64,
+    /// How many of those runs were for a key this run had already run.
+    pub repeated: u64,
+    /// How many runs produced something the cache did not keep, which is the ceiling
+    /// [`Self::repeated`] is honestly allowed.
+    pub unstored: u64,
+}
+
+impl Runs {
+    /// Whether the invariant [`Runs`] states holds.
+    ///
+    /// A method rather than a comparison written out at each gate, because the direction of an
+    /// inequality is the kind of thing that gets copied backwards — and because a gate that
+    /// asks this by name is a gate whose reader can find the argument for it.
+    #[must_use]
+    pub fn holds(self) -> bool {
+        self.repeated <= self.unstored
+    }
+}
+
+impl std::fmt::Display for Runs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} run, {} of them repeated, {} kept nowhere",
+            self.ran, self.repeated, self.unstored
+        )
+    }
 }
 
 /// What the cache did over a run, for the report that says where the time went.
@@ -176,26 +251,29 @@ impl Cache {
     /// [`crate::reference::default_work_dir`] leaves that to whoever knows better.
     #[must_use]
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Self {
-            root: Some(root.into()),
-            documents: Mutex::new(HashMap::new()),
-            identities: Mutex::new(HashMap::new()),
-            hits: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
-            remembered_timeouts: AtomicU64::new(0),
-        }
+        Self::with_root(Some(root.into()))
     }
 
     /// A cache that stores nothing and answers nothing, for a run that must not be cached.
     #[must_use]
     pub fn disabled() -> Self {
+        Self::with_root(None)
+    }
+
+    /// The two constructors above, which differ in one field and are otherwise one thing.
+    fn with_root(root: Option<PathBuf>) -> Self {
         Self {
-            root: None,
+            root,
             documents: Mutex::new(HashMap::new()),
             identities: Mutex::new(HashMap::new()),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             remembered_timeouts: AtomicU64::new(0),
+            ran: Mutex::new(HashSet::new()),
+            runs: AtomicU64::new(0),
+            repeated: AtomicU64::new(0),
+            unstored: AtomicU64::new(0),
+            repeats: Mutex::new(HashSet::new()),
         }
     }
 
@@ -221,6 +299,51 @@ impl Cache {
         }
     }
 
+    /// What the **renderers** did so far, which is what a cost floor is built on.
+    ///
+    /// See [`Runs`] for the invariant and why it is sound without a clock in it.
+    #[must_use]
+    pub fn runs(&self) -> Runs {
+        Runs {
+            ran: self.runs.load(Ordering::Relaxed),
+            repeated: self.repeated.load(Ordering::Relaxed),
+            unstored: self.unstored.load(Ordering::Relaxed),
+        }
+    }
+
+    /// What [`Runs::repeated`] counted, said rather than totalled.
+    ///
+    /// A gate that fails on a count is a gate somebody then has to reproduce, so the keys are
+    /// kept as well as tallied — the same reason `pdf_vfs::Vfs::repeated_subjects` exists.
+    /// Only the keys run more than once are named; the set is otherwise the whole run.
+    #[must_use]
+    pub fn repeated_keys(&self) -> Vec<String> {
+        self.repeats
+            .lock()
+            .map(|held| {
+                let mut named: Vec<String> = held.iter().cloned().collect();
+                named.sort();
+                named
+            })
+            .unwrap_or_default()
+    }
+
+    /// Records that a renderer is about to be run for `key`, counting a second run of one.
+    ///
+    /// Called immediately before the spawn rather than after it, so that two threads arriving
+    /// at one key cannot both believe they are the first.
+    fn record_run(&self, key: &str) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut ran) = self.ran.lock()
+            && !ran.insert(key.to_owned())
+        {
+            self.repeated.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut repeats) = self.repeats.lock() {
+                repeats.insert(key.to_owned());
+            }
+        }
+    }
+
     /// Empties the cache.
     ///
     /// The escape hatch for the one variable the key cannot see: a renderer whose output
@@ -230,6 +353,13 @@ impl Cache {
     ///
     /// Whatever removing the directory produced.
     pub fn clear(&self) -> std::io::Result<()> {
+        // The keys run so far go with the entries. A run after a deliberate wipe is a run the
+        // cache can no longer answer, so counting it as a repeat would fail [`Runs::holds`] on
+        // an act the caller asked for — the same reasoning as [`Runs::unstored`]'s, one level
+        // coarser. The tallies themselves are kept: they are what happened.
+        if let Ok(mut ran) = self.ran.lock() {
+            ran.clear();
+        }
         match &self.root {
             Some(root) if root.exists() => std::fs::remove_dir_all(root),
             _ => Ok(()),
@@ -257,7 +387,14 @@ impl Cache {
         dpi: u32,
         work_dir: &Path,
     ) -> Result<Raster, HarnessError> {
+        let key = run_key(reference, pdf, page, dpi);
         let Some(entry) = self.entry_for(reference, pdf, page, dpi, work_dir) else {
+            // Nothing can be stored, so this run is remembered nowhere and the next question
+            // about the same page will spawn the renderer again. That is what [`Runs::unstored`]
+            // is the ceiling *for*, and counting it here is why the floor sees a lookup that
+            // never reached the cache at all.
+            self.record_run(&key);
+            self.unstored.fetch_add(1, Ordering::Relaxed);
             return reference.render(pdf, page, dpi, work_dir);
         };
 
@@ -270,8 +407,11 @@ impl Cache {
         }
         self.misses.fetch_add(1, Ordering::Relaxed);
 
+        self.record_run(&key);
         let produced = reference.render(pdf, page, dpi, work_dir);
-        write_entry(&entry, reference, work_dir, &produced);
+        if !write_entry(&entry, reference, work_dir, &produced) {
+            self.unstored.fetch_add(1, Ordering::Relaxed);
+        }
         produced
     }
 
@@ -379,6 +519,16 @@ const FAILURE: &str = "err";
 /// [`TIMEOUT_MEMORY`], and the file's own modification time is what says how old it is.
 const TIMEOUT: &str = "slow";
 
+/// What one invocation of a renderer *is*, for [`Runs`]'s tally.
+///
+/// Not the cache key: that one is a digest of the document's bytes and the renderer's version,
+/// and it cannot be computed on the path where nothing can be stored — which is precisely the
+/// path a cost floor most needs to count. Within one run a file does not change underneath the
+/// gate, which is the assumption [`Cache::document_digest`] already memoises on.
+fn run_key(reference: Reference, pdf: &Path, page: u32, dpi: u32) -> String {
+    format!("{}:{}:{page}:{dpi}", reference.name(), pdf.display())
+}
+
 /// Reads a stored render, or `None` if there is not one.
 ///
 /// A stored entry that cannot be decoded is treated as absent rather than as an error: a
@@ -451,17 +601,22 @@ fn read_timeout(entry: &Path, reference: Reference) -> Option<Result<Raster, Har
 /// Every write goes to a temporary name and is renamed into place, so that a run killed
 /// mid-write cannot leave a truncated PNG for the next run to trust. Errors are ignored
 /// throughout: a cache that cannot write is a cache that is slow, not a gate that is wrong.
+///
+/// Answers **whether anything was stored**, which is what [`Runs::unstored`] counts and is the
+/// ceiling the cost floor holds repeats to. Every early return here is a renderer that will be
+/// run again for this page, and a caller that could not tell those apart from a stored entry
+/// would be holding a floor no defect can break.
 fn write_entry(
     entry: &Path,
     reference: Reference,
     work_dir: &Path,
     produced: &Result<Raster, HarnessError>,
-) {
+) -> bool {
     let Some(parent) = entry.parent() else {
-        return;
+        return false;
     };
     if std::fs::create_dir_all(parent).is_err() {
-        return;
+        return false;
     }
 
     if produced.is_ok() {
@@ -469,7 +624,9 @@ fn write_entry(
         // restores what a miss produced in every case: a renderer that said nothing said
         // nothing, and that is a reading of the entry rather than a gap in it.
         let said = work_dir.join(format!("{}.log", reference.name()));
-        store(entry, LOG, |to| {
+        // The picture below is what "stored" means; a log that did not land leaves the entry
+        // readable, so its answer is deliberately not part of the one this function gives.
+        let _ = store(entry, LOG, |to| {
             std::fs::write(to, std::fs::read(&said).unwrap_or_default()).map(|()| 0)
         });
     }
@@ -487,19 +644,19 @@ fn write_entry(
         ),
         // A renderer that is not installed, or a PNG this harness cannot read: neither is a
         // property of the document, and remembering either would outlive its cause.
-        Err(_) => return,
+        Err(_) => return false,
     };
 
     if let Some(detail) = source {
         store(entry, extension, |to| {
             std::fs::write(to, &detail).map(|()| 0)
-        });
+        })
     } else {
         // The renderer's own PNG rather than a re-encoding of the decoded raster: it is
         // already on disk, copying is cheaper than encoding, and a byte-for-byte copy cannot
         // introduce a difference of its own.
         let output = work_dir.join(format!("{}.png", reference.name()));
-        store(entry, extension, |to| std::fs::copy(&output, to));
+        store(entry, extension, |to| std::fs::copy(&output, to))
     }
 }
 
@@ -508,16 +665,21 @@ fn write_entry(
 /// A temporary name and a rename, so that a run killed mid-write cannot leave a truncated file
 /// for the next run to trust, and so that several threads missing on the same entry at once
 /// cannot rename one another's half-written files into place.
-fn store(entry: &Path, extension: &str, produce: impl FnOnce(&Path) -> std::io::Result<u64>) {
+fn store(
+    entry: &Path,
+    extension: &str,
+    produce: impl FnOnce(&Path) -> std::io::Result<u64>,
+) -> bool {
     let temporary = entry.with_extension(format!(
         "{extension}.tmp{}-{}",
         std::process::id(),
         NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed)
     ));
     if produce(&temporary).is_ok() {
-        let _ = std::fs::rename(&temporary, entry.with_extension(extension));
+        std::fs::rename(&temporary, entry.with_extension(extension)).is_ok()
     } else {
         let _ = std::fs::remove_file(&temporary);
+        false
     }
 }
 
