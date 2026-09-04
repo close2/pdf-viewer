@@ -18,10 +18,22 @@
 //! | | property | judged against |
 //! |---|---|---|
 //! | **the drag** | a drag across poppler's word box selects that word | `pdftotext -bbox -cropbox` |
+//! | **the find** | [`Command::Find`] for a word poppler states once leaves that word selected | `pdftotext -bbox -cropbox` |
 //! | **the readback** | [`Selection::All`]'s text is [`pdf_model::Interpretation::text`], byte for byte | the interpreter, read beside the boundary |
 //! | **the caret** | [`Query::Offset`] of [`Query::Caret`]'s own point is that offset again | itself: the pair is documented as inverse |
 //!
-//! The first is the one with an independent judge, and the endpoints of every drag come from
+//! **The find is here because a search ends in a selection**, which is not an aside: §O.2.2's
+//! `search` says "selecting the first matching word in the document", and the one thing this
+//! crate has that means is the range [`Query::Selection`] answers with. So the find bar's loop
+//! ends where the drag's does, on the same question, and this census is where both are asked at
+//! corpus scale. It also asks the *cost* half, which no instrument asked before the
+//! nine-hundred-and-thirty-second session: a search step reads a page out of
+//! `viewer_core`'s readback cache where one is held, and the page a person is looking at was
+//! interpreted to be drawn — so a find bar opened on the page showing must interpret **no page
+//! at all**. The cache's own counters say whether that happened, and they are counts rather than
+//! clocks, so a neighbouring round's load cannot move either of them by one (ADR 0905).
+//!
+//! The first two are the ones with an independent judge, and the endpoints of every drag come from
 //! **poppler's** box rather than from this tree's geometry — trap 12a's own rule, that a test
 //! needing a point takes it from the document rather than from the code under test. A viewer
 //! that flipped y would drag across the mirror of the word, and the mirror of a word is not the
@@ -79,7 +91,9 @@ use std::time::Instant;
 use pdf_syntax::{Document, Limits, SyntaxError};
 use pdfref::{ExtractionCache, ExtractionError, Extractor};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use viewer_core::{Answer, Command, DocumentId, PointerAction, Query, Selection, Viewer};
+use viewer_core::{
+    Answer, Command, DocumentId, Find, FindDirection, PointerAction, Query, Selection, Viewer,
+};
 
 /// The document handle every open uses; one viewer per document, so one identity suffices.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -116,6 +130,14 @@ const DRAG_OVERSHOOT: f32 = 2.0;
 
 /// How many witnesses of one class are printed before the rest are summarised.
 const WITNESSES: usize = 30;
+
+/// How many steps one search is pumped for before it is given up on.
+///
+/// A search here is for a word that occurs exactly once on the page it begins on, so one step is
+/// the whole of it and two is the margin. This is deliberately **not** a document-length sweep:
+/// a needle that is not answered on the first page is a witness this instrument wants to print,
+/// not a reason to interpret a thousand pages.
+const FIND_STEPS: usize = 2;
 
 /// The corpus documents that refuse §7.6.4.1's default user password, with the password each
 /// one's own pdf.js issue records.
@@ -162,6 +184,17 @@ struct Census {
     /// A drag that did not select the word under it, with what it selected instead.
     missed: Vec<(String, String)>,
 
+    /// Documents where a word was searched for, and searches that left it selected.
+    searched_documents: usize,
+    finds: usize,
+    found: usize,
+    /// A search that did not leave the word it was given selected, with what it left instead.
+    not_found: Vec<(String, String)>,
+    /// Lookups the readback cache answered without interpreting a page, over the whole
+    /// population, and searches that interpreted a page the page turn had already read.
+    find_hits: u64,
+    reinterpreted: Vec<(String, String)>,
+
     /// Documents where [`Selection::All`] was compared with the interpreter's own readback.
     readbacks: usize,
     /// One where the two differ, which is the selection path putting itself between a host and
@@ -193,6 +226,14 @@ impl Census {
         self.words = self.words.saturating_add(from.words);
         self.selected = self.selected.saturating_add(from.selected);
         self.missed.extend(from.missed);
+        self.searched_documents = self
+            .searched_documents
+            .saturating_add(from.searched_documents);
+        self.finds = self.finds.saturating_add(from.finds);
+        self.found = self.found.saturating_add(from.found);
+        self.not_found.extend(from.not_found);
+        self.find_hits = self.find_hits.saturating_add(from.find_hits);
+        self.reinterpreted.extend(from.reinterpreted);
         self.readbacks = self.readbacks.saturating_add(from.readbacks);
         self.readback_differs.extend(from.readback_differs);
         self.fields = self.fields.saturating_add(from.fields);
@@ -441,7 +482,9 @@ fn examine(path: &Path, cache: &ExtractionCache, work_dir: &Path) -> Census {
         census.refused.push((name, "no words in the reference"));
         return census;
     }
-    drag_across_the_reference(&mut census, &mut viewer, &name, &words);
+    let dragged = drag_across_the_reference(&mut census, &mut viewer, &name, &words);
+    // Property 4: the same words, through the find bar rather than through the pointer.
+    search_for_the_reference(&mut census, &mut viewer, &name, &dragged);
     census
 }
 
@@ -528,17 +571,21 @@ fn walk_the_carets(census: &mut Census, viewer: &Viewer, name: &str) {
 /// The endpoints are poppler's and the mapping is [`Answer::Geometry`]'s — origin, magnification
 /// and the y flip, exactly what a host composes. Nothing in the drag comes from this tree's own
 /// text geometry, which is what makes the mirror of trap 12a fail it.
+///
+/// Answers with the words it dragged across, which is what [`search_for_the_reference`] searches
+/// for: the two properties are about one word list read two ways, and deriving it twice would be
+/// two chances for them to disagree about which words the document states once.
 fn drag_across_the_reference(
     census: &mut Census,
     viewer: &mut Viewer,
     name: &str,
     words: &[ReferenceWord],
-) {
+) -> Vec<String> {
     let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
         census
             .refused
             .push((name.to_owned(), "the page on the screen has no geometry"));
-        return;
+        return Vec::new();
     };
     viewer
         .handle(Command::Select(Selection::All))
@@ -572,9 +619,10 @@ fn drag_across_the_reference(
         census
             .refused
             .push((name.to_owned(), "no word both sides state exactly once"));
-        return;
+        return Vec::new();
     }
     census.dragged_documents = 1;
+    let dragged: Vec<String> = unique.iter().map(|word| word.text.clone()).collect();
 
     for word in unique {
         // Poppler's frame is y-down from the displayed page's top-left, which is the raster's own
@@ -620,6 +668,137 @@ fn drag_across_the_reference(
             .handle(Command::Select(Selection::None))
             .for_each(drop);
     }
+    dragged
+}
+
+/// Property 4: a search for a word poppler states once leaves that word selected, and reads it
+/// out of the readback the page turn already made.
+///
+/// # Why the needle is filtered a second time
+///
+/// [`drag_across_the_reference`]'s words are unique in the **whitespace-stripped** readback,
+/// because §9.3's spacing heuristics decide where each extractor puts a space and that
+/// disagreement is the text gates' subject rather than this instrument's. A search runs over the
+/// readback as it stands, so a word is searched for only where it also occurs exactly once in
+/// the untouched string: a word the two extractors break differently is left **out of the
+/// population** rather than counted as a search that failed, which is trap 11's arithmetic and is
+/// why the count of searches is printed beside the count of documents.
+///
+/// # The cost half, and why it is a count rather than a clock
+///
+/// A search step reads one page, and `viewer_core`'s readback cache is what stops it
+/// interpreting a page twice — a page placed on the screen puts its readback there, so a find bar
+/// opened on the page a person is looking at must interpret **no page at all**. What is asserted
+/// is exactly that: the cache's *miss* counter does not move across the searches. It is a count
+/// of interpretations rather than a duration, so a neighbouring round's load cannot change it by
+/// one, which is `doc/todo/02` §2's rule about which cost properties are worth gating.
+///
+/// **Before the nine-hundred-and-thirty-second session no instrument reached that cache at all**:
+/// this census's forty caret queries left it at `hits: 0, misses: 0`, because nothing here asked
+/// a question that searches (ADR 0905). The five-page fixture in `tests/headless.rs` held the
+/// cache's own rules; the corpus held nothing.
+fn search_for_the_reference(
+    census: &mut Census,
+    viewer: &mut Viewer,
+    name: &str,
+    words: &[String],
+) {
+    // The readback as it stands, which is what a search matches against — not the stripped copy
+    // the drag compares.
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let ours = match viewer.query(Query::Selection) {
+        Answer::Selected(selection) => selection.text.into_owned(),
+        _ => String::new(),
+    };
+    viewer
+        .handle(Command::Select(Selection::None))
+        .for_each(drop);
+    let needles: Vec<&String> = words
+        .iter()
+        .filter(|word| ours.matches(word.as_str()).count() == 1)
+        .collect();
+    if needles.is_empty() {
+        return;
+    }
+    let Some(before) = viewer.readback_cache(DOCUMENT) else {
+        return;
+    };
+    census.searched_documents = 1;
+
+    for needle in needles {
+        census.finds = census.finds.saturating_add(1);
+        let found = run_the_search(viewer, needle);
+        let selected = match viewer.query(Query::Selection) {
+            Answer::Selected(selection) => selection.text.into_owned(),
+            _ => String::new(),
+        };
+        if found.is_some_and(|found| found.page == 0) && selected == *needle {
+            census.found = census.found.saturating_add(1);
+        } else {
+            census.not_found.push((
+                name.to_owned(),
+                format!(
+                    "{needle:?} was answered {found:?} and left {:?} selected",
+                    selected.chars().take(60).collect::<String>()
+                ),
+            ));
+        }
+        // A search starts after the far end of what is selected, so leaving the last answer in
+        // place would make the next search a different question.
+        viewer
+            .handle(Command::Select(Selection::None))
+            .for_each(drop);
+    }
+
+    let Some(after) = viewer.readback_cache(DOCUMENT) else {
+        return;
+    };
+    census.find_hits = after.hits.saturating_sub(before.hits);
+    if after.misses > before.misses {
+        census.reinterpreted.push((
+            name.to_owned(),
+            format!(
+                "{} page(s) were interpreted for a search that began on the page showing",
+                after.misses.saturating_sub(before.misses)
+            ),
+        ));
+    }
+}
+
+/// Drives one search to its answer the way a find bar does.
+///
+/// A word this function is given occurs exactly once on the page the search begins on, so the
+/// first step is the answer; [`FIND_STEPS`] is a ceiling rather than a plan, and reaching it is a
+/// witness printed by the caller rather than a sweep of the document.
+fn run_the_search(viewer: &mut Viewer, needle: &str) -> Option<viewer_core::Found> {
+    let mut events: Vec<viewer_core::Event> = viewer
+        .handle(Command::Find(Find::Start {
+            needle: needle.to_owned(),
+            direction: FindDirection::Forward,
+        }))
+        .collect();
+    for _ in 0..FIND_STEPS {
+        let mut remaining = 0;
+        let mut answer = None;
+        for event in &events {
+            if let viewer_core::Event::Searched {
+                found,
+                remaining: left,
+                ..
+            } = event
+            {
+                remaining = *left;
+                answer = *found;
+            }
+        }
+        if answer.is_some() || remaining == 0 {
+            return answer;
+        }
+        events = viewer.handle(Command::Find(Find::Continue)).collect();
+    }
+    None
 }
 
 /// Prints one class of witness, capped, with its length.
@@ -653,6 +832,23 @@ fn report(census: &Census, files: usize, seconds: f64) {
     print_witnesses(
         "a drag that did not select the word under it",
         &census.missed,
+    );
+    println!(
+        "the find (Command::Find → Query::Selection): {}/{} words selected ({:.2}%) over {} \
+         documents, {} lookups answered out of the readback cache",
+        census.found,
+        census.finds,
+        percentage(census.found, census.finds),
+        census.searched_documents,
+        census.find_hits,
+    );
+    print_witnesses(
+        "a search that did not leave the word it was given selected",
+        &census.not_found,
+    );
+    print_witnesses(
+        "a search that interpreted a page the page turn had already read",
+        &census.reinterpreted,
     );
     println!(
         "the readback (Selection::All against Interpretation::text): {} documents compared",
@@ -817,4 +1013,22 @@ fn the_census_judges_a_committed_document_rather_than_refusing_it() {
     assert_eq!(census.readbacks, 1);
     assert!(census.readback_differs.is_empty());
     assert!(census.not_inverse.is_empty());
+    assert_eq!(census.searched_documents, 1, "the document was searched");
+    assert_eq!(
+        census.found, census.finds,
+        "every search left its word selected: {:?}",
+        census.not_found
+    );
+    assert!(census.finds > 0, "at least one word was searched for");
+    assert!(
+        census.reinterpreted.is_empty(),
+        "the page showing was already read: {:?}",
+        census.reinterpreted
+    );
+    assert!(
+        census.find_hits >= u64::try_from(census.finds).unwrap_or(u64::MAX),
+        "every step was answered out of the cache: {} hits for {} searches",
+        census.find_hits,
+        census.finds
+    );
 }

@@ -183,6 +183,58 @@ fn an_inline_image_draws_from_its_abbreviated_keys() {
     assert_marker(&raster);
 }
 
+/// A `/W` and `/H` written as **reals** still name the grid they truncate to.
+///
+/// §7.3.3 makes that the file's error and says nothing about what a reader does with it:
+///
+/// > A real number shall not be present when an integer is expected.
+///
+/// This tree's answer to that sentence was decided once, for §7.10.5's calculator, and is a rule
+/// rather than a refusal — a real is truncated where an integer is wanted, "and a file that does
+/// it anyway is a file this viewer still has to draw" (ADR 0371). `pdf_model::image` applies the
+/// same rule since the nine-hundred-and-thirty-second session, and the witness is
+/// `qpdf-278-0.pdf`, whose entire content stream is one inline image stating `/W 1062.00
+/// /H 1425.00`: a full-page book cover drawn as a blank sheet, at 0 ink against poppler's 177.97
+/// and mupdf's 177.31 (ADR 0904).
+///
+/// This is the first test's page with `2` written `2.00`, so what it isolates is the two periods.
+#[test]
+fn a_dimension_written_as_a_real_still_names_its_grid() {
+    let mut content: Vec<u8> =
+        b"q 40 0 0 40 0 0 cm BI /W 2.00 /H 2.00 /BPC 8 /CS /RGB ID ".to_vec();
+    content.extend_from_slice(QUADRANTS);
+    content.extend_from_slice(b" EI Q");
+    content.extend_from_slice(MARKER);
+
+    let raster = render_complete(fixture(&content, ""));
+    assert_colour(&raster, 5, 35, [255, 0, 0], "top left");
+    assert_colour(&raster, 35, 35, [0, 255, 0], "top right");
+    assert_colour(&raster, 5, 15, [0, 0, 255], "bottom left");
+    assert_colour(&raster, 35, 15, [255, 255, 255], "bottom right");
+    assert_marker(&raster);
+}
+
+/// A fraction is **truncated** rather than rounded, and the page is what says which.
+///
+/// `/W 2.9` over twelve `DeviceRGB` bytes is two samples a row under truncation and three under
+/// rounding — and three would want eighteen bytes for two rows, so the quadrants below can only
+/// come out of the truncating reading. That is the half of ADR 0371's rule a value of `1062.00`
+/// cannot exercise, which is why it is a test of its own rather than a second assertion above.
+#[test]
+fn a_fractional_dimension_is_truncated_rather_than_rounded() {
+    let mut content: Vec<u8> = b"q 40 0 0 40 0 0 cm BI /W 2.9 /H 2.9 /BPC 8 /CS /RGB ID ".to_vec();
+    content.extend_from_slice(QUADRANTS);
+    content.extend_from_slice(b" EI Q");
+    content.extend_from_slice(MARKER);
+
+    let raster = render_complete(fixture(&content, ""));
+    assert_colour(&raster, 5, 35, [255, 0, 0], "top left");
+    assert_colour(&raster, 35, 35, [0, 255, 0], "top right");
+    assert_colour(&raster, 5, 15, [0, 0, 255], "bottom left");
+    assert_colour(&raster, 35, 15, [255, 255, 255], "bottom right");
+    assert_marker(&raster);
+}
+
 /// Sample data that spells ` EI ` does not end the image.
 ///
 /// §8.9.3 fixes the layout of unfiltered samples, so a reader that computes the length from

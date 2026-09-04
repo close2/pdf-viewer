@@ -664,3 +664,11 @@ session = 926
 reports = ["font /F15's program has no outline for any of the 20 code(s) the page shows through it"]
 ink = 23.647 .. 25.647
 why = "ADR 0892's largest recovery — 503 text operations through four Type 3 fonts, all four stating /Encoding /WinAnsiEncoding — on a dense French newspaper page. Ink 21.923 and six reports before, 24.647 and one after; measured at 72 dpi against the references the same change puts us at 12.323 where poppler is 13.165 and mupdf 11.920, which is inside the interval they bracket. The band is the file's usual ±1.0 and excludes the before value by more than that again. `reports` is not empty and that is this row's second job: /F15 is a different population — a font program with no outline for any of the 20 codes the page shows through it, doc/todo/21's — so the row fails both if the Type 3 fonts are refused again and if that unrelated report ever disappears without anybody noticing. ADR 0892"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/qpdf/qpdf-278-0.pdf"
+page = 1
+session = 932
+reports = []
+ink = 176.313 .. 178.313
+why = "doc/todo/03 section 49's head, by a factor of two hundred: a full-page book cover whose whole content stream is one inline image stating `/W 1062.00 /H 1425.00`, drawn as a blank white sheet — ink 0.000 and one report (`<inline>: malformed image: missing or invalid /Width`) before, 177.313 and none after. §7.3.3 makes a real where an integer is expected the file's error and states nothing about what a reader does with it, and ADR 0371 had already answered that sentence for §7.10.5's calculator with a rule rather than a refusal: a real is truncated where an integer is wanted. `pdf_model::image::dimension_entry` is that one rule applied to Table 87's /Width and /Height. The band is the file's usual ±1.0 and excludes the blank page by 176 levels; measured at scale 1.0 it is pixel-identical to `mutool draw -b CropBox` and 0.66 below `pdftoppm -cropbox`. ADR 0904"
