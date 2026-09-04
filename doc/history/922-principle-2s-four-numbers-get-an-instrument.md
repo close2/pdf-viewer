@@ -60,6 +60,24 @@ a population of runs, and forty-four consecutive ones is not a wide one — so t
 judged like a duration, with a band spanning what has been observed, and the fine memory figure is
 the one with none of the driver in it.
 
+**The guard took three tries, and the two corrections are the useful part.** A single probe taken
+once by the parent let two false failures through in five consecutive runs — the headline reading
+sat dead centre while a figure measured eight seconds later had lost its cores — so the probe
+moved *into every child, after its own phase*. That left one more: a five-page document's cold
+open outside its band with its child's probe again dead centre, because the probe is CPU-bound in
+memory and a cold open is mostly disk. A second probe — a cold read of a fixed eight-mebibyte
+file, timed beside every cold sample — closes it. **A guard has to sense every subsystem the
+figure is made of, and it has to be taken where and when the figure was.** Eight consecutive runs
+across load averages from 3 to 22 then came out right in both directions: quiet runs judged
+everything and passed, loaded ones judged the eight figures with no machine in them and declined
+the rest by name.
+
+**And the guard's own edge was wrong once.** Set at 0.82 from a quiet population reading 0.701
+to 0.750, it admitted a post-merge run that read exactly 0.820 at a load average of 39 and let
+twelve clock figures fail — the false failure the guard exists to prevent, produced by its own
+slack. It is 0.78 now, and the lesson is in ADR 0884: a threshold derived from good runs needs
+its margin checked against a bad one.
+
 The cold page cache principle 2 asks for by name is `dd … oflag=nocache`, which is
 `posix_fadvise(POSIX_FADV_DONTNEED)` and is available to an unprivileged user, on **a copy** the
 gate makes under the build directory — never on a file in `doc/`, because dropping a file's cache

@@ -77,11 +77,33 @@ well as the pinning, and this file says so rather than implying otherwise — bu
 *calibration* probe, which is the same work in both, spans 0.6% where the unpinned one spans
 114%, and that comparison has only the pinning in it.
 
-### 3. A calibration probe decides whether the clock figures are judged at all
+### 3. Two probes decide, per figure, whether the clock is judged at all
 
-The same fixed, serial, in-memory work, in the same kind of pinned child, the quickest of fifty
-passes, the minimum over nine children. Its band is in the check file. **Out of band, every figure
-is still printed and the clock ones are not judged, saying why.**
+The first is the same fixed, serial, in-memory work, the quickest of fifty passes, run by **every
+child after its own phase**; the second is a cold read of a fixed eight-mebibyte file, timed
+beside every cold sample. Each has a band in the check file, and a figure is judged only where
+*its own* sample's probes hold. **Out of either band, the figure is still printed and not judged,
+and the run says so.**
+
+**Both of those refinements were paid for inside this round, and the shape they share is worth
+more than either.** A single probe taken once by the parent let **two false failures through in
+five consecutive runs**: the headline calibration read 0.708 — dead centre — while a figure
+measured eight seconds later had lost its cores to a neighbour. Moving the probe into the
+children fixed that and left one more: a five-page document's cold open at **0.841 ms against
+0.49 .. 0.80**, with its child's calibration again dead centre, because the probe is CPU-bound in
+memory and a cold open is mostly disk. So: **a guard has to sense every subsystem the figure it
+guards is made of, and it has to be taken where and when the figure was.** Two probes, in the
+child, beside the sample.
+
+**The probe's own band is the gate's most load-bearing number, and this round got it wrong once
+before it got it right.** It was set at 0.62 .. 0.82 from the quiet population's 0.701 to 0.750
+plus a generous margin; a post-merge run at a load average of 39 then read **exactly 0.820**, was
+admitted by a band that includes its own edge, and reported twelve clock figures out of band —
+the false failure this whole construction exists to prevent, produced by the construction's own
+slack. The edge is now 0.78, a little over 4% above the slowest reading any in-band run has ever
+had. **A guard derived from a quiet population needs its margin taken from the other side too**:
+the question is not "how slow can a good machine read" but "how slow can a *bad* one read and
+still be admitted", and only a loaded run answers that.
 
 This is the whole answer to the false-failure problem, and it was checked against the defect
 rather than assumed (trap 13). With eight busy threads pinned onto the same eight CPUs — a load

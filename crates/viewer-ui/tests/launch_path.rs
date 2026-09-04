@@ -49,11 +49,21 @@
 //!   two classes of core 57% apart in clock, and where a process lands moved the same fixed work
 //!   by a factor of two on an idle machine — a lottery no band can span, and the single change
 //!   that took this gate's spread from 100–400% to 0.6–22%.
-//! - **A calibration probe decides whether this machine is the machine the bands were taken on.**
-//!   It is a fixed, serial, in-memory piece of this tree's own work — opening the small document
-//!   and interpreting its first page — and its own band is in the check file. Out of band, the
-//!   gate prints every figure and judges none, saying why. That is what makes the bands safe to
-//!   keep tight, and it is what stops this gate from failing on a machine nobody measured.
+//! - **Two probes decide, per figure, whether the machine was the machine.** The first is a
+//!   fixed, serial, in-memory piece of this tree's own work — opening the small document and
+//!   interpreting its first page — run by **every child, after its own phase**, so that what is
+//!   asked is whether *the process that produced this figure* had the machine to itself. The
+//!   second is a cold read of a fixed file, timed beside every cold sample, because the first is
+//!   CPU-bound and a cold open is mostly disk. Each has a band in the check file; a figure whose
+//!   probes are out of band is printed and not judged, and the run says so. That is what makes
+//!   the bands safe to keep tight, and it is what stops this gate from failing on a machine
+//!   nobody measured.
+//!
+//!   **Both halves were paid for.** A single probe taken once by the parent let two false
+//!   failures through in five consecutive runs, because the machine changed during the seven
+//!   seconds between it and the figures; and with the probe moved into the children, a cold open
+//!   still failed at 0.841 ms against 0.49 .. 0.80 while its child's calibration sat dead centre,
+//!   because no amount of CPU probing can see a neighbour queueing the disk.
 //! - **Two of each row's figures cannot be moved by the machine, and are judged always.** How many
 //!   bytes an open reads and what *this program* spends on one are the same to the byte under any
 //!   load, so the claims principle 2 makes about *what the launch path does* are gated even when
@@ -99,6 +109,9 @@ const PHASE: &str = "PDFVIEWER_LAUNCH_PHASE";
 
 /// Names the document a child process is to open.
 const DOCUMENT_PATH: &str = "PDFVIEWER_LAUNCH_DOCUMENT";
+
+/// Names the document every child's calibration probe opens.
+const CALIBRATION_PATH: &str = "PDFVIEWER_LAUNCH_CALIBRATION";
 
 /// Overrides [`SAMPLES`], and turns judging off.
 const SAMPLE_OVERRIDE: &str = "PDFVIEWER_LAUNCH_SAMPLES";
@@ -303,6 +316,7 @@ fn phase_open() {
         ("pages", pages.to_string()),
         ("read_bytes", or_absent(read)),
         ("peak_kib", or_absent(peak_resident_kib())),
+        calibration_field(),
     ]);
 }
 
@@ -330,6 +344,7 @@ fn phase_bring_up() {
         ("bring_up_ms", format!("{elapsed:.3}")),
         ("adapter", adapter),
         ("peak_kib", or_absent(peak_resident_kib())),
+        calibration_field(),
     ]);
 }
 
@@ -383,6 +398,7 @@ fn phase_first_page() {
         ("pixels", pixels.to_string()),
         ("read_bytes", or_absent(read)),
         ("peak_kib", or_absent(peak_resident_kib())),
+        calibration_field(),
     ]);
 }
 
@@ -441,6 +457,7 @@ fn phase_page_turn() {
         ("pages", pages.to_string()),
         ("commands", commands.to_string()),
         ("peak_kib", or_absent(peak_resident_kib())),
+        calibration_field(),
     ]);
 }
 
@@ -455,8 +472,12 @@ fn phase_page_turn() {
 /// **A child rather than the parent's own work**, so that it is drawn from the same lottery as
 /// every figure it stands guard over — same pinning, same fresh process, same minimum over
 /// [`SAMPLES`] of them.
-fn phase_calibrate() {
-    let path = document_of_the_child();
+fn calibration_pass() -> (f64, usize) {
+    let Ok(path) = std::env::var(CALIBRATION_PATH) else {
+        println!("failed no {CALIBRATION_PATH}");
+        std::process::exit(1);
+    };
+    let path = PathBuf::from(path);
     let Ok(bytes) = std::fs::read(&path) else {
         println!("failed the calibration document does not read");
         std::process::exit(1);
@@ -483,10 +504,23 @@ fn phase_calibrate() {
         println!("failed the calibration document's first page draws nothing");
         std::process::exit(1);
     }
-    measured(&[
-        ("calibration_ms", format!("{quickest:.3}")),
-        ("commands", commands.to_string()),
-    ]);
+    (quickest, commands)
+}
+
+/// The calibration this child measured, as a field to print beside its figure.
+///
+/// **Every child runs it, after its own phase, and that pairing is the point.** A calibration
+/// taken once by the parent says what the machine was like when the run began; a figure taken
+/// eight seconds later by a process that lost its cores to a neighbour is not covered by it, and
+/// this gate produced exactly that — two false failures in five consecutive runs, each with a
+/// headline calibration well inside its band. The figure a run judges is the *minimum* over
+/// children, so what has to be quiet is the child that produced it, and only that child can say.
+///
+/// After the phase rather than before it, because before it would warm the allocator and the page
+/// cache of a document one of the rows is measured on.
+fn calibration_field() -> (&'static str, String) {
+    let (quickest, _) = calibration_pass();
+    ("calibration_ms", format!("{quickest:.3}"))
 }
 
 /// The one test a child runs: a no-op in the parent's own run, one phase in a child's.
@@ -501,7 +535,13 @@ fn launch_probe() {
         return;
     };
     match phase.as_str() {
-        "calibrate" => phase_calibrate(),
+        "calibrate" => {
+            let (quickest, commands) = calibration_pass();
+            measured(&[
+                ("calibration_ms", format!("{quickest:.3}")),
+                ("commands", commands.to_string()),
+            ]);
+        }
         "open" => phase_open(),
         "bring-up" => phase_bring_up(),
         "first-page" => phase_first_page(),
@@ -604,6 +644,8 @@ struct Check {
     calibration_ms: Option<Band>,
     /// The band on a cold graphics bring-up, which principle 2 makes a gate of its own.
     bring_up_ms: Option<Band>,
+    /// The band a cold read of [`IO_PROBE_BYTES`] must land in for a *cold* figure to be judged.
+    io_ms: Option<Band>,
     /// The documents.
     documents: Vec<Row>,
 }
@@ -753,6 +795,7 @@ fn parse(text: &str) -> Result<Check, String> {
             "calibration_document" => check.calibration_document = quoted()?,
             "calibration_ms" => check.calibration_ms = band(value, at)?.band(),
             "bring_up_ms" => check.bring_up_ms = band(value, at)?.band(),
+            "io_ms" => check.io_ms = band(value, at)?.band(),
             other => return Err(format!("line {at} states an unknown key `{other}`")),
         }
     }
@@ -809,6 +852,13 @@ fn the_performance_cores() -> Option<String> {
     Some(list.join(","))
 }
 
+/// The calibration document every child is handed, set once by the gate.
+///
+/// A `OnceLock` rather than an environment variable of the parent's, because setting one is
+/// `unsafe` since Rust 2024 and there is nothing to be gained by it: the value is this process's
+/// own and it reaches the children through their own environment.
+static CALIBRATION_DOCUMENT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
 /// The core list every child is pinned to, asked for once.
 ///
 /// `None` where the machine has nothing to choose between, or where `taskset` is not installed —
@@ -845,6 +895,9 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
         }
         None => Child::new(exe),
     };
+    if let Some(calibration) = CALIBRATION_DOCUMENT.get() {
+        child.env(CALIBRATION_PATH, calibration);
+    }
     child
         .args(["--exact", "launch_probe", "--nocapture", "--test-threads=1"])
         // **No display, deliberately.** Every figure here is measured headless, and a graphics
@@ -980,12 +1033,16 @@ fn quickest(
     key: &str,
     document: Option<&Path>,
     samples: usize,
-    before_each: &mut dyn FnMut() -> Result<(), String>,
+    before_each: &mut dyn FnMut() -> Result<Fields, String>,
 ) -> Result<(f64, Fields), String> {
     let mut best: Option<(f64, Fields)> = None;
     for _ in 0..samples {
-        before_each()?;
-        let fields = run_phase(phase, document)?;
+        // Whatever the caller measured while preparing this sample joins the sample's own
+        // fields: the cold arm's `io_ms` is the disk's state at the moment this child read, and
+        // it is paired with the figure exactly as the child's own calibration is.
+        let mut prepared = before_each()?;
+        let mut fields = run_phase(phase, document)?;
+        fields.append(&mut prepared);
         let value =
             field(&fields, key).ok_or_else(|| format!("the {phase} child printed no {key}"))?;
         if best.as_ref().is_none_or(|(seen, _)| value < *seen) {
@@ -993,6 +1050,53 @@ fn quickest(
         }
     }
     best.ok_or_else(|| format!("{phase} was not sampled at all"))
+}
+
+/// How long a cold read of a fixed file takes right now, in milliseconds.
+///
+/// **The guard's other half, and the cold open is why it exists.** The calibration probe is
+/// deliberately CPU-bound and in memory, so it cannot see a neighbour queueing the disk — and a
+/// cold open is mostly disk. This gate failed on a five-page document's cold open at 0.841 ms
+/// against a band of 0.49 .. 0.80 while its child's calibration read 0.707, dead centre, because
+/// the two figures are about different machines' worth of contention.
+///
+/// The probe is a file of this gate's own, beside the copies whose caches it drops, evicted and
+/// read the same way an open reads a document. Its band is in the check file, and a cold figure
+/// is judged only where it holds.
+fn cold_read_ms(probe: &Path) -> Result<f64, String> {
+    drop_the_page_cache(probe)?;
+    let began = Instant::now();
+    let bytes =
+        std::fs::read(probe).map_err(|error| format!("the io probe does not read: {error}"))?;
+    let elapsed = ms(began);
+    if bytes.len() < IO_PROBE_BYTES {
+        return Err(format!(
+            "the io probe is {} bytes and should be {IO_PROBE_BYTES}",
+            bytes.len()
+        ));
+    }
+    Ok(elapsed)
+}
+
+/// How large the file [`cold_read_ms`] reads is.
+///
+/// Eight mebibytes: large enough that the read is the disk rather than the syscall, small enough
+/// that thirty-six of them cost a fraction of a second and that evicting it disturbs nothing
+/// else. The four documents this gate opens read between 85 KiB and 4.3 MiB, so the probe is of
+/// the same order as the largest of them.
+const IO_PROBE_BYTES: usize = 8 << 20;
+
+/// Makes the file [`cold_read_ms`] reads, once per run.
+fn io_probe(directory: &Path) -> Result<PathBuf, String> {
+    let probe = directory.join("io-probe.bin");
+    let wanted = vec![0x5A_u8; IO_PROBE_BYTES];
+    // `u64` against a `usize` constant rather than a cast: the constant is what the file must be,
+    // and widening the comparison is exact on every target this builds for.
+    if std::fs::metadata(&probe).is_ok_and(|found| found.len() == IO_PROBE_BYTES as u64) {
+        return Ok(probe);
+    }
+    std::fs::write(&probe, &wanted).map_err(|error| format!("the io probe: {error}"))?;
+    Ok(probe)
 }
 
 /// One figure, its band, and whether it held.
@@ -1018,6 +1122,16 @@ struct Judged {
     /// driver's own allocation, and nothing in this process can see why. [`Row::open_peak_mib`]
     /// is the memory figure with no device in it, and that one has not moved at all.
     steady: bool,
+    /// What the child that produced this figure measured the machine at, right afterwards.
+    ///
+    /// `None` for a figure no child reported one for, which is judged as though the machine were
+    /// unknown — that is, not at all.
+    calibration: Option<f64>,
+    /// What a cold read of a fixed file cost at the moment this figure's sample was prepared.
+    ///
+    /// `None` for every figure but the cold open, which is the only one with a disk in it; a
+    /// figure with no `io_ms` is not held to the disk's band. See [`cold_read_ms`].
+    io: Option<f64>,
 }
 
 /// Remembers a figure against the band its row states, and nothing where the row states `none`.
@@ -1028,6 +1142,7 @@ fn band_it(
     value: f64,
     pin: Pin,
     steady: bool,
+    fields: &Fields,
 ) {
     if let Some(band) = pin.band() {
         into.push((
@@ -1037,6 +1152,8 @@ fn band_it(
                 value,
                 band,
                 steady,
+                calibration: field(fields, "calibration_ms"),
+                io: field(fields, "io_ms"),
             },
         ));
     }
@@ -1095,12 +1212,14 @@ fn the_launch_path_stays_inside_its_bands() {
     // Every figure is the minimum of `samples` fresh processes, so the calibration comes first
     // and decides whether any of them is judged.
     let calibration_document = root.join(&check.calibration_document);
+    // Every child gets it, because every child measures the machine after its own phase.
+    let _ = CALIBRATION_DOCUMENT.set(calibration_document.clone());
     let calibration = match quickest(
         "calibrate",
         "calibration_ms",
         Some(&calibration_document),
         samples,
-        &mut || Ok(()),
+        &mut || Ok(Vec::new()),
     ) {
         Ok((value, _)) => value,
         Err(complaint) => panic!("the calibration probe: {complaint}"),
@@ -1135,7 +1254,9 @@ fn the_launch_path_stays_inside_its_bands() {
 
     // Principle 2 makes cold bring-up a gate of its own, "so that a regression in the driver,
     // the adapter selection or the shader set is legible as itself rather than as a slower page".
-    match quickest("bring-up", "bring_up_ms", None, samples, &mut || Ok(())) {
+    match quickest("bring-up", "bring_up_ms", None, samples, &mut || {
+        Ok(Vec::new())
+    }) {
         Ok((value, fields)) => {
             let adapter = fields
                 .iter()
@@ -1149,12 +1270,22 @@ fn the_launch_path_stays_inside_its_bands() {
                 value,
                 check.bring_up_ms.map_or(Pin::Nothing, Pin::Within),
                 false,
+                &fields,
             );
         }
         Err(complaint) => complaints.push(format!("cold bring-up: {complaint}")),
     }
 
     let cache = cache_directory();
+    let probe = cache
+        .as_deref()
+        .and_then(|directory| match io_probe(directory) {
+            Ok(probe) => Some(probe),
+            Err(complaint) => {
+                println!("launch-path: no io probe: {complaint}");
+                None
+            }
+        });
     let mut absent = 0_usize;
     let mut measured_documents = 0_usize;
     for row in &check.documents {
@@ -1177,16 +1308,17 @@ fn the_launch_path_stays_inside_its_bands() {
         });
         let cold_source = copy.as_deref().unwrap_or(path.as_path());
         let mut eviction: Option<String> = None;
-        let cold = quickest(
-            "open",
-            "open_ms",
-            Some(cold_source),
-            samples,
-            &mut || match copy.as_deref() {
-                Some(copy) => drop_the_page_cache(copy),
-                None => Err("there is no writable copy to drop the cache of".to_owned()),
-            },
-        );
+        let cold = quickest("open", "open_ms", Some(cold_source), samples, &mut || {
+            let Some(copy) = copy.as_deref() else {
+                return Err("there is no writable copy to drop the cache of".to_owned());
+            };
+            drop_the_page_cache(copy)?;
+            let Some(probe) = probe.as_deref() else {
+                return Err("there is no io probe to time the disk with".to_owned());
+            };
+            let io = cold_read_ms(probe)?;
+            Ok(vec![("io_ms".to_owned(), format!("{io:.3}"))])
+        });
         let cold = match cold {
             Ok((value, fields)) => Some((value, fields)),
             Err(complaint) => {
@@ -1194,19 +1326,15 @@ fn the_launch_path_stays_inside_its_bands() {
                 None
             }
         };
-        let warm = quickest(
-            "open",
-            "open_ms",
-            Some(cold_source),
-            samples,
-            &mut || Ok(()),
-        );
+        let warm = quickest("open", "open_ms", Some(cold_source), samples, &mut || {
+            Ok(Vec::new())
+        });
         let first = quickest(
             "first-page",
             "first_page_ms",
             Some(cold_source),
             samples,
-            &mut || Ok(()),
+            &mut || Ok(Vec::new()),
         );
         // A one-page document has no page to turn to, and asking for one is not a defect to
         // report. Its row states `turn_ms = none` and this is the other half of that.
@@ -1216,7 +1344,7 @@ fn the_launch_path_stays_inside_its_bands() {
                 "turn_ms",
                 Some(cold_source),
                 samples,
-                &mut || Ok(()),
+                &mut || Ok(Vec::new()),
             ))
         } else {
             println!("launch-path:   no page turn: the document has one page");
@@ -1247,7 +1375,10 @@ fn the_launch_path_stays_inside_its_bands() {
             let peak = field(fields, "peak_kib").unwrap_or(0.0) / 1024.0;
             println!(
                 "launch-path:   cold open {value:.2} ms, {pages:.0} pages, \
-                 {read:.0} KiB read, {peak:.0} MiB resident"
+                 {read:.0} KiB read, {peak:.0} MiB resident, \
+                 the disk at {} ms for {} MiB",
+                field(fields, "io_ms").map_or_else(|| "?".to_owned(), |io| format!("{io:.1}")),
+                IO_PROBE_BYTES >> 20
             );
             band_it(
                 &mut judged,
@@ -1256,6 +1387,7 @@ fn the_launch_path_stays_inside_its_bands() {
                 *value,
                 row.cold_open_ms,
                 false,
+                fields,
             );
             band_it(
                 &mut judged,
@@ -1264,6 +1396,7 @@ fn the_launch_path_stays_inside_its_bands() {
                 read,
                 row.read_kib,
                 true,
+                fields,
             );
             band_it(
                 &mut judged,
@@ -1272,10 +1405,11 @@ fn the_launch_path_stays_inside_its_bands() {
                 peak,
                 row.open_peak_mib,
                 true,
+                fields,
             );
         }
         match warm {
-            Ok((value, _)) => {
+            Ok((value, fields)) => {
                 println!("launch-path:   warm open {value:.2} ms");
                 band_it(
                     &mut judged,
@@ -1284,6 +1418,7 @@ fn the_launch_path_stays_inside_its_bands() {
                     value,
                     row.warm_open_ms,
                     false,
+                    &fields,
                 );
             }
             Err(complaint) => complaints.push(format!("{}: warm open: {complaint}", row.path)),
@@ -1306,6 +1441,7 @@ fn the_launch_path_stays_inside_its_bands() {
                     value,
                     row.first_page_ms,
                     false,
+                    &fields,
                 );
                 band_it(
                     &mut judged,
@@ -1314,6 +1450,7 @@ fn the_launch_path_stays_inside_its_bands() {
                     peak,
                     row.peak_mib,
                     false,
+                    &fields,
                 );
             }
             Err(complaint) => complaints.push(format!("{}: first page: {complaint}", row.path)),
@@ -1331,6 +1468,7 @@ fn the_launch_path_stays_inside_its_bands() {
                     value,
                     row.turn_ms,
                     false,
+                    &fields,
                 );
             }
             Err(complaint) if complaint == "not asked for" => {}
@@ -1338,10 +1476,22 @@ fn the_launch_path_stays_inside_its_bands() {
         }
     }
 
+    let mut unjudged = 0_usize;
     for (what, figure) in &judged {
         let held = figure.band.holds(figure.value);
-        // A steady figure is judged whatever the machine is doing; see [`Judged::steady`].
-        if !held && (judging || figure.steady) {
+        // **Per figure, and paired with its own child's probe.** A steady figure is judged
+        // whatever the machine is doing; every other one is judged only where the process that
+        // produced it says the machine was the machine — see [`Judged::steady`] and
+        // [`calibration_field`].
+        let machine_was_right = calibration_band
+            .is_some_and(|band| figure.calibration.is_some_and(|its| band.holds(its)))
+            && check
+                .io_ms
+                .is_none_or(|band| figure.io.is_none_or(|its| band.holds(its)));
+        if !(figure.steady || (judging && machine_was_right)) {
+            unjudged = unjudged.saturating_add(1);
+        }
+        if !held && (figure.steady || (judging && machine_was_right)) {
             complaints.push(format!(
                 "{what} is {:.3}, outside {} {:.3} .. {:.3}",
                 figure.value, figure.key, figure.band.low, figure.band.high
@@ -1356,7 +1506,7 @@ fn the_launch_path_stays_inside_its_bands() {
 
     println!(
         "launch-path: {measured_documents} documents measured, {absent} absent, \
-         {} figures banded, {} outside",
+         {} figures banded, {unjudged} not judged, {} outside",
         judged.len(),
         judged
             .iter()

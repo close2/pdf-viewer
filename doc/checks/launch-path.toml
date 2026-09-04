@@ -36,12 +36,16 @@
 # derives the core list from `cpuinfo_max_freq` rather than naming CPUs, so a machine with one
 # class of core is not pinned at all.
 #
-# **A calibration probe decides whether the clock figures are judged.** It is the same fixed,
-# serial, in-memory work in the same kind of child process, and its band below is what says "this
-# is the machine the bands were taken on, and it is as quiet as it was". Out of band, every figure
-# is still printed and the clock ones are not judged, saying so — which is the honest answer to
+# **Two probes decide, per figure, whether the clock is judged.** The first is the same fixed,
+# serial, in-memory work, run by *every child after its own phase*, so the question is whether the
+# process that produced a figure had the machine to itself rather than whether the run began on a
+# quiet one — a single probe taken once by the parent let two false failures through in five
+# consecutive runs. The second is a cold read of a fixed file, timed beside every cold sample,
+# because the first is CPU-bound and a cold open is mostly disk: this gate failed on a five-page
+# document's cold open while its child's calibration sat dead centre in its band. Out of either
+# band, the figure is printed and not judged and the run says so — which is the honest answer to
 # the three false failures `doc/todo/02` section 2 records, and the reason the bands can be this
-# tight. Its own spread over sixteen consecutive quiet runs was 0.6%.
+# tight. The calibration's own spread over sixteen consecutive quiet runs was 0.6%.
 #
 # **The bands are derived rather than chosen.** Forty-four runs on this machine at load averages
 # between 1.6 and 5.0, pinned, `release` — thirty for the first three rows and fourteen for the
@@ -64,8 +68,15 @@ profile = "release"
 # The calibration probe: the smallest document opened from bytes already in memory and its first
 # page interpreted, fifty times, the quickest — in a child of its own, pinned like every other.
 # No I/O after the first read, no device, no subprocess.
+#
+# **Its upper edge was 0.82 and cost a false failure before this round ended, which is how it
+# came to be 0.78.** A post-merge run at a load average of 39 read exactly 0.820, was admitted by
+# a band that includes its own edge, and reported twelve clock figures out of band. Every quiet
+# run recorded here reads 0.701 to 0.750 and every run whose figures were in band read at most
+# 0.750, so the edge is now a little over 4% above the slowest good reading: this machine may be
+# a twentieth slower than it was when the bands were taken and no more.
 calibration_document = "doc/PDF20_AN001-BPC.pdf"
-calibration_ms = 0.62 .. 0.82
+calibration_ms = 0.62 .. 0.78
 
 # Principle 2's separate gate: a graphics device brought up in a process that has done nothing
 # else. One per process, which is `examples/bring_up`'s rule — a second device in one process is
@@ -73,6 +84,14 @@ calibration_ms = 0.62 .. 0.82
 # because a machine that quietly fell back to a software rasteriser would otherwise report a
 # different measurement wearing the same number.
 bring_up_ms = 23.3 .. 41.9
+
+# The disk's own state, and the other half of the guard: a cold read of a fixed eight-mebibyte
+# file of this gate's own, evicted the same way a document is, timed beside every *cold* sample.
+# The calibration probe above is deliberately CPU-bound and in memory, so it cannot see a
+# neighbour queueing the disk — and a cold open is mostly disk. This gate failed on a five-page
+# document's cold open while its child's calibration sat dead centre in its band, which is what
+# this line is for. Only the cold figures are held to it.
+io_ms = 2.0 .. 7.0
 
 [[document]]
 path = "doc/PDF20_AN001-BPC.pdf"
