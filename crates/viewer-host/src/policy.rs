@@ -52,6 +52,45 @@ use viewer_core::Extraction;
 /// ask, warn — are still two, and nothing here has to be revisited to add the other two.
 pub const IGNORE_RESTRICTIONS: &str = "--ignore-restrictions";
 
+/// The word a person types to let a window's confined worker be given the machine's own faces.
+///
+/// **`doc/todo/59`'s resource port, as a window's setting.** It is not a permission and it widens
+/// nothing: the worker's system-call set is unchanged and it still cannot name a path. What the
+/// word turns on is that the *host* — which already opens the document — will match a description
+/// the worker sends against the faces installed here, open the file, and hand the descriptor
+/// across. Without it a document naming an uninstalled CJK or Arabic face is drawn from the
+/// compiled-in Latin faces and the shortfall is reported under §9.10.2 (ADR 0870), which is what
+/// this program did before the port existed.
+///
+/// **Off by default**, like every other decision in this module: the trade ADR 0880 writes down is
+/// that the faces are then parsed in an *unconfined* process, and that is a reader's to make.
+pub const MACHINE_FONTS: &str = "--machine-fonts";
+
+/// The environment name for the same setting, for a window nobody typed a command line at.
+///
+/// A window is usually started from a desktop entry or a file manager, so the flag above reaches
+/// only the person who runs it from a terminal. This is the same channel, and the same poor
+/// interface, ADR 0875 gave the KIO face its restriction level over — and for the same reason: it
+/// is what exists until `doc/todo/38`'s user interface is asked for.
+pub const MACHINE_FONTS_VARIABLE: &str = "PDF_VIEWER_MACHINE_FONTS";
+
+/// Whether this host offers its confined worker the machine's faces.
+///
+/// `said` is whether [`MACHINE_FONTS`] appeared on the command line. The environment is consulted
+/// only when it did not, so a person who typed the word gets it whatever the environment says, and
+/// a word the variable does not define is *off* rather than a guess — the same rule ADR 0875
+/// applies to a restriction level a face does not know.
+#[must_use]
+pub fn offers_machine_fonts(said: bool) -> bool {
+    if said {
+        return true;
+    }
+    matches!(
+        std::env::var(MACHINE_FONTS_VARIABLE).as_deref(),
+        Ok("on" | "1" | "true" | "yes")
+    )
+}
+
 /// What a window says when [`viewer_core::Event::Refused`] arrives.
 ///
 /// The notes are the document's own reason, which `pdf_model::restriction` worded; what this adds

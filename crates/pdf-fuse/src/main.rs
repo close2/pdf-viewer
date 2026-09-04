@@ -39,7 +39,7 @@ use std::time::Duration;
 
 use fuser::{INodeNo, MountOption, Notifier, SessionACL};
 use pdf_fuse::{Face, Mount};
-use pdf_vfs::{ConfinedWorkers, FileBacking, Vfs};
+use pdf_vfs::{ConfinedWorkers, FileBacking, MachineFaces, Vfs};
 
 /// How often the notifier thread asks whether the document has changed.
 ///
@@ -61,10 +61,17 @@ struct Arguments {
     mountpoint: PathBuf,
     /// Whether other users may see the mount. Off by default, which RFC 0003 section 7 states.
     allow_other: bool,
+    /// Whether the confined worker is offered the faces installed on this machine.
+    ///
+    /// `doc/todo/59`'s resource port, as a flag — the command line's answer to the owner's
+    /// "the cli would wrap the access with a flag". Off by default, because the port is a `can`
+    /// rather than a `must` and a mount that says nothing is the mount that shipped before it.
+    faces: MachineFaces,
 }
 
 /// The usage line, which is also the whole of this program's interface.
-const USAGE: &str = "usage: pdffs [--allow-other] [--foreground] <file.pdf> <mountpoint>";
+const USAGE: &str =
+    "usage: pdffs [--allow-other] [--foreground] [--machine-fonts] <file.pdf> <mountpoint>";
 
 /// Reads the command line, or says what is wrong with it.
 ///
@@ -75,9 +82,14 @@ const USAGE: &str = "usage: pdffs [--allow-other] [--foreground] <file.pdf> <mou
 fn arguments(raw: impl Iterator<Item = OsString>) -> Result<Arguments, String> {
     let mut positional = Vec::new();
     let mut allow_other = false;
+    let mut faces = MachineFaces::Withheld;
     for argument in raw {
         match argument.to_str() {
             Some("--allow-other") => allow_other = true,
+            // The whole of this face's answer to `doc/todo/59`: one word, off unless it is
+            // written. What it turns on is *this* process opening a font file and handing its
+            // descriptor to the worker — never the worker opening anything.
+            Some("--machine-fonts") => faces = MachineFaces::Offered,
             Some("--foreground") => {}
             Some("--help" | "-h") => return Err(USAGE.to_owned()),
             Some(flag) if flag.starts_with("--") => {
@@ -96,6 +108,7 @@ fn arguments(raw: impl Iterator<Item = OsString>) -> Result<Arguments, String> {
         document: document.clone(),
         mountpoint: mountpoint.clone(),
         allow_other,
+        faces,
     })
 }
 
@@ -131,8 +144,12 @@ fn run(arguments: &Arguments) -> Result<(), String> {
     let face = Arc::new(Face::new(
         Vfs::new(
             Box::new(FileBacking::new(arguments.document.clone())),
-            // RFC 0003 section 6, and the reason there is no flag beside it.
-            Box::new(ConfinedWorkers),
+            // RFC 0003 section 6. There is no flag for *whether* the worker is confined, and
+            // there is one for what it may be handed: `--machine-fonts` is `doc/todo/59`'s port,
+            // and it widens nothing the worker can reach on its own.
+            Box::new(ConfinedWorkers {
+                faces: arguments.faces,
+            }),
             pdf_vfs::Config::default(),
         ),
         Box::new(move |sentence: &str| eprintln!("pdffs: {named}: {sentence}")),
@@ -212,7 +229,7 @@ fn watch(face: &Face, notifier: &Notifier, stop: &AtomicBool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Arguments, arguments};
+    use super::{Arguments, MachineFaces, arguments};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -226,13 +243,21 @@ mod tests {
                 document: PathBuf::from("doc.pdf"),
                 mountpoint: PathBuf::from("mnt"),
                 allow_other: false,
+                faces: MachineFaces::Withheld,
             }),
-            "`--allow-other` is off by default, which RFC 0003 section 7 states"
+            "`--allow-other` is off by default, which RFC 0003 section 7 states, and so is \
+             `--machine-fonts`, which `doc/todo/59` states"
         );
         assert_eq!(
             read(&["--allow-other", "--foreground", "doc.pdf", "mnt"])
                 .map(|arguments| arguments.allow_other),
             Ok(true)
+        );
+        // `doc/todo/59`'s port: a `can` rather than a `must`, so a mount that does not name it
+        // gets the worker that shipped before it.
+        assert_eq!(
+            read(&["--machine-fonts", "doc.pdf", "mnt"]).map(|arguments| arguments.faces),
+            Ok(MachineFaces::Offered)
         );
         // Trap 5: an option this program does not have is said rather than ignored, because an
         // ignored `--read-only` is a mount somebody believes is read-only.

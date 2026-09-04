@@ -135,8 +135,9 @@ pub use panel::{
 };
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
-    IGNORE_RESTRICTIONS, ImportRefusal, may_open_extracted, may_write_extracted, read_import,
-    refused, resolve_import, unanswerable, warned,
+    IGNORE_RESTRICTIONS, ImportRefusal, MACHINE_FONTS, MACHINE_FONTS_VARIABLE, may_open_extracted,
+    may_write_extracted, offers_machine_fonts, read_import, refused, resolve_import, unanswerable,
+    warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};

@@ -351,7 +351,7 @@ fn states_filter(document: &Document, filter: &str) -> bool {
 fn mounted(path: &Path) -> Vfs {
     Vfs::new(
         Box::new(FileBacking::new(path)),
-        Box::new(ConfinedWorkers),
+        Box::new(ConfinedWorkers::default()),
         Config {
             budget: budget(),
             ..Config::default()

@@ -3259,6 +3259,7 @@ dependencies = [
  "pdf-sandbox",
  "pdf-syntax",
  "pdf-transform",
+ "png",
  "rayon",
  "thiserror 2.0.19",
 ]

@@ -588,9 +588,14 @@ static MACHINE_FONTS: AtomicBool = AtomicBool::new(true);
 /// fails, so the text is still drawn, from the compiled-in faces. For a Latin document that is
 /// the same page; for a document naming an uninstalled CJK face it is a page whose glyphs are
 /// missing, and `pdf_model::interpret` reports that by name (§9.10.2's coverage note) rather than
-/// drawing it silently. The fix that would keep the fidelity is for the *broker* — which has the
-/// filesystem — to supply the face, the way ADR 0812 already supplies the document; `doc/todo/58`
-/// carries it.
+/// drawing it silently.
+///
+/// **The fidelity is given back by [`crate::provider`], and this switch is what turns that path
+/// on.** A process that has stated this and has been armed by its host asks the *broker* — which
+/// has the filesystem — for a face **by description**, and gets a font program back; the matcher
+/// the broker runs is [`machine_face`], which is this module's own walk. What does not change is
+/// anything about what this process may do: it still cannot name a path, and its system-call set
+/// is the one it had. ADRs 0870 and 0880, `doc/todo/59`.
 ///
 /// There is no way to undo this, deliberately: it is called beside a confinement that cannot be
 /// undone either.
@@ -765,14 +770,63 @@ pub fn installed_wider(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) ->
 /// machine happens to have the widest `cmap`: this machine's preference list for `Serif` begins
 /// with `NimbusRoman`, which has no Cyrillic, and continues with `LiberationSerif`, which has.
 fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> Option<Arc<[u8]>> {
-    let families = PREFERENCES
+    // A process that has stated it cannot read the machine's fonts has no catalogue to walk, and
+    // [`crate::provider`] is the one way a face can still reach it: the broker walks the list
+    // below in the broker's own process and hands one candidate over at a time, so `accept` —
+    // which judges a face by its *contents* and cannot cross a wire — still sees the same
+    // preference list in the same order. Nothing is armed unless a host armed it, so this is
+    // `None` in every process that has not asked for the port.
+    if !machine_fonts() {
+        for skip in 0..MAX_OFFERS {
+            let (bytes, _name) = crate::provider::offered(request, &[], skip)?;
+            if accept(&bytes) {
+                return Some(bytes);
+            }
+        }
+        return None;
+    }
+
+    // Not this one is not the end of it: the same family's next name may still answer, which is
+    // why the walk is a list and the accept is a filter over it.
+    for path in preferred_paths(request) {
+        if let Some(bytes) = read_cached(path)
+            && accept(&bytes)
+        {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+/// How many candidates a confined caller may ask its broker for before it gives up.
+///
+/// [`preferred_paths`] is [`PREFERENCES`]'s families crossed with [`suffixes`]'s endings, so its
+/// length is bounded by those two tables and is well under this on every family. The constant is
+/// a bound on *round trips* rather than a policy about faces: a broker that answered every `skip`
+/// would otherwise be able to keep a worker asking.
+const MAX_OFFERS: u32 = 64;
+
+/// Every face this machine offers for a request, in the order [`PREFERENCES`] puts them.
+///
+/// **Family is the outer loop**: a Helvetica-metric face in the wrong style beats a
+/// correctly-styled face with unrelated metrics, because the style is cosmetic and the metrics
+/// move every glyph on the line. One entry per family and ending, because a second file with the
+/// same stem is the same face under another directory.
+///
+/// Public in this module rather than a loop inside one caller because two callers need the same
+/// order and a third needs it **as paths**: [`machine_face`] is what a broker answers a confined
+/// worker's description with, and a broker matching in some other order would be a second matcher
+/// for the confined side to disagree with the unconfined one about.
+fn preferred_paths(request: Request) -> Vec<&'static Path> {
+    let Some(families) = PREFERENCES
         .iter()
         .find(|(family, _)| *family == request.family)
-        .map(|(_, names)| *names)?;
+        .map(|(_, names)| *names)
+    else {
+        return Vec::new();
+    };
 
-    // Family is the outer loop: a Helvetica-metric face in the wrong style beats a
-    // correctly-styled face with unrelated metrics, because the style is cosmetic and the
-    // metrics move every glyph on the line.
+    let mut found: Vec<&'static Path> = Vec::new();
     for family in families {
         let family = normalise(family);
         for suffix in suffixes(request.bold, request.italic) {
@@ -781,18 +835,39 @@ fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> 
                     .stem
                     .strip_prefix(&family)
                     .is_some_and(|rest| rest == *suffix)
-                    && let Some(bytes) = read_cached(&candidate.path)
                 {
-                    if accept(&bytes) {
-                        return Some(bytes);
-                    }
-                    // Not this one; the same family's next name may still answer.
+                    found.push(candidate.path.as_path());
                     break;
                 }
             }
         }
     }
-    None
+    found
+}
+
+/// The face this machine offers for a description, as a path a broker can open.
+///
+/// **This is the resource port's matcher, and it is the same walk everything else here uses.**
+/// `crate::provider::open_a_face` is a decode, this call, and a `File::open`; there is no second
+/// implementation of "which face answers this description" for a confined worker to disagree with
+/// an unconfined one about (`doc/todo/59`).
+///
+/// `skip` passes over that many of the answers, so a caller judging faces by their contents can
+/// walk the list rather than being handed one candidate. It is meaningful only where `wanted` is
+/// empty: a covering search is a search for *the* widest face that draws a script, and there is
+/// no second answer to it — a `skip` past zero with characters asked for is `None`.
+#[must_use]
+pub fn machine_face(request: Request, wanted: &[char], skip: u32) -> Option<PathBuf> {
+    if wanted.is_empty() {
+        let index = usize::try_from(skip).ok()?;
+        return preferred_paths(request)
+            .get(index)
+            .map(|path| path.to_path_buf());
+    }
+    if skip != 0 {
+        return None;
+    }
+    covering_path(request, wanted)
 }
 
 /// The best face this machine offers that can draw `wanted`, or `None`.
@@ -819,24 +894,49 @@ fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> 
 /// registered one, which is ten of the 974 corpus documents.
 #[must_use]
 pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
-    let covers = |bytes: &Arc<[u8]>| {
-        let Ok(font) = skrifa::FontRef::new(bytes) else {
-            return false;
-        };
-        let charmap = skrifa::MetadataProvider::charmap(&font);
-        wanted.iter().all(|c| charmap.map(*c).is_some())
-    };
     if wanted.is_empty() {
         return installed(request);
     }
-    if let Some(bytes) = installed_accepted(request, covers) {
-        return Some(bytes);
+    // The port, for a process that cannot read a font file: the description that crosses carries
+    // the characters, so the broker runs `covering_path` — this function's own search — in the
+    // process that has the filesystem. The answer is checked here anyway, because a broker is a
+    // peer and a face that does not cover is worse than the compiled-in one (see below).
+    if !machine_fonts() {
+        let (bytes, _name) = crate::provider::offered(request, wanted, 0)?;
+        return covers(&bytes, wanted).then_some(bytes);
+    }
+    covering_path(request, wanted).and_then(|path| read_cached(&path))
+}
+
+/// Whether a face answers every one of the characters asked for.
+fn covers(bytes: &Arc<[u8]>, wanted: &[char]) -> bool {
+    let Ok(font) = skrifa::FontRef::new(bytes) else {
+        return false;
+    };
+    let charmap = skrifa::MetadataProvider::charmap(&font);
+    wanted.iter().all(|c| charmap.map(*c).is_some())
+}
+
+/// [`installed_covering`]'s search, answering the path rather than the bytes.
+///
+/// Split out because [`machine_face`] answers a broker with a path to open, and a broker that
+/// searched differently would be a second matcher.
+fn covering_path(request: Request, wanted: &[char]) -> Option<PathBuf> {
+    let accept = |bytes: &Arc<[u8]>| covers(bytes, wanted);
+    for path in preferred_paths(request) {
+        if let Some(bytes) = read_cached(path)
+            && accept(&bytes)
+        {
+            return Some(path.to_path_buf());
+        }
     }
 
     // Memoised on the characters, because the search is the expensive part: it reads font
     // files until one covers them, and a document with three Japanese fonts would otherwise
     // walk the machine's catalogue three times. Measured: 215 ms the first time on this
-    // machine's 1 400 faces, and nothing after it.
+    // machine's 1 400 faces, and nothing after it. Keyed by the characters alone, which is
+    // exactly right for this half of the search: it walks the whole catalogue and asks nothing
+    // about the family.
     let key: Vec<char> = wanted.to_vec();
     let memo = COVERING.get_or_init(|| RwLock::new(Vec::new()));
     if let Ok(held) = memo.read()
@@ -853,7 +953,7 @@ pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>
         .iter()
         .filter_map(|candidate| {
             let bytes: Arc<[u8]> = std::fs::read(&candidate.path).ok()?.into();
-            if !covers(&bytes) {
+            if !accept(&bytes) {
                 return None;
             }
             // **The widest repertoire among the faces that qualify**, which is a choice and
@@ -869,15 +969,15 @@ pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>
             Some((mappings, &candidate.path))
         })
         .max_by_key(|(mappings, _)| *mappings)
-        .and_then(|(_, path)| read_cached(path));
+        .map(|(_, path)| path.clone());
     if let Ok(mut held) = memo.write() {
         held.push((key, found.clone()));
     }
     found
 }
 
-/// One remembered answer to [`installed_covering`]'s catalogue search.
-type Covering = (Vec<char>, Option<Arc<[u8]>>);
+/// One remembered answer to [`covering_path`]'s catalogue search.
+type Covering = (Vec<char>, Option<PathBuf>);
 
 /// Answers to [`installed_covering`]'s catalogue search, by the characters asked for.
 static COVERING: OnceLock<RwLock<Vec<Covering>>> = OnceLock::new();

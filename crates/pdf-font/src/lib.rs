@@ -39,6 +39,7 @@ pub mod name_keyed;
 pub mod panose;
 pub mod predefined;
 mod program;
+pub mod provider;
 mod sfnt;
 pub mod standard;
 pub mod standard_metrics;
