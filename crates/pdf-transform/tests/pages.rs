@@ -81,6 +81,7 @@ fn draw(bytes: &[u8], page: usize) -> Option<Vec<u8>> {
             page_box: None,
             annotations: true,
             names: "page.ppm".parse().expect("a pattern"),
+            strips: None,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,

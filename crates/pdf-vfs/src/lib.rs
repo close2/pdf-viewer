@@ -11,7 +11,7 @@
 //! side of the worker protocol here, and says why: "[t]he faces contain *no* layout knowledge —
 //! adding `fonts/` one day is a core change that both faces grow simultaneously".
 //!
-//! # The four pieces, and where each lives
+//! # The five pieces, and where each lives
 //!
 //! - [`layout`] is the tree, as one declarative table: path pattern → generator → write mapping.
 //!   It is the whole design, and it is data rather than control flow so that a reviewer can read
@@ -23,32 +23,47 @@
 //!   silently.
 //! - [`cache`] is what makes section 5.5's "no virtual file is stat'd before it is generated"
 //!   affordable, since every `cp` is a `stat` and then a `read`.
+//! - [`commit`] is the transaction: a POSIX write is `create`, `write` several times, `flush` and
+//!   `close`, and section 5.4 makes the third of those the moment the document changes.
 //!
-//! # Reads this round, writes declared and refused
+//! # Reads and writes, and what a write is not
 //!
-//! RFC 0003 section 10 orders reads first, and that is what landed: `stat`, `list`, `open` and
-//! `read` over the whole tree. Every one of section 5.2's five write verbs is **declared in the
-//! layout table** and refused at the point of the call, by the operation's own name; every one of
-//! section 5.3's four refusals is refused with the sentence that says why it is not merely
-//! unbuilt. [`Vfs::shortfalls`] is the list of both, so a face can print what it cannot do
-//! rather than a person discovering it (trap 5).
+//! Every read of section 5.1 and every write of section 5.2 are here; every refusal of section
+//! 5.3 is refused with the sentence that says why it will still be refused. [`Vfs::shortfalls`]
+//! is what the layout declares and this does not do, so a face can print it rather than a person
+//! discovering it (trap 5).
+//!
+//! **A write is never a rewrite.** `CLAUDE.md` permits exactly one thing to be done to a
+//! document somebody already has open — §7.5.6's incremental update, "appended to the end of the
+//! file, leaving its original contents intact" — so `pdf_transform`'s in-place `update` verb is
+//! what every one of the five goes through, and the broker checks the clause's own property
+//! against the file before it writes a byte. What that buys is stated in [`commit`], along with
+//! what a torn write looks like, what an abandoned one leaves behind, and why our own commit does
+//! not look to the tree like somebody else editing the file underneath it.
 //!
 //! # What a face has to do, and what it must not
 //!
-//! Call [`Vfs::list`], [`Vfs::stat`], [`Vfs::open`] and [`Handle::read`]; map [`VfsError`] onto
-//! its own errors; log [`Refused::sentence`] where its protocol has no channel for one — which
-//! is FUSE's poverty and RFC 0003 section 5.3's reason for insisting the sentence exist here.
-//! What it must not do is decide anything about the tree: a face that knows that `pages/` holds
-//! PDFs has taken layout knowledge out of this table, and the next directory added would have to
-//! be added twice.
+//! Call [`Vfs::list`], [`Vfs::stat`], [`Vfs::open`] and [`Handle::read`]; for a write,
+//! [`Vfs::create`], [`Vfs::write_at`], [`Vfs::flush`] and [`Vfs::release`], which are `open`,
+//! `write`, `flush` and `release` with the names the kernel gives them; map [`VfsError`] onto its
+//! own errors with [`VfsError::errno`], and log the sentence beside it where its protocol has no
+//! channel for one — which is FUSE's poverty and RFC 0003 section 5.3's reason for insisting the
+//! sentence exist here. What it must not do is decide anything about the tree: a face that knows
+//! that `pages/` holds PDFs has taken layout knowledge out of this table, and the next directory
+//! added would have to be added twice; a face that chose its own `errno` for a refusal is the
+//! same mistake one layer down.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 pub mod cache;
+pub mod commit;
+mod confined;
 pub mod generation;
 pub mod layout;
 pub mod path;
+mod serve;
+mod wire;
 pub mod worker;
 
 use std::sync::{Arc, Mutex};
@@ -56,11 +71,17 @@ use std::sync::{Arc, Mutex};
 use pdf_transform::{Budget, Policy};
 
 use crate::cache::Cache;
+use crate::commit::Staged;
 use crate::generation::{Backing, Generation};
 use crate::layout::{Generator, Kind, Reason, Route, Write, WriteMapping};
 use crate::worker::{Answer, Query, Worker, WorkerError, Workers};
 
+pub use crate::commit::{Abandoned, Committed, Errno, Pending, Provenance, StagedId};
+pub use crate::confined::{Confined, ConfinedWorkers};
 pub use crate::generation::{FileBacking, MemoryBacking};
+pub use crate::serve::{
+    WORKER_PATH_VARIABLE, WORKER_PROGRAM, WorkerLimits, confine, message_budget, serve,
+};
 pub use crate::worker::InProcessWorkers;
 
 /// The resolutions `renders/` offers.
@@ -88,6 +109,13 @@ pub struct Config {
     pub policy: Policy,
     /// The resolutions `renders/` offers. [`RESOLUTIONS`] unless a host states otherwise.
     pub resolutions: Vec<u32>,
+    /// How many bytes one write in flight may hold before it is refused.
+    ///
+    /// A `cp` of a forty-gigabyte file into `attachments/` is a `create` and then writes, and the
+    /// bytes have nowhere to go but memory until the `flush` that validates them. So the ceiling
+    /// is explicit, in principle-3 style, and a write past it is refused by name at the write
+    /// that crosses it rather than when the machine runs out.
+    pub max_staged_bytes: usize,
     /// The most entries one directory may list.
     ///
     /// A listing is built from what the document says, so its length is the document's to choose
@@ -98,8 +126,8 @@ pub struct Config {
 }
 
 impl Default for Config {
-    /// 64 MiB of cache, the transform seam's own budget, restrictions off, both resolutions, and
-    /// 65 536 entries a directory.
+    /// 64 MiB of cache, the transform seam's own budget, restrictions off, both resolutions,
+    /// 512 MiB of one write in flight, and 65 536 entries a directory.
     ///
     /// The cache figure is a stated choice rather than a measurement: it is a few pages of a
     /// large document at 300 dpi, which is the working set a `cp -r` of one directory has. A
@@ -110,6 +138,7 @@ impl Default for Config {
             budget: Budget::default(),
             policy: Policy::default(),
             resolutions: RESOLUTIONS.to_vec(),
+            max_staged_bytes: 512 << 20,
             max_entries: 1 << 16,
         }
     }
@@ -141,6 +170,49 @@ pub enum VfsError {
     /// The worker could not answer.
     #[error("{0}")]
     Worker(#[from] WorkerError),
+    /// The document changed while a write was staged against it.
+    ///
+    /// RFC 0003 section 5.4's key, applied to a write rather than a read: the update the worker
+    /// computes is a function of the document it was computed from, so committing it over a file
+    /// somebody else has edited would throw their edit away. Refused instead, by name.
+    #[error(
+        "{path}: the document changed while this write was in flight, so committing it would \
+         discard whatever changed it; nothing was written"
+    )]
+    Changed {
+        /// Which path was being written.
+        path: String,
+    },
+    /// More bytes than [`Config::max_staged_bytes`] allows one write in flight.
+    #[error("{path}: a write in flight may hold {ceiling} bytes, and this one reached {reached}")]
+    TooLarge {
+        /// Which path.
+        path: String,
+        /// How far it got.
+        reached: usize,
+        /// The ceiling.
+        ceiling: usize,
+    },
+    /// A token no write in flight answers to.
+    #[error("no write in flight has the token {0}")]
+    NoSuchWrite(u64),
+    /// A name this directory cannot file.
+    #[error("{path}: {detail}")]
+    Unnameable {
+        /// Which path.
+        path: String,
+        /// Why the name cannot be used.
+        detail: String,
+    },
+    /// §7.7.4's tree already files an embedded file under this name.
+    #[error(
+        "{path}: §7.7.4's /EmbeddedFiles tree already files a file under this name; remove it \
+         before writing another"
+    )]
+    AlreadyFiled {
+        /// Which path.
+        path: String,
+    },
     /// A directory the document would fill past [`Config::max_entries`].
     #[error("{path}: this document would list {count} entries here, and the ceiling is {ceiling}")]
     TooManyEntries {
@@ -153,6 +225,64 @@ pub enum VfsError {
     },
 }
 
+impl VfsError {
+    /// The `errno` a face returns for this, and the one place either face may learn it.
+    ///
+    /// RFC 0003 section 7 keeps every decision about the tree here rather than in a face, and
+    /// this is one of them: a KIO worker mapping these onto `KIO::Error` and a FUSE daemon
+    /// handing them to the kernel must agree about what a refused write *is*, and a face that
+    /// chose its own numbers would be the second copy of a decision.
+    ///
+    /// FUSE carries no message beside the number — RFC 0003 section 5.3: it "returns `EROFS` for
+    /// the derived directories and `EPERM` with no message channel — which is FUSE's poverty,
+    /// and why the mount also logs each refusal's sentence to its own stderr/journal". So a face
+    /// logs `self.to_string()` beside every one of these.
+    #[must_use]
+    pub fn errno(&self) -> Errno {
+        match self {
+            // A path nothing names, and a token no write in flight answers to: both are a name
+            // this tree does not have.
+            Self::NoSuchPath(_) | Self::NoSuchWrite(_) => Errno::NoSuchFile,
+            Self::NotADirectory(_) => Errno::NotADirectory,
+            Self::IsADirectory(_) => Errno::IsADirectory,
+            Self::Refused(refused) => refused.errno(),
+            // The document could not be stat'd, opened or replaced. The file system's own kind
+            // is the honest answer where there is one, because a mount whose backing file has
+            // been deleted should say `ENOENT` rather than `EIO`.
+            Self::Backing { error, .. } => match error.kind() {
+                std::io::ErrorKind::NotFound => Errno::NoSuchFile,
+                std::io::ErrorKind::PermissionDenied => Errno::PermissionDenied,
+                std::io::ErrorKind::IsADirectory => Errno::IsADirectory,
+                _ => Errno::InputOutput,
+            },
+            Self::Worker(error) => match error {
+                // `CLAUDE.md` principle 3's two levels that do not proceed. Both are `EACCES`
+                // and the *sentence* is what tells them apart, which is FUSE's poverty rather
+                // than a choice: there is no number for "somebody would have been asked".
+                WorkerError::Restricted(_) | WorkerError::Unanswerable(_) => {
+                    Errno::PermissionDenied
+                }
+                // §7.6.4.1's password, which a mount has no way to ask for yet.
+                WorkerError::PasswordRequired(_) => Errno::PermissionDenied,
+                WorkerError::NotPresent(_) => Errno::NoSuchFile,
+                // The document, or the file being written into it, could not be read as one.
+                // `EIO` and not `EINVAL`, because the caller's *request* was well formed and it
+                // is the bytes that were not — which is what a `cp` of a truncated PDF into
+                // `pages/` is, and the one a `close(2)` should report.
+                WorkerError::Refused(_)
+                | WorkerError::Declined { .. }
+                | WorkerError::Mismatched { .. }
+                | WorkerError::Transport(_) => Errno::InputOutput,
+            },
+            Self::TooManyEntries { .. } => Errno::Overflow,
+            Self::Changed { .. } => Errno::Stale,
+            Self::TooLarge { .. } => Errno::TooBig,
+            Self::Unnameable { .. } => Errno::Invalid,
+            Self::AlreadyFiled { .. } => Errno::Exists,
+        }
+    }
+}
+
 /// A write this program will not do, and the two different things that can mean.
 ///
 /// The distinction is the point, and RFC 0003 section 5.3 draws it: a *refusal by design* is a
@@ -162,7 +292,7 @@ pub enum VfsError {
 /// system" for both, and the design would be invisible from outside.
 #[derive(Debug, thiserror::Error)]
 pub enum Refused {
-    /// Refused by design, for one of [`Reason`]'s five.
+    /// Refused by design, for one of [`Reason`]'s six.
     #[error("{path}: {}", reason.sentence())]
     ByDesign {
         /// Which path.
@@ -170,18 +300,44 @@ pub enum Refused {
         /// Why.
         reason: Reason,
     },
-    /// The layout declares what this write means and RFC 0003's write side has not landed.
-    #[error("{path}: {} is what a write here means, and the write side of this mount is not \
-             built yet — use the pdf-transform command line", mapping.name())]
-    NotYetImplemented {
+    /// The layout declares what a verb means on this row and the *other* verb was asked.
+    ///
+    /// Unreachable through this crate's own entry points, which check the row before they accept
+    /// a byte — and written rather than asserted, for the reason
+    /// [`worker::WorkerError::Mismatched`] is: a layout table that grew a row this code did not
+    /// grow an arm for should be a sentence rather than a panic.
+    #[error("{path}: {} is what this verb means here, and that is not what was asked",
+            mapping.name())]
+    WrongVerb {
         /// Which path.
         path: String,
-        /// What the layout says it would mean.
+        /// What the layout says the verb means.
         mapping: Write,
     },
 }
 
 impl Refused {
+    /// The `errno` this refusal is.
+    ///
+    /// RFC 0003 section 5.3 states two of these outright — FUSE "returns `EROFS` for the derived
+    /// directories and `EPERM` with no message channel" — and the rest follow the same reading:
+    /// a *derived* file is a read-only view of something else, and everything else this program
+    /// declines is a thing it will not do, which is what `EPERM` says.
+    #[must_use]
+    pub fn errno(&self) -> Errno {
+        match self {
+            Self::ByDesign { reason, .. } => match reason {
+                Reason::Derived => Errno::ReadOnly,
+                Reason::LayoutIsNotWritable
+                | Reason::TextIsNotAByteStream
+                | Reason::ImageReplacementNotDesigned
+                | Reason::ReorderIsAmbiguous
+                | Reason::NotOneOfTheFiveVerbs => Errno::OperationNotPermitted,
+            },
+            Self::WrongVerb { .. } => Errno::NotImplemented,
+        }
+    }
+
     /// The sentence a face shows a person, or logs where its protocol carries no message.
     ///
     /// RFC 0003 section 5.3: FUSE "returns `EROFS` for the derived directories and `EPERM` with
@@ -316,8 +472,44 @@ pub struct Vfs {
     config: Config,
     /// Generated content, keyed by generation and path.
     cache: Cache,
-    /// The generation being served, and everything derived from it.
-    current: Mutex<Option<Arc<Current>>>,
+    /// The generation being served, the writes in flight, and the key this tree's own last
+    /// commit left behind.
+    ///
+    /// **One lock over all three**, and that is the design rather than an economy: a commit has
+    /// to read the generation, compute an update from it, replace the file and build the next
+    /// generation without any other operation falling between the two — which is exactly what
+    /// holding this across the whole of [`Vfs::flush`] gives. Every read blocks for the length of
+    /// one commit, which is the cost of a transaction and is what a caller of a file system
+    /// expects `close(2)` to be doing.
+    state: Mutex<Serving>,
+    /// How many times a virtual file's bytes have actually been produced.
+    ///
+    /// The instrument the cache's own numbers do not give: bytes held say what is remembered,
+    /// this says what was *done*. A gate that means "and it did not generate it again" has no
+    /// other way to say so — a size is the same number whether it was remembered or recomputed,
+    /// which is exactly what made a test of [`Cache::size_of`] pass without it (round 911, trap
+    /// 13). An `AtomicU64` because every operation here is behind `&self`.
+    generated: std::sync::atomic::AtomicU64,
+}
+
+/// Everything one document's mount holds that a commit changes.
+#[derive(Debug, Default)]
+struct Serving {
+    /// The generation being served, where anything has been read yet.
+    current: Option<Arc<Current>>,
+    /// The key this tree's own last commit left on the file, until the generation for it is
+    /// built. [`Provenance`] is what it is for.
+    ours: Option<Generation>,
+    /// The writes in flight, by their tokens.
+    staged: std::collections::BTreeMap<u64, Staged>,
+    /// The next token, which is never reused inside one mount.
+    next_token: u64,
+    /// How many generation transitions have been [`Provenance::Foreign`] since this tree opened.
+    ///
+    /// Monotonic, and only ever compared for equality: [`Staged::foreign_edits`] says what it is
+    /// for. A counter rather than the served generation's own [`Provenance`], because that flag
+    /// describes the *last* transition and a write can be staged across several.
+    foreign_edits: u64,
 }
 
 /// One generation of the document, and what has been read of it so far.
@@ -332,6 +524,8 @@ struct Current {
     pages: usize,
     /// §7.11.4's embedded files, once something has asked for them.
     attachments: Mutex<Option<Arc<Vec<Embedded>>>>,
+    /// Whose edit produced this generation.
+    provenance: Provenance,
 }
 
 /// One embedded file, under the name it takes in the tree.
@@ -356,7 +550,8 @@ impl Vfs {
             backing,
             workers,
             config,
-            current: Mutex::new(None),
+            state: Mutex::new(Serving::default()),
+            generated: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -378,15 +573,19 @@ impl Vfs {
     /// Everything the layout declares that this round does not do, by name.
     #[must_use]
     pub fn shortfalls(&self) -> Vec<Shortfall> {
-        let mut out: Vec<Shortfall> = layout::LAYOUT
-            .iter()
-            .filter(|route| route.write.declares_an_operation())
-            .map(|route| Shortfall {
-                pattern: route.pattern,
-                detail: "the layout states what a write here means and the write side of this \
-                         mount is not built: RFC 0003 section 5.2's verbs are the next round's",
-            })
-            .collect();
+        let mut out: Vec<Shortfall> = vec![Shortfall {
+            pattern: "/attachments/NAME",
+            detail: "a write to a name §7.7.4's tree already files is refused rather than \
+                     replacing it, because an in-place replacement is two updates and this \
+                     verb writes one; remove it and write it again",
+        }];
+        out.push(Shortfall {
+            pattern: "/pages/NNNN.pdf",
+            detail: "an insertion carries the pages and not what the incoming document says \
+                     about them at the document level — its form, its optional content, its \
+                     outline, its name trees and its structure tree are each named in a warning \
+                     rather than carried",
+        });
         out.push(Shortfall {
             pattern: "/attachments",
             detail: "a document with a §12.3.5 /Collection is listed flat rather than under the \
@@ -424,6 +623,20 @@ impl Vfs {
     /// [`VfsError::Backing`] where the file cannot be stat'd or opened, and [`VfsError::Worker`]
     /// where a worker cannot be started or the page count cannot be read.
     fn current(&self) -> Result<Arc<Current>, VfsError> {
+        let mut held = self.held();
+        self.current_in(&mut held)
+    }
+
+    /// The lock over everything a commit changes.
+    fn held(&self) -> std::sync::MutexGuard<'_, Serving> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// [`Vfs::current`], with the lock already held — which is what a commit needs, because the
+    /// old generation, the write and the new generation are one transaction.
+    fn current_in(&self, held: &mut Serving) -> Result<Arc<Current>, VfsError> {
         let generation = self
             .backing
             .generation()
@@ -431,12 +644,15 @@ impl Vfs {
                 document: self.backing.describe(),
                 error,
             })?;
-        let mut held = self
-            .current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(current) = held.as_ref()
+        // **Two questions, and both have to be `yes`.** The key is RFC 0003 section 5.4's rule; the
+        // second is RFC 0003 section 6's — a confined worker is killable by design, and one the
+        // kernel has ended answers `false` for ever after. Asking it again would produce a second,
+        // stranger error about a closed descriptor, so the generation is thrown away and the next
+        // operation starts a fresh worker over the same file. `InProcess` is always alive, so this
+        // costs the unconfined path an atomic load.
+        if let Some(current) = held.current.as_ref()
             && current.generation == generation
+            && current.worker.is_alive()
         {
             return Ok(Arc::clone(current));
         }
@@ -455,14 +671,45 @@ impl Vfs {
         // forgotten. In this order, so that no window exists in which a caller could be handed
         // an entry keyed by a generation the document no longer has.
         self.cache.retain(generation);
+        // Whose edit this is. `ours` is set by [`Vfs::flush`] under this same lock, so the only
+        // way a generation is `Ours` is that this tree wrote the key that produced it; a key
+        // that arrived any other way is somebody else's, whether or not a write of ours ever
+        // happened.
+        let provenance = if held.current.is_none() && held.ours.is_none() {
+            Provenance::Opened
+        } else if held.ours.take() == Some(generation) {
+            Provenance::Ours
+        } else {
+            held.ours = None;
+            held.foreign_edits = held.foreign_edits.saturating_add(1);
+            Provenance::Foreign
+        };
         let current = Arc::new(Current {
             generation,
             worker,
             pages,
             attachments: Mutex::new(None),
+            provenance,
         });
-        *held = Some(Arc::clone(&current));
+        held.current = Some(Arc::clone(&current));
         Ok(current)
+    }
+
+    /// How many virtual files this tree has produced the bytes of, since it opened.
+    ///
+    /// Monotonic, and the counterpart to what the cache holds: see [`Vfs::generated`]'s field.
+    #[must_use]
+    pub fn generated(&self) -> u64 {
+        self.generated.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whose edit produced the generation being served.
+    ///
+    /// # Errors
+    ///
+    /// As [`Vfs::list`].
+    pub fn provenance(&self) -> Result<Provenance, VfsError> {
+        Ok(self.current()?.provenance)
     }
 
     /// The generation being served right now, for a face that wants to report it.
@@ -492,9 +739,48 @@ impl Vfs {
     pub fn list(&self, path: &str) -> Result<Vec<DirEntry>, VfsError> {
         let current = self.current()?;
         let (route, captures) = locate_in(&current, path, &self.config.resolutions)?;
+        let directory = canonical_path(path)?;
         if route.kind != Kind::Directory {
             return Err(VfsError::NotADirectory(path.to_owned()));
         }
+        let mut entries = self.entries_of(&current, path, route, &captures)?;
+        // A write in flight is *in* the tree: `cp` stats what it has just written, a file
+        // manager shows the copy arriving, and a directory that named nothing there would fail
+        // the copy it had accepted. `crate::commit` has the argument.
+        for staged in self.pending() {
+            let Some(name) = staged
+                .path
+                .strip_prefix(&directory)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .filter(|rest| !rest.contains('/'))
+            else {
+                continue;
+            };
+            if !entries.iter().any(|entry| entry.name == name) {
+                entries.push(DirEntry {
+                    name: name.to_owned(),
+                    kind: Kind::File,
+                });
+            }
+        }
+        if entries.len() > self.config.max_entries {
+            return Err(VfsError::TooManyEntries {
+                path: path.to_owned(),
+                count: entries.len(),
+                ceiling: self.config.max_entries,
+            });
+        }
+        Ok(entries)
+    }
+
+    /// What one directory's own generator names, before the writes in flight join it.
+    fn entries_of(
+        &self,
+        current: &Current,
+        path: &str,
+        route: &'static Route,
+        captures: &path::Captures,
+    ) -> Result<Vec<DirEntry>, VfsError> {
         let entries = match route.generator {
             Generator::Root => layout::children("/")
                 .into_iter()
@@ -503,7 +789,7 @@ impl Vfs {
                     kind: child.kind,
                 })
                 .collect(),
-            Generator::PageOrdinals => page_names(&current, "pdf"),
+            Generator::PageOrdinals => page_names(current, "pdf"),
             Generator::Resolutions => self
                 .config
                 .resolutions
@@ -513,16 +799,16 @@ impl Vfs {
                     kind: Kind::Directory,
                 })
                 .collect(),
-            Generator::RenderOrdinals => page_names(&current, "png"),
+            Generator::RenderOrdinals => page_names(current, "png"),
             Generator::ImagePageOrdinals => (1..=current.pages)
                 .map(|page| DirEntry {
-                    name: path::page_name_stem(page, width(&current)),
+                    name: path::page_name_stem(page, width(current)),
                     kind: Kind::Directory,
                 })
                 .collect(),
             Generator::ImageInventory => {
                 let page = captures.page.ok_or(VfsError::NoSuchPath(path.to_owned()))?;
-                let mut names: Vec<String> = images(&current, page)?.keys().cloned().collect();
+                let mut names: Vec<String> = images(current, page)?.keys().cloned().collect();
                 names.sort();
                 names
                     .into_iter()
@@ -533,14 +819,14 @@ impl Vfs {
                     .collect()
             }
             Generator::TextOrdinals => {
-                let mut entries = page_names(&current, "txt");
+                let mut entries = page_names(current, "txt");
                 entries.push(DirEntry {
                     name: String::from("document.txt"),
                     kind: Kind::File,
                 });
                 entries
             }
-            Generator::AttachmentInventory => attachments(&current)?
+            Generator::AttachmentInventory => attachments(current)?
                 .iter()
                 .map(|embedded| DirEntry {
                     name: embedded.file_name.clone(),
@@ -584,13 +870,6 @@ impl Vfs {
             | Generator::MetadataStream
             | Generator::Outline => return Err(VfsError::NotADirectory(path.to_owned())),
         };
-        if entries.len() > self.config.max_entries {
-            return Err(VfsError::TooManyEntries {
-                path: path.to_owned(),
-                count: entries.len(),
-                ceiling: self.config.max_entries,
-            });
-        }
         Ok(entries)
     }
 
@@ -605,11 +884,31 @@ impl Vfs {
     /// As [`Vfs::open`], plus [`VfsError::NoSuchPath`].
     pub fn stat(&self, path: &str) -> Result<Attributes, VfsError> {
         let current = self.current()?;
+        if let Some(staged) = self.staged_at(path) {
+            return Ok(Attributes {
+                kind: Kind::File,
+                size: Some(staged.len()),
+                generation: staged.generation,
+            });
+        }
         let (route, _) = locate_in(&current, path, &self.config.resolutions)?;
         if route.kind == Kind::Directory {
             return Ok(Attributes {
                 kind: Kind::Directory,
                 size: None,
+                generation: current.generation,
+            });
+        }
+        // A size this generation has already produced, answered without producing it again.
+        // RFC 0003 section 5.5's rule is that a `stat` may not *estimate* — "an under-estimate
+        // silently truncates a page" — and a length taken off the bytes themselves is not an
+        // estimate whether or not those bytes are still in the cache. `Cache::sizes` has what a
+        // mount by hand measured this to be worth.
+        let canonical = canonical_path(path)?;
+        if let Some(size) = self.cache.size_of(current.generation, &canonical) {
+            return Ok(Attributes {
+                kind: Kind::File,
+                size: Some(size),
                 generation: current.generation,
             });
         }
@@ -630,6 +929,9 @@ impl Vfs {
     /// rasteriser declined. Loud in every case (trap 5).
     pub fn open(&self, path: &str) -> Result<Handle, VfsError> {
         let current = self.current()?;
+        if let Some(staged) = self.staged_at(path) {
+            return Ok(staged);
+        }
         let (route, captures) = locate_in(&current, path, &self.config.resolutions)?;
         if route.kind == Kind::Directory {
             return Err(VfsError::IsADirectory(path.to_owned()));
@@ -642,6 +944,8 @@ impl Vfs {
                 bytes,
             });
         }
+        self.generated
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bytes = self.generate(&current, route, &captures, &canonical)?;
         Ok(Handle {
             path: canonical.clone(),
@@ -650,27 +954,475 @@ impl Vfs {
         })
     }
 
-    /// Copying a file into the tree.
+    /// Copying a file into the tree, whole, in one call.
     ///
-    /// Nothing is written this round: the layout says what each destination would mean and this
-    /// refuses by that name. RFC 0003 section 5.2's five verbs are the write side's.
+    /// The transaction of [`Vfs::create`], [`Vfs::write_at`] and [`Vfs::flush`] with nothing
+    /// between them — what a KIO `put` is, because "KIO's verb is already transactional"
+    /// (RFC 0003 section 5.4), and what a test writes.
     ///
     /// # Errors
     ///
-    /// Always: [`Refused::NotYetImplemented`] where the layout declares a meaning,
-    /// [`Refused::ByDesign`] where it refuses one, [`VfsError::NoSuchPath`] where it names
-    /// neither.
-    pub fn write(&self, path: &str, _bytes: &[u8]) -> Result<(), VfsError> {
-        Err(refusal_for(path, Verb::Write)?.into())
+    /// As [`Vfs::create`] and [`Vfs::flush`].
+    pub fn write(&self, path: &str, bytes: &[u8]) -> Result<Committed, VfsError> {
+        let id = self.create(path)?;
+        let staged = self.write_at(id, 0, bytes);
+        let committed = staged.and_then(|_| self.flush(id));
+        self.release(id);
+        committed
+    }
+
+    /// Begins a write to `path`, and hands back the token the rest of it is addressed by.
+    ///
+    /// **Everything that can be decided before the bytes arrive is decided here**, because a
+    /// `create` is where a file manager's error message comes from: the layout's refusals, the
+    /// names this directory can file, and the position a page may be inserted at. What is left
+    /// for [`Vfs::flush`] is what needs the bytes — whether they are a document — and the
+    /// document's own assertions over its reader, which are asked once at the transform seam.
+    ///
+    /// # Errors
+    ///
+    /// [`VfsError::Refused`] where the layout refuses the destination by design or declares a
+    /// meaning nothing implements, [`VfsError::NoSuchPath`] for a path the layout does not name,
+    /// [`VfsError::Unnameable`] for a name this directory cannot file, [`VfsError::AlreadyFiled`]
+    /// for an embedded file whose name §7.7.4's tree already holds, and the backing's or the
+    /// worker's own.
+    pub fn create(&self, path: &str) -> Result<StagedId, VfsError> {
+        let mut held = self.held();
+        let current = self.current_in(&mut held)?;
+        let canonical = canonical_path(path)?;
+        let (route, captures) = Self::locate_for_write(&current, &canonical)?;
+        let token = held.next_token;
+        held.next_token = held.next_token.saturating_add(1);
+        let foreign_edits = held.foreign_edits;
+        held.staged.insert(
+            token,
+            Staged {
+                path: canonical,
+                route,
+                captures,
+                generation: current.generation,
+                foreign_edits,
+                bytes: Vec::new(),
+                touched: false,
+                committed: false,
+            },
+        );
+        Ok(StagedId(token))
+    }
+
+    /// Writes into a staged file at an offset, as `pwrite(2)` does.
+    ///
+    /// A gap is filled with zero bytes, which is what a sparse write to a real file produces; a
+    /// caller that seeks past the end and writes has made a file that long.
+    ///
+    /// # Errors
+    ///
+    /// [`VfsError::NoSuchWrite`] for a token nothing answers to, and [`VfsError::TooLarge`] past
+    /// [`Config::max_staged_bytes`].
+    pub fn write_at(&self, id: StagedId, offset: u64, bytes: &[u8]) -> Result<usize, VfsError> {
+        let mut held = self.held();
+        let ceiling = self.config.max_staged_bytes;
+        let staged = held
+            .staged
+            .get_mut(&id.0)
+            .ok_or(VfsError::NoSuchWrite(id.0))?;
+        let from = usize::try_from(offset).map_err(|_| VfsError::TooLarge {
+            path: staged.path.clone(),
+            reached: usize::MAX,
+            ceiling,
+        })?;
+        let end = from.saturating_add(bytes.len());
+        if end > ceiling {
+            return Err(VfsError::TooLarge {
+                path: staged.path.clone(),
+                reached: end,
+                ceiling,
+            });
+        }
+        staged.touched = true;
+        if staged.bytes.len() < end {
+            staged.bytes.resize(end, 0);
+        }
+        staged
+            .bytes
+            .get_mut(from..end)
+            .ok_or(VfsError::NoSuchWrite(id.0))?
+            .copy_from_slice(bytes);
+        staged.committed = false;
+        Ok(bytes.len())
+    }
+
+    /// Cuts a staged file to `length`, as `ftruncate(2)` does.
+    ///
+    /// # Errors
+    ///
+    /// [`VfsError::NoSuchWrite`], and [`VfsError::TooLarge`] for a length past the ceiling.
+    pub fn truncate(&self, id: StagedId, length: u64) -> Result<(), VfsError> {
+        let mut held = self.held();
+        let ceiling = self.config.max_staged_bytes;
+        let staged = held
+            .staged
+            .get_mut(&id.0)
+            .ok_or(VfsError::NoSuchWrite(id.0))?;
+        let to = usize::try_from(length)
+            .ok()
+            .filter(|to| *to <= ceiling)
+            .ok_or_else(|| VfsError::TooLarge {
+                path: staged.path.clone(),
+                reached: usize::try_from(length).unwrap_or(usize::MAX),
+                ceiling,
+            })?;
+        staged.bytes.resize(to, 0);
+        staged.touched = true;
+        staged.committed = false;
+        Ok(())
+    }
+
+    /// Commits a staged write, which is the moment RFC 0003 section 5.4 names: a FUSE write
+    /// buffers, and validation and commit happen on `flush`, whose error return reaches the
+    /// application's `close()` — `release` reaches nobody, which is why it is only cleanup.
+    ///
+    /// A second `flush` with nothing written since the first does nothing and says so with the
+    /// same answer, because the kernel issues one per `close(2)` and a file opened twice is
+    /// closed twice.
+    ///
+    /// # Errors
+    ///
+    /// [`VfsError::NoSuchWrite`], [`VfsError::Changed`] where the document moved under the write,
+    /// and the worker's own — including [`worker::WorkerError::Restricted`] and
+    /// [`worker::WorkerError::Unanswerable`], which are `CLAUDE.md` principle 3's two levels that
+    /// do not proceed.
+    pub fn flush(&self, id: StagedId) -> Result<Committed, VfsError> {
+        let mut held = self.held();
+        let (path, mut route, mut captures, generation, foreign_edits, bytes, touched, committed) = {
+            let staged = held.staged.get(&id.0).ok_or(VfsError::NoSuchWrite(id.0))?;
+            (
+                staged.path.clone(),
+                staged.route,
+                staged.captures.clone(),
+                staged.generation,
+                staged.foreign_edits,
+                staged.bytes.clone(),
+                staged.touched,
+                staged.committed,
+            )
+        };
+        let current = self.current_in(&mut held)?;
+        // Nothing to do, twice over. `committed` is the second `close(2)` of a file the kernel
+        // opened twice; `!touched` is a handle opened for writing that nobody wrote to or
+        // truncated, which [`Staged::touched`] says is not a write at all. Both mark the write
+        // done so that [`Vfs::release`] does not then announce an abandonment.
+        if committed || !touched {
+            if let Some(staged) = held.staged.get_mut(&id.0) {
+                staged.committed = true;
+            }
+            return Ok(Committed {
+                path,
+                meaning: route.write.on_write,
+                from: current.generation,
+                to: current.generation,
+                pages: current.pages,
+                warnings: Vec::new(),
+            });
+        }
+        if current.generation != generation {
+            // **Whose edit moved it decides, and so does what the name means.**
+            //
+            // A *foreign* edit is `ESTALE` without exception: RFC 0003 section 5.4 makes the
+            // backing file the single source of truth, and committing over somebody else's
+            // update could discard it. [`Staged::foreign_edits`] is how that question is asked
+            // exactly, across any number of transitions.
+            //
+            // Our own commit is a different thing, and it used to be refused as though it were
+            // the same one — two writes in flight at once in a single mount, the first
+            // committing, the second `ESTALE` (round 911). What decides there is whether the
+            // *name* still means what it meant. An embedded file's name and the information
+            // dictionary are identities, so they still do. A page's ordinal is a **position** —
+            // RFC 0003 section 5.2: "[o]rdinal names are positions, not identities … after any
+            // write, the next listing renumbers" — so an insertion staged before a commit that
+            // renumbered would land somewhere nobody asked for, and it stays `ESTALE`.
+            let rebasable = foreign_edits == held.foreign_edits
+                && matches!(
+                    route.write.on_write,
+                    Write::EmbedFile | Write::SetInformation
+                );
+            if !rebasable {
+                return Err(VfsError::Changed { path });
+            }
+            // Re-asked rather than reused, so that every check `create` made — the name §7.7.4's
+            // tree already holds above all — is made again against the generation this is about
+            // to be committed to.
+            let (fresh_route, fresh_captures) = Self::locate_for_write(&current, &path)?;
+            route = fresh_route;
+            captures = fresh_captures;
+            if let Some(staged) = held.staged.get_mut(&id.0) {
+                staged.route = route;
+                staged.captures = captures.clone();
+                staged.generation = current.generation;
+            }
+        }
+        let query = match route.write.on_write {
+            Write::InsertPages => Query::InsertPages {
+                at: captures
+                    .page
+                    .ok_or_else(|| VfsError::NoSuchPath(path.clone()))?,
+                document: bytes,
+            },
+            Write::EmbedFile => Query::Attach {
+                name: captures
+                    .name
+                    .clone()
+                    .ok_or_else(|| VfsError::NoSuchPath(path.clone()))?,
+                bytes,
+            },
+            Write::SetInformation => Query::SetInformation { json: bytes },
+            // `create` refused every other mapping before a byte was accepted, so this is a row
+            // that changed under a staged write rather than a caller's mistake.
+            Write::DeletePage | Write::RemoveAttachment | Write::Refused(_) => {
+                return Err(refusal_for(&path, Verb::Write)?.into());
+            }
+        };
+        let outcome = self.apply_update(&mut held, &current, &path, &query)?;
+        if let Some(staged) = held.staged.get_mut(&id.0) {
+            staged.committed = true;
+        }
+        Ok(Committed {
+            meaning: route.write.on_write,
+            ..outcome
+        })
+    }
+
+    /// Drops a staged write.
+    ///
+    /// `Some` where it was never committed, which is a write that did not happen: the document
+    /// is byte for byte what it was, and [`Abandoned::sentence`] is what a face logs so that the
+    /// name its listing showed is explained rather than discovered.
+    pub fn release(&self, id: StagedId) -> Option<Abandoned> {
+        let mut held = self.held();
+        let staged = held.staged.remove(&id.0)?;
+        (!staged.committed).then(|| Abandoned {
+            path: staged.path,
+            size: u64::try_from(staged.bytes.len()).unwrap_or(u64::MAX),
+            meaning: staged.route.write.on_write,
+        })
+    }
+
+    /// A handle onto a write in flight at this path, where there is one.
+    ///
+    /// The generation is the one the write was created against, which is what makes the property
+    /// RFC 0003 section 5.4 states hold for a staged file too: what a reader is handed is one
+    /// generation's worth of bytes and never a splice.
+    fn staged_at(&self, path: &str) -> Option<Handle> {
+        let canonical = canonical_path(path).ok()?;
+        let held = self.held();
+        let staged = held
+            .staged
+            .values()
+            .find(|staged| !staged.committed && staged.path == canonical)?;
+        Some(Handle {
+            path: canonical,
+            generation: staged.generation,
+            bytes: Arc::from(staged.bytes.as_slice()),
+        })
+    }
+
+    /// The writes in flight, as a listing shows them.
+    #[must_use]
+    pub fn pending(&self) -> Vec<Pending> {
+        self.held()
+            .staged
+            .iter()
+            .filter(|(_, staged)| !staged.committed)
+            .map(|(token, staged)| Pending {
+                id: StagedId(*token),
+                path: staged.path.clone(),
+                size: u64::try_from(staged.bytes.len()).unwrap_or(u64::MAX),
+                meaning: staged.route.write.on_write,
+            })
+            .collect()
     }
 
     /// Deleting a path.
     ///
+    /// **Not staged, because a deletion has no bytes**: `unlink(2)` is one call and this is one
+    /// transaction, so it validates and commits together and its error is the caller's own.
+    ///
     /// # Errors
     ///
-    /// As [`Vfs::write`].
-    pub fn remove(&self, path: &str) -> Result<(), VfsError> {
-        Err(refusal_for(path, Verb::Delete)?.into())
+    /// [`VfsError::Refused`] where the layout refuses the deletion, [`VfsError::NoSuchPath`],
+    /// and the worker's own.
+    pub fn remove(&self, path: &str) -> Result<Committed, VfsError> {
+        let mut held = self.held();
+        let current = self.current_in(&mut held)?;
+        let canonical = canonical_path(path)?;
+        let (route, captures) = locate_in(&current, &canonical, &self.config.resolutions)?;
+        let query = match route.write.on_delete {
+            Write::DeletePage => Query::DeletePage {
+                page: captures
+                    .page
+                    .ok_or_else(|| VfsError::NoSuchPath(canonical.clone()))?,
+            },
+            // The *document's* own name for it, which is what the worker files it under; the
+            // tree lists it under a name a directory can hold, and `attachments` is the map
+            // between the two.
+            Write::RemoveAttachment => {
+                let listed = captures
+                    .name
+                    .clone()
+                    .ok_or_else(|| VfsError::NoSuchPath(canonical.clone()))?;
+                Query::Detach {
+                    name: attachments(&current)?
+                        .iter()
+                        .find(|embedded| embedded.file_name == listed)
+                        .map(|embedded| embedded.document_name.clone())
+                        .ok_or_else(|| VfsError::NoSuchPath(canonical.clone()))?,
+                }
+            }
+            Write::InsertPages | Write::EmbedFile | Write::SetInformation | Write::Refused(_) => {
+                return Err(refusal_for(&canonical, Verb::Delete)?.into());
+            }
+        };
+        let outcome = self.apply_update(&mut held, &current, &canonical, &query)?;
+        Ok(Committed {
+            meaning: route.write.on_delete,
+            ..outcome
+        })
+    }
+
+    /// The whole commit: ask the worker, check §7.5.6's property, replace the file, and step the
+    /// generation on — all under the lock the caller already holds.
+    fn apply_update(
+        &self,
+        held: &mut Serving,
+        current: &Current,
+        path: &str,
+        query: &Query,
+    ) -> Result<Committed, VfsError> {
+        let Answer::Written { bytes, warnings } = current.worker.ask(query)? else {
+            return Err(VfsError::Worker(mismatch(
+                &Answer::Absent,
+                "an updated document",
+            )));
+        };
+        self.check_appended(&bytes)?;
+        self.backing
+            .commit(&bytes)
+            .map_err(|error| VfsError::Backing {
+                document: self.backing.describe(),
+                error,
+            })?;
+        let from = current.generation;
+        // The old generation goes now and the new one is built before the lock is let go, so no
+        // operation can see a tree that belongs to neither — and `ours` is what makes the next
+        // one `Provenance::Ours` rather than looking like somebody else's edit.
+        held.current = None;
+        held.ours = self.backing.generation().ok();
+        let next = self.current_in(held)?;
+        Ok(Committed {
+            path: path.to_owned(),
+            meaning: Write::Refused(Reason::LayoutIsNotWritable),
+            from,
+            to: next.generation,
+            pages: next.pages,
+            warnings,
+        })
+    }
+
+    /// ISO 32000-2 §7.5.6, checked against the file rather than trusted:
+    ///
+    /// > When updating a PDF file incrementally, changes shall be appended to the end of the
+    /// > file, leaving its original contents intact.
+    ///
+    /// So the document the worker computed begins with the document on disk, byte for byte, and
+    /// the broker can say so **without reading either as a PDF** — which is what keeps this on
+    /// its side of RFC 0003 section 6's line. A worker that answered with anything else has
+    /// either been compromised or has a defect, and either way its answer is not written.
+    fn check_appended(&self, bytes: &[u8]) -> Result<(), VfsError> {
+        /// How much is compared at a time, so that a large document is not held twice.
+        const WINDOW: usize = 1 << 16;
+
+        let original = self.backing.bytes().map_err(|error| VfsError::Backing {
+            document: self.backing.describe(),
+            error,
+        })?;
+        let length = original.len();
+        let refuse = |detail: &str| {
+            VfsError::Worker(WorkerError::Refused(format!(
+                "the update this worker computed does not have the document as its prefix ({detail}), \
+             and §7.5.6 makes an update \"appended to the end of the file, leaving its original \
+             contents intact\"; nothing was written"
+            )))
+        };
+        if bytes.len() < length {
+            return Err(refuse("it is shorter than the file"));
+        }
+        let mut at = 0;
+        while at < length {
+            let end = at.saturating_add(WINDOW).min(length);
+            let window = original.read(at..end);
+            if bytes.get(at..end) != Some(window.as_ref()) {
+                return Err(refuse("they differ inside the file's own bytes"));
+            }
+            at = end;
+        }
+        Ok(())
+    }
+
+    /// The row a path names, for a **write** — which admits two paths a read does not.
+    ///
+    /// A `pages/NNNN.pdf` one past the last page, because RFC 0003 section 5.2 makes an ordinal a
+    /// position and appending is inserting at the position after the end; and an
+    /// `attachments/NAME` the document does not file, because that is what embedding a file *is*.
+    /// Everything else is the read's own answer.
+    fn locate_for_write(
+        current: &Current,
+        path: &str,
+    ) -> Result<(&'static Route, path::Captures), VfsError> {
+        let missing = || VfsError::NoSuchPath(path.to_owned());
+        let (route, captures) = path::resolve(path).ok_or_else(missing)?;
+        match route.write.on_write {
+            Write::InsertPages => {
+                let page = captures.page.ok_or_else(missing)?;
+                // One past the end appends; nothing further out is a position, and a listing
+                // never showed it.
+                if page == 0 || page > current.pages.saturating_add(1) {
+                    return Err(missing());
+                }
+                if !spells(current, path, page) {
+                    return Err(missing());
+                }
+            }
+            Write::EmbedFile => {
+                let name = captures.name.clone().ok_or_else(missing)?;
+                // The tree lists an embedded file under a name a directory can hold, and a read
+                // is looked up by that name; a file filed under a name the listing would show
+                // differently is a file `ls` could not name. So the two have to agree, and a
+                // name that would be changed is refused rather than quietly renamed.
+                if safe_name(&name) != name {
+                    return Err(VfsError::Unnameable {
+                        path: path.to_owned(),
+                        detail: format!(
+                            "§7.7.4's tree would file this as {:?}, which is not the name asked \
+                             for; a directory cannot hold every byte a name tree can",
+                            safe_name(&name)
+                        ),
+                    });
+                }
+                if attachments(current)?
+                    .iter()
+                    .any(|embedded| embedded.file_name == name)
+                {
+                    return Err(VfsError::AlreadyFiled {
+                        path: path.to_owned(),
+                    });
+                }
+            }
+            Write::SetInformation => {}
+            Write::DeletePage | Write::RemoveAttachment | Write::Refused(_) => {
+                return Err(refusal_for(path, Verb::Write)?.into());
+            }
+        }
+        Ok((route, captures))
     }
 
     /// Creating a directory.
@@ -831,7 +1583,7 @@ fn refusal_for(path: &str, verb: Verb) -> Result<Refused, VfsError> {
             path: path.to_owned(),
             reason,
         },
-        mapping => Refused::NotYetImplemented {
+        mapping => Refused::WrongVerb {
             path: path.to_owned(),
             mapping,
         },
@@ -1053,6 +1805,7 @@ fn mismatch(got: &Answer, wanted: &'static str) -> WorkerError {
             Answer::Files(_) => "files",
             Answer::Attachments(_) => "attachments",
             Answer::Absent => "nothing",
+            Answer::Written { .. } => "an updated document",
         },
         wanted,
     }

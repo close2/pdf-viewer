@@ -386,10 +386,42 @@ anything. The document is allowed to change underneath it: a generation key of (
 worker, the inventories and every cached output, while a file already open keeps the generation it
 was opened under — so no reader is ever handed a splice of two documents. A `stat` **generates**,
 because a kernel clamps reads at the size a `stat` reported and an estimate would truncate the
-file. Nothing is written yet: RFC 0003 §5.2's five verbs are declared in the table and refused by
-the operation's own name, and §5.3's four are refused by design with the sentence saying why they
-will still be refused when the write side lands. There is no face yet — no FUSE binary, no KIO
-plugin — and no confined worker, which is why there is no face (ADRs 0840, 0841). **What a document asserts over its reader is read once, in
+file. **And it is written to**: all five of RFC 0003 §5.2's verbs work — a PDF copied into
+`pages/` inserts its pages at the position the name states and everything after moves down, `rm`
+takes a page out, a file copied into `attachments/` is embedded and deleting one removes it, and
+`meta/info.json` is overwritable, which is that document's fourth open question answered. §5.3's
+four refusals stay refused by design, each with the sentence saying why and each with its own
+`errno`. What made the write side a round rather than plumbing is that `pages` and `merge` write a
+*new* file while `CLAUDE.md` permits only an append to a document somebody has open, so
+`pdf-transform` grew a fourth writer: §7.7.3.2's page tree and §14.3.3's entries edited **in
+place** by §7.5.6's update (ADR 0854). A POSIX write is `create`, several `write`s, `flush` and
+`close`, so a staged write is visible in the tree and absent from the document until the flush;
+abandoning one leaves the file byte for byte as it was; the commit is a temporary file synced and
+`rename(2)`d over the original, with the broker checking §7.5.6's own prefix property against the
+disk before it writes a byte; a write staged against a generation somebody else has replaced is
+`ESTALE` rather than a clobber; and the generation our own commit produces says it is *ours*
+rather than looking like somebody editing the file underneath the mount (ADR 0855). **All five of
+those verbs are walked over the corpus** since the nine-hundred-and-ninth (ADR 0860): every
+document the core opens is edited five ways, each on its own backing, and each commit is held to
+§7.5.6's prefix property read off the file, to the document re-opening at the page count the edit
+stated, to the renumbered listing, and to *every surviving page drawing bit-identically to the
+page it was* — which, because an insertion moves every ordinal down and a deletion moves every
+ordinal up, is a check of "an ordinal is a position" as well as of the writer. It found three
+things nothing else could: a page-tree node with no `/Count` counted as zero, so an insertion left
+a two-page document reading as one; two documents whose catalog does not reach the tree the edit
+was splicing into, where an insertion "before page 1" came back after it; and §7.5.6's own "a
+deletion does not destroy bytes" said where a page is deleted and not where an embedded file is.
+**And there is a face**: `pdffs <file.pdf> <mountpoint>` mounts a document as a directory on
+`fuser`'s pure-Rust path, with no C linkage, no layout knowledge of its own, an inode per *name*
+because an ordinal is a position, every refusal logged as a sentence as well as returned as a
+number, and RFC 0003 section 5.4's invalidation on a thread of its own (ADR 0861). The KIO plugin
+is still unwritten. And **there is a confined worker** under all of it (ADRs 0840, 0841,
+0846, 0847): `pdf-vfs-worker` confines itself before it reads a byte, takes the document as the
+descriptor a broker sends it, and answers the same questions with the same answers as the
+in-process one — question by question, both ways, asserted. It needs no system call the viewer's
+worker does not, measured under `strace` rather than assumed, and six probes say it is *killed* for
+asking the filesystem anything. The wire under the two *confined* workers — `pdf-view-worker` and `pdf-vfs-worker`, which is not
+all three of this tree's workers — is one crate, `confined-transport`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
 (one as consumed by nothing, saying why), the six operations — a field filled, an
 annotation added, a page rendered, a file extracted, a file written in, a document assembled out
@@ -397,7 +429,9 @@ of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
-answer) and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
+answer), **RFC 0003's mount honours all four for the same reason a pipe does** — a file system has
+no dialogue, so its *ask* is a refusal with its own sentence and never a silent proceed, and both
+it and *on* leave as `EACCES` — and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
 *refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
 caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.

@@ -59,6 +59,7 @@ pub mod range;
 pub mod render;
 pub mod split;
 pub(crate) mod structure;
+pub mod update;
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -287,6 +288,15 @@ pub enum Plan {
     Pages(pages::PagesPlan),
     /// One document rewritten smaller — RFC 0002 section 6.5.
     Optimize(optimize::OptimizePlan),
+    /// One document edited **in place**, by §7.5.6's incremental update: a page taken out, a
+    /// document's pages carried in, or §14.3.3's entries set.
+    ///
+    /// The verb RFC 0003's file-system faces write through, and the reason it is not a flag on
+    /// [`Plan::Pages`] is `CLAUDE.md`'s: what a person does to a document they already have open
+    /// "is written back by §7.5.6's incremental update: the new objects and a new
+    /// cross-reference section appended, never a rewrite of what was there". `pages` and `merge`
+    /// write a new file; this appends to the one it read. [`update`] has the whole argument.
+    Update(update::UpdatePlan),
 }
 
 impl Plan {
@@ -303,6 +313,7 @@ impl Plan {
             Self::Split(plan) => plan.source,
             Self::Pages(plan) => plan.source,
             Self::Optimize(plan) => plan.source,
+            Self::Update(plan) => plan.source,
             Self::Merge(plan) => plan.inputs.first().map_or(0, |input| input.source),
         }
     }
@@ -322,6 +333,22 @@ impl Plan {
                 sources.dedup();
                 sources
             }
+            // An insertion reads the document it edits *and* the one whose pages it carries,
+            // so both are opened and the policy below is asked of both — the same shape a merge
+            // has, for the same reason: Table 22's flags are one document's assertion over its
+            // reader, and taking pages out of the second is as much an assembly as putting them
+            // into the first.
+            Self::Update(plan) => match plan.edit {
+                update::Edit::InsertPages { from, .. } => {
+                    let mut sources = vec![plan.source, from];
+                    sources.sort_unstable();
+                    sources.dedup();
+                    sources
+                }
+                update::Edit::DeletePage { .. } | update::Edit::SetInformation { .. } => {
+                    vec![plan.source]
+                }
+            },
             other => vec![other.source()],
         }
     }
@@ -366,6 +393,19 @@ impl Plan {
             Self::Split(_) | Self::Merge(_) | Self::Pages(_) | Self::Optimize(_) => {
                 Some(Operation::Assemble)
             }
+            // The same reading, applied in place: Table 22 bit 11 is "[a]ssemble the document
+            // (insert, rotate, or delete pages …)", and two of this verb's three edits are the
+            // first and the third of those words. The third edit writes §14.3.3's entries, which
+            // is none of bits 6, 9 or 11 and is therefore bit 4's residual — "[m]odify the
+            // contents of the document by operations other than those controlled by bits 6, 9,
+            // and 11" — the same bit an embedded file falls under, for the same sentence
+            // (ADR 0802).
+            Self::Update(plan) => Some(match plan.edit {
+                update::Edit::InsertPages { .. } | update::Edit::DeletePage { .. } => {
+                    Operation::Assemble
+                }
+                update::Edit::SetInformation { .. } => Operation::Modify,
+            }),
         }
     }
 }
@@ -787,6 +827,16 @@ pub enum Origin {
         /// What each pass changed.
         savings: optimize::Savings,
     },
+    /// The source document with §7.5.6's update appended, its page list or its §14.3.3 entries
+    /// edited in place — `update`'s output.
+    Amended {
+        /// Which source.
+        source: usize,
+        /// How many pages the document holds after the edit.
+        pages: usize,
+        /// What the edit was, in a sentence.
+        edit: String,
+    },
     /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
     /// byte, and then what was added.
     Updated {
@@ -991,6 +1041,15 @@ impl Origin {
                 fields.extend(savings.to_json());
                 fields
             }
+            other => other.written_json(),
+        }
+    }
+
+    /// The origins whose output is a *file taken out of* or *made from* a document, rather than
+    /// a page or an image drawn from one. Split out because one `match` over every origin is
+    /// past this tree's line-count lint, and the split is where the report's own two halves are.
+    fn written_json(&self) -> Vec<(String, Value)> {
+        match self {
             Self::Attachment { source, name } => vec![
                 ("kind".to_owned(), Value::text("attachment")),
                 ("source".to_owned(), Value::count(*source)),
@@ -1001,6 +1060,23 @@ impl Origin {
                 ("source".to_owned(), Value::count(*source)),
                 ("attached".to_owned(), Value::text(attached.clone())),
             ],
+            Self::Amended {
+                source,
+                pages,
+                edit,
+            } => vec![
+                ("kind".to_owned(), Value::text("amended")),
+                ("source".to_owned(), Value::count(*source)),
+                ("pages".to_owned(), Value::count(*pages)),
+                ("edit".to_owned(), Value::text(edit.clone())),
+            ],
+            // Every other origin is answered by `to_json`, which is the only caller.
+            Self::Page { .. }
+            | Self::Image { .. }
+            | Self::Piece { .. }
+            | Self::Merged { .. }
+            | Self::Edited { .. }
+            | Self::Optimized { .. } => Vec::new(),
         }
     }
 }
@@ -1037,6 +1113,29 @@ impl Listed {
 pub fn apply(
     plan: &Plan,
     sources: &[Source],
+    sinks: &dyn Sinks,
+    policy: &Policy,
+    budget: &Budget,
+) -> Result<Report, Refusal> {
+    let borrowed: Vec<&Source> = sources.iter().collect();
+    apply_borrowed(plan, &borrowed, sinks, policy, budget)
+}
+
+/// [`apply`], over sources the caller holds one at a time.
+///
+/// The same function; the borrow is the whole difference. A caller that keeps one [`Source`] for
+/// a document's whole life and is handed a second one per operation cannot build a `&[Source]`
+/// out of the two without copying the first — and a [`Source`] carries §7.6.4.1's password,
+/// which `viewer_core::Secret` deliberately makes not `Clone` ("[a] copy is a second buffer to
+/// clear and a second lifetime to reason about"). RFC 0003's core is exactly that caller: its
+/// worker holds the mounted document and is handed the document being inserted.
+///
+/// # Errors
+///
+/// [`apply`]'s.
+pub fn apply_borrowed(
+    plan: &Plan,
+    sources: &[&Source],
     sinks: &dyn Sinks,
     policy: &Policy,
     budget: &Budget,
@@ -1112,6 +1211,7 @@ pub fn apply(
         Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
         Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, &mut report)?,
+        Plan::Update(plan) => update::run(plan, &wanted, &opened, sinks, &mut report)?,
     }
     Ok(report)
 }

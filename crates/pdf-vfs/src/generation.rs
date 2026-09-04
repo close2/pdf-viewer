@@ -91,6 +91,23 @@ pub trait Backing: Send + Sync + std::fmt::Debug {
 
     /// What a face calls the document, for a message.
     fn describe(&self) -> String;
+
+    /// Replaces the document with `bytes`, **atomically**.
+    ///
+    /// Atomic is the requirement and not a quality: a reader that opened the file before this
+    /// returns shall see all of the old document, and one that opens it after shall see all of
+    /// the new one, and no reader shall ever see a file that is neither. `crate::commit` has the
+    /// argument for why this is a replacement rather than the bare append §7.5.6 describes —
+    /// the short version is that a `write(2)` can be cut short inside `startxref` and a rename
+    /// cannot be cut short at all.
+    ///
+    /// The caller has already checked that `bytes` begins with this document's own bytes, so
+    /// what an implementation owes is durability and atomicity, not validity.
+    ///
+    /// # Errors
+    ///
+    /// The file system's.
+    fn commit(&self, bytes: &[u8]) -> io::Result<()>;
 }
 
 /// A backing that is a file on this file system.
@@ -150,7 +167,61 @@ impl Backing for FileBacking {
     fn describe(&self) -> String {
         self.path.display().to_string()
     }
+
+    /// A temporary file beside the document, synced, and then `rename(2)` over it.
+    ///
+    /// Beside it, because `rename` is atomic only within one file system; synced before the
+    /// rename, because a rename that published a file whose bytes were not yet on the disk would
+    /// have moved the window it exists to close rather than closed it; and the directory synced
+    /// after, because on Linux the rename itself is metadata and a crash can otherwise lose the
+    /// name while keeping both files.
+    ///
+    /// **The mode is carried over and the inode is not.** A replacement gives the document a new
+    /// inode, so a hard link to it keeps the old content and a reader holding the file open keeps
+    /// reading the old document — which is the same guarantee RFC 0003 section 5.4 already makes
+    /// inside this crate ("an open virtual file keeps the generation it was opened under"), here
+    /// enforced by the kernel instead of by a type. Ownership is not carried, because a process
+    /// that is not privileged cannot carry it and one that is should not be running a mount.
+    fn commit(&self, bytes: &[u8]) -> io::Result<()> {
+        use std::io::Write as _;
+
+        let directory = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let name = self.path.file_name().map_or_else(
+            || String::from("document"),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        // Hidden, named after this process and this write, and in the document's own directory:
+        // two mounts of one file, or one mount committing twice, must not race for one name.
+        let ticket = NEXT_TEMPORARY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temporary = directory.join(format!(".{name}.pdfvfs-{}-{ticket}", std::process::id()));
+
+        let written = (|| -> io::Result<()> {
+            let mut file = std::fs::File::create(&temporary)?;
+            if let Ok(metadata) = std::fs::metadata(&self.path) {
+                // Best effort, and deliberately not fatal: a file system with no permission bits
+                // is not a reason to refuse a write the caller has already been told will happen.
+                let _ = file.set_permissions(metadata.permissions());
+            }
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, &self.path)?;
+            // The rename is a directory entry, and `fsync` on the directory is what makes it
+            // survive a crash. A file system that will not open a directory for reading is not a
+            // reason to fail a write that has already happened.
+            if let Ok(handle) = std::fs::File::open(directory) {
+                let _ = handle.sync_all();
+            }
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        written
+    }
 }
+
+/// Distinguishes one commit's temporary file from another's within this process.
+static NEXT_TEMPORARY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The offset the last `startxref` in `tail` states.
 ///
@@ -236,6 +307,12 @@ impl Backing for MemoryBacking {
 
     fn describe(&self) -> String {
         self.name.clone()
+    }
+
+    /// The same replacement, which for bytes held under a lock is atomic by holding it.
+    fn commit(&self, bytes: &[u8]) -> io::Result<()> {
+        self.replace(bytes.to_vec());
+        Ok(())
     }
 }
 

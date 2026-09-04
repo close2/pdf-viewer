@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The wire, shared with `pdf-vfs`'s worker rather than written twice: frames, the greeting that
+# carries what the kernel granted, the socket that passes a descriptor, and the supervision of the
+# child that answers on it (ADR 0846). What stays here is the *vocabulary* — `viewer-core`'s
+# commands, events, questions and answers — which is the half no second protocol could share.
+confined-transport.workspace = true
 pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true
@@ -25,13 +30,6 @@ viewer-core.workspace = true
 # `examples/confined_page` writes the raster it was handed, so that a person can look at the page
 # a confined process drew rather than at a count of its dark pixels.
 png.workspace = true
-
-# The document crosses to the worker as an open file's descriptor, sent with `SCM_RIGHTS`
-# beside `Command::Open`'s frame (ADR 0812). The standard library's ancillary-data API is
-# nightly-only, and `rustix`'s `sendmsg`/`recvmsg` are safe functions over the same call —
-# which is what a crate that forbids `unsafe` needs. Unix-only because the mechanism is.
-[target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, features = ["net"] }
 
 [lints]
 workspace = true

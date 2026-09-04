@@ -79,6 +79,9 @@ impl pdf_vfs::generation::Backing for SharedBacking {
     fn describe(&self) -> String {
         self.0.describe()
     }
+    fn commit(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.0.commit(bytes)
+    }
 }
 
 /// Every name in a listing, sorted, so an assertion is about the set rather than the order.
@@ -349,8 +352,11 @@ fn attachments_are_listed_under_the_names_the_document_files_them_by_made_safe()
 }
 
 #[test]
-fn every_write_the_layout_declares_is_refused_by_the_operations_own_name() {
+fn every_row_states_what_both_file_verbs_mean_on_it() {
     let (_backing, vfs) = mounted(FIVE_PAGES);
+    // RFC 0003 section 5.2's table, as data — and two answers per row rather than one, because
+    // `cp new.pdf pages/0004.pdf` and `rm pages/0004.pdf` address one row and mean two things.
+    // What each of them *does* is `tests/a_write.rs`; what it means is the layout's, here.
     let declared = [
         ("/pages/0002.pdf", Write::InsertPages, Write::DeletePage),
         (
@@ -368,27 +374,13 @@ fn every_write_the_layout_declares_is_refused_by_the_operations_own_name() {
         let mapping = vfs.write_meaning(path).expect("the layout names it");
         assert_eq!(mapping.on_write, on_write, "{path}");
         assert_eq!(mapping.on_delete, on_delete, "{path}");
-        match vfs.write(path, b"whatever") {
-            Err(VfsError::Refused(refused @ Refused::NotYetImplemented { .. })) => {
-                let sentence = refused.sentence();
-                assert!(sentence.contains("not built yet"), "{sentence}");
-                assert!(sentence.contains("pdf-transform"), "{sentence}");
-            }
-            other => panic!("{path}: {other:?}"),
-        }
     }
-    // The delete mappings are declared on the same rows, so `remove` refuses them the same way —
-    // and `meta/info.json`, whose deletion is *not* one of RFC 0003 section 5.2's five verbs, is
-    // refused by design instead. The difference is the point of having two answers per row.
-    for path in ["/pages/0002.pdf", "/attachments/anything"] {
-        assert!(matches!(
-            vfs.remove(path),
-            Err(VfsError::Refused(Refused::NotYetImplemented { .. }))
-        ));
-    }
+    // Deleting `meta/info.json` is not one of the five verbs, and is refused by design rather
+    // than by being unbuilt — the difference is the point of having two answers per row.
     match vfs.remove("/meta/info.json") {
         Err(VfsError::Refused(refused @ Refused::ByDesign { .. })) => {
             assert!(refused.sentence().contains("five write verbs"), "{refused}");
+            assert_eq!(refused.errno(), pdf_vfs::Errno::OperationNotPermitted);
         }
         other => panic!("deleting info.json: {other:?}"),
     }
@@ -431,19 +423,17 @@ fn the_four_refusals_of_the_rfc_are_refused_by_design_and_say_why() {
 fn what_the_layout_declares_and_this_round_does_not_do_is_named_out_loud() {
     let (_backing, vfs) = mounted(FIVE_PAGES);
     let shortfalls = vfs.shortfalls();
-    // Every row with a write mapping is a shortfall while the write side is unbuilt, and the
-    // count is derived from the table rather than written down here.
-    let declared = vfs
-        .layout()
-        .iter()
-        .filter(|route| route.write.declares_an_operation())
-        .count();
-    assert_eq!(
+    // The write side landed, so what is named here is what it does *not* do: an attachment
+    // replaced in place, and what an in-place insertion cannot carry.
+    assert!(
         shortfalls
             .iter()
-            .filter(|shortfall| shortfall.detail.contains("write side"))
-            .count(),
-        declared
+            .any(|shortfall| shortfall.detail.contains("remove it and write it again"))
+    );
+    assert!(
+        shortfalls
+            .iter()
+            .any(|shortfall| shortfall.detail.contains("document level"))
     );
     assert!(
         shortfalls

@@ -1,0 +1,26 @@
+[package]
+name = "confined-transport"
+description = "The wire under a confined worker: frames, a greeting that carries what the kernel granted, a socket that passes a descriptor, and the supervision of the child that answers on it."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# `pdf-sandbox` for one type and one profile: `lockdown::Confinement` is what a worker's greeting
+# carries, so the crate that encodes the greeting is the crate that knows the vocabulary. Nothing
+# here parses a PDF, draws anything, or knows what a message means — that is the whole point of it
+# being a transport.
+[dependencies]
+pdf-sandbox.workspace = true
+thiserror.workspace = true
+
+# The document crosses to a worker as an open file's descriptor, sent with `SCM_RIGHTS` beside a
+# frame's header (ADR 0812). The standard library's ancillary-data API is nightly-only, and
+# `rustix`'s `sendmsg`/`recvmsg` are safe functions over the same call — which is what a crate that
+# forbids `unsafe` needs. Unix-only because the mechanism is.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["net"] }
+
+[lints]
+workspace = true

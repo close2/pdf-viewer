@@ -36,14 +36,15 @@ use pdf_model::outline::{Item, Outline};
 use pdf_model::page_label::PageLabels;
 use pdf_model::{Pages, interpret};
 use pdf_syntax::{Document, FileBytes};
-use pdf_transform::attachments::{Action, AttachmentEntry, AttachmentsPlan};
+use pdf_transform::attachments::{Action, AttachmentEntry, AttachmentsPlan, Payload};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::json::Value;
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::split::{Pieces, SplitPlan};
+use pdf_transform::update::{self, UpdatePlan};
 use pdf_transform::{
-    Budget, MemorySinks, Plan, Policy, Refusal, Report, Secret, Source, apply, pattern,
+    Budget, MemorySinks, Plan, Policy, Refusal, Report, Secret, Source, apply_borrowed, pattern,
 };
 
 /// One question about the document, as data.
@@ -93,6 +94,37 @@ pub enum Query {
     MetadataStream,
     /// §12.3.3's outline.
     Outline,
+    /// Another document's pages inserted before a position, counted from 1; one past the end
+    /// appends. RFC 0003 section 5.2's first write verb.
+    InsertPages {
+        /// Where they go, counted from 1.
+        at: usize,
+        /// The document whose pages are being carried in, whole.
+        document: Vec<u8>,
+    },
+    /// One page taken out of §7.7.3.2's tree.
+    DeletePage {
+        /// Which page, counted from 1.
+        page: usize,
+    },
+    /// A file written into the document as a §7.11.4 embedded file.
+    Attach {
+        /// The name §7.7.4's tree files it under.
+        name: String,
+        /// Its bytes.
+        bytes: Vec<u8>,
+    },
+    /// An embedded file taken out of §7.7.4's tree.
+    Detach {
+        /// The name the tree files it under.
+        name: String,
+    },
+    /// §14.3.3's entries set to what this JSON states — `meta/info.json`'s own form, which is
+    /// what [`Query::Information`] answers with.
+    SetInformation {
+        /// The file the caller wrote.
+        json: Vec<u8>,
+    },
 }
 
 /// One answer.
@@ -113,14 +145,65 @@ pub enum Answer {
     Attachments(Vec<AttachmentEntry>),
     /// The document states nothing here — no `/Metadata`, no such attachment.
     Absent,
+    /// The whole document, with ISO 32000-2 §7.5.6's update appended.
+    ///
+    /// **The whole file, not the suffix**, which is the shape RFC 0003 section 6 needs: "the
+    /// confined worker *computes* the transform output (the §7.5.6 append bytes); the broker
+    /// validates the frame … and performs the actual file append". A broker that received only
+    /// a suffix would have to trust that it belonged to the file it holds; one that receives the
+    /// whole document can *check* the clause's own property — "changes shall be appended to the
+    /// end of the file, leaving its original contents intact" — against the bytes on disk,
+    /// which is a comparison and not a parse.
+    Written {
+        /// The updated document.
+        bytes: Vec<u8>,
+        /// What the transform said on the way, including the levels of `CLAUDE.md` principle 3
+        /// that proceed and speak.
+        warnings: Vec<String>,
+    },
 }
 
 /// Why a question could not be answered.
+///
+/// # Why a refusal is a sentence and a kind rather than `pdf_transform::Refusal`
+///
+/// **Because the confined worker has to be a transport change and nothing else** (ADR 0847). A
+/// `Refusal` is a dozen structured variants, and re-encoding each of them on the wire would put a
+/// second copy of that vocabulary in this crate — with a face that behaved differently depending
+/// on which worker answered it, which is the one thing the seam exists to prevent. So both
+/// implementations produce the same population here: the sentence the seam wrote, under the one
+/// distinction a face actually acts on — [`Self::PasswordRequired`], which is the answer that
+/// means *ask somebody for something* rather than *this cannot be done*.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
-    /// The transform seam refused the whole operation, by name.
+    /// The document asserts something over its reader and the host's level is `on`.
+    ///
+    /// Its own variant because a face turns it into an `errno` a file manager shows, and because
+    /// it is the answer that means *the document said no* rather than *this cannot be done*. The
+    /// sentence names every bit and clause that applied — `pdf_transform` words the list and
+    /// `pdf_model::restriction` supplies it, once, at the seam inside `apply`.
     #[error("{0}")]
-    Refused(#[from] Refusal),
+    Restricted(String),
+    /// The host's level is `ask` and there is nobody to ask.
+    ///
+    /// A file system has no dialogue. RFC 0003 section 5.3 already records what that costs —
+    /// FUSE "returns … `EPERM` with no message channel" — so the level is answered here the way
+    /// `viewer_host::unanswerable` answers it for a host that cannot put the question: as a
+    /// refusal, never as a silent proceed, because proceeding would be doing the very thing the
+    /// person asked to be consulted about.
+    #[error("{0}")]
+    Unanswerable(String),
+    /// ISO 32000-2 §7.6.4.1: the document is encrypted, and neither the empty password nor the
+    /// one supplied opens it.
+    ///
+    /// Its own variant because it is the only refusal here a face can do something about: a mount
+    /// that could ask would ask, and `crate::Vfs::shortfalls` already names the design that is
+    /// missing for it.
+    #[error("{0}")]
+    PasswordRequired(String),
+    /// The transform seam refused the whole operation, in its own words.
+    #[error("{0}")]
+    Refused(String),
     /// The transform seam produced the output but declined an item on the way — a codec the
     /// confined worker does not have, a page the rasteriser would not draw. Kept as its own
     /// variant so that a face can tell "this file cannot be made" from "this document cannot be
@@ -145,6 +228,36 @@ pub enum WorkerError {
         /// What was asked for.
         wanted: &'static str,
     },
+    /// The confined worker could not be started, stopped without answering, or sent something
+    /// this build cannot read.
+    ///
+    /// **A named error rather than a hang**, which is what a face shows: RFC 0003 section 6's
+    /// worker is killable by design — by its own seccomp filter, by the address-space ceiling, by
+    /// a panic — and every one of those has to arrive somewhere a file manager can print it.
+    /// [`InProcess`] cannot produce it.
+    #[error("{0}")]
+    Transport(#[from] confined_transport::TransportError),
+}
+
+impl WorkerError {
+    /// The refusal a `pdf_transform::Refusal` is, in this vocabulary.
+    ///
+    /// The one place the seam's structured population is narrowed, so that the in-process worker
+    /// and the confined one cannot disagree about what a document that wants a password is.
+    fn of(refusal: &Refusal) -> Self {
+        match refusal {
+            Refusal::PasswordRequired { .. } => Self::PasswordRequired(refusal.to_string()),
+            Refusal::Restricted { .. } => Self::Restricted(refusal.to_string()),
+            Refusal::Unanswered { .. } => Self::Unanswerable(refusal.to_string()),
+            _ => Self::Refused(refusal.to_string()),
+        }
+    }
+}
+
+impl From<Refusal> for WorkerError {
+    fn from(refusal: Refusal) -> Self {
+        Self::of(&refusal)
+    }
 }
 
 /// Something that can answer questions about one generation of one document.
@@ -153,8 +266,20 @@ pub trait Worker: Send + Sync + std::fmt::Debug {
     ///
     /// # Errors
     ///
-    /// [`WorkerError`] for a refusal, a declined item, or a page the document does not have.
+    /// [`WorkerError`] for a refusal, a declined item, or a page the document does not have; and
+    /// [`WorkerError::Transport`] where a confined worker is gone.
     fn ask(&self, query: &Query) -> Result<Answer, WorkerError>;
+
+    /// Whether this worker can still be asked anything.
+    ///
+    /// **What makes "the next query gets a fresh worker" a property rather than a hope.** A
+    /// confined worker that the kernel killed answers `false` for ever after, and
+    /// [`crate::Vfs`] throws the generation away rather than asking a corpse — so a face that
+    /// showed the death and was asked again gets a new worker rather than a second, stranger
+    /// error about a closed pipe. [`InProcess`] is always alive: there is nothing to die.
+    fn is_alive(&self) -> bool {
+        true
+    }
 }
 
 /// What creates a worker for one generation of a document.
@@ -194,11 +319,7 @@ impl Workers for InProcessWorkers {
             Some(password) => Source::with_password(bytes, password),
             None => Source::new(bytes),
         };
-        Ok(Box::new(InProcess {
-            source,
-            policy,
-            budget,
-        }))
+        Ok(Box::new(InProcess::new(source, policy, budget, None)))
     }
 }
 
@@ -217,9 +338,34 @@ pub struct InProcess {
     policy: Policy,
     /// The ceilings.
     budget: Budget,
+    /// How many strips a page's raster is cut into, or `None` to let `render-cpu` ask the machine.
+    ///
+    /// **A confined worker states it and an unconfined one does not**, and the reason is the
+    /// kernel's rather than a preference: `std::thread::available_parallelism` reads
+    /// `/proc/self/cgroup` on Linux, and a process with no filesystem is *killed* for it rather
+    /// than told no (ADR 0218). `crate::serve` takes the number before its confinement and states
+    /// it here; `InProcessWorkers` leaves it `None`, which is what this crate did before the
+    /// confined implementation existed.
+    strips: Option<u32>,
 }
 
 impl InProcess {
+    /// A worker over one source, drawing with `strips` strips a page.
+    ///
+    /// Public because a confinement probe has to be able to do the work *inside* a confined
+    /// process without a broker on the other end of a socket — which is what
+    /// `tests/confined.rs`'s positive probe is, and what says `Profile::Interpreter` is wide
+    /// enough for this worker.
+    #[must_use]
+    pub fn new(source: Source, policy: Policy, budget: Budget, strips: Option<u32>) -> Self {
+        Self {
+            source,
+            policy,
+            budget,
+            strips,
+        }
+    }
+
     /// Opens the document for a reader that has no verb.
     fn document(&self) -> Result<Document, WorkerError> {
         Ok(self.source.document(self.budget.limits)?)
@@ -227,16 +373,57 @@ impl InProcess {
 
     /// Runs one plan and hands back every output it wrote, by name.
     fn run(&self, plan: &Plan) -> Result<(Report, BTreeMap<String, Vec<u8>>), WorkerError> {
+        self.run_beside(plan, None)
+    }
+
+    /// [`InProcess::run`], with a second document opened beside the mounted one.
+    ///
+    /// `pdf_transform::apply_borrowed` rather than `apply`, and the reason is a deliberate
+    /// property of `viewer_core::Secret`: this worker holds one [`Source`] for the generation's
+    /// whole life, §7.6.4.1's password inside it, and a `Secret` is not `Clone`.
+    fn run_beside(
+        &self,
+        plan: &Plan,
+        beside: Option<&Source>,
+    ) -> Result<(Report, BTreeMap<String, Vec<u8>>), WorkerError> {
+        let mut sources: Vec<&Source> = vec![&self.source];
+        sources.extend(beside);
         let sinks = MemorySinks::new();
-        let report = apply(
-            plan,
-            std::slice::from_ref(&self.source),
-            &sinks,
-            &self.policy,
-            &self.budget,
-        )?;
+        let report = apply_borrowed(plan, &sources, &sinks, &self.policy, &self.budget)?;
         let files = sinks.into_outputs().into_iter().collect();
         Ok((report, files))
+    }
+
+    /// One in-place edit, as the whole updated document and what was said on the way.
+    ///
+    /// The output is §7.5.6's: "the contents of a PDF file can be updated incrementally without
+    /// rewriting the entire file … changes shall be appended to the end of the file, leaving its
+    /// original contents intact", so what comes back is the source's bytes and then the update.
+    fn amend(&self, edit: update::Edit, beside: Option<&Source>) -> Result<Answer, WorkerError> {
+        let plan = Plan::Update(UpdatePlan {
+            source: 0,
+            edit,
+            names: page_pattern()?,
+        });
+        let (report, files) = self.run_beside(&plan, beside)?;
+        if let Some(declined) = report.refused.first() {
+            return Err(WorkerError::Declined {
+                subject: declined.subject.clone(),
+                detail: declined.detail.clone(),
+            });
+        }
+        let bytes = files
+            .into_values()
+            .next()
+            .ok_or_else(|| WorkerError::NotPresent(String::from("the update wrote no document")))?;
+        Ok(Answer::Written {
+            bytes,
+            warnings: report
+                .warnings
+                .into_iter()
+                .map(|warning| warning.detail)
+                .collect(),
+        })
     }
 
     /// The one output a single-file plan wrote, or the reason there is none.
@@ -287,6 +474,7 @@ impl Worker for InProcess {
                 page_box: None,
                 annotations: true,
                 names: page_pattern()?,
+                strips: self.strips,
             })),
             Query::ExtractImages { page } => {
                 let (report, files) =
@@ -343,18 +531,33 @@ impl Worker for InProcess {
                     names: page_pattern()?,
                 },
             })),
-            Query::Information => {
-                let document = self.document()?;
-                Ok(Answer::Bytes(
-                    information_json(&Information::read(&document)).into_bytes(),
-                ))
+            // Named rather than caught, so that a query added to this module fails to compile
+            // here as well as on the wire.
+            meta @ (Query::Information | Query::MetadataStream | Query::Outline) => {
+                self.meta_answer(meta)
             }
+            write @ (Query::InsertPages { .. }
+            | Query::DeletePage { .. }
+            | Query::Attach { .. }
+            | Query::Detach { .. }
+            | Query::SetInformation { .. }) => self.write_answer(write),
+        }
+    }
+}
+
+impl InProcess {
+    /// The three answers `meta/` holds, which are the ones no transform verb covers: §14.3.3's
+    /// information dictionary, §14.3.2's stream and §12.3.3's outline.
+    fn meta_answer(&self, query: &Query) -> Result<Answer, WorkerError> {
+        let document = self.document()?;
+        match query {
+            Query::Information => Ok(Answer::Bytes(
+                information_json(&Information::read(&document)).into_bytes(),
+            )),
             Query::MetadataStream => {
-                let document = self.document()?;
                 Ok(metadata_stream(&document).map_or(Answer::Absent, Answer::Bytes))
             }
             Query::Outline => {
-                let document = self.document()?;
                 let pages = Pages::new(&document);
                 let outline = Outline::read(&document, &pages);
                 let labels = PageLabels::read(&document);
@@ -362,6 +565,90 @@ impl Worker for InProcess {
                     outline_json(&document, &pages, &labels, &outline).into_bytes(),
                 ))
             }
+            // `Worker::ask` is this function's one caller and names the three it sends.
+            Query::PageCount
+            | Query::ExtractPage { .. }
+            | Query::RenderPage { .. }
+            | Query::ExtractImages { .. }
+            | Query::PageText { .. }
+            | Query::AttachmentInventory
+            | Query::ExtractAttachment { .. }
+            | Query::InsertPages { .. }
+            | Query::DeletePage { .. }
+            | Query::Attach { .. }
+            | Query::Detach { .. }
+            | Query::SetInformation { .. } => Err(WorkerError::Mismatched {
+                got: "a question about the document",
+                wanted: "one of meta/'s three",
+            }),
+        }
+    }
+
+    /// The five write queries, split off so that `Worker::ask` stays under this tree's own
+    /// line-count lint — and split at the line the round drew anyway: everything above answers a
+    /// question about the document, everything here changes it.
+    fn write_answer(&self, query: &Query) -> Result<Answer, WorkerError> {
+        match query {
+            Query::InsertPages { at, document } => {
+                // The incoming document is opened for this one operation and let go of again:
+                // a mount holds the document it is over, and a `cp` names its second file once.
+                let beside = Source::new(document.clone());
+                self.amend(
+                    update::Edit::InsertPages { from: 1, at: *at },
+                    Some(&beside),
+                )
+            }
+            Query::DeletePage { page } => {
+                self.amend(update::Edit::DeletePage { page: *page }, None)
+            }
+            Query::Attach { name, bytes } => {
+                let (report, files) = self.run(&Plan::Attachments(AttachmentsPlan {
+                    source: 0,
+                    action: Action::Attach {
+                        payload: Payload::new(bytes.clone()),
+                        name: name.clone(),
+                        description: None,
+                        // No clock in this tree, and none here: the same file attached twice is
+                        // the same bytes (RFC 0002 section 9's first layer). A face that wants
+                        // Table 45's dates states them, and none does yet.
+                        date: None,
+                        names: page_pattern()?,
+                        on_page: None,
+                    },
+                }))?;
+                written(report, files)
+            }
+            Query::Detach { name } => {
+                let (report, files) = self.run(&Plan::Attachments(AttachmentsPlan {
+                    source: 0,
+                    action: Action::Remove {
+                        name: name.clone(),
+                        names: page_pattern()?,
+                    },
+                }))?;
+                written(report, files)
+            }
+            Query::SetInformation { json } => self.amend(
+                update::Edit::SetInformation {
+                    entries: information_entries(json)?,
+                },
+                None,
+            ),
+            // Every question about the document is `Worker::ask`'s, which is this function's one
+            // caller; naming them keeps the wire's own property — nothing is dropped in silence.
+            Query::PageCount
+            | Query::ExtractPage { .. }
+            | Query::RenderPage { .. }
+            | Query::ExtractImages { .. }
+            | Query::PageText { .. }
+            | Query::AttachmentInventory
+            | Query::ExtractAttachment { .. }
+            | Query::Information
+            | Query::MetadataStream
+            | Query::Outline => Err(WorkerError::Mismatched {
+                got: "a question",
+                wanted: "a write",
+            }),
         }
     }
 }
@@ -377,9 +664,7 @@ fn page_pattern() -> Result<pattern::Pattern, WorkerError> {
     // arm is unreachable and is written rather than asserted, because a literal that stopped
     // parsing is a change to the grammar and should be a message rather than a panic.
     "%d".parse::<pattern::Pattern>()
-        .map_err(|error: pattern::PatternError| {
-            WorkerError::Refused(Refusal::Pattern(error.to_string()))
-        })
+        .map_err(|error: pattern::PatternError| WorkerError::Refused(error.to_string()))
 }
 
 /// The images plan for one page: the codec's own stream where the codec has a file form.
@@ -402,9 +687,7 @@ fn images_plan(pages: Selection) -> Result<ImagesPlan, WorkerError> {
         // index within the page is two digits as RFC 0003 section 4's own example spells it.
         names: "%02d"
             .parse::<pattern::Pattern>()
-            .map_err(|error: pattern::PatternError| {
-                WorkerError::Refused(Refusal::Pattern(error.to_string()))
-            })?,
+            .map_err(|error: pattern::PatternError| WorkerError::Refused(error.to_string()))?,
     })
 }
 
@@ -573,4 +856,214 @@ fn item_json(
             ),
         ),
     ])
+}
+
+/// The one output an update wrote, with what the transform said on the way.
+fn written(report: Report, files: BTreeMap<String, Vec<u8>>) -> Result<Answer, WorkerError> {
+    if let Some(declined) = report.refused.first() {
+        return Err(WorkerError::Declined {
+            subject: declined.subject.clone(),
+            detail: declined.detail.clone(),
+        });
+    }
+    let bytes = files
+        .into_values()
+        .next()
+        .ok_or_else(|| WorkerError::NotPresent(String::from("the update wrote no document")))?;
+    Ok(Answer::Written {
+        bytes,
+        warnings: report
+            .warnings
+            .into_iter()
+            .map(|warning| warning.detail)
+            .collect(),
+    })
+}
+
+/// `meta/info.json`'s own keys, and the Table 349 key each names.
+///
+/// The one place the two spellings meet, in both directions: [`information_json`] writes the
+/// left column and this reads it. A file that named a key on neither side would be a file this
+/// program invented an entry from, so the list is closed and a key outside it is refused.
+const INFORMATION_NAMES: [(&str, &str); 9] = [
+    ("title", "Title"),
+    ("author", "Author"),
+    ("subject", "Subject"),
+    ("keywords", "Keywords"),
+    ("creator", "Creator"),
+    ("producer", "Producer"),
+    ("created", "CreationDate"),
+    ("modified", "ModDate"),
+    ("trapped", "Trapped"),
+];
+
+/// The §14.3.3 entries a written `meta/info.json` states.
+///
+/// **The file is the whole of Table 349 and nothing else.** A key the file omits is an entry the
+/// document shall no longer state, which is what makes `cat info.json > info.json` a no-op and
+/// therefore what makes the read and the write one thing rather than two. A key the dictionary
+/// holds that Table 349 does not define is untouched: §14.3.3 permits such a key —"[w]here a
+/// document information dictionary contains keys other than `CreationDate` and `ModDate` , the
+/// value associated with any such key shall be a text string" — and this file does not show it,
+/// so this file is not the place it would be deleted from.
+fn information_entries(json: &[u8]) -> Result<Vec<update::InfoEntry>, WorkerError> {
+    let text = std::str::from_utf8(json)
+        .map_err(|_| WorkerError::Refused(String::from("meta/info.json: not UTF-8")))?;
+    let stated = read_flat_object(text).map_err(WorkerError::Refused)?;
+    let mut entries = Vec::with_capacity(INFORMATION_NAMES.len());
+    for (name, _) in &stated {
+        if !INFORMATION_NAMES.iter().any(|(known, _)| known == name) {
+            return Err(WorkerError::Refused(format!(
+                "meta/info.json: {name:?} is not one of its keys ({})",
+                INFORMATION_NAMES
+                    .iter()
+                    .map(|(known, _)| *known)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+    }
+    for (name, key) in INFORMATION_NAMES {
+        let value = stated
+            .iter()
+            .find(|(stated, _)| stated == name)
+            .and_then(|(_, value)| value.clone());
+        entries.push(update::InfoEntry {
+            key: key.to_owned(),
+            value,
+        });
+    }
+    Ok(entries)
+}
+
+/// RFC 8259's object, restricted to what `meta/info.json` is: string keys, string or null
+/// values, no nesting.
+///
+/// A reader for one file's grammar rather than a JSON library, and the restriction is the point:
+/// everything this file can hold is a Table 349 entry, so a nested value, a number or a boolean
+/// is a file that means something this edit has no way to write — refused by name rather than
+/// coerced (trap 5). The escapes are exactly the ones `pdf_transform::json` writes, so the two
+/// are inverses.
+fn read_flat_object(text: &str) -> Result<Vec<(String, Option<String>)>, String> {
+    let mut chars = text.chars().peekable();
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    let skip = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>| {
+        while chars.peek().is_some_and(char::is_ascii_whitespace) {
+            chars.next();
+        }
+    };
+    skip(&mut chars);
+    if chars.next() != Some('{') {
+        return Err(String::from("meta/info.json: it is not a JSON object"));
+    }
+    loop {
+        skip(&mut chars);
+        match chars.peek() {
+            Some('}') => {
+                chars.next();
+                break;
+            }
+            Some(',') if !out.is_empty() => {
+                chars.next();
+                continue;
+            }
+            Some('"') => {}
+            other => {
+                return Err(format!(
+                    "meta/info.json: expected a key and found {}",
+                    other.map_or_else(|| String::from("the end of the file"), |c| format!("{c:?}"))
+                ));
+            }
+        }
+        let key = read_string(&mut chars)?;
+        skip(&mut chars);
+        if chars.next() != Some(':') {
+            return Err(format!(
+                "meta/info.json: {key:?} is not followed by a colon"
+            ));
+        }
+        skip(&mut chars);
+        let value = match chars.peek() {
+            Some('"') => Some(read_string(&mut chars)?),
+            Some('n') => {
+                for expected in "null".chars() {
+                    if chars.next() != Some(expected) {
+                        return Err(format!("meta/info.json: {key:?} is not a string or null"));
+                    }
+                }
+                None
+            }
+            _ => {
+                return Err(format!(
+                    "meta/info.json: {key:?} is not a string or null, and every entry §14.3.3's \
+                     Table 349 defines is one of those two"
+                ));
+            }
+        };
+        if out.iter().any(|(known, _)| *known == key) {
+            return Err(format!("meta/info.json: {key:?} is stated twice"));
+        }
+        out.push((key, value));
+    }
+    skip(&mut chars);
+    match chars.next() {
+        None => Ok(out),
+        Some(extra) => Err(format!(
+            "meta/info.json: {extra:?} after the object, and the file is one object"
+        )),
+    }
+}
+
+/// One RFC 8259 string, with the escapes `pdf_transform::json` writes.
+fn read_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Result<String, String> {
+    if chars.next() != Some('"') {
+        return Err(String::from(
+            "meta/info.json: a string does not start with a quote",
+        ));
+    }
+    let mut out = String::new();
+    loop {
+        let Some(character) = chars.next() else {
+            return Err(String::from("meta/info.json: a string is not closed"));
+        };
+        match character {
+            '"' => return Ok(out),
+            '\\' => {
+                let Some(escape) = chars.next() else {
+                    return Err(String::from("meta/info.json: a string ends in a backslash"));
+                };
+                match escape {
+                    '"' => out.push('"'),
+                    '\\' => out.push('\\'),
+                    '/' => out.push('/'),
+                    'b' => out.push('\u{8}'),
+                    'f' => out.push('\u{c}'),
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    'u' => {
+                        let mut digits = String::new();
+                        for _ in 0..4 {
+                            digits.push(chars.next().ok_or_else(|| {
+                                String::from("meta/info.json: a \\u escape is cut short")
+                            })?);
+                        }
+                        let code = u32::from_str_radix(&digits, 16).map_err(|_| {
+                            format!("meta/info.json: \\u{digits} is not four hexadecimal digits")
+                        })?;
+                        // A lone surrogate is not a character, and this file's writer emits
+                        // `\u` only for the controls below U+0020; a pair would be a file
+                        // somebody else wrote, and refusing is better than inventing U+FFFD.
+                        out.push(char::from_u32(code).ok_or_else(|| {
+                            format!("meta/info.json: \\u{digits} is not a character")
+                        })?);
+                    }
+                    other => {
+                        return Err(format!("meta/info.json: \\{other} is not an escape"));
+                    }
+                }
+            }
+            other => out.push(other),
+        }
+    }
 }

@@ -118,6 +118,8 @@ fn draw(bytes: &[u8], index: usize) -> Option<Vec<u8>> {
             page_box: None,
             annotations: true,
             names: "page.ppm".parse().expect("a pattern"),
+            // The unconfined default: this suite draws in its own process (ADR 0847).
+            strips: None,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,

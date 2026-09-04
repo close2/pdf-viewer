@@ -1,0 +1,42 @@
+[package]
+name = "pdf-fuse"
+description = "RFC 0003's FUSE face: the `pdffs` daemon, which maps the kernel's file verbs onto pdf-vfs's and holds no layout knowledge of its own."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pdffs"
+path = "src/main.rs"
+
+# `fuser`, **pinned to an exact version**, which RFC 0003 section 7 asks for by name: "fuser's
+# 0.17 typed-API rework is recent; pin and vendor-watch". The rework is what this face is written
+# against — `INodeNo`, `FileHandle`, `OpenFlags` and `Errno` are types rather than integers, and
+# `Filesystem`'s methods take `&self`, so a version bump is a compile error rather than a
+# behaviour change. `=` rather than a caret so that the bump is a decision somebody makes.
+#
+# Default features, which is **no features at all** (`default = []`): on Linux the build script
+# takes the `pure-rust` mount branch and never calls `pkg_config`, so there is no C linkage, no
+# libfuse header and no `-l` flag anywhere in this build — the toolchain risk RFC 0003 section 7
+# grades "low". `libfuse`, `libfuse2`, `libfuse3`, `serializable` and the `tokio` `experimental`
+# feature are all deliberately off; the last would pull an async runtime into a program
+# `CLAUDE.md` principle 2 forbids one in.
+#
+# What it costs this tree, counted from `Cargo.lock` rather than guessed: `fuser` itself, `nix`
+# and `ref-cast` (with its proc macro). Every one of its other dependencies — `libc`, `log`,
+# `memchr`, `page_size`, `smallvec`, `zerocopy`, `bitflags`, `num_enum`, `parking_lot` and the
+# `pkg-config` build script — was already locked here. MIT, MSRV 1.85 against this workspace's
+# 1.97.
+[dependencies]
+fuser = "=0.18.0"
+pdf-vfs.workspace = true
+
+# The tests hold a backing the face and the test both read, which is `pdf_vfs::generation`'s
+# trait over `pdf_syntax::FileBytes`.
+[dev-dependencies]
+pdf-syntax.workspace = true
+
+[lints]
+workspace = true

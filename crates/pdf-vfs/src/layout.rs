@@ -3,10 +3,10 @@
 //! RFC 0003 section 7 makes this table the single place the design lives — "the faces contain
 //! *no* layout knowledge — adding `fonts/` one day is a core change that both faces grow
 //! simultaneously". So a row states three things and nothing states them anywhere else: what the
-//! path looks like, what produces its content, and **what a write to it would mean**. The write
-//! mappings are declared here now and refused at the point of the call ([`crate::Refused`]),
-//! which is the difference between a design with a hole in it and a program that pretends the
-//! hole is not there (trap 5).
+//! path looks like, what produces its content, and **what a write to it means**. The write
+//! mappings are declared here and performed at the point of the call, or refused there with the
+//! sentence saying why ([`crate::Refused`]) — which is the difference between a design with a
+//! hole in it and a program that pretends the hole is not there (trap 5).
 //!
 //! # Why a table rather than a `match` over path components
 //!
@@ -141,11 +141,11 @@ impl WriteMapping {
 /// One meaning a file verb has on one row.
 ///
 /// RFC 0003 section 5.2's five supported verbs and section 5.3's four refusals, stated together
-/// because they are one decision per row. **Every mapping other than [`Write::Refused`] is
-/// declared and not built this round**: reads landed first (RFC 0003 section 10's order), so a
-/// write to a row that names an operation is refused as unimplemented, by the operation's own
-/// name, rather than by a generic "read-only file system" that would make the design
-/// unreadable from outside.
+/// because they are one decision per row. Every mapping other than [`Write::Refused`] is built:
+/// `crate::Vfs::create` reads this to decide whether it may accept a byte, and `crate::Vfs::flush`
+/// reads it again to decide which `pdf_transform::update::Edit` the bytes become. A refusal is
+/// therefore always by design and never a generic "read-only file system" — which is what would
+/// have made the design unreadable from outside.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Write {
     /// Copying a PDF into `pages/` inserts its pages at the position the name states, through

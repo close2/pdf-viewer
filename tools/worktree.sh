@@ -74,6 +74,15 @@ open_one() {
         rm -rf "${wt:?}/$p"
         ln -s "$root/$p" "$wt/$p"
     done
+    # `fuzz/Cargo.lock` is gitignored, so a fresh worktree has none and `cargo` resolves the fuzz
+    # workspace from scratch — a **different dependency set** from the one the main tree, CI and
+    # every neighbouring round are linting. On 2026-09-04 that resolution took `tinyvec` 1.13.0,
+    # which does not compile on this toolchain, and `doc/todo/02` section 2's fuzz `clippy` line
+    # failed in a worktree for a reason no round's change could explain. Copied rather than
+    # symlinked, unlike `fuzz/corpus`: a corpus is meant to be appended to by whoever runs, and a
+    # lockfile a neighbour's `cargo update` rewrote mid-run is the opposite of what a lock is for.
+    [ -f "$root/fuzz/Cargo.lock" ] && cp "$root/fuzz/Cargo.lock" "$wt/fuzz/Cargo.lock"
+
     for p in "$root"/doc/*.pdf; do
         [ -e "$p" ] || continue
         ln -sf "$p" "$wt/doc/$(basename "$p")"

@@ -82,7 +82,7 @@ use pdf_model::outline::{Item, Outline};
 use pdf_model::page_label::PageLabels;
 use pdf_model::retrieval::sections;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
+use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options, serialize};
 use pdf_syntax::{Document, Version};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -407,12 +407,12 @@ impl Host for Piece<'_> {
         self.carry(value, 0)
     }
 
-    fn reserve_slot(&mut self) -> Option<ObjectId> {
-        self.assembly.reserve().ok()
+    fn reserve_slot(&mut self) -> Result<ObjectId, AssemblyError> {
+        self.assembly.reserve()
     }
 
-    fn replace_object(&mut self, _at: usize, id: ObjectId) -> Option<ObjectId> {
-        self.assembly.replace(0, id).ok()
+    fn replace_object(&mut self, _at: usize, id: ObjectId) -> Result<ObjectId, AssemblyError> {
+        self.assembly.replace(0, id)
     }
 
     fn place_object(&mut self, id: ObjectId, object: Object) {
