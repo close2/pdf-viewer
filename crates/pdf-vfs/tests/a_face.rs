@@ -306,6 +306,278 @@ fn an_image_is_read_under_exactly_the_name_its_own_listing_gave() {
     ));
 }
 
+/// Workers that record what every question put to them was **about**.
+///
+/// **What `Vfs::generated` cannot see.** That counter says how many virtual files the tree
+/// produced the bytes of, and it stayed at *one* through the whole defect round 923 fixed: the
+/// bytes were produced once and cached, and every subsequent question re-ran the extraction
+/// anyway — to validate a *name* (ADR 0886). A property about how often a generator runs has to
+/// count the generator running, which is what this does (trap 33).
+///
+/// It records `Query::subject`, which is the same population `Vfs::questions` counts — so a test
+/// can check the crate's own instrument against an independent count taken one level lower, at
+/// the transport. An instrument nothing else agrees with is a number, not a measurement.
+#[derive(Debug, Default)]
+struct CountingWorkers(Arc<std::sync::Mutex<Vec<String>>>);
+
+impl pdf_vfs::worker::Workers for CountingWorkers {
+    fn spawn(
+        &self,
+        bytes: pdf_syntax::FileBytes,
+        password: Option<pdf_transform::Secret>,
+        policy: pdf_transform::Policy,
+        budget: pdf_transform::Budget,
+    ) -> Result<Box<dyn pdf_vfs::worker::Worker>, pdf_vfs::worker::WorkerError> {
+        Ok(Box::new(Counting {
+            inner: pdf_vfs::worker::Workers::spawn(
+                &InProcessWorkers,
+                bytes,
+                password,
+                policy,
+                budget,
+            )?,
+            asked: Arc::clone(&self.0),
+        }))
+    }
+}
+
+/// One such worker.
+#[derive(Debug)]
+struct Counting {
+    inner: Box<dyn pdf_vfs::worker::Worker>,
+    asked: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl Counting {
+    fn count(&self, query: &pdf_vfs::worker::Query) {
+        if let Some(subject) = query.subject()
+            && let Ok(mut asked) = self.asked.lock()
+        {
+            asked.push(subject);
+        }
+    }
+}
+
+impl pdf_vfs::worker::Worker for Counting {
+    fn ask(
+        &self,
+        query: &pdf_vfs::worker::Query,
+    ) -> Result<pdf_vfs::worker::Answer, pdf_vfs::worker::WorkerError> {
+        self.count(query);
+        self.inner.ask(query)
+    }
+
+    fn ask_consented(
+        &self,
+        query: &pdf_vfs::worker::Query,
+    ) -> Result<pdf_vfs::worker::Answer, pdf_vfs::worker::WorkerError> {
+        self.count(query);
+        self.inner.ask_consented(query)
+    }
+
+    fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
+}
+
+/// A tree whose worker records every subject it is asked about.
+fn counted(name: &str) -> (Arc<std::sync::Mutex<Vec<String>>>, Vfs) {
+    let bytes = std::fs::read(committed(name)).expect("a committed document");
+    let backing = Arc::new(MemoryBacking::new(name, bytes));
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let vfs = Vfs::new(
+        Box::new(SharedBacking(backing)),
+        Box::new(CountingWorkers(Arc::clone(&asked))),
+        Config::default(),
+    );
+    (asked, vfs)
+}
+
+/// How many questions about this subject the worker was put.
+fn about(asked: &Arc<std::sync::Mutex<Vec<String>>>, subject: &str) -> usize {
+    asked
+        .lock()
+        .expect("the recorder")
+        .iter()
+        .filter(|had| had.as_str() == subject)
+        .count()
+}
+
+/// Every file in the tree, listed, `stat`ed and read, depth first.
+///
+/// A refusal is not a failure here: what this drives is the *cost* property, and a page a
+/// generator declines by name was still asked for once. It answers how many files it read, so a
+/// caller can require that the walk found something to measure.
+fn walk_everything(vfs: &Vfs, from: &str) -> usize {
+    let mut read = 0_usize;
+    let mut directories = vec![from.to_owned()];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = vfs.list(&directory) else {
+            continue;
+        };
+        for entry in entries {
+            let path = if directory == "/" {
+                format!("/{}", entry.name)
+            } else {
+                format!("{directory}/{}", entry.name)
+            };
+            match entry.kind {
+                Kind::Directory => directories.push(path),
+                Kind::File => {
+                    let _ = vfs.stat(&path);
+                    if vfs.open(&path).is_ok() {
+                        read = read.saturating_add(1);
+                    }
+                }
+            }
+        }
+    }
+    read
+}
+
+/// **The cost floor this crate had none of**: walking the whole layout twice asks each generator
+/// once.
+///
+/// `doc/todo/58` §5 named this as the sharpest thing missing after session 923, and the reason is
+/// in ADR 0886: a hundredfold cost regression lived in this crate for four sessions with the whole
+/// gate sequence green, because every instrument in front of it counted *outputs* and the cost was
+/// paid in *validation*. So the property is counted rather than timed — it says nothing about how
+/// fast this machine is, and a neighbouring round's load cannot move it by one.
+///
+/// Three things are asserted, and the third is what makes the first two trustworthy:
+///
+/// - **no generator is run twice** for one subject, over a walk that lists every directory,
+///   `stat`s and reads every file, and then does all of it again;
+/// - **the cache forgot nothing**, so there is no honest explanation for a repeat available to a
+///   later reader of this test (`Vfs::forgotten`, and `tests/read_corpus.rs` is where documents
+///   too large for the budget make that number non-zero);
+/// - **the crate's own counter agrees with one taken at the transport**, one level below it. A
+///   counter that is only checked against itself is how trap 33 happened.
+#[test]
+fn the_whole_layout_walked_twice_asks_no_generator_twice() {
+    // **The third pair is the population, not a repetition.** With `image_names` taken out of
+    // `locate_in` — round 923's defect, restored to check this test against it (trap 13) — the
+    // first two documents passed, because neither of them places an image and the walk therefore
+    // never entered `images/NNNN/`. A floor whose population cannot reach the defect is trap 25
+    // with a counter on it. `/images` alone for that one, because walking the whole layout of a
+    // seventy-two-page document twice is a corpus walk's worth of work in a unit test — and
+    // `tests/read_corpus.rs` is where the whole layout meets a thousand documents.
+    for (name, from) in [
+        (FIVE_PAGES, "/"),
+        (WITH_ATTACHMENTS, "/"),
+        (WITH_IMAGES, "/images"),
+    ] {
+        let (asked, vfs) = counted(name);
+        let first = walk_everything(&vfs, from);
+        assert!(first > 0, "{name}: the walk read nothing under {from}");
+        let again = walk_everything(&vfs, from);
+        assert_eq!(
+            first, again,
+            "{name}: the second walk read a different tree"
+        );
+
+        let questions = vfs.questions();
+        assert_eq!(
+            vfs.forgotten(),
+            0,
+            "{name}: the cache dropped entries, so a repeat below would have an explanation"
+        );
+        let subjects = asked.lock().expect("the recorder").clone();
+        assert_eq!(
+            questions.repeated,
+            0,
+            "{name}: {} of {} questions were asked about a subject already answered: {:?}",
+            questions.repeated,
+            questions.asked,
+            {
+                let mut twice: Vec<&String> = Vec::new();
+                for subject in &subjects {
+                    if subjects.iter().filter(|had| had == &subject).count() > 1
+                        && !twice.contains(&subject)
+                    {
+                        twice.push(subject);
+                    }
+                }
+                twice
+            }
+        );
+        assert_eq!(
+            usize::try_from(questions.asked).expect("a count"),
+            subjects.len(),
+            "{name}: the tree says it asked {} questions and the transport was put {}",
+            questions.asked,
+            subjects.len()
+        );
+    }
+}
+
+/// §14.3.2's stream is fetched once a generation, however often `meta/` is read.
+///
+/// **The defect this round's own floor found.** `meta/xmp.xml` is the one row in the layout whose
+/// existence the document states rather than the layout, so validating a path under it asks the
+/// worker — and that question was the whole stream, put again on every listing of `/meta` and on
+/// every `stat` and `open` of the file. It is ADR 0886's shape exactly, one row along, and no
+/// instrument in this crate could see it until `Vfs::questions` existed (ADR 0894).
+#[test]
+fn the_metadata_stream_is_one_question_however_often_meta_is_read() {
+    let (asked, vfs) = counted(FIVE_PAGES);
+    for _ in 0..3 {
+        let listed = names(&vfs, "/meta");
+        assert!(
+            listed.contains(&String::from("xmp.xml")),
+            "this document states §14.3.2's stream: {listed:?}"
+        );
+        assert!(vfs.stat("/meta/xmp.xml").expect("a stat").size.is_some());
+        assert!(!vfs.open("/meta/xmp.xml").expect("an open").is_empty());
+    }
+    assert_eq!(
+        about(&asked, "metadata"),
+        1,
+        "the stream was fetched more than once for nine questions about it"
+    );
+    assert_eq!(vfs.questions().repeated, 0);
+}
+
+/// Listing `images/NNNN/`, `stat`ing every entry and reading every entry is **one** extraction.
+///
+/// RFC 0003 section 4's `images/NNNN/` is the one directory whose listing *is* an extraction's own
+/// output names — deliberately, so that a listing and a read cannot disagree — and until round 923
+/// that made every question about a path under it run the extraction again, because that is how the
+/// name was validated. On `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf`, which states 10 084
+/// images on one page, twenty thousand questions at 176 ms each held a corpus walk for
+/// twenty-five minutes (ADR 0878) while the bytes sat in the cache (ADR 0886).
+///
+/// The committed document has one image on page 35 rather than ten thousand, so what is asserted
+/// is the *count* rather than a clock: three questions of one directory, one run.
+#[test]
+fn a_directorys_names_are_asked_of_the_extraction_once() {
+    let (asked, vfs) = counted(WITH_IMAGES);
+
+    let listed = vfs.list("/images/0035").expect("page 35's images");
+    assert!(!listed.is_empty(), "page 35 places an image");
+    assert_eq!(about(&asked, "images/35"), 1, "a listing is one extraction");
+
+    for entry in &listed {
+        let path = format!("/images/0035/{}", entry.name);
+        assert!(vfs.stat(&path).expect("a stat").size.is_some());
+        assert!(!vfs.open(&path).expect("an open").is_empty());
+    }
+    // The listing again, which is what a file manager does when somebody scrolls back.
+    assert_eq!(vfs.list("/images/0035").expect("again").len(), listed.len());
+    assert_eq!(
+        about(&asked, "images/35"),
+        1,
+        "the listing, every stat, every read and a second listing are one extraction between them"
+    );
+
+    // And a name the document did not produce is still refused — the validation the inventory
+    // took over has to keep refusing what the extraction never named.
+    assert!(matches!(
+        vfs.stat("/images/0035/99.png"),
+        Err(VfsError::NoSuchPath(_))
+    ));
+}
+
 #[test]
 fn renders_offers_the_resolutions_the_core_decided_and_no_others() {
     let (_backing, vfs) = mounted(FIVE_PAGES);

@@ -310,11 +310,12 @@ Three things this item still owes, none of them blocking a face:
   generation and `viewer_core::Secret` is deliberately not `Clone`, so a mount that survives a
   change of the file needs a design for re-supplying the password — a lending `Secret`, or a
   `SecretSource` a face implements. `doc/todo/57` §1 records the same shape for `merge`.
-- A *listing* of `images/NNNN/` re-runs that page's extraction every time, because the listing is
-  the extraction's own output names (which is what makes it exact); only a read puts the bytes in
-  the cache, and a read puts the whole run's outputs there at once so that `cp -r` of one page's
-  images costs one extraction. Caching the listing itself is a second kind of entry the cache does
-  not have.
+- ~~A *listing* of `images/NNNN/` re-runs that page's extraction every time … Caching the listing
+  itself is a second kind of entry the cache does not have.~~ **Closed in session 923 (ADR 0886),
+  and it was worse than this line said**: not only the listing but *every* question about a path
+  under `images/NNNN/` re-ran the extraction, because that is how `locate_in` validated the name.
+  The cache now has that second kind of entry — a directory's own names, kept beside the sizes and
+  past the eviction of the bytes — and a listing warms the whole run. The numbers are below.
 - **Both sides now have a corpus walk** — the write side in session 909 (ADR 0860), the read side
   in session 914 (ADR 0871), each with its line in `doc/todo/02` §2. `tests/read_corpus.rs` lists
   the whole layout for every corpus document, `stat`s every entry, reads every file and holds each
@@ -341,18 +342,30 @@ Three things this item still owes, none of them blocking a face:
   page, and `update` refuses to delete a document's last one; the walk counts the refusal by name
   and the number is in its own output. A population with more multi-page documents — the SafeDocs
   crawl, `format-corpus` — would be a stronger denominator for that one verb.
-- **A `stat` generates, and on a *wide* directory that is worse than on a long document** —
-  session 919's witness, and the sharper one. `corpus-cache/tika-issue-tracker/batch1/PDFBOX/
-  PDFBOX-186-0.pdf` states **10 084 images on one page**, each two pixels by one, so
-  `/images/0001/` is a directory of ten thousand files; every one of them `stat`ed and read is
-  twenty thousand questions, and because a whole extraction run is put in the cache **at once** and
-  a run too large for the cache's budget is put nowhere at all (ADR 0865 §3, round 911's finding),
-  each of those questions re-ran an extraction of ten thousand images. Session 919's walk was
-  inside that one document for **twenty-five minutes** before it was bounded (ADR 0878). Nothing is
-  wrong with any single answer — `examples/vfs_cost` gives that document's page count in 131 ms and
-  its images in 200 ms — and a face reaching for `cp -r images/0001/` would still be there an hour
-  later. What would answer it is a cache that admits a run larger than its budget in parts, or a
-  listing that does not have to generate; §5.5 forbids the third way out, which is stating no size.
+- ~~**A `stat` generates, and on a *wide* directory that is worse than on a long document.**~~
+  **Closed in session 923, and the recorded diagnosis was wrong.** Session 919's witness stands —
+  `corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` states **10 084 images on one
+  page**, each two pixels by one, so `/images/0001/` is a directory of ten thousand files and
+  `stat`ing and reading every one of them is twenty thousand questions — but the reason given for
+  it here and in ADR 0878 was the cache's refusal of an entry larger than its budget, and that is
+  not what was happening. Those outputs are **352 bytes each**; every one of them was admitted,
+  `Vfs::generated` stayed at **1** for the whole run, and the tree spent **176 ms a question**
+  anyway, in `locate_in`, re-running the extraction to check that the name existed. ADR 0886 has
+  the measurement and the fix; ADR 0887 has why the cache's admission rule is right as it stands.
+
+  Measured on that document, in process, `examples/vfs_cost`'s own instrument and its predecessor:
+
+  | | before | after |
+  |---|---|---|
+  | `ls /images/0001` (10 081 entries) | 0.33 s | 0.25 s |
+  | the same listing again | 0.20 s | 0.31 ms |
+  | one `stat`, one `open` | 176 ms each | 0.010 ms each |
+  | 512 entries `stat`ed and read | **274 s**, measured | — |
+  | all 10 081 `stat`ed and read | ≈ 90 min, extrapolated from the 512 | **0.25 s**, measured |
+
+  And on an ordinary document, `doc/Tagged-PDF-Best-Practice-Guide.pdf` page 60, which places two
+  images: the first `stat` was 53 ms and each question after it 17 ms; they are now 4 µs and 2 µs,
+  because the listing that found the names put the bytes in the cache on the way past.
 - **And on a long document it is minutes too.** `ls -l pages/` on ISO
   32000-2's 1023 pages took **2 min 45 s** (round 911), which is 1023 page extractions at about
   160 ms each, and the pieces are about **1.8 MB** apiece — the closure of a heavily shared
@@ -361,15 +374,41 @@ Three things this item still owes, none of them blocking a face:
   manager opening such a mount waits three minutes. What would answer it is a generator that can
   state a piece's length without writing it, which nothing in the transform layer offers, or a
   listing that reports no size until asked — which §5.5 forbids for the reason ffmpegfs paid for.
+- **The cost floor is here, and it is a count.** Session 927's, and it closes what the entry below
+  calls the sharpest thing missing: `Vfs::questions` counts the questions a mount puts to its worker
+  and how many of them are about a subject it had already answered (`Query::subject`), and
+  `Vfs::forgotten` counts what the cache stopped holding within a generation — an eviction, or an
+  entry larger than the whole budget. The floor is **`repeated ≤ forgotten`, per document**, held in
+  two places: `tests/a_face.rs` walks three documents' trees twice under
+  `cargo nextest run --workspace`, which every round runs whatever it touched, and
+  `tests/read_corpus.rs` holds the same inequality over the whole population. A count rather than a
+  clock on purpose — ADR 0884's five-part construction is what a duration costs on this machine, and
+  a corpus walk cannot be pinned — so no neighbouring round's load can move either side of it. It
+  found a defect of its own on the first run (§14.3.2's stream, ADR 0895 §1). ADR 0894.
+- **A refusal is not remembered, so it is paid for on every question.** Session 927's floor found
+  it: a page whose codec this reader does not have, or a plan `pdf_transform` declines by name,
+  produces no bytes — so there is nothing for the cache to hold and the next `stat` or `open` of
+  that path runs the generator again. Over the corpus it is the whole of the walk's
+  `asked again after a refusal` column, one or two questions on each of about three dozen
+  documents. It is a *shortfall* rather than the defect the floor is for, and the reason it is not
+  simply fixed is that a refusal is not obviously the same refusal next time — one taken under a
+  `Budget` depends on the budget. What would answer it is a fourth kind of note beside the sizes
+  and the inventories, holding the refusal's own sentence, with a rule for which refusals may be
+  remembered. ADR 0895 §2.
 - **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
   prints, per document: a worker per generation in each transport, one question of each shape in
-  each transport, the largest answer and the bound past which the confinement refuses one, and a
-  `stat` that generates beside the same `stat` cached. Session 902's run is in that round's record.
-  What is *not* measured, and what the next round of this stream should take: `ls images/` on a
-  scanned book, the cache's hit rate under a `cp -r` of one directory, and `text/document.txt` on a
-  long document — which is the streaming shortfall above, priced. And none of it is a floor: RFC
-  0002's suite got its perf floor in its second round (ADR 0801) and this crate still has no line in
-  `doc/todo/02` §2 beyond the core's.
+  each transport, the largest answer and the bound past which the confinement refuses one, a
+  `stat` that generates beside the same `stat` cached, and — session 923 — one `images/NNNN/`
+  listed, listed again, and `cp -r`'d entry by entry. Session 902's run is in that round's record.
+  What is *not* measured, and what the next round of this stream should take: `text/document.txt`
+  on a long document, which is the streaming shortfall above, priced. And none of it is a floor:
+  RFC 0002's suite got its perf floor in its second round (ADR 0801) and this crate still has no
+  line in `doc/todo/02` §2 beyond the core's — **which was the sharpest thing missing here**,
+  because the defect ADR 0886 fixed was a hundredfold and no gate in the sequence could see it.
+  **Session 927 took that**, and the entry above is what it built; what is still unfloored is
+  everything a *count* cannot state — `ls images/` on a scanned book, the cache's hit rate under a
+  `cp -r`, `text/document.txt` on a long document — because each of those is a duration and ADR
+  0895 §3 says what a duration costs to make believable here.
 - A directory the document would fill past `Config::max_entries` is refused rather than truncated,
   and no document on this disk reaches it — so the ceiling is a decision without a witness.
 

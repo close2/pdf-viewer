@@ -498,6 +498,12 @@ pub struct Vfs {
     /// which is exactly what made a test of [`Cache::size_of`] pass without it (round 911, trap
     /// 13). An `AtomicU64` because every operation here is behind `&self`.
     generated: std::sync::atomic::AtomicU64,
+    /// What this mount has asked its workers, over every generation it has served.
+    ///
+    /// [`Totals`] says why the counts are the mount's and the repeat detection is a generation's,
+    /// and [`Questions`] says what a floor built on them holds. Shared with each generation's
+    /// [`Consenting`], which is the one seam every question in this crate crosses.
+    questions: Arc<Totals>,
 }
 
 /// Everything one document's mount holds that a commit changes.
@@ -539,6 +545,136 @@ struct Consenting {
     inner: Box<dyn Worker>,
     /// The question outstanding and the answer standing.
     asked: Mutex<Asked>,
+    /// What this generation's worker has been asked about already.
+    ///
+    /// **Here for the same reason the consent is** — every question this crate asks goes through
+    /// one of the two methods below, so a counter here cannot be forgotten by a call site — and
+    /// it is [`Counted`]'s doc comment that says why a counter of *questions* is the one a cost
+    /// property needs.
+    counted: Mutex<Counted>,
+    /// Where the counts go, which outlives this generation.
+    totals: Arc<Totals>,
+}
+
+/// What one generation's worker has been asked.
+///
+/// **The instrument [`Vfs::generated`] is not**, and the difference is
+/// `doc/traps/instruments-and-reports.md`'s trap 33. That counter says how many virtual files
+/// this tree has produced the bytes of, which is the right question for ADR 0865 section 3's size notes
+/// and is blind to work done to *answer* a question: it read **1** while a mount re-ran a page's
+/// image extraction on every one of twenty thousand `stat`s, because the bytes had been produced
+/// once and the extraction was being run to validate a name (ADR 0886). A property about how
+/// often a generator runs has to count the generator running, and [`Worker::ask`] is where it
+/// runs.
+///
+/// Bounded by the layout rather than by the document's bytes: the set below holds one short
+/// string per [`Query::subject`], which is a page ordinal, a resolution or a name.
+#[derive(Debug, Default)]
+struct Counted {
+    /// What the last answer about each subject was. See [`Query::subject`] for what is not in
+    /// here and why.
+    ///
+    /// Per generation, because [`Consenting`] is: a question about a document that has been
+    /// replaced underneath the mount is a new question rather than a repeat (RFC 0003 section 5.4).
+    subjects: std::collections::HashMap<String, Standing>,
+}
+
+/// What a whole mount has asked, across every generation it has served.
+///
+/// **The totals are the mount's and the repeat detection is the generation's**, and the split is
+/// the design: a face wants to know what its tree has cost since it was mounted, while "asked
+/// twice" is only meaningful about one document. So [`Counted`] lives in the worker that is made
+/// per generation and adds into this, which lives in the [`Vfs`].
+#[derive(Debug, Default)]
+struct Totals {
+    /// Questions put to the workers, of every shape.
+    asked: std::sync::atomic::AtomicU64,
+    /// Questions put about a subject the generation's worker had already answered.
+    repeated: std::sync::atomic::AtomicU64,
+    /// Questions put about a subject whose last answer was a refusal.
+    reasked_after_a_refusal: std::sync::atomic::AtomicU64,
+    /// The subjects [`Self::repeated`] counted, each named once, so that a gate can say which
+    /// generator ran twice rather than only how often. Bounded by the layout.
+    twice: Mutex<Vec<String>>,
+}
+
+impl Totals {
+    /// One more question, of every shape.
+    fn asked(&self) {
+        self.asked
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// One more question about a subject already answered, named.
+    fn repeated(&self, subject: &str) {
+        self.repeated
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut twice = self
+            .twice
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !twice.iter().any(|had| had == subject) {
+            twice.push(subject.to_owned());
+        }
+    }
+
+    /// One more question about a subject whose last answer was a refusal.
+    fn reasked(&self) {
+        self.reasked_after_a_refusal
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// What they add up to.
+    fn questions(&self) -> Questions {
+        Questions {
+            asked: self.asked.load(std::sync::atomic::Ordering::Relaxed),
+            repeated: self.repeated.load(std::sync::atomic::Ordering::Relaxed),
+            reasked_after_a_refusal: self
+                .reasked_after_a_refusal
+                .load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+}
+
+/// What the last answer about one subject was.
+///
+/// The distinction is the difference between a cache that failed and a cache that had nothing to
+/// hold: **a refusal produces no bytes**, so the tree cannot remember it and the next question
+/// about that subject necessarily runs the generator again. Counting that as a repeat would make
+/// the floor fire on every document with an unsupported codec on one page, which is a refusal
+/// working exactly as trap 5 asks it to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// The worker answered, so there was something to remember.
+    Answered,
+    /// The worker refused, so there was not.
+    Refused,
+}
+
+/// What a mount has asked the worker serving the generation it is on.
+///
+/// Per generation and not per mount, because a worker is made per generation and a question
+/// about a document that has been replaced is a new question rather than a repeat
+/// ([`Counted`], RFC 0003 section 5.4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Questions {
+    /// Questions put to the worker, of every shape.
+    pub asked: u64,
+    /// Questions put to it about a subject it had already **answered**.
+    ///
+    /// **The number a cost floor is made of.** A repeat is honest exactly where the answer was
+    /// forgotten in between — evicted from the cache, or refused for being larger than the whole
+    /// budget — so [`Vfs::forgotten`] is the ceiling this may be held to, and a repeat above that
+    /// ceiling is a generator run to answer a question rather than to produce bytes.
+    pub repeated: u64,
+    /// Questions put to it about a subject whose last answer was a **refusal**.
+    ///
+    /// Not part of the floor above, and it is a shortfall rather than a defect: a refusal
+    /// produces no bytes, so there is nothing for the cache to hold and the next question about
+    /// that subject runs the generator again — a page whose codec this reader does not have costs
+    /// its refusal on every `stat` and every `open`. `doc/todo/58` §5 records it; measured over
+    /// the corpus in ADR 0895 section 2.
+    pub reasked_after_a_refusal: u64,
 }
 
 /// One question put to a person, and one answer held until it is spent.
@@ -556,11 +692,61 @@ struct Asked {
 
 impl Consenting {
     /// A worker with nothing asked and nothing answered.
-    fn new(inner: Box<dyn Worker>) -> Self {
+    fn new(inner: Box<dyn Worker>, totals: Arc<Totals>) -> Self {
         Self {
             inner,
             asked: Mutex::new(Asked::default()),
+            counted: Mutex::new(Counted::default()),
+            totals,
         }
+    }
+
+    /// Counts one question, before it is put.
+    ///
+    /// Counted whatever the answer turns out to be: what this measures is the generator being
+    /// *run*, and a run that ends in a refusal cost what a run costs.
+    ///
+    /// **It can under-count and cannot over-count, and the direction is the point.** The standing
+    /// is read here and written when the answer comes back, so two threads asking about one
+    /// subject at the same moment both see nothing and neither counts a repeat — a real double
+    /// run this misses. The floor built on the number is therefore conservative: it can fail to
+    /// fire, and it cannot fire on work that did not happen. Holding the lock across the question
+    /// would fix the count by serialising every reader of the mount, which is a worse thing to be
+    /// than approximate.
+    fn counting(&self, query: &Query) {
+        let Some(subject) = query.subject() else {
+            return;
+        };
+        let standing = self
+            .counted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .subjects
+            .get(&subject)
+            .copied();
+        self.totals.asked();
+        match standing {
+            None => {}
+            Some(Standing::Answered) => self.totals.repeated(&subject),
+            Some(Standing::Refused) => self.totals.reasked(),
+        }
+    }
+
+    /// Records what the answer turned out to be — [`Standing`] is what the difference decides.
+    fn counted(&self, query: &Query, answered: bool) {
+        let Some(subject) = query.subject() else {
+            return;
+        };
+        let standing = if answered {
+            Standing::Answered
+        } else {
+            Standing::Refused
+        };
+        self.counted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .subjects
+            .insert(subject, standing);
     }
 
     /// The lock, poison and all: a panic in a caller must not make this tree unusable, and the
@@ -599,6 +785,7 @@ impl Consenting {
 
 impl Worker for Consenting {
     fn ask(&self, query: &Query) -> Result<Answer, WorkerError> {
+        self.counting(query);
         // Spent, or not, before the question is asked — and spent *once*: a yes to deleting one
         // page is not a yes to deleting every page after it.
         let spend = {
@@ -611,15 +798,20 @@ impl Worker for Consenting {
                 _ => false,
             }
         };
-        if spend {
+        let answer = if spend {
             self.inner.ask_consented(query)
         } else {
             self.inner.ask(query)
-        }
+        };
+        self.counted(query, answer.is_ok());
+        answer
     }
 
     fn ask_consented(&self, query: &Query) -> Result<Answer, WorkerError> {
-        self.inner.ask_consented(query)
+        self.counting(query);
+        let answer = self.inner.ask_consented(query);
+        self.counted(query, answer.is_ok());
+        answer
     }
 
     fn is_alive(&self) -> bool {
@@ -640,6 +832,15 @@ struct Current {
     pages: usize,
     /// §7.11.4's embedded files, once something has asked for them.
     attachments: Mutex<Option<Arc<Vec<Embedded>>>>,
+    /// Whether §14.3.2's metadata stream exists, once anything has asked.
+    ///
+    /// `None` until something asks. It is the *existence* rather than the bytes because the
+    /// bytes are the cache's — `metadata_stream` is the one place that reads either — and it is
+    /// remembered at all because `meta/xmp.xml` is the one row in the layout whose validation has
+    /// to ask the worker a question: without this, every listing of `/meta` and every `stat` and
+    /// `open` under it fetched the whole stream again to decide whether the name exists. That is
+    /// trap 33's shape, found by this crate's own question counter in session 927 (ADR 0894).
+    metadata: Mutex<Option<bool>>,
     /// Whose edit produced this generation.
     provenance: Provenance,
 }
@@ -668,6 +869,7 @@ impl Vfs {
             config,
             state: Mutex::new(Serving::default()),
             generated: std::sync::atomic::AtomicU64::new(0),
+            questions: Arc::new(Totals::default()),
         }
     }
 
@@ -776,12 +978,11 @@ impl Vfs {
             document: self.backing.describe(),
             error,
         })?;
-        let worker = Consenting::new(self.workers.spawn(
-            bytes,
-            None,
-            self.config.policy,
-            self.config.budget,
-        )?);
+        let worker = Consenting::new(
+            self.workers
+                .spawn(bytes, None, self.config.policy, self.config.budget)?,
+            Arc::clone(&self.questions),
+        );
         let pages = match worker.ask(&Query::PageCount)? {
             Answer::Count(pages) => pages,
             other => return Err(VfsError::Worker(mismatch(&other, "count"))),
@@ -808,6 +1009,7 @@ impl Vfs {
             worker,
             pages,
             attachments: Mutex::new(None),
+            metadata: Mutex::new(None),
             provenance,
         });
         held.current = Some(Arc::clone(&current));
@@ -820,6 +1022,39 @@ impl Vfs {
     #[must_use]
     pub fn generated(&self) -> u64 {
         self.generated.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// What this mount has asked its workers, over every generation it has served.
+    ///
+    /// **The cost instrument**, and [`Questions::repeated`] is the number a floor is made of.
+    /// It asks nothing of any worker and builds no generation: a mount that has answered nothing
+    /// yet has asked nothing, and says so.
+    #[must_use]
+    pub fn questions(&self) -> Questions {
+        self.questions.questions()
+    }
+
+    /// Which subjects the worker was asked about twice after answering, each named once.
+    ///
+    /// What [`Questions::repeated`] counts, said rather than totalled — so a gate that fails on
+    /// the count can name the generator that ran twice instead of leaving the next round to find
+    /// it. Bounded by the layout, like the map behind it.
+    #[must_use]
+    pub fn asked_twice(&self) -> Vec<String> {
+        self.questions
+            .twice
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// How many generated outputs the cache has stopped holding within a generation.
+    ///
+    /// The ceiling [`Questions::repeated`] is honestly allowed: `Cache`'s own field says why, and
+    /// `doc/todo/58` §5 is where the floor built on the pair is recorded.
+    #[must_use]
+    pub fn forgotten(&self) -> u64 {
+        self.cache.forgotten()
     }
 
     /// Whose edit produced the generation being served.
@@ -857,7 +1092,7 @@ impl Vfs {
     /// have, [`VfsError::NotADirectory`] for a file, and the backing's or the worker's own.
     pub fn list(&self, path: &str) -> Result<Vec<DirEntry>, VfsError> {
         let current = self.current()?;
-        let (route, captures) = locate_in(&current, path, &self.config.resolutions)?;
+        let (route, captures) = locate_in(&current, path, &self.config.resolutions, &self.cache)?;
         let directory = canonical_path(path)?;
         if route.kind != Kind::Directory {
             return Err(VfsError::NotADirectory(path.to_owned()));
@@ -927,12 +1162,12 @@ impl Vfs {
                 .collect(),
             Generator::ImageInventory => {
                 let page = captures.page.ok_or(VfsError::NoSuchPath(path.to_owned()))?;
-                let mut names: Vec<String> = images(current, page)?.keys().cloned().collect();
-                names.sort();
-                names
-                    .into_iter()
+                // Already in the extraction's own order: a `BTreeMap`'s keys are sorted, and the
+                // inventory is those keys.
+                image_names(&self.cache, current, page)?
+                    .iter()
                     .map(|name| DirEntry {
-                        name,
+                        name: name.clone(),
                         kind: Kind::File,
                     })
                     .collect()
@@ -968,10 +1203,7 @@ impl Vfs {
                 // `outline.json` are always listed: both are answers this program composes, and
                 // a document that states neither an `/Info` nor an `/Outlines` has an empty
                 // answer rather than no answer.
-                if matches!(
-                    current.worker.ask(&Query::MetadataStream)?,
-                    Answer::Bytes(_)
-                ) {
+                if metadata_stream(&self.cache, current)?.is_some() {
                     entries.push(DirEntry {
                         name: String::from("xmp.xml"),
                         kind: Kind::File,
@@ -1010,7 +1242,7 @@ impl Vfs {
                 generation: staged.generation,
             });
         }
-        let (route, _) = locate_in(&current, path, &self.config.resolutions)?;
+        let (route, _) = locate_in(&current, path, &self.config.resolutions, &self.cache)?;
         if route.kind == Kind::Directory {
             return Ok(Attributes {
                 kind: Kind::Directory,
@@ -1071,7 +1303,9 @@ impl Vfs {
         // insertion's consultation a `NoSuchPath`, which is the shape of a face that cannot ask.
         let (route, _) = match verb {
             Verb::Write => Self::locate_for_write(&current, &canonical_path(path)?)?,
-            Verb::Read | Verb::Delete => locate_in(&current, path, &self.config.resolutions)?,
+            Verb::Read | Verb::Delete => {
+                locate_in(&current, path, &self.config.resolutions, &self.cache)?
+            }
         };
         // The layout table is what says which operation a path's verb performs, because it is
         // the one place a path's meaning is stated; `tests/a_write.rs` holds it to
@@ -1134,7 +1368,7 @@ impl Vfs {
         if let Some(staged) = self.staged_at(path) {
             return Ok(staged);
         }
-        let (route, captures) = locate_in(&current, path, &self.config.resolutions)?;
+        let (route, captures) = locate_in(&current, path, &self.config.resolutions, &self.cache)?;
         if route.kind == Kind::Directory {
             return Err(VfsError::IsADirectory(path.to_owned()));
         }
@@ -1457,7 +1691,8 @@ impl Vfs {
         let mut held = self.held();
         let current = self.current_in(&mut held)?;
         let canonical = canonical_path(path)?;
-        let (route, captures) = locate_in(&current, &canonical, &self.config.resolutions)?;
+        let (route, captures) =
+            locate_in(&current, &canonical, &self.config.resolutions, &self.cache)?;
         let query = match route.write.on_delete {
             Write::DeletePage => Query::DeletePage {
                 page: captures
@@ -1678,25 +1913,12 @@ impl Vfs {
                 dpi: captures.dpi.ok_or_else(missing)?,
             })?,
             Generator::ExtractedImage => {
-                // One extraction, every output kept. A page's images come out of one
-                // `pdf_transform::images` run, so reading them one at a time would re-run it once
-                // per file — and a `cp -r` of an `images/NNNN/` directory reads them all. The
-                // whole run goes into the cache under each output's own path, and the caller's is
-                // returned from there; the cache's byte budget decides how much of it survives,
-                // which is the one place a decision about memory belongs.
                 let page = page()?;
                 let name = captures.name.clone().ok_or_else(missing)?;
-                let width = width(current);
-                let stem = path::page_name_stem(page, width);
-                let mut wanted = None;
-                for (output, bytes) in images(current, page)? {
-                    let at = format!("/images/{stem}/{output}");
-                    let kept = self.cache.put(current.generation, &at, bytes);
-                    if output == name {
-                        wanted = Some(kept.to_vec());
-                    }
-                }
-                return wanted.ok_or_else(missing);
+                return extract_images(&self.cache, current, page)?
+                    .get(&name)
+                    .map(|kept| kept.to_vec())
+                    .ok_or_else(missing);
             }
             Generator::PageText => current.worker.ask(&Query::PageText { page: page()? })?,
             Generator::DocumentText => return self.document_text(current),
@@ -1712,7 +1934,11 @@ impl Vfs {
                 })?
             }
             Generator::Information => current.worker.ask(&Query::Information)?,
-            Generator::MetadataStream => current.worker.ask(&Query::MetadataStream)?,
+            Generator::MetadataStream => {
+                return metadata_stream(&self.cache, current)?
+                    .map(|bytes| bytes.to_vec())
+                    .ok_or_else(missing);
+            }
             Generator::Outline => current.worker.ask(&Query::Outline)?,
             Generator::Root
             | Generator::PageOrdinals
@@ -1826,6 +2052,7 @@ fn locate_in(
     current: &Current,
     path: &str,
     resolutions: &[u32],
+    cache: &Cache,
 ) -> Result<(&'static Route, path::Captures), VfsError> {
     let missing = || VfsError::NoSuchPath(path.to_owned());
     let (route, captures) = path::resolve(path).ok_or_else(missing)?;
@@ -1859,7 +2086,11 @@ fn locate_in(
         Generator::ExtractedImage => {
             let page = captures.page.ok_or_else(missing)?;
             let name = captures.name.clone().ok_or_else(missing)?;
-            if !spells(current, path, page) || !images(current, page)?.contains_key(&name) {
+            // The inventory rather than the extraction. Validating a name by re-running the run
+            // that produced it is what made a wide directory quadratic (round 923, ADR 0886): on
+            // a page of ten thousand images every `stat` and every `open` paid 176 ms here while
+            // the bytes it was about sat in the cache.
+            if !spells(current, path, page) || !image_names(cache, current, page)?.contains(&name) {
                 return Err(missing());
             }
         }
@@ -1875,15 +2106,11 @@ fn locate_in(
         _ => {}
     }
     // §14.3.2's stream is the one file in this tree whose *existence* the document states, so it
-    // is the one row whose validation has to ask the worker a question. Outside the match rather
-    // than an arm of it, because a `?` cannot live in a match guard and an arm that only asks a
-    // question reads as though it were doing something else.
-    if route.generator == Generator::MetadataStream
-        && !matches!(
-            current.worker.ask(&Query::MetadataStream)?,
-            Answer::Bytes(_)
-        )
-    {
+    // is the one row whose validation cannot derive its answer. It asks [`metadata_stream`]
+    // rather than the worker, which is what keeps it one question a generation. Outside the match
+    // rather than an arm of it, because a `?` cannot live in a match guard and an arm that only
+    // asks a question reads as though it were doing something else.
+    if route.generator == Generator::MetadataStream && metadata_stream(cache, current)?.is_none() {
         return Err(missing());
     }
     Ok((route, captures))
@@ -1976,14 +2203,101 @@ fn attachments(current: &Current) -> Result<Arc<Vec<Embedded>>, VfsError> {
     Ok(shared)
 }
 
-/// One page's images, by the name each output took.
+/// §14.3.2's document-level metadata stream, asked of the worker once a generation.
 ///
-/// Not held per generation the way the attachments are: an image is bytes rather than a name, so
-/// what would be kept is the content, and [`cache`] is what keeps content — under the same
-/// generation key and the same byte budget. What that costs is stated rather than hidden: a
-/// *listing* of `images/NNNN/` re-runs the extraction every time, because a listing is exactly
-/// this call's keys, and only a **read** puts the bytes in the cache. `doc/todo/58` §5 carries it,
-/// beside the measurement nobody has taken of it.
+/// **`meta/xmp.xml` is the one file in this tree whose existence the *document* states**, so it is
+/// the one row whose path validation cannot derive its answer and has to ask a question. Until
+/// session 927 that question was the whole stream, put again on every listing of `/meta` and on
+/// every `stat` and `open` under it — trap 33's shape exactly, and invisible to `Vfs::generated`
+/// because the bytes were produced once. [`Vfs::questions`] is what counted it (ADR 0894).
+///
+/// So: the bytes go into the cache under the path they belong to, which means a validation warms
+/// the read the way a listing of `images/NNNN/` does; a document that states no stream is
+/// remembered as stating none, which costs one bool a generation; and the only way this asks the
+/// worker twice is the cache forgetting the bytes in between, which [`Vfs::forgotten`] counts.
+fn metadata_stream(cache: &Cache, current: &Current) -> Result<Option<Arc<[u8]>>, VfsError> {
+    // The layout's own row, which has no variable component: `crate::layout`'s table spells it
+    // once and this is the only other place it is written. `tests/a_face.rs` holds the pair
+    // together by asking for the file and requiring that nothing was asked twice — a constant
+    // that did not match the row would cache under a path no reader looks at, and the repeat
+    // would say so.
+    const XMP: &str = "/meta/xmp.xml";
+    if let Some(bytes) = cache.get(current.generation, XMP) {
+        return Ok(Some(bytes));
+    }
+    let mut known = current
+        .metadata
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *known == Some(false) {
+        return Ok(None);
+    }
+    match current.worker.ask(&Query::MetadataStream)? {
+        Answer::Bytes(bytes) => {
+            *known = Some(true);
+            Ok(Some(cache.put(current.generation, XMP, bytes)))
+        }
+        Answer::Absent => {
+            *known = Some(false);
+            Ok(None)
+        }
+        other => Err(VfsError::Worker(mismatch(&other, "bytes"))),
+    }
+}
+
+/// The directory one page's images are listed in.
+fn images_directory(current: &Current, page: usize) -> String {
+    format!("/images/{}", path::page_name_stem(page, width(current)))
+}
+
+/// What `images/NNNN/` holds, without producing it a second time.
+///
+/// **The listing of that directory *is* the extraction's own output names** — the whole argument
+/// for `crate::layout`'s departure from RFC 0003 section 4, because a listing and a read that are
+/// one call cannot disagree — so every question about a path under it used to run the extraction:
+/// [`locate_in`]'s validation, [`Vfs::entries_of`]'s listing, and the [`Vfs::stat`] and
+/// [`Vfs::open`] that go through the first of those. On a page of ten thousand images that is one
+/// extraction per question rather than per run (round 923, ADR 0886).
+///
+/// So the *names* are kept where the content is kept, past the eviction of the content, exactly as
+/// a length is: `Cache::inventory`. They are a run's own output names rather than a guess, which is
+/// the same rule RFC 0003 section 5.5 states for a size.
+fn image_names(cache: &Cache, current: &Current, page: usize) -> Result<Arc<[String]>, VfsError> {
+    if let Some(names) = cache.inventory(current.generation, &images_directory(current, page)) {
+        return Ok(names);
+    }
+    let mut names: Vec<String> = Vec::new();
+    for name in extract_images(cache, current, page)?.keys() {
+        names.push(name.clone());
+    }
+    Ok(names.into())
+}
+
+/// One extraction, every output kept, and the names noted.
+///
+/// A page's images come out of one `pdf_transform::images` run, so reading them one at a time
+/// would re-run it once per file — and a `cp -r` of an `images/NNNN/` directory reads them all.
+/// The whole run goes into the cache under each output's own path; the cache's byte budget decides
+/// how much of it survives, which is the one place a decision about memory belongs. The
+/// inventory is noted beside it and is not under that budget, because a name is not content.
+fn extract_images(
+    cache: &Cache,
+    current: &Current,
+    page: usize,
+) -> Result<std::collections::BTreeMap<String, Arc<[u8]>>, VfsError> {
+    let directory = images_directory(current, page);
+    let mut kept = std::collections::BTreeMap::new();
+    for (output, bytes) in images(current, page)? {
+        let at = format!("{directory}/{output}");
+        let shared = cache.put(current.generation, &at, bytes);
+        kept.insert(output, shared);
+    }
+    let names: Arc<[String]> = kept.keys().cloned().collect::<Vec<String>>().into();
+    cache.note_inventory(current.generation, &directory, names);
+    Ok(kept)
+}
+
+/// One page's images, by the name each output took: the run itself, asked of the worker.
 fn images(
     current: &Current,
     page: usize,

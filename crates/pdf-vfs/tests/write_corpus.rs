@@ -59,6 +59,15 @@
 //! stated as such; `pdf-transform`'s `foreign_corpus` walk is where another program reads what
 //! these writers produce.
 //!
+//! # The cost floor
+//!
+//! Each verb's mount carries [`Cost`], which holds ADR 0894's inequality on the write path:
+//! `Vfs::questions().repeated <= Vfs::forgotten()`, per mount. It is a count rather than a clock,
+//! for the reason `tests/read_corpus.rs` states at length, and it is on this walk as well because
+//! this is the one that exercises the reads a *write* performs before it commits — a validation
+//! that re-runs a generator is invisible to every counter of what was produced (trap 33, ADRs
+//! 0886 and 0894).
+//!
 //! # Running it
 //!
 //! ```text
@@ -184,6 +193,15 @@ struct Tally {
     nondeterministic: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
+    /// Questions the verb mounts put to their workers.
+    asked: u64,
+    /// Questions put about a subject the generation's worker had already answered.
+    repeated: u64,
+    /// Generated outputs those mounts' caches stopped holding, which is what a repeat may be
+    /// explained by.
+    forgotten: u64,
+    /// A verb mount whose repeats outnumber what its cache forgot.
+    unexplained: Vec<(String, String)>,
 }
 
 /// The five verbs, in the order [`Tally::refused`] and [`Tally::committed`] count them.
@@ -282,6 +300,52 @@ impl Workers for KeyedWorkers {
         // One strip: this walk runs a rayon thread per document already, and a worker that split
         // a render across the pool inside one of them would be measuring the scheduler.
         Ok(Box::new(InProcess::new(source, policy, budget, Some(1))))
+    }
+}
+
+/// What one verb's mount asked its workers, recorded wherever that verb returns from.
+///
+/// **The read walk's cost floor, on the write side** (ADR 0894): a generator is run once per
+/// subject per generation, and the only thing that may make it run again is the cache having
+/// stopped holding what it produced. It is a count rather than a clock, so a neighbouring round's
+/// load cannot move it.
+///
+/// A guard with a `Drop` rather than a line at the end of each verb, and the reason is the
+/// shape of this file: a verb returns from a dozen places — every refusal, every fault, every
+/// early diagnosis — and a measurement taken at the end of the function would silently be a
+/// measurement of the documents that got that far. That is trap 25 in miniature, and the borrow
+/// checker's drop order does the work: the guard is declared after the tree it measures, so it
+/// runs first.
+struct Cost<'a> {
+    /// The mount being measured.
+    vfs: &'a Vfs,
+    /// Where the counts go.
+    tally: &'a Mutex<Tally>,
+    /// The document, and which verb's mount this is.
+    what: String,
+}
+
+impl Drop for Cost<'_> {
+    fn drop(&mut self) {
+        let questions = self.vfs.questions();
+        let forgotten = self.vfs.forgotten();
+        let twice = self.vfs.asked_twice();
+        let what = self.what.clone();
+        record(self.tally, |t| {
+            t.asked = t.asked.saturating_add(questions.asked);
+            t.repeated = t.repeated.saturating_add(questions.repeated);
+            t.forgotten = t.forgotten.saturating_add(forgotten);
+            if questions.repeated > forgotten {
+                t.unexplained.push((
+                    what,
+                    format!(
+                        "{} of {} questions were about a subject already answered, the cache \
+                         forgot {}, and the generators run twice were {twice:?}",
+                        questions.repeated, questions.asked, forgotten
+                    ),
+                ));
+            }
+        });
     }
 }
 
@@ -639,6 +703,11 @@ fn insert_verb(
     tally: &Mutex<Tally>,
 ) {
     let (backing, vfs) = mounted(name, bytes);
+    let _cost = Cost {
+        vfs: &vfs,
+        tally,
+        what: format!("{name} (insert)"),
+    };
     let path = format!("/pages/{}.pdf", page_stem(pages, 1));
     let committed = match vfs.write(&path, &insert.bytes) {
         Ok(committed) => committed,
@@ -758,6 +827,11 @@ fn insert_verb(
     // the same crypt filter is the same number of bytes whatever the vector is, so a difference
     // in length is a difference this clause does not explain.
     let (second, twice) = mounted(name, bytes);
+    let _cost = Cost {
+        vfs: &twice,
+        tally,
+        what: format!("{name} (insert, computed twice)"),
+    };
     if twice.write(&path, &insert.bytes).is_ok() {
         let again = on_disk(&second);
         if again == after {
@@ -802,6 +876,11 @@ fn delete_verb(
         return;
     }
     let (backing, vfs) = mounted(name, bytes);
+    let _cost = Cost {
+        vfs: &vfs,
+        tally,
+        what: format!("{name} (delete)"),
+    };
     let path = format!("/pages/{}.pdf", page_stem(pages, 1));
     let committed = match vfs.remove(&path) {
         Ok(committed) => committed,
@@ -879,6 +958,11 @@ fn attachment_verbs(
     tally: &Mutex<Tally>,
 ) {
     let (backing, vfs) = mounted(name, bytes);
+    let _cost = Cost {
+        vfs: &vfs,
+        tally,
+        what: format!("{name} (attach and detach)"),
+    };
     let before = match names(&vfs, "/attachments") {
         Ok(before) => before,
         Err(why) => {
@@ -1014,6 +1098,11 @@ fn information_verb(
     tally: &Mutex<Tally>,
 ) {
     let (backing, vfs) = mounted(name, bytes);
+    let _cost = Cost {
+        vfs: &vfs,
+        tally,
+        what: format!("{name} (set information)"),
+    };
     if let Err(error) = vfs.write("/meta/info.json", INFORMATION) {
         record(tally, |t| {
             t.refused[4].push((name.to_owned(), error.to_string()));
@@ -1175,11 +1264,34 @@ fn every_corpus_document_survives_the_five_write_verbs() {
         tally.encrypted_updates_differ, tally.encrypted_updates_agree
     );
     print_list("two insertions, two files", &tally.nondeterministic);
+    println!(
+        "vfs-write:   questions put to the workers: {}, about a subject already answered: {}, \
+         outputs the caches forgot: {}",
+        tally.asked, tally.repeated, tally.forgotten
+    );
+    print_list("a repeat the cache cannot explain", &tally.unexplained);
     print_list("panicked", &tally.panicked);
 
     assert!(
         tally.panicked.is_empty(),
         "principle 1: no panic on any input"
+    );
+    // The write side of ADR 0894's cost floor, per verb mount: a generator is run once per
+    // subject per generation, and only the cache forgetting what it produced may make it run
+    // again. It is here as well as in `read_corpus.rs` because this is the walk that exercises
+    // the *write* path's own reads — the validations a verb performs before it commits — and
+    // those are exactly where a cost paid in answering a question hides (trap 33).
+    assert!(
+        tally.unexplained.is_empty(),
+        "a verb's mount ran a generator again for a subject it had already answered, more often \
+         than its cache forgot anything:\n{}",
+        tally
+            .unexplained
+            .iter()
+            .take(40)
+            .map(|(what, why)| format!("    {what}: {why}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     assert!(
         tally.prefix_failed.is_empty(),

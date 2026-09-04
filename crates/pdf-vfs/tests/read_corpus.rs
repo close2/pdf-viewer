@@ -15,7 +15,21 @@
 //!    it, `images/` and each page's directory under it, `text/`, `attachments/`, `meta/`;
 //! 2. **every entry is `stat`ed**, which by RFC 0003 section 5.5's rule *generates*;
 //! 3. **every file is read**, and held against the reader the layout says it delegates to;
-//! 4. **the listings are read a second time**, and what that costs is counted rather than timed.
+//! 4. **the listings are read a second time**, and what that costs is counted rather than timed;
+//! 5. **and the questions the mount put to its worker are counted**, so that a generator run twice
+//!    for one subject fails the run unless the cache had stopped holding what it produced.
+//!
+//! # The cost floor is a count, and that is the whole of why it is a gate
+//!
+//! `doc/todo/58` §5 owed this crate a perf floor and said what its absence had cost: ADR 0886's
+//! hundredfold regression lived here for four sessions with this walk passing twice. A wall clock
+//! could not have caught it either, because a wall clock over a corpus on this machine is the
+//! worst signal available — two classes of core, an unpinned spread of 100 % to 400 %, and three
+//! recorded false failures (`doc/todo/02` §2, ADR 0884). So what is asserted is a **count**:
+//! `Vfs::questions` says how many questions this mount put to its worker and how many of them were
+//! about a subject it had already answered, and `Vfs::forgotten` says how many generated outputs
+//! the cache stopped holding — which is the only honest reason to ask twice. `repeated ≤ forgotten`,
+//! per document. Neither side of that can be moved by a neighbouring round's load. ADR 0894.
 //!
 //! # The population is every corpus on the disk, and it is classified
 //!
@@ -38,8 +52,8 @@
 //! - **and a widened document is read to a smaller depth**, which is [`Bounds`] and is the one
 //!   place the two halves of the population differ. Listings are whole for both — every name of
 //!   every directory against the layout's own — and what is bounded is the *reads*: a widened
-//!   document's first [`PAGES_SAMPLED`] pages and the first [`ENTRIES_SAMPLED`] entries of one
-//!   directory. One corpus document is why, and its measurement is under [`ENTRIES_SAMPLED`].
+//!   document's first [`PAGES_SAMPLED`] pages. A second bound stood beside it for one round, on
+//!   the entries of a directory, and [`Bounds`] says why it is gone.
 //!
 //! A class is not a diagnosis: a document is in as many of them as it satisfies, and *plain* is
 //! in the list because a sweep that meets only awkward documents cannot say whether what it found
@@ -173,48 +187,35 @@ const PAGES_READ: usize = 16;
 /// is there because the first page of a document is the one every other test reads.
 const PAGES_SAMPLED: usize = 2;
 
-/// How many entries of one directory a *widened* document has read.
-///
-/// The second bound, and the document that priced it is why it is not the first one over again.
-/// `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` states **10 084 images on one page**, each
-/// two pixels by one, so `/images/0001/` is a directory of ten thousand files — and this walk
-/// `stat`s and reads every entry it lists. A `stat` generates (RFC 0003 section 5.5), a read puts
-/// a whole extraction run in the cache at once, and a run too large for the cache's budget is put
-/// nowhere at all (ADR 0865 section 3, round 911's finding), so on that page every one of twenty
-/// thousand questions re-ran an extraction of ten thousand images. The walk was still inside that
-/// one document after twenty-five minutes, at sixteen pages and at two alike.
-///
-/// That is a fact about the *mount* rather than only about the walk — `doc/todo/58` §5 carries it
-/// — and what the walk owes is to be bounded rather than to rediscover it every run. Four
-/// entries; the ones past it are still listed and still held to the layout's own names, and they
-/// are counted as read by nobody.
-const ENTRIES_SAMPLED: usize = 4;
-
-/// What a document of this root has read of it: pages, and entries of one directory.
+/// What a document of this root has read of it.
 ///
 /// **Two depths, one instrument.** `doc/pdf.js` is walked exactly as it was before the widening,
 /// which is what keeps the figures printed since session 914 comparable; every other root is
 /// sampled, because the population that carries the awkward classes carries the pathological
 /// documents too, and a gate one document can hold for half an hour is not a gate (ADR 0878).
+///
+/// **A second bound stood here for one round and has come off, which is the point of it.** Session
+/// 919 found `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` — 10 084 images on one page, so
+/// `/images/0001/` is a directory of ten thousand files — holding this walk for twenty-five
+/// minutes, and bounded the reads to four entries a directory to get past it. That was a bound on
+/// the *instrument*: a walk that skips the pathological case cannot see the next one. Round 923
+/// measured what was actually costing the time (a name validated by re-running the extraction that
+/// named it, ADR 0886) and fixed it in the core, and that document's whole ten-thousand-entry
+/// directory is now listed, `stat`ed and read in seconds. So the entries are whole again, and only
+/// the pages are bounded.
 #[derive(Debug, Clone, Copy)]
 struct Bounds {
     /// How many of the document's pages are read.
     pages: usize,
-    /// How many entries of one directory are `stat`ed and read.
-    entries: usize,
 }
 
 /// What this document is walked to, by the root it came from.
 fn bounds(chosen: &Chosen) -> Bounds {
     if chosen.root == PDFJS {
-        Bounds {
-            pages: PAGES_READ,
-            entries: usize::MAX,
-        }
+        Bounds { pages: PAGES_READ }
     } else {
         Bounds {
             pages: PAGES_SAMPLED,
-            entries: ENTRIES_SAMPLED,
         }
     }
 }
@@ -487,8 +488,6 @@ struct Tally {
     both_refused: usize,
     /// Pages past [`PAGES_READ`], listed and not read.
     pages_not_read: usize,
-    /// Directory entries past [`ENTRIES_SAMPLED`], listed and not read.
-    entries_not_read: usize,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
     /// A question whose sentence names a signal: the confined worker died.
@@ -499,6 +498,17 @@ struct Tally {
     classes: BTreeMap<Class, ClassTally>,
     /// Every document's wall clock, so that the slowest few can be printed.
     took: Vec<(String, f64)>,
+    /// Questions put to the workers, over the whole population.
+    asked: u64,
+    /// Questions put to a worker about a subject it had already answered.
+    repeated: u64,
+    /// Generated outputs the caches stopped holding, which is what a repeat may be explained by.
+    forgotten: u64,
+    /// Questions put about a subject whose last answer was a refusal, which leaves nothing to
+    /// remember: not part of the floor, and `doc/todo/58` §5's newest shortfall.
+    reasked: u64,
+    /// A document whose repeats outnumber what its cache forgot, with both figures.
+    unexplained: Vec<(String, String)>,
 }
 
 /// One row of the matrix the run prints.
@@ -547,7 +557,6 @@ struct Local {
     transport_differ: Vec<String>,
     both_refused: usize,
     pages_not_read: usize,
-    entries_not_read: usize,
     /// Every file read in the first pass, by path, as (size, digest).
     seen: BTreeMap<String, (u64, u64)>,
     /// Whether the whole layout was walked, which a document the core cannot open is not.
@@ -558,6 +567,21 @@ struct Local {
     refused_open: Option<String>,
     /// Whether the mount answered one more question after the walk (session 902's recovery).
     recovered: bool,
+    /// What the mount asked its worker over this document's whole walk.
+    ///
+    /// **The cost floor, and it is a count rather than a clock.** `doc/todo/58` §5 named the
+    /// absence of one as the sharpest thing missing here after session 923: a hundredfold
+    /// regression lived in this crate for four sessions with two corpus walks and the whole gate
+    /// sequence green, because it was paid in *validating a name* and every instrument in front
+    /// of it counted bytes produced (trap 33, ADR 0886). A count does not care which class of
+    /// core the scheduler put this thread on, which is what makes it a gate on a machine three
+    /// rounds are running on (ADR 0884's problem, avoided rather than solved).
+    questions: pdf_vfs::Questions,
+    /// What that mount's cache stopped holding, which is the only honest explanation for a
+    /// repeat: an entry evicted to make room, or one larger than the whole budget.
+    forgotten: u64,
+    /// Which generators were run twice, so that a failure names them rather than counting them.
+    twice: Vec<String>,
     /// What this document cost, wall clock, on one rayon task.
     ///
     /// Printed for the slowest few rather than asserted on: a document that costs minutes is a
@@ -893,10 +917,7 @@ fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize, b
         // The listing is whole — every name of it against the extraction's own — and only the
         // *reads* are bounded, which is the split `PAGES_READ` already makes for pages.
         holds_names(local, &at, &inventory, &wanted);
-        local.entries_not_read = local
-            .entries_not_read
-            .saturating_add(inventory.len().saturating_sub(bounds.entries));
-        for entry in inventory.iter().take(bounds.entries) {
+        for entry in &inventory {
             let expected = outputs
                 .iter()
                 .find(|(name, _)| *name == entry.name)
@@ -996,7 +1017,7 @@ fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize, bou
 }
 
 /// `attachments/`: §7.11.4's embedded files, under the names the document files them by.
-fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, bounds: Bounds) {
+fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path) {
     let Ok(listed) =
         listing(vfs, "/attachments").inspect_err(|why| local.refused.push(why.clone()))
     else {
@@ -1042,10 +1063,7 @@ fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, bounds: Bo
         ));
         return;
     }
-    local.entries_not_read = local
-        .entries_not_read
-        .saturating_add(listed.len().saturating_sub(bounds.entries));
-    for (entry, document_name) in listed.iter().zip(names.iter()).take(bounds.entries) {
+    for (entry, document_name) in listed.iter().zip(names.iter()) {
         let expected = produce(
             name,
             path,
@@ -1280,9 +1298,15 @@ fn examine(chosen: &Chosen, tally: &Mutex<Tally>) {
             renders(&vfs, &mut local, name, path, count, bounds);
             images(&vfs, &mut local, name, path, count, bounds);
             text(&vfs, &mut local, path, name, count, bounds);
-            attachments(&vfs, &mut local, name, path, bounds);
+            attachments(&vfs, &mut local, name, path);
             meta(&vfs, &here, &mut local, path, name);
             again(&vfs, &mut local);
+            // Before the recovery question below, because a worker that had to be replaced is a
+            // new generation with a counter of its own — and taking the figure after it would
+            // read as a mount that asked nothing.
+            local.questions = vfs.questions();
+            local.forgotten = vfs.forgotten();
+            local.twice = vfs.asked_twice();
         }
         Err(error) => local.refused_open = Some(error.to_string()),
     }
@@ -1330,6 +1354,22 @@ fn merge(chosen: &Chosen, local: Local, tally: &Mutex<Tally>) {
             t.refused_open.push((name.clone(), why));
         }
         t.took.push((name.clone(), local.took.as_secs_f64()));
+        t.asked = t.asked.saturating_add(local.questions.asked);
+        t.repeated = t.repeated.saturating_add(local.questions.repeated);
+        t.forgotten = t.forgotten.saturating_add(local.forgotten);
+        t.reasked = t
+            .reasked
+            .saturating_add(local.questions.reasked_after_a_refusal);
+        if local.questions.repeated > local.forgotten {
+            t.unexplained.push((
+                name.clone(),
+                format!(
+                    "{} of {} questions were about a subject already answered, the cache forgot \
+                     {}, and the generators run twice were {:?}",
+                    local.questions.repeated, local.questions.asked, local.forgotten, local.twice
+                ),
+            ));
+        }
         t.walked = t.walked.saturating_add(usize::from(local.walked));
         t.pageless = t.pageless.saturating_add(usize::from(local.pageless));
         t.directories = t.directories.saturating_add(local.directories);
@@ -1338,7 +1378,6 @@ fn merge(chosen: &Chosen, local: Local, tally: &Mutex<Tally>) {
         t.bytes = t.bytes.saturating_add(local.bytes);
         t.both_refused = t.both_refused.saturating_add(local.both_refused);
         t.pages_not_read = t.pages_not_read.saturating_add(local.pages_not_read);
-        t.entries_not_read = t.entries_not_read.saturating_add(local.entries_not_read);
         for (row, count) in local.matched {
             let held = t.matched.entry(row).or_default();
             *held = held.saturating_add(count);
@@ -1444,9 +1483,8 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
         println!("vfs-read:   {row}: {count} files are their own generator's bytes");
     }
     println!(
-        "vfs-read:   the tree and the generator both refused: {}, pages past the ceiling: {}, \
-         entries listed and not read: {}",
-        tally.both_refused, tally.pages_not_read, tally.entries_not_read
+        "vfs-read:   the tree and the generator both refused: {}, pages past the ceiling: {}",
+        tally.both_refused, tally.pages_not_read
     );
     print_list("refused by name", &tally.refused);
     print_list("not the generator's bytes", &tally.differ);
@@ -1455,6 +1493,12 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
     print_list("read twice, two answers", &tally.unstable);
     print_list("a second stat generated again", &tally.regenerated);
     print_list("the two transports disagree", &tally.transport_differ);
+    println!(
+        "vfs-read:   questions put to the workers: {}, about a subject already answered: {}, \
+         outputs the caches forgot: {}, asked again after a refusal: {}",
+        tally.asked, tally.repeated, tally.forgotten, tally.reasked
+    );
+    print_list("a repeat the cache cannot explain", &tally.unexplained);
     print_list("panicked", &tally.panicked);
     print_list("killed", &tally.killed);
     println!("vfs-read:   did not recover: {}", tally.unrecovered.len());
@@ -1526,6 +1570,26 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
     assert!(
         tally.transport_differ.is_empty(),
         "ADR 0841 section 2: the confinement is a transport change and nothing else"
+    );
+    // **This walk's cost floor** (ADR 0894), and it is a count rather than a clock for the reason
+    // `Local::questions` states. What it says: a generator is run once per subject per generation,
+    // and the only thing that may make it run again is the cache having stopped holding what it
+    // produced — an eviction, or an entry larger than the whole budget, both of which
+    // `Vfs::forgotten` counts and neither of which a neighbouring round's load can cause. Per
+    // document rather than in total, because a total lets one document's honest evictions pay for
+    // another's quadratic.
+    assert!(
+        tally.unexplained.is_empty(),
+        "a mount ran a generator again for a subject it had already answered, more often than its \
+         cache forgot anything — which is work done to *answer* a question rather than to produce \
+         bytes, and is the shape of ADR 0886's hundredfold regression:\n{}",
+        tally
+            .unexplained
+            .iter()
+            .take(40)
+            .map(|(name, why)| format!("    {name}: {why}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 
     for (name, why) in &tally.differ {
