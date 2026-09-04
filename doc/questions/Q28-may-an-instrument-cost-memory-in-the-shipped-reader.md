@@ -1,8 +1,19 @@
 # Q28 — May a cost instrument spend memory in the program a person runs?
 
 Asked by round 929, which built the floor `Q27` asked about for three of the seven walks and hit
-this on the fourth. `Q27` was taken by round 927; rounds 926 and 928 ran beside this one and may
-have taken numbers after it.
+this on the fourth.
+
+**The number 27 was taken twice, and this file is where that is written down.** Round 927 asked
+`Q27-cost-floors-for-the-other-seven-walks` on its own branch and round 926 asked
+`Q27-a-font-the-file-does-not-carry` on `main`, on the same day; the two met for the first time in
+this round's merge, and both are now in the directory. Nothing dangles — every reference to either
+resolves, because each cites its own filename — but this README's "a number is never reused" is
+broken by a pair of parallel rounds rather than by anybody's mistake, and renaming either would
+falsify an ADR and a history file that already cite it. **It is left for the merging round or the
+owner to settle**, and recorded here rather than fixed unilaterally, because a third state would be
+worse than two. The lesson for the convention is the one the parallel-round agreements already
+teach elsewhere: a counter shared between rounds needs an allocator, and `ls doc/questions/` is not
+one when two branches cannot see each other.
 
 ## The question
 
