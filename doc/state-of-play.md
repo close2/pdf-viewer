@@ -302,7 +302,10 @@ to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one pl
 states the NTSC weights — at a dpi (§8.3.2.3's 72 units to the inch, the oracle backend's own raster byte for
 byte, in parallel across pages over one shared font cache) — any of Table 31's five boxes as the
 raster's extent and clip, with the table's chained defaults and §14.11.2.1's intersection, and
-with or without §12.5.3's annotation pass — extracts the image `XObject`s a page reaches and
+with or without §12.5.3's annotation pass, **each page's report stating the sub-pixel strip of
+raster the page does not reach** so that a caller comparing two rasters of differently shaped pages
+can undo the placement instead of searching for it (ADR 0873) — extracts the image `XObject`s a
+page reaches and
 §8.9.7's inline images at every placement — decoded through the same path the viewer draws them
 by, so the three confined codecs stay confined, or under `--native` as the JPEG or JPX file the
 stream already is, with a mask that is an image (§8.9.6.3, §11.6.5.2) composited into the PNG's

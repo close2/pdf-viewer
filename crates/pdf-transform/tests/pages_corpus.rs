@@ -64,8 +64,8 @@ use pdf_render::{Raster, RasterFormat};
 use pdf_syntax::{Document, Limits, Object, SyntaxError};
 use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::range::Selection;
-use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
-use pdf_transform::{Budget, MemorySinks, Plan, Policy, Refusal, Secret, Source, apply};
+use pdf_transform::render::{ImageFormat, Overrun, RenderPlan, Sizing};
+use pdf_transform::{Budget, MemorySinks, Origin, Plan, Policy, Refusal, Secret, Source, apply};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 mod support;
@@ -120,8 +120,28 @@ struct Tally {
     identical: usize,
     /// Pages that drew differently.
     differ: Vec<(String, String)>,
-    /// The worst rotated page's tile error and the least similar tile, over the whole walk.
-    worst_rotated: Vec<(String, f64, f64)>,
+    /// Each rotated page's mean error, worst tile error and least similar tile.
+    worst_rotated: Vec<(String, f64, f64, f64)>,
+    /// The same three figures once the placement the report states has been undone.
+    ///
+    /// The **mean** is the one to read across the two, and trap 26 is why: the worst tile is
+    /// taken on a fixed grid, so cropping a column moves every tile boundary and the two worst
+    /// tiles are not the same region of the page. A mean over every channel of every pixel is
+    /// not moved by that.
+    worst_aligned: Vec<(String, f64, f64, f64)>,
+    /// Rotated pages whose aligned crops are byte-identical, so only the placement differed.
+    aligned_identical: usize,
+    /// How many rotated pages the report's overrun put at each whole-column shift.
+    ///
+    /// Two entries by construction: the overrun is less than one pixel, so the nearest whole
+    /// number of columns is 0 or 1.
+    aligned_shift: [usize; 2],
+    /// The largest sub-pixel remainder the whole-column shift could not take out, over the walk.
+    ///
+    /// At most 0.5 by construction, and it is the term that keeps this a measurement: a page
+    /// whose overrun is a third of a pixel is drawn on a grid a third of a pixel from the one
+    /// the turned raster is on, and no integer shift moves it there.
+    worst_remainder: f64,
     /// A quarter-turned page whose raster is not the source's with its sides exchanged.
     rotated_dimensions: Vec<(String, String)>,
     /// A page turned a quarter turn and back that is not the page it was.
@@ -242,10 +262,23 @@ fn edit(name: &str, bytes: &[u8], count: usize) -> Result<Vec<u8>, Refusal> {
     Ok(outputs.remove(0).1)
 }
 
+/// One page drawn: the PPM, and where `render` says it put the page inside it.
+struct Drawn {
+    /// The binary PPM.
+    ppm: Vec<u8>,
+    /// The sub-pixel strip of raster the page does not reach, as the verb reports it.
+    overrun: Overrun,
+}
+
 /// Draws one page of these bytes as a PPM, or `None` where nothing was drawn.
-fn draw(name: &str, bytes: &[u8], page: usize) -> Option<Vec<u8>> {
+///
+/// The overrun comes out of the *report* rather than being recomputed here, which is the whole
+/// point of it being in the report: a second implementation of the rounding in this file could
+/// only disagree with the renderer's, and it is the renderer's placement the comparison below
+/// has to undo.
+fn draw(name: &str, bytes: &[u8], page: usize) -> Option<Drawn> {
     let sinks = MemorySinks::new();
-    apply(
+    let report = apply(
         &Plan::Render(RenderPlan {
             source: 0,
             pages: page.to_string().parse::<Selection>().expect("a selection"),
@@ -262,8 +295,18 @@ fn draw(name: &str, bytes: &[u8], page: usize) -> Option<Vec<u8>> {
         &budget(),
     )
     .ok()?;
+    let overrun = report
+        .outputs
+        .first()
+        .and_then(|output| match output.origin {
+            Origin::Page { overrun, .. } => Some(overrun),
+            _ => None,
+        })?;
     let mut outputs = sinks.into_outputs();
-    (!outputs.is_empty()).then(|| outputs.remove(0).1)
+    (!outputs.is_empty()).then(|| Drawn {
+        ppm: outputs.remove(0).1,
+        overrun,
+    })
 }
 
 /// A binary PPM turned a quarter turn **clockwise**, which is what §7.7.3.3's `/Rotate` says the
@@ -548,9 +591,10 @@ fn draw_pages(
             });
             continue;
         };
+        let (before, after) = ((before.ppm, before.overrun), (after.ppm, after.overrun));
         if index == 0 {
-            compare_rotated(&name, &before, &after, tally);
-        } else if before == after {
+            compare_rotated(&name, &before.0, before.1, &after.0, tally);
+        } else if before.0 == after.0 {
             record(tally, |t| t.identical = t.identical.saturating_add(1));
         } else {
             record(tally, |t| {
@@ -558,9 +602,9 @@ fn draw_pages(
                     name.clone(),
                     format!(
                         "page {page}: {} bytes of raster became {}{}",
-                        before.len(),
-                        after.len(),
-                        if before.len() == after.len() {
+                        before.0.len(),
+                        after.0.len(),
+                        if before.0.len() == after.0.len() {
                             ", same size"
                         } else {
                             ""
@@ -572,33 +616,46 @@ fn draw_pages(
     }
 }
 
-/// RFC 0002 section 9's "rotation-transformed comparison for rotate", over page 1 — **measured
-/// and printed, and deliberately not asserted on**.
+/// RFC 0002 section 9's "rotation-transformed comparison for rotate", over page 1 — **aligned
+/// from the report, then measured and printed rather than asserted on**.
 ///
 /// The clause says the page "shall be rotated clockwise when displayed", so the expected raster
-/// is the source page's own raster turned a quarter turn. Two things then stop that from being
-/// an equality, and the second is why this is a census rather than a gate:
+/// is the source page's own raster turned a quarter turn. Two things then stop that from being an
+/// equality, and since the nine-hundred-and-fifteenth session only one of them is still in the
+/// figures:
 ///
-/// - **The grid turns with the page.** A glyph edge that covered a pixel 6 % on one grid covers
-///   it 8 % on the other. `issue15150.pdf` is the smallest witness in the corpus: a 7 × 7 raster
-///   whose one non-white pixel reads (255, 239, 239) before and (255, 234, 234) after — five
-///   levels of 255, with the pixel in exactly the place the rotation puts it.
-/// - **The page's size in pixels is fractional, and the leftover sliver changes edges.** A page
-///   `W` units wide at this scale is `ceil(W × s)` pixels wide, and the fraction between `W × s`
-///   and the ceiling is a strip of raster the page does not reach. Turn the *page* and that
-///   strip is on the right of the new raster; turn the *raster* and the same strip is at the
-///   top. So the two differ by up to one whole pixel of placement, measured: on
-///   `issue2761.pdf` the turned source and the rotated page agree **exactly** once one column is
-///   allowed for, and on `issue4398.pdf` and `bug1146106.pdf` they agree to 0.02 and 0.008 mean
-///   levels. `CLAUDE.md` names this case as one the standard leaves open — "how a fractional
-///   page becomes a whole number of pixels" — so a whole-pixel disagreement here is the
-///   *renderer's* documented choice showing through, not the writer's.
+/// - **The leftover sliver changes edges, and it is worth up to a whole pixel — and this is now
+///   derived rather than searched for.** A page `W` units wide at this scale is `ceil(W × s)`
+///   pixels wide and the strip between the two is raster the page does not reach, anchored at the
+///   right and the bottom because `TargetSpec::for_page` puts the page's top-left corner at the
+///   raster's (ADR 0064). Turn the *page* a quarter turn and the vertical strip becomes a
+///   horizontal one at the right of the new raster; turn the *raster* and the same strip lands at
+///   the **left**. So the turned source is the rotated page displaced across by exactly the
+///   source's own vertical overrun — which `render` now states, in
+///   [`pdf_transform::render::Overrun`], so this walk shifts by the nearest whole column instead
+///   of hunting for one. ADR 0873.
+/// - **The grid turns with the page**, and that one no shift can undo. A glyph edge that covered
+///   a pixel 6 % on one grid covers it 8 % on the other. `issue15150.pdf` is the smallest witness
+///   in the corpus: a 7 × 7 raster whose one non-white pixel reads (255, 239, 239) before and
+///   (255, 234, 234) after — five levels of 255, with the pixel in exactly the place the
+///   rotation puts it and an overrun of zero on both axes, so there is nothing to align away.
 ///
-/// What is asserted about a rotation instead is [`round_trip_is_exact`], which needs no rotated
-/// raster at all, and the dimension swap below, which is §7.7.3.3's own claim about a quarter
-/// turn. The figures this records are printed so that a later round has the distribution rather
-/// than an adjective; `doc/todo/57` carries the aligned comparison as work.
-fn compare_rotated(name: &str, source: &[u8], rotated: &[u8], tally: &Mutex<Tally>) {
+/// Beside it is the sub-pixel remainder the whole-column shift leaves: an overrun of a third of a
+/// pixel puts the two rasters on grids a third of a pixel apart, and no integer shift is the
+/// identity there. That remainder is at most half a pixel and is printed, because it is what an
+/// assertion would have to be stated against. `CLAUDE.md` names this case as one the standard
+/// leaves open — "how a fractional page becomes a whole number of pixels" — so what remains
+/// after the alignment is the *renderer's* documented choice showing through, not the writer's.
+///
+/// What is asserted about a rotation is [`round_trip_is_exact`], which needs no rotated raster at
+/// all, and the dimension swap below, which is §7.7.3.3's own claim about a quarter turn.
+fn compare_rotated(
+    name: &str,
+    source: &[u8],
+    source_overrun: Overrun,
+    rotated: &[u8],
+    tally: &Mutex<Tally>,
+) {
     let Some(expected) = turned_clockwise(source) else {
         // A raster this walk cannot turn is not an expected value it can build.
         return;
@@ -629,11 +686,82 @@ fn compare_rotated(name: &str, source: &[u8], rotated: &[u8], tally: &Mutex<Tall
         record(tally, |t| {
             t.worst_rotated.push((
                 name.to_owned(),
+                comparison.mean_error,
                 comparison.worst_tile_error,
                 comparison.worst_tile_similarity,
             ));
         });
     }
+
+    // The alignment: the turned source is the rotated page moved across by the source's own
+    // vertical overrun, so dropping that many whole columns off the turned source's left and off
+    // the rotated page's right puts the two on one grid.
+    let shift = source_overrun.down.round();
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "Overrun is documented as 0.0..1.0 and clamped there where it is built, so the \
+                  rounding is 0 or 1 and neither truncates nor loses a sign"
+    )]
+    let shift = (shift as usize).min(1);
+    let remainder = (source_overrun.down - f64::from(u32::try_from(shift).unwrap_or(1))).abs();
+    record(tally, |t| {
+        if let Some(count) = t.aligned_shift.get_mut(shift) {
+            *count = count.saturating_add(1);
+        }
+        if remainder > t.worst_remainder {
+            t.worst_remainder = remainder;
+        }
+    });
+    let (Some(left), Some(right)) = (
+        columns(&expected, shift, left.width as usize),
+        columns(rotated, 0, (right.width as usize).saturating_sub(shift)),
+    ) else {
+        return;
+    };
+    if left == right {
+        record(tally, |t| {
+            t.aligned_identical = t.aligned_identical.saturating_add(1);
+        });
+        return;
+    }
+    let (Some(left), Some(right)) = (raster(&left), raster(&right)) else {
+        return;
+    };
+    if let Ok(comparison) = raster_compare::compare(&left, &right) {
+        record(tally, |t| {
+            t.worst_aligned.push((
+                name.to_owned(),
+                comparison.mean_error,
+                comparison.worst_tile_error,
+                comparison.worst_tile_similarity,
+            ));
+        });
+    }
+}
+
+/// A binary PPM cropped to the columns `from..to`, or `None` where that is not a range of it.
+///
+/// The two crops this walk takes are the same width by construction — the same number of columns
+/// off opposite ends of two rasters of one size — so a comparison of them is a comparison of the
+/// pixels the page reached on both.
+fn columns(ppm: &[u8], from: usize, to: usize) -> Option<Vec<u8>> {
+    let (width, height, data) = ppm_parts(ppm)?;
+    if from > to || to > width {
+        return None;
+    }
+    let kept = to.checked_sub(from)?;
+    if kept == 0 {
+        return None;
+    }
+    let mut out = format!("P6\n{kept} {height}\n255\n").into_bytes();
+    out.reserve(kept.checked_mul(height)?.checked_mul(3)?);
+    for row in 0..height {
+        let start = row.checked_mul(width)?.checked_add(from)?.checked_mul(3)?;
+        let end = start.checked_add(kept.checked_mul(3)?)?;
+        out.extend_from_slice(data.get(start..end)?);
+    }
+    Some(out)
 }
 
 /// The round trip, and it *is* exact: a page turned a quarter turn and then back is the page.
@@ -668,15 +796,15 @@ fn round_trip_is_exact(name: &str, bytes: &[u8], count: usize, tally: &Mutex<Tal
     }
     let back = outputs.remove(0).1;
     match (draw(name, bytes, 1), draw(name, &back, 1)) {
-        (Some(before), Some(after)) if before == after => {}
+        (Some(before), Some(after)) if before.ppm == after.ppm => {}
         (Some(before), Some(after)) => {
             record(tally, |t| {
                 t.round_trip.push((
                     name.to_owned(),
                     format!(
                         "+90 then -90 left page 1 different: {} bytes became {}",
-                        before.len(),
-                        after.len()
+                        before.ppm.len(),
+                        after.ppm.len()
                     ),
                 ));
             });
@@ -736,18 +864,53 @@ fn census(tally: &Tally, documents: usize, elapsed: std::time::Duration) {
         &tally.rotated_dimensions,
     );
     print_list("drew differently", &tally.differ);
+    let worst_mean = tally
+        .worst_rotated
+        .iter()
+        .fold(0.0_f64, |worst, (_, mean, _, _)| worst.max(*mean));
     let worst_error = tally
         .worst_rotated
         .iter()
-        .fold(0.0_f64, |worst, (_, error, _)| worst.max(*error));
+        .fold(0.0_f64, |worst, (_, _, error, _)| worst.max(*error));
     let worst_similarity = tally
         .worst_rotated
         .iter()
-        .fold(1.0_f64, |worst, (_, _, similarity)| worst.min(*similarity));
+        .fold(1.0_f64, |worst, (_, _, _, similarity)| {
+            worst.min(*similarity)
+        });
     println!(
         "transform-pages:   rotated pages measured (not asserted, see compare_rotated): {}, \
-         worst tile error {worst_error:.2}, least similar tile {worst_similarity:.4}",
+         worst mean {worst_mean:.2}, worst tile error {worst_error:.2}, least similar tile \
+         {worst_similarity:.4}",
         tally.worst_rotated.len()
+    );
+    let aligned_mean = tally
+        .worst_aligned
+        .iter()
+        .fold(0.0_f64, |worst, (_, mean, _, _)| worst.max(*mean));
+    let aligned_error = tally
+        .worst_aligned
+        .iter()
+        .fold(0.0_f64, |worst, (_, _, error, _)| worst.max(*error));
+    let aligned_similarity = tally
+        .worst_aligned
+        .iter()
+        .fold(1.0_f64, |worst, (_, _, _, similarity)| {
+            worst.min(*similarity)
+        });
+    println!(
+        "transform-pages:   the same pages with the report's placement undone: {} still differ, \
+         worst mean {aligned_mean:.2}, worst tile error {aligned_error:.2}, least similar tile \
+         {aligned_similarity:.4}; {} are then byte-identical",
+        tally.worst_aligned.len(),
+        tally.aligned_identical
+    );
+    println!(
+        "transform-pages:   the shift the overrun derived: {} page(s) at 0 columns, {} at 1; \
+         largest sub-pixel remainder {:.4}",
+        tally.aligned_shift.first().copied().unwrap_or_default(),
+        tally.aligned_shift.get(1).copied().unwrap_or_default(),
+        tally.worst_remainder
     );
     print_list("two edits, two files", &tally.nondeterministic);
     print_list("panicked", &tally.panicked);
