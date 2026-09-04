@@ -155,6 +155,30 @@ both `fuzz/` lines: silent. `nextest` is **3303 tests in 69.2 s**, one slow, 31 
 | `vfs-awkward` | 8 roots, 3916 documents classified, 258 chosen, **0 killed** in every one of the ten classes |
 | conformance | 218 tests |
 
+**Then `main` moved and the sequence was owed again on the merged result.** Round 919 landed
+between this round's branch point and its commit: `crates/corpus-classes` is new, `read_corpus`
+walks every corpus root on the disk rather than `doc/pdf.js` alone, and `pdf-vfs`'s
+`awkward_classes.rs` is gone into it (ADRs 0878, 0879). Three of the merge's four files conflicted
+and each was resolved rather than taken — `pdf-vfs`'s manifest keeps both dev-dependencies,
+`doc/todo/59` keeps round 919's answer to its own item 4 beside this round's, and `doc/todo/61`'s
+list keeps 919's first two items and gains this round's third.
+
+On the merged tree the core is green again — `fmt`, `clippy --workspace` and both `fuzz/` lines
+silent, **3303 tests**, the doctests, conformance — and the widened read walk runs:
+
+```
+vfs-read: 1132 documents in 329.8s, 24 threads, confined transport, 16 pages a doc/pdf.js
+          document and 2 of every other root's
+vfs-read:   documents walked: 1117, files read: 14274 (784.8 MiB)
+vfs-read:   not the generator's bytes: 0 … the two transports disagree: 0 … panicked: 0
+vfs-read:   0 killed, in every one of the ten classes
+```
+
+That last line is the one this round's change most needed: the port arms both confined workers
+unconditionally, so **every** document in that population now sends a resource request on its first
+missing face, to a broker that offers nothing — and nothing died, nothing changed, and the two
+transports still agree byte for byte.
+
 `vfs-read` took 1503.7 s against session 914's 324.6 s, and the reason is the machine rather than
 the tree: a neighbouring round's own `read_corpus` was walking the corpus beside it for most of it.
 `doc/todo/02` §2's rule about a loaded machine is about *clocks*, and this line has no assertion on
