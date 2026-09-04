@@ -19,8 +19,9 @@ state it.
 
 ## Decision
 
-Ten classes of false claim were found and fixed; `doc/history/921` lists each with its evidence.
-One of them is a *shape* rather than an instance, and it is what this ADR is for.
+Every false claim found was fixed, and `doc/history/921` lists each with its evidence — this ADR
+carries no count of them, for the reason it is about. One of them is a *shape* rather than an
+instance, and that is what this ADR is for.
 
 ### The shape: a superlative has no anchor, so nothing can check it
 
@@ -28,7 +29,9 @@ One of them is a *shape* rather than an instance, and it is what this ADR is for
 one per sweep, each written by the round that built that sweep. **Every one of them opened with
 "and it is the newest", and five were false**: `overstated` (18th), `overtaken` (19th), `quoted`
 (20th), `unpriced` (21st) and `parts` (22nd) had each been overtaken, and `doc/todo/01` carried the
-same phrase five more times.
+same phrase five more times, with `doc/todo/README.md`'s index carrying it once more. **Once the
+first was found a `grep` for the phrase found every other**, which is the practical half of this
+ADR: a superlative is unverifiable one at a time and trivially findable in bulk.
 
 Nothing could have caught it, and the reasons are worth separating because they are what makes the
 class general:
@@ -54,8 +57,8 @@ and an edge moves whenever the population grows. The same reasoning retires "Fiv
 over ten bullets and "the four things a round has got wrong" over five: a **count of a list written
 beside the list** is the same failure in its cardinal form, and both were found in this sweep.
 
-This is the ninth kind of decay this project has written down and the first whose subject is the
-instruction files themselves. It joins `doc/habits.md`'s ledger section, and `doc/todo/02` §4 now
+This is the first kind of decay written down here whose subject is the instruction files
+themselves. It joins `doc/habits.md`'s ledger section, and `doc/todo/02` §4 now
 states each of those six sweeps as *ordinal, what it judges against, and the rule it leaves a
 round* — a table, which cannot hold a superlative at all.
 
@@ -93,6 +96,15 @@ already applies to principle 3's sandbox sentence, which round 920 owns.
   is a weaker gate wearing the sequence's name, and weakening the sentence would have hidden that
   rather than closing it.
 - Two claims about `unsafe` in this tree were widenings of a true claim about one crate, in
-  `doc/state-of-play.md` and in `crates/viewer-qt/src/bridge.rs`. Both now say what the test that
-  holds them says. **A sentence moved from a crate's header into a document about the tree changes
-  its scope silently**, which is worth watching for wherever `doc/state-of-play.md` quotes a module.
+  `doc/state-of-play.md` and in `crates/viewer-qt/src/bridge.rs`. **A sentence moved from a crate's
+  header into a document about the tree changes its scope silently**, which is worth watching for
+  wherever `doc/state-of-play.md` quotes a module. Both were corrected to *two* and both were
+  falsified an hour later by the merge, which brought `pdf-vfs-ffi` and renamed
+  `only_the_two_named_crates_in_the_tree_lift_the_denial` to `only_the_three_…`. So neither sentence
+  states a number now: each **names the test**, whose own name is the count. That is ADR 0281's rule
+  reaching a cardinal — the command that counts it here is the test's identifier.
+- **The trap group table in `doc/HANDOVER.md` had lost traps 14 and 30, and the merge added 31**,
+  each having reached the index below the table and not the group's own row. Three rounds in a row
+  updated the half they happened to be looking at, so `doc/todo/02` §6's rule now names both entries
+  explicitly. A derived row would be better than a rule and is the obvious next instrument; it was
+  not built here because a sweep is not the round to add a gate.

@@ -16,7 +16,9 @@ false, because that is the half worth recording; the compaction is in the diff.
 **Six bullets of `doc/todo/02` §4 each opened "and it is the newest", and five of them were
 wrong** — `overstated`, `overtaken`, `quoted`, `unpriced` and `parts`, the eighteenth to the
 twenty-second sweeps, each written by the round that built it and none revisited by the round
-after. `doc/todo/01` carried the same phrase five times over. No instrument could see it: the
+after. `doc/todo/01` carried the same phrase five times over and `doc/todo/README.md`'s index line
+for item `01` once more — three files, one phrase, and a `grep` for it found every instance after
+the first. No instrument could see it: the
 sentence is true on the day it is written, it is about *this project's own list* rather than about
 the standard or the tree, and `--bin parts` reads cardinals about parts rather than superlatives
 about rounds. It is the exact shape `02` §4's own bullets exist to catch, happening inside the
@@ -30,27 +32,40 @@ honest form is the ordinal and the pointer.
 
 ## The other false claims, each checked rather than assumed
 
-- **`doc/HANDOVER.md`'s trap group table had lost two traps.** The pixels row listed 1, 2, 6, 12b
-  and 12c while `doc/traps/pixels-and-rasterisers.md` holds **14** as well; the instruments row
-  stopped at 29 while that file holds **30**. Both traps are in the same file's index below the
-  table, with their group named — so the two halves of one page disagreed, and a round opening the
-  group it was told to open would have read one trap short.
-- **`doc/HANDOVER.md` said "either rasteriser".** `--bin parts` found it: `either` presupposes two
-  and the workspace states three. It was the only hit the sweep had in an instruction file.
+- **`doc/HANDOVER.md`'s trap group table had lost traps.** The pixels row listed 1, 2, 6, 12b and
+  12c while `doc/traps/pixels-and-rasterisers.md` holds **14** as well; the instruments row stopped
+  at 29 while that file holds **30**. Both traps are in the same file's index below the table, with
+  their group named — so the two halves of one page disagreed, and a round opening the group it was
+  told to open would have read one trap short. **The merge added a third instance in the same
+  sitting**: main's trap **31** had reached the index and not the table. That recurrence is why
+  `doc/todo/02` §6's rule about adding a trap now names *both* entries rather than one — the index
+  and the group's row — because three rounds in a row updated the half they were looking at.
+- **Three cardinals counting this tree's parts were wrong**, all found by `--bin parts`:
+  `doc/HANDOVER.md`'s "either rasteriser" and `doc/state-of-play.md`'s "so that both backends
+  draw it", of the sidebar's own display list, where this workspace states three rasterisers and
+  the window presents with the third; and `doc/environment.md`'s "the four submodule paths under
+  it" of `git checkout -- doc`, where six submodules live under `doc/`. The rest of that sweep's
+  hits in `doc/` are the QUORRA and HAYRO correspondence, which is not an instruction to a round.
 - **`tools/state.sh` did not run the sequence it claims to.** `doc/todo/02` §2 says the script
   "runs the same sequence"; it had no line for `pdf-transform`'s `optimize_corpus` and none at all
   for `pdf-vfs`'s `write_corpus`, the latter added to §2 in session 909. Fixed on the instrument
   rather than in the sentence — a `vfs` section with its own `--bins` build (trap 10), and
   `optimize` beside the other four writer walks. Its foreign-readback line also said "the four
-  writers'" where the test's own header says five.
+  writers'" where the test's own header says five. **The new section then failed on trap 10 itself
+  the first time it was run**, which is trap 13 doing its job: `section_vfs` built `pdf-vfs`'s bins
+  and not the sandbox worker, so all three of its walks refused to start. `gate_binaries` is
+  memoised and now heads that section — and `section_writer`, which had the same hole and was
+  covered only by `transform` happening to run before it in the `all` order.
 - **`doc/habits.md` gave `ISO_32000-2_sponsored_EC3.md` 860 `##` headings.** It has 1216, of which
   922 begin with a digit. Replaced by the command, which is what ADR 0281 asks for.
 - **`doc/state-of-play.md` claimed "one hand-written `unsafe` token in the tree".** True of
   `viewer-qt`, which is where the sentence came from; false of the tree, because `viewer_ffi::abi`
   writes its entry points as `pub unsafe extern "C" fn` by the hundred. The same sentence said "no
-  other crate lifts the denial" while the test it cites is named
-  `only_the_two_named_crates_in_the_tree_lift_the_denial` and has said *two* since ADR 0247.
-  `crates/viewer-qt/src/bridge.rs` carried the same widening and is corrected with it.
+  other crate lifts the denial" while the test it cites is named for the crates that do.
+  `crates/viewer-qt/src/bridge.rs` carried the same widening and is corrected with it. **Both
+  corrections were then falsified by the merge**, which brought `pdf-vfs-ffi` and renamed that test
+  from `only_the_two_…` to `only_the_three_…` — so the sentences now *name the test* and let it
+  carry the number, which is the ADR 0281 move applied to a cardinal rather than to a count.
 - **`doc/state-of-play.md` counts three windows and there are four.** `pdf-viewer-confined` is
   `viewer-ui`'s second window; `tools/state.sh windows` excludes it deliberately and says so, and
   the prose did not carry the qualifier. The population is now stated once where the consumer list

@@ -143,6 +143,7 @@ section_transform() {
 # attached, read back and removed, the input's bytes under every update. The filter keeps the
 # counts and the census lists' headings; the per-document lines under each are for a reader.
 section_writer() {
+    gate_binaries
     run "the transform writer over the corpus (attach, read back, remove)" \
         '^transform-writer:' \
         cargo test --profile gates -p pdf-transform --test writer_corpus -- --ignored --nocapture
@@ -171,6 +172,7 @@ section_writer() {
 # build is trap 10: a `--profile gates --test` line builds one test target and nothing else, so
 # `pdf-vfs-worker` beside it would otherwise be whatever an earlier round left.
 section_vfs() {
+    gate_binaries
     cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
     run "the five write verbs over the corpus, through the core (RFC 0003 section 5.2)" \
         '^vfs-write:' \

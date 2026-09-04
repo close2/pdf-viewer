@@ -1,7 +1,7 @@
 # The environment, and the agreements that go with it
 
-Moved here so that `CLAUDE.md` holds only principles and `doc/HANDOVER.md` only the state of
-play. **Read this before running anything**: the machine, the user the agent runs as, what it
+Moved here so that `CLAUDE.md` holds only principles and `doc/HANDOVER.md` only an index.
+**Read this before running anything**: the machine, the user the agent runs as, what it
 can and cannot open a window on, and where the build lands.
 
 ## Working agreements
@@ -212,7 +212,7 @@ can and cannot open a window on, and where the build lands.
 
   **And `git checkout -- doc` takes the symlinks away**, which is a third way into the same hole and
   the one the seven-hundred-and-twentieth session fell into: it is a *directory* argument, so git
-  restores the four submodule paths under it as empty directories and the links into the main
+  restores every submodule path under it as an empty directory and the links into the main
   worktree are gone. Nothing in `git status` says so — the gitlinks look untouched — and what a
   round sees instead is `pdf-spec`'s build script panicking with *the Arlington PDF Model is
   missing … It is a git submodule; run: `git submodule update --init`*, whose advice would clone a

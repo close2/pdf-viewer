@@ -119,7 +119,7 @@ costs is [`doc/performance.md`](performance.md)'s first section, and the open ha
 same six panels**, because the *list* of them is one value every host matches exhaustively on
 (`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press. A sidebar of
 six tabs, drawn in `viewer-ui` with `pdf-font`'s compiled-in Helvetica and a `pdf-render` display
-list so that both backends draw it, and in the two native hosts with a `GtkNotebook` of
+list so that every rasteriser draws it, and in the two native hosts with a `GtkNotebook` of
 `GtkListView`s and a `QTabWidget` of `QTreeView`s: §12.3.3's outline, where a click
 **activates the item** and the document decides whether that is a jump or a URI; §8.11.4.3's
 layers, where a switch turns one on unless Table 99's `/Locked` forbids it; §7.11.4's embedded
@@ -249,12 +249,13 @@ pass.
 - **`viewer-qt`'s `pdf-viewer-qt`**, a real Qt 6 Widgets application, and the one that costs a C++
   bridge: **one hand-written `unsafe` token in this crate**, the `unsafe extern "C++"` header `cxx`
   requires, under `#![deny(unsafe_code)]` with one exemption on `mod bridge` and a test asserting
-  its position — and asserting that the crates lifting the denial are the two the workspace names,
-  this one and `viewer-ffi`'s C ABI, every other crate still *forbidding* it. **This sentence read
-  "one hand-written `unsafe` token in the tree" and "no other crate lifts the denial", and both
-  were widenings of a true claim about one crate** — `viewer-ffi::abi` writes its entry points as
-  `pub unsafe extern "C" fn` by the hundred, which is what a C ABI is, and
-  `only_the_two_named_crates_in_the_tree_lift_the_denial` has said *two* since ADR 0247. It brought **`crates/viewer-host`**,
+  its position — and asserting that the crates lifting the denial are exactly the ones the
+  workspace names, every other crate still *forbidding* it. **This sentence read "one hand-written
+  `unsafe` token in the tree" and "no other crate lifts the denial", and both were widenings of a
+  true claim about one crate** — a C ABI writes its entry points as `pub unsafe extern "C" fn` by
+  the hundred, which is what a C ABI is. **The list is read off the test rather than counted here**,
+  because the test is named for its own length and the name moved twice while this sentence said
+  *no other*: `only_the_three_named_crates_in_the_tree_lift_the_denial`, as this is written. It brought **`crates/viewer-host`**,
   because the second host wanted four of `viewer-gtk`'s modules unchanged — the panel rows, the
   control decision, §12.7.6.4's file policy and the launch timeline named no GTK type. ADR 0246.
   **That crate's newest module is the one that decided the *shape* of a thread for both hosts**:
