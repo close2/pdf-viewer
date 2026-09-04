@@ -255,17 +255,38 @@ Three things this item still owes, none of them blocking a face:
   asks `Worker::is_alive` beside the generation key, so the operation after a death gets a fresh
   worker — but the operation that *found* the death still fails, and a face has to decide whether
   to show that or to retry once. Stated rather than chosen, because it is a face's policy.
-- **A page of an *encrypted* document kills the confined worker with `SIGSYS` when it is
-  rendered**, found in session 916 and not chased there. `bug1815476.pdf` answers `Query::Consult`,
-  `Query::ExtractPage`, `Query::ExtractImages` and the attachment questions through the confinement
-  and dies on `Query::RenderPage`; every committed document in `tests/confined.rs` renders. That
-  makes encryption the difference, and it is the same shape as round 911's `openat` finding — a
-  library sizing something from a file the filter forbids — rather than anything about the level
-  work that found it. `strace -ff` on the worker is what settles it.
+- **The encrypted page that died was a font lookup — closed in session 917, and it was ADR 0870's
+  defect rather than a fourth one.** Session 916 found `bug1815476.pdf` killed on
+  `Query::RenderPage` while every other question was answered, and read encryption as the
+  difference because the four committed fixtures are unencrypted. Session 917 measured it:
+  `syscall=257`, and `strace -ff` names the path — `openat("/usr/share/fonts", O_DIRECTORY)`, from
+  `pdf_font::substitute` standing in for a face the document names and does not embed. Session
+  914's `no_machine_fonts()` fixes it and this tree carries that fix; **no second fix was written
+  and no test named after the accident was added**, because `tests/read_corpus.rs` already reads
+  every file of that document's layout through the confinement. ADR 0876 has the audit line, the
+  four system calls before the corpse, and why one document can never say which of its properties
+  killed the worker.
 - **A `Canceller` reaches the worker and nothing reaches it through `Vfs`.** `Confined::canceller`
   exists and `Vfs` holds `Box<dyn Worker>`, so a face that wants to end a render a person navigated
   away from has to hold its own factory the way `tests/confined.rs` does. That is a small piece of
   `Vfs` API and it wants a face's requirement to shape it.
+- **The awkward classes are swept rather than waited for, and the sweep should not stay a second
+  instrument** (session 917, ADR 0877). `tests/awkward_classes.rs` classifies a stride-sample of
+  every corpus root on the disk — `doc/pdf.js`, the four `doc/corpora` submodules, the three
+  `corpus-cache` collections — into ten classes (encrypted, locked, an encryption this reader does
+  not implement, pageless, damaged, unopenable, huge, JBIG2, JPEG 2000, and plain as the control),
+  and walks the whole layout of a few of each through the **confined** transport asking one
+  question: does the worker survive. It found nothing, and with `no_machine_fonts()` removed it
+  finds 76 deaths in six of the ten classes — more in the control than in the encrypted one, which
+  is ADR 0876's misattribution reproduced at corpus scale.
+
+  **How it relates to `tests/read_corpus.rs`, so that a later round merges them rather than keeping
+  both**: that walk (ADR 0871) asks whether the two transports *agree*, byte for byte, over
+  `doc/pdf.js`'s 974 documents; this one asks only whether the worker *survives*, over a population
+  drawn from all eight roots — which is where damaged, huge and JPEG 2000 documents actually live.
+  The merge is the walk's: widen `read_corpus.rs` past `doc/pdf.js` and its byte comparison covers
+  these classes too, at which point `awkward_classes.rs` is deleted rather than inherited. What
+  stops that today is cost, and cost is a reason to keep two instruments, never two designs.
 
 ## 5. What the core still owes, each named in `Vfs::shortfalls`
 
