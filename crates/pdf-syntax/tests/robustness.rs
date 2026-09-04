@@ -260,3 +260,72 @@ fn junk_before_the_header_shifts_every_offset_in_the_file() {
         assert!(document.get_key(&catalog, "Pages").as_dict().is_some());
     }
 }
+
+/// A dictionary that stops in mid-entry must not be completed out of the next object.
+///
+/// ISO 32000-2 §7.3.10 gives `obj` and `endobj` their meaning — an indirect object's definition
+/// is
+///
+/// > followed by the value of the object bracketed between the keywords obj and endobj
+///
+/// — and §7.3.8.1 gives `stream` and `endstream` theirs, a stream being a dictionary followed by
+/// zero or more bytes
+///
+/// > bracketed between the keywords stream (followed by newline) and endstream
+///
+/// None of the four can stand where a key belongs, so meeting one inside a dictionary body is
+/// proof that the `>>` being looked for is not in this object at all, and the reading stops there.
+///
+/// Found in `corpus-cache/tika-issue-tracker/batch5/cairo/cairo-85141-0.zip-3.pdf`, whose
+/// object 76 is a Type 3 font's `/CharProcs` overwritten in mid-entry by another stream's
+/// data. Reading on through `endstream endobj 78 0 obj <<` answered a **stream** built from
+/// 76's forty surviving entries, 78's `/Length` and `/Filter`, and 78's data — an object no
+/// producer wrote, handed back with no error at all, so the page drew forty glyphs of a font
+/// this reader had assembled and reported success. ADR 0858. The fixture is that shape in
+/// twenty lines, so the regression is pinned without the corpus.
+#[test]
+fn a_dictionary_body_stops_at_the_keyword_that_ends_its_object() {
+    let mut out = String::from("%PDF-1.7\n");
+    out.push_str("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    out.push_str("2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n");
+    out.push_str("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n");
+    // The damage: object 4's third entry has a key and no value, and then the object ends.
+    let damaged_at = out.len();
+    out.push_str("4 0 obj\n<< /Kept 1 /AlsoKept 2 /Lost\nendobj\n");
+    out.push_str("5 0 obj\n<< /Length 3 /Filter /FlateDecode >>\nstream\nabc\nendstream\nendobj\n");
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{damaged_at}\n%%EOF\n"
+    );
+
+    let document = Document::open(out.into_bytes()).expect("the catalogue is intact");
+    let damaged = pdf_syntax::ObjectId {
+        number: 4,
+        generation: 0,
+    };
+
+    let object = document.get(damaged);
+    assert!(
+        matches!(object, pdf_syntax::Object::Null),
+        "an object whose dictionary never closes is §7.3.10's null, not a splice: got {object:?}"
+    );
+
+    // The prefix is still available through the door that says what it is, and it stops at
+    // the object's own end rather than in the middle of the next object's dictionary.
+    let prefix = document
+        .damaged_dictionary(damaged)
+        .expect("the entries before the damage are the file's own");
+    assert_eq!(
+        prefix.entries.len(),
+        2,
+        "only the two whole entries, and neither of object 5's: {:?}",
+        prefix.entries
+    );
+    assert!(
+        prefix
+            .entries
+            .get_by_name(&pdf_syntax::Name::new(b"Length".to_vec()))
+            .is_none(),
+        "object 5's /Length must not appear under object 4's number"
+    );
+}

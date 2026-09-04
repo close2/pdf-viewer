@@ -805,6 +805,26 @@ the converged value and both references are byte-identical. The condition is the
 stroke the CTM puts under half a device pixel, which is why the ladder goes first: 13 of that
 directory's 201 documents state the entry and one is displaced by it.
 
+**And there is a fourth, which is about the instrument rather than about either renderer** (ADR
+0859, session 908). A ranking's "ours" column is produced by whatever binary the round happened to
+build, and `pdf-model`'s `examples/render_at` is the usual one — so the column is a measurement of
+**the decoder that binary found**. `pdf_sandbox::worker_program` searches beside the running
+executable *first* and one directory up second, and `<target>/release/examples/` is a directory
+Cargo fills with examples and never with the worker: a copy some earlier round left there is
+searched ahead of the fresh one in `<target>/release/`, nothing rebuilds it, and it goes stale
+silently. Round 908 ranked `batch5/cairo` against a worker ten hours behind its own tree, and the
+five lightest rows of the result — `cairo-71861-2.pdf` at −22.79, `cairo-71861-0.pdf` at −22.22,
+`cairo-48349-6.pdf` at −15.56, `cairo-48349-7.pdf` and `-17.pdf` at −11.17 — were **JBIG2 pages the
+instrument could not decode**, every one of them agreeing with both references once the copy was
+refreshed. That is trap 10 reached through a ranking rather than through a gate.
+
+**What breaks it costs one command**: `examples/open_one` on the head, before anything else. The
+refusal names the stale worker, its two build hashes and the directory it was found in, and that
+sentence is the whole diagnosis — which is trap 5 earning its keep, because a decoder that had
+failed *quietly* would have made five findings out of nothing. So the rule is that a ranking's
+head and tail are read through `open_one` before they are read as a page, and a row whose report
+names the sandbox is the round's own build rather than the file.
+
 Four things the first whole run said, and the second is what made the round:
 
 - **Most of the bucket is the standard working.** Eight pages are §7.6.4.1's password, which this

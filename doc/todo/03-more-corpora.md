@@ -2007,6 +2007,91 @@ held with its reason on the record:
   once `/SA` is true. `doc/checks/fixed-documents.toml` pins the page so that withdrawing it fails
   a gate rather than a memory.
 
+### 47. What the nine-hundred-and-eighth took: `batch5/cairo`, and a dictionary that walked out of its own object
+
+**The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, 0.5 s, 0.04 GiB peak. The line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/cairo` | 166 | 0 unopenable, 0 locked, 0 encrypted beyond us, 2 pageless, 18 incomplete, 0 slow |
+
+**10.84% incomplete is the highest rate of any tracker walked so far**, above `PDFBOX`'s 7.25% and
+`REDHAT`'s 6.07%, and the shape is the tracker's rather than the world's: a cairo issue attachment
+is a file somebody filed *because* a program choked on it. Seven of the eighteen are one attachment
+set, `cairo-85141-0.zip-*`, which is `dvips` output with Type 3 bitmap fonts and damaged
+cross-reference sections.
+
+Ranked by report the eighteen are 10 `Font`, 4 `MediaBox` or `PageDictionary`, 2 `MissingResource`,
+1 `Shading`, 1 `Operator`, and every population among them is one this project has already argued:
+a program with no outline for the codes a page shows, `/Identity-H` over a descendant with no
+program ([`21`](21-font-substitution.md)), a `/MediaBox` enclosing no area, a `/FontFile2` that
+decodes only as far as its damage (ADR 0836), and a Type 3 font with no `/CharProcs` at all.
+
+**Ranked by ink**, ours flattened on white against `pdftoppm -cropbox` and `mutool draw -b CropBox`
+at 72 dpi, over **all 164 documents with a first page** — and by distance *outside the interval the
+two references bracket* rather than from the lighter of them, because a row between the two
+references is a row neither disagrees with us about. That change of measure matters here: the
+first ranking's head was `cairo-9987-2.pdf` at +6.19 from `mutool` on a page where `poppler` is
+darker than we are.
+
+**The light end of the first run was the instrument, and that is now `doc/oracle-and-corpus.md`
+§3d's fourth rule.** Five rows came back at −8.7 to −22.8 levels, every one a page this tree drew
+blank while both references drew ink — `cairo-71861-2`, `cairo-71861-0`, `cairo-48349-6`,
+`cairo-48349-7` and `-17`, `cairo-86093-0`. All five are JBIG2 and none was ours:
+`examples/render_at` runs from `<target>/release/examples/`, `pdf_sandbox::worker_program` searches
+beside the running executable **first**, and that directory held a `pdf-sandbox-worker` an earlier
+round had copied there — ten hours behind this tree, and nothing rebuilds it (trap 10's third
+copy). `examples/open_one` names the stale path and both build hashes in one sentence, which is
+trap 5 earning its keep; refreshed, all five agree with both references to within 0.13.
+
+**The corrected ranking's head was a defect, and it is the deepest one this tree has had in a
+while.** `cairo-85141-0.zip-3.pdf` page 1, ours **4.6304** against 1.7573 and 1.6622, flat across
+the 72/144/288/576 dpi ladder, reporting nothing — and what this tree draws that neither reference
+draws is a paragraph and a ten-item numbered list. §7.3.7's `read_dictionary_body` skipped **every**
+token that is not a name where a key belongs, so on an object whose bytes stop in mid-entry it
+skipped the damage, then `endstream`, then `endobj`, then `78 0 obj <<`, and returned a *stream*
+made of object 76's forty surviving entries, object 78's `/Length` and `/Filter`, and object 78's
+data. Forty Type 3 glyph procedures drew out of an object no producer wrote, and `interpret` said
+`unsupported []`. §7.3.10 gives `obj` and `endobj` their meaning and §7.3.8.1 gives `stream` and
+`endstream` theirs, so none of the four can stand where a key belongs; the body stops at them now.
+ADRs 0858 and 0859.
+
+**The population was measured over two corpora, twice each, and it is the point of this section.**
+`tools/safedocs survey --dir` before and after, each with its own worker beside it, verdict lines
+diffed: **0 of the 65 944 documents of `CC-MAIN-2021-31` change**, and **8 of the 24 324 in
+`corpus-cache/tika-issue-tracker` plus `doc/pdf.js` plus the four `doc/corpora/` submodules** do —
+none of them a pdf.js document, which is why no raster gate moves. Six of the eight gain or sharpen
+a report and two lose one they should never have had; the sharpest is
+`batch1/PDFBOX/PDFBOX-4351-0.pdf`, refused for its whole life with *unsupported encryption: /Filter
+/FlateDecode is not the standard security handler* — a security handler no file has ever stated,
+read out of a stream's `/Filter` two objects further down. ADR 0858 lists all eight.
+
+**A crawl of the open web states this nowhere and an issue tracker states it eight times**, which
+is §1's argument about which corpus is worth a round, arriving from a direction it had not arrived
+from before: not *diagnostic versus large*, but **what a file had to survive to be in the corpus at
+all**. A crawled document was served by a web server to somebody; a tracker attachment is a
+document that broke a program.
+
+**What is held**, each with the ladder run before it was held: `cairo-48349-6.pdf` at −3.71, which
+**converges** (the references fall to 12.56 and 12.31 at 576 dpi against our flat 11.86), so it is
+§10.7.4's anti-aliasing departure read from the light side; `cairo-55799-0.pdf` at −2.52 and
+`cairo-54950-0.pdf` at −0.91, both converging to within 0.16; and `cairo-31878-2.pdf` at −1.76,
+which does **not** converge and is [`21`](21-font-substitution.md)'s standing population — a code
+the font has no glyph for, where `poppler` draws a hollow box and this tree draws nothing, counted
+by the survey's own census as one of this directory's three "codes reaching no glyph *in silence*".
+**And §29's claim about pageless files needs a qualification here**: `cairo-101530-0.pdf` and
+`cairo-101531-0.pdf` open onto no `/Root` and `pdfinfo` reports 5 and 1 pages for them — but
+`pdftoppm` and `mutool draw` produce no raster for either, so the disagreement is about what a
+reconstruction may claim rather than about a page.
+
+**What is left here**: `batch5`'s other seventeen trackers, `pdfminer.six` (123) and `qpdf` (111)
+the largest of the remainder; the two reconstruction cases above; `batch4` once its pieces land;
+and a consumer for `Document::damaged_dictionary` beyond `Pages` — `cairo-85141-0.zip-3.pdf`'s
+forty glyph procedures are still there behind the door ADR 0784 built, and drawing them
+*deliberately and with a report* is a different change from the splice this round removed.
+
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own

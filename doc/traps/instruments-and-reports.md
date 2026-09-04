@@ -62,6 +62,18 @@ only removes a picture — which is how it went unbuilt by `doc/todo/02` §2 for
 noticed by a reference-render count falling 861 with nothing else moving (ADR 0222). Both are lines in
 §2 now, and the tell is the same one trap 10a names: the hit rate.
 
+**And there is a *third* copy, which no `cargo build` line reaches at all** (ADR 0859, session 908).
+`pdf_sandbox::worker_program` searches beside the running executable first and one directory up
+second, and an **example** runs from `<target>/release/examples/` — a directory Cargo fills with
+examples and never with the worker. So a copy left there by some earlier round is searched *ahead*
+of the fresh one beside it, and neither `cargo build -p pdf-sandbox --bins` nor `doc/todo/02` §5
+touches it: it is a hand-made file that ages on its own. Round 908 ranked a tracker's 166 documents
+by ink with `examples/render_at` against a worker ten hours behind its own tree, and produced five
+pages of −11 to −23 levels against both references that were the instrument rather than the files.
+**The tell is the refusal's own sentence**, which names the stale path and both build hashes — so
+`examples/open_one` on the head of any ranking is the check, and `cp <target>/release/pdf-sandbox-worker
+<target>/release/examples/` is the fix.
+
 ### 10b. A *new module file* is a fifth thing Cargo will hand you stale
 
 Adding `crates/pdf-render/src/medium.rs` in the six-hundred-and-eleventh session left the
