@@ -136,7 +136,12 @@ const PAYLOAD: &[u8] = b"pdf-transform foreign readback witness 898\n";
 const NAME: &str = "pdf-transform-witness-898.txt";
 
 /// The verbs, in the order the census prints them.
-const VERBS: [&str; 5] = ["attach", "split", "merge", "pages", "optimize"];
+///
+/// `bookmarks` is `split --at-bookmarks`, which is the same verb writing a **different shape**:
+/// a piece of several pages that carries §12.3.3's outline, §12.4.2's labels and §12.3.2.4's
+/// destinations, where `split`'s lane writes one page and carries what one page reaches. It is
+/// its own lane because a reader is being asked a different question about it.
+const VERBS: [&str; 6] = ["attach", "split", "bookmarks", "merge", "pages", "optimize"];
 
 /// The foreign renderers, and what each is called in the census.
 const READERS: [Reference; 2] = [Reference::Poppler, Reference::MuPdf];
@@ -330,6 +335,7 @@ fn derive(
     bytes: &[u8],
     second: &[u8],
     pages: usize,
+    bookmarked: bool,
 ) -> Vec<(&'static str, Result<Vec<u8>, Refusal>)> {
     let attach = first_output(
         &Plan::Attachments(AttachmentsPlan {
@@ -388,7 +394,28 @@ fn derive(
         &[Source::new(bytes.to_vec())],
         MemorySinks::new(),
     );
-    let mut out = vec![("attach", attach), ("split", split), ("merge", merged)];
+    let mut out = vec![("attach", attach), ("split", split)];
+    // `--at-bookmarks` writes its **first** piece from the document's first page — either the
+    // pages ahead of the first mark, or the piece the first mark begins — so its output states
+    // the source's page 1 as its own page 1 exactly as the other five do, and the one comparison
+    // serves it too. Only offered where §12.3.3's outline names two or more pages at level 1;
+    // elsewhere the verb refuses by name and a lane of identical refusals says nothing.
+    if bookmarked {
+        out.push((
+            "bookmarks",
+            first_output(
+                &Plan::Split(SplitPlan {
+                    source: 0,
+                    pages: "1-end".parse::<Selection>().expect("a selection"),
+                    pieces: Pieces::AtBookmarks(1),
+                    names: "chapter-%d.pdf".parse().expect("a pattern"),
+                }),
+                &[Source::new(bytes.to_vec())],
+                MemorySinks::new(),
+            ),
+        ));
+    }
+    out.push(("merge", merged));
     if pages >= 2 {
         out.push((
             "pages",
@@ -661,7 +688,19 @@ fn examine(path: &Path, second: &[u8], base: &Path, tally: &Mutex<Tally>) {
             return;
         }
     };
-    let count = pdf_model::Pages::new(&document).len();
+    let pages = pdf_model::Pages::new(&document);
+    let count = pages.len();
+    // Whether `--at-bookmarks=1` has anywhere to cut: §12.3.3's outline resolved through
+    // §12.3.2's destinations, two or more distinct pages at the top level.
+    let outline = pdf_model::outline::Outline::read(&document, &pages);
+    let bookmarked = pdf_model::retrieval::sections(&document, &pages, &outline)
+        .into_iter()
+        .filter(|section| section.depth == 0)
+        .map(|section| section.first_page)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        >= 2;
+    drop(pages);
     let source_key = first_page_key(&document);
     let tagged = document.catalog().is_ok_and(|catalog| {
         document
@@ -708,7 +747,7 @@ fn examine(path: &Path, second: &[u8], base: &Path, tally: &Mutex<Tally>) {
         });
     }
 
-    for (verb, derived) in derive(&bytes, second, count) {
+    for (verb, derived) in derive(&bytes, second, count, bookmarked) {
         let derived = match derived {
             Ok(derived) => derived,
             Err(refusal) => {

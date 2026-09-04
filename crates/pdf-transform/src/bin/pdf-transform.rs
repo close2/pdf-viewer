@@ -17,6 +17,7 @@
 //! pdf-transform split       in.pdf -o 'page-%d.pdf'
 //! pdf-transform split       in.pdf --every 10 -o 'part-%d.pdf'
 //! pdf-transform split       in.pdf --pages 1-3,7-end -o 'sel-%d.pdf'
+//! pdf-transform split       in.pdf --at-bookmarks=1 -o '%d-%t.pdf'
 //! pdf-transform merge       a.pdf b.pdf -o out.pdf
 //! pdf-transform merge       a.pdf:1-5 b.pdf:end-1 -o out.pdf
 //! pdf-transform merge       --collate a.pdf b.pdf -o out.pdf
@@ -137,6 +138,13 @@ const VALUED: &[&str] = &[
     "--images",
 ];
 
+/// The flags whose value is optional and, when given, is written inline with `=`.
+///
+/// `--at-bookmarks[=depth]` is the only one and RFC 0002 section 6.1 spells it that way. It
+/// cannot be in [`VALUED`]: a flag that consumed the next argument could not tell
+/// `--at-bookmarks in.pdf` from a depth.
+const OPTIONAL: &[&str] = &["--at-bookmarks"];
+
 /// Every flag this program knows, so an unknown one is a usage error rather than ignored.
 const KNOWN: &[&str] = &[
     "-o",
@@ -162,6 +170,7 @@ const KNOWN: &[&str] = &[
     "--icon",
     "--remove",
     "--every",
+    "--at-bookmarks",
     "--collate",
     "--delete",
     "--rotate",
@@ -211,6 +220,8 @@ impl Arguments {
                             .ok_or_else(|| Failure::Usage(format!("{name} takes a value")))?,
                     ),
                 }
+            } else if OPTIONAL.contains(&name.as_str()) {
+                inline
             } else if inline.is_some() {
                 return Err(Failure::Usage(format!("{name} takes no value")));
             } else {
@@ -413,27 +424,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 },
             }))
         }
-        "split" => {
-            let every = arguments.parsed::<usize>(&["--every"])?;
-            if every == Some(0) {
-                return Err(Failure::Usage("--every counts from 1".to_owned()));
-            }
-            // Three ways of saying where the cuts are, and the default is the one every
-            // toolbox has: one file per page (pdftk's `burst`, poppler's `pdfseparate`).
-            // `--pages` without `--every` cuts at the selection's own commas, which is RFC
-            // 0002 section 6.1's `--pages 1-3,7-end` writing two files.
-            let pieces = match (every, arguments.value(&["--pages"])) {
-                (Some(every), _) => Pieces::Every(every),
-                (None, Some(_)) => Pieces::Groups,
-                (None, None) => Pieces::EachPage,
-            };
-            Ok(Plan::Split(SplitPlan {
-                source: 0,
-                pages,
-                pieces,
-                names: names("split")?,
-            }))
-        }
+        "split" => split_plan(arguments, pages, names("split")?),
         "merge" => Ok(Plan::Merge(merge_plan(arguments, names("merge")?)?)),
         "pages" => Ok(Plan::Pages(PagesPlan {
             source: 0,
@@ -563,6 +554,43 @@ fn page_edits(arguments: &Arguments) -> Result<Vec<Edit>, Failure> {
 fn selection(text: &str, flag: &str) -> Result<Selection, Failure> {
     text.parse()
         .map_err(|error| Failure::Usage(format!("{flag} {text:?}: {error}")))
+}
+
+/// RFC 0002 section 6.1's `split`: where the cuts are, and how the pieces are named.
+fn split_plan(arguments: &Arguments, pages: Selection, names: Pattern) -> Result<Plan, Failure> {
+    let every = arguments.parsed::<usize>(&["--every"])?;
+    if every == Some(0) {
+        return Err(Failure::Usage("--every counts from 1".to_owned()));
+    }
+    let at_bookmarks = arguments.switch("--at-bookmarks");
+    // §12.3.3's levels count from 1, so the default is its top-level items.
+    let depth = arguments.parsed::<usize>(&["--at-bookmarks"])?.unwrap_or(1);
+    if at_bookmarks && depth == 0 {
+        return Err(Failure::Usage(
+            "--at-bookmarks counts §12.3.3's outline levels from 1".to_owned(),
+        ));
+    }
+    // Four ways of saying where the cuts are, and the default is the one every
+    // toolbox has: one file per page (pdftk's `burst`, poppler's `pdfseparate`).
+    // `--pages` without `--every` cuts at the selection's own commas, which is RFC
+    // 0002 section 6.1's `--pages 1-3,7-end` writing two files.
+    let pieces = match (every, at_bookmarks, arguments.value(&["--pages"])) {
+        (Some(_), true, _) => {
+            return Err(Failure::Usage(
+                "--every and --at-bookmarks are two different places to cut".to_owned(),
+            ));
+        }
+        (_, true, _) => Pieces::AtBookmarks(depth),
+        (Some(every), false, _) => Pieces::Every(every),
+        (None, false, Some(_)) => Pieces::Groups,
+        (None, false, None) => Pieces::EachPage,
+    };
+    Ok(Plan::Split(SplitPlan {
+        source: 0,
+        pages,
+        pieces,
+        names,
+    }))
 }
 
 /// `range<sep>position`, split at the **last** separator so a range may contain one.
@@ -1020,14 +1048,19 @@ split:
   --pages <selection>   which pages (default: all), and without --every the selection's own
                         commas are where the cuts are: --pages 1-3,7-end writes two files
   --every <n>           pieces of n pages; --every 1 is one file per page, the default
+  --at-bookmarks[=n]    a piece begins at every page a §12.3.3 outline item at level n or
+                        shallower lands on (default 1, the top-level items), and runs to the
+                        next such page; the pages before the first one are a piece with no
+                        title. %t in the output name is that item's /Title
   each piece is a new document: the source's page objects, their whole object closure and
   their content streams carried byte for byte, under a new one-level page tree and a new
   catalog. §7.7.3.4's inherited /Resources, /MediaBox, /CropBox and /Rotate are written onto
   each page, because the ancestors that carried them are not coming along. A reference to a
-  page outside the piece becomes §7.3.10's null and is reported (exit 3). The outline, the
-  name trees, /PageLabels and /Metadata are **not** carried and every one the document states
-  is named in a warning; §14.7's structure tree is carried, pruned to the pages the piece holds. A piece of an encrypted document is not
-  encrypted, and says so.
+  page outside the piece becomes §7.3.10's null and is reported (exit 3). Carried and cut to
+  the piece: §14.7's structure tree, §12.3.3's outline, §12.4.2's page labels (recomputed —
+  a label is a position) and §12.3.2.4's named destinations that resolve inside it. /Metadata
+  and the rest are **not** carried and every one the document states is named in a warning.
+  A piece of an encrypted document is not encrypted, and says so.
 
 merge:
   a.pdf b.pdf …         the inputs, in the order their pages appear; a range per input, as

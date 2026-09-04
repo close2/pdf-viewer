@@ -3,9 +3,11 @@
 Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
 are approved"), so the serializer, **all five writing verbs** and §14.7's structure tree are
-done; what is left is `split --at-bookmarks`, the aligned rotated comparison, a per-input
-password for `merge`, the confinement tranche, the RFC 0003 hand-off, and the §13 questions the
-owner has not been asked again. **The foreign readback is no longer among them**: session 898
+done, and session 910 finished `split` — its last mode and the three document-level constructs a
+piece carries. **What is left is four things and two of them are the owner's**: the aligned
+rotated comparison and a per-input password for `merge` are small and nobody has asked for either;
+the confinement tranche and RFC §13's second question (a DCT encoder, which JPEG output and
+`optimize --images` both wait on) are the two the owner decides. The stream is otherwise finished. **The foreign readback is no longer among them**: session 898
 built it (ADR 0839), and §5 below records what it found rather than what it is for.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
@@ -16,7 +18,7 @@ suite's own gate runs over ISO 32000-2's PDF.
 Clauses: §7.6.4.2 Table 22 (item 3). §7.5.7's producer half was the debt this file carried from
 session 886 and session 900 paid it, so that row is `implemented` and no longer names one.
 Code: `crates/pdf-transform/`, `crates/pdf-syntax/src/serialize.rs`, ADRs 0800, 0801, 0802,
-0803, 0804, 0816, 0817, 0818, 0821, 0830, 0831, 0834, 0835, 0842, 0843.
+0803, 0804, 0816, 0817, 0818, 0821, 0830, 0831, 0834, 0835, 0842, 0843, 0862, 0863.
 
 ## What is done
 
@@ -122,21 +124,37 @@ fails-to-shrink rule and do nothing while claiming to; `--linearize` is refused 
 at `CLAUDE.md`'s Annex F sentence. `tests/optimize.rs`, `tests/optimize_corpus.rs` — the fifth
 corpus walk, carrying RFC §9's idempotence property gate — and `support::check_optimized`.
 
+**Session 910 (ADRs 0862, 0863): what a piece still says about its pages, and the last mode of
+`split`.** The two items this file's §1 carried, which are one item seen from two sides. Three
+clauses, three verdicts, each derived rather than chosen: §12.3.3's outline is **permitted**, so a
+piece carries the subset that reaches its pages with every conditional entry of Table 150 and
+Table 151 rebuilt over the subset — including §12.3.3's own three-step `/Count` — and an item kept
+only as an ancestor loses its own destination rather than naming nothing; §12.4.2's labels are
+permitted and **the source's own tree is forbidden**, because a page index is "the page's relative
+position within the document" and "[t]he tree shall include a value for page index 0", so a piece
+beginning at page 13 could not carry it, and what is written is `merge::page_labels` itself rather
+than a second implementation; §12.3.2.4's named destinations are subsetted rather than dropped,
+because a name **is not an indirect reference** and §7.3.10's null — the answer this verb gives
+everything else — has nothing to say about one. `--at-bookmarks[=depth]` cuts at every page an
+outline item at that depth resolves to, the pages before the first mark are a piece with no title
+(a split that lost the front matter has lost pages), and a document whose outline resolves nowhere
+is `Refusal::NoBookmarks` at exit 2. `support::check_navigation` is four more clause-derived
+properties in `check_structure`'s discipline, and the foreign readback gained a sixth lane because
+an at-bookmarks piece is a different *shape* to show another reader.
+
 ## 1. What the suite still owes
 
-- **`split --at-bookmarks`**, the one mode of `split` that did not land: it wants
-  `pdf_model::retrieval::sections`, which exists, and an outline subset for the piece, which does
-  not.
-- **What a piece does not carry** is now the shorter list, because `merge` built four of the five
-  and session 897 built the fifth: the outline subset whose destinations survive, §12.4.2 page
-  labels per piece, and name-tree entries still referenced are each `merge.rs`'s construction
-  pointed the other way, and a round taking them should reuse it rather than write a second one.
-  §14.7's structure tree is **carried** since session 897 (ADR 0834), which is what this bullet
-  used to name as the largest single thing the suite owed. What is left of it is small and named
-  there: Table 354's `/Namespaces` is concatenated without being interpreted, so two sources using
-  one namespace name state it twice; and the `/RoleMapNS` construction that would let each source
-  keep its own role map under its own namespace is not taken, because a namespace name "should take
-  the form of a uniform resource identifier" and this program has no basis for inventing one.
+- **What a piece does not carry** is the short list it is, because sessions 888, 897 and 910 built
+  the rest of it. §14.7's structure tree is carried since session 897 (ADR 0834); §12.3.3's outline
+  subset, §12.4.2's labels and §12.3.2.4's named destinations since session 910 (ADR 0862), which
+  is also where `split --at-bookmarks` landed (ADR 0863) because that mode wanted the first of the
+  three. What is left is small and named where it lives: §14.7's Table 354 `/Namespaces` is
+  concatenated without being interpreted, so two sources using one namespace name state it twice,
+  and the `/RoleMapNS` construction that would let each source keep its own role map under its own
+  namespace is not taken, because a namespace name "should take the form of a uniform resource
+  identifier" and this program has no basis for inventing one; and a piece still leaves `/Metadata`,
+  `/Threads`, `/SpiderInfo`, `/Collection`, `/Perms`, `/Legal`, `/Requirements` and `/DPartRoot`
+  behind, each named in the report where the source states one.
 - **The aligned rotated comparison.** `tests/pages_corpus.rs` measures the turned-raster
   comparison and does not assert on it, because a page `W` units wide at scale `s` is
   `ceil(W × s)` pixels wide and the leftover sliver sits on a different edge after the page turns

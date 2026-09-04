@@ -411,6 +411,23 @@ pub enum Refusal {
         /// What the grammar could not find.
         error: range::ResolveError,
     },
+    /// `--at-bookmarks` on a document whose §12.3.3 outline names no page at the stated depth.
+    ///
+    /// The same shape as [`Refusal::Selection`] and the same status: the request is well formed
+    /// and the document is readable, but it does not hold what the plan asked for. §12.3.3 makes
+    /// an outline optional — "[a] PDF document **may** contain a document outline" — so most
+    /// documents land here, and a verb that answered by writing one piece would have cut nowhere
+    /// while saying it cut at the bookmarks.
+    #[error(
+        "source {at}: no outline item at depth {depth} or shallower resolves to a page of this \
+         document, so §12.3.3's outline says nowhere to cut"
+    )]
+    NoBookmarks {
+        /// Which source.
+        at: usize,
+        /// The depth the plan asked for, counting §12.3.3's top-level items as 1.
+        depth: usize,
+    },
     /// The output-name pattern cannot name what the plan produces — a usage error.
     #[error("{0}")]
     Pattern(String),
@@ -618,6 +635,7 @@ impl Refusal {
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }
             | Self::Selection { .. }
+            | Self::NoBookmarks { .. }
             | Self::NoSuchPage { .. }
             | Self::NoSuchAttachment { .. }
             | Self::AttachmentExists { .. }
