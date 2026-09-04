@@ -91,43 +91,55 @@ always states the source's page 1 as its own page 1.
 
 ## The gates
 
-**The whole `doc/todo/02` §2 sequence ran on the finished tree — all twenty-six lines, every one
-exit 0** — on a quiet machine after waiting for one, the walking lines under `tools/bounded.sh`
-(`--data 12 --tree 12`, `--tree 8` for a build) one at a time with nothing beside them. The wait
-was itself a check: `/proc/PID/exe` naming a binary in another round's build directory is what
-finds a neighbour's walk, since a command line cannot be grepped without matching the grep.
+**The whole `doc/todo/02` §2 sequence ran twice — on the finished working tree and again on the
+merged one — all twenty-six lines, every one exit 0 both times.** The figures below are the
+second run's, because that is the tree the branch head is and `doc/todo/02` §2's rule is that a
+number belongs to the round that ran the gate last. Both runs were on a quiet machine waited for.
+The wait is itself worth recording: `/proc/PID/exe` naming a binary in another round's build
+directory is what finds a neighbour's walk, since a command line cannot be grepped without
+matching the grep, a build cannot be told from a walk by its name, and a sweep is invisible to a
+list of gate binaries.
 
 `cargo fmt --all --check`, `clippy --workspace --all-targets` under `RUSTFLAGS="-D warnings"`, both
-`fuzz/` lines: clean. `Summary [69.059s] 3195 tests run: 3195 passed (1 slow), 27 skipped`; doctests
-green. Corpus **974 documents in 16.8s — 0 unopenable, 9 locked, 1 encrypted beyond us, 5 pageless,
-64 incomplete, 0 slow**; oracle **1945 pages in 38.4s (1841 we call complete, 104 incomplete)** with
-`our_rendering_agrees_with_the_reference_consensus_across_the_corpus ... ok`; text extraction
-**99.3% (24014/24193 words), 22 below 90%** and the PDFBox lane **99.8% (14257/14281)**; selection
-census **1000/1011 words (98.91%) over 453 documents**; accessibility census **102 853 elements
-reached, 57 116 a caret can move through**; dates **1514 of 1545 (97.99%)**; XMP **318 of 319
-streams read**; quorra **958 pages compared: 929 agree, 22 differ, 7 refused, 16 not comparable**;
-fixed documents **69 checked, 0 absent, 69 rows**; the transform gate **168.5 pages/s over a floor
-of 40**; `writer_corpus` **941 attached, read back and removed, 0 unexplained refusals**;
-`merge_corpus` **966 merged, 965 bit-identical, every reconciliation counter at zero**;
-`pages_corpus` **966 edited, 0 label faults**; `optimize_corpus` **26.71% saved, every property
-counter at zero**; conformance **875 subclauses, 14 015 citations, 1242 quotations verbatim, 0
-cited clauses owing a review**.
+`fuzz/` lines: clean. `Summary [69.216s] 3196 tests run: 3196 passed (1 slow), 27 skipped`;
+doctests green. Corpus **974 documents in 10.7s — 0 unopenable, 9 locked, 1 encrypted beyond us,
+5 pageless, 64 incomplete, 0 slow**; oracle **1945 pages in 33.0s (1841 we call complete, 104
+incomplete)** with `our_rendering_agrees_with_the_reference_consensus_across_the_corpus ... ok`;
+text extraction **99.3% (24014/24193 words), 22 below 90%** and the PDFBox lane **99.8%
+(14257/14281)**; selection census **1000/1011 words (98.91%) over 453 documents**; accessibility
+census **102 853 elements reached, 57 116 a caret can move through**; dates **1514 of 1545
+(97.99%)**; XMP **318 of 319 streams read**; quorra **958 pages compared: 929 agree, 22 differ, 7
+refused, 16 not comparable**; fixed documents **70 checked, 0 absent, 70 rows**; the transform gate
+**164.4 pages/s over a floor of 40**; `writer_corpus` **941 attached, read back and removed, 0
+unexplained refusals**; `merge_corpus` **966 merged, 965 bit-identical, every reconciliation
+counter at zero**; `pages_corpus` **966 edited, 0 label faults**; `optimize_corpus` **26.71%
+saved, every property counter at zero**; conformance **875 subclauses, 14 021 citations, 1244
+quotations verbatim, 0 cited clauses owing a review**.
 
-**`split_corpus`, this round's own:** 974 documents in 63.7s, 966 split and re-read as one page,
+**`split_corpus`, this round's own:** 974 documents in 56.6s, 966 split and re-read as one page,
 **965 drawn bit-identically**, content streams differing 0, §14.7 faults 0 — and the new rows,
 **§12.3.3 outlines carried 147 with 180 items resolving; §12.4.2 labels carried 22; §12.3.2.4
 destinations carried 68; faults 0; page 1's label changed 0; `--at-bookmarks` over the 23
 documents whose outline names two or more pages at level 1, 0 refused, 0 pages lost or duplicated,
-0 pieces cut where nothing lands.**
+0 pieces cut where nothing lands.** Every one of those counts is identical across the two runs.
 
-**The foreign readback:** 203 of 974 documents in 116.5s against `pdftoppm 26.08.0` and
+**The foreign readback:** 203 of 974 documents in 123.9s against `pdftoppm 26.08.0` and
 `mutool 1.28.0`. The new lane, **`bookmarks`: 5 written, qpdf held 5, qpdf gained a warning 0,
 poppler identical 5, mupdf identical 5, §14.7 shapes agreed 3, §14.7 faults 0, drew differently 0,
 0 refused by name.** Five is what a stride-8 sample of a corpus where 23 documents have a
 cuttable outline can offer, and it is said as such rather than rounded up.
 
-**§5 ran, this being a fifth round**: the eight binaries and `libviewer_ffi.so` rebuilt with
-`--release` in one invocation and installed into the project's own `target/`.
+**`main` was merged in after the commit and before the second run**, bringing round 908 (which
+touches `pdf-syntax`'s parser, so the whole sequence is what the merge is owed rather than the
+core four). Git found no conflict. `doc/conformance/ledger.toml` was checked **row by row** rather
+than by reading the diff: `main`'s two changed rows (§7.3.7, §7.3.10) and this round's five
+(§7.7.4, §7.9.6, §12.3.2.4, §12.3.3, §12.4.2) are each identical to the side that wrote them, no
+third row moved, and the count is 875 on all four versions.
+
+**§5 ran, this being a fifth round, and it ran twice for the reason session 905 recorded**: the
+first install was from the pre-merge tree, so the eight binaries and `libviewer_ffi.so` were
+rebuilt with `--release` in one invocation from the merged tree and installed again into the
+project's own `target/` — a stale binary is a measurement of the past.
 
 ## What is left, and whether `r867` can close
 
