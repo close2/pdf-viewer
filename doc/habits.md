@@ -725,6 +725,18 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   phantom win. Session 500, ADR 0335.
 - **Attribute a regression by removing the suspect, not by reading the profile.** The profile shows
   the *shape* of the extra work, not its cause; one stubbed field said 96 of 110 M.
+- **A crash met on one document is attributed to whichever of its properties you already have a word
+  for.** Session 916 found a confined worker killed on `bug1815476.pdf` while four committed fixtures
+  survived, and wrote down the difference it could name: encryption. It was a font — the document
+  names a face it does not embed, and `pdf_font::substitute` walks `/usr/share/fonts` (ADR 0870).
+  Nothing about that reading was careless: two populations of four and one differ in every way, and
+  the property the finder picks is the one they were working on at the time. **The instruments are a
+  minute's work and they name the cause rather than a correlate** — the kernel's own audit line in
+  `dmesg` gives the system call number (`sig=31 … syscall=257`), and `strace -ff -e trace=openat` on
+  a process you start yourself gives the *path*, which is what settles it; `yama/ptrace_scope` at 1
+  restricts `ptrace` to descendants and does not stop that. And the durable answer is the population:
+  a sweep over enough documents for the classes to disagree said the same defect kills more of the
+  *control* class than of the encrypted one. Sessions 916 and 917, ADRs 0876 and 0877.
 - **Two spellings of one loop are two programs, and the difference can exceed the optimisation you
   came for.** A fused number parse that removed a whole pass over every token measured as a **+1.1%
   regression** written as `for &byte in body { … _ => break } read += 1;` and as **−5.4%** written as

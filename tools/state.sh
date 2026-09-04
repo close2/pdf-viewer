@@ -175,6 +175,12 @@ section_vfs() {
     run "the five write verbs over the corpus, through the core (RFC 0003 section 5.2)" \
         '^vfs-write:' \
         cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
+    run "the whole layout listed, stat'd and read over the corpus (RFC 0003 section 4)" \
+        '^vfs-read:' \
+        cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
+    run "a document of each awkward class, from every corpus on the disk, through the worker" \
+        '^vfs-awkward:' \
+        cargo test --profile gates -p pdf-vfs --test awkward_classes -- --ignored --nocapture
 }
 
 section_dates() {

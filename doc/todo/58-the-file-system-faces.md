@@ -2,8 +2,11 @@
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
 Priority: 50-band — the core landed in session 899, the confined worker in 902, the write side in
-906, the FUSE face in 909 and **its first mount in 911**, so what is left is the **second** face, a
-decision the owner has not been asked, and the read side's corpus walk.
+906, the FUSE face in 909, its first mount in 911, the KIO face in 913 and **its question channel
+in 916**, so **both faces exist, one of them has been used by a person, and one of them can put
+`CLAUDE.md` principle 3's question to one**; what is left is a decision the owner has not been
+asked, the read side's corpus walk, and the other face's own first use — nobody has opened a PDF
+in Dolphin.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
 `doc/PDF-Declarations.pdf` (two §7.11.4 embedded files whose names hold a COLON, so it is the
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
@@ -15,8 +18,9 @@ Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`),
 §14.3.3, §14.3.4, §14.7.5.4, §14.8.2.5.1.
 Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/write_corpus.rs`,
 `tests/confined.rs` and `examples/vfs_cost.rs`, `crates/pdf-fuse/` and its `tests/a_face.rs`,
+`crates/pdf-vfs-ffi/` and its four tests, `kio/`,
 `crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
-ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0864, 0865.
+ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0864, 0865, 0868, 0869.
 
 ## What is done
 
@@ -98,6 +102,24 @@ come out of `pages/`, under a false sentence hiding a real ordering defect in §
 second `ls -l` of a thousand-page document cost more than the first. All ten are fixed and each
 has a test.
 
+Session 913, RFC 0003's sixth landing: **the KIO face, and the C ABI under it.**
+`crates/pdf-vfs-ffi` is RFC section 7's boundary — thirty-five `extern "C"` functions with
+`viewer-ffi`'s shape and its two self-checks, a hand-written header held against `src/abi.rs` as
+text and a C program compiled with `-Werror` and run over a document and a scratch copy. Four
+things differ from `viewer-ffi` and each is argued in ADR 0868: a refusal is an owned *object*
+carrying `pdf_vfs::Errno` and section 5.3's sentence rather than a status or a last-error slot;
+the counted enumeration is `errno`, held complete by an exhaustive `match` that cannot be written
+incompletely; the staged four are deliberately absent, because a KIO `put` is already a
+transaction and only a kernel needs `create`/`write_at`/`flush`/`release`; and `pdfvfs_split` is
+the one question a face has of its own — where a URL's document ends and the tree begins, which
+only `stat(2)` can answer. `kio/` is the plugin, outside the cargo workspace, built by CMake
+against ECM, Qt 6 and KF6 KIOCore, and it holds the Qt types so the core never sees one. Three
+decisions in it are KIO's own (ADR 0869): section 5.3's predicted `ERR_UNSUPPORTED_ACTION` mapping
+would have destroyed the sentence it was meant to carry, so a refusal that carries its reason is
+`ERR_WORKER_DEFINED`; a `listDir` states no size, because it would generate every file in the
+directory; and a commit's warnings reach a person through KIO's non-modal `warning()`, which is
+`CLAUDE.md` principle 3's *warn* level shown rather than logged for the first time in this tree.
+
 ## 1. The departure the owner should overrule or ratify
 
 **`images/` is a directory per page** — `images/0035/01.png` — where RFC §4 draws it flat as
@@ -168,9 +190,41 @@ item still owes on the write side is three things, none of them blocking a face:
   - **`: > mnt/pages/0002.pdf` is loud in the log and silent in the shell**, because `bash` does
     not check `close(2)`. Nothing can be done about the shell; what could be done is refusing the
     truncation itself, which would make a legitimate `cp` fail. Stated rather than chosen.
-- **The KIO face** — a C++ `MODULE` plugin subclassing `KIO::WorkerBase` over a C ABI into this
-  core, the `viewer-ffi` precedent. Toolchain risk moderate: CMake, Qt 6 and KF6 enter the build
-  of that one component, which lives outside the cargo workspace.
+- **The KIO face — done in session 913** (ADRs 0868, 0869), **and given a question channel in 916**
+  (ADRs 0874, 0875). `PdfWorker::mayProceed` consults the core before `get`, `put` and `del`, puts
+  the sentence through `KIO::WorkerBase::messageBox(QuestionTwoActions, …)` where the verdict is
+  *ask*, carries the answer back with `pdfvfs_answer`, and then performs the verb unchanged; a
+  person who declines gets `ERR_USER_CANCELED` rather than the boundary's "nobody was asked",
+  because they were asked. The mount's level comes from `PDF_KIO_RESTRICTIONS` — off, on, ask,
+  warn, `off` by default, an unknown word refused by name — which is the only channel a
+  `kioworker` has and a placeholder for the configuration page `doc/todo/38` still owes.
+  **A gate cannot drive the dialogue itself**: `messageBox` needs a client with a UI delegate and
+  the harness is a `QCoreApplication` with no session, so what runs there is the round trip's
+  plumbing and the level's channel. The two round trips are driven end to end one boundary down,
+  in `crates/pdf-vfs-ffi/tests/a_c_program_drives_the_abi.rs` and in `pdf-vfs`'s own suite over
+  both transports.
+
+  It was driven: a KIO *client* — a
+  `QCoreApplication` running the jobs Dolphin runs — makes KIO read the plugin's metadata, fork
+  `kioworker`, load `pdf.so` and answer every command over a socket, and
+  `crates/pdf-vfs-ffi/tests/the_kio_worker.rs` builds both halves and checks what came back. What
+  is left of it is three things, and the first is the counterpart of the mount above:
+
+  - **Nothing has ever opened it in Dolphin.** The harness proves the protocol and says nothing
+    about a person: not how a listing renders, not the `archiveMimetype` association that should
+    make a click on a PDF *enter* it rather than open it, not drag and drop out of `pages/`, not
+    what a refusal's dialogue looks like, and — since session 916 — not what the *ask* level's
+    message box looks like or whether its two button labels read well in it. What is owed is the same shape as the mount's: install
+    the plugin, open a PDF in Dolphin, and write up what happened. The mime association in
+    particular is asserted by the metadata and exercised by nothing.
+  - **The plugin is not installed anywhere and nothing packages it.** `make install` puts `pdf.so`
+    in KF6's plugin directory; nothing puts `pdf-vfs-worker` where the plugin will find it, and
+    without that the face refuses every document by name. Whether that is a `$PDF_VFS_WORKER` in a
+    unit, a copy beside `kioworker`, or a packaging decision is unmade.
+  - **A worker holds one mount and never lets it go.** KIO keeps a worker in a pool between
+    operations, which is what keeps the confined generator warm across a `cp -r`; browsing a
+    *directory* of PDFs replaces it per document, and nothing reaps or bounds. That is the broker
+    half of section 4's first bullet, now with a face that provokes it.
 
 ## 4. The confined worker — **done in session 902**, and what is left of it
 
@@ -179,6 +233,16 @@ item still owes on the write side is three things, none of them blocking a face:
 `Query`s with the same `Answer`s as `InProcess` — which `tests/confined.rs` asserts question by
 question, both ways, over a real document. A face chooses it in one line and inherits the posture.
 ADR 0847 is the record: the allow-list, what crosses and its bound, what a death becomes.
+
+**And one thing it does not have, which is the fourth of the three below and the largest**: a
+confined worker has **no fonts**. ADR 0870 is the record — a document naming a face the machine has
+and the document does not embed sent `pdf_font::substitute` walking `/usr/share/fonts`, and
+`SECCOMP_RET_KILL_PROCESS` ended the worker rather than returning the `Err` that code is written to
+shrug off. It is stated now (`no_machine_fonts`, before the confinement, in both workers), so the
+worker lives and draws from the compiled-in faces; **what is owed is the fidelity**, and the shape
+of the answer is the one ADR 0812 already used for the document: the broker is unconfined, so the
+broker hands the face across. Until it does, a confined mount and the confined viewer draw a
+CJK or Arabic page the way a machine with no such font installed draws it.
 
 Three things this item still owes, none of them blocking a face:
 
@@ -191,10 +255,38 @@ Three things this item still owes, none of them blocking a face:
   asks `Worker::is_alive` beside the generation key, so the operation after a death gets a fresh
   worker — but the operation that *found* the death still fails, and a face has to decide whether
   to show that or to retry once. Stated rather than chosen, because it is a face's policy.
+- **The encrypted page that died was a font lookup — closed in session 917, and it was ADR 0870's
+  defect rather than a fourth one.** Session 916 found `bug1815476.pdf` killed on
+  `Query::RenderPage` while every other question was answered, and read encryption as the
+  difference because the four committed fixtures are unencrypted. Session 917 measured it:
+  `syscall=257`, and `strace -ff` names the path — `openat("/usr/share/fonts", O_DIRECTORY)`, from
+  `pdf_font::substitute` standing in for a face the document names and does not embed. Session
+  914's `no_machine_fonts()` fixes it and this tree carries that fix; **no second fix was written
+  and no test named after the accident was added**, because `tests/read_corpus.rs` already reads
+  every file of that document's layout through the confinement. ADR 0876 has the audit line, the
+  four system calls before the corpse, and why one document can never say which of its properties
+  killed the worker.
 - **A `Canceller` reaches the worker and nothing reaches it through `Vfs`.** `Confined::canceller`
   exists and `Vfs` holds `Box<dyn Worker>`, so a face that wants to end a render a person navigated
   away from has to hold its own factory the way `tests/confined.rs` does. That is a small piece of
   `Vfs` API and it wants a face's requirement to shape it.
+- **The awkward classes are swept rather than waited for, and the sweep should not stay a second
+  instrument** (session 917, ADR 0877). `tests/awkward_classes.rs` classifies a stride-sample of
+  every corpus root on the disk — `doc/pdf.js`, the four `doc/corpora` submodules, the three
+  `corpus-cache` collections — into ten classes (encrypted, locked, an encryption this reader does
+  not implement, pageless, damaged, unopenable, huge, JBIG2, JPEG 2000, and plain as the control),
+  and walks the whole layout of a few of each through the **confined** transport asking one
+  question: does the worker survive. It found nothing, and with `no_machine_fonts()` removed it
+  finds 76 deaths in six of the ten classes — more in the control than in the encrypted one, which
+  is ADR 0876's misattribution reproduced at corpus scale.
+
+  **How it relates to `tests/read_corpus.rs`, so that a later round merges them rather than keeping
+  both**: that walk (ADR 0871) asks whether the two transports *agree*, byte for byte, over
+  `doc/pdf.js`'s 974 documents; this one asks only whether the worker *survives*, over a population
+  drawn from all eight roots — which is where damaged, huge and JPEG 2000 documents actually live.
+  The merge is the walk's: widen `read_corpus.rs` past `doc/pdf.js` and its byte comparison covers
+  these classes too, at which point `awkward_classes.rs` is deleted rather than inherited. What
+  stops that today is cost, and cost is a reason to keep two instruments, never two designs.
 
 ## 5. What the core still owes, each named in `Vfs::shortfalls`
 
@@ -212,12 +304,23 @@ Three things this item still owes, none of them blocking a face:
   the cache, and a read puts the whole run's outputs there at once so that `cp -r` of one page's
   images costs one extraction. Caching the listing itself is a second kind of entry the cache does
   not have.
-- **The write side has a corpus walk — done in session 909** (ADR 0860), and `doc/todo/02` §2
-  gained its two lines. What is *still* unmeasured is the **read** side: every read generator —
-  `renders/`, `images/`, `text/`, `meta/` — is measured against every corpus document by nothing,
-  and `tests/a_face.rs` is four committed documents. The walk that would answer it is the same
-  shape and would cost more, because `images/` and `renders/` are where the expensive generators
-  are.
+- **Both sides now have a corpus walk** — the write side in session 909 (ADR 0860), the read side
+  in session 914 (ADR 0871), each with its line in `doc/todo/02` §2. `tests/read_corpus.rs` lists
+  the whole layout for every corpus document, `stat`s every entry, reads every file and holds each
+  against the generator the table delegates to, over the **confined** transport. What it found on
+  its first sixty documents is ADR 0870 and is below. Two things it does *not* measure, and they
+  are the shortfalls this round created rather than closed:
+  - **The substitution gap ADR 0870 opened.** A confined worker has no machine fonts, so a document
+    naming an uninstalled face is drawn from the compiled-in ones; the walk puts its own process in
+    that posture so that its columns measure the transport rather than two machines. **What closes
+    it is the broker supplying the face** — the broker is unconfined, it already hands the document
+    across as a descriptor (ADR 0812), and a face is a file like any other. Until then a confined
+    mount and a confined viewer draw such a page the way a machine with no fonts installed draws
+    it, and `pdf_model::interpret` says so per font (§9.10.2's coverage note).
+  - **The tail of long documents.** `PAGES_READ` bounds the pages whose files are read; the
+    listings are always whole. The corpus's own distribution is why the figure is affordable, and a
+    population with more long documents — `doc/todo/03`'s crawls — would be a stronger denominator
+    for `renders/` exactly as it would for the deletion verb below.
 - **`Plan::Update`'s output is read by nobody else.** `pdf-transform`'s `foreign_corpus` puts the
   other five writers' output through `qpdf --check`, `pdftoppm` and `mutool draw`; the in-place
   update is not in that walk, so the only reader that has ever judged it is this one. RFC 0002
@@ -261,7 +364,28 @@ refer to it (also now live: a page deleted through the mount keeps its bytes, an
 says so), page-label alias symlinks, and the resolution set for `renders/`, where 150 and 300 are
 what the core states.
 
-**And a seventh the write side raised**: §5.3's refusals return `EACCES` for both `on` and *ask*,
-because a file system has nobody to ask. A KIO worker *can* put a question to a person — Dolphin
-will show a dialogue — so a face with a channel could implement the *ask* level properly and
-re-issue the write. Nothing in the core has to change for it; whether it is wanted is the owner's.
+**And a seventh the write side raised, with its last sentence now corrected.** §5.3's refusals
+return `EACCES` for both `on` and *ask*, because a file system has nobody to ask. A KIO worker
+*can* put a question to a person — `KIO::WorkerBase::messageBox`, and Dolphin shows a dialogue —
+so a face with a channel could implement the *ask* level properly and re-issue the write.
+
+This item used to end "[n]othing in the core has to change for it", and **that is false**, found
+by building the face (ADR 0869 §3). The restriction decision is taken inside the *confined
+generator*: `pdf_transform::apply` asks `pdf_model::restriction::decide` once at the seam, and RFC
+§6 gives that process no channel to a person by construction — which is what confinement is. So
+the question cannot reach the shim without one of two core changes, both of which belong to
+`pdf-vfs` and `confined-transport` rather than to a face, since RFC §7 forbids a face knowing
+anything both faces do not:
+
+- **make the wire a dialogue** — `crates/confined-transport` is one frame each way, and a worker
+  that could interrupt an answer with a question changes the protocol *both* confined workers
+  speak, `pdf-view-worker` included; or
+- **ask first, in two round trips** — a `Query` answering *would this operation be restricted, and
+  with what reasons*, put before the operation; the broker asks the face, the face asks the
+  person, and the operation is then issued at `off` or refused. No protocol change, two extra
+  crossings on a path a person is already waiting on, and one new thing that can be true between
+  the two calls.
+
+The second is the smaller and is the recommendation. What *is* wired today is the **warn** level,
+which the KIO face shows with `warning()`; ADR 0869 §3 has both halves. Whether the *ask* is
+wanted at all is still the owner's.

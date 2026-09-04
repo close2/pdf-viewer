@@ -47,7 +47,7 @@
     reason = "a command-line tool whose entire output is a report"
 )]
 
-use std::io::{BufRead as _, Write};
+use std::io::{BufRead as _, IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -63,7 +63,7 @@ use pdf_transform::split::{Pieces, SplitPlan};
 
 use pdf_syntax::serialize::{ObjectStreams, Streams};
 use pdf_transform::{
-    Budget, Exit, Level, Listed, Plan, Policy, Report, Secret, Sinks, Source, apply,
+    Budget, Exit, Level, Listed, Plan, Policy, Refusal, Report, Secret, Sinks, Source, apply,
 };
 
 /// What went wrong before or while applying the plan.
@@ -78,9 +78,12 @@ enum Failure {
     /// The password descriptor could not be read.
     #[error("--password-fd {0}: cannot be read ({1})")]
     Password(u32, std::io::Error),
+    /// The terminal the question was put on could not be read from.
+    #[error("--restrictions=ask: the answer could not be read ({0})")]
+    Answer(String),
     /// The seam refused.
     #[error("{0}")]
-    Refused(#[from] pdf_transform::Refusal),
+    Refused(#[from] Refusal),
 }
 
 impl Failure {
@@ -88,10 +91,74 @@ impl Failure {
     fn exit(&self) -> Exit {
         match self {
             Self::Usage(_) => Exit::Usage,
-            Self::Unreadable(..) | Self::Password(..) => Exit::Error,
+            Self::Unreadable(..) | Self::Password(..) | Self::Answer(_) => Exit::Error,
             Self::Refused(refusal) => refusal.exit(),
         }
     }
+}
+
+/// `CLAUDE.md` principle 3's *ask* level, on a command line — the first of ADR 0874's two round
+/// trips, asked here and answered on the terminal.
+///
+/// **This level used to be a usage error**, on the argument RFC 0002 section 13's fourth open
+/// question makes: "a pipe cannot 'ask'". A pipe still cannot, and that half is unchanged — with
+/// no terminal on standard input the level is left alone and `apply` answers it with
+/// [`pdf_transform::Refusal::Unanswered`], which is the honest degradation and not a silent
+/// proceed. What was wrong was the *other* half: this program is not always a pipe, and the
+/// suite already draws the distinction for §7.6.4.1's password ("interactive, the default when a
+/// document refuses and stdin is a tty"). So where there is a terminal the question is put on it.
+///
+/// The question is asked before anything is written, of every document the plan reads, and a
+/// `yes` lowers the run to `Level::Off` — which is what a person consenting to the operation has
+/// chosen for it, and the level `CLAUDE.md` says "shall always be possible". A `no` is
+/// [`Exit::Refused`]'s own status with the document's reasons, because a question declined is
+/// not the same event as a policy refusing.
+///
+/// Diagnostics go to stderr, always — the whole file's rule — so the question does too; stdout
+/// carries bytes.
+fn ask_before_the_operation(
+    plan: &Plan,
+    sources: &[Source],
+    policy: &mut Policy,
+    budget: &Budget,
+) -> Result<(), Failure> {
+    if policy.restrictions != Level::Ask || !std::io::stdin().is_terminal() {
+        return Ok(());
+    }
+    let Some(operation) = plan.operation() else {
+        return Ok(());
+    };
+    let mut asked = false;
+    for at in plan.sources() {
+        let Some(source) = sources.get(at) else {
+            continue;
+        };
+        let document = source.document(budget.limits)?;
+        let consulted = pdf_transform::consult(Level::Ask, &document, operation);
+        let Some(question) = consulted.question() else {
+            continue;
+        };
+        eprint!("{question} [y/N] ");
+        std::io::stderr().flush().ok();
+        let mut answer = String::new();
+        std::io::stdin()
+            .lock()
+            .read_line(&mut answer)
+            .map_err(|error| Failure::Answer(error.to_string()))?;
+        if !matches!(answer.trim(), "y" | "Y" | "yes" | "Yes") {
+            return Err(Failure::Refused(Refusal::Declined {
+                operation: consulted.operation(),
+                reasons: consulted.reasons().to_owned(),
+            }));
+        }
+        asked = true;
+    }
+    // Only where somebody actually said yes. A run in which nothing was restricted stays at
+    // `Ask`, so that a document reached later — a merge's second input — is still asked about.
+    if asked {
+        policy.restrictions = Level::Off;
+    }
+    Ok(())
 }
 
 /// The arguments, read once.
@@ -308,20 +375,12 @@ fn run() -> Result<Exit, Failure> {
     let plan = plan(&arguments, output)?;
     let sources = open_inputs(&arguments, &plan)?;
 
-    let policy = Policy {
+    let mut policy = Policy {
         restrictions: match arguments.value(&["--restrictions"]) {
             None => Level::Off,
-            // The fourth level is a usage error here rather than a refusal at run time: a
-            // command line has nobody to ask, and saying so before the file is opened is what
-            // keeps `ask` from looking like a level this program has.
-            Some("ask") => {
-                return Err(Failure::Usage(
-                    "--restrictions=ask: this program cannot ask; use on, warn or off".to_owned(),
-                ));
-            }
             Some(word) => Level::parse(word).ok_or_else(|| {
                 Failure::Usage(format!(
-                    "--restrictions takes off, on or warn, not {word:?}"
+                    "--restrictions takes off, on, ask or warn, not {word:?}"
                 ))
             })?,
         },
@@ -330,6 +389,7 @@ fn run() -> Result<Exit, Failure> {
     if let Some(max_pixels) = arguments.parsed::<u64>(&["--max-pixels"])? {
         budget.max_pixels = max_pixels;
     }
+    ask_before_the_operation(&plan, &sources, &mut policy, &budget)?;
 
     let report = if to_stdout {
         apply(&plan, &sources, &StdoutSinks::default(), &policy, &budget)?
@@ -1152,7 +1212,7 @@ options for every verb:
   --quiet-warnings      exit 0 rather than 3 on a warning
   --password-fd <n>     read the password, one line, from descriptor n;
                         there is no --password, because argv is public
-  --restrictions=off|on|warn
+  --restrictions=off|on|ask|warn
                         whether what the document asserts over its reader — Table 22's /P bits,
                         §12.8.2.2's certification — is honoured (default off: the program is
                         the reader's); `on` refuses with exit 4, `warn` reports; `ask` is the

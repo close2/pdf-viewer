@@ -508,6 +508,261 @@ fn the_four_levels_reach_a_mount_and_two_of_them_refuse() {
     assert!(on_disk(&backing).len() > unchanged);
 }
 
+/// The two round trips of ADR 0874: the question crosses, a person answers, the operation runs.
+///
+/// **The whole point of the round.** `bug1815476.pdf` is encrypted with `/P -1084`, so §7.6.4.2's
+/// Table 22 bit 4 is clear (`Operation::Modify`, which an embedded file falls under, ADR 0802)
+/// and so is bit 11 (`Operation::Assemble`, "[a]ssemble the document (insert, rotate, or delete
+/// pages …)"). At `Level::Ask` the operation was a refusal in every face before this, because the
+/// decision is taken inside a process RFC 0003 section 6 gives no channel to a person. Now the
+/// broker asks first, the answer comes back through `Vfs::answer`, and the verb is issued
+/// unchanged.
+///
+/// Four properties, and each is one a wrong construction would lose:
+///
+/// - the question names the operation and the bit, so a face has something to show;
+/// - **a `no` leaves the document byte for byte what it was**, and refuses by name rather than
+///   silently doing nothing;
+/// - a `yes` performs it;
+/// - the consent is spent **once** — a yes to deleting one page is not a yes to the next.
+#[test]
+fn a_question_crosses_the_confinement_and_both_answers_are_obeyed() {
+    use pdf_model::restriction::Level;
+    use pdf_vfs::{Consulted, Verb};
+
+    let Some(path) = corpus("bug1815476.pdf") else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(path).expect("a corpus document");
+    let asking = || {
+        let backing = Arc::new(MemoryBacking::new("restricted", bytes.clone()));
+        let vfs = Vfs::new(
+            Box::new(SharedBacking(Arc::clone(&backing))),
+            Box::new(InProcessWorkers),
+            Config {
+                policy: pdf_transform::Policy {
+                    restrictions: Level::Ask,
+                },
+                ..Config::default()
+            },
+        );
+        (backing, vfs)
+    };
+
+    // The question, about a write: Table 22 bit 4, worded once by `pdf_transform::consult`.
+    let (backing, vfs) = asking();
+    let unchanged = bytes.len();
+    let consulted = vfs
+        .consult("/attachments/level.txt", Verb::Write)
+        .expect("the question crosses");
+    let Consulted::Ask { operation, reasons } = &consulted else {
+        panic!("a document that withholds it asks: {consulted:?}");
+    };
+    assert_eq!(*operation, "modifying the document");
+    assert_eq!(reasons, "Table 22 bit 4 is clear");
+    let question = consulted.question().expect("an ask is a question");
+    assert!(question.ends_with("Do it anyway?"), "{question}");
+
+    // A `no`. The edit is not done, the refusal says a question went unanswered, and the file on
+    // disk is what it was.
+    assert!(vfs.answer(false).expect("a question was outstanding"));
+    let error = vfs
+        .write("/attachments/level.txt", b"x")
+        .expect_err("a no is not done");
+    assert!(
+        matches!(
+            error,
+            VfsError::Worker(pdf_vfs::worker::WorkerError::Unanswerable(_))
+        ),
+        "{error}"
+    );
+    assert_eq!(on_disk(&backing), bytes, "answering no changed the file");
+
+    // A `yes`, on a fresh mount so that the two answers cannot interfere.
+    let (backing, vfs) = asking();
+    assert!(matches!(
+        vfs.consult("/attachments/level.txt", Verb::Write)
+            .expect("asked"),
+        Consulted::Ask { .. }
+    ));
+    assert!(vfs.answer(true).expect("a question was outstanding"));
+    vfs.write("/attachments/level.txt", b"x")
+        .expect("a yes is done");
+    assert!(on_disk(&backing).len() > unchanged);
+
+    // And spent once. The same mount, no second question: the next write is refused again.
+    let error = vfs
+        .write("/attachments/second.txt", b"x")
+        .expect_err("one yes is one operation");
+    assert!(
+        matches!(
+            error,
+            VfsError::Worker(pdf_vfs::worker::WorkerError::Unanswerable(_))
+        ),
+        "{error}"
+    );
+
+    // A deletion is a different operation — Table 22 bit 11 — and is asked about separately.
+    let (_, vfs) = asking();
+    let consulted = vfs
+        .consult("/pages/0001.pdf", Verb::Delete)
+        .expect("the question crosses");
+    let Consulted::Ask { operation, reasons } = &consulted else {
+        panic!("bit 11 is clear in this document too: {consulted:?}");
+    };
+    assert_eq!(*operation, "assembling a document out of these pages");
+    assert_eq!(reasons, "Table 22 bit 11 is clear");
+    assert!(vfs.answer(true).expect("outstanding"));
+    // A yes releases the policy and nothing else: this document has one page, so §7.7.3.2's own
+    // shape refuses the deletion — and *that* refusal, rather than the policy's, is the proof
+    // that the consent was spent and the operation actually ran.
+    let error = vfs.remove("/pages/0001.pdf").expect_err("its last page");
+    assert!(
+        !matches!(
+            error,
+            VfsError::Worker(
+                pdf_vfs::worker::WorkerError::Unanswerable(_)
+                    | pdf_vfs::worker::WorkerError::Restricted(_)
+            )
+        ),
+        "the yes was not spent: {error}"
+    );
+    assert!(error.to_string().contains("one page"), "{error}");
+
+    // Nothing outstanding is a `false` rather than a silent yes: a face that answers a question
+    // nobody asked has a defect, and it is told so.
+    assert!(!vfs.answer(true).expect("no question"));
+}
+
+/// A mount at `off` costs a consultation nothing, and one at `on` is told so rather than asked.
+///
+/// The two verdicts a face must not put in front of a person: `Proceed` because there is nothing
+/// to decide, `Refuse` because the level has already decided it. A face may therefore consult
+/// before every verb and pay one round trip and no dialogue.
+#[test]
+fn a_consultation_answers_the_other_three_levels_without_a_question() {
+    use pdf_model::restriction::Level;
+    use pdf_vfs::{Consulted, Verb};
+
+    let Some(path) = corpus("bug1815476.pdf") else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(path).expect("a corpus document");
+    let under = |level: Level| {
+        let vfs = Vfs::new(
+            Box::new(SharedBacking(Arc::new(MemoryBacking::new(
+                "restricted",
+                bytes.clone(),
+            )))),
+            Box::new(InProcessWorkers),
+            Config {
+                policy: pdf_transform::Policy {
+                    restrictions: level,
+                },
+                ..Config::default()
+            },
+        );
+        let consulted = vfs
+            .consult("/attachments/level.txt", Verb::Write)
+            .expect("the question crosses");
+        // Whatever the verdict, nothing is outstanding unless it was an ask.
+        let outstanding = vfs.answer(true).expect("asked");
+        (consulted, outstanding)
+    };
+
+    assert_eq!(under(Level::Off).0, Consulted::Proceed);
+    assert!(!under(Level::Off).1, "nothing to answer at off");
+    assert!(matches!(under(Level::On).0, Consulted::Refuse { .. }));
+    assert!(!under(Level::On).1, "on has already decided");
+    assert!(matches!(under(Level::Warn).0, Consulted::Warn { .. }));
+    assert!(!under(Level::Warn).1, "warn is a statement, not a question");
+    assert!(
+        under(Level::Ask).0.question().is_some(),
+        "only an ask is a question"
+    );
+}
+
+/// The layout table's operations are `pdf_transform::Plan::operation`'s own, not a second reading.
+///
+/// **Two mappings that must agree and are only *said* to agree is how they stop agreeing.** The
+/// broker names an operation from a path and a verb (`layout::Write::operation`,
+/// `layout::Generator::operation`); the seam names one from the plan it is about to run
+/// (`Plan::operation`). A consent given against the first and spent against the second would be
+/// spent on the wrong operation the day they diverge. So the *witness* is the tree itself: at
+/// `Level::On` a consultation refuses exactly where the operation refuses, path by path.
+#[test]
+fn what_the_layout_says_a_path_performs_is_what_the_seam_asks_about() {
+    use pdf_model::restriction::Level;
+    use pdf_vfs::{Consulted, Verb};
+
+    let Some(path) = corpus("bug1815476.pdf") else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(path).expect("a corpus document");
+    let vfs = || {
+        Vfs::new(
+            Box::new(SharedBacking(Arc::new(MemoryBacking::new(
+                "restricted",
+                bytes.clone(),
+            )))),
+            Box::new(InProcessWorkers),
+            Config {
+                policy: pdf_transform::Policy {
+                    restrictions: Level::On,
+                },
+                ..Config::default()
+            },
+        )
+    };
+
+    // `/P -1084` clears bits 4, 5 and 11 and leaves bit 3 set, so a render comes out and a page,
+    // an image and a write do not. Each pair is (the consultation, the operation itself).
+    let reading = [
+        ("/pages/0001.pdf", true),
+        ("/renders/150dpi/0001.png", false),
+        ("/images/0001", true),
+    ];
+    for (path, restricted) in reading {
+        let tree = vfs();
+        let consulted = tree
+            .consult(path, Verb::Read)
+            .expect("the question crosses");
+        assert_eq!(
+            matches!(consulted, Consulted::Refuse { .. }),
+            restricted,
+            "{path}: the consultation says {consulted:?}"
+        );
+        let performed = if path == "/images/0001" {
+            tree.list(path).map(|_| ())
+        } else {
+            tree.open(path).map(|_| ())
+        };
+        assert_eq!(
+            performed.is_err(),
+            restricted,
+            "{path}: the operation itself disagreed with the consultation ({performed:?})"
+        );
+    }
+
+    let tree = vfs();
+    assert!(matches!(
+        tree.consult("/pages/0001.pdf", Verb::Delete)
+            .expect("asked"),
+        Consulted::Refuse { .. }
+    ));
+    assert!(tree.remove("/pages/0001.pdf").is_err());
+    let tree = vfs();
+    assert!(matches!(
+        tree.consult("/attachments/x.txt", Verb::Write)
+            .expect("asked"),
+        Consulted::Refuse { .. }
+    ));
+    assert!(tree.write("/attachments/x.txt", b"x").is_err());
+}
+
 /// A copy cut short is a document this reader recovers, and it says so rather than refusing.
 ///
 /// **The round expected a refusal here and the tree gave a recovery**, which is the more honest

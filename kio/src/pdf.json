@@ -1,0 +1,29 @@
+{
+    "KDE-KIO-Protocols": {
+        "pdf": {
+            "Class": "local",
+            "Icon": "application-pdf",
+            "archiveMimetype": [
+                "application/pdf"
+            ],
+            "deleting": true,
+            "determineMimetypeFromExtension": true,
+            "input": "none",
+            "linking": false,
+            "listing": [
+                "Name",
+                "Type",
+                "Size",
+                "Access"
+            ],
+            "makedir": false,
+            "maxInstances": 2,
+            "moving": false,
+            "output": "filesystem",
+            "protocol": "pdf",
+            "reading": true,
+            "source": true,
+            "writing": true
+        }
+    }
+}
