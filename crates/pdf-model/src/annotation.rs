@@ -1068,6 +1068,26 @@ fn construct(
         return Decision::Nothing;
     }
 
+    // **§12.5.6.18 states this reader's answer outright**, and it states it in the prose after
+    // Table 190 rather than in the table — which is why a row that enumerated the table's five
+    // entries never named it (ADR 0901):
+    //
+    // > If AP is not present, the screen annotation shall not have a default visual appearance
+    // > and shall not be printed.
+    //
+    // This path is exactly `/AP` not being present ([`Normal::Absent`]), so the requirement is
+    // met by drawing nothing and *reporting* nothing. The catch-all in
+    // [`crate::appearance::construct`] answered `its clause states no geometry`, which is false
+    // of a clause that states the absence of one — trap 11's shape, and the same correction
+    // §12.5.6.11's caret and §12.5.6.23's redaction each took out of that arm.
+    //
+    // The clause's other reader-facing `shall` is the `/P` bullet above it, and it binds a
+    // processor that performs a **rendition action**: §12.6.4.14 is `out-of-scope` on principle
+    // 5's clause 13 exclusion, so nothing here reaches the condition it is written for.
+    if subtype == b"Screen" {
+        return Decision::Nothing;
+    }
+
     let constructed = crate::appearance::construct(document, annotation, subtype, view, rect);
     let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
     let Some(content) = constructed.content else {

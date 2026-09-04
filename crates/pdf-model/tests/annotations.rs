@@ -914,6 +914,55 @@ fn an_unknown_subtype_with_no_appearance_dictionary_draws_nothing_and_reports_no
     );
 }
 
+/// A screen annotation with no `/AP` draws nothing and reports nothing, and one with an `/AP`
+/// draws it.
+///
+/// §12.5.6.18, in the prose after Table 190 rather than in the table:
+///
+/// > If AP is not present, the screen annotation shall not have a default visual appearance and
+/// > shall not be printed.
+///
+/// So the absence is the clause's own answer and there is no shortfall to name. Until the
+/// nine-hundred-and-thirtieth session `crate::appearance::construct`'s catch-all reported "its
+/// clause states no geometry" here, which is a claim about a clause that states one — trap 11,
+/// and the correction §12.5.6.11's caret and §12.5.6.23's redaction each took out of the same
+/// arm. ADR 0901.
+///
+/// **Both halves are asserted because only the pair discriminates**: an implementation that
+/// dropped every `Screen` annotation outright would pass the first assertion alone, and the
+/// clause's `/AP` sentence — the appearance "shall be used for printing and default display when
+/// a media clip is not being played" — is the half that keeps the annotation on the page.
+/// Calibrated by planting the defect this replaces (the `Screen` arm removed, so the catch-all
+/// answers): the first assertion fails and the second passes.
+#[test]
+fn a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap() {
+    let bare = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Screen /Rect [20 30 60 70] /F 4 /T (a clip) >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        bare.display_list.commands().is_empty(),
+        "the clause states that there is no default visual appearance"
+    );
+    assert!(
+        bare.is_complete(),
+        "a screen annotation with no /AP asks for nothing: {:?}",
+        bare.unsupported
+    );
+
+    let stated = render(pdf_with(
+        "<< /Type /Annot /Subtype /Screen /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert_eq!(
+        extent(&stated),
+        (20, 30, 59, 69),
+        "an /AP is drawn like any other annotation's"
+    );
+}
+
 /// A square with no appearance stream is drawn from Table 180's `/IC`.
 ///
 /// §12.5.6.8: the rectangle "shall be inscribed within the annotation rectangle defined by the

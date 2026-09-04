@@ -51,6 +51,13 @@ use crate::quote;
 /// threshold reports the noise and buries the finding.
 pub const MIN_MATCH: usize = 5;
 
+/// How far either side of a match [`Conversion::sentence_holding`] looks for a sentence boundary.
+///
+/// Longer than any sentence the standard writes, and short enough that a match inside the
+/// bibliography — where there is no boundary for kilobytes — reports its neighbourhood rather
+/// than a page.
+pub const AROUND: usize = 400;
+
 /// The shortest span of prose that is treated as a quotation at all.
 ///
 /// [`quote::MIN_WORDS`], which is where the rule lives now that three populations share it.
@@ -385,6 +392,83 @@ impl Conversion {
         true
     }
 
+    /// The standard's own sentence holding `quotation`, where the conversion holds it at all.
+    ///
+    /// **What a modal verb has to be read from.** [`Self::holds`] answers whether a quotation is
+    /// the standard's words; it cannot say what governs them, because a note quotes the middle of
+    /// a sentence as often as the whole of one — "may be used for encodings where the language is
+    /// not implied" carries no verb of its own and the sentence it sits in carries *may*. So the
+    /// span is widened, in the *spaced* text through [`Self::origin`], to the sentence boundary
+    /// either side of the match.
+    ///
+    /// Only the **first** segment of an elided quotation is located, which is enough: the
+    /// segments are separate sentences as often as not, and a quotation whose first segment the
+    /// conversion does not hold is one [`Self::judge`] already reports.
+    ///
+    /// # Three things a boundary has to be, and all three were measured
+    ///
+    /// - **A full stop *followed by a space*, never a bare one**, because the standard writes
+    ///   `8.9.6.2` and `e.g.` inside sentences and a bare stop cuts both.
+    /// - **A table cell wall counts.** [`quote::normalise`] collapses the conversion's newlines,
+    ///   so a Markdown table is one unbroken run of text with `|` between its cells and often no
+    ///   full stop for thousands of bytes; without this a quotation of one cell reads the whole
+    ///   table as its sentence.
+    /// - **Bounded at [`AROUND`] bytes either way**, because neither of the first two rules fires
+    ///   at all inside the bibliography, the code examples and the tables of contents the
+    ///   conversion inlines. A window is honest where a sentence is not findable: it says *this
+    ///   much of the standard around the match*, and a verb read off it is read off text that is
+    ///   genuinely next to the quotation.
+    #[must_use]
+    pub fn sentence_holding(&self, quotation: &str) -> Option<String> {
+        let segment = segments(quotation).into_iter().next()?;
+        let needle = folded(&segment);
+        if needle.is_empty() {
+            return None;
+        }
+        let at = self.folded.find(&needle)?;
+        let from = *self.origin.get(at)? as usize;
+        let to = self
+            .origin
+            .get(at.saturating_add(needle.len()))
+            .map_or(self.spaced.len(), |byte| *byte as usize);
+
+        let window = self.floor(from.saturating_sub(AROUND));
+        let before = self.spaced.get(window..from).unwrap_or_default();
+        let start = boundaries(before).map_or(window, |past| window.saturating_add(past));
+        let ceiling = self.ceiling(to.saturating_add(AROUND));
+        let after = self.spaced.get(to..ceiling).unwrap_or_default();
+        let end = after
+            .find(". ")
+            .map_or(ceiling, |stop| to.saturating_add(stop).saturating_add(1));
+
+        Some(
+            self.spaced
+                .get(start..end.max(from))
+                .unwrap_or_default()
+                .replace(BETWEEN_DOCUMENTS, " ")
+                .trim()
+                .to_owned(),
+        )
+    }
+
+    /// The nearest character boundary at or below `at`.
+    fn floor(&self, at: usize) -> usize {
+        let mut at = at.min(self.spaced.len());
+        while at > 0 && !self.spaced.is_char_boundary(at) {
+            at = at.saturating_sub(1);
+        }
+        at
+    }
+
+    /// The nearest character boundary at or above `at`.
+    fn ceiling(&self, at: usize) -> usize {
+        let mut at = at.min(self.spaced.len());
+        while at < self.spaced.len() && !self.spaced.is_char_boundary(at) {
+            at = at.saturating_add(1);
+        }
+        at
+    }
+
     /// What the sweep concludes about one quotation.
     ///
     /// The divergence is measured on the **longest segment the conversion does not hold**,
@@ -476,6 +560,16 @@ impl Conversion {
         text.push('\u{2026}');
         text
     }
+}
+
+/// Where the last sentence boundary in `before` ends, in bytes from its start.
+///
+/// Both shapes: a full stop and a space, and the `|` that walls one Markdown table cell from
+/// the next. The later of the two wins, because either one ends whatever came before it.
+fn boundaries(before: &str) -> Option<usize> {
+    let stop = before.rfind(". ").map(|at| at.saturating_add(2));
+    let cell = before.rfind('|').map(|at| at.saturating_add(1));
+    stop.max(cell)
 }
 
 /// A quotation's segments, split at the ellipses that stand for what it left out.
