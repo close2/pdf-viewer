@@ -14034,6 +14034,52 @@ fn check_the_buckets_reached_without_a_consensus(results: &[Examined]) {
     );
 }
 
+/// What the cache saved, and the floor under what it did not save.
+///
+/// Two questions that look like one and are not. The first is a **hit rate**: how many of the
+/// three renderers' seconds this run avoided paying, which drops on an unchanged tree only when
+/// something in the key moved — a renderer updated, or the corpus. The second is a **cost
+/// floor**: how many times a reference renderer was actually spawned, and whether any of those
+/// spawns was for a page one had already drawn in this same run.
+///
+/// A hit rate cannot answer the second. To it, a second miss on a page nobody asked about twice
+/// and a second miss on a page that was asked twice are the same number — which is exactly how
+/// a hundredfold cost regression lived four sessions in another crate with every gate green
+/// (trap 33). `pdfref::Runs` counts the *program running*, and holds it to the only thing that
+/// honestly excuses a second run: the first one having been kept nowhere. There is no clock in
+/// either side of that, so a neighbouring round's load cannot move it. ADRs 0894 and 0898.
+fn report_the_cache(cache: &Cache) {
+    let statistics = cache.statistics();
+    println!(
+        "  reference renders: {} from the cache, {} produced ({:.1}% hit rate){}",
+        statistics.hits,
+        statistics.misses,
+        statistics.hit_rate() * 100.0,
+        match cache.root() {
+            Some(root) if cache.is_enabled() => format!(", cached under {}", root.display()),
+            _ => ", caching disabled".to_owned(),
+        }
+    );
+    if statistics.remembered_timeouts > 0 {
+        // Named on its own line because it is the one kind of entry that can be wrong: each
+        // one is a page a reference is not being asked about at all. A count that grows is a
+        // comparison quietly shrinking, which `PDFREF_CACHE=off` re-checks.
+        println!(
+            "  {} of those were remembered timeouts, so that many reference renders did not \
+             happen at all",
+            statistics.remembered_timeouts
+        );
+    }
+
+    let runs = cache.runs();
+    println!("  reference renderers: {runs}");
+    assert!(
+        runs.holds(),
+        "a reference renderer ran again for a page the cache had kept: {runs}, repeated: {:?}",
+        cache.repeated_keys()
+    );
+}
+
 /// Prints every document that is not agreement, then the totals.
 ///
 /// The per-document lines come first and unabbreviated: on a failure they are the evidence,
@@ -14081,30 +14127,7 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
         ours.as_secs_f64(),
         references.as_secs_f64()
     );
-    // Which of those seconds were avoided, and how many were paid. A hit rate below one on
-    // an unchanged tree means something in the key moved — a renderer was updated, or the
-    // corpus was — and that is worth seeing rather than inferring from the clock.
-    let statistics = cache.statistics();
-    println!(
-        "  reference renders: {} from the cache, {} produced ({:.1}% hit rate){}",
-        statistics.hits,
-        statistics.misses,
-        statistics.hit_rate() * 100.0,
-        match cache.root() {
-            Some(root) if cache.is_enabled() => format!(", cached under {}", root.display()),
-            _ => ", caching disabled".to_owned(),
-        }
-    );
-    if statistics.remembered_timeouts > 0 {
-        // Named on its own line because it is the one kind of entry that can be wrong: each
-        // one is a page a reference is not being asked about at all. A count that grows is a
-        // comparison quietly shrinking, which `PDFREF_CACHE=off` re-checks.
-        println!(
-            "  {} of those were remembered timeouts, so that many reference renders did not \
-             happen at all",
-            statistics.remembered_timeouts
-        );
-    }
+    report_the_cache(cache);
 
     // The slowest pages, because a parallel run's wall clock is its longest pole and nothing
     // else in this report says which page that is. With the references cached the whole run
