@@ -64,6 +64,19 @@ RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ffi
 # implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
 # attributes compiles the thread-and-channel one on this machine. ADR 0194 has the recipe; all 19
 # sandbox tests and the whole corpus gate pass through it.
+cargo build --profile gates -p viewer-confined --bins   # trap 10: the line below runs one test
+tools/bounded.sh --data 12 --tree 12 -- \
+  cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
+  # **the other confined program, over the same population as `pdf-vfs`'s read walk** (ADR 0879):
+  # a document of each of `corpus-classes`'s ten classes, from every corpus root on this disk,
+  # opened as a descriptor and drawn through `pdf-view-worker`, three page turns apiece. What
+  # fails it is a **death** — `killed by signal N` — because a system call the filter forbids costs
+  # this program the page a person is reading, where it costs a mount one generated file. Not a
+  # `doc/todo/02` §2 gate: `pdf-vfs`'s read walk gates the same class of defect every round over a
+  # wider set of *questions*, and this is the run a round that touches the confinement, the
+  # interpreter's dependencies or `pdf-sandbox`'s allow-list owes. 198 documents in 13.5 s; with
+  # `no_machine_fonts()` taken out of `viewer_confined::worker::confine` it reports 28 deaths in
+  # six of the ten classes, which is how it was shown to be able to fail (trap 13)
 cargo bench -p pdf-model
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_interpret            # stops at the display list

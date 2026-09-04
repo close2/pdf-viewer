@@ -1,0 +1,20 @@
+[package]
+name = "corpus-classes"
+description = "Every corpus on this disk, sampled at a fixed stride and classified into the document classes a confined worker is swept over."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Opening a document and walking its objects is the whole of what classification is, so this
+# crate reads with `pdf-syntax` and counts pages with `pdf-model` and takes nothing else. It
+# draws nothing, confines nothing and mounts nothing: what it answers is a *population*, and the
+# instrument that sweeps it is the one that knows what a question of its worker means.
+[dependencies]
+pdf-model.workspace = true
+pdf-syntax.workspace = true
+rayon.workspace = true
+
+[lints]
+workspace = true

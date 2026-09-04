@@ -1,4 +1,4 @@
-//! Every corpus document the core opens, read through the whole of RFC 0003 section 4's layout.
+//! Every corpus on this disk, read through the whole of RFC 0003 section 4's layout.
 //!
 //! `doc/todo/58` §5 has owed this one since the core landed, and the nine-hundred-and-eleventh
 //! session is the argument for it: that round mounted the face by hand over four committed
@@ -9,13 +9,52 @@
 //! documents it carries. The write side has had a 974-document walk since session 909
 //! (`tests/write_corpus.rs`); this is its counterpart, and it is deliberately the *same* shape.
 //!
-//! For every corpus document, over one mount:
+//! For every document of the population below, over one mount:
 //!
 //! 1. **the whole layout is listed** — the root, `pages/`, `renders/` and each resolution under
 //!    it, `images/` and each page's directory under it, `text/`, `attachments/`, `meta/`;
 //! 2. **every entry is `stat`ed**, which by RFC 0003 section 5.5's rule *generates*;
 //! 3. **every file is read**, and held against the reader the layout says it delegates to;
 //! 4. **the listings are read a second time**, and what that costs is counted rather than timed.
+//!
+//! # The population is every corpus on the disk, and it is classified
+//!
+//! Until the nine-hundred-and-nineteenth session this walk was `doc/pdf.js`'s alone, and a second
+//! instrument — `tests/awkward_classes.rs`, session 917 — asked a *narrower* question over a
+//! *wider* population: does the confined worker survive at all, for a document of each class the
+//! pdf.js corpus under-populates. Two instruments each asking half a question are two things to
+//! keep in agreement, and `doc/todo/58` §4 said which way they merge — widen this one, and its
+//! byte comparison covers those classes too. So, since ADR 0878:
+//!
+//! - **every `doc/pdf.js` document is walked**, as before, which is what keeps the figures this
+//!   walk has printed since session 914 comparable with the sessions that wrote them down;
+//! - **every other corpus root on this disk** — the `doc/corpora` submodules and the
+//!   `corpus-cache` collections, whichever of them this machine has — is sampled at a fixed
+//!   stride, classified, and the first [`PER_CLASS`] documents of each class are walked beside
+//!   them. That is where damaged, huge, JBIG2 and JPEG 2000 documents actually live, and a
+//!   machine with none of those roots checked out walks exactly what it walked before;
+//! - **every document of the population is classified**, pdf.js's included, so the matrix the run
+//!   prints is over the whole walk rather than over its widening;
+//! - **and a widened document is read to a smaller depth**, which is [`Bounds`] and is the one
+//!   place the two halves of the population differ. Listings are whole for both — every name of
+//!   every directory against the layout's own — and what is bounded is the *reads*: a widened
+//!   document's first [`PAGES_SAMPLED`] pages and the first [`ENTRIES_SAMPLED`] entries of one
+//!   directory. One corpus document is why, and its measurement is under [`ENTRIES_SAMPLED`].
+//!
+//! A class is not a diagnosis: a document is in as many of them as it satisfies, and *plain* is
+//! in the list because a sweep that meets only awkward documents cannot say whether what it found
+//! is the class or the walk. Session 917 is why the matrix is printed rather than the total: with
+//! `no_machine_fonts()` taken out of the worker, the control class died more often than the
+//! encrypted one, which is ADR 0876's misattribution reproduced at corpus scale.
+//!
+//! # A death is not a refusal
+//!
+//! The other half of what came over from that instrument. A refusal is a sentence a face can show
+//! and is counted here by reason; a **death** is a worker killed by a signal — what a face's user
+//! sees as a folder that stops answering — and `confined-transport`'s supervision words one as
+//! `killed by signal N`. Any sentence naming one fails this run wherever it appears, in an open, a
+//! listing, a read or a comparison; and each mount is asked one more question after its walk, so
+//! that session 902's recovery of a dead worker is measured rather than claimed.
 //!
 //! # What each file is held to, and why that is not a second implementation
 //!
@@ -88,10 +127,11 @@
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use corpus_classes::{Choice, Chosen, Class, Contribution, PDFJS, is_a_death};
 use pdf_syntax::{Document, FileBytes, Limits};
 use pdf_transform::attachments::{Action, AttachmentsPlan};
 use pdf_transform::images::ImagesPlan;
@@ -112,11 +152,72 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 /// one page of this walk is a page extraction, two renders (150 and 300 dpi), one image
 /// extraction and one text readback, and the second pass repeats them.
 ///
-/// Sixteen, and the figure is the corpus's rather than a guess: 1747 pages over 973 documents,
+/// Sixteen, and the figure is `doc/pdf.js`'s rather than a guess: 1747 pages over 973 documents,
 /// of which one document holds 352 and two more hold 55 and 23. A per-document ceiling costs
 /// this walk 4 % of its pages and takes the longest document's serial run — one rayon task —
 /// from 352 pages to 16. Every page of 966 of the 973 documents is still read.
 const PAGES_READ: usize = 16;
+
+/// How many pages of a *widened* document are read, `stat`ed and compared.
+///
+/// **Two depths, one instrument**, and the second one is the cost session 917 gave as its reason
+/// for keeping two (ADR 0878). At sixteen pages the widened population is not a slower walk but a
+/// different one: `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` was still generating after
+/// **25 minutes** on one document, in the worker and in this process alike, and the run's peak was
+/// 9.03 GiB of the 12 the bound allows. Neither side of that comparison can be interrupted —
+/// `Vfs` reaches no `Canceller` (`doc/todo/58` §4) and a thread computing an expectation cannot be
+/// stopped at all — so the bound has to be on what is *asked for*.
+///
+/// Two, which is the width session 917's sweep used over the same roots for the same reason: what
+/// the widening is for is a class of document reaching the generators at all, and the second page
+/// is there because the first page of a document is the one every other test reads.
+const PAGES_SAMPLED: usize = 2;
+
+/// How many entries of one directory a *widened* document has read.
+///
+/// The second bound, and the document that priced it is why it is not the first one over again.
+/// `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` states **10 084 images on one page**, each
+/// two pixels by one, so `/images/0001/` is a directory of ten thousand files — and this walk
+/// `stat`s and reads every entry it lists. A `stat` generates (RFC 0003 section 5.5), a read puts
+/// a whole extraction run in the cache at once, and a run too large for the cache's budget is put
+/// nowhere at all (ADR 0865 section 3, round 911's finding), so on that page every one of twenty
+/// thousand questions re-ran an extraction of ten thousand images. The walk was still inside that
+/// one document after twenty-five minutes, at sixteen pages and at two alike.
+///
+/// That is a fact about the *mount* rather than only about the walk — `doc/todo/58` §5 carries it
+/// — and what the walk owes is to be bounded rather than to rediscover it every run. Four
+/// entries; the ones past it are still listed and still held to the layout's own names, and they
+/// are counted as read by nobody.
+const ENTRIES_SAMPLED: usize = 4;
+
+/// What a document of this root has read of it: pages, and entries of one directory.
+///
+/// **Two depths, one instrument.** `doc/pdf.js` is walked exactly as it was before the widening,
+/// which is what keeps the figures printed since session 914 comparable; every other root is
+/// sampled, because the population that carries the awkward classes carries the pathological
+/// documents too, and a gate one document can hold for half an hour is not a gate (ADR 0878).
+#[derive(Debug, Clone, Copy)]
+struct Bounds {
+    /// How many of the document's pages are read.
+    pages: usize,
+    /// How many entries of one directory are `stat`ed and read.
+    entries: usize,
+}
+
+/// What this document is walked to, by the root it came from.
+fn bounds(chosen: &Chosen) -> Bounds {
+    if chosen.root == PDFJS {
+        Bounds {
+            pages: PAGES_READ,
+            entries: usize::MAX,
+        }
+    } else {
+        Bounds {
+            pages: PAGES_SAMPLED,
+            entries: ENTRIES_SAMPLED,
+        }
+    }
+}
 
 /// The corpus documents that refuse §7.6.4.1's default user password, with the password each
 /// one's own pdf.js issue records.
@@ -163,19 +264,52 @@ fn require_the_sandbox() {
     }
 }
 
-/// The corpus files, or `None` when the submodule is not checked out.
-fn corpus() -> Option<Vec<PathBuf>> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&root)
-        .ok()?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().is_some_and(|extension| extension == "pdf"))
-        .collect();
-    if files.is_empty() {
-        return None;
+/// How many documents are classified from each corpus root other than `doc/pdf.js`.
+///
+/// Classification opens the document and walks its objects, which is the cost this bounds; the
+/// stride is [`corpus_classes::sampled`]'s.
+const SAMPLE_PER_ROOT: usize = 1200;
+
+/// How many documents of each class are walked from each root other than `doc/pdf.js`.
+///
+/// The whole cost of the widening, and it is chosen against this walk's own wall clock rather
+/// than for coverage: a widened document is walked exactly as a pdf.js one is — up to
+/// [`PAGES_READ`] pages, each extracted, drawn twice, read for its images and for its text, on
+/// both sides of the comparison — and the *huge* class is in the population on purpose.
+const PER_CLASS: usize = 6;
+
+/// The population: every `doc/pdf.js` document, and a class-balanced sample of every other root.
+///
+/// `doc/pdf.js` whole, because the figures this walk has printed since session 914 are over it and
+/// a widening that moved them would make them incomparable; every other root sampled, because
+/// that is where damaged, huge, JBIG2 and JPEG 2000 documents live and walking all of them is a
+/// day rather than a gate. A machine with no other corpus checked out walks exactly what it
+/// walked before, and the report says which roots it found.
+fn chosen() -> (Vec<Chosen>, Vec<Contribution>) {
+    let choice = Choice {
+        whole: vec![PDFJS.to_owned()],
+        sample_per_root: SAMPLE_PER_ROOT,
+        per_class: PER_CLASS,
+    };
+    let (chosen, contributions) =
+        corpus_classes::population(&corpus_classes::roots(), &choice, &|name| {
+            password_for(name).to_owned()
+        });
+    // A walk over a thousand documents that has to be run for *one* of them is how a slow
+    // document is diagnosed, and there is no other way in: the population is derived, so it
+    // cannot be narrowed by editing a list. The filter is named in the run's output so that a
+    // figure taken under it can never be read as the whole walk's.
+    match std::env::var("PDFVFS_READ_ONLY") {
+        Ok(only) if !only.is_empty() => {
+            println!("vfs-read: PDFVFS_READ_ONLY={only} — this is not the whole walk");
+            let kept = chosen
+                .into_iter()
+                .filter(|one| one.display.contains(&only))
+                .collect();
+            (kept, contributions)
+        }
+        _ => (chosen, contributions),
     }
-    files.sort();
-    Some(files)
 }
 
 /// The password the corpus records for this document, or the empty one.
@@ -353,8 +487,36 @@ struct Tally {
     both_refused: usize,
     /// Pages past [`PAGES_READ`], listed and not read.
     pages_not_read: usize,
+    /// Directory entries past [`ENTRIES_SAMPLED`], listed and not read.
+    entries_not_read: usize,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
+    /// A question whose sentence names a signal: the confined worker died.
+    killed: Vec<(String, String)>,
+    /// A mount that did not answer after its walk, so a dead worker was not replaced.
+    unrecovered: Vec<String>,
+    /// What each class of document cost and answered, over the whole population.
+    classes: BTreeMap<Class, ClassTally>,
+    /// Every document's wall clock, so that the slowest few can be printed.
+    took: Vec<(String, f64)>,
+}
+
+/// One row of the matrix the run prints.
+///
+/// A document counts in every class it falls into, so these columns sum to more than the
+/// population: a class is a property rather than a slot.
+#[derive(Default, Clone, Copy)]
+struct ClassTally {
+    /// Documents of this class walked.
+    documents: usize,
+    /// Files read out of their trees.
+    read: usize,
+    /// Bytes those files held.
+    bytes: u64,
+    /// Questions the tree refused by name, the open included.
+    refused: usize,
+    /// Questions whose sentence names a signal.
+    killed: usize,
 }
 
 /// Adds to the shared tally, ignoring a poisoned lock (another document's panic is already being
@@ -385,8 +547,23 @@ struct Local {
     transport_differ: Vec<String>,
     both_refused: usize,
     pages_not_read: usize,
+    entries_not_read: usize,
     /// Every file read in the first pass, by path, as (size, digest).
     seen: BTreeMap<String, (u64, u64)>,
+    /// Whether the whole layout was walked, which a document the core cannot open is not.
+    walked: bool,
+    /// Whether it opened and reached no page.
+    pageless: bool,
+    /// Why the core would not open it at all.
+    refused_open: Option<String>,
+    /// Whether the mount answered one more question after the walk (session 902's recovery).
+    recovered: bool,
+    /// What this document cost, wall clock, on one rayon task.
+    ///
+    /// Printed for the slowest few rather than asserted on: a document that costs minutes is a
+    /// fact about a *face* — a person's file manager waiting on one `stat` — and this walk is
+    /// where it shows up first. What bounds the run is [`PAGES_SAMPLED`], not a threshold here.
+    took: std::time::Duration,
 }
 
 impl Local {
@@ -394,6 +571,23 @@ impl Local {
     fn agreed(&mut self, row: &'static str) {
         let count = self.matched.entry(row).or_default();
         *count = count.saturating_add(1);
+    }
+
+    /// Every sentence this document's walk produced, whichever column it fell into.
+    ///
+    /// One iterator rather than a check at each site, so that [`is_a_death`] is asked of all of
+    /// them: a worker that dies does so under whichever question was being asked, and the column
+    /// that catches the answer is not the one that decides whether it was a death.
+    fn sentences(&self) -> impl Iterator<Item = &String> {
+        self.refused_open
+            .iter()
+            .chain(&self.refused)
+            .chain(&self.differ)
+            .chain(&self.listing_failed)
+            .chain(&self.size_failed)
+            .chain(&self.unstable)
+            .chain(&self.regenerated)
+            .chain(&self.transport_differ)
     }
 }
 
@@ -530,7 +724,7 @@ fn root(vfs: &Vfs, local: &mut Local) {
 }
 
 /// `pages/`: one name per page, and each of them `pdf_transform`'s own piece.
-fn pages(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
+fn pages(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize, bounds: Bounds) {
     let Ok(listed) = listing(vfs, "/pages").inspect_err(|why| local.refused.push(why.clone()))
     else {
         return;
@@ -542,7 +736,7 @@ fn pages(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
     holds_names(local, "/pages", &listed, &wanted);
     for (at, entry) in listed.iter().enumerate() {
         let page = at.saturating_add(1);
-        if page > PAGES_READ {
+        if page > bounds.pages {
             local.pages_not_read = local.pages_not_read.saturating_add(1);
             continue;
         }
@@ -574,7 +768,7 @@ fn pages(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
 }
 
 /// `renders/`: the resolutions the core offers, and each page drawn at each of them.
-fn renders(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
+fn renders(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize, bounds: Bounds) {
     let Ok(listed) = listing(vfs, "/renders").inspect_err(|why| local.refused.push(why.clone()))
     else {
         return;
@@ -598,7 +792,7 @@ fn renders(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) 
         holds_names(local, &at, &pages, &wanted);
         for (index, entry) in pages.iter().enumerate() {
             let page = index.saturating_add(1);
-            if page > PAGES_READ {
+            if page > bounds.pages {
                 local.pages_not_read = local.pages_not_read.saturating_add(1);
                 continue;
             }
@@ -637,7 +831,7 @@ fn renders(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) 
 }
 
 /// `images/`: a directory per page, whose listing **is** the extraction's own output names.
-fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
+fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize, bounds: Bounds) {
     let Ok(listed) = listing(vfs, "/images").inspect_err(|why| local.refused.push(why.clone()))
     else {
         return;
@@ -647,7 +841,7 @@ fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
     holds_names(local, "/images", &listed, &wanted);
     for (index, entry) in listed.iter().enumerate() {
         let page = index.saturating_add(1);
-        if page > PAGES_READ {
+        if page > bounds.pages {
             continue;
         }
         let at = format!("/images/{}", entry.name);
@@ -696,8 +890,13 @@ fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
         // and a read are one call, so the names cannot disagree.
         let mut wanted: Vec<String> = outputs.iter().map(|(name, _)| name.clone()).collect();
         wanted.sort();
+        // The listing is whole — every name of it against the extraction's own — and only the
+        // *reads* are bounded, which is the split `PAGES_READ` already makes for pages.
         holds_names(local, &at, &inventory, &wanted);
-        for entry in &inventory {
+        local.entries_not_read = local
+            .entries_not_read
+            .saturating_add(inventory.len().saturating_sub(bounds.entries));
+        for entry in inventory.iter().take(bounds.entries) {
             let expected = outputs
                 .iter()
                 .find(|(name, _)| *name == entry.name)
@@ -715,7 +914,7 @@ fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize) {
 }
 
 /// `text/`: one file per page and the joined document, each `interpret`'s own readback.
-fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize) {
+fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize, bounds: Bounds) {
     let Ok(listed) = listing(vfs, "/text").inspect_err(|why| local.refused.push(why.clone()))
     else {
         return;
@@ -742,13 +941,22 @@ fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize) {
     };
     let model = pdf_model::Pages::new(&document);
     let mut joined: Vec<u8> = Vec::new();
-    let mut whole_is_known = count <= PAGES_READ;
-    for page in 1..=count {
+    let mut whole_is_known = count <= bounds.pages;
+    // `document.txt` is every page joined, so a document longer than the walk's depth has no
+    // expectation for it — and until session 919 this loop *still* interpreted every page of one,
+    // to throw the text away. Reading past the depth when nothing will be compared is what made a
+    // long document cost what a long document costs (ADR 0878).
+    let read_to = if whole_is_known {
+        count
+    } else {
+        count.min(bounds.pages)
+    };
+    for page in 1..=read_to {
         let expected = model.get(page.saturating_sub(1)).map_or_else(
             || Err(format!("page {page} could not be read")),
             |found| Ok(pdf_model::interpret(&document, &found).text.into_bytes()),
         );
-        if page <= PAGES_READ {
+        if page <= bounds.pages {
             one_file(
                 vfs,
                 local,
@@ -788,7 +996,7 @@ fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize) {
 }
 
 /// `attachments/`: §7.11.4's embedded files, under the names the document files them by.
-fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path) {
+fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, bounds: Bounds) {
     let Ok(listed) =
         listing(vfs, "/attachments").inspect_err(|why| local.refused.push(why.clone()))
     else {
@@ -834,7 +1042,10 @@ fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path) {
         ));
         return;
     }
-    for (entry, document_name) in listed.iter().zip(names.iter()) {
+    local.entries_not_read = local
+        .entries_not_read
+        .saturating_add(listed.len().saturating_sub(bounds.entries));
+    for (entry, document_name) in listed.iter().zip(names.iter()).take(bounds.entries) {
         let expected = produce(
             name,
             path,
@@ -1052,43 +1263,82 @@ fn again(vfs: &Vfs, local: &mut Local) {
     }
 }
 
-/// One document through the walk.
-fn examine(path: &Path, tally: &Mutex<Tally>) {
-    let name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    let vfs = mounted(path, &name, Transport::Confined);
-    let count = match vfs.pages() {
-        Ok(count) => count,
-        Err(error) => {
-            record(tally, |t| t.refused_open.push((name, error.to_string())));
-            return;
-        }
-    };
-    if count == 0 {
-        record(tally, |t| t.pageless = t.pageless.saturating_add(1));
-    }
-    let here = mounted(path, &name, Transport::Here);
-
+/// One document of the population through the walk.
+fn examine(chosen: &Chosen, tally: &Mutex<Tally>) {
+    let began = Instant::now();
+    let (name, path) = (chosen.name.as_str(), chosen.path.as_path());
+    let vfs = mounted(path, name, Transport::Confined);
     let mut local = Local::default();
-    root(&vfs, &mut local);
-    pages(&vfs, &mut local, &name, path, count);
-    renders(&vfs, &mut local, &name, path, count);
-    images(&vfs, &mut local, &name, path, count);
-    text(&vfs, &mut local, path, &name, count);
-    attachments(&vfs, &mut local, &name, path);
-    meta(&vfs, &here, &mut local, path, &name);
-    again(&vfs, &mut local);
+    match vfs.pages() {
+        Ok(count) => {
+            local.walked = true;
+            local.pageless = count == 0;
+            let here = mounted(path, name, Transport::Here);
+            let bounds = bounds(chosen);
+            root(&vfs, &mut local);
+            pages(&vfs, &mut local, name, path, count, bounds);
+            renders(&vfs, &mut local, name, path, count, bounds);
+            images(&vfs, &mut local, name, path, count, bounds);
+            text(&vfs, &mut local, path, name, count, bounds);
+            attachments(&vfs, &mut local, name, path, bounds);
+            meta(&vfs, &here, &mut local, path, name);
+            again(&vfs, &mut local);
+        }
+        Err(error) => local.refused_open = Some(error.to_string()),
+    }
+    // Session 902's recovery, asked *after* the walk so that a death anywhere in it is followed
+    // by a question the mount still has to answer. What is asked is that the answer is not a
+    // corpse rather than that it is a page count: a locked document, an unopenable one and an
+    // encryption this reader does not implement each answer `Err` here for ever and are right to
+    // (trap 11, and session 917 got this wrong the first time).
+    local.recovered = vfs
+        .pages()
+        .err()
+        .is_none_or(|error| !is_a_death(&error.to_string()));
+    local.took = began.elapsed();
+    merge(chosen, local, tally);
+}
 
+/// One document's own tally folded into the run's, under its classes and with its deaths.
+fn merge(chosen: &Chosen, local: Local, tally: &Mutex<Tally>) {
+    let deaths: Vec<String> = local
+        .sentences()
+        .filter(|sentence| is_a_death(sentence))
+        .cloned()
+        .collect();
+    let refusals = local
+        .refused
+        .len()
+        .saturating_add(usize::from(local.refused_open.is_some()));
+    let name = chosen.display.clone();
     record(tally, |t| {
-        t.walked = t.walked.saturating_add(1);
+        for class in &chosen.classes {
+            let row = t.classes.entry(*class).or_default();
+            row.documents = row.documents.saturating_add(1);
+            row.read = row.read.saturating_add(local.read);
+            row.bytes = row.bytes.saturating_add(local.bytes);
+            row.refused = row.refused.saturating_add(refusals);
+            row.killed = row.killed.saturating_add(deaths.len());
+        }
+        for sentence in deaths {
+            t.killed.push((name.clone(), sentence));
+        }
+        if !local.recovered {
+            t.unrecovered.push(name.clone());
+        }
+        if let Some(why) = local.refused_open {
+            t.refused_open.push((name.clone(), why));
+        }
+        t.took.push((name.clone(), local.took.as_secs_f64()));
+        t.walked = t.walked.saturating_add(usize::from(local.walked));
+        t.pageless = t.pageless.saturating_add(usize::from(local.pageless));
         t.directories = t.directories.saturating_add(local.directories);
         t.statted = t.statted.saturating_add(local.statted);
         t.read = t.read.saturating_add(local.read);
         t.bytes = t.bytes.saturating_add(local.bytes);
         t.both_refused = t.both_refused.saturating_add(local.both_refused);
         t.pages_not_read = t.pages_not_read.saturating_add(local.pages_not_read);
+        t.entries_not_read = t.entries_not_read.saturating_add(local.entries_not_read);
         for (row, count) in local.matched {
             let held = t.matched.entry(row).or_default();
             *held = held.saturating_add(count);
@@ -1107,6 +1357,11 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
             }
         }
     });
+}
+
+/// Mebibytes, without a cast the workspace's lints would have to be argued with.
+fn mib(bytes: u64) -> f64 {
+    f64::from(u32::try_from(bytes >> 10).unwrap_or(u32::MAX)) / 1024.0
 }
 
 /// Prints one census list, capped, with its length.
@@ -1135,17 +1390,18 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
     // and an expectation computed here with the machine's fonts would differ from the tree's
     // answer for a reason that is not the tree's.
     pdf_font::substitute::no_machine_fonts();
-    let Some(files) = corpus() else {
-        println!("skipped: the doc/pdf.js submodule is not checked out");
+    let started = Instant::now();
+    let (documents, contributions) = chosen();
+    if documents.is_empty() {
+        println!("skipped: no corpus root on this disk holds a document");
         return;
-    };
+    }
 
     let tally = Mutex::new(Tally::default());
-    let started = Instant::now();
-    files.par_iter().for_each(|path| {
-        let name = path.display().to_string();
+    documents.par_iter().for_each(|document| {
+        let name = document.display.clone();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            examine(path, &tally);
+            examine(document, &tally);
         }));
         if let Err(payload) = outcome {
             let what = payload
@@ -1161,11 +1417,17 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
 
     println!(
         "vfs-read: {} documents in {:.1}s, {} threads, confined transport, {PAGES_READ} pages a \
-         document",
-        files.len(),
+         doc/pdf.js document and {PAGES_SAMPLED} of every other root's",
+        documents.len(),
         elapsed.as_secs_f64(),
         rayon::current_num_threads()
     );
+    for contribution in &contributions {
+        println!(
+            "vfs-read:   {}: {} classified, {} walked",
+            contribution.root, contribution.classified, contribution.chosen
+        );
+    }
     print_list("refused open", &tally.refused_open);
     println!(
         "vfs-read:   documents walked: {}, with no page: {}",
@@ -1176,14 +1438,15 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
         tally.directories,
         tally.statted,
         tally.read,
-        f64::from(u32::try_from(tally.bytes >> 10).unwrap_or(u32::MAX)) / 1024.0
+        mib(tally.bytes)
     );
     for (row, count) in &tally.matched {
         println!("vfs-read:   {row}: {count} files are their own generator's bytes");
     }
     println!(
-        "vfs-read:   the tree and the generator both refused: {}, pages past the ceiling: {}",
-        tally.both_refused, tally.pages_not_read
+        "vfs-read:   the tree and the generator both refused: {}, pages past the ceiling: {}, \
+         entries listed and not read: {}",
+        tally.both_refused, tally.pages_not_read, tally.entries_not_read
     );
     print_list("refused by name", &tally.refused);
     print_list("not the generator's bytes", &tally.differ);
@@ -1193,10 +1456,54 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
     print_list("a second stat generated again", &tally.regenerated);
     print_list("the two transports disagree", &tally.transport_differ);
     print_list("panicked", &tally.panicked);
+    print_list("killed", &tally.killed);
+    println!("vfs-read:   did not recover: {}", tally.unrecovered.len());
+
+    let mut slowest = tally.took.clone();
+    slowest.sort_by(|left, right| right.1.total_cmp(&left.1));
+    println!("vfs-read: the five slowest documents, in seconds:");
+    for (name, seconds) in slowest.iter().take(5) {
+        println!("vfs-read:   {seconds:8.1}  {name}");
+    }
+
+    println!("vfs-read: by class, over the whole population:");
+    for class in Class::ALL {
+        match tally.classes.get(class) {
+            None => println!("vfs-read:   {:<24} no document on this disk", class.name()),
+            Some(row) => println!(
+                "vfs-read:   {:<24} {} document(s), {} files read ({:.1} MiB), {} refused, \
+                 {} killed",
+                class.name(),
+                row.documents,
+                row.read,
+                mib(row.bytes),
+                row.refused,
+                row.killed
+            ),
+        }
+    }
 
     assert!(
         tally.panicked.is_empty(),
         "principle 1: no panic on any input"
+    );
+    assert!(
+        tally.killed.is_empty(),
+        "RFC 0003 section 6: the confined worker was killed by a signal on {} question(s), which \
+         is what a face's user sees as a folder that stops answering:\n{}",
+        tally.killed.len(),
+        tally
+            .killed
+            .iter()
+            .take(40)
+            .map(|(name, why)| format!("    {name}: {why}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert!(
+        tally.unrecovered.is_empty(),
+        "ADR 0847: a mount did not answer after its walk, so a dead worker was not replaced: {:?}",
+        tally.unrecovered
     );
     assert!(
         tally.listing_failed.is_empty(),

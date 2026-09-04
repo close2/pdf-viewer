@@ -864,6 +864,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "corpus-classes"
+version = "0.1.0"
+dependencies = [
+ "pdf-model",
+ "pdf-syntax",
+ "rayon",
+]
+
+[[package]]
 name = "cpubits"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3253,6 +3262,7 @@ name = "pdf-vfs"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
+ "corpus-classes",
  "libc",
  "pdf-font",
  "pdf-model",
@@ -4796,6 +4806,7 @@ name = "viewer-confined"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
+ "corpus-classes",
  "libc",
  "pdf-font",
  "pdf-model",

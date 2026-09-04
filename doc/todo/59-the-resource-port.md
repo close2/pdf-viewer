@@ -78,7 +78,13 @@ document's.
    (ADR 0875 says the same of its restriction level). Every one of them is **off** by default.
 4. **The measurement** — `crates/pdf-vfs/examples/faces_on_the_port.rs`, over the four documents
    above and over any population a caller names, with the unconfined process as the reference and
-   byte identity as the comparison. ADR 0881 has the figures.
+   byte identity as the comparison. ADR 0881 has the figures: over all 974 documents of
+   `doc/pdf.js`, 40 pages differed from what this machine draws unconfined and are now
+   byte-identical to it, 0 are offered and still different, and twelve of the forty were blank
+   before. **`crates/corpus-classes`, which session 919 made the confined sweeps' population (ADRs
+   0878, 0879), is the wider denominator this example should take next** — it is a different
+   question from the sweeps' own (they ask whether the worker survives; this asks what it drew) and
+   it is the same population.
 
 **One thing did not land the way this file specified it, and the reason is a finding.** The resource
 crosses as **bytes on the frame**, not as a descriptor: a descriptor works and then kills every debug
