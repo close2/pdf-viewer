@@ -482,6 +482,14 @@ pub struct Vfs {
     /// one commit, which is the cost of a transaction and is what a caller of a file system
     /// expects `close(2)` to be doing.
     state: Mutex<Serving>,
+    /// How many times a virtual file's bytes have actually been produced.
+    ///
+    /// The instrument the cache's own numbers do not give: bytes held say what is remembered,
+    /// this says what was *done*. A gate that means "and it did not generate it again" has no
+    /// other way to say so — a size is the same number whether it was remembered or recomputed,
+    /// which is exactly what made a test of [`Cache::size_of`] pass without it (round 911, trap
+    /// 13). An `AtomicU64` because every operation here is behind `&self`.
+    generated: std::sync::atomic::AtomicU64,
 }
 
 /// Everything one document's mount holds that a commit changes.
@@ -496,6 +504,12 @@ struct Serving {
     staged: std::collections::BTreeMap<u64, Staged>,
     /// The next token, which is never reused inside one mount.
     next_token: u64,
+    /// How many generation transitions have been [`Provenance::Foreign`] since this tree opened.
+    ///
+    /// Monotonic, and only ever compared for equality: [`Staged::foreign_edits`] says what it is
+    /// for. A counter rather than the served generation's own [`Provenance`], because that flag
+    /// describes the *last* transition and a write can be staged across several.
+    foreign_edits: u64,
 }
 
 /// One generation of the document, and what has been read of it so far.
@@ -537,6 +551,7 @@ impl Vfs {
             workers,
             config,
             state: Mutex::new(Serving::default()),
+            generated: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -666,6 +681,7 @@ impl Vfs {
             Provenance::Ours
         } else {
             held.ours = None;
+            held.foreign_edits = held.foreign_edits.saturating_add(1);
             Provenance::Foreign
         };
         let current = Arc::new(Current {
@@ -677,6 +693,14 @@ impl Vfs {
         });
         held.current = Some(Arc::clone(&current));
         Ok(current)
+    }
+
+    /// How many virtual files this tree has produced the bytes of, since it opened.
+    ///
+    /// Monotonic, and the counterpart to what the cache holds: see [`Vfs::generated`]'s field.
+    #[must_use]
+    pub fn generated(&self) -> u64 {
+        self.generated.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whose edit produced the generation being served.
@@ -875,6 +899,19 @@ impl Vfs {
                 generation: current.generation,
             });
         }
+        // A size this generation has already produced, answered without producing it again.
+        // RFC 0003 section 5.5's rule is that a `stat` may not *estimate* — "an under-estimate
+        // silently truncates a page" — and a length taken off the bytes themselves is not an
+        // estimate whether or not those bytes are still in the cache. `Cache::sizes` has what a
+        // mount by hand measured this to be worth.
+        let canonical = canonical_path(path)?;
+        if let Some(size) = self.cache.size_of(current.generation, &canonical) {
+            return Ok(Attributes {
+                kind: Kind::File,
+                size: Some(size),
+                generation: current.generation,
+            });
+        }
         let handle = self.open(path)?;
         Ok(Attributes {
             kind: Kind::File,
@@ -907,6 +944,8 @@ impl Vfs {
                 bytes,
             });
         }
+        self.generated
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bytes = self.generate(&current, route, &captures, &canonical)?;
         Ok(Handle {
             path: canonical.clone(),
@@ -954,6 +993,7 @@ impl Vfs {
         let (route, captures) = Self::locate_for_write(&current, &canonical)?;
         let token = held.next_token;
         held.next_token = held.next_token.saturating_add(1);
+        let foreign_edits = held.foreign_edits;
         held.staged.insert(
             token,
             Staged {
@@ -961,7 +1001,9 @@ impl Vfs {
                 route,
                 captures,
                 generation: current.generation,
+                foreign_edits,
                 bytes: Vec::new(),
+                touched: false,
                 committed: false,
             },
         );
@@ -997,6 +1039,7 @@ impl Vfs {
                 ceiling,
             });
         }
+        staged.touched = true;
         if staged.bytes.len() < end {
             staged.bytes.resize(end, 0);
         }
@@ -1030,6 +1073,7 @@ impl Vfs {
                 ceiling,
             })?;
         staged.bytes.resize(to, 0);
+        staged.touched = true;
         staged.committed = false;
         Ok(())
     }
@@ -1050,19 +1094,28 @@ impl Vfs {
     /// do not proceed.
     pub fn flush(&self, id: StagedId) -> Result<Committed, VfsError> {
         let mut held = self.held();
-        let (path, route, captures, generation, bytes, committed) = {
+        let (path, mut route, mut captures, generation, foreign_edits, bytes, touched, committed) = {
             let staged = held.staged.get(&id.0).ok_or(VfsError::NoSuchWrite(id.0))?;
             (
                 staged.path.clone(),
                 staged.route,
                 staged.captures.clone(),
                 staged.generation,
+                staged.foreign_edits,
                 staged.bytes.clone(),
+                staged.touched,
                 staged.committed,
             )
         };
         let current = self.current_in(&mut held)?;
-        if committed {
+        // Nothing to do, twice over. `committed` is the second `close(2)` of a file the kernel
+        // opened twice; `!touched` is a handle opened for writing that nobody wrote to or
+        // truncated, which [`Staged::touched`] says is not a write at all. Both mark the write
+        // done so that [`Vfs::release`] does not then announce an abandonment.
+        if committed || !touched {
+            if let Some(staged) = held.staged.get_mut(&id.0) {
+                staged.committed = true;
+            }
             return Ok(Committed {
                 path,
                 meaning: route.write.on_write,
@@ -1073,7 +1126,40 @@ impl Vfs {
             });
         }
         if current.generation != generation {
-            return Err(VfsError::Changed { path });
+            // **Whose edit moved it decides, and so does what the name means.**
+            //
+            // A *foreign* edit is `ESTALE` without exception: RFC 0003 section 5.4 makes the
+            // backing file the single source of truth, and committing over somebody else's
+            // update could discard it. [`Staged::foreign_edits`] is how that question is asked
+            // exactly, across any number of transitions.
+            //
+            // Our own commit is a different thing, and it used to be refused as though it were
+            // the same one — two writes in flight at once in a single mount, the first
+            // committing, the second `ESTALE` (round 911). What decides there is whether the
+            // *name* still means what it meant. An embedded file's name and the information
+            // dictionary are identities, so they still do. A page's ordinal is a **position** —
+            // RFC 0003 section 5.2: "[o]rdinal names are positions, not identities … after any
+            // write, the next listing renumbers" — so an insertion staged before a commit that
+            // renumbered would land somewhere nobody asked for, and it stays `ESTALE`.
+            let rebasable = foreign_edits == held.foreign_edits
+                && matches!(
+                    route.write.on_write,
+                    Write::EmbedFile | Write::SetInformation
+                );
+            if !rebasable {
+                return Err(VfsError::Changed { path });
+            }
+            // Re-asked rather than reused, so that every check `create` made — the name §7.7.4's
+            // tree already holds above all — is made again against the generation this is about
+            // to be committed to.
+            let (fresh_route, fresh_captures) = Self::locate_for_write(&current, &path)?;
+            route = fresh_route;
+            captures = fresh_captures;
+            if let Some(staged) = held.staged.get_mut(&id.0) {
+                staged.route = route;
+                staged.captures = captures.clone();
+                staged.generation = current.generation;
+            }
         }
         let query = match route.write.on_write {
             Write::InsertPages => Query::InsertPages {

@@ -45,6 +45,10 @@ const WITH_ATTACHMENTS: &str = "PDF-Declarations.pdf";
 /// The fourteen-page annex about associated files, which is the document the write comparison
 /// inserts: a *different* document of a different length.
 const FOURTEEN_PAGES: &str = "PDF20_AN002-AF.pdf";
+/// The seventy-two page tagging guide, whose page 60 is the only one here holding **two** images.
+const TWO_IMAGES_ON_A_PAGE: &str = "Tagged-PDF-Best-Practice-Guide.pdf";
+/// Which page that is.
+const THE_PAGE_WITH_TWO: usize = 60;
 
 /// Every question the layout can ask of the five-page annex, in one list.
 ///
@@ -140,6 +144,40 @@ fn a_confined_worker_answers_exactly_what_the_in_process_one_answers() {
         let theirs = there.ask(&question).map_err(|error| error.to_string());
         assert_eq!(ours, theirs, "{question:?} answered differently");
     }
+}
+
+/// A page with **two** images, which is the first question that dispatches onto a second thread.
+///
+/// **Every probe in this file passed while this was broken, and that is the point of it.** A
+/// mount by hand asked for `images/0060/` on the tagging guide and the worker died with
+/// `SIGSYS`; the kernel's own audit line says `syscall=257`, `openat`. Nothing in the extraction
+/// opens a file — what does is `glibc`, creating a per-thread allocator arena at the *first*
+/// allocation of `rayon`'s pool thread and sizing the arena count from
+/// `/sys/devices/system/cpu/online`. One image never reached that thread, because `rayon` runs a
+/// single item on the caller's; two did (round 911, ADR 0864).
+///
+/// So the discriminator is **two**, and the fix is `MALLOC_ARENA_MAX` in
+/// `confined_transport::Host::start`, which is the only place early enough to be read.
+#[test]
+fn a_page_with_two_images_does_not_kill_the_worker() {
+    let question = Query::ExtractImages {
+        page: THE_PAGE_WITH_TWO,
+    };
+    let here = in_process(TWO_IMAGES_ON_A_PAGE);
+    let there = confined(TWO_IMAGES_ON_A_PAGE);
+    let ours = here.ask(&question).expect("two images, unconfined");
+    let theirs = there
+        .ask(&question)
+        .expect("two images, confined — a `SIGSYS` here is the allocator's arena, not the codec");
+    assert_eq!(ours, theirs);
+    let Answer::Files(files) = ours else {
+        panic!("images are files")
+    };
+    assert_eq!(files.len(), 2, "the page that made this a question");
+    assert!(
+        there.is_alive(),
+        "and the worker is still there to ask again"
+    );
 }
 
 /// And an attachment's inventory and its bytes, which is the one question with a name in it.

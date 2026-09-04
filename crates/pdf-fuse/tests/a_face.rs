@@ -161,7 +161,7 @@ fn a_page_states_its_true_size_and_reads_back_in_pieces() {
     let size = node.size.expect("a file states a size");
     assert!(size > 0);
 
-    let handle = face.open(node.ino).expect("opens");
+    let handle = face.open(node.ino, false).expect("opens");
     let whole = face.read(handle, 0, u32::MAX).expect("reads");
     assert_eq!(u64::try_from(whole.len()).expect("fits"), size);
     assert!(whole.starts_with(b"%PDF-"), "a page out of pages/ is a PDF");
@@ -192,7 +192,7 @@ fn a_page_states_its_true_size_and_reads_back_in_pieces() {
 fn an_open_file_survives_the_document_being_replaced_underneath_it() {
     let (backing, face, _log) = mounted(FIVE_PAGES);
     let node = walk(&face, "/text/0002.txt").expect("page two's text");
-    let handle = face.open(node.ino).expect("opens");
+    let handle = face.open(node.ino, false).expect("opens");
     let before = face.read(handle, 0, u32::MAX).expect("reads");
 
     backing.replace(std::fs::read(committed(FOURTEEN_PAGES)).expect("a document"));
@@ -246,7 +246,7 @@ fn copying_a_file_into_attachments_is_create_write_flush_release() {
 
     // Read it back through the tree, the way a second program would.
     let node = walk(&face, "/attachments/note.txt").expect("the embedded file");
-    let handle = face.open(node.ino).expect("opens");
+    let handle = face.open(node.ino, false).expect("opens");
     assert_eq!(face.read(handle, 0, u32::MAX).expect("reads"), payload);
     face.release(handle);
     assert!(
@@ -417,4 +417,121 @@ fn the_notifier_is_told_exactly_when_the_document_changed() {
         .key;
     assert_ne!(first, second);
     assert!(face.changed_since(Some(second)).is_none());
+}
+
+/// `cp` onto a name that already exists, which is RFC 0003 section 5.2's flagship write verb.
+///
+/// **Every one of these assertions is a defect a real kernel found and no test here had**, and
+/// the reason is one sentence: `cp(1)` does not issue `create` for a name that exists. It issues
+/// `openat(…, O_WRONLY|O_TRUNC)` and then `write(2)` — and this face answered that with a *read*
+/// handle, so `cp new.pdf mnt/pages/0004.pdf`, the example RFC 0003 section 5.2 leads with, could
+/// not be done at all: the first byte came back `EPERM`. `strace` has it verbatim in round 911's
+/// record.
+///
+/// So the three shapes are held here together, because they are one decision:
+///
+/// - a write-intent `open` on a name the layout says a write *means* something at stages that
+///   write, exactly as `create` does;
+/// - a write-intent `open` on a derived file refuses **at the open**, with the sentence RFC 0003
+///   section 5.3 wrote for it — which is where a program looks for it, and is what a *new* name in
+///   the same directory had always done;
+/// - the kernel's own `O_TRUNC`, which arrives as a `setattr` of size zero carrying **no file
+///   handle** (`fuser` does not negotiate `FUSE_ATOMIC_O_TRUNC`), reaches the write in flight
+///   rather than being accepted and ignored.
+#[test]
+fn a_write_open_on_a_name_that_exists_is_the_verb_cp_actually_uses() {
+    let (backing, face, log) = mounted(FIVE_PAGES);
+    let before = on_disk(&backing);
+    let page = walk(&face, "/pages/0002.pdf").expect("the second page");
+    let one_page = std::fs::read(committed(FOURTEEN_PAGES)).expect("a document");
+
+    // What `cp` does, in the order it does it.
+    let handle = face.open(page.ino, true).expect("opens for writing");
+    face.truncate_at(page.ino, 0).expect("the kernel's O_TRUNC");
+    face.write(handle, 0, &one_page).expect("written");
+    face.flush(handle).expect("committed");
+    face.release(handle);
+
+    let after = on_disk(&backing);
+    assert_eq!(&after[..before.len()], &before[..], "§7.5.6's prefix");
+    assert_eq!(
+        names(&face, walk(&face, "/pages").expect("pages/").ino).len(),
+        5 + 14,
+        "the incoming document's pages are in, and the listing renumbered"
+    );
+
+    // A read-only file refuses at the open rather than at the first byte, and says why.
+    let text = walk(&face, "/text/0001.txt").expect("page one's text");
+    assert_eq!(face.open(text.ino, true), Err(Errno::OperationNotPermitted));
+    let render = walk(&face, "/renders/150dpi/0001.png").expect("a render");
+    assert!(face.open(render.ino, false).is_ok(), "reading is fine");
+    assert_eq!(face.open(render.ino, true), Err(Errno::ReadOnly));
+    let said = log
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .join("\n");
+    assert!(said.contains("RFC 0005"), "{said}");
+    assert!(said.contains("derived from the document"), "{said}");
+
+    // And a truncation of a file nobody has open for writing is not a thing this tree can mean.
+    assert_eq!(
+        face.truncate_at(text.ino, 0),
+        Err(Errno::OperationNotPermitted)
+    );
+}
+
+/// A `close(2)` of a file nothing was ever written to is not a write.
+///
+/// `touch(1)` opens `O_WRONLY|O_CREAT`, sets the times and closes without a byte. Committing that
+/// as a zero-length write made `touch mnt/pages/0001.pdf` fail with "not a PDF: no %PDF- header in
+/// the first 0 bytes" — an input/output error about a document nobody had touched (round 911).
+/// The times themselves are still refused, which is what `touch` should be told.
+#[test]
+fn an_open_for_writing_that_writes_nothing_commits_nothing_and_says_nothing() {
+    let (backing, face, log) = mounted(FIVE_PAGES);
+    let before = on_disk(&backing);
+    let page = walk(&face, "/pages/0002.pdf").expect("the second page");
+
+    let handle = face.open(page.ino, true).expect("opens for writing");
+    face.flush(handle)
+        .expect("a close of an untouched file is not an error");
+    face.release(handle);
+
+    assert_eq!(on_disk(&backing), before, "the document is untouched");
+    assert!(
+        log.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty(),
+        "and nothing was announced"
+    );
+
+    // Truncating it *is* an act, so a close after one is a write of no bytes and is refused —
+    // which is what `: > mnt/pages/0002.pdf` means and what it now says.
+    let handle = face.open(page.ino, true).expect("opens for writing");
+    face.truncate_at(page.ino, 0).expect("the kernel's O_TRUNC");
+    assert_eq!(face.flush(handle), Err(Errno::InputOutput));
+    face.release(handle);
+    assert_eq!(on_disk(&backing), before, "still untouched");
+}
+
+/// A name that is simply not there is an absence, and an absence is not logged.
+///
+/// RFC 0003 section 5.3's requirement is about *refusals*, which is what the mount's own log
+/// exists for. A file manager probes `.directory` in every directory it opens, macOS writes
+/// `.DS_Store` and `git` looks for `.gitignore`; a mount by hand produced fifteen `ENOENT` lines
+/// before it had been asked to do anything at all (round 911).
+#[test]
+fn a_name_the_document_does_not_have_is_not_a_refusal() {
+    let (_backing, face, log) = mounted(FIVE_PAGES);
+    for directory in ["/", "/pages", "/text", "/renders/150dpi", "/attachments"] {
+        let ino = walk(&face, directory).expect("a directory").ino;
+        assert_eq!(face.lookup(ino, ".directory"), Err(Errno::NoSuchFile));
+        assert_eq!(face.lookup(ino, ".DS_Store"), Err(Errno::NoSuchFile));
+    }
+    assert!(
+        log.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty(),
+        "a probe for a name that is not there has nothing to say"
+    );
 }

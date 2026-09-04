@@ -74,6 +74,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::serialize::AssemblyError;
 use pdf_syntax::{Document, tree};
 
 use crate::{Refusal, Warning};
@@ -85,9 +86,6 @@ use crate::{Refusal, Warning};
 /// nest. What stops the walk in practice is the visited set — a `/K` cycle is what a hostile
 /// file writes, and an element reached twice is not descended twice.
 const MAX_DEPTH: usize = 256;
-
-/// The one sentence every numbering failure gets, since they all mean the same thing.
-const TOO_MANY: &str = "the derived document needs more objects than one file can number";
 
 /// Table 354's entries that are arrays and concatenate across sources.
 ///
@@ -119,10 +117,22 @@ pub(crate) trait Host {
     fn source(&self, at: usize) -> Option<&Document>;
     /// One value with every reference mapped into the output's numbering.
     fn carry_value(&mut self, at: usize, value: &Object) -> Object;
-    /// A number for an object this module will build, or `None` where the numbering is spent.
-    fn reserve_slot(&mut self) -> Option<ObjectId>;
+    /// A number for an object this module will build.
+    ///
+    /// # Errors
+    ///
+    /// The assembly's own, unaltered — see [`Host::replace_object`] for why that matters.
+    fn reserve_slot(&mut self) -> Result<ObjectId, AssemblyError>;
     /// A number that **stands in for** a source object, so that references to it map here.
-    fn replace_object(&mut self, at: usize, id: ObjectId) -> Option<ObjectId>;
+    ///
+    /// # Errors
+    ///
+    /// The assembly's own, unaltered. **This used to be an `Option`, and the `None` was reported
+    /// as "the derived document needs more objects than one file can number"** — a sentence about
+    /// `u32::MAX` that a five-page document could produce, because
+    /// [`AssemblyError::AlreadyPlaced`] arrives here too and was flattened into it. Principle 1:
+    /// an error is propagated, not renamed.
+    fn replace_object(&mut self, at: usize, id: ObjectId) -> Result<ObjectId, AssemblyError>;
     /// Fills a slot this module reserved.
     fn place_object(&mut self, id: ObjectId, object: Object);
     /// Refuses a source object to the closure walk, so that nothing drags it in by reference.
@@ -133,8 +143,29 @@ pub(crate) trait Host {
 enum Child {
     /// Another structure element, named by its object in the source.
     Element(ObjectId),
-    /// A content item, already carried into the output's numbering.
+    /// §14.7.5.2's second form: "[a]n integer that specifies the marked-content identifier".
+    ///
+    /// Nothing in it refers to anything, so there is nothing to carry.
     Item(Object),
+    /// Table 357's marked-content reference or Table 358's object reference, held **as the
+    /// source wrote it**, beside the output number of the page it was placed on.
+    ///
+    /// **Uncarried on purpose, and the ordering is the whole point.** [`Carry::plan`]'s own
+    /// promise is that "[e]very kept element is given its slot here, before any page is built,
+    /// so that a reference to one from anywhere in the closure maps to the rebuilt element
+    /// rather than dragging the source's whole subtree in behind it" — and carrying a content
+    /// item's values inside [`Carry::keep_child`] broke it, because `keep_child` runs while the
+    /// hierarchy is still being decided and [`Carry::number`] has not handed out a slot yet. A
+    /// document that writes a `/P` back-reference on its object references then copied the
+    /// containing element through the closure walk, and the element's own `replace` a moment
+    /// later was [`AssemblyError::AlreadyPlaced`] — which the whole of ISO 32000-2 itself does,
+    /// on every one of its 1023 pages. Carried in [`Carry::element`] instead, after `number`.
+    Reference {
+        /// The source's dictionary, every value still in the source's numbering.
+        dictionary: Dictionary,
+        /// The output number of the page it belongs to, which overrides any `/Pg` it states.
+        page: ObjectId,
+    },
 }
 
 /// One structure element that reaches a page the output holds.
@@ -246,7 +277,7 @@ impl Carry {
 
         let root = host
             .reserve_slot()
-            .ok_or_else(|| Refusal::Assembly(TOO_MANY.to_owned()))?;
+            .map_err(|why| Refusal::Assembly(why.to_string()))?;
         let mut carry = Self {
             root,
             elements: Vec::new(),
@@ -613,16 +644,10 @@ impl Carry {
                         let Some(placed) = carried.get(&page).copied() else {
                             return Ok(Outcome::DroppedItem);
                         };
-                        let mut out = Dictionary::new();
-                        for (key, value) in dict.iter() {
-                            let carried = host.carry_value(at, value);
-                            out.insert(key.clone(), carried);
-                        }
-                        // Written explicitly where the element supplied it, so that a pruned
-                        // hierarchy cannot leave the reference depending on an entry that a
-                        // dropped ancestor used to state.
-                        out.insert(Name::new(&b"Pg"[..]), Object::Reference(placed));
-                        Ok(Outcome::Kept(Child::Item(Object::Dictionary(out))))
+                        Ok(Outcome::Kept(Child::Reference {
+                            dictionary: dict.clone(),
+                            page: placed,
+                        }))
                     }
                 } else {
                     {
@@ -659,7 +684,12 @@ impl Carry {
         for element in &self.elements {
             let placed = host
                 .replace_object(element.at, element.source)
-                .ok_or_else(|| Refusal::Assembly(TOO_MANY.to_owned()))?;
+                .map_err(|why| {
+                    Refusal::Assembly(format!(
+                        "§14.7's structure element {}: {why}",
+                        element.source.number
+                    ))
+                })?;
             self.placed.insert((element.at, element.source), placed);
         }
         Ok(())
@@ -946,18 +976,31 @@ impl Carry {
         if let Some(page) = element.page {
             out.insert(Name::new(&b"Pg"[..]), Object::Reference(page));
         }
-        let children: Vec<Object> = element
-            .children
-            .iter()
-            .filter_map(|child| match child {
-                Child::Element(id) => self
-                    .placed
-                    .get(&(element.at, *id))
-                    .copied()
-                    .map(Object::Reference),
-                Child::Item(object) => Some(object.clone()),
-            })
-            .collect();
+        let mut children: Vec<Object> = Vec::with_capacity(element.children.len());
+        for child in &element.children {
+            match child {
+                Child::Element(id) => {
+                    if let Some(placed) = self.placed.get(&(element.at, *id)).copied() {
+                        children.push(Object::Reference(placed));
+                    }
+                }
+                Child::Item(object) => children.push(object.clone()),
+                Child::Reference { dictionary, page } => {
+                    let mut item = Dictionary::new();
+                    for (key, value) in dictionary.iter() {
+                        // Written explicitly below, so that a pruned hierarchy cannot leave the
+                        // reference depending on an entry a dropped ancestor used to state.
+                        if key.as_bytes() == b"Pg" {
+                            continue;
+                        }
+                        let carried = host.carry_value(element.at, value);
+                        item.insert(key.clone(), carried);
+                    }
+                    item.insert(Name::new(&b"Pg"[..]), Object::Reference(*page));
+                    children.push(Object::Dictionary(item));
+                }
+            }
+        }
         out.insert(Name::new(&b"K"[..]), Object::Array(children));
         Object::Dictionary(out)
     }

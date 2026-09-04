@@ -94,6 +94,23 @@ impl Host {
 
         let (to_worker, worker_end) = Channel::pair().map_err(TransportError::Spawn)?;
         let mut child = OsCommand::new(program)
+            // **One allocator arena, and it is a finding rather than a tuning knob.** `glibc`
+            // creates a per-thread arena at a thread's *first* allocation, and sizes the number
+            // of arenas from `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — an
+            // `openat` every confined profile here kills the process for. So a worker that
+            // dispatches any work onto a second thread dies on that thread's first `malloc`,
+            // whatever the work was: `pdf-vfs-worker` extracting the two images on page 60 of
+            // `doc/Tagged-PDF-Best-Practice-Guide.pdf` was killed with `SIGSYS`, `syscall=257`
+            // in the kernel's own audit line, while every page with one image was fine —
+            // `rayon` runs a single item on the calling thread and hands two to the pool
+            // (round 911).
+            //
+            // `MALLOC_ARENA_MAX` is read by `glibc` at start-up, so it has to be set *here*,
+            // by whoever spawns: the worker itself is already past it by `main`, and the
+            // confinement cannot be moved after the pool because the Landlock domain is
+            // per-thread. One arena is also what these workers want on their own account —
+            // both run their rasterisation on one thread by `pdf_vfs::serve`'s own finding.
+            .env("MALLOC_ARENA_MAX", "1")
             .stdin(worker_end)
             .stdout(Stdio::piped())
             // A pipe rather than the inherited descriptor: `RLIMIT_FSIZE` is 0 in the confinement,

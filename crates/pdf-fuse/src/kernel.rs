@@ -8,7 +8,7 @@
 //! which of `fuser`'s numbers a [`pdf_vfs::Errno`] is.
 
 use std::ffi::OsStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fuser::{
     BsdFileFlags, Errno as KernelErrno, FileAttr, FileType, FopenFlags, Generation, INodeNo,
@@ -27,20 +27,51 @@ use crate::{Face, Node, TIMEOUT};
 /// The face is shared rather than owned because RFC 0003 section 5.4's invalidation task needs
 /// the same one the request handlers have.
 #[derive(Debug)]
-pub struct Mount(std::sync::Arc<Face>);
+pub struct Mount {
+    /// The face every answer comes from.
+    face: std::sync::Arc<Face>,
+    /// Whose the mount is. See [`owner`].
+    owner: (u32, u32),
+}
 
 impl Mount {
     /// A mount over this face.
     #[must_use]
     pub fn new(face: std::sync::Arc<Face>) -> Self {
-        Self(face)
+        Self {
+            face,
+            owner: owner(),
+        }
+    }
+
+    /// What one virtual thing looks like to `stat(2)` on *this* mount.
+    fn attributes(&self, node: &Node) -> FileAttr {
+        attributes(node, self.owner, self.face.modified_nanos())
     }
 
     /// The face underneath, for the notifier thread the binary runs.
     #[must_use]
     pub fn face(&self) -> &Face {
-        &self.0
+        &self.face
     }
+}
+
+/// Whose the mount's files are.
+///
+/// **Not zero, which is what they used to be.** A mount by hand put `root root` on every line of
+/// every `ls -l` of a document owned by uid 1001 (round 911): the kernel does no permission check
+/// of its own here — `default_permissions` is not among the mount options and the access-control
+/// list is the mounting user alone — so nothing was *permitted* that should not have been, but
+/// every program that reads a listing rather than trying the operation was told the wrong thing,
+/// and a file manager greys out what it believes belongs to root.
+///
+/// The real user and group of this process, read from `/proc/self`'s own ownership, which is
+/// where they are without a system call this crate could make: `#![forbid(unsafe_code)]` rules
+/// out `libc::getuid`, and a dependency for two integers is not worth a line in `doc/stack.md`.
+/// A tree without `/proc` answers `(0, 0)`, which is what this was everywhere.
+fn owner() -> (u32, u32) {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata("/proc/self").map_or((0, 0), |it| (it.uid(), it.gid()))
 }
 
 /// The number `fuser` puts on the wire for one of the core's refusals.
@@ -69,12 +100,25 @@ fn errno(errno: Errno) -> KernelErrno {
 
 /// What `stat(2)` says about one virtual thing.
 ///
-/// The times are the epoch and are stated as a choice: nothing in this tree has a modification
-/// time of its own — a page is generated on demand from a document whose own mtime is the
-/// backing file's — and inventing "now" would make every `ls` of a mount look like a directory
-/// that had just changed. A face that wanted the backing file's times would take them from the
-/// generation key, which is the only clock this design has.
-fn attributes(node: &Node) -> FileAttr {
+/// The times are the **document's**, and every name in the tree carries the same one: nothing
+/// here has a modification time of its own, a page being generated on demand from a document
+/// whose own mtime is the backing file's. [`Face::modified_nanos`] says where it comes from and
+/// what the epoch it replaced cost.
+///
+/// The owner is the mounting process's rather than root's; [`owner`] says why that is a fix
+/// rather than a preference.
+fn attributes(node: &Node, owner: (u32, u32), modified_nanos: Option<i128>) -> FileAttr {
+    let modified = modified_nanos.map_or(UNIX_EPOCH, |nanos| {
+        let nanos = nanos.max(0);
+        // Split before the cast so that a file dated past 2554 saturates rather than wrapping;
+        // `Duration` is unsigned seconds and this is the one place a file system's clock reaches
+        // this crate.
+        let seconds = u64::try_from(nanos / 1_000_000_000).unwrap_or(u64::MAX);
+        let rest = u32::try_from(nanos % 1_000_000_000).unwrap_or(0);
+        UNIX_EPOCH
+            .checked_add(Duration::new(seconds, rest))
+            .unwrap_or(UNIX_EPOCH)
+    });
     let kind = match node.kind {
         Kind::Directory => FileType::Directory,
         Kind::File => FileType::RegularFile,
@@ -91,15 +135,15 @@ fn attributes(node: &Node) -> FileAttr {
         size,
         // 512-byte blocks, rounded up, which is what `du` reads.
         blocks: size.saturating_add(511) / 512,
-        atime: UNIX_EPOCH,
-        mtime: UNIX_EPOCH,
-        ctime: UNIX_EPOCH,
-        crtime: UNIX_EPOCH,
+        atime: modified,
+        mtime: modified,
+        ctime: modified,
+        crtime: modified,
         kind,
         perm: permissions,
         nlink: 1,
-        uid: 0,
-        gid: 0,
+        uid: owner.0,
+        gid: owner.1,
         rdev: 0,
         blksize: 4096,
         flags: 0,
@@ -130,8 +174,8 @@ impl fuser::Filesystem for Mount {
             reply.error(KernelErrno::ENOENT);
             return;
         };
-        match self.0.lookup(parent.0, name) {
-            Ok(node) => reply.entry(&TIMEOUT, &attributes(&node), NEW),
+        match self.face.lookup(parent.0, name) {
+            Ok(node) => reply.entry(&TIMEOUT, &self.attributes(&node), NEW),
             Err(why) => reply.error(errno(why)),
         }
     }
@@ -143,8 +187,8 @@ impl fuser::Filesystem for Mount {
         _fh: Option<fuser::FileHandle>,
         reply: ReplyAttr,
     ) {
-        match self.0.getattr(ino.0) {
-            Ok(node) => reply.attr(&TIMEOUT, &attributes(&node)),
+        match self.face.getattr(ino.0) {
+            Ok(node) => reply.attr(&TIMEOUT, &self.attributes(&node)),
             Err(why) => reply.error(errno(why)),
         }
     }
@@ -153,6 +197,17 @@ impl fuser::Filesystem for Mount {
     /// `ftruncate(2)`. Everything else — mode, owner, times — is refused rather than accepted and
     /// ignored, because a `chmod` that returns success and changes nothing is a lie a file
     /// manager will act on.
+    ///
+    /// **The times were the half of that sentence the code did not keep**, and a mount by hand
+    /// found it the way the paragraph above predicts: `touch mnt/pages/0001.pdf` exited 0 and
+    /// changed nothing, so `make`, `rsync -t` and every incremental build would believe a
+    /// timestamp this tree cannot hold (round 911, trap 28 — the comment above the guard was a
+    /// different claim from the guard).
+    #[expect(
+        clippy::similar_names,
+        reason = "`ctime` and `crtime` are the FUSE protocol's own field names, and both are in \
+                  the guard below"
+    )]
     fn setattr(
         &self,
         _request: &Request,
@@ -161,34 +216,57 @@ impl fuser::Filesystem for Mount {
         uid: Option<u32>,
         gid: Option<u32>,
         size: Option<u64>,
-        _atime: Option<TimeOrNow>,
-        _mtime: Option<TimeOrNow>,
-        _ctime: Option<SystemTime>,
+        atime: Option<TimeOrNow>,
+        mtime: Option<TimeOrNow>,
+        ctime: Option<SystemTime>,
         fh: Option<fuser::FileHandle>,
-        _crtime: Option<SystemTime>,
-        _chgtime: Option<SystemTime>,
-        _bkuptime: Option<SystemTime>,
-        _flags: Option<BsdFileFlags>,
+        crtime: Option<SystemTime>,
+        chgtime: Option<SystemTime>,
+        bkuptime: Option<SystemTime>,
+        flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
-        if mode.is_some() || uid.is_some() || gid.is_some() {
+        if mode.is_some()
+            || uid.is_some()
+            || gid.is_some()
+            || atime.is_some()
+            || mtime.is_some()
+            || ctime.is_some()
+            || crtime.is_some()
+            || chgtime.is_some()
+            || bkuptime.is_some()
+            || flags.is_some()
+        {
             reply.error(KernelErrno::EPERM);
             return;
         }
-        if let (Some(size), Some(handle)) = (size, fh)
-            && let Err(why) = self.0.truncate(handle.0, size)
-        {
-            reply.error(errno(why));
-            return;
+        // The two shapes a truncation arrives in: `ftruncate(2)` on a descriptor, and the
+        // kernel's own `O_TRUNC` handling between an `open` and its first `write`, which carries
+        // no handle. [`Face::truncate_at`] is the second, and why it exists.
+        if let Some(size) = size {
+            let outcome = match fh {
+                Some(handle) => self.face.truncate(handle.0, size),
+                None => self.face.truncate_at(ino.0, size),
+            };
+            if let Err(why) = outcome {
+                reply.error(errno(why));
+                return;
+            }
         }
-        match self.0.getattr(ino.0) {
-            Ok(node) => reply.attr(&TIMEOUT, &attributes(&node)),
+        match self.face.getattr(ino.0) {
+            Ok(node) => reply.attr(&TIMEOUT, &self.attributes(&node)),
             Err(why) => reply.error(errno(why)),
         }
     }
 
-    fn open(&self, _request: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
-        match self.0.open(ino.0) {
+    /// `O_RDONLY` reads the generated bytes; anything else stages a write.
+    ///
+    /// [`Face::open`] has the argument, and it is the defect a real kernel found: `cp` onto a
+    /// name that already exists issues this rather than `create`, so ignoring the access mode
+    /// made RFC 0003 section 5.2's first write verb unreachable from a shell.
+    fn open(&self, _request: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
+        let writing = !matches!(flags.acc_mode(), fuser::OpenAccMode::O_RDONLY);
+        match self.face.open(ino.0, writing) {
             Ok(handle) => reply.opened(fuser::FileHandle(handle), FopenFlags::empty()),
             Err(why) => reply.error(errno(why)),
         }
@@ -205,7 +283,7 @@ impl fuser::Filesystem for Mount {
         _lock_owner: Option<fuser::LockOwner>,
         reply: ReplyData,
     ) {
-        match self.0.read(fh.0, offset, size) {
+        match self.face.read(fh.0, offset, size) {
             Ok(bytes) => reply.data(&bytes),
             Err(why) => reply.error(errno(why)),
         }
@@ -225,7 +303,7 @@ impl fuser::Filesystem for Mount {
         offset: u64,
         mut reply: ReplyDirectory,
     ) {
-        let listed = match self.0.readdir(ino.0) {
+        let listed = match self.face.readdir(ino.0) {
             Ok(listed) => listed,
             Err(why) => {
                 reply.error(errno(why));
@@ -279,10 +357,10 @@ impl fuser::Filesystem for Mount {
             reply.error(KernelErrno::EINVAL);
             return;
         };
-        match self.0.create(parent.0, name) {
+        match self.face.create(parent.0, name) {
             Ok((node, handle)) => reply.created(
                 &TIMEOUT,
-                &attributes(&node),
+                &self.attributes(&node),
                 NEW,
                 fuser::FileHandle(handle),
                 FopenFlags::empty(),
@@ -303,7 +381,7 @@ impl fuser::Filesystem for Mount {
         _lock_owner: Option<fuser::LockOwner>,
         reply: ReplyWrite,
     ) {
-        match self.0.write(fh.0, offset, data) {
+        match self.face.write(fh.0, offset, data) {
             Ok(written) => reply.written(written),
             Err(why) => reply.error(errno(why)),
         }
@@ -318,7 +396,7 @@ impl fuser::Filesystem for Mount {
         _lock_owner: fuser::LockOwner,
         reply: ReplyEmpty,
     ) {
-        match self.0.flush(fh.0) {
+        match self.face.flush(fh.0) {
             Ok(_) => reply.ok(),
             Err(why) => reply.error(errno(why)),
         }
@@ -334,7 +412,7 @@ impl fuser::Filesystem for Mount {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        self.0.release(fh.0);
+        self.face.release(fh.0);
         reply.ok();
     }
 
@@ -354,7 +432,7 @@ impl fuser::Filesystem for Mount {
             reply.error(KernelErrno::ENOENT);
             return;
         };
-        match self.0.unlink(parent.0, name) {
+        match self.face.unlink(parent.0, name) {
             Ok(_) => reply.ok(),
             Err(why) => reply.error(errno(why)),
         }
@@ -385,7 +463,7 @@ impl fuser::Filesystem for Mount {
             reply.error(KernelErrno::EINVAL);
             return;
         };
-        reply.error(errno(self.0.mkdir(parent.0, name)));
+        reply.error(errno(self.face.mkdir(parent.0, name)));
     }
 
     fn rename(
@@ -402,7 +480,12 @@ impl fuser::Filesystem for Mount {
             reply.error(KernelErrno::EINVAL);
             return;
         };
-        reply.error(errno(self.0.rename(parent.0, name, newparent.0, newname)));
+        reply.error(errno(self.face.rename(
+            parent.0,
+            name,
+            newparent.0,
+            newname,
+        )));
     }
 
     /// What `df` says about a mount whose size is a document's.
@@ -421,6 +504,7 @@ mod tests {
     use crate::Node;
     use pdf_vfs::Errno;
     use pdf_vfs::layout::Kind;
+    use std::time::{Duration, UNIX_EPOCH};
 
     /// Every one of the core's refusals reaches the kernel as the number the core states.
     ///
@@ -472,15 +556,64 @@ mod tests {
             size,
             writable,
         };
-        assert_eq!(attributes(&node(Kind::File, Some(4097), false)).perm, 0o444);
-        assert_eq!(attributes(&node(Kind::File, Some(0), true)).perm, 0o644);
-        assert_eq!(attributes(&node(Kind::Directory, None, true)).perm, 0o755);
-        assert_eq!(attributes(&node(Kind::Directory, None, false)).perm, 0o555);
+        let seen =
+            |kind, size, writable| attributes(&node(kind, size, writable), (1001, 1002), None);
+        assert_eq!(seen(Kind::File, Some(4097), false).perm, 0o444);
+        assert_eq!(seen(Kind::File, Some(0), true).perm, 0o644);
+        assert_eq!(seen(Kind::Directory, None, true).perm, 0o755);
+        assert_eq!(seen(Kind::Directory, None, false).perm, 0o555);
         // The size a `stat` states is the file's own, and the block count rounds up — which is
         // what `du` reads and the only place this crate does arithmetic on a length.
-        let file = attributes(&node(Kind::File, Some(4097), false));
+        let file = seen(Kind::File, Some(4097), false);
         assert_eq!(file.size, 4097);
         assert_eq!(file.blocks, 9);
-        assert_eq!(attributes(&node(Kind::Directory, None, true)).size, 0);
+        assert_eq!(seen(Kind::Directory, None, true).size, 0);
+        // The mount's own user and group, never root's. A mount by hand put `root root` on every
+        // line of every listing of a document owned by uid 1001 (round 911, `owner`).
+        assert_eq!((file.uid, file.gid), (1001, 1002));
+    }
+
+    /// The times a `stat` states are the document's, and the epoch only where it has none.
+    ///
+    /// The arithmetic is the one place a file system's clock reaches this crate, and it is the
+    /// shape that has to hold: a nanosecond count split into whole seconds and a remainder, with
+    /// nothing before the epoch and nothing past what `Duration` can hold.
+    #[test]
+    fn the_times_are_the_documents_own() {
+        let at = |nanos| {
+            attributes(
+                &Node {
+                    ino: 7,
+                    path: String::from("/x"),
+                    kind: Kind::File,
+                    size: Some(1),
+                    writable: false,
+                },
+                (0, 0),
+                nanos,
+            )
+            .mtime
+        };
+        assert_eq!(
+            at(None),
+            UNIX_EPOCH,
+            "a backing with no clock states the epoch"
+        );
+        assert_eq!(at(Some(0)), UNIX_EPOCH);
+        assert_eq!(
+            at(Some(1_500_000_000)),
+            UNIX_EPOCH + Duration::new(1, 500_000_000),
+            "the seconds and the remainder are split, not truncated"
+        );
+        assert_eq!(
+            at(Some(-1)),
+            UNIX_EPOCH,
+            "a time before the epoch is the epoch rather than a wrap"
+        );
+        assert_eq!(
+            at(Some(i128::MAX)),
+            UNIX_EPOCH,
+            "and one past what a `SystemTime` can hold is too"
+        );
     }
 }
