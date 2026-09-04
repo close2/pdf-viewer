@@ -5,8 +5,9 @@
 be a name) and
 [ADR 0893](../adr/0893-a-font-dictionary-that-is-the-null-object.md) (a `/Font` entry that is
 §7.3.10's null, held rather than guessed).
-[`doc/questions/Q27`](../questions/Q27-a-font-the-file-does-not-carry.md) is the half a round
-should not decide for itself.
+[`doc/questions/Q35`](../questions/Q35-a-font-the-file-does-not-carry.md) is the half a round
+should not decide for itself — asked in this session as `Q27`, and renumbered by session 934
+because round 927 took the same number on a branch this one could not see.
 
 Merged: `round-922` — the launch-path gate, `CLAUDE.md` principle 2's four numbers plus the fifth
 it makes a gate of its own, ADRs 0884 and 0885.
@@ -130,4 +131,4 @@ A `/Font` entry that is §7.3.10's null object: `mutool draw` substitutes and pr
 letter on one of them, `pdftoppm` substitutes and produces solid black blocks over an engineering
 drawing on the other, and each declines on the page the other guesses at. §9.5 makes every input to
 a substitution an entry of the dictionary that is missing. The refusal is kept and argued (ADR
-0893), and whether a reader should offer the guess anyway is `Q27`.
+0893), and whether a reader should offer the guess anyway is `Q35`.

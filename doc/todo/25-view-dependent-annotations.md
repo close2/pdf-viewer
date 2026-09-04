@@ -1,6 +1,6 @@
 # Annotations and events that depend on the view
 
-Status: `NoZoom` and `NoRotate` done (ADR 0168); all ten of Table 197's events raised; `/FixedPrint` waits on printing.
+Status: `NoZoom` and `NoRotate` done (ADR 0168); all ten of Table 197's events raised; `/FixedPrint` reported and owed (ADR 0906).
 Priority: 25
 Corpus: 15 documents write an `/AA`; 124 annotations in 51 documents set `NoZoom`
 Clauses: §12.6.3 Table 197, §12.5.3 Table 167
@@ -60,9 +60,42 @@ other than 1, and the standard states no precedence. Counted first: 511 text mar
 across 34 documents, 211 of them carrying `NoZoom`, and all 211 are strike-outs in
 `ISO_32000-2_sponsored_EC3.pdf` at one flag value.
 
-## `/FixedPrint` — still owed, and it is a printing decision
+## `/FixedPrint` — owed, **reported**, and not a printing decision
 
-Table 193's entry on a §12.5.6.22 watermark annotation states "graphics that are to be printed at
-a fixed size relative to the target media, and fixed relative position on the target media", so it
-waits on a printing path rather than on a display one. Table 167's Print flag is in the same
-position and has been since the twenty-first session.
+**This section said it "waits on a printing path rather than on a display one" and that was wrong,
+found in the nine-hundred-and-thirty-third session by reading §12.5.6.22 for a different
+question** (ADR 0906). The clause introduces the entry's effect with a `shall` on *rendering*:
+
+> When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
+> occur
+
+and its second bullet names the algorithm every annotation in this tree already goes through — the
+transformed annotation rectangle "shall be used in place of the annotation rectangle referred to in
+steps 2 and 3 of \"Algorithm: appearance streams\"", which is what `annotation::placement` carries
+out against `/Rect`. The clause then forecloses the printing excuse twice over: "interactive PDF
+processors shall use the dimensions of the media box" when one is displayed on-screen, and Table
+194's own `/FixedPrint` row says that where the target media are unknown, drawing "shall be done
+relative to the dimensions specified by the page's MediaBox entry". So the media dimensions a
+screen needs are stated by the standard, not owed to a printer. Table 167's `Print` flag is a
+separate question and stays where it was.
+
+**It is reported since that session** — `annotation::fixed_print_owed`, held by
+`annotations.rs::a_watermarks_fixed_print_is_reported_and_a_plain_one_is_not` — so a watermark
+placed the wrong way is loud rather than silent. What is owed is the placement itself, and what a
+round taking it has to derive is one thing rather than three:
+
+1. `/Rect` translated to the origin and transformed by Table 194's `/Matrix`, then the smallest
+   upright rectangle around the resulting quadrilateral. Stated outright.
+2. `/H` and `/V`, "as a percentage of the width of the target media (or if unknown, the width of
+   the page's `MediaBox`)". Stated outright, with the on-screen media dimensions above.
+3. **The one that needs a derivation**: "given a matrix B that maps a scaled and rotated page into
+   the default user space, a new matrix shall be computed that cancels out B and translates the
+   origin of the media (e.g., printed page) to the origin of the default user space." What B is on
+   a screen where the media *are* the page's media box is the question, and §7.7.3.3's `/Rotate`
+   is what makes it more than the identity. A round that guesses it puts the mark somewhere the
+   document never asked for, which is why the departure is named rather than drawn (trap 5).
+
+RFC 0004's own survey found `/FixedPrint` essentially absent from the corpora, so the fixtures for
+this are synthetic and should say so (trap 8). That RFC carries the *print* half of the same entry,
+and after this correction the two halves are one substitution apart: the paper's dimensions in
+place of the media box's.

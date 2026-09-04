@@ -105,6 +105,101 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
+**And the figure that fails now is the one with no clock in it, which is new in the
+nine-hundred-and-thirty-third.** Everything above is about clocks, and a clock the gate can decline
+to judge; `peak_mib` cannot be declined by any probe, because contention does not lower a memory
+high-water. In session 933's full sequence — under `release`, calibrations 0.712 .. 0.720 ms, all
+inside the band, so the run *was* judging — all four rows failed together **below** their floors:
+
+| document | `peak_mib` band | this run | again, alone |
+|---|---|---|---|
+| `PDF20_AN001-BPC.pdf` | 127 .. 209 | 109.035 | 109.918 |
+| `Well-Tagged-PDF-WTPDF-1.0.pdf` | 131 .. 214 | 114.082 | 113.902 |
+| `ISO_32000-2_sponsored_EC3.pdf` | 132 .. 215 | 114.625 | 114.535 |
+| `bug1815476.pdf` | 143 .. 231 | 126.504 | 126.227 |
+
+Reproduced within a kilobyte on the second run, so it is neither noise nor a neighbour: it is the
+same *thing* `doc/checks/launch-path.toml`'s own header records — "an hour later — same tree, same
+binary, idle machine — all four rows had fallen together by about 12%. What moved is the driver's
+allocation" — happening again and landing about 13% under the floors that were widened to span it.
+**No band was moved, for the third round running**, and by a round that did not touch the launch
+path at all: the figure that would have to be re-derived is a property of the graphics driver, and
+a coverage round widening a band it did not measure is how a guard becomes a formality. What is
+owed is one derivation on an idle machine of what this driver now allocates — the same ten minutes
+`Q29`'s first option asks for, on the one figure a loaded machine could not have caused.
+
+## The figure that failed next is not a clock at all — the nine-hundred-and-thirty-fourth
+
+**No band was moved for the fourth round running either**, and the machine was quieter for none of
+it: session 934 sampled the one-minute load average every thirty seconds for seventy-five minutes —
+151 samples, **minimum 3.30, median 12.86, maximum 61.55, and 62 % of them above 10** — with three
+neighbouring rounds rather than two: 932, 933 and a 935 that appeared during the round and ran
+`launch_path` probes of its own. So the first-pass band above is still owed.
+
+What that round found instead is a **second** guard failure of a different kind, and ADR 0909 is the
+reading. Run inside `doc/todo/02` §2 on a machine with ~9 GiB free after two neighbours' corpus
+walks, the line exited **101 on all four `peak_mib` figures at once** — 99.1, 103.1, 104.2 and 116.5
+MiB against floors of 127, 131, 132 and 143 — with the calibration probe at **0.706 ms, inside its
+band**, which is what let the run judge them. Nine re-runs alone, on a binary the merge had not
+touched a line of, with 29 GiB free: **161 to 182 MiB on every document on every run**, inside every
+band, two of the runs judging with nothing outside at all.
+
+| | the failing run | the nine runs alone |
+|---|---|---|
+| free memory | ~9 GiB, 19 GiB of swap in use | 29 GiB, 45 available |
+| calibration probe | 0.706 ms, in band | 0.708 .. 0.745 ms |
+| `peak_mib`, four documents | 99.1, 103.1, 104.2, 116.5 | 161–164, 168–169, 168–169, 180–182 |
+| `open_peak_mib`, no device in it | 7, 8, 18 MiB, in band | 7, 8, 18 MiB, in band |
+
+The last row names the mechanism: what moves is the resident set of a process that has brought the
+**graphics device** up, which this file's harness already records falling 12 % between two runs an
+hour apart while the bands were being derived. Under memory pressure it falls by 40 %.
+
+**So `peak_mib` is a memory figure whose only guard is a clock**, and a clock reads in band on a
+machine with a gigabyte free and on one with sixty. That is trap 34's third dimension — the same
+work, in the same *state*, and in the same **units** — and it is the one a `steady: false`
+classification looks like it has already handled.
+
+**What is owed here is a third probe**, beside the processor's and the disk's: what the machine had
+available when the sample was taken, banded as the disk probe is, so a pressed machine *declines*
+`peak_mib` rather than failing it. Its band needs the same idle ten minutes the first-pass band
+does, so the two are one errand. **And there is a cheaper question that is not a probe**: a minimum
+on a memory high-water exists to catch "we stopped doing the work", which the command counts,
+`open_peak_mib` and the timings already witness four other ways — whether principle 2's memory
+high-water should be a ceiling rather than a band is a real question, and it is a change to a gate
+another round built, which is the same sentence that stopped three rounds widening one.
+
+## What the merge did with the four floors, and what session 935 owns — the nine-hundred-and-thirty-seventh
+
+**Session 932 did move them, and the merge did not take the move.** That round lowered the four
+`peak_mib` floors in `doc/checks/launch-path.toml` to 95, 100, 100 and 112 on readings of 98.5 to
+116.4, and wrote `Q32` asking whether the figure should be a ceiling only. It branched before 934
+and could not have read the table above it. The two rounds' measurements of the same figure on the
+same binary disagree — 932 read 99 to 116 with the machine pressed, 934 read **161 to 182 on nine
+runs with 29 GiB free** — so lowering a floor to 95 admits the pressed machine into the claim,
+which is precisely what 931, 933 and 934 each declined to do. The merge therefore restored session
+931's floors and rewrote that file's paragraph to record both observations and the disagreement;
+932's paragraph, its numbers and `Q32` all stay, because the observation is real and only the
+conclusion drawn from it was one round's alone. **No band was moved in either direction by the
+merge**, and no new one was derived: the floors below are 931's, unchanged since it derived them.
+
+**Session 935 owns the resolution, and it is one errand rather than two.** It is deriving this
+figure properly in its own worktree; whatever it finds supersedes this section and 932's paragraph
+together. The three things that are open, in the order they answer each other:
+
+1. **the availability probe** — what the machine had free when the sample was taken, banded as the
+   disk probe is, so a pressed machine prints `NOT JUDGED` for `peak_mib` instead of failing it.
+   That is 934's ask, and it is what makes any floor believable again;
+2. **`Q32`'s question**, which the probe does not close: whether a memory high-water should carry a
+   minimum at all, given that "we stopped doing the work" is already witnessed by `open_peak_mib`,
+   by `read_kib` and by every clock in the row;
+3. **the first-pass band** `Q29` asks for, which needs the same idle ten minutes and should be
+   taken in the same sitting.
+
+A round that answers 1 and 2 should delete this section and 932's paragraph rather than adding a
+fourth account of one figure.
+
+
 ## Why this is a todo and not a caveat
 
 `CLAUDE.md`'s startup section states two rules this path breaks:

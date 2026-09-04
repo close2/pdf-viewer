@@ -127,8 +127,14 @@ Under print intent:
 - **Watermarks, §12.5.6.22**: a watermark annotation with a FixedPrint dictionary
   represents "graphics that are to be printed at a fixed size relative to the target
   media", so under print intent its Table 194 matrix/offsets are applied against the
-  *paper*, not the media box. The §12.5.3 row already flags `/FixedPrint` as "a
-  printing decision".
+  *paper*, not the media box. **This bullet said the §12.5.3 row "already flags
+  `/FixedPrint` as a printing decision", and the nine-hundred-and-thirty-third session
+  retired that phrase from both rows** (ADR 0906): the clause introduces the behaviour
+  with "When rendering a watermark annotation with a FixedPrint entry, the following
+  behaviour shall occur" and states the on-screen media dimensions itself, so the
+  *screen* case is owed today and is reported by `annotation::fixed_print_owed`. What
+  print intent adds here is one substitution — the paper's dimensions in place of the
+  media box's — rather than the whole entry.
 - **Transfer functions, §10.5**: already implemented for the screen (the ledger row is
   `implemented`; `CLAUDE.md`'s scope entry was amended on its evidence). They apply
   under print intent identically — the clause's subject is the component value

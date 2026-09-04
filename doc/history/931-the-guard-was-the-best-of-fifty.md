@@ -34,7 +34,8 @@ files. Session 926 asked `Q27-a-font-the-file-does-not-carry` on `main` and sess
 `Q27-cost-floors-for-the-other-seven-walks` on its own branch, on the same day, neither able to see
 the other. Round 929 has already found the collision and stepped around it by taking `Q28`, in a
 file that is not merged yet and that points at both names; renumbering either now would break it.
-The round that merges 929 owns this, and this round took `Q29`.
+The round that merges 929 owns this, and this round took `Q29`. *(Session 934 did merge it and
+settle this: the font question is now `Q35-a-font-the-file-does-not-carry`, ADR 0908.)*
 
 ## 2. The figure that would not sit, and what settled it
 

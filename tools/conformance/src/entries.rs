@@ -42,6 +42,7 @@
 //! **It is a reading list.** What decides whether a hit is work is a question no program can ask:
 //! whether the row's disposal of the entry is a claim about *the entry* or about *the clause*.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -338,6 +339,78 @@ pub fn tables_in(text: &str) -> Vec<Table> {
     }
     push(&mut tables, current);
     tables
+}
+
+/// Every table entry's own description, keyed by the table it is in and the key that names it.
+///
+/// [`tables_in`] answers *which* keys a table states, which is what a citation has to be checked
+/// against. This answers what the standard **says about** one of them — the cell that opens
+/// `( Optional; PDF 2.0 )` and then describes the value — and it exists for the twenty-fourth
+/// sweep, which reads a `partial` row's debt against the modal verb governing it
+/// ([`crate::permitted`]).
+///
+/// Two rules the conversion forces, both the same ones [`tables_in`] obeys:
+///
+/// - **The description is the row's last cell**, because the standard's entry tables are `Key |
+///   Type | Value` and the occasional one is `Key | Value`; the last is the description in both.
+/// - **A row whose first cell names no key continues the row above it.** The conversion breaks a
+///   long description across several rows with an empty first column, and a description read
+///   without them stops mid-sentence — which for this sweep's question is the difference between
+///   seeing a `shall` and not.
+#[must_use]
+pub fn descriptions_in(text: &str) -> BTreeMap<(u16, String), String> {
+    let mut described = BTreeMap::new();
+    let mut table = None::<u16>;
+    let mut column = None::<usize>;
+    let mut current = None::<(u16, String)>;
+    for line in text.lines() {
+        let bare = line.trim_start_matches('#').trim();
+        if let Some(caption) = bare.strip_prefix("Table ").and_then(caption_of) {
+            table = Some(caption.number);
+            column = None;
+            current = None;
+            continue;
+        }
+        let Some(number) = table else {
+            continue;
+        };
+        let Some(cells) = row_of(line) else {
+            if !line.trim().is_empty() {
+                column = None;
+                current = None;
+            }
+            continue;
+        };
+        let Some(index) = column else {
+            if cells.first().is_some_and(|first| first == "Key") {
+                column = Some(0);
+            }
+            continue;
+        };
+        let Some(cell) = cells.get(index) else {
+            continue;
+        };
+        let Some(description) = cells.last() else {
+            continue;
+        };
+        match key_of(cell) {
+            Some(key) => {
+                current = Some((number, key.clone()));
+                described
+                    .entry((number, key))
+                    .or_insert_with(|| description.clone());
+            }
+            None => {
+                if let Some(at) = current.as_ref()
+                    && let Some(held) = described.get_mut(at)
+                {
+                    held.push(' ');
+                    held.push_str(description);
+                }
+            }
+        }
+    }
+    described
 }
 
 /// Files a finished table if it named any entry at all.

@@ -871,9 +871,11 @@ fn an_unknown_subtype_still_draws_its_normal_appearance() {
 /// one. Errata Collection 3's Issue #1 is what sends §12.5.1's sentence about an unrecognised
 /// type to this row and to §12.5.5 rather than to §12.5.2.
 ///
-/// **A standard subtype whose clause states no geometry is the control**, because it must keep
-/// its report: `Movie` is Table 171's and is on `CLAUDE.md`'s clause 13 exclusion list, and a
-/// page that silently loses it is exactly what trap 5 exists to prevent. An annotation with no
+/// **A standard subtype this program does not construct is the control**, because it must keep
+/// its report: `Movie` is Table 171's, and what refuses it is `CLAUDE.md`'s clause 13 exclusion
+/// rather than a silence — §13.4's Table 306 states a poster image, which is why the sentence
+/// this used to call it by was corrected in the nine-hundred-and-thirty-third session. A page
+/// that silently loses it is exactly what trap 5 exists to prevent. An annotation with no
 /// `/Subtype` at all keeps its own report too, for Table 166's reason — the entry is required —
 /// and `issue7446.pdf` is the corpus witness for that one.
 #[test]
@@ -911,6 +913,217 @@ fn an_unknown_subtype_with_no_appearance_dictionary_draws_nothing_and_reports_no
     assert!(
         !anonymous.is_complete(),
         "Table 166 makes /Subtype required, so its absence is still a defect"
+    );
+}
+
+/// A screen annotation with no `/AP` draws nothing and reports nothing, and one with an `/AP`
+/// draws it.
+///
+/// §12.5.6.18, in the prose after Table 190 rather than in the table:
+///
+/// > If AP is not present, the screen annotation shall not have a default visual appearance and
+/// > shall not be printed.
+///
+/// So the absence is the clause's own answer and there is no shortfall to name. Until the
+/// nine-hundred-and-thirtieth session `crate::appearance::construct`'s catch-all reported "its
+/// clause states no geometry" here, which is a claim about a clause that states one — trap 11,
+/// and the correction §12.5.6.11's caret and §12.5.6.23's redaction each took out of the same
+/// arm. ADR 0901.
+///
+/// **Both halves are asserted because only the pair discriminates**: an implementation that
+/// dropped every `Screen` annotation outright would pass the first assertion alone, and the
+/// clause's `/AP` sentence — the appearance "shall be used for printing and default display when
+/// a media clip is not being played" — is the half that keeps the annotation on the page.
+/// Calibrated by planting the defect this replaces (the `Screen` arm removed, so the catch-all
+/// answers): the first assertion fails and the second passes.
+#[test]
+fn a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap() {
+    let bare = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Screen /Rect [20 30 60 70] /F 4 /T (a clip) >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        bare.display_list.commands().is_empty(),
+        "the clause states that there is no default visual appearance"
+    );
+    assert!(
+        bare.is_complete(),
+        "a screen annotation with no /AP asks for nothing: {:?}",
+        bare.unsupported
+    );
+
+    let stated = render(pdf_with(
+        "<< /Type /Annot /Subtype /Screen /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert_eq!(
+        extent(&stated),
+        (20, 30, 59, 69),
+        "an /AP is drawn like any other annotation's"
+    );
+}
+
+/// No subtype ISO 32000-2 Table 171 defines is told that "its clause states no geometry".
+///
+/// **The population is Table 171's own list rather than a list somebody wrote in a comment**
+/// (trap 25), and it is here because the sentence this asserts against was wrong four separate
+/// times: §12.5.6.11's caret (ADR 0457), §12.5.6.23's redaction (ADR 0461), §12.5.6.18's screen
+/// annotation (ADR 0901) and then, in the sweep this test comes from, §12.5.6.17's movie and
+/// §12.5.6.22's watermark. Each correction was one member of a group defined by a sentence
+/// nobody had checked, so the fifth was only ever a matter of somebody reading the fifth clause.
+/// A group like that cannot be swept by a ledger sweep — a catch-all names no blocker, no
+/// missing vocabulary and no absent architecture — which is why the guard is a test.
+///
+/// The verdict for each of the twenty-eight, from its own subclause:
+///
+/// | drawn from what the clause states | `Text` `Link` `FreeText` `Line` `Square` `Circle` `Polygon` `PolyLine` `Highlight` `Underline` `Squiggly` `StrikeOut` `Ink` `Widget` `FileAttachment` `Sound` |
+/// |---|---|
+/// | the clause states the outcome, so nothing is drawn and nothing owed | `Popup` (§12.5.6.14) `Projection` (§12.5.6.24) `Screen` (§12.5.6.18) |
+/// | refused in the clause's own terms | `Stamp` `Caret` `Redact` `Movie` `Watermark` `PrinterMark` `TrapNet` `3D` `RichMedia` |
+///
+/// `FileAttachment` and `Sound` are in the first group because §12.5.6.15's and §12.5.6.16's
+/// icon names — `Graph`, `PushPin`, `Paperclip`, `Tag`, `Speaker`, `Mic` — name **objects**, so
+/// their artwork is argued from the clause's own words and drawn as a choice under a
+/// recommendation. What they refuse is a `/Name` outside those lists, which is a different
+/// sentence and has its own test.
+///
+/// Calibrated by planting each of the four arms this sweep added, one at a time — the arm
+/// deleted so that the subtype falls to the catch-all — under which this test fails naming that
+/// subtype and every other assertion here still passes.
+#[test]
+fn no_table_171_subtype_is_refused_with_the_catch_all_s_sentence() {
+    // Table 171 - Annotation types, first column, in the standard's own order.
+    const TABLE_171: [&str; 28] = [
+        "Text",
+        "Link",
+        "FreeText",
+        "Line",
+        "Square",
+        "Circle",
+        "Polygon",
+        "PolyLine",
+        "Highlight",
+        "Underline",
+        "Squiggly",
+        "StrikeOut",
+        "Caret",
+        "Stamp",
+        "Ink",
+        "Popup",
+        "FileAttachment",
+        "Sound",
+        "Movie",
+        "Screen",
+        "Widget",
+        "PrinterMark",
+        "TrapNet",
+        "Watermark",
+        "3D",
+        "Redact",
+        "Projection",
+        "RichMedia",
+    ];
+
+    for subtype in TABLE_171 {
+        let interpretation = interpret(pdf_with(
+            &format!("<< /Type /Annot /Subtype /{subtype} /Rect [20 30 60 70] /F 4 >>"),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        let said = format!("{:?}", interpretation.unsupported);
+        assert!(
+            !said.contains("states no geometry"),
+            "/{subtype} is one of Table 171's, so it has a clause and this report is about \
+             some other clause: {said}"
+        );
+    }
+
+    // The four arms this sweep added, each asserted on a phrase no other arm contains — a
+    // substring shared with a neighbour would pass for the neighbour's answer (trap 27).
+    for (subtype, phrase) in [
+        ("Movie", "poster image"),
+        ("Watermark", "transform the annotation rectangle"),
+        ("PrinterMark", "whole of the mark's visual presentation"),
+        ("TrapNet", "whole of the mark's visual presentation"),
+        ("3D", "the annotation's inactive state"),
+        ("RichMedia", "the annotation's inactive state"),
+    ] {
+        let interpretation = interpret(pdf_with(
+            &format!("<< /Type /Annot /Subtype /{subtype} /Rect [20 30 60 70] /F 4 >>"),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        assert!(
+            interpretation.display_list.commands().is_empty(),
+            "/{subtype}: nothing states a mark for it, so nothing may be drawn"
+        );
+        let said = format!("{:?}", interpretation.unsupported);
+        assert!(
+            said.contains(phrase),
+            "/{subtype}: the report is not this clause's — it should name {phrase:?}: {said}"
+        );
+    }
+
+    // What the catch-all is left with, and the only case that can reach it: Table 166 makes
+    // `/Subtype` required, so an annotation without one has no subtype clause at all.
+    let anonymous = interpret(pdf_with(
+        "<< /Type /Annot /Rect [20 30 60 70] /F 4 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    let said = format!("{:?}", anonymous.unsupported);
+    assert!(
+        said.contains("Table 166 makes /Subtype required"),
+        "an annotation with no /Subtype is the catch-all's whole population: {said}"
+    );
+}
+
+/// A watermark annotation's `/FixedPrint` placement is reported rather than silently skipped.
+///
+/// §12.5.6.22 introduces the entry's effect with a `shall` on **rendering**, not on printing —
+/// "When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
+/// occur" — and the second of its two bullets replaces the rectangle §12.5.5's algorithm places
+/// the appearance onto. This tree places the appearance onto `/Rect`, so the mark is in the
+/// wrong place and was in the wrong place without a word until the nine-hundred-and-thirty-third
+/// session, whose ledger row explained it as a printing capability this program does not have.
+/// It is not: the clause states the on-screen media dimensions itself, twice.
+///
+/// **Both halves are asserted because only the pair discriminates.** A reader that reported
+/// every watermark would pass the first assertion alone, and `/FixedPrint` is optional — Table
+/// 193 says so — so a watermark without one is placed exactly as any other annotation is and
+/// owes nothing. Calibrated by planting the defect this replaces (`fixed_print_owed` returning
+/// `None`), under which the first assertion fails and the second passes.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "a verbatim quotation: §12.5.6.22 spells FixedPrint without backticks, and \
+              adding them inside the quotation marks would make the conformance gate's quotation \
+              check fail"
+)]
+fn a_watermarks_fixed_print_is_reported_and_a_plain_one_is_not() {
+    let fixed = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Watermark /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> \
+         /FixedPrint << /Type /FixedPrint /Matrix [1 0 0 1 72 -72] /H 0 /V 1.0 >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    let said = format!("{:?}", fixed.unsupported);
+    assert!(
+        said.contains("/FixedPrint"),
+        "the entry states a placement this reader does not carry out: {said}"
+    );
+
+    let plain = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Watermark /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert!(
+        plain.is_complete(),
+        "a watermark with no /FixedPrint is placed like any other annotation: {:?}",
+        plain.unsupported
     );
 }
 
