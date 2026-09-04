@@ -126,11 +126,21 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
 - `proptest` — parser round-trips
 - `cargo-fuzz` — from the first parser commit; every crasher becomes a regression test
 - reference harness (§4)
-- `criterion` + **perf gate**: cold open, time-to-first-page, page-turn latency, memory
-  high-water, measured with a cold page cache. Regression fails the build.
+- **the launch-path gate**: cold open, time-to-first-page, page-turn latency, memory
+  high-water, measured with a cold page cache, plus the cold graphics bring-up principle 2 makes
+  a gate of its own. `crates/viewer-ui/tests/launch_path.rs` with its bands in
+  `doc/checks/launch-path.toml`; `tools/state.sh launch` prints it and `doc/todo/02` §2 runs it.
+  **Not `criterion`**, which this line named for nine hundred rounds and which is the wrong shape
+  for the question: four of the five figures are about a *process*, and a benchmark harness that
+  measures a function in a warm loop cannot see a cold open, a driver's bring-up or a
+  high-water mark. ADR 0884 is the construction and ADR 0885 what it found.
   Startup latency is a first-class requirement — see `CLAUDE.md` principle 2 for the
-  rules that follow from it, notably that GPU initialisation stays off the critical path
-  and page one renders on the CPU backend while the device is created.
+  rules that follow from it. **This line used to end "GPU initialisation stays off the critical
+  path and page one renders on the CPU backend while the device is created", and that is the
+  opposite of what the owner decided**: page one goes to the graphics device by choice, so
+  bring-up is *on* the critical path and is a number to keep small rather than a cost to move
+  aside. Corrected in the nine-hundred-and-twenty-second session, against a principle that has
+  said so since the two-hundred-and-seventies.
 - Miri on the pure-Rust core; ASan/UBSan on any FFI
 - `cargo-deny`, `cargo-audit`
 - **conformance gate** (§5a) — citations checked against the standard's own clause index,

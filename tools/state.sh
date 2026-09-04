@@ -164,6 +164,25 @@ section_writer() {
         cargo test --profile gates -p pdf-transform --test foreign_corpus -- --ignored --nocapture
 }
 
+# `CLAUDE.md` principle 2's four numbers, plus the fifth it makes a gate of its own — and the
+# two figures on the launch path that have no clock in them at all.
+#
+# **`--release` rather than `--profile gates`, and this is the only section that says so.** The
+# two profiles differ by 4.06% to 12.30% on `Document::open` (`Cargo.toml`'s own table, ADR
+# 0666), which is wider than the bands this gate holds; a launch figure is a claim about the
+# program a person runs, so it is taken under the profile that produces one. The worker beside it
+# has to be the release build for the same reason and for trap 10's.
+#
+# The filter keeps every `launch-path:` line, which is the whole report: it is four documents deep
+# and a reader wants the table rather than a total. `NOT JUDGED` is one of those lines — see ADR
+# 0884 for why a wall-clock gate on this machine says that rather than failing.
+section_launch() {
+    cargo build --release -p pdf-sandbox --bins >/dev/null 2>&1 || status=1
+    run "the launch path (principle 2's four numbers, doc/checks/launch-path.toml)" \
+        '^launch-path:' \
+        cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
+}
+
 section_dates() {
     run "dates (§7.9.4)" '^[0-9]+ date strings' \
         cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
@@ -467,7 +486,7 @@ section_disk() {
     fi
 }
 
-all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer dates xmp jpeg2000"
+all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer launch dates xmp jpeg2000"
 quick="ledger conformance annex-o counts hosts windows binaries disk"
 
 case ${1-} in
@@ -494,6 +513,7 @@ for section in $sections; do
     fixed) section_fixed ;;
     transform) section_transform ;;
     writer) section_writer ;;
+    launch) section_launch ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     jpeg2000) section_jpeg2000 ;;

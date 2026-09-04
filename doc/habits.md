@@ -672,6 +672,28 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   this program ever run that code, under any input" with no fuzzing, no coverage build and no
   argument — it found that eleven of thirteen fuzz targets did not contain the function that
   crashed, which is a stronger statement than any of them could have made about *reaching* it.
+- **This machine has two classes of core, and an unpinned duration is a draw from a lottery, not
+  a measurement.** The processor is an AMD Ryzen AI 9 HX 370: four Zen 5 cores at 5.16 GHz and
+  eight denser Zen 5c at 3.29, and `cpuinfo_max_freq` says which is which
+  (`doc/environment.md` has the one-line command). A **fixed, serial, in-memory** piece of this
+  tree's own work — a small document opened from bytes already in memory, its first page
+  interpreted — measured **0.75 ms in some processes and 1.50 ms in others, on a machine whose
+  load average was under two**. That is not noise an average removes; it is bimodal, and a band
+  wide enough to hold both ends is wide enough to hold a regression. Every wall-clock figure this
+  project has ever taken, `doc/performance.md`'s launch timelines included, was drawn that way
+  without anybody knowing. **So a duration that has to be compared with another duration is taken
+  pinned** — `taskset -c` on a list *derived* from `cpuinfo_max_freq` rather than written down,
+  because a list of CPU numbers is a claim about a machine — and **the minimum of several fresh
+  processes**, since contention adds time and never removes it. Pinned and minimised, the launch
+  gate's spread fell from 100–400% to 0.6–22%. Session 922, ADR 0884.
+- **A wall-clock gate needs something that says whether the machine is worth believing, and it
+  belongs in the gate.** The same probe as above, in a child of its own, with a band: outside it,
+  the gate prints every figure and judges none, saying why. Checked against the defect rather than
+  assumed (trap 13) — eight busy threads on the gate's own cores put twelve of twenty-eight
+  figures outside their bands, and the probe said so first. The corollary is the part that makes
+  it a gate rather than a decline: **find the figures with no clock in them and judge those
+  always.** Bytes read and peak resident came back identical in forty-four runs, and they are what
+  gates the claims that matter most. Session 922, ADR 0884.
 - **Wall-clock benchmarks lie under load; count instructions instead.** One change measured as a
   24% regression and an 8.5% improvement twenty minutes apart. **A/B in one sitting**, and measure
   the baseline on this machine rather than trusting a number in this file.
