@@ -231,8 +231,16 @@ pass.
   an entry point rather than an arrangement (`doc/todo/30`). **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
-  own last line to the host rather than a bare signal number. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657; `doc/todo/34`, `doc/todo/15`.
+  own last line to the host rather than a bare signal number. **And since the
+  nine-hundred-and-twentieth it can be *given* a face** (ADR 0880): a worker that cannot walk
+  `/usr/share/fonts` — and is killed rather than told no for trying (ADR 0870) — sends a
+  *description* instead, a family and a weight and the characters a script needs, and its broker
+  matches, reads and answers. **The allow-list did not move for it and no host can move it**; what
+  a host can do is decline, which is the default everywhere. Over `doc/pdf.js` it is 40 pages that
+  differed from what this machine draws unconfined and are now byte-identical to it, twelve of them
+  blank before. ADRs 0218, 0223,
+  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657, 0870, 0880; `doc/todo/34`, `doc/todo/15`,
+  `doc/todo/59`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three

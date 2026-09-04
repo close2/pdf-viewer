@@ -645,6 +645,34 @@ confines itself exactly as the worker does, and then does the suspect thing cost
 is calibratable against the tree without the fix (trap 13) — `unix_wait_status(159)` is signal 31,
 `SIGSYS`, and is what "it was killed" looks like from the parent.
 
+### 32. A confined worker cannot **drop** an owned descriptor, and only the debug build dies of it
+
+Trap 31's sibling, and the one that is invisible in the build a person runs. ADR 0812 hands a
+confined worker a descriptor with `SCM_RIGHTS`; `doc/todo/59`'s resource port wanted to hand it a
+second one. Receiving works, `pread64` works — and then the `std::os::fd::OwnedFd` is **dropped**,
+and `OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before `close` to catch a double close, under
+`core::ub_checks::check_library_ub()`. `fcntl` is not on the allow-list, so the worker is killed by
+`SIGSYS` on the line *after* the read succeeded:
+
+```text
+pread64(3, "OTTO\0\f\0\200\0\3\0@CFF …", 82264, 0) = 82264
+fcntl(3, F_GETFD)                       = 0x48
++++ killed by SIGSYS (core dumped) +++
+```
+
+Two things make this worse than trap 31 rather than a repeat of it. **The check is compiled per
+build**, so a `--release` worker survives and every debug worker dies — and every gate in this tree
+runs debug binaries, so the shape of the failure is "the measurement I ran by hand works and the
+gate is red". And **no filesystem call appears anywhere in the code**: the population trap 31 names
+— "code that opens" — does not contain it. The population here is *code that owns a descriptor and
+lets it go*.
+
+There is no way to close one from safe Rust that avoids the check, because every std type that owns
+a descriptor closes through `OwnedFd`. So the answer is not to hold a descriptor a confined worker
+will ever drop: ADR 0880's port sends the resource's **bytes** on the frame instead, and the
+document's own descriptor — which ADR 0812 does hand over — is the outstanding instance, because
+closing a document drops it. `doc/todo/61` carries that as owed work rather than as a fixed defect.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
