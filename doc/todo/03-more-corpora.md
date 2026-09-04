@@ -2179,6 +2179,101 @@ the substitution head above.
 and `batch4` once its pieces land.
 
 
+### 49. What the nine-hundred-and-thirty-second took: `batch5/qpdf`, and a dimension written as a real
+
+**The directory, surveyed whole under the four rules** — `tools/bounded.sh --data 8 --tree 12`,
+twenty-four rayon threads, 0.7 s, 0.02 GiB peak. The line, a baseline for this directory and never
+a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/qpdf` | 111 | 1 unopenable, 1 locked, 0 encrypted beyond us, 2 pageless, 7 incomplete, 0 slow |
+
+**7 of 111 is 6.31% incomplete**, which sits with `REDHAT`'s 6.07% and just under the pdf.js gate's
+6.98% — the middle of every rate this file records, between `DSS`'s 1.23% and `PDFIUM`'s 17.4%.
+qpdf is a *library* tracker, so its attachments are files that broke a transformation rather than
+files a person could not read, and the shape shows: nothing is slow, one file has no `%PDF-`
+header at all, and the seven reports are five distinct populations — 3 `Content` (all of them
+`Damage::CheckValue`), 1 `Image`, 1 `MediaBox` (§7.7.3.4's inherited-from-nowhere), 1
+`MissingResource`, 1 `Annotation` (a widget with no appearance stream and no usable `/I`).
+
+**Ranked by ink**, ours flattened on white against `pdftoppm -cropbox` and `mutool draw -b
+CropBox` at 72 dpi, over the 103 documents all three drew, by distance *outside* the interval the
+two references bracket (§47's measure). Read through `examples/open_one` first, which is
+`doc/oracle-and-corpus.md` §3d's fourth rule — `release/examples/` held no `pdf-sandbox-worker`,
+and the worker beside it was built in the same session as the example.
+
+- **25 of the 103 sit inside the interval**, and the dark end is nothing: the largest departure
+  above both references is `qpdf-LINK-305-0.pdf` at **+1.010** on a page of 181 levels, which is
+  four tenths of one per cent of it.
+- **The head is one finding by a factor of nearly two hundred.** `qpdf-278-0.pdf`, ours **0.000**
+  against `pdftoppm`'s 177.973 and `mutool draw`'s 177.313 — a book cover, full-bleed on a
+  1062 × 1425 sheet, drawn as a blank white page in **0 commands** on the report
+  `<inline>: malformed image: missing or invalid /Width`. The next row is 0.895.
+
+**The finding is a number with two periods in it.** The whole content stream is one inline image,
+and its dictionary is `/W 1062.00 /H 1425.00 /BPC 8 /CS /RGB /F [/A85 /Fl]`: `/W` and `/H` are
+**reals** where Table 87 types integers, so `Object::as_integer` answered `None` and the image had
+no grid. §7.3.3 makes that the file's error — "A real number shall not be present when an integer
+is expected" — and says nothing about what a reader does next, so the answer is a choice; and it is
+a choice this tree had already made, for the same sentence, in ADR 0371: *a real is truncated where
+an integer is wanted, because a file that does it anyway is a file this viewer still has to draw*.
+ADR 0904 applies that one rule to `/Width` and `/Height`, in `pdf_model::image::dimension_entry`,
+which is now the single place in `image.rs` where either entry is read — five call sites had each
+written their own `as_integer().and_then(u32::try_from)`, so a real `/Width` on a `/Mask` would
+have read as the number in one function and as zero in the next. The page draws its cover at
+**177.313**, which is `mutool draw`'s raster **pixel for pixel** (`magick compare -metric AE` is 0)
+and 0.66 under `pdftoppm`'s, and it is a row in `doc/checks/fixed-documents.toml`.
+
+**The population is two documents of 89 256, and the second is the one worth having measured.**
+The whole survey was re-run over every corpus on this disk — the 23 075 issue-tracker documents,
+`openpreserve`'s 267 and the crawl's 65 944 — before and after, and the two passes diffed:
+
+| | documents | changed |
+|---|---|---|
+| `tika-issue-tracker` | 23 075 | **2** |
+| `openpreserve` | 267 | 0 |
+| `safedocs` (CC-MAIN-2021-31) | 65 944 | **0** |
+
+`qpdf-278-0.pdf` goes from `incomplete` to `complete`. `GHOSTSCRIPT-695872-0.pdf` — `batch2`, not
+this directory — stays incomplete and its report *changes*: the inline image now decodes far enough
+for §7.4.8's frame check to fire ("the JPEG frame is 738x50 where the dictionary says 737x49"),
+which is ADR 0799's reading arriving one clause later, and the freight invoice gains the line of
+type under its letterhead. Ink 9.670 before, **10.136** after, against 10.631 and 10.478 — from
+0.808 outside the interval to 0.342. **Zero of the crawl's 65 944 carry the defect at all**, which
+is §47's finding for the third round running: a crawled document is one a web server served, a
+tracker attachment is one that broke a program.
+
+**Everything else in the ranking is held, and two instruments said so before any page was opened.**
+
+- `qpdf-LINK-384-0.pdf`, the second row at −0.895, is **the rasteriser's and not the
+  interpreter's**: §3d's ladder converges outright — 72 dpi gives ours 15.358 against 16.253 and
+  16.386, and 576 dpi gives 15.374 against 15.391 and 15.108, which is *inside* the interval. All
+  five of its fonts are embedded and the page reports nothing.
+- `qpdf-106-0.pdf` (−0.552), `qpdf-191-0.pdf` and its byte-identical `qpdf-LINK-106-1.pdf`
+  (−0.581) are **two held populations at once**. Their `/Contents` carries
+  `filter::Damage::CheckValue` — a whole deflate stream whose Adler-32 disagrees, ADR 0836's
+  value, drawn to its full length (2419 and 1603 commands) — and their ladders do *not* converge,
+  so the deficit is not scan conversion. What it is, is `pdffonts`: four of five faces are **not
+  embedded** and not one of them is §9.6.2.2's standard 14 (`Arial`, `Arial,Bold`, `Arial,Italic`,
+  `Arial,Bold,Italic`), and a difference map against poppler is uniform over every glyph and empty
+  everywhere else. [`21`](21-font-substitution.md)'s standing population, exactly as session 926
+  found it one directory over.
+
+**What is left here**: `batch5`'s other fifteen trackers, `PDFIUM` (379) and `FOP` (808) the
+largest of the remainder — both already walked, so what is left is the small ones;
+`batch4` once its pieces land; and the rule ADR 0904 states is scoped to `/Width` and `/Height`,
+which is where the population is. Whether it should travel to every entry a table types as an
+integer is [`Q31`](../questions/Q31-how-far-a-readers-tolerance-of-7-3-3-travels.md).
+
+**And one thing this chunk learned about its own instrument.** A survey of *every* corpus at
+twenty-four rayon threads crossed `RLIMIT_DATA` at 11.25 GiB and died with **no verdict at all**;
+at twelve threads over the issue trackers alone it died again at 10.44 GiB. What is in flight is
+documents rather than directories, so the pass that worked is one leaf directory per process — the
+trackers by batch and `batch5` by tracker, the crawl by its 145 buckets. A walk that dies has
+nothing to say, and the cost of splitting it is a few seconds of process startup.
+
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own

@@ -169,6 +169,37 @@ on a memory high-water exists to catch "we stopped doing the work", which the co
 high-water should be a ceiling rather than a band is a real question, and it is a change to a gate
 another round built, which is the same sentence that stopped three rounds widening one.
 
+## What the merge did with the four floors, and what session 935 owns — the nine-hundred-and-thirty-seventh
+
+**Session 932 did move them, and the merge did not take the move.** That round lowered the four
+`peak_mib` floors in `doc/checks/launch-path.toml` to 95, 100, 100 and 112 on readings of 98.5 to
+116.4, and wrote `Q32` asking whether the figure should be a ceiling only. It branched before 934
+and could not have read the table above it. The two rounds' measurements of the same figure on the
+same binary disagree — 932 read 99 to 116 with the machine pressed, 934 read **161 to 182 on nine
+runs with 29 GiB free** — so lowering a floor to 95 admits the pressed machine into the claim,
+which is precisely what 931, 933 and 934 each declined to do. The merge therefore restored session
+931's floors and rewrote that file's paragraph to record both observations and the disagreement;
+932's paragraph, its numbers and `Q32` all stay, because the observation is real and only the
+conclusion drawn from it was one round's alone. **No band was moved in either direction by the
+merge**, and no new one was derived: the floors below are 931's, unchanged since it derived them.
+
+**Session 935 owns the resolution, and it is one errand rather than two.** It is deriving this
+figure properly in its own worktree; whatever it finds supersedes this section and 932's paragraph
+together. The three things that are open, in the order they answer each other:
+
+1. **the availability probe** — what the machine had free when the sample was taken, banded as the
+   disk probe is, so a pressed machine prints `NOT JUDGED` for `peak_mib` instead of failing it.
+   That is 934's ask, and it is what makes any floor believable again;
+2. **`Q32`'s question**, which the probe does not close: whether a memory high-water should carry a
+   minimum at all, given that "we stopped doing the work" is already witnessed by `open_peak_mib`,
+   by `read_kib` and by every clock in the row;
+3. **the first-pass band** `Q29` asks for, which needs the same idle ten minutes and should be
+   taken in the same sitting.
+
+A round that answers 1 and 2 should delete this section and 932's paragraph rather than adding a
+fourth account of one figure.
+
+
 ## Why this is a todo and not a caveat
 
 `CLAUDE.md`'s startup section states two rules this path breaks:

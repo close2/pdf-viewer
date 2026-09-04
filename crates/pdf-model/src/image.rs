@@ -769,16 +769,54 @@ fn samples_of(
     }
 }
 
-/// Reads a required positive integer.
+/// A dimension Table 87 types as an integer, read where the file wrote a real instead.
+///
+/// **§7.3.3 makes that the file's error and states nothing about what a reader does with it**:
+///
+/// > A real number shall not be present when an integer is expected.
+///
+/// So this is a choice, and it is *this tree's own choice already made*. ADR 0371 met the same
+/// sentence in §7.10.5's calculator — an operand typed `int` reached by a real — and answered
+/// with a rule rather than a refusal: a real is **truncated** where an integer is wanted,
+/// because "a file that does it anyway is a file this viewer still has to draw". A second answer
+/// to one clause in a second file is how two readers of one tree come to disagree, so the rule
+/// is that one, applied here.
+///
+/// What it costs is nothing a document can use: truncation names exactly one grid, a value with
+/// no grid in it at all — a NaN, an infinity, a negative — is refused as before, and a `u32`
+/// that would not hold the value is refused by the callers' own filters and by [`MAX_SAMPLES`].
+///
+/// `qpdf-278-0.pdf` is what found it: a full-page scan whose whole content stream is one inline
+/// image stating `/W 1062.00 /H 1425.00`, drawn as a blank sheet for want of a rule (ADR 0904).
+/// The scope is `/Width` and `/Height`, deliberately — those are the entries a measured
+/// population writes as reals, and a tolerance no document exercises is untested code rather
+/// than robustness.
+fn dimension_entry(document: &Document, dict: &Dictionary, key: &str) -> Option<u32> {
+    match document.get_key(dict, key) {
+        Object::Integer(value) => u32::try_from(value).ok(),
+        // Rust's float-to-integer cast truncates toward zero and saturates at the type's
+        // bounds, which is the rule above and no second decision of this function's own.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "truncation is the rule this function states, and the guard above it is                       what keeps the cast's saturation from standing in for a dimension"
+        )]
+        Object::Real(value)
+            if value.is_finite() && value >= 0.0 && value <= f64::from(u32::MAX) =>
+        {
+            Some(value as u32)
+        }
+        _ => None,
+    }
+}
+
+/// Reads a required positive dimension.
 fn positive_integer(
     document: &Document,
     dict: &Dictionary,
     key: &'static str,
 ) -> Result<u32, ImageError> {
-    document
-        .get_key(dict, key)
-        .as_integer()
-        .and_then(|value| u32::try_from(value).ok())
+    dimension_entry(document, dict, key)
         .filter(|value| *value > 0)
         .ok_or(ImageError::Malformed {
             detail: format!("missing or invalid /{key}"),
@@ -2999,13 +3037,7 @@ fn colour_key_entry(
 ///   600 dpi stencil is that it can.
 fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) -> MaskEntry {
     let mask_dict = &stream.dict;
-    let dimension = |dict: &Dictionary, key| {
-        document
-            .get_key(dict, key)
-            .as_integer()
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(0)
-    };
+    let dimension = |dict: &Dictionary, key| dimension_entry(document, dict, key).unwrap_or(0);
     let (mask_width, mask_height) = (
         dimension(mask_dict, "Width"),
         dimension(mask_dict, "Height"),
@@ -3538,13 +3570,7 @@ fn soft_mask_entry(
     let Some(mask) = smask.as_stream() else {
         return SoftMaskEntry::Absent;
     };
-    let dimension = |dict: &Dictionary, key| {
-        document
-            .get_key(dict, key)
-            .as_integer()
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(0)
-    };
+    let dimension = |dict: &Dictionary, key| dimension_entry(document, dict, key).unwrap_or(0);
     let (mask_width, mask_height) = (
         dimension(&mask.dict, "Width"),
         dimension(&mask.dict, "Height"),
@@ -3753,13 +3779,7 @@ pub fn unapplied_soft_mask(
 /// this is for the two callers that must answer without decoding — the interpreter's report,
 /// and the eager route, which agree with each other by asking with the same pair.
 fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
-    let dimension = |key| {
-        document
-            .get_key(dict, key)
-            .as_integer()
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(0)
-    };
+    let dimension = |key| dimension_entry(document, dict, key).unwrap_or(0);
     (dimension("Width"), dimension("Height"))
 }
 
@@ -4496,13 +4516,7 @@ fn device_scaled_soft_mask(
     let smask = document.get_key(dict, "SMask");
     let mask = smask.as_stream()?;
     let mask_dict = &mask.dict;
-    let dimension = |key| {
-        document
-            .get_key(mask_dict, key)
-            .as_integer()
-            .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0)
-    };
+    let dimension = |key| dimension_entry(document, mask_dict, key).filter(|value| *value > 0);
     let (width, height) = (dimension("Width")?, dimension("Height")?);
     let bits = u32::try_from(
         document

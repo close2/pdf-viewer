@@ -28,6 +28,31 @@
 # a coarse guard against a leak rather than a tight one — a first-page raster of any of these
 # documents is larger than the whole margin.
 #
+# **The floors fell again in the nine-hundred-and-thirty-second session, and only the floors.**
+# Every one of the four rows was below its `peak_mib` band on a tree whose only functional change
+# is nine lines in `pdf_model::image` — and on `main` itself, with that change taken back out and
+# the binary rebuilt, all four are still below (111.9, 116.2, 128.9, 140.6 against floors of 127,
+# 131, 132 and 143). So it is not a round's change, and two runs of the *same* binary ten minutes
+# apart read 108.9 and 99.3 for the first row: the figure moves by nine megabytes with nothing
+# moving in the program at all. Seven consecutive runs then sat within a megabyte of each other at
+# 98.5, 103.4, 103.8 and 116.4 — a fourth plateau for a figure that had already been demoted once
+# for the same reason. Whether this should be a ceiling *only* — a band whose floor nothing in
+# this process controls has now failed a gate for a reason no code can explain — is
+# `doc/questions/Q32`.
+#
+# **That round lowered the four floors to 95, 100, 100 and 112, and the merge into `main` did not
+# take them.** Session 934 measured the same figure nine times on a machine with 29 GiB free and
+# read **161 to 182 MiB on every document on every run** — inside every one of the bands below —
+# against 99 to 116 in the run that failed, on a binary the merge had not touched a line of, with
+# 19 GiB of swap in use. So the two rounds' observations disagree about the same figure, and the
+# one that explains both is 934's (ADR 0909): what falls is the resident set of a process that has
+# brought the graphics device up, and it falls under *memory pressure* — so a floor lowered to
+# admit those readings is a loaded machine written into the claim, which is what sessions 931, 933
+# and 934 each declined to do. The floors below are therefore session 931's, unchanged, and what
+# is owed is a third probe — what the machine had available when the sample was taken — banded as
+# the disk probe is, so a pressed machine *declines* `peak_mib` rather than failing it.
+# `doc/todo/42` has both rounds' tables and is where that derivation goes.
+#
 # **Every clock figure is the minimum of nine fresh processes, pinned to this machine's fastest
 # cores.** Contention adds time and never removes it, so the fastest of nine is what a loaded
 # machine can still say about a quiet one. The pinning is not tuning: this processor has four
