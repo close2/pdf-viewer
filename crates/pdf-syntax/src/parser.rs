@@ -388,6 +388,37 @@ impl<'a> Parser<'a> {
                         Err(error) => break Some(error),
                     }
                 }
+                // A keyword that ends the object this dictionary is inside. §7.3.10 says an
+                // indirect object's definition is
+                //
+                // > followed by the value of the object bracketed between the keywords obj and
+                // > endobj
+                //
+                // and §7.3.8.1 says a stream is a dictionary followed by zero or more bytes
+                //
+                // > bracketed between the keywords stream (followed by newline) and endstream
+                //
+                // so none of the four can stand where a key belongs, and meeting one is proof
+                // that the `>>` this body is looking for is not in this object at all.
+                // **The skip below is a recovery and this is its guard** (trap 28). The
+                // recovery is for a stray *value* between two entries; walking through
+                // `endobj` and the next `N 0 obj <<` is not that, and it does not merely lose
+                // entries — it takes the following object's. `cairo-85141-0.zip-3.pdf`'s
+                // object 76 is a Type 3 `/CharProcs` whose dictionary stops in mid-entry, and
+                // this arm read on through `endstream endobj 78 0 obj <<` and answered a
+                // *stream* built from 76's entries, 78's `/Length` and `/Filter`, and 78's
+                // data — a page drawn from an object no producer wrote, reporting success,
+                // which is the one outcome [`Self::parse_dictionary_body`]'s own rule forbids.
+                // ADR 0858.
+                Token::Keyword(word)
+                    if matches!(word, b"obj" | b"endobj" | b"stream" | b"endstream") =>
+                {
+                    break Some(SyntaxError::Unexpected {
+                        at: self.lexer.position(),
+                        found: String::from_utf8_lossy(word).into_owned(),
+                        expected: "a key or '>>' (§7.3.7); this keyword ends the object",
+                    });
+                }
                 // A non-name where a key belongs. Skipped rather than fatal: files with a
                 // stray value between entries are recoverable, and the alternative loses
                 // the whole dictionary.
