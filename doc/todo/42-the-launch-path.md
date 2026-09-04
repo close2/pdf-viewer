@@ -91,6 +91,13 @@ which is a per-operation cost and not a regression:
 | `WTPDF` cold open | 2.294 .. 2.55 | 2.44 .. 5.16, median 2.50 | −2 % |
 | `ISO 32000-2` cold open | 22.59 .. 25.33 | 22.35 .. 50.73, median 23.16 | −9 % |
 
+**And the gate declines nearly everything when it is run the way `doc/todo/02` §2 runs it.** In
+session 931's own full sequence the launch line read its calibration at 1.577 ms against
+`0.62 .. 0.78` at a one-minute load average of about 20 — two other rounds building and walking —
+printed `NOT JUDGED`, printed all twenty-eight figures with the reason beside each, and exited 0.
+The guard is working; the consequence is that principle 2's four numbers are gated in principle and
+unwatched in practice, which is what `Q29` is about.
+
 **No band was moved, for the second round running.** A band is a claim about a machine, and
 widening one to admit a loaded machine puts the loaded machine into the claim. What changed is the
 instrument: every child now reports its **first pass** beside its best of fifty (printed, not

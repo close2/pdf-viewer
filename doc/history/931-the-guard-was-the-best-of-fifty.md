@@ -86,3 +86,21 @@ And **a figure that is declined now says which probe declined it and what all th
 a figure that fails. Session 926 had four runs, one figure outside its band and no way to tell a
 processor refusal from a disk refusal, which is most of why `doc/todo/42` carried three hypotheses
 instead of a finding.
+
+## 5. What the gates said
+
+`doc/todo/02` §2 ran **whole** on the merged result, which is the merge rule and not a judgement
+about how small the diff looked: both lint lines under `RUSTFLAGS="-D warnings"`, both `fuzz/`
+lines, every corpus walk under `tools/bounded.sh --tree 12` with the one-walk rule waited on by
+`/proc/PID/exe` before each. **Every line exited 0**, the conformance gate included. §5's ten
+binaries and two libraries were rebuilt in `release` and installed before any measurement, which is
+the rule this round measures under.
+
+**And the launch line declined every clock figure inside the sequence, which is a finding for
+`Q29` rather than a footnote.** It ran at a one-minute load average of about 20 — two other rounds
+building and walking — read its calibration at 1.577 ms against `0.62 .. 0.78`, printed
+`NOT JUDGED`, printed all twenty-eight figures with the reason beside each, and exited 0. That is
+ADR 0884's guard working exactly as designed. It is also the shape of the problem: on this machine,
+run the way `doc/todo/02` §2 runs it, this gate's clock half will almost never judge anything —
+so the four numbers principle 2 names are gated in principle and unwatched in practice. The eight
+figures with no clock in them were judged and held, on every run this round took.
