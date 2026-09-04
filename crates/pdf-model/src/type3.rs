@@ -62,10 +62,11 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
 /// > If the name is not present as a key in CharProcs , no glyph shall be painted.
 ///
 /// So the residue is an **omission the clause itself defines**, not a default this reader chose
-/// and not a substitute mark; and §9.6.5.3 with Table 110's `/Encoding` cell make `/Differences`
-/// "the complete character encoding for this font", stated in the font dictionary, which is
-/// whole — so the glyphs that will paint nothing can be named one by one rather than guessed at.
-/// ADR 0866 is the argument and [`Self::undescribed`] is the naming.
+/// and not a substitute mark; and §9.6.5.3 makes the mapping "entirely defined by its Encoding
+/// entry", which is stated outside the damaged stream and is therefore whole either way it is
+/// written — Table 110's `/Differences` array, or one of §9.6.5.1's named encodings out of
+/// Annex D — so the glyphs that will paint nothing can be named one by one rather than guessed
+/// at. ADR 0866 is the argument and [`Self::undescribed`] is the naming.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CharProcsDamage {
     /// How many key–value pairs `/CharProcs` states readably before the damage.
@@ -550,9 +551,43 @@ fn matrix(document: &Document, dict: &Dictionary) -> Option<Transform> {
 /// handful of producers use it here — but there is no *default* base: §9.6.5.1 excepts Type
 /// 3 fonts from having a built-in encoding at all, so a code neither `/BaseEncoding` nor
 /// `/Differences` names reaches nothing.
+///
+/// # The entry may be a name, and reading only the dictionary lost whole pages
+///
+/// Table 110's `/Encoding` cell is a requirement on the **file** — "[a]n encoding dictionary
+/// whose Differences array shall specify the complete character encoding for this font" — and
+/// this function used to treat it as the shape of the *lookup* too, returning an empty table
+/// for anything that is not a dictionary. §9.6.4's step a) says otherwise, and it is the step
+/// a processor runs:
+///
+/// > a) Look up the character code in the font's Encoding entry, as described in 9.6.5,
+/// > "Character encoding" to obtain a glyph name.
+///
+/// §9.6.5 is where the entry's permitted values are, in its General subclause, which governs
+/// every simple font including this one:
+///
+/// > The value of the Encoding entry shall be either a named encoding (the name of one of the
+/// > predefined encodings MacRomanEncoding , MacExpertEncoding , or WinAnsiEncoding ) or an
+/// > encoding dictionary.
+///
+/// So a Type 3 font whose `/Encoding` is `/WinAnsiEncoding` still has its mapping "entirely
+/// defined by its Encoding entry" (§9.6.5.3) — Annex D's table defines it — and step b) then
+/// looks each name up in `/CharProcs` like any other. `StandardEncoding` is accepted beside
+/// the three §9.6.5.1 lists, which is the same deliberate extra `pdf_font`'s
+/// `PERMITTED_ENCODING_NAMES` documents for simple fonts and the same leniency the
+/// `/BaseEncoding` arm below already takes.
 fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
     let mut table = BTreeMap::new();
     let entry = document.get_key(dict, "Encoding");
+
+    if let Some(base) = entry
+        .as_name()
+        .and_then(|name| pdf_font::encoding::BaseEncoding::by_name(name.as_bytes()))
+    {
+        fill_from(&mut table, base);
+        return table;
+    }
+
     let Some(encoding) = entry.as_dict() else {
         return table;
     };
@@ -562,12 +597,7 @@ fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
         .as_name()
         .and_then(|name| pdf_font::encoding::BaseEncoding::by_name(name.as_bytes()))
     {
-        for code in 0..=u8::MAX {
-            let name = base.glyph_name(code);
-            if !name.is_empty() {
-                table.insert(code, Name::new(name.as_bytes()));
-            }
-        }
+        fill_from(&mut table, base);
     }
 
     // §9.6.5.1: "Each code shall be the first index in a sequence of character codes to be
@@ -591,6 +621,20 @@ fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
         }
     }
     table
+}
+
+/// Writes every code a predefined encoding names into the table.
+///
+/// A code the encoding leaves unencoded is left out rather than written as `.notdef`:
+/// §9.6.5.3's NOTE says "Type 3 fonts do not support the concept of a default glyph name",
+/// so an unencoded code has to reach nothing rather than reach a name.
+fn fill_from(table: &mut BTreeMap<u8, Name>, base: pdf_font::encoding::BaseEncoding) {
+    for code in 0..=u8::MAX {
+        let name = base.glyph_name(code);
+        if !name.is_empty() {
+            table.insert(code, Name::new(name.as_bytes()));
+        }
+    }
 }
 
 /// Narrows a PDF number to the precision the display list is in.

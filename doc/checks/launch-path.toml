@@ -123,7 +123,18 @@ pages = 1023
 cold_open_ms = 19.2 .. 30.4
 warm_open_ms = 11.1 .. 17.2
 first_page_ms = 34.0 .. 57.3
-turn_ms = 4.5 .. 7.2
+# **The floor was 4.5 and is 3.8, because session 925 took 0.77 ms out of this document's page
+# turn** and a floor derived from a slower program is a floor a faster one falls through. What
+# went: `Viewer::announce_page` built a `Pages` and then the whole `Pages::indices` map — every
+# node of §7.7.3's tree — once per turn, for the caption's section name; the document is
+# immutable, so `Open` keeps the map and constructs no tree at all. Measured as an A/B in one
+# binary (`examples/open_cost` prints both lines): `Pages::new` 0.245 ms gone, and the section
+# 0.555 ms → 0.031. The new floor is the old one less that saving, rounded down; the ceiling did
+# not move, because nothing about the slow end of a page turn changed. ADR 0890.
+#
+# The other two rows' floors are untouched: the same change is worth 0.06 ms on the 57-page
+# document and 0.03 on the five-page one, which is inside their own spread.
+turn_ms = 3.8 .. 7.2
 peak_mib = 132 .. 215
 open_peak_mib = 16 .. 20
 read_kib = 4238 .. 4412

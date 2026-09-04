@@ -194,6 +194,50 @@ impl Query {
     }
 }
 
+impl Query {
+    /// What this question is **about**, where asking it twice must give the same answer.
+    ///
+    /// The key [`crate::Vfs::questions`] counts a repeat by, and the reason it exists is
+    /// `doc/traps/instruments-and-reports.md`'s trap 33: a counter of what a tree *produced*
+    /// read one while a mount re-ran an extraction twenty thousand times to validate a name
+    /// (ADR 0886), so the property "the expensive call happens once" has to count the expensive
+    /// call. That call is [`Worker::ask`], and this is what makes two of them comparable.
+    ///
+    /// **`None` means asking twice is not a repeat**, and there are two such families:
+    ///
+    /// - the five write verbs, because each one *is* an edit — two [`Query::Attach`]es are two
+    ///   files in the document, not one question asked twice; and
+    /// - [`Query::Consult`] and [`Query::Consented`], because `CLAUDE.md` principle 3's *ask*
+    ///   level is two round trips per operation by design (ADR 0874), so a consultation before
+    ///   every operation is the feature rather than a cost.
+    ///
+    /// A page's ordinal, a resolution and a name are all part of the subject; nothing that would
+    /// grow with the document's own bytes is, so the set a mount keeps is bounded by the layout
+    /// rather than by what crosses the wire.
+    #[must_use]
+    pub fn subject(&self) -> Option<String> {
+        match self {
+            Self::PageCount => Some("page-count".to_owned()),
+            Self::ExtractPage { page } => Some(format!("page/{page}")),
+            Self::RenderPage { page, dpi } => Some(format!("render/{page}@{dpi}")),
+            Self::ExtractImages { page } => Some(format!("images/{page}")),
+            Self::PageText { page } => Some(format!("text/{page}")),
+            Self::AttachmentInventory => Some("attachments".to_owned()),
+            Self::ExtractAttachment { name } => Some(format!("attachment/{name}")),
+            Self::Information => Some("information".to_owned()),
+            Self::MetadataStream => Some("metadata".to_owned()),
+            Self::Outline => Some("outline".to_owned()),
+            Self::InsertPages { .. }
+            | Self::DeletePage { .. }
+            | Self::Attach { .. }
+            | Self::Detach { .. }
+            | Self::SetInformation { .. }
+            | Self::Consult { .. }
+            | Self::Consented(_) => None,
+        }
+    }
+}
+
 /// One answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
@@ -1010,7 +1054,7 @@ fn outline_json(
                 outline
                     .items
                     .iter()
-                    .map(|item| item_json(document, pages, labels, &indices, item))
+                    .map(|item| item_json(document, labels, &indices, item))
                     .collect(),
             ),
         ),
@@ -1021,14 +1065,13 @@ fn outline_json(
 /// One outline item, and its children under it.
 fn item_json(
     document: &Document,
-    pages: &Pages<'_>,
     labels: &PageLabels,
     indices: &BTreeMap<pdf_syntax::ObjectId, usize>,
     item: &Item,
 ) -> Value {
     let index = item
         .destination
-        .and_then(|destination| destination.page_index_with(document, pages, indices));
+        .and_then(|destination| destination.page_index_with(document, indices));
     Value::Object(vec![
         ("title".to_owned(), Value::text(item.title.clone())),
         (
@@ -1047,7 +1090,7 @@ fn item_json(
             Value::Array(
                 item.children
                     .iter()
-                    .map(|child| item_json(document, pages, labels, indices, child))
+                    .map(|child| item_json(document, labels, indices, child))
                     .collect(),
             ),
         ),

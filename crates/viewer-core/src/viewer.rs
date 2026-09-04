@@ -2852,11 +2852,16 @@ impl Viewer {
             return;
         };
         let index = open.page_index;
+        // §7.7.3's tree placed once for the life of the document rather than once per turn, and
+        // no `Pages` built here at all: both were per-turn costs that scale with the document —
+        // 1023 pages of ISO 32000-2 cost about six milliseconds of walk and a further third of
+        // one to construct the tree, on the path an arrow key takes. See `Open::page_indices`.
         let section = open
             .outline
-            .section_at(
+            .section_at_with(
                 &open.document,
-                &pdf_model::Pages::new(&open.document),
+                open.page_indices
+                    .get_or_init(|| pdf_model::Pages::new(&open.document).indices()),
                 index,
             )
             .map(ToOwned::to_owned);

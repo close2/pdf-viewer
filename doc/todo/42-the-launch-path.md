@@ -41,6 +41,41 @@ reading. Three consequences for the items below:
   as a row so the cost has a band rather than a sentence; ADR 0885 has the evidence, and the
   wording is the owner's (round 921's question).
 
+## What the nine-hundred-and-twenty-sixth session read on `main`, and the one band it could not settle
+
+The merge that brought the gate to `main` ran it there. **Twenty-seven of the twenty-eight figures
+are inside their bands and one is not**: `doc/PDF20_AN001-BPC.pdf`'s cold open, held to
+`0.49 .. 0.80`, read **0.87, 1.30, 0.72 and 0.86 ms** over four runs at one-minute load averages
+of 12, 3.6, 2.8 and 1.9. Two of those runs had both probes in band and therefore *judged* the
+figure and failed; one declined it on the calibration probe; one had it in band. The figure was
+the same before this round's own change to `pdf-model`, so it is not that change.
+
+**The band was not moved, and the reason is that this round could not separate three hypotheses**
+— which is exactly the discipline ADR 0884 asks for when it says a band is a machine:
+
+1. **The gate's second probe measures throughput and this figure is latency.** `io_ms` is a cold
+   read of eight mebibytes, spanning `2.0 .. 7.0` — a factor of 3.5 — while the cold-open bands
+   span about 1.6. The five-page document's cold open reads **109 KiB**, which is one seek and a
+   little transfer, so a disk 40 % slower at latency passes the probe and pushes the figure out.
+   The readings pair as `io 3.0 → 0.87`, `3.1 → 0.72`, `4.3 → 0.86`, `5.2 → 1.30`, which is
+   suggestive and not monotone. ADR 0884's own sentence — *a guard has to sense every subsystem the
+   figure it guards is made of* — has a finer version inside it, and this is it.
+2. **This round swept the build directory** (`doc/todo/02` §5a, 104 GiB), and the gate's cold arm
+   reads **a copy it makes beside the build directory** rather than the repository's file. Every
+   copy since the sweep lands on freshly allocated extents of a btrfs filesystem that had just had
+   a hundred gigabytes returned to it. The bands were derived in a worktree whose build directory
+   was months old.
+3. **A real regression in the open**, which is what the gate is for. Nothing in the merge touches
+   `Document::open`, and the same figure's *warm* arm (0.42, 0.43) is inside its band on every run
+   — a warm open with no seek in it — which argues against this one without excluding it.
+
+**What a later round should do**, in this order and none of it expensive: re-run the gate a dozen
+times and read the distribution rather than a run; take `io_ms` and the cold open together and see
+whether a *latency* probe — a small read at a random offset, beside the existing throughput one —
+separates the runs the throughput probe cannot; and only then decide whether the band moved or the
+machine did. Round 925 is working on the open path from this same branch, so its numbers belong
+beside these.
+
 ## Why this is a todo and not a caveat
 
 `CLAUDE.md`'s startup section states two rules this path breaks:
