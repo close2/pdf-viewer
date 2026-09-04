@@ -57,6 +57,12 @@ and **8** by the census on the entries the line before it had just written, agai
 from disk. Three orders of magnitude between the cheapest run and the dearest, and the inequality
 says the same thing about both — which is the whole case for a count. ADR 0898 has the table.
 
+The same sequence re-run after merging `main` read **`0 run`** on all three, every entry having
+been written by the run before it, and that is the honest limit of a content-addressed floor: over
+the corpus it discriminates in proportion to how cold the cache is. The unit floor clears its own
+cache and therefore always runs cold, which is what makes the discrimination unconditional and why
+it is in the four lines every round runs.
+
 ## What the survey got wrong, which is the round's other half
 
 Three of ADR 0895 §3's rows are not what they were costed at, and two of them would have produced a

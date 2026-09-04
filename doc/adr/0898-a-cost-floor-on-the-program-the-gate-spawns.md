@@ -124,6 +124,15 @@ answers from disk. `repeated` is zero in both regimes, which is what a floor wit
 looks like when it is holding: the two runs differ by three orders of magnitude in what they cost
 and by nothing at all in what the inequality says.
 
+**And the second run of the same sequence, on the merged tree, read `0 run` on all three** — the
+entries were all written by the first, so not one program was spawned and the inequality held over
+an empty population. That is not a defect and it is worth stating rather than hiding: a
+content-addressed cache means **the corpus floors discriminate in proportion to how cold the cache
+is**, and on a fully warm one they assert nothing at all. What keeps the discrimination
+unconditional is the unit floor, which clears its own cache and therefore always runs cold —
+`cargo nextest run --workspace`, every round. Session 927's lesson a third time: a floor is only as
+good as the population that reaches it.
+
 The zeroes also settle the one soundness worry this ADR records. Two threads missing on one key at
 the same instant would show here, and over 7671 spawns through three rayon walks it did not happen
 once — so the floor is at its tightest setting, where **any** repeat at all fails it.
