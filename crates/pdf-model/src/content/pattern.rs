@@ -1058,6 +1058,7 @@ impl Interpreter<'_> {
             kind: SoftMaskKind::Alpha,
             transfer: None,
             luminance: None,
+            black: None,
         };
         self.list.add_soft_mask(mask).ok()
     }

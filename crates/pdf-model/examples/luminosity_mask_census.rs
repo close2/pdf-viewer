@@ -437,7 +437,8 @@ fn blend_names(document: &Document, entry: &Object) -> Vec<String> {
 ///
 /// A `CalRGB` and a matrix profile have a `Y` that is a sum of one curve per component, which
 /// `pdf_render::Luminance` carries as three curves; a three-component profile whose conversion
-/// is a lookup table has not, and a four-component one is §11.4.7's pair inside a mask. Each
+/// is a lookup table has not, and a four-component one is §11.4.7's pair inside a mask, drawn
+/// since ADR 0857 where the profile is bi-directional and reported where it is not. Each
 /// shape is named so that its population is a count rather than a claim — which is the whole
 /// point of the distinction, and it is why the four-component line separates a profile this
 /// crate reads from Table 65's `DeviceCMYK` fallback: the two are written the same way in a
@@ -457,7 +458,7 @@ fn shape_of(space: &ColourSpace) -> &'static str {
         }
         ColourSpace::Icc { profile } if profile.channels() == 4 => {
             if profile.is_bidirectional() {
-                ", profile press: §11.4.7's pair inside a mask, reported"
+                ", profile press: §11.4.7's pair inside a mask"
             } else {
                 ", one-way profile press: no route in, reported"
             }

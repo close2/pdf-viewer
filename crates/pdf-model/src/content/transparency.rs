@@ -1623,6 +1623,86 @@ impl Interpreter<'_> {
         });
     }
 
+    /// Runs a mask group's content and collects its commands — twice where the group's
+    /// blending colour space has four components (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7).
+    ///
+    /// The first run is already in `self.list` above `mark` when this is called, which is
+    /// what lets the second one be taken against it without a third traversal. §11.3.4
+    /// composites per component and a rasteriser has three channels, so four components are
+    /// two interpretations of one content stream: the first resolves colours into the press's
+    /// chromatic half and the second into its black half, and `pdf_render::SoftMask::black`
+    /// carries the second beside the first.
+    ///
+    /// **Two conditions give the pair up**, each with its own report, and in both the group is
+    /// re-run on the device's three components so that what the mask carries and what it says
+    /// about itself agree:
+    ///
+    /// - **A group inside introduced a blending space of its own with something compositing in
+    ///   it** (`nested_space_departed`), which owes a conversion between two spaces per pixel
+    ///   that no list here carries — `group_commands` gives its own pair up on the same
+    ///   condition.
+    /// - **§11.7.5.3's black generation was stated**, which the conversion into the space does
+    ///   not read.
+    ///
+    /// A third gives it up after the fact: two interpretations that drew different structures
+    /// are not a pair, because the halves are resolved together per pixel. No valid content
+    /// stream does that — the two runs differ only in what a colour resolved to — which is why
+    /// it is checked rather than assumed.
+    fn mask_halves(
+        &mut self,
+        request: &crate::soft_mask::SoftMaskRequest,
+        content: &NestedContent,
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        mark: usize,
+    ) -> (Vec<Command>, Option<pdf_render::BlackHalf>) {
+        let commands = self.list.split_off_commands(mark);
+        let (Some(backdrop), Compositing::Subtractive(_, press)) =
+            (request.black_backdrop, &request.compositing)
+        else {
+            return (commands, None);
+        };
+        let press = Arc::clone(press);
+        let on_device = |interpreter: &mut Self, detail: String| {
+            interpreter.note(Unsupported::TransparencyGroup { detail });
+            let saved = std::mem::replace(&mut interpreter.compositing, Compositing::Device);
+            let redrawn = interpreter.rerun_on_device(content, resources, inner, mark);
+            interpreter.compositing = saved;
+            (redrawn, None)
+        };
+        if self.nested_space_departed || self.black_generation_stated {
+            return on_device(
+                self,
+                "a soft mask's group states a four-component ICCBased /CS, and a group inside                  it names a blending space of its own or its content stated §11.7.5.3's black                  generation — so its luminosity is taken as §11.5.3's device branch on device                  RGB rather than as the Y of the four composited components"
+                    .to_owned(),
+            );
+        }
+        let rewind = self.readback_mark();
+        let saved = std::mem::replace(
+            &mut self.compositing,
+            Compositing::Subtractive(crate::colour::Half::Black, press),
+        );
+        self.run(content, resources, inner);
+        self.compositing = saved;
+        self.rewind_readback(rewind);
+        let black = self.list.split_off_commands(mark);
+        if paired(&commands, &black) {
+            (
+                commands,
+                Some(pdf_render::BlackHalf {
+                    commands: black,
+                    backdrop,
+                }),
+            )
+        } else {
+            on_device(
+                self,
+                "a soft mask's group states a four-component ICCBased /CS and its two                  interpretations drew different structures, so §11.5.3's Y of the four                  composited components cannot be read off the pair (§11.3.4, §11.4.7)"
+                    .to_owned(),
+            )
+        }
+    }
+
     /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).
     ///
     /// Returns `None` when the group draws nothing at all, which §11.5.2's NOTE 2 makes a
@@ -1786,6 +1866,19 @@ impl Interpreter<'_> {
         // the second door into the same room.
         let saved_base = std::mem::replace(&mut self.base, inner.transform);
         self.run(&content, &resources, &inner);
+        // §11.4.7's second raster, where the mask group's blending colour space has four
+        // components: the same content stream interpreted again in the black component, with
+        // the readback its first run collected put back off (`ReadbackMark`). Taken here,
+        // before any of the scoped state is restored, because the second run has to see
+        // exactly what the first did.
+        //
+        // **Unconditional where the space has four components**, which is where this differs
+        // from `group_commands`' pair: that one skips the second run when nothing inside the
+        // group composites, because a group's four components are converted to the device at
+        // the end and an opaque Normal mark carries its colour through whatever space it was
+        // carried in. A mask's four components are converted to *one number* by §11.5.3's
+        // `Y`, which is a function of all four however opaque the marks are.
+        let (commands, black) = self.mask_halves(request, &content, &resources, &inner, mark);
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
@@ -1796,7 +1889,6 @@ impl Interpreter<'_> {
         self.compositing = saved_compositing;
         self.uncoloured = saved_uncoloured;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
-        let commands = self.list.split_off_commands(mark);
 
         // §11.5.3, of the group a mask is derived from: "G may be any kind of group -
         // isolated or not, knockout or not - producing various effects on the C result in
@@ -1828,11 +1920,19 @@ impl Interpreter<'_> {
         }
         self.note_blended_luminosity(&request.compositing, &commands);
 
+        // A four-axis `Y` reads the pair and nothing else, so the two stand or fall together:
+        // where `mask_halves` gave the pair up it also drew the group on the device's three
+        // components, and the luminance goes with it.
+        let luminance = request
+            .luminance
+            .clone()
+            .filter(|luminance| luminance.axes() == 3 || black.is_some());
         let evaluated = pdf_render::SoftMask {
             commands,
             kind: request.kind,
             transfer: request.transfer.clone(),
-            luminance: request.luminance.clone(),
+            luminance,
+            black,
         };
         let Ok(id) = self.list.add_soft_mask(evaluated) else {
             self.note(Unsupported::LimitReached {

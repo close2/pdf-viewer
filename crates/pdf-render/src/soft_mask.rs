@@ -143,7 +143,7 @@ impl Transfer {
     }
 }
 
-/// §11.5.3's luminosity of a colour composited in a three-component CIE-based space
+/// §11.5.3's luminosity of a colour composited in a CIE-based blending colour space
 /// (ISO 32000-2 §11.5.3).
 ///
 /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
@@ -156,13 +156,20 @@ impl Transfer {
 ///   as the sum of the three components, each decoded by its gamma and weighted by its `Y` in
 ///   the space's `Matrix` — a sum of three functions of one component each. A matrix profile's
 ///   `Y` is the same shape, its tone curves weighted by the middle row of its matrix.
-/// - **A sampled grid.** A profile whose conversion is a lookup table has no such
-///   decomposition: its `Y` is one function of all three components at once, and EXAMPLE 1's
-///   "[a]n analogous computation applies to other CIE-based colour spaces" is that function
-///   rather than a licence to drop it. So it is sampled over `side³` points and interpolated
-///   trilinearly, which is exactly how the same profile's conversion *out* is carried
-///   ([`crate::ColourCube`]) and to the same fidelity — a property of the profile's own
-///   smoothness between its grid points.
+/// - **A sampled grid over three components.** A profile whose conversion is a lookup table
+///   has no such decomposition: its `Y` is one function of all three components at once, and
+///   EXAMPLE 1's "[a]n analogous computation applies to other CIE-based colour spaces" is that
+///   function rather than a licence to drop it. So it is sampled over `side³` points and
+///   interpolated trilinearly, which is exactly how the same profile's conversion *out* is
+///   carried ([`crate::ColourCube`]) and to the same fidelity — a property of the profile's
+///   own smoothness between its grid points.
+/// - **A sampled grid over four components.** §11.3.4 lists an `ICCBased` bi-directional
+///   'CMYK' space among the blending colour spaces, and §8.6.5.1 makes it CIE-based, so
+///   §11.5.3 asks the same `Y` of it. Four components are not three, so the group is
+///   §11.4.7's *pair* of rasters ([`SoftMask::black`]) and the grid has a fourth axis,
+///   interpolated over sixteen corners on the same `side` and in the same index order as
+///   [`crate::BlendingSpace`]'s own — cyan running fastest and black slowest, because it is
+///   sampled at the very points that space is.
 ///
 /// Either way a mask group `pdf_model` painted in such a space's own components hands the
 /// backend one of these and the luminosity of a composited pixel is read off it, clamped to
@@ -183,10 +190,12 @@ pub struct Luminance {
 enum Shape {
     /// `curves[i][axis]` is that axis's share of `Y` at the component `i ÷ 255`.
     Curves(std::sync::Arc<[[f32; 3]; 256]>),
-    /// `side³` samples of `Y`, the first component running fastest and the third slowest, so
-    /// index 0 is every component at 0 and the last is every component at 1. At least two
-    /// samples an axis, and exactly `side³` of them.
+    /// `side^axes` samples of `Y`, the first component running fastest and the last slowest,
+    /// so index 0 is every component at 0 and the last is every component at 1. At least two
+    /// samples an axis, exactly `side^axes` of them, and `axes` is three or four.
     Grid {
+        /// How many components the grid is indexed by: three or four.
+        axes: usize,
         /// How many samples the grid holds along each axis; at least two.
         side: usize,
         /// The samples themselves, in the index order above.
@@ -210,9 +219,28 @@ impl Luminance {
     /// again: at least two samples per axis, and exactly `side³` of them.
     #[must_use]
     pub fn grid(side: usize, samples: std::sync::Arc<[f32]>) -> Option<Self> {
-        let wanted = side.checked_pow(3)?;
+        Self::over(3, side, samples)
+    }
+
+    /// The luminosity of a space of **four** components, sampled over a grid of `side⁴`
+    /// points — or `None` if the samples are not one.
+    ///
+    /// The same conditions one axis up, and the same index order as
+    /// [`crate::BlendingSpace`]: cyan fastest, black slowest.
+    #[must_use]
+    pub fn ink_grid(side: usize, samples: std::sync::Arc<[f32]>) -> Option<Self> {
+        Self::over(4, side, samples)
+    }
+
+    /// The checked constructor both grid shapes are.
+    fn over(axes: usize, side: usize, samples: std::sync::Arc<[f32]>) -> Option<Self> {
+        let wanted = side.checked_pow(u32::try_from(axes).ok()?)?;
         (side >= 2 && samples.len() == wanted).then_some(Self {
-            shape: Shape::Grid { side, samples },
+            shape: Shape::Grid {
+                axes,
+                side,
+                samples,
+            },
         })
     }
 
@@ -225,23 +253,53 @@ impl Luminance {
         }
     }
 
-    /// The grid's side and its samples, where this is the sampled shape.
+    /// The grid's side and its samples, where this is the three-component sampled shape.
     #[must_use]
     pub fn as_grid(&self) -> Option<(usize, &[f32])> {
         match &self.shape {
-            Shape::Curves(_) => None,
-            Shape::Grid { side, samples } => Some((*side, samples)),
+            Shape::Grid {
+                axes: 3,
+                side,
+                samples,
+            } => Some((*side, samples)),
+            Shape::Curves(_) | Shape::Grid { .. } => None,
         }
     }
 
-    /// The `Y` of a colour whose channels hold the space's three components.
+    /// The grid's side and its samples, where this is the four-component sampled shape.
     #[must_use]
-    pub fn of(&self, colour: Color) -> f32 {
-        let components = [colour.r, colour.g, colour.b];
+    pub fn as_ink_grid(&self) -> Option<(usize, &[f32])> {
+        match &self.shape {
+            Shape::Grid {
+                axes: 4,
+                side,
+                samples,
+            } => Some((*side, samples)),
+            Shape::Curves(_) | Shape::Grid { .. } => None,
+        }
+    }
+
+    /// How many components this `Y` is a function of: three, or four.
+    ///
+    /// What tells a backend whether the mask group is one raster or §11.4.7's pair, without
+    /// its having to ask which shape carries the samples.
+    #[must_use]
+    pub fn axes(&self) -> usize {
+        match &self.shape {
+            Shape::Curves(_) => 3,
+            Shape::Grid { axes, .. } => *axes,
+        }
+    }
+
+    /// The `Y` of a colour, `components` holding as many of the space's components as
+    /// [`Luminance::axes`] says. A component this has no entry for is read as 0.0.
+    #[must_use]
+    pub fn of(&self, components: &[f32]) -> f32 {
+        let at = |index: usize| components.get(index).copied().unwrap_or(0.0);
         let luminosity = match &self.shape {
             Shape::Curves(curves) => {
                 let mut sum = 0.0f32;
-                for (axis, component) in components.into_iter().enumerate() {
+                for (axis, component) in [at(0), at(1), at(2)].into_iter().enumerate() {
                     let scaled = component.clamp(0.0, 1.0) * 255.0;
                     #[expect(
                         clippy::cast_possible_truncation,
@@ -262,60 +320,75 @@ impl Luminance {
                 }
                 sum
             }
-            Shape::Grid { side, samples } => trilinear(*side, samples, components),
+            Shape::Grid {
+                axes,
+                side,
+                samples,
+            } => {
+                let cells: Vec<(usize, [f32; 2])> =
+                    (0..*axes).map(|axis| cell_of(*side, at(axis))).collect();
+                multilinear(*side, samples, &cells)
+            }
         };
         luminosity.clamp(0.0, 1.0)
     }
 }
 
-/// One scalar interpolated trilinearly over a grid of `side³` samples on the unit cube.
+/// Which cell of an axis a component falls in, and the weights of that cell's two ends.
 ///
-/// The same weights and the same index order as [`crate::ColourCube`]'s grid, over one
-/// number per sample rather than three: a luminosity is a scalar and a device colour is not,
-/// and writing the shared half as a generic would have made both harder to read than the
-/// eight lines they each are.
-fn trilinear(side: usize, samples: &[f32], components: [f32; 3]) -> f32 {
+/// Split out of the interpolation below because both the three- and the four-component grid
+/// ask it once per axis, and it is the one place a component is clamped to the unit interval.
+fn cell_of(side: usize, value: f32) -> (usize, [f32; 2]) {
     let last = side.saturating_sub(1);
-    let axis = |value: f32| -> (usize, [f32; 2]) {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a grid side and a cell index, both far below f32's exact range"
-        )]
-        let scaled = value.clamp(0.0, 1.0) * last as f32;
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "`scaled` is in 0..=last, so its floor is a valid index"
-        )]
-        let cell = (scaled as usize).min(last.saturating_sub(1));
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a cell index below the grid side"
-        )]
-        let fraction = scaled - cell as f32;
-        (cell, [1.0 - fraction, fraction])
-    };
-    let cells = [
-        axis(components[0]),
-        axis(components[1]),
-        axis(components[2]),
-    ];
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a grid side and a cell index, both far below f32's exact range"
+    )]
+    let scaled = value.clamp(0.0, 1.0) * last as f32;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`scaled` is in 0..=last, so its floor is a valid index"
+    )]
+    let cell = (scaled as usize).min(last.saturating_sub(1));
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a cell index below the grid side"
+    )]
+    let fraction = scaled - cell as f32;
+    (cell, [1.0 - fraction, fraction])
+}
+
+/// One scalar interpolated multilinearly over a grid of `side^cells.len()` samples.
+///
+/// The same weights and the same index order as [`crate::ColourCube`]'s grid and
+/// [`crate::BlendingSpace`]'s — first axis fastest — over one number per sample rather than
+/// three: a luminosity is a scalar and a device colour is not, and writing the shared half as
+/// a generic would have made both harder to read than the few lines they each are.
+///
+/// The axis count is `cells.len()` rather than a constant because §11.5.3 asks the same `Y`
+/// of a three-component space and of a four-component one, and the only difference between
+/// them is how many corners the sum runs over: eight, or sixteen.
+fn multilinear(side: usize, samples: &[f32], cells: &[(usize, [f32; 2])]) -> f32 {
+    let corners = 1usize << cells.len();
     let mut sum = 0.0f32;
-    for corner in 0..8usize {
-        let offsets = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
-        let weight = cells[0].1[offsets[0]] * cells[1].1[offsets[1]] * cells[2].1[offsets[2]];
+    for corner in 0..corners {
+        let mut weight = 1.0f32;
+        for (axis, cell) in cells.iter().enumerate() {
+            weight *= cell.1[(corner >> axis) & 1];
+        }
         if weight == 0.0 {
             continue;
         }
-        let index = cells[2]
-            .0
-            .saturating_add(offsets[2])
-            .saturating_mul(side)
-            .saturating_add(cells[1].0)
-            .saturating_add(offsets[1])
-            .saturating_mul(side)
-            .saturating_add(cells[0].0)
-            .saturating_add(offsets[0]);
+        // The index is built from the slowest axis down, each step multiplying by the side —
+        // exactly `crate::BlendingSpace::convert`'s loop, one axis count wider.
+        let mut index = 0usize;
+        for (axis, cell) in cells.iter().enumerate().rev() {
+            index = index
+                .saturating_mul(side)
+                .saturating_add(cell.0)
+                .saturating_add((corner >> axis) & 1);
+        }
         sum += weight * samples.get(index).copied().unwrap_or(0.0);
     }
     sum
@@ -340,15 +413,60 @@ pub struct SoftMask {
     /// where that is the identity — see [`Transfer`], which since the
     /// three-hundred-and-eighty-third session carries more than §11.6.5.1's `/TR`.
     pub transfer: Option<Transfer>,
-    /// §11.5.3's `Y` of a group composited in a three-component CIE-based space, where the
-    /// channels hold that space's components rather than a device colour; `None` where the
-    /// luminosity is [`Color::grey_level`] of what the channels hold. Meaningful only under
+    /// §11.5.3's `Y` of a group composited in a CIE-based space, where the channels hold that
+    /// space's components rather than a device colour; `None` where the luminosity is
+    /// [`Color::grey_level`] of what the channels hold. Meaningful only under
     /// [`SoftMaskKind::Luminosity`].
+    ///
+    /// Its [`Luminance::axes`] and [`Self::black`] agree by construction: a `Y` of four
+    /// components needs the second raster and a `Y` of three has none.
     pub luminance: Option<Luminance>,
+    /// §11.4.7's second raster, where the mask group's blending colour space has four
+    /// components (ISO 32000-2 §11.3.4, §11.5.3).
+    ///
+    /// `None` for every other mask, which is every mask this type carried until the
+    /// nine-hundred-and-seventh session. See [`BlackHalf`] for what the pair is and why a
+    /// mask needs one where a wholly opaque *group* does not.
+    pub black: Option<BlackHalf>,
+}
+
+/// The black half of a mask group composited in four components (ISO 32000-2 §11.5.3,
+/// §11.3.4, §11.4.7).
+///
+/// §11.3.4 applies the compositing formula per component, and a rasteriser has three
+/// channels, so a group composited in an `ICCBased` 'CMYK' blending space is one content
+/// stream drawn twice: [`SoftMask::commands`] carries the additive complements of cyan,
+/// magenta and yellow, and this carries the complement of the black component in every
+/// channel. That is exactly [`crate::GroupBlending::FourComponents`]'s construction, one
+/// scope over — and it is the *whole* of the difference between the two lists, which
+/// `pdf-model` verifies before pairing them.
+///
+/// **A mask needs the pair where a fully opaque group does not**, which is worth stating
+/// because the group's own construction skips the second run when nothing inside it
+/// composites. A group's four components are converted to the device at the end and an
+/// opaque Normal mark carries its colour through whatever space it was carried in; a mask's
+/// four components are converted to **one number** by §11.5.3's `Y`, which is a function of
+/// all four however opaque the marks are. So the second list is drawn whenever the space has
+/// four components.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlackHalf {
+    /// The same elements as [`SoftMask::commands`], drawn in the black component.
+    pub commands: Vec<Command>,
+    /// The backdrop this half composites onto: §11.6.5.1's `/BC`, its black component
+    /// complemented, in every channel.
+    ///
+    /// A second field rather than a second use of [`SoftMaskKind::Luminosity`]'s, because the
+    /// two halves composite onto two different numbers — the clause's one backdrop colour
+    /// has four components and each raster carries the ones it is drawing.
+    pub backdrop: Color,
 }
 
 impl SoftMask {
     /// Converts one rendered pixel's straight-alpha RGBA into a mask value.
+    ///
+    /// **For a mask carrying [`Self::black`] this is the value at a point *neither* raster
+    /// marked**, and a backend drawing such a mask calls [`Self::paired_value`] instead — see
+    /// there for why one alpha covers both halves.
     ///
     /// The pixels are the mask group drawn onto a *transparent* backdrop, which is what
     /// both §11.5.2 and §11.5.3 ask for: the first factors the backdrop out, and the second
@@ -357,6 +475,33 @@ impl SoftMask {
     /// the same shape and `crate::impose_on_medium` is its counterpart.
     #[must_use]
     pub fn value(&self, pixel: [u8; 4]) -> u8 {
+        self.paired_value(pixel, [0, 0, 0, 0])
+    }
+
+    /// Converts one point of §11.4.7's *pair* of rasters into a mask value.
+    ///
+    /// `chromatic` is the pixel [`Self::commands`] drew and `black` the one
+    /// [`BlackHalf::commands`] drew at the same point, both straight-alpha RGBA. Where this
+    /// mask carries no black half the second argument is not read at all, which is what makes
+    /// [`Self::value`] a call to this one rather than a second derivation beside it.
+    ///
+    /// **The alpha is the chromatic half's, for both.** The two lists are one content stream
+    /// under one set of shapes and opacities, so a point either half covered the other
+    /// covered identically; carrying one alpha rather than two is that fact stated once
+    /// instead of trusted twice. It is also why [`Self::value`]'s `[0, 0, 0, 0]` is the black
+    /// half *at a point neither half marked* and not a general stand-in: a caller that hands
+    /// an opaque chromatic pixel to [`Self::value`] on a paired mask gets the black
+    /// component read as fully inked.
+    ///
+    /// The two halves are drawn from one content stream under one set of shapes and
+    /// opacities, so their alphas agree by construction; each is composited onto its own half
+    /// of §11.6.5.1's `/BC` and the four components are recovered from the two results
+    /// (§11.3.4 stores the additive complement, so a component is `1 − channel`). Only then
+    /// is §11.5.3's `Y` taken, because the luminosity of a composite is not the composite of
+    /// luminosities: a press profile is not affine in its inks.
+    #[must_use]
+    pub fn paired_value(&self, chromatic: [u8; 4], black: [u8; 4]) -> u8 {
+        let pixel = chromatic;
         let derived = match self.kind {
             // §11.5.2: "The mask value at each point shall then be derived from the alpha of
             // the group." Outside the group's bounding box the alpha is 0, which is the
@@ -389,12 +534,29 @@ impl SoftMask {
                     over(pixel[2], backdrop.b),
                 );
                 // And §11.5.3's other branch, for a group whose channels hold a CIE-based
-                // space's three components: the `Y` is the sum of one curve per component
-                // ([`Luminance`]), which is the clause's EXAMPLE 1 for `CalRGB`.
-                let luminosity = self
-                    .luminance
-                    .as_ref()
-                    .map_or_else(|| composited.grey_level(), |curves| curves.of(composited));
+                // space's components: the `Y` is the sum of one curve per component
+                // ([`Luminance`]), which is the clause's EXAMPLE 1 for `CalRGB`, or a grid
+                // interpolated — over three components, or over the four this half and the
+                // black one carry between them.
+                let luminosity = match self.luminance.as_ref() {
+                    None => composited.grey_level(),
+                    Some(luminance) => match self.black.as_ref() {
+                        None => luminance.of(&[composited.r, composited.g, composited.b]),
+                        Some(half) => {
+                            let level = (f32::from(black[0]) / 255.0)
+                                .mul_add(alpha, half.backdrop.r * (1.0 - alpha));
+                            // §11.3.4's complement, undone: the rasters carry `1 − component`
+                            // so that the blend functions see additive values, and §11.5.3's
+                            // `Y` is a function of the components themselves.
+                            luminance.of(&[
+                                1.0 - composited.r,
+                                1.0 - composited.g,
+                                1.0 - composited.b,
+                                1.0 - level,
+                            ])
+                        }
+                    },
+                };
                 #[expect(
                     clippy::cast_possible_truncation,
                     clippy::cast_sign_loss,
@@ -462,11 +624,42 @@ impl SoftMask {
             })
             .collect()
     }
+
+    /// [`Self::values`] for a mask carrying [`Self::black`]: one value per point of the pair.
+    ///
+    /// The two rasters cover the same points in the same order — the halves are one content
+    /// stream drawn twice into two buffers of one size — so a point missing from either is a
+    /// buffer a backend built wrong rather than a case to interpolate over, and it is
+    /// answered with [`Self::outside`] rather than with a value derived from half a pair.
+    ///
+    /// The transparent-pixel shortcut is [`Self::values`]'s and is exact for the same reason:
+    /// where *both* halves are untouched the point is outside everything the group marked,
+    /// and the constant is the same call.
+    #[must_use]
+    pub fn paired_values(&self, chromatic: &[u8], black: &[u8]) -> Vec<u8> {
+        let outside = self.outside();
+        chromatic
+            .chunks_exact(4)
+            .enumerate()
+            .map(|(at, pixel)| {
+                let Some(other) = black
+                    .get(at.saturating_mul(4)..)
+                    .and_then(<[u8]>::first_chunk::<4>)
+                else {
+                    return outside;
+                };
+                if pixel == [0, 0, 0, 0] && *other == [0, 0, 0, 0] {
+                    return outside;
+                }
+                self.paired_value([pixel[0], pixel[1], pixel[2], pixel[3]], *other)
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Luminance, SoftMask, SoftMaskKind, Transfer};
+    use super::{BlackHalf, Luminance, SoftMask, SoftMaskKind, Transfer};
     use crate::paint::Color;
 
     fn mask(kind: SoftMaskKind, transfer: Option<Transfer>) -> SoftMask {
@@ -475,6 +668,7 @@ mod tests {
             kind,
             transfer,
             luminance: None,
+            black: None,
         }
     }
 
@@ -491,7 +685,7 @@ mod tests {
         });
         let luminance = Luminance::curves(std::sync::Arc::new(curves));
         let close = |colour: Color, want: f32, what: &str| {
-            let got = luminance.of(colour);
+            let got = luminance.of(&[colour.r, colour.g, colour.b]);
             assert!((got - want).abs() < 1e-3, "{what}: {got} against {want}");
         };
         close(Color::rgb(1.0, 1.0, 1.0), 1.0, "white is the weights' sum");
@@ -514,6 +708,7 @@ mod tests {
             },
             transfer: None,
             luminance: Some(luminance),
+            black: None,
         };
         assert_eq!(
             mask.value([128, 128, 128, 255]),
@@ -554,7 +749,7 @@ mod tests {
         let luminance = Luminance::grid(2, std::sync::Arc::from(samples))
             .expect("eight samples of a side of 2");
         let close = |colour: Color, want: f32, what: &str| {
-            let got = luminance.of(colour);
+            let got = luminance.of(&[colour.r, colour.g, colour.b]);
             assert!((got - want).abs() < 1e-3, "{what}: {got} against {want}");
         };
         close(Color::rgb(0.0, 0.0, 0.0), 0.0, "black is no light");
@@ -586,11 +781,149 @@ mod tests {
             },
             transfer: None,
             luminance: Some(luminance),
+            black: None,
         };
         assert_eq!(
             mask.value([0, 255, 0, 255]),
             183,
             "a composited green masks at the grid's Y, not at 0.59 of 255"
+        );
+    }
+
+    /// §11.5.3's `Y` over a grid of **four** components, read off §11.4.7's pair of rasters
+    /// (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7; ADR 0857).
+    ///
+    /// The grid holds a multiplicative absorption model — one factor per ink, which is the
+    /// shape a press's own `Y` has and is multilinear, so interpolating the sixteen corners
+    /// reproduces it exactly and every expected value below is the formula itself rather than
+    /// a tolerance.
+    ///
+    /// What the last two cases are *for* is the claim the whole construction rests on: the
+    /// luminosity of a composite is not the composite of luminosities. Half a cyan-and-magenta
+    /// mark over paper composites the inks to ½ each and the model gives `0.95 × 0.70`; taking
+    /// the `Y` of each and averaging gives `(0.36 + 1.0) ÷ 2`, which is a different number.
+    /// Compositing first is what the clause asks for — §11.5.3 takes the luminosity of "the
+    /// resulting colour" — and it is only possible because both halves are carried.
+    #[test]
+    fn a_luminance_over_four_axes_reads_the_pairs_own_components() {
+        let absorb = [0.10f32, 0.60, 0.20, 0.80];
+        let model = |inks: [f32; 4]| {
+            let mut y = 1.0f32;
+            for (ink, factor) in inks.iter().zip(absorb) {
+                y *= factor.mul_add(-*ink, 1.0);
+            }
+            y
+        };
+        let samples: Vec<f32> = (0..16usize)
+            .map(|corner| {
+                #[expect(clippy::cast_precision_loss, reason = "a bit")]
+                let at = |axis: usize| ((corner >> axis) & 1) as f32;
+                model([at(0), at(1), at(2), at(3)])
+            })
+            .collect();
+        let luminance = Luminance::ink_grid(2, std::sync::Arc::from(samples))
+            .expect("sixteen samples of a side of 2");
+        assert_eq!(luminance.axes(), 4);
+        assert!(
+            luminance.as_grid().is_none() && luminance.as_ink_grid().is_some(),
+            "a four-axis grid is not a three-axis one, and the protocol tells them apart"
+        );
+        assert!(
+            Luminance::ink_grid(2, std::sync::Arc::from(vec![0.0f32; 8])).is_none(),
+            "eight samples are a cube, not a four-dimensional grid"
+        );
+
+        let close = |inks: [f32; 4], what: &str| {
+            let got = luminance.of(&inks);
+            let want = model(inks);
+            assert!((got - want).abs() < 1e-4, "{what}: {got} against {want}");
+        };
+        close([0.0; 4], "no ink is the paper's whole luminosity");
+        close([0.0, 1.0, 0.0, 0.0], "one ink is its own factor");
+        close(
+            [0.0, 0.0, 0.0, 1.0],
+            "and the black component is read at all",
+        );
+        close(
+            [0.5, 0.5, 0.0, 0.0],
+            "a point between the samples is the interpolation",
+        );
+
+        pairs_of(luminance, &model);
+    }
+
+    /// The second half of the test above: the same `Y`, read off a *mask* rather than off the
+    /// grid, which is where §11.4.7's pair meets §11.5.3's derivation.
+    fn pairs_of(luminance: Luminance, model: &dyn Fn([f32; 4]) -> f32) {
+        // `/BC` of no ink at all, so both backdrops are white.
+        let mask = SoftMask {
+            commands: Vec::new(),
+            kind: SoftMaskKind::Luminosity {
+                backdrop: Color::WHITE,
+            },
+            transfer: None,
+            luminance: Some(luminance),
+            black: Some(BlackHalf {
+                commands: Vec::new(),
+                backdrop: Color::WHITE,
+            }),
+        };
+        assert_eq!(
+            mask.outside(),
+            255,
+            "outside the group nothing is inked, so the paper masks nothing away"
+        );
+        // A black ink of 1.0 is `1 − 1` in the black raster and no chromatic ink at all.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a luminosity in 0..=1 scaled to a byte"
+        )]
+        let want = (model([0.0, 0.0, 0.0, 1.0]) * 255.0).round() as u8;
+        assert_eq!(
+            mask.paired_value([255, 255, 255, 255], [0, 0, 0, 255]),
+            want,
+            "the black component comes from the second raster and nowhere else"
+        );
+        assert_ne!(
+            mask.value([255, 255, 255, 255]),
+            mask.paired_value([255, 255, 255, 255], [255, 255, 255, 255]),
+            "and `value` on a paired mask reads a black raster that painted nothing at a \
+             point the chromatic one did, which is why a backend that meets `black` draws both"
+        );
+
+        // Half a cyan-and-magenta mark over paper, in both rasters: the inks composite, and
+        // only then is the `Y` taken.
+        let composited = mask.paired_value([128, 128, 255, 255], [255, 255, 255, 255]);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a luminosity in 0..=1 scaled to a byte"
+        )]
+        let want =
+            (model([1.0 - 128.0 / 255.0, 1.0 - 128.0 / 255.0, 0.0, 0.0]) * 255.0).round() as u8;
+        assert_eq!(
+            composited, want,
+            "the components composite, then the Y is taken"
+        );
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a luminosity in 0..=1 scaled to a byte"
+        )]
+        let averaged =
+            (f32::midpoint(model([1.0, 1.0, 0.0, 0.0]), model([0.0; 4])) * 255.0).round() as u8;
+        assert_ne!(
+            composited, averaged,
+            "and that is a different number from the average of the two luminosities"
+        );
+
+        let short = mask.paired_values(&[128, 128, 255, 255], &[]);
+        assert_eq!(
+            short,
+            vec![mask.outside()],
+            "a black raster that does not cover the point answers the outside value rather \
+             than half a pair"
         );
     }
 

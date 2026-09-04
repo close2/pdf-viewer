@@ -117,7 +117,21 @@ pub(crate) fn evaluate(
         // mode inside the group cannot see it.
         let mut scene = crate::scene::build_commands(list, &mask.commands, target, &rasters)?;
         let pixels = render(&mut scene)?;
-        rasters.insert(id, image_of(&mask.values(&pixels), target));
+        // §11.4.7's second raster, where the mask group's blending colour space has four
+        // components: a second scene of the same size, from the second command list, read
+        // back the same way. §11.3.4 composites per component and a texture has three
+        // channels, so the four are two rasters and `SoftMask::paired_value` — the CPU
+        // oracle's own function — is what reads §11.5.3's `Y` off them.
+        let values = match mask.black.as_ref() {
+            Some(half) => {
+                let mut scene =
+                    crate::scene::build_commands(list, &half.commands, target, &rasters)?;
+                let black = render(&mut scene)?;
+                mask.paired_values(&pixels, &black)
+            }
+            None => mask.values(&pixels),
+        };
+        rasters.insert(id, image_of(&values, target));
     }
     Ok(rasters)
 }

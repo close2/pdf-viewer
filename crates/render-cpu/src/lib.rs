@@ -1415,42 +1415,59 @@ impl CpuRasterizer {
         } else {
             surface
         };
-        let mut buffer = tiny_skia::Pixmap::new(draw.width(), draw.rows.height).ok_or(
-            CpuRasterError::Allocation {
-                width: draw.width(),
-                height: draw.rows.height,
-            },
-        )?;
         // A soft mask's group is evaluated as §11.4.5's ordinary group: `SoftMask` carries
         // no knockout flag, and `pdf-model` reports a mask group that asks for one.
-        if narrowed {
-            // A cache of its own, because a clip mask is banded against the surface it was
-            // built for and this one is narrower than `masks.surface`: an entry built here
-            // would be wrong for the outer encode and one built there wrong for this. What
-            // sharing would have reused is bounded by the very rows this evaluation was
-            // narrowed to, so the rebuild costs a fraction of what the narrowing saves.
-            let mut own = MaskCache::new(draw, self.anti_alias, masks.budget)
-                .with_reach(Arc::clone(&masks.reach));
-            self.encode(
-                &mut buffer.as_mut(),
-                list,
-                &mask.commands,
-                draw,
-                &mut own,
-                depth,
-                Compose::Over,
+        //
+        // A closure because the group is drawn **twice** where its blending colour space has
+        // four components (`pdf_render::BlackHalf`): §11.3.4 composites per component and
+        // this raster has three channels, so the second list carries the black component and
+        // §11.5.3's `Y` is read off the pair. One closure rather than two call sites so that
+        // the two halves cannot be drawn onto differently-shaped buffers.
+        let paint = |commands: &[Command],
+                     masks: &mut MaskCache|
+         -> Result<tiny_skia::Pixmap, CpuRasterError> {
+            let mut buffer = tiny_skia::Pixmap::new(draw.width(), draw.rows.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: draw.width(),
+                    height: draw.rows.height,
+                },
             )?;
-        } else {
-            self.encode(
-                &mut buffer.as_mut(),
-                list,
-                &mask.commands,
-                surface,
-                masks,
-                depth,
-                Compose::Over,
-            )?;
-        }
+            if narrowed {
+                // A cache of its own, because a clip mask is banded against the surface it
+                // was built for and this one is narrower than `masks.surface`: an entry built
+                // here would be wrong for the outer encode and one built there wrong for
+                // this. What sharing would have reused is bounded by the very rows this
+                // evaluation was narrowed to, so the rebuild costs a fraction of what the
+                // narrowing saves.
+                let mut own = MaskCache::new(draw, self.anti_alias, masks.budget)
+                    .with_reach(Arc::clone(&masks.reach));
+                self.encode(
+                    &mut buffer.as_mut(),
+                    list,
+                    commands,
+                    draw,
+                    &mut own,
+                    depth,
+                    Compose::Over,
+                )?;
+            } else {
+                self.encode(
+                    &mut buffer.as_mut(),
+                    list,
+                    commands,
+                    surface,
+                    masks,
+                    depth,
+                    Compose::Over,
+                )?;
+            }
+            Ok(buffer)
+        };
+        let buffer = paint(&mask.commands, masks)?;
+        let black = match mask.black.as_ref() {
+            Some(half) => Some(paint(&half.commands, masks)?),
+            None => None,
+        };
 
         // Straight alpha, which is what `SoftMask::value` is defined over and what the GPU
         // backend reads back; `tiny-skia` stores premultiplied, so the conversion happens
@@ -1485,45 +1502,12 @@ impl CpuRasterizer {
         // binaries built in one sitting).
         let outside = mask.outside();
         let reach = restricted;
-        let width = draw.width() as usize;
-        let start = (reach.top.saturating_sub(draw.rows.top) as usize).saturating_mul(width);
-        let end = start.saturating_add((reach.height as usize).saturating_mul(width));
-        let values: Vec<u8> = buffer
-            .pixels()
-            .get(start..end)
-            .ok_or(CpuRasterError::Allocation {
-                width: surface.width(),
-                height: reach.height,
-            })?
-            .iter()
-            .map(|pixel| {
-                if pixel.alpha() == 0 && pixel.red() == 0 && pixel.green() == 0 && pixel.blue() == 0
-                {
-                    outside
-                } else {
-                    let straight = pixel.demultiply();
-                    mask.value([
-                        straight.red(),
-                        straight.green(),
-                        straight.blue(),
-                        straight.alpha(),
-                    ])
-                }
-            })
-            .collect();
-        let built = tiny_skia::Mask::from_vec(
-            values,
-            tiny_skia::IntSize::from_wh(surface.width(), reach.height).ok_or(
-                CpuRasterError::Allocation {
-                    width: surface.width(),
-                    height: reach.height,
-                },
-            )?,
-        )
-        .ok_or(CpuRasterError::Allocation {
-            width: surface.width(),
-            height: reach.height,
-        })?;
+        let built = mask_values(
+            mask,
+            (&buffer, black.as_ref()),
+            (draw, reach),
+            surface.width(),
+        )?;
         masks.admit_soft_mask(id, built, reach, outside);
         Ok(())
     }
@@ -3054,6 +3038,111 @@ fn marked_rows(commands: &[Command], surface: Surface) -> Band {
         .unwrap_or(one_row)
 }
 
+/// Turns the mask group's rendered buffer — or §11.4.7's pair of them — into one mask value
+/// per pixel of `reach`, as the `tiny_skia::Mask` a consumer reads through.
+///
+/// Straight alpha, which is what [`pdf_render::SoftMask::value`] is defined over and what the
+/// GPU backend reads back; `tiny-skia` stores premultiplied, so the conversion happens here at
+/// the same boundary as every other one in this backend.
+///
+/// **Per pixel rather than through `Pixmap::take_demultiplied`, and only for a pixel the group
+/// marked.** The buffer covers the whole target while a mask group covers its own `/BBox`, so
+/// most of it is the transparency it was allocated as — and both halves of the old line ran
+/// over all of it: `take_demultiplied` divides three channels by the alpha, and
+/// `SoftMask::values` derives a luminosity in floating point. For the transparent pixel both
+/// answers are constants: the division gives back the zero it started from, and the derivation
+/// gives [`pdf_render::SoftMask::outside`].
+///
+/// This is exact, not an approximation — the branch's two arms call the same function on the
+/// same pixel — and it is worth stating what it buys, because `CLAUDE.md` requires an
+/// optimisation to carry its number: the two slowest documents of a 65 944-document sample of
+/// the web spend 22.4 s of 25.4 and 51.0 s of 52.6 on this one line, over rasters that are
+/// 98.5% and 99.96% transparent. ADR 0271.
+///
+/// **And the conversion runs over the rows the group's marks could reach, not the surface**
+/// (`doc/todo/40`, ADR 0328): a row outside `marked_rows`' answer is a row of the buffer nobody
+/// wrote, its pixels are the transparency the buffer was allocated as, and the value the pass
+/// would derive from every one of them is the `outside` constant the entry carries instead. The
+/// drawing buffer itself deliberately stays surface-sized — the group's elements draw under the
+/// very transforms they draw under on the page, which is what keeps this byte-exact where a
+/// banded *drawing* would move an edge by a supersample (ADR 0219). Its untouched rows are
+/// never read, and an untouched page of a zeroed allocation costs no work. `6081357.pdf` — 912
+/// distinct masks on a 4.3-megapixel page, 99.96% of every raster transparent — went from
+/// 81.90 G instructions through `open_one` to **17.02 G** when the pass and the storage stopped
+/// being surface-sized (ADR 0328's A/B, two binaries built in one sitting).
+///
+/// # Errors
+///
+/// [`CpuRasterError::Allocation`] where the rows asked for are not in the buffer, or where the
+/// values do not make a mask of that size.
+fn mask_values(
+    mask: &pdf_render::SoftMask,
+    (buffer, black): (&tiny_skia::Pixmap, Option<&tiny_skia::Pixmap>),
+    (draw, reach): (Surface, Band),
+    width: u32,
+) -> Result<tiny_skia::Mask, CpuRasterError> {
+    let outside = mask.outside();
+    let stride = draw.width() as usize;
+    let start = (reach.top.saturating_sub(draw.rows.top) as usize).saturating_mul(stride);
+    let end = start.saturating_add((reach.height as usize).saturating_mul(stride));
+    let short = || CpuRasterError::Allocation {
+        width,
+        height: reach.height,
+    };
+    let read = buffer.pixels().get(start..end).ok_or_else(short)?;
+    // §11.4.7's second raster, where the group composited in four components: the same rows of
+    // the black half, read at the same points. `SoftMask::paired_value` is what puts the four
+    // components back together and takes §11.5.3's `Y` of them, so the two backends cannot
+    // disagree about it any more than they can about the one-raster case.
+    //
+    // Borrowed rather than copied, and the two arms are written out rather than folded into
+    // one: a mask with no black half takes exactly the arithmetic it took before.
+    let black = match black {
+        Some(pixmap) => Some(pixmap.pixels().get(start..end).ok_or_else(short)?),
+        None => None,
+    };
+    let transparent = |pixel: &tiny_skia::PremultipliedColorU8| {
+        pixel.alpha() == 0 && pixel.red() == 0 && pixel.green() == 0 && pixel.blue() == 0
+    };
+    let straight = |pixel: &tiny_skia::PremultipliedColorU8| {
+        let straight = pixel.demultiply();
+        [
+            straight.red(),
+            straight.green(),
+            straight.blue(),
+            straight.alpha(),
+        ]
+    };
+    let values: Vec<u8> = match black {
+        None => read
+            .iter()
+            .map(|pixel| {
+                if transparent(pixel) {
+                    outside
+                } else {
+                    mask.value(straight(pixel))
+                }
+            })
+            .collect(),
+        Some(half) => read
+            .iter()
+            .zip(half)
+            .map(|(pixel, other)| {
+                if transparent(pixel) && transparent(other) {
+                    outside
+                } else {
+                    mask.paired_value(straight(pixel), straight(other))
+                }
+            })
+            .collect(),
+    };
+    tiny_skia::Mask::from_vec(
+        values,
+        tiny_skia::IntSize::from_wh(width, reach.height).ok_or_else(short)?,
+    )
+    .ok_or_else(short)
+}
+
 /// Accumulates the least and greatest device row the leaves of `commands` can mark.
 ///
 /// `true` when every leaf answered; `false` the moment one cannot — an extent
@@ -3152,6 +3241,14 @@ fn mask_consumer_reach(list: &DisplayList, page: Transform) -> HashMap<SoftMaskI
         };
         complete =
             complete && note_mask_consumers(list, &mask.commands, page, &mut known, &mut reach, 0);
+        if let Some(half) = mask.black.as_ref() {
+            // §11.4.7's second raster is a list of its own, and a mask a consumer inside it
+            // names is a *separate* registration — the second interpretation registered its
+            // own copies — so a walk that stopped at the first list would restrict one of
+            // those masks to rows no consumer it could see reads.
+            complete = complete
+                && note_mask_consumers(list, &half.commands, page, &mut known, &mut reach, 0);
+        }
     }
     if complete {
         reach
@@ -4529,6 +4626,7 @@ mod tests {
                 },
                 transfer: None,
                 luminance: None,
+                black: None,
             })
             .expect("under the mask limit");
         let clip = list
@@ -4948,6 +5046,7 @@ mod tests {
                 kind,
                 transfer: None,
                 luminance: None,
+                black: None,
             };
             assert_eq!(
                 mask.outside(),
@@ -4995,6 +5094,7 @@ mod tests {
                 kind,
                 transfer: None,
                 luminance: None,
+                black: None,
             };
             let outside = mask.outside();
             let per_pixel: Vec<u8> = buffer

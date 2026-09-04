@@ -152,6 +152,11 @@ pub fn group_blit_demand(list: &DisplayList, target: TargetSpec) -> u64 {
             continue;
         };
         pixels = pixels.saturating_add(walk(list, &mask.commands, target));
+        if let Some(black) = mask.black.as_ref() {
+            // §11.5.3's mask group in four components is drawn twice, like the page's own
+            // pair above: the second list blits the same groups onto a second buffer.
+            pixels = pixels.saturating_add(walk(list, &black.commands, target));
+        }
     }
     pixels
 }
@@ -373,6 +378,7 @@ mod tests {
             commands: vec![group(None, Vec::new())],
             transfer: None,
             luminance: None,
+            black: None,
         })
         .expect("one soft mask is under the table's bound");
         let whole = u64::from(target.width) * u64::from(target.height);

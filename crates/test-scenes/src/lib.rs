@@ -1202,6 +1202,7 @@ pub fn soft_mask() -> DisplayList {
             },
             transfer: None,
             luminance: None,
+            black: None,
         })
         .expect("the first soft mask of this list");
 

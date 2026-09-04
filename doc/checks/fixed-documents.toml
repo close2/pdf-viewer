@@ -280,12 +280,14 @@ why = "a magazine page missing both photographs, refused for \"the colour space 
 path = "corpus-cache/safedocs/cc-main-2021-31/4359/4359750.pdf"
 page = 1
 session = 631
-# The row said `[]` until session 904, and what changed is a *silence becoming a report* rather
-# than the fix: this page also carries a /Luminosity mask whose group states a four-component
-# ICCBased /CS, which §11.5.3 sends down its colorimetric branch and this reader composites on
-# the device (ADR 0851). The ink band is untouched and the run held it, which is what says the
-# picture did not move — only what the reader admits about it.
-reports = ["four-component ICCBased /CS"]
+# `[]`, then one report in session 904, then `[]` again in session 907 — and the ink band did not
+# move once in the three. Session 904 found this page carries a /Luminosity mask whose group
+# states a four-component ICCBased /CS and turned the silence into a report (ADR 0851); session
+# 907 built §11.4.7's pair of rasters inside the mask and drew it (ADR 0857), so the report is
+# gone. That the band held through both is the evidence that this page's mask is not what its
+# picture rests on — 41 of the 181 crawl documents that state such a group do move, and
+# `4605565.pdf` below is one of them.
+reports = []
 ink = 39.547 .. 41.547
 why = "a photograph drawn as a solid black rectangle in silence: a DCTDecode image in a /Lab space had its samples divided by 255 instead of mapped onto Table 88's default decode range, giving a lightness of at most 1 where 100 is white (ADR 0464, 8.9.5.2, 8.6.5.4)"
 
@@ -499,9 +501,9 @@ why = "the prefix is /Contents and a key whose name the damage runs into; the /R
 path = "corpus-cache/tika-issue-tracker/batch5/cairo/cairo-85141-3.pdf"
 page = 1
 session = 864
-reports = ["Text { operations: 9 }", "BT without ET", "font /F1 is a Type 3 font with no /FontMatrix", "font /F2 is a Type 3 font with no /CharProcs dictionary", "kept: 1114"]
+reports = ["Text { operations: 9 }", "BT without ET", "the /Font entry F1 is stated and is not a font dictionary", "font /F2 is a Type 3 font with no /CharProcs dictionary", "kept: 1114"]
 ink = 0.0 .. 1.0
-why = "a matplotlib figure with no first page at all: three of its cross-reference entries carry a `/` or a 0x1f where a digit belongs, and one unlexable field abandoned the rest of the subsection — including the page's own entry — into a state the reader read as §7.5.6's deletion. The five reports are the file's own remaining damage; the ink band pins the page existing at the producer's 378 x 54 rather than the marks, which its corrupt content stream loses (ADR 0789, 7.5.4)"
+why = "a matplotlib figure with no first page at all: three of its cross-reference entries carry a `/` or a 0x1f where a digit belongs, and one unlexable field abandoned the rest of the subsection — including the page's own entry — into a state the reader read as §7.5.6's deletion. The five reports are the file's own remaining damage; the ink band pins the page existing at the producer's 378 x 54 rather than the marks, which its corrupt content stream loses (ADR 0789, 7.5.4). **The /F1 report changed in session 908 and the row moved with it**: it read `font /F1 is a Type 3 font with no /FontMatrix`, which was a claim about an object §7.3.7's dictionary parser had assembled out of two — object 76's bytes stop in mid-entry here as well, and the body walked through `endobj` into the next object and took its entries. F1 is now §7.3.10's null and is reported as `the /Font entry F1 is stated and is not a font dictionary`, which is the sentence that clause supplies. No pixel moves; poppler draws 0 ink here too (ADR 0858)"
 
 [[document]]
 path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-692248-0.pdf"
@@ -614,3 +616,19 @@ session = 901
 reports = []
 ink = 8.945 .. 10.945
 why = "doc/todo/03 section 46's head, and the first witness in this tree for §10.7.5's second requirement on a real page rather than a fixture. The document sets /SA true in a typed /ExtGState and then shows 108 runs of SimSun in §9.3.6's rendering mode 2 under `0.240226 w` and `0.426 w`, which at scale 1.0 are 0.24 and 0.43 of a device pixel — so `If stroke adjustment is enabled and the requested line width, transformed into device space, is less than half a pixel, the stroke shall be rendered as a single-pixel line` fires on every glyph and the page is 2.66 levels darker than its own geometry. That is the clause and not a defect: renaming /SA to /S1 in place takes ours to 7.2840 and leaves poppler and mupdf byte-identical, and the resolution ladder converges to 7.2727 / 7.2921 / 7.2762 at 576 dpi. The band is the usual width, wide enough to admit anti-aliasing and far narrower than the 2.66 the promotion is worth, so it fails if the promotion is ever withdrawn; the empty `reports` is what fails if the page starts refusing something. ADR 0844"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605565.pdf"
+page = 1
+session = 907
+reports = []
+ink = 50.779 .. 52.779
+why = "the witness for §11.5.3's colorimetric branch at four components (ADRs 0856, 0857), and a row that pins a page this tree moved *away* from three references on purpose. The page is a menu whose panels are painted through /Luminosity masks in an ICCBased 'CMYK' group; §11.3.4 lists that space beside 'GRAY' and 'RGB ' and §8.6.5.1 makes it CIE-based, so §11.5.3 asks for the Y of the CIE 1931 XYZ of the composited four components rather than EXAMPLE 2's weights on a device raster. Drawing it means §11.4.7's pair of rasters inside the mask, which is what SoftMask::black now carries. Ink 57.235 before and 51.779 after, over 241 642 moved pixels with a worst channel of 56 — the 'Soup of the Day' panel goes to poppler's, mupdf's and ghostscript's bright yellow, and the salad panel's gradient fades further from all three, because the clause's Y of an encoded mid-grey is its linear luminance and every reference takes the device branch here. That is ADR 0797's issue21346.pdf disagreement one component count over, measured this time over 41 crawl pages: 38 of them move away from the reference consensus and 3 toward it, by 0.77 (poppler), 0.84 (mupdf) and 1.47 (ghostscript) levels of 255 in the mean. The band is the usual width and is what fails if the branch is ever taken back to the device's channels; `reports` is empty because session 904's report for this shape is what session 907 replaced with the construction"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/cairo/cairo-85141-0.zip-3.pdf"
+page = 1
+session = 908
+reports = ["font /F16 is a Type 3 font with no /CharProcs dictionary", "Text { operations: 210 }"]
+ink = 0.701 .. 2.701
+why = "doc/todo/03 section 47's head, and the only witness anywhere for a dictionary body that walked out of its own object. Object 76 is /F16's /CharProcs, whose bytes stop at `/a112 57` under another stream's data; read_dictionary_body skipped every token that is not a name and so skipped the damage, then `endstream`, then `endobj`, then `78 0 obj <<` — and returned a **stream** holding 76's forty surviving entries, 78's /Length and /Filter, and 78's data, with no error at all. Forty glyph procedures drew from an object no producer wrote and the page reported success at 4.6304 of ink against poppler's 1.7573 and mupdf's 1.6622, flat across the 72/144/288/576 dpi ladder. §7.3.10 gives `obj` and `endobj` their meaning and §7.3.8.1 gives `stream` and `endstream` theirs, so none of the four can stand where a key belongs; the body stops at them now, Document::get(76) is §7.3.10's null, and §9.6.4's own sentence applies for the right reason. The band pins the corrected 1.70076, which is inside both references; `reports` is what fails if the splice comes back, since a page drawing the assembled font reports nothing at all. ADR 0858"
