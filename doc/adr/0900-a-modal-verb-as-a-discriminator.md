@@ -76,7 +76,8 @@ from the report.
 ## Consequences
 
 - **The finding does not generalise the way a first reading of ADR 0896 suggests, and the numbers
-  are what say so.** Of 214 `partial` rows, **105 quote a requirement of the standard**; 109 do
+  are what say so.** Over the population as this round found it — 214 `partial` rows, before its
+  own two moves — **105 quote a requirement of the standard**; 109 do
   not, of which 49 name only entries the standard states as optional. That is a **reading list of
   half the population** and not a defect count — which is `doc/todo/01`'s own answer for every
   sweep whose ratio comes out this way (ADR 0249), and the reason this one exits zero.

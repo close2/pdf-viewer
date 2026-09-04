@@ -22,7 +22,8 @@ the table's own row, where a row all of whose named entries the standard states 
 ADR 0896's shape. Beside every hit it prints ADR 0897's suggested column — the clause's `shall`
 sentences outside its tables and NOTEs — which is also the tie-break within a rank.
 
-**Of 214 `partial` rows, 105 quote a requirement of the standard and 109 do not**: 49 naming only
+**Of the 214 `partial` rows this round found, 105 quote a requirement of the standard and 109 do
+not**: 49 naming only
 optional entries, 3 whose strongest quoted verb is a permission, 12 quoting the standard with no
 modal verb at all, 7 resting on a recommendation, 37 quoting nothing the conversion holds. Half
 the population is a reading list, not a defect count, and the sweep exits zero.
@@ -55,7 +56,8 @@ after §12.5.6.11's caret and §12.5.6.23's redaction, each time because the cla
 the arm had not been asked. The clause's other `shall` binds a processor performing §12.6.4.14's
 rendition action, which is `out-of-scope`, so it is vacated the way §12.11.1's is.
 
-**Its cited test asserted a different clause**, the third session running to find one:
+**Its cited test asserted a different clause** — the third such citation in two sessions, after the
+two session 928 found:
 `an_unknown_subtype_still_draws_its_normal_appearance` builds a `/Subtype /SomethingFromThePDF3Era`
 and asserts Table 167's `Invisible` row. The new test states a `Screen` in both directions and was
 calibrated by planting the arm it replaces.

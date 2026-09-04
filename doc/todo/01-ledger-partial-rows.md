@@ -5915,7 +5915,8 @@ on a round that is running the whole sequence anyway.
 ## The modal verb measured over the whole population in the nine-hundred-and-thirtieth, and five rows read
 
 The question session 928 could not answer was whether its band's finding was a band's accident.
-`--bin permitted` answers it with a number rather than an impression: of **214** `partial` rows,
+`--bin permitted` answers it with a number rather than an impression: of the **214** `partial` rows
+that round found, before its own two moves,
 **105 quote a requirement of the standard** and 109 do not — 49 of those naming only entries the
 standard states as optional, 3 whose strongest quoted verb is a permission, 12 quoting it with no
 modal verb at all, 7 resting on a recommendation, and 37 quoting nothing the conversion holds.

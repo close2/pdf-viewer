@@ -51,8 +51,10 @@
 //! table's own row ([`crate::entries::descriptions_in`]), and two things are read off it: the
 //! `( Optional )` or `( Required )` the standard opens the description with, and the verb
 //! governing the rest of it. A row **every one of whose named entries the standard states as
-//! optional, with no `shall` in any of their descriptions**, is ADR 0896's shape read off the
-//! standard's own tables, and it is [`Rank::Optional`], the closest rank there is.
+//! optional** is ADR 0896's shape read off the standard's own tables, and it is
+//! [`Rank::Optional`], the closest rank there is. Only the first of the two decides the rank —
+//! [`Entry::is_optional`] carries why, and it is the one thing here the calibration settled
+//! rather than the argument.
 //!
 //! The two halves catch different rows and neither subsumes the other, which is why both are
 //! here: the entry half finds §14.9.2 and §14.9.2.2, and the sentence half finds §12.11.5.
@@ -81,6 +83,19 @@
 //!   and a note quoting WTPDF or an application note is located in whichever of them holds it.
 //! - **A sentence that carries two verbs.** "X shall be Y, and may be Z" ranks as a requirement,
 //!   which is right for the question being asked: the row does quote one.
+//! - **A NOTE's verb.** ISO's directives make a NOTE informative, and a `can` inside one is not a
+//!   permission the standard grants — it is prose about one. The sentence is printed under every
+//!   hit so that a reader sees the `NOTE` in front of it; deciding it here would need the
+//!   conversion's line structure, which [`quote::normalise`] has already collapsed.
+//! - **An aggregate row whose debt is a child's.** §8.11.1 names Table 98's `/Configs`, a
+//!   permission, *and* §8.11.4.5's "shall be reapplied" — three words, under [`quote::MIN_WORDS`],
+//!   so the sweep sees only the first. A family's status follows its children and no verb here
+//!   says so.
+//! - **An optional entry whose description puts a `shall` on a *processor*.** The rank asks the
+//!   table's own word, so such a row is flagged and is a real `partial`. §12.5.6.19's `/MK` —
+//!   "(Optional) An appearance characteristics dictionary … that shall be used in constructing a
+//!   dynamic appearance stream" — is the standing example, and the verb printed beside the entry
+//!   is what tells a reader before the clause is opened.
 
 use std::collections::BTreeMap;
 

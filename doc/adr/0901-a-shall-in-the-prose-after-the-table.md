@@ -44,8 +44,8 @@ which is `out-of-scope` on principle 5's clause 13 exclusion and whose own row s
 the line §12.11.1 keeps — a `shall` met by construction where the condition it is written for
 cannot arise — rather than §12.11.5's, where the whole clause was vacated.
 
-**The row's cited test asserted a different clause**, which is now the third session in a row to
-find one. `an_unknown_subtype_still_draws_its_normal_appearance` builds a
+**The row's cited test asserted a different clause** — the third such citation in two sessions,
+after the two ADR 0896 records. `an_unknown_subtype_still_draws_its_normal_appearance` builds a
 `/Subtype /SomethingFromThePDF3Era` and asserts Table 167's `Invisible` row — §12.5.1's subject,
 and not one word of §12.5.6.18. `a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap`
 states a `Screen` in both directions, and was calibrated by planting the arm it replaces: with it
