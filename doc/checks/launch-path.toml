@@ -9,24 +9,62 @@
 #   cargo test  --release -p viewer-ui --test launch_path -- --ignored --nocapture
 #
 # `crates/viewer-ui/tests/launch_path.rs` is the harness and its module comment says what each
-# figure contains. Four things about this file are worth reading before a band is moved; ADR 0884
-# is the argument in full.
+# figure contains. Every paragraph below is worth reading before a band is moved; ADR 0884 is the
+# argument in full, and ADRs 0910 and 0911 are why the memory figures are the ones they are.
 #
-# **Two of each row's figures cannot be moved by the machine, and those are judged on any
-# machine.** How many bytes an open reads (`read_kib`) and what the open costs in memory
-# (`open_peak_mib`) came back identical in every one of the forty-four runs the bands were derived
-# from — no spread at all — because they are properties of the reader rather than of the
-# afternoon. They are what gates principle 2's own claims about *what* the launch path does, and
-# no amount of neighbouring load excuses them.
+# **Three of each row's figures cannot be moved by the machine, and those are judged on any
+# machine.** How many bytes an open reads (`read_kib`), what the open costs in memory
+# (`open_peak_mib`) and how much this program has allocated when page one is drawn
+# (`peak_anon_mib`) are properties of the reader rather than of the afternoon: the first two came
+# back identical in every one of the forty-four runs the bands were derived from, and the third
+# held to 30 KiB across a page-cache eviction that moved the process's whole resident high-water
+# by 25%. They are what gates principle 2's own claims about *what* the launch path does, and no
+# amount of neighbouring load excuses them.
 #
-# **`peak_mib` was in that group for most of a round and is not, and the demotion is a finding.**
-# It is the high-water mark of a process that has brought a graphics device up, it was identical
-# across all forty-four runs, and an hour later — same tree, same binary, idle machine — all four
-# rows had fallen together by about 12%. What moved is the *driver's* allocation, which nothing in
-# this process can see the reason for; the memory figure with no device in it did not move by a
-# kilobyte. So its band spans what has been observed rather than one afternoon's value, and it is
-# a coarse guard against a leak rather than a tight one — a first-page raster of any of these
-# documents is larger than the whole margin.
+# **The memory figure was the whole process's `VmHWM` for thirteen rounds and is not, and it took
+# four recurrences to change it.** The history is the reason it is written here rather than in one
+# round's file: the figure was derived identical over forty-four runs, fell about 12% an hour later
+# on an idle machine (session 922, which demoted it out of the paragraph above), would not sit in
+# its band for sessions 926 and 931, and fell about 13% again in session 933 under floors that had
+# already been widened once for it. Session 932 met the same four rows on a parallel branch and
+# measured the shape of it: two runs of one binary ten minutes apart read 108.9 and 99.3 MiB, and
+# seven consecutive runs then sat within a megabyte of each other — stable *within* a plateau and
+# stepping *between* them, which is what a page cache that holds and then changes produces. Its
+# `doc/questions/Q32` asked whether the floor should go; `Q37` supersedes it, because the ceiling is
+# no more a claim about this program than the floor was. **Four rounds in a row declined to widen
+# the band**, correctly: a band is a claim about a machine, and widening one to admit whatever the
+# machine is doing puts the machine into the claim.
+#
+# **What it was measuring, measured (session 935, ADR 0910).** A process that brings the graphics
+# device up and does nothing else had a 108 MiB high-water of which **97 MiB was file-backed** —
+# resident pages of mapped shared objects, and only 11 MiB was memory this program had asked for.
+# The two largest are Mesa's: 52 MiB of `libLLVM.so`, which `libvulkan_radeon.so` links directly,
+# and 26 MiB of `libgallium.so`, which arrives with `libEGL_mesa.so`. Neither is the software
+# rasteriser's doing — restricting the Vulkan loader to the radeon driver alone
+# (`VK_LOADER_DRIVERS_SELECT=*radeon*`) moves the whole figure by 2.5 MiB and the bring-up by
+# about 2 ms — and neither is a fixed quantity: `libLLVM.so` is 163 MiB on disk, so *how much of
+# it is resident* is the page cache's business rather than this program's. A fault on a mapping
+# whose pages are already cached maps a whole fault-around window; a fault on one that has been
+# evicted maps a single page. Measured by evicting those two libraries and changing nothing else,
+# the same binary's high-water fell from 108.4 MiB to 81.2 MiB — 25% — while its anonymous total
+# moved by 30 KiB; over one afternoon the whole-process figure was seen at 92 MiB and at 180 MiB
+# with the anonymous one inside 4%. **A neighbouring round walking a corpus is exactly what
+# evicts them**, which is why this fell away from its band three times with no clock in it and no
+# probe able to decline it.
+#
+# So `peak_mib` is gone and `peak_anon_mib` is what each row states: the high-water less the
+# resident pages of the files the process has mapped, which is what the allocator asked the kernel
+# for. The whole-process figure is still measured and still printed on every run — beside the
+# driver's share, so that a reader can see both — and it is banded nowhere.
+#
+# **What the gate no longer claims**, stated plainly because a gate that quietly narrows is worse
+# than one that fails: it no longer says anything about how much memory the *process* occupies on
+# this machine, so a regression that mapped a large file rather than allocating it — a document
+# `mmap`ped whole instead of read incrementally — would not fail this line. `read_kib` is what
+# gates the read side, and the printed `MiB resident` is what a person reads. What it claims
+# instead is sharper than what it claimed before: the old band on `PDF20_AN001-BPC.pdf` was 82 MiB
+# wide, three times the whole quantity now being judged, so a page one that allocated three
+# mebibytes more than it does passed then and fails now.
 #
 # **Every clock figure is the minimum of nine fresh processes, pinned to this machine's fastest
 # cores.** Contention adds time and never removes it, so the fastest of nine is what a loaded
@@ -54,6 +92,15 @@
 # ± max(2%, 2 units). The margins are about one observed spread wide (the clock figures' own
 # spread over those runs was 2.7% to 22%), so a run at the edge of the measured distribution
 # passes and a regression of about a third fires.
+#
+# **The `*_anon_mib` figures are session 935's and have a rule of their own**, because they are
+# neither of the two above: they are steady like the deterministic pair — eleven consecutive
+# samples spread 0.8% to 4.0%, and unmoved by an eviction that took a quarter off the
+# whole-process figure — but they are not identical to the byte, because a transparent huge page
+# is two mebibytes and one of them arriving or not is a step the program did not take. So the band
+# is **the observed range widened by a tenth of the value on each side, rounded outwards to half a
+# mebibyte**, which is one huge page's headroom on the smallest of them and a little more on the
+# rest. Eleven samples at one-minute load averages between 4.0 and 11.2.
 #
 # A round that legitimately changes one of these moves the number here and says why in its own
 # history file, exactly as `fixed-documents.toml` asks. A figure that falls out of the *bottom* of
@@ -104,6 +151,18 @@ calibration_ms = 0.62 .. 0.78
 # different measurement wearing the same number.
 bring_up_ms = 23.3 .. 41.9
 
+# What the device costs in *allocated* memory, in the same process that has done nothing else.
+#
+# Principle 2 makes cold bring-up a gate of its own "so that a regression in the driver, the
+# adapter selection or the shader set is legible as itself rather than as a slower page", and
+# until session 935 the only thing that gate said was a duration. This is the driver's share of
+# every row's `peak_anon_mib` below — about eleven mebibytes of the twenty-seven a five-page
+# document's first page reaches — and it is judged on any machine, like the other memory figures.
+# Its own spread over eleven consecutive samples was 0.8%; the band is the observed range widened
+# by a tenth on each side and rounded outwards, which is the rule every `*_anon_mib` here uses and
+# which is a transparent huge page's worth of headroom on the smallest of them.
+bring_up_anon_mib = 9.5 .. 12.5
+
 # The disk's own state, and the other half of the guard: a cold read of a fixed eight-mebibyte
 # file of this gate's own, evicted the same way a document is, timed beside every *cold* sample.
 # The calibration probe above is deliberately CPU-bound and in memory, so it cannot see a
@@ -119,7 +178,7 @@ cold_open_ms = 0.49 .. 0.80
 warm_open_ms = 0.35 .. 0.57
 first_page_ms = 30.3 .. 48.4
 turn_ms = 3.4 .. 5.6
-peak_mib = 127 .. 209
+peak_anon_mib = 24.0 .. 30.5
 open_peak_mib = 5 .. 9
 read_kib = 106 .. 112
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
@@ -131,7 +190,7 @@ cold_open_ms = 1.95 .. 3.06
 warm_open_ms = 1.71 .. 2.66
 first_page_ms = 38.5 .. 61.4
 turn_ms = 3.99 .. 6.6
-peak_mib = 131 .. 214
+peak_anon_mib = 28.0 .. 35.0
 open_peak_mib = 6 .. 11
 read_kib = 343 .. 359
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
@@ -154,7 +213,7 @@ first_page_ms = 34.0 .. 57.3
 # The other two rows' floors are untouched: the same change is worth 0.06 ms on the 57-page
 # document and 0.03 on the five-page one, which is inside their own spread.
 turn_ms = 3.8 .. 7.2
-peak_mib = 132 .. 215
+peak_anon_mib = 28.0 .. 35.5
 open_peak_mib = 16 .. 20
 read_kib = 4238 .. 4412
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
@@ -166,7 +225,7 @@ cold_open_ms = 0.32 .. 0.50
 warm_open_ms = 0.23 .. 0.35
 first_page_ms = 57.3 .. 85.4
 turn_ms = none
-peak_mib = 143 .. 231
+peak_anon_mib = 39.0 .. 50.0
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and time to first page about twice theirs. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"

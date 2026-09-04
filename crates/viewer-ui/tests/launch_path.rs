@@ -25,7 +25,7 @@
 //! | **time to first page** | the document opening on one thread while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device | winit's `EventLoop::new`, the window, the surface and the present |
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
-//! | **peak resident** | `VmHWM` of the process that did all of the above for one document | — |
+//! | **memory high-water** | `VmHWM` of the process that did all of the above for one document, less the resident pages of the files it has mapped — what the allocator asked the kernel for | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
 //!
 //! **What the first-page figure leaves out is the window, and it is left out on purpose.**
@@ -64,11 +64,13 @@
 //!   seconds between it and the figures; and with the probe moved into the children, a cold open
 //!   still failed at 0.841 ms against 0.49 .. 0.80 while its child's calibration sat dead centre,
 //!   because no amount of CPU probing can see a neighbour queueing the disk.
-//! - **Two of each row's figures cannot be moved by the machine, and are judged always.** How many
-//!   bytes an open reads and what *this program* spends on one are the same to the byte under any
-//!   load, so the claims principle 2 makes about *what the launch path does* are gated even when
-//!   the clock is not. The high-water mark of a process that has brought a graphics device up is
-//!   **not** in that group, on evidence rather than principle — see [`Judged::steady`].
+//! - **Three of each row's figures cannot be moved by the machine, and are judged always.** How
+//!   many bytes an open reads, what an open costs in memory, and how much this program has
+//!   allocated when page one is drawn are the same under any load, so the claims principle 2
+//!   makes about *what the launch path does* are gated even when the clock is not. The third of
+//!   them was the process's whole high-water until round 935 and was **not** in this group then,
+//!   because most of that figure belongs to the driver's shared objects — see
+//!   [`anonymous_high_water_mib`] and [`Judged::steady`].
 //! - **The profile is checked.** `[profile.gates]` costs `Document::open` 4.06% to 12.30% against
 //!   `[profile.release]` (`Cargo.toml`'s own table, ADR 0666), which is larger than the band; a
 //!   launch number is a claim about the program a person runs, so this judges under `release`
@@ -180,6 +182,40 @@ fn peak_resident_kib() -> Option<u64> {
         .trim_end_matches(" kB")
         .parse()
         .ok()
+}
+
+/// How many kibibytes of this process's resident set are pages of a *file*, off
+/// `/proc/self/smaps_rollup`.
+///
+/// **The other half of a high-water mark, and the half nothing in this program decides.**
+/// `Rss - Anonymous` is every resident page that came from a mapped file — the shared objects
+/// the dynamic loader and the Vulkan loader brought in, and this binary's own text. Round 935
+/// measured what that is worth here: a process that brings the graphics device up and does
+/// nothing else has a 108 MiB high-water of which **97 MiB is file-backed**, 52 of those in
+/// `libLLVM.so` — which `libvulkan_radeon.so` links directly — and 26 in `libgallium.so`, which
+/// comes in with `libEGL_mesa.so`. `libLLVM.so` is 163 MiB on disk, so what that 52 measures is
+/// how much of it the kernel happened to keep.
+///
+/// How many of those pages are resident is the kernel's decision rather than ours: a fault on a
+/// mapping whose pages are already in the page cache maps a whole fault-around window, and a
+/// fault on one that has been evicted maps a single page. Measured by evicting the two libraries
+/// above and nothing else, the same binary's high-water fell from 108.4 MiB to 81.2 MiB — 25% —
+/// while its *anonymous* total moved by 30 KiB. ADR 0910.
+///
+/// Read before [`peak_resident_kib`] by every caller, so that the figure subtracted from a
+/// high-water is one this process had already reached.
+fn mapped_resident_kib() -> Option<u64> {
+    let rollup = std::fs::read_to_string("/proc/self/smaps_rollup").ok()?;
+    let field = |key: &str| -> Option<u64> {
+        rollup
+            .lines()
+            .find_map(|line| line.strip_prefix(key))?
+            .trim()
+            .trim_end_matches(" kB")
+            .parse::<u64>()
+            .ok()
+    };
+    Some(field("Rss:")?.saturating_sub(field("Anonymous:")?))
 }
 
 /// How many bytes this process has had returned by a read, off `/proc/self/io`.
@@ -325,6 +361,7 @@ fn phase_open() {
         ("open_ms", format!("{elapsed:.3}")),
         ("pages", pages.to_string()),
         ("read_bytes", or_absent(read)),
+        ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ]);
 }
@@ -352,6 +389,7 @@ fn phase_bring_up() {
     measured_beside_the_machine(&[
         ("bring_up_ms", format!("{elapsed:.3}")),
         ("adapter", adapter),
+        ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ]);
 }
@@ -405,6 +443,7 @@ fn phase_first_page() {
         ("commands", commands.to_string()),
         ("pixels", pixels.to_string()),
         ("read_bytes", or_absent(read)),
+        ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ]);
 }
@@ -463,6 +502,7 @@ fn phase_page_turn() {
         ("turns", turns.len().to_string()),
         ("pages", pages.to_string()),
         ("commands", commands.to_string()),
+        ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ]);
 }
@@ -650,13 +690,25 @@ struct Row {
     first_page_ms: Pin,
     /// The band on one page turn.
     turn_ms: Pin,
-    /// The band on the peak resident size of the process that drew page one, in mebibytes.
-    peak_mib: Pin,
+    /// The band on how much *this program* had allocated at its high-water, in mebibytes, in
+    /// the process that drew page one.
+    ///
+    /// **Not the process's high-water mark, which is mostly somebody else's**: see
+    /// [`anonymous_high_water_mib`] for the arithmetic and [`mapped_resident_kib`] for what was
+    /// measured. The whole-process figure is printed beside it and banded nowhere.
+    peak_anon_mib: Pin,
     /// The band on the peak resident size of the process that only *opened* it, in mebibytes.
     ///
     /// The one memory figure with no graphics driver in it, and so the one that answers what a
     /// *document* costs: a device's own allocations are an order of magnitude larger than any
     /// document here and would hide the whole question.
+    ///
+    /// **This one is still the whole process's `VmHWM` where [`Row::peak_anon_mib`] is not**, and
+    /// that is deliberate rather than an oversight: it was identical across all forty-four runs
+    /// its band was derived from and has not moved since, because the only large file this
+    /// process maps is the test binary itself. It is what the same figure looks like when no
+    /// driver is in the process, which is why round 935's finding did not reach it — and the
+    /// line prints its allocated share beside it so that a reader can see both halves here too.
     open_peak_mib: Pin,
     /// The band on how many bytes of the file an open reads, in kibibytes.
     read_kib: Pin,
@@ -685,6 +737,14 @@ struct Check {
     calibration_first_ms: Option<Band>,
     /// The band on a cold graphics bring-up, which principle 2 makes a gate of its own.
     bring_up_ms: Option<Band>,
+    /// The band on what the graphics device costs *in allocated memory*, in mebibytes.
+    ///
+    /// Principle 2 makes cold bring-up a gate of its own "so that a regression in the driver, the
+    /// adapter selection or the shader set is legible as itself"; the driver's memory is part of
+    /// what that sentence is about, and until round 935 no figure here carried it. This is the
+    /// device's share of a document row's [`Row::peak_anon_mib`], measured in a process that has
+    /// done nothing else.
+    bring_up_anon_mib: Option<Band>,
     /// The band a cold read of [`IO_PROBE_BYTES`] must land in for a *cold* figure to be judged.
     io_ms: Option<Band>,
     /// The documents.
@@ -730,8 +790,8 @@ struct Partial {
     first_page_ms: Option<Pin>,
     /// See [`Row::turn_ms`]. `None` here is "the key was not stated at all".
     turn_ms: Option<Pin>,
-    /// See [`Row::peak_mib`]. `None` here is "the key was not stated at all".
-    peak_mib: Option<Pin>,
+    /// See [`Row::peak_anon_mib`]. `None` here is "the key was not stated at all".
+    peak_anon_mib: Option<Pin>,
     /// See [`Row::open_peak_mib`]. `None` here is "the key was not stated at all".
     open_peak_mib: Option<Pin>,
     /// See [`Row::read_kib`]. `None` here is "the key was not stated at all".
@@ -749,7 +809,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         warm_open_ms: Some(warm_open_ms),
         first_page_ms: Some(first_page_ms),
         turn_ms: Some(turn_ms),
-        peak_mib: Some(peak_mib),
+        peak_anon_mib: Some(peak_anon_mib),
         open_peak_mib: Some(open_peak_mib),
         read_kib: Some(read_kib),
         why: Some(why),
@@ -757,7 +817,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
     else {
         return Err(format!(
             "the row ending at line {at} is missing one of path, pages, cold_open_ms, \
-             warm_open_ms, first_page_ms, turn_ms, peak_mib, open_peak_mib, read_kib, why"
+             warm_open_ms, first_page_ms, turn_ms, peak_anon_mib, open_peak_mib, read_kib, why"
         ));
     };
     into.push(Row {
@@ -767,7 +827,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         warm_open_ms,
         first_page_ms,
         turn_ms,
-        peak_mib,
+        peak_anon_mib,
         open_peak_mib,
         read_kib,
         why,
@@ -823,7 +883,7 @@ fn parse(text: &str) -> Result<Check, String> {
                 "warm_open_ms" => row.warm_open_ms = Some(band(value, at)?),
                 "first_page_ms" => row.first_page_ms = Some(band(value, at)?),
                 "turn_ms" => row.turn_ms = Some(band(value, at)?),
-                "peak_mib" => row.peak_mib = Some(band(value, at)?),
+                "peak_anon_mib" => row.peak_anon_mib = Some(band(value, at)?),
                 "open_peak_mib" => row.open_peak_mib = Some(band(value, at)?),
                 "read_kib" => row.read_kib = Some(band(value, at)?),
                 other => return Err(format!("line {at} states an unknown row key `{other}`")),
@@ -837,6 +897,7 @@ fn parse(text: &str) -> Result<Check, String> {
             "calibration_ms" => check.calibration_ms = band(value, at)?.band(),
             "calibration_first_ms" => check.calibration_first_ms = band(value, at)?.band(),
             "bring_up_ms" => check.bring_up_ms = band(value, at)?.band(),
+            "bring_up_anon_mib" => check.bring_up_anon_mib = band(value, at)?.band(),
             "io_ms" => check.io_ms = band(value, at)?.band(),
             other => return Err(format!("line {at} states an unknown key `{other}`")),
         }
@@ -856,6 +917,26 @@ fn field(fields: &Fields, key: &str) -> Option<f64> {
         .iter()
         .find(|(name, _)| name == key)
         .and_then(|(_, value)| value.parse().ok())
+}
+
+/// How much of a child's high-water mark was memory *this program* asked for, in mebibytes.
+///
+/// **The figure round 935 put in place of the process's own high-water, and the reason is
+/// measured rather than argued.** `VmHWM` counts every resident page, and in a process that has
+/// brought a graphics device up nine tenths of them are pages of a *mapped file* — the Vulkan
+/// loader's shared objects, `libLLVM.so` and `libgallium.so` above all. How many of those the
+/// kernel keeps resident is decided by the page cache and by fault-around, not by this program:
+/// evicting those two libraries and changing nothing else moved the whole-process figure by 25%
+/// and this one by 30 KiB. So the high-water this gate holds to a band is the *anonymous* one —
+/// what the allocator asked the kernel for — and `VmHWM` is printed beside it, unbanded.
+///
+/// `Rss - Anonymous` is read a moment *before* `VmHWM` in the child, so subtracting it from a
+/// high-water cannot go negative in the ordinary case; `saturating_sub` covers the case where the
+/// resident set grew between the two reads, which would otherwise print a wrapped figure.
+fn anonymous_high_water_mib(fields: &Fields) -> f64 {
+    let peak = field(fields, "peak_kib").unwrap_or(0.0);
+    let mapped = field(fields, "mapped_kib").unwrap_or(0.0);
+    (peak - mapped).max(0.0) / 1024.0
 }
 
 /// The CPUs this machine runs fastest on, as `taskset -c` spells them.
@@ -1153,16 +1234,19 @@ struct Judged {
     ///
     /// **The split this whole gate rests on.** A figure the machine cannot move is judged on any
     /// machine and under any load, because a neighbour has no way to make it wrong: how many
-    /// bytes an open reads, and what *this program* spends on one, are properties of the reader.
-    /// Everything else — every duration, and the memory high-water of a process that has brought
-    /// a graphics device up — is judged only where the calibration probe says this is the machine
-    /// the bands were taken on.
+    /// bytes an open reads, and how much memory this program asks for, are properties of the
+    /// reader. Every *duration* is in the other group, and is judged only where the calibration
+    /// probe says this is the machine the bands were taken on.
     ///
-    /// The high-water mark is in the second group **on the evidence rather than on principle**:
-    /// it was identical in all forty-four runs the bands were derived from, and an hour later, on
-    /// an idle machine, all four rows had fallen by about 12% together. What moved is the
-    /// driver's own allocation, and nothing in this process can see why. [`Row::open_peak_mib`]
-    /// is the memory figure with no device in it, and that one has not moved at all.
+    /// **Every memory figure here is in the first group since round 935, and one of them used to
+    /// be in the second.** What was judged as the memory high-water was the whole process's
+    /// `VmHWM`, and that fell away from its band three times — 12%, then 13%, with no change to
+    /// any code on the launch path — because nine tenths of it is resident pages of the Vulkan
+    /// loader's shared objects and how many of those the kernel keeps is not this program's
+    /// decision (see [`anonymous_high_water_mib`] and [`mapped_resident_kib`]). The figure banded
+    /// now is the *anonymous* high-water, which held to 30 KiB across an eviction that moved the
+    /// whole-process figure by 25%, and the whole-process figure is printed unbanded beside it.
+    /// ADR 0910.
     steady: bool,
     /// What the child that produced this figure measured the machine at, right afterwards.
     ///
@@ -1378,7 +1462,13 @@ fn the_launch_path_stays_inside_its_bands() {
                 .iter()
                 .find(|(key, _)| key == "adapter")
                 .map_or("unnamed", |(_, name)| name.as_str());
-            println!("launch-path: cold graphics bring-up {value:.1} ms on {adapter}");
+            let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
+            let allocated = anonymous_high_water_mib(&fields);
+            println!(
+                "launch-path: cold graphics bring-up {value:.1} ms on {adapter}, \
+                 {peak:.0} MiB resident of which {allocated:.1} MiB is allocated \
+                 and the rest is mapped libraries"
+            );
             band_it(
                 &mut judged,
                 "the graphics device".to_owned(),
@@ -1386,6 +1476,15 @@ fn the_launch_path_stays_inside_its_bands() {
                 value,
                 check.bring_up_ms.map_or(Pin::Nothing, Pin::Within),
                 false,
+                &fields,
+            );
+            band_it(
+                &mut judged,
+                "what the graphics device allocates".to_owned(),
+                "bring_up_anon_mib",
+                allocated,
+                check.bring_up_anon_mib.map_or(Pin::Nothing, Pin::Within),
+                true,
                 &fields,
             );
         }
@@ -1489,10 +1588,11 @@ fn the_launch_path_stays_inside_its_bands() {
             }
             let read = field(fields, "read_bytes").unwrap_or(0.0) / 1024.0;
             let peak = field(fields, "peak_kib").unwrap_or(0.0) / 1024.0;
+            let allocated = anonymous_high_water_mib(fields);
             println!(
                 "launch-path:   cold open {value:.2} ms, {pages:.0} pages, \
-                 {read:.0} KiB read, {peak:.0} MiB resident, \
-                 the disk at {} ms for {} MiB",
+                 {read:.0} KiB read, {peak:.0} MiB resident of which {allocated:.1} MiB is \
+                 allocated, the disk at {} ms for {} MiB",
                 field(fields, "io_ms").map_or_else(|| "?".to_owned(), |io| format!("{io:.1}")),
                 IO_PROBE_BYTES >> 20
             );
@@ -1545,10 +1645,11 @@ fn the_launch_path_stays_inside_its_bands() {
                 let joined = field(&fields, "joined_ms").unwrap_or(0.0);
                 let commands = field(&fields, "commands").unwrap_or(0.0);
                 let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
+                let allocated = anonymous_high_water_mib(&fields);
                 println!(
                     "launch-path:   first page {value:.1} ms (device up at {device:.1}, \
                      document joined at {joined:.1}, {commands:.0} commands), \
-                     {peak:.0} MiB resident"
+                     {peak:.0} MiB resident, {allocated:.1} MiB of it allocated"
                 );
                 band_it(
                     &mut judged,
@@ -1561,11 +1662,11 @@ fn the_launch_path_stays_inside_its_bands() {
                 );
                 band_it(
                     &mut judged,
-                    format!("{}: the memory high-water", row.path),
-                    "peak_mib",
-                    peak,
-                    row.peak_mib,
-                    false,
+                    format!("{}: the memory high-water it allocates", row.path),
+                    "peak_anon_mib",
+                    allocated,
+                    row.peak_anon_mib,
+                    true,
                     &fields,
                 );
             }

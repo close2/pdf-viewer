@@ -169,7 +169,7 @@ section_writer() {
 }
 
 # `CLAUDE.md` principle 2's four numbers, plus the fifth it makes a gate of its own — and the
-# two figures on the launch path that have no clock in them at all.
+# three figures on the launch path that have no clock in them at all.
 #
 # **`--release` rather than `--profile gates`, and this is the only section that says so.** The
 # two profiles differ by 4.06% to 12.30% on `Document::open` (`Cargo.toml`'s own table, ADR

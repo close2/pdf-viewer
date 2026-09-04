@@ -754,3 +754,32 @@ guard's blind spot, in the units the figure is in.
 It is trap 33's shape in the other dimension. There a counter named the wrong **event**; here a
 probe names the right work in the wrong **state**, and both come back with a clean number about a
 question nobody asked.
+
+### 35. A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident
+
+`VmHWM` — and `getrusage`'s `ru_maxrss`, and everything else that says *peak resident* — counts
+**every** resident page, and pages of a mapped file are most of them as soon as a process links
+something large. The launch gate banded that figure as "the memory high-water" for thirteen
+rounds; measured, a process that brings this machine's graphics device up and does nothing else has
+a 108 MiB high-water of which **97 MiB is file-backed** — 52 of them `libLLVM.so`, which is 163 MiB
+on disk — and 11 MiB is memory the program asked for.
+
+The half that is not the program's does not hold still, and not for any reason a program can see: a
+page fault on a mapping whose pages are already in the page cache maps a whole fault-around window,
+and a fault on one that has been evicted maps a single page. So **what a neighbouring process read
+an hour ago moves this number**. Measured by evicting two libraries and changing nothing else, the
+same binary's high-water fell 25% while its anonymous total moved by 30 KiB; over one afternoon the
+same figure was seen at 92 MiB and at 180 MiB.
+
+Three rounds chased that as a regression, correctly refused to widen the band, and could not
+decline the figure either — because there is no clock in it, and none of the gate's probes senses
+the page cache. ADRs 0910 and 0911.
+
+**So a memory gate bands `Rss - file-backed`**, which off `/proc/self/smaps_rollup` is `Anonymous`,
+and prints the whole-process figure beside it unbanded. Two things follow that are worth having in
+hand before the next one is written. A resident figure taken in a process with a big dependency
+graph is a **measurement of the machine's page cache** to within a factor of two, whatever it is
+called. And the anonymous figure has a granularity of its own where transparent huge pages are
+`always`: a 2 MiB huge page is 2 MiB of `Anonymous` however much of it is touched, so a band under
+about ten mebibytes needs one huge page's headroom or it will fire on a step the program did not
+take.

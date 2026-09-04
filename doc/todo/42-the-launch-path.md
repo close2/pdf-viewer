@@ -105,28 +105,30 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
-**And the figure that fails now is the one with no clock in it, which is new in the
-nine-hundred-and-thirty-third.** Everything above is about clocks, and a clock the gate can decline
-to judge; `peak_mib` cannot be declined by any probe, because contention does not lower a memory
-high-water. In session 933's full sequence — under `release`, calibrations 0.712 .. 0.720 ms, all
-inside the band, so the run *was* judging — all four rows failed together **below** their floors:
+**And the figure that failed with no clock in it is settled in the nine-hundred-and-thirty-fifth.**
+Everything above is about clocks, and a clock the gate can decline to judge; `peak_mib` could be
+declined by no probe, because contention does not lower a memory high-water. It fell out of its
+band three times — 12% an hour after forty-four identical runs (session 922), unsettled through
+926 and 931, and 13% below floors already widened once for it in session 933, reproduced within a
+kilobyte on a quiet re-run. Three rounds declined to widen it, rightly.
 
-| document | `peak_mib` band | this run | again, alone |
-|---|---|---|---|
-| `PDF20_AN001-BPC.pdf` | 127 .. 209 | 109.035 | 109.918 |
-| `Well-Tagged-PDF-WTPDF-1.0.pdf` | 131 .. 214 | 114.082 | 113.902 |
-| `ISO_32000-2_sponsored_EC3.pdf` | 132 .. 215 | 114.625 | 114.535 |
-| `bug1815476.pdf` | 143 .. 231 | 126.504 | 126.227 |
+**What it was measuring was mostly not this program.** `VmHWM` counts every resident page, and in
+a process that has brought the graphics device up **nine tenths of them are pages of a mapped
+file**: 52 MiB of `libLLVM.so` (which `libvulkan_radeon.so` links directly), 26 MiB of
+`libgallium.so` (which comes with `libEGL_mesa.so`), against 11 MiB of memory this program had
+asked for. `libLLVM.so` is 163 MiB on disk, so *how much of it is resident* is decided by the page
+cache and by fault-around — and a neighbouring round walking a corpus is exactly what evicts it.
+Measured: evicting those two libraries and nothing else took the figure from 108.4 MiB to 81.2 MiB
+while the anonymous total moved by 30 KiB, and over one afternoon the whole-process figure was seen
+at 92 and at 180 MiB on the same binary. ADR 0910 has the tables.
 
-Reproduced within a kilobyte on the second run, so it is neither noise nor a neighbour: it is the
-same *thing* `doc/checks/launch-path.toml`'s own header records — "an hour later — same tree, same
-binary, idle machine — all four rows had fallen together by about 12%. What moved is the driver's
-allocation" — happening again and landing about 13% under the floors that were widened to span it.
-**No band was moved, for the third round running**, and by a round that did not touch the launch
-path at all: the figure that would have to be re-derived is a property of the graphics driver, and
-a coverage round widening a band it did not measure is how a guard becomes a formality. What is
-owed is one derivation on an idle machine of what this driver now allocates — the same ten minutes
-`Q29`'s first option asks for, on the one figure a loaded machine could not have caused.
+So the gate bands the **anonymous** high-water now (`peak_anon_mib`), judged on any machine like
+the other two figures with no clock in them, and prints `VmHWM` beside it unbanded; the graphics
+device's own share is a figure of the bring-up gate (`bring_up_anon_mib`, ADR 0911), which is where
+principle 2 says a driver's regression belongs. The four documents separate at 27, 31, 32 and 44
+MiB where the old figure separated them by a tenth against a band 82 MiB wide. What the gate no
+longer claims — how much memory the *process* occupies, which is what a user's machine pays — is
+`doc/questions/Q37`.
 
 ## Why this is a todo and not a caveat
 
