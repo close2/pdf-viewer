@@ -89,6 +89,20 @@ struct Held {
     /// A monotonic counter standing in for a clock: the cache has no clock, by the same rule
     /// `pdf-transform` has none (RFC 0002 section 5's second rule).
     tick: u64,
+    /// How long each generated output turned out to be, kept after its bytes are evicted.
+    ///
+    /// **This is what makes a second `ls -l` free, and a mount by hand is what asked for it.**
+    /// RFC 0003 section 5.5 makes a `stat` generate, because "an under-estimate silently
+    /// truncates a page" — and a size that came off real bytes is not an estimate. A directory
+    /// larger than the budget therefore used to cost its whole generation *on every listing*: on
+    /// ISO 32000-2's own 1023 pages, `ls -l pages/` took 2 min 45 s the first time and **4 min
+    /// 03 s the second**, because 1023 pieces of about 1.8 MB do not fit in the budget and every
+    /// entry had been evicted by the time the listing came round again (round 911).
+    ///
+    /// Bounded by the document rather than by a number: one note per path per generation, and
+    /// [`Cache::retain`] drops every other generation's along with its bytes. A note is a path
+    /// and eight bytes, so a scanned book of ten thousand pages costs a few megabytes.
+    sizes: HashMap<Key, u64>,
 }
 
 impl Cache {
@@ -122,15 +136,21 @@ impl Cache {
     pub fn put(&self, generation: Generation, path: &str, bytes: Vec<u8>) -> Arc<[u8]> {
         let shared: Arc<[u8]> = Arc::from(bytes.into_boxed_slice());
         let mut held = self.lock();
+        let key = Key {
+            generation: generation.into(),
+            path: path.to_owned(),
+        };
+        // The length is remembered whatever happens to the bytes, **including for an entry too
+        // large to store at all** — which is the case the first version of this got wrong and a
+        // gate caught (round 911, trap 13): a page out of a real document is often bigger than a
+        // small budget, and those are exactly the files whose `stat` is expensive.
+        held.sizes
+            .insert(key.clone(), u64::try_from(shared.len()).unwrap_or(u64::MAX));
         if shared.len() > self.budget {
             return shared;
         }
         held.tick = held.tick.saturating_add(1);
         let tick = held.tick;
-        let key = Key {
-            generation: generation.into(),
-            path: path.to_owned(),
-        };
         if let Some(previous) = held.entries.remove(&key) {
             held.bytes = held.bytes.saturating_sub(previous.bytes.len());
         }
@@ -158,6 +178,21 @@ impl Cache {
         shared
     }
 
+    /// How long the output at this path turned out to be, where it has ever been generated.
+    ///
+    /// [`Held::sizes`] says why this outlives the bytes. A `None` means the path has not been
+    /// generated in this generation at all, which is the only case that has to do the work.
+    #[must_use]
+    pub fn size_of(&self, generation: Generation, path: &str) -> Option<u64> {
+        self.lock()
+            .sizes
+            .get(&Key {
+                generation: generation.into(),
+                path: path.to_owned(),
+            })
+            .copied()
+    }
+
     /// Forgets everything that is not `generation`'s.
     ///
     /// RFC 0003 section 5.4's rule in one line: "a changed key rebuilds the virtual tree". An
@@ -175,6 +210,7 @@ impl Cache {
             kept
         });
         held.bytes = held.bytes.saturating_sub(dropped);
+        held.sizes.retain(|key, _| key.generation == keep);
     }
 
     /// How many bytes are held.

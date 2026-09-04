@@ -551,3 +551,108 @@ fn a_file_that_is_not_a_document_is_not_inserted() {
     assert_eq!(on_disk(&backing), before);
     assert_eq!(names(&vfs, "/pages").len(), 5);
 }
+
+/// Two writes in flight at once in one mount: the second is **not** somebody else's edit.
+///
+/// The generation key moves under a staged write for two different reasons, and refusing both as
+/// `ESTALE` cost the second write of every pair. RFC 0003 section 5.4's rule is about
+/// *somebody else's* update — committing over it "would discard whatever changed it" — and our
+/// own commit discards nothing, because §7.5.6 appends. A mount by hand lost the second of two
+/// files copied into `attachments/` with both descriptors open, and lost it quietly, because
+/// `close(2)`'s error is a thing most programs do not look at (round 911).
+///
+/// What still decides is whether the **name** means what it meant. An embedded file's name and
+/// the information dictionary are identities. A page's ordinal is a position — RFC 0003 section
+/// 5.2 — so an insertion staged before a commit that renumbered stays `ESTALE`, and the last
+/// third of this test is that half of the rule.
+#[test]
+fn two_writes_in_flight_in_one_mount_both_land() {
+    let (backing, vfs) = mounted(FIVE_PAGES);
+    let before = on_disk(&backing);
+
+    let first = vfs.create("/attachments/one.txt").expect("created");
+    let second = vfs.create("/attachments/two.txt").expect("created");
+    vfs.write_at(first, 0, b"one").expect("written");
+    vfs.write_at(second, 0, b"two").expect("written");
+    vfs.flush(first).expect("the first commits");
+    vfs.flush(second).expect("and so does the second");
+    vfs.release(first);
+    vfs.release(second);
+
+    assert_eq!(names(&vfs, "/attachments"), vec!["one.txt", "two.txt"]);
+    assert_eq!(read(&vfs, "/attachments/two.txt"), b"two");
+    let after = on_disk(&backing);
+    assert_eq!(
+        &after[..before.len()],
+        &before[..],
+        "§7.5.6's prefix, twice"
+    );
+
+    // A page's ordinal is a position, so an insertion staged across a commit that renumbered is
+    // still `ESTALE` — it would land somewhere nobody asked for.
+    let one_page = std::fs::read(committed(FOURTEEN_PAGES)).expect("a document");
+    let staged = vfs.create("/pages/0002.pdf").expect("created");
+    vfs.write_at(staged, 0, &one_page).expect("written");
+    vfs.write("/attachments/three.txt", b"three")
+        .expect("a commit of ours in between");
+    match vfs.flush(staged) {
+        Err(error @ VfsError::Changed { .. }) => assert_eq!(error.errno(), Errno::Stale),
+        other => panic!("an ordinal staged across a renumbering: {other:?}"),
+    }
+    assert_eq!(names(&vfs, "/pages").len(), 5, "and nothing was inserted");
+}
+
+/// A size the cache has produced outlives the bytes, so a second listing is free.
+///
+/// RFC 0003 section 5.5 makes a `stat` generate because "an under-estimate silently truncates a
+/// page" — and a length taken off the bytes themselves is not an estimate. With a budget too
+/// small to hold a directory, every entry is evicted before the listing comes round again, and
+/// `ls -l` used to cost the whole extraction *every time*: on ISO 32000-2's 1023 pages, 2 min 45 s
+/// the first time and 4 min 03 s the second (round 911).
+#[test]
+fn a_stat_after_an_eviction_does_not_generate_again() {
+    let bytes = std::fs::read(committed(FIVE_PAGES)).expect("a committed document");
+    let backing = Arc::new(MemoryBacking::new(FIVE_PAGES, bytes));
+    let vfs = Vfs::new(
+        Box::new(SharedBacking(Arc::clone(&backing))),
+        Box::new(InProcessWorkers),
+        Config {
+            // One page out of this document is tens of kilobytes, so nothing survives a second
+            // entry and the cache is doing what a real one does on a document too big for it.
+            cache_bytes: 1024,
+            ..Config::default()
+        },
+    );
+    let mut sizes = Vec::new();
+    for page in 1..=5 {
+        let path = format!("/pages/{page:04}.pdf");
+        sizes.push(vfs.stat(&path).expect("a page stats").size);
+    }
+    let after_the_first_listing = vfs.generated();
+    assert_eq!(after_the_first_listing, 5, "one generation per page, once");
+
+    // The second listing, which is what a file manager does the moment somebody scrolls back.
+    for (page, size) in (1..=5).zip(&sizes) {
+        assert_eq!(
+            vfs.stat(&format!("/pages/{page:04}.pdf"))
+                .expect("again")
+                .size,
+            *size
+        );
+    }
+    assert_eq!(
+        vfs.generated(),
+        after_the_first_listing,
+        "and it produced nothing: a size that came off real bytes is not an estimate"
+    );
+
+    // And the size it remembered is still the file's own length, which is the property RFC 0003
+    // section 5.5 refuses to have estimated.
+    for (page, size) in (1..=5).zip(&sizes) {
+        let path = format!("/pages/{page:04}.pdf");
+        assert_eq!(
+            u64::try_from(read(&vfs, &path).len()).expect("fits"),
+            size.expect("a file states a size")
+        );
+    }
+}

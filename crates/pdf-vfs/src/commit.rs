@@ -101,10 +101,32 @@ pub(crate) struct Staged {
     /// What the path captured — the position a page goes at, the name a file takes.
     pub(crate) captures: crate::path::Captures,
     /// The generation it was created against, which is the generation it must still be at when
-    /// it commits.
+    /// it commits — unless every transition since then was this tree's own, which
+    /// [`Staged::foreign_edits`] is what decides.
     pub(crate) generation: Generation,
+    /// How many *foreign* generation transitions this tree had seen when the write was staged.
+    ///
+    /// The discriminator between the two reasons a staged write can find the document moved.
+    /// Somebody else's edit is what [`Provenance::Foreign`] names and what `ESTALE` is for:
+    /// committing over it could discard it, and RFC 0003 section 5.4 does not let a face do that.
+    /// **Our own commit is not that**, and refusing it is what a mount by hand found (round 911):
+    /// two files copied into `attachments/` with both descriptors open lost the second, because
+    /// the first one's commit moved the key the second was staged against — and `close(2)`'s
+    /// error is a thing most programs do not look at, so it lost it *quietly*.
+    pub(crate) foreign_edits: u64,
     /// What has been written so far.
     pub(crate) bytes: Vec<u8>,
+    /// Whether anything has ever been written to it, or its length ever set.
+    ///
+    /// **The discriminator between "replace this with nothing" and "never wrote at all"**, and
+    /// there is no other one: `fuser` does not pass `O_TRUNC` — the kernel handles it by sending
+    /// a separate `SETATTR` of size zero after the `open` — so a handle opened for writing looks
+    /// the same either way until somebody acts on it. `touch(1)` opens `O_WRONLY|O_CREAT`, sets
+    /// the times and closes without writing a byte, and a mount by hand had that arrive as a
+    /// commit of zero bytes and fail "not a PDF: no %PDF- header in the first 0 bytes" — an
+    /// input/output error about a document nobody had touched (round 911). A `close(2)` of a
+    /// file nothing was written to is not a write.
+    pub(crate) touched: bool,
     /// Whether a `flush` has already made it real, so that a second `flush` — which the kernel
     /// issues on every `close` of every descriptor onto one file — does nothing rather than
     /// applying the edit twice.

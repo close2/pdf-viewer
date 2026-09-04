@@ -2,8 +2,8 @@
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
 Priority: 50-band — the core landed in session 899, the confined worker in 902, the write side in
-906 and the FUSE face in 909, so what is left is the **second** face, a decision the owner has not
-been asked, and a measurement nobody has taken — starting with a mount, which no gate may make.
+906, the FUSE face in 909 and **its first mount in 911**, so what is left is the **second** face, a
+decision the owner has not been asked, and the read side's corpus walk.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
 `doc/PDF-Declarations.pdf` (two §7.11.4 embedded files whose names hold a COLON, so it is the
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
@@ -16,7 +16,7 @@ Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`),
 Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/write_corpus.rs`,
 `tests/confined.rs` and `examples/vfs_cost.rs`, `crates/pdf-fuse/` and its `tests/a_face.rs`,
 `crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
-ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861.
+ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0864, 0865.
 
 ## What is done
 
@@ -81,6 +81,23 @@ string — so what binds there is the length. And `crates/pdf-fuse` is the first
 no C linkage, no layout knowledge, an inode per name, every refusal logged as a sentence as well
 as returned as a number, and RFC section 5.4's invalidation on a thread of its own (ADR 0861).
 
+Session 911, RFC 0003's fifth landing: **the face was mounted, by hand, and ten things were
+wrong.** ADR 0864 has the seven the kernel found and ADR 0865 the three that were underneath the
+face and had nothing to do with FUSE. The largest is that `cp new.pdf pages/0004.pdf` — the verb
+RFC §5.2 leads with — could not be done at all, because `cp` issues `open(O_WRONLY|O_TRUNC)` on a
+name that exists and the face answered every access mode with a read handle. Beside it: the
+kernel's own `O_TRUNC`, which is a `setattr` with no file handle, accepted and ignored; a `close`
+of a file nothing was written to committed zero bytes and failed "not a PDF"; `touch` succeeding
+and changing nothing while the comment above the guard said it could not; every file owned by
+`root` and dated 1 January 1970; an `ENOENT` logged as though it were a refusal, so a file
+manager's `.directory` probes flood the only channel there is; and two writes in flight in one
+mount losing the second, quietly. Underneath: a page with **two** images killed the confined
+worker with `SIGSYS` on `openat`, which is `glibc` sizing a per-thread allocator arena from
+`/sys/devices/system/cpu/online` on `rayon`'s pool thread; every page of ISO 32000-2 refused to
+come out of `pages/`, under a false sentence hiding a real ordering defect in §14.7's carry; and a
+second `ls -l` of a thousand-page document cost more than the first. All ten are fixed and each
+has a test.
+
 ## 1. The departure the owner should overrule or ratify
 
 **`images/` is a directory per page** — `images/0035/01.png` — where RFC §4 draws it flat as
@@ -109,8 +126,13 @@ item still owes on the write side is three things, none of them blocking a face:
 
 ## 3. The two faces, in the RFC's own order
 
-- **The FUSE face — done in session 909** (ADR 0861), and what is left of it is one thing:
-  **nothing has ever mounted it.** `crates/pdf-fuse/tests/a_face.rs` drives the face the way a
+- **The FUSE face — done in session 909** (ADR 0861), **and mounted by hand in 911** (ADRs 0864,
+  0865). The commands, and what each of them came back with, are in `doc/history/911-*.md`; the
+  paragraph below is kept because its argument still binds — a mount stays out of every gate, and
+  the *next* mount by hand is owed the same way this one was, on the next round that changes the
+  face.
+  **The first mount found ten defects, and it is the argument for the exercise rather than a
+  complaint about the tests.** `crates/pdf-fuse/tests/a_face.rs` drives the face the way a
   kernel drives it and holds everything between the kernel's verb and the core's answer, and a
   *mount* is deliberately not in any gate — `fuser`'s pure-Rust path asks the kernel for
   `/dev/fuse` and runs `fusermount3`, so a gate that mounted would be measuring the machine's
@@ -119,10 +141,33 @@ item still owes on the write side is three things, none of them blocking a face:
   written up**: `pdffs doc.pdf mnt/`, then `ls`, `cp`, `grep -r`, `cp` a PDF into `pages/`, `rm`
   one, and `fusermount3 -u`. Until somebody has done that, the wire format between
   `fuser`'s reply objects and a real kernel is the one part of this face nothing has exercised.
-  Three smaller things the face decided by default and a mount would question: whether `readdir`'s
-  offsets survive a directory larger than one reply buffer, whether a zero attribute timeout is
-  too expensive for a file manager that stats a thousand names, and what `--allow-other` needs
-  from `/etc/fuse.conf` on this machine.
+  **The three smaller questions are answered.** `readdir`'s offsets survive a directory larger
+  than one reply buffer: 1023 names came back once each, in order, no duplicate and no gap. A zero
+  attribute timeout is *not* what a stat storm costs — §5.5's rule that a `stat` generates is, and
+  §5's last bullet has the number. And `--allow-other` cannot be used on this machine, which it
+  says: `fusermount3: option allow_other only allowed if 'user_allow_other' is set in
+  /etc/fuse.conf`, which is commented out here; nothing in this tree can change that and nothing
+  should try.
+
+  **What the face still owes**, all found by the mount and none of them fixed:
+  - **`mv` out of the mount deletes the page**, because `mv` across file systems is a copy and an
+    `unlink`, and `unlink` in `pages/` is §5.2's deletion verb. That is the correct composition of
+    two verbs this face has and it is the archive-manager convention — but a person dragging a
+    page out of a file-manager window will not have read either, and §7.5.6's sentence goes to a
+    log they are not looking at. Whether a face should refuse a cross-device rename is a decision
+    nobody has made.
+  - **An attachment cannot be replaced, and the `errno` a person sees for trying is `EPERM`
+    rather than the `EEXIST` §2 above documents** — because `cp` onto an existing name goes
+    through `open` and not `create`, and `open` stages before the name is compared. The verb is
+    still the missing one; only the number moved.
+  - **`cp -r` out of the mount makes a copy nobody can delete.** The derived files are `0444` and
+    the derived directories `0555`, which is the layout table answering honestly about *the mount*
+    — and `cp -r` preserves them, so `rm -r` on the copy needs a `chmod -R u+w` first. Whether a
+    face should report a mode a copy can live with, or whether that would be lying about what the
+    mount permits, is a decision nobody has made.
+  - **`: > mnt/pages/0002.pdf` is loud in the log and silent in the shell**, because `bash` does
+    not check `close(2)`. Nothing can be done about the shell; what could be done is refusing the
+    truncation itself, which would make a legitimate `cp` fail. Stated rather than chosen.
 - **The KIO face** — a C++ `MODULE` plugin subclassing `KIO::WorkerBase` over a C ABI into this
   core, the `viewer-ffi` precedent. Toolchain risk moderate: CMake, Qt 6 and KF6 enter the build
   of that one component, which lives outside the cargo workspace.
@@ -181,6 +226,14 @@ Three things this item still owes, none of them blocking a face:
   page, and `update` refuses to delete a document's last one; the walk counts the refusal by name
   and the number is in its own output. A population with more multi-page documents — the SafeDocs
   crawl, `format-corpus` — would be a stronger denominator for that one verb.
+- **A `stat` generates, and on a large document that is minutes.** `ls -l pages/` on ISO
+  32000-2's 1023 pages took **2 min 45 s** (round 911), which is 1023 page extractions at about
+  160 ms each, and the pieces are about **1.8 MB** apiece — the closure of a heavily shared
+  document — so `pages/` reports 1.9 GB for a 12 MB file. A second listing is now free (ADR 0865
+  §3 put the sizes in the cache past eviction), and the *first* one is the shortfall: a file
+  manager opening such a mount waits three minutes. What would answer it is a generator that can
+  state a piece's length without writing it, which nothing in the transform layer offers, or a
+  listing that reports no size until asked — which §5.5 forbids for the reason ffmpegfs paid for.
 - **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
   prints, per document: a worker per generation in each transport, one question of each shape in
   each transport, the largest answer and the bound past which the confinement refuses one, and a

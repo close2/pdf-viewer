@@ -223,7 +223,7 @@ use std::sync::Arc;
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
+use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options, serialize};
 use pdf_syntax::{Document, Version};
 
 use crate::pattern::{Fill, Pattern};
@@ -630,12 +630,12 @@ impl Host for Merge<'_> {
         self.carry(at, value, 0)
     }
 
-    fn reserve_slot(&mut self) -> Option<ObjectId> {
-        self.assembly.reserve().ok()
+    fn reserve_slot(&mut self) -> Result<ObjectId, AssemblyError> {
+        self.assembly.reserve()
     }
 
-    fn replace_object(&mut self, at: usize, id: ObjectId) -> Option<ObjectId> {
-        self.assembly.replace(at, id).ok()
+    fn replace_object(&mut self, at: usize, id: ObjectId) -> Result<ObjectId, AssemblyError> {
+        self.assembly.replace(at, id)
     }
 
     fn place_object(&mut self, id: ObjectId, object: Object) {

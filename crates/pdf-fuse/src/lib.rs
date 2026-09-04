@@ -190,6 +190,29 @@ impl Face {
         }
     }
 
+    /// When the document was last modified, as `stat(2)` should report it.
+    ///
+    /// **The generation key is the only clock this design has**, and it holds the answer already:
+    /// RFC 0003 section 5.4 makes the key "(mtime, size, last `startxref` offset)", so the first
+    /// component *is* the backing file's modification time. Every name in the tree reports it,
+    /// because every one of them is derived from the whole document and none has a time of its
+    /// own.
+    ///
+    /// This used to be the epoch, on the reasoning that "inventing 'now' would make every `ls` of
+    /// a mount look like a directory that had just changed" — which is right about `now` and
+    /// wrong about the alternative. A mount by hand showed what the epoch costs: every file dated
+    /// `1. Jän 1970`, a file manager sorting by date putting the document before every other file
+    /// on the disk, and `make`, `rsync -t` and `find -newer` reading a mount as older than
+    /// anything they could compare it with (round 911).
+    ///
+    /// `None` where the backing states no modification time, which
+    /// [`pdf_vfs::generation::Generation`] already allows for; the epoch is then the honest
+    /// answer rather than a guess.
+    #[must_use]
+    pub fn modified_nanos(&self) -> Option<i128> {
+        self.vfs.generation().ok()?.modified_nanos
+    }
+
     /// The tree underneath, for the binary's notifier thread.
     #[must_use]
     pub fn vfs(&self) -> &Vfs {
@@ -203,7 +226,17 @@ impl Face {
     /// refusal's sentence to its own stderr/journal".
     fn refuse(&self, verb: &str, error: &VfsError) -> Errno {
         let errno = error.errno();
-        (self.sink)(&format!("{verb}: {error} [{}]", errno.as_str()));
+        // **`ENOENT` is an absence rather than a refusal, and it is not logged.** RFC 0003
+        // section 5.3's requirement is about the refusals — the four by design and the five
+        // verbs' own — because those are the sentences a person needs and FUSE has no channel
+        // for. A name that is simply not in the tree needs none, and logging it turns the mount's
+        // only message channel into noise: a file manager probes `.directory` in every directory
+        // it opens, macOS's writes `.DS_Store`, and `git` looks for `.gitignore` — one line each,
+        // per directory, per visit. A mount by hand produced fifteen such lines before it had
+        // been asked to do anything at all (round 911).
+        if !matches!(errno, Errno::NoSuchFile) {
+            (self.sink)(&format!("{verb}: {error} [{}]", errno.as_str()));
+        }
         errno
     }
 
@@ -345,13 +378,42 @@ impl Face {
             .collect())
     }
 
-    /// Opening a file for reading: the bytes are materialised now, at this generation.
+    /// Opening a file, with the access mode the kernel was asked for.
+    ///
+    /// Reading materialises the bytes now, at this generation. **Writing stages a write, exactly
+    /// as [`Face::create`] does, and that is the fix for the one thing a mount by hand found that
+    /// no test had**: RFC 0003 section 5.2's flagship verb is `cp new.pdf pages/0004.pdf`, whose
+    /// target name *already exists* in every document with four pages — so `cp(1)` never issues
+    /// `create` for it. It issues `open(O_WRONLY|O_TRUNC)`, which this method used to answer with
+    /// a **read** handle, so the first `write(2)` was `EPERM` and the verb the RFC leads with was
+    /// unreachable through `cp`, `install`, `dd`, a shell redirect or a file manager's drop
+    /// (round 911; `strace` has it as `openat(…, O_WRONLY|O_TRUNC) = 4` followed by
+    /// `write(4, …) = -1 EPERM`).
+    ///
+    /// The same change moves every refusal to where a program looks for it. `> mnt/text/0001.txt`
+    /// used to open successfully and fail at the first byte — "echo: write error: Operation not
+    /// permitted" — and now fails at the `open`, with the sentence RFC 0003 section 5.3 wrote for
+    /// it, which is also what a *new* name in the same directory has always done.
+    ///
+    /// A staged write starts **empty** whether or not the name it is opened on has bytes, which
+    /// is what `O_TRUNC` asks for and what the write verbs mean: the bytes copied in are the
+    /// document to insert, the file to embed or the information dictionary to set, never an edit
+    /// of what was generated. [`Face::read`] on such a handle is therefore `EIO`, and an
+    /// `O_RDWR` opener that expects to read its own write back gets that rather than a splice.
     ///
     /// # Errors
     ///
-    /// `EISDIR` for a directory, and whatever generating the file costs.
-    pub fn open(&self, ino: u64) -> Result<u64, Errno> {
+    /// `EISDIR` for a directory, whatever generating the file costs, and — for a write —
+    /// whatever the core refuses the write for.
+    pub fn open(&self, ino: u64, writing: bool) -> Result<u64, Errno> {
         let path = self.path_of(ino)?;
+        if writing {
+            let id = self
+                .vfs
+                .create(&path)
+                .map_err(|error| self.refuse("open", &error))?;
+            return Ok(self.file(Open::Staged(id)));
+        }
         let handle = self
             .vfs
             .open(&path)
@@ -432,6 +494,42 @@ impl Face {
         let id = self.staged(handle)?;
         self.vfs
             .truncate(id, length)
+            .map_err(|error| self.refuse("truncate", &error))
+    }
+
+    /// The same, for the `setattr` a **kernel** sends and that carries no file handle.
+    ///
+    /// `O_TRUNC` is not among the flags an `open` is given — `fuser` does not negotiate
+    /// `FUSE_ATOMIC_O_TRUNC`, so the kernel does the truncation itself, as a `setattr` of size
+    /// zero issued between the `open` and the first `write` and **without an `fh`**. A face that
+    /// only handled the `fh` form accepted it and did nothing, which is the shape of lie
+    /// [`crate::Mount`]'s own `setattr` refuses `chmod` for: `: > mnt/pages/0002.pdf` then exited
+    /// 0 having changed neither the file nor the document, and said nothing anywhere (round 911).
+    ///
+    /// So it is resolved against the writes in flight, by path. There is exactly one — a second
+    /// `create` at the same path is refused by the core before it is staged — and finding none
+    /// means somebody truncated a file they had not opened for writing, which is a modification
+    /// of a generated file and has no meaning here.
+    ///
+    /// # Errors
+    ///
+    /// `EPERM` where no write is in flight at that name, and whatever the core refuses the
+    /// truncation for.
+    pub fn truncate_at(&self, ino: u64, length: u64) -> Result<(), Errno> {
+        let path = self.path_of(ino)?;
+        let Some(pending) = self
+            .vfs
+            .pending()
+            .into_iter()
+            .find(|pending| pending.path == path)
+        else {
+            (self.sink)(&format!(
+                "truncate: {path}: a file here is generated whole from the document, so its                  length is the document's answer and not a thing to set; replace it by writing                  to it instead [EPERM]"
+            ));
+            return Err(Errno::OperationNotPermitted);
+        };
+        self.vfs
+            .truncate(pending.id, length)
             .map_err(|error| self.refuse("truncate", &error))
     }
 
