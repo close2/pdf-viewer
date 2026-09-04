@@ -162,6 +162,15 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     // here for the same reason as the two steps below — this is the last moment it can
     // be stated at all.
     pdf_font::substitute::no_machine_fonts();
+    // ...and the port that gives them back, which is a *port* rather than a permission: the
+    // allow-list below is unchanged, this process still cannot name a path, and what it gains is
+    // that a description it sends — a family, a weight, the characters a script needs — may come
+    // back as a descriptor its broker opened (ADR 0880, `doc/todo/59`). Armed here for the same
+    // reason as the line above: after the lockdown nothing can be decided. A broker that offers
+    // nothing answers *nothing offered*, which is where this layer defaults to and is the posture
+    // ADR 0870 left.
+    pdf_font::provider::faces_come_from(confined_transport::link::ask_the_host);
+    confined_transport::link::requests_go_to_the_host(crate::WORKER_PROGRAM);
 
     let machine = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     let threads = usize::try_from(RASTERISING_THREADS)

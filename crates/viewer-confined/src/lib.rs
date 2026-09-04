@@ -730,6 +730,26 @@ impl Confined {
         })
     }
 
+    /// Offers this viewer's worker the faces installed on this machine.
+    ///
+    /// **A port, not a permission** (`doc/todo/59`, ADR 0880). The worker's system-call set does
+    /// not change and this call cannot change it: what it gains is that a *description* it sends
+    /// — a family, a weight, the characters a script needs, never a path — may come back as a
+    /// descriptor **this** process opened. A `/BaseFont` out of an untrusted file therefore never
+    /// becomes a path lookup inside the process parsing untrusted bytes.
+    ///
+    /// A host that never calls this is the host that shipped before the port existed: its worker
+    /// substitutes from `pdf_font::standard`'s compiled-in faces and reports the shortfall under
+    /// §9.10.2 (ADR 0870). What calling it costs is written down rather than implied — the faces
+    /// are parsed **here**, unconfined, and they are the user's own files rather than the
+    /// document's.
+    pub fn offer_machine_faces(&mut self) {
+        self.host.offer(Box::new(|request| {
+            pdf_font::provider::open_a_face(request)
+                .map(|(identity, content)| confined_transport::Provided { identity, content })
+        }));
+    }
+
     /// A handle another thread can end this viewer with.
     ///
     /// Cheap, and any number of them may exist. See [`Canceller`] for why the only cancel this

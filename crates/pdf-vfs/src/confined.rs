@@ -36,7 +36,8 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use confined_transport::{Canceller, Host, TransportError};
+use confined_transport::{Canceller, Host, Provided, TransportError};
+use pdf_font::provider::MachineFaces;
 use pdf_syntax::FileBytes;
 use pdf_transform::{Budget, Policy, Secret};
 
@@ -49,7 +50,16 @@ use crate::worker::{Answer, Query, Worker, WorkerError, Workers};
 /// One per generation of one document, started by [`Workers::spawn`] and ended when the
 /// [`Confined`] it produced is dropped.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct ConfinedWorkers;
+pub struct ConfinedWorkers {
+    /// Whether this broker offers its workers the faces installed on this machine.
+    ///
+    /// `doc/todo/59`'s port. The default is [`MachineFaces::Withheld`], which is the worker ADR
+    /// 0870 left: it substitutes from the compiled-in faces and says so under §9.10.2. A face
+    /// that offers instead has decided that its user's own font files may be read on its user's
+    /// behalf — and pays for it by parsing them in *this* process, which is the trade ADR 0880
+    /// writes down.
+    pub faces: MachineFaces,
+}
 
 impl ConfinedWorkers {
     /// Starts one, and hands back the worker itself rather than the trait object.
@@ -68,6 +78,7 @@ impl ConfinedWorkers {
         password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
+        faces: MachineFaces,
     ) -> Result<Confined, WorkerError> {
         let program = confined_transport::program_beside_executable(
             WORKER_PROGRAM,
@@ -80,6 +91,15 @@ impl ConfinedWorkers {
             ))
         })?;
         let mut host = Host::start(&program, wire::MAGIC, &Canceller::new())?;
+        // The resource port, before the first frame, because the worker may ask during any of
+        // them. A host that says nothing here answers *nothing offered* and its worker draws the
+        // page from the compiled-in faces — see [`MachineFaces`].
+        if faces == MachineFaces::Offered {
+            host.offer(Box::new(|request| {
+                pdf_font::provider::open_a_face(request)
+                    .map(|(identity, content)| Provided { identity, content })
+            }));
+        }
 
         // The document, once, at spawn. `descriptor()` answers `Some` only for a file this
         // process opened on disk, which is what makes the two arms below exhaustive rather than a
@@ -134,6 +154,7 @@ impl Workers for ConfinedWorkers {
             password.as_ref(),
             policy,
             budget,
+            self.faces,
         )?))
     }
 }

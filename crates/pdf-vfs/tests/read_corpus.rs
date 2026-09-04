@@ -352,8 +352,14 @@ impl Workers for KeyedWorkers {
         let secret =
             password.or_else(|| (!self.0.is_empty()).then(|| Secret::from(self.0.to_owned())));
         match self.1 {
-            Transport::Confined => ConfinedWorkers::start(&bytes, secret.as_ref(), policy, budget)
-                .map(|worker| Box::new(worker) as Box<dyn Worker>),
+            Transport::Confined => ConfinedWorkers::start(
+                &bytes,
+                secret.as_ref(),
+                policy,
+                budget,
+                pdf_vfs::MachineFaces::Withheld,
+            )
+            .map(|worker| Box::new(worker) as Box<dyn Worker>),
             Transport::Here => {
                 let source = match secret {
                     Some(secret) => Source::with_password(bytes, secret),

@@ -65,9 +65,14 @@ question became 4 µs and 2 µs, because the listing that finds the names now wa
    gone because it is always zero. `PAGES_SAMPLED` stays: it bounds a different cost. The walk is
    **1132 documents in 162.9 s against session 919's 315.5 s** while `stat`ing 31 435 entries
    against 20 976 and reading 24 733 files against 14 274 — half the clock for half again as much
-   work, every disagreement column still zero, 0 killed, 0 did not recover.
+   work, every disagreement column still zero, 0 killed, 0 did not recover. (After merging
+   `main` — round 920's resource port among it — the same walk is **107.5 s**, which is that
+   round's number as much as this one's; 162.9 s is the figure this change is answerable for,
+   because it was taken on session 919's own tree with only this change on it.)
 
-## The lesson, which is trap 32
+## The lesson, which is trap 33
+
+(Trap **32** at the merge: round 920 took the number on `main` first, and this one renumbered.)
 
 `Vfs::generated` read 1 throughout. Two corpus walks, a `regenerated` report and a whole gate
 sequence looked straight at it and saw nothing, because it counts *productions* and the cost was

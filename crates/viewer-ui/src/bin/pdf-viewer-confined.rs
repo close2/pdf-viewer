@@ -129,6 +129,12 @@ struct Arguments {
     /// 0221): no instance is created, so no driver is loaded, and the window presents through
     /// the processor.
     processor: bool,
+    /// `--machine-fonts`: `doc/todo/59`'s resource port, off unless it is asked for.
+    ///
+    /// It gives the worker no capability at all — the descriptor is opened *here* — and what it
+    /// buys is a page that names an uninstalled face drawn in that face rather than in a
+    /// compiled-in Latin one (ADRs 0870, 0880).
+    faces: bool,
 }
 
 /// A message's `Debug` form cut to a line, for the trace.
@@ -153,11 +159,14 @@ fn arguments() -> Arguments {
     let mut path = None;
     let mut topics = 0u8;
     let mut processor = false;
+    let mut faces = false;
     for argument in std::env::args().skip(1) {
         if argument == "--trace" {
             topics = u8::MAX;
         } else if argument == "--cpu" {
             processor = true;
+        } else if argument == viewer_host::MACHINE_FONTS {
+            faces = true;
         } else if let Some(list) = argument.strip_prefix("--trace=") {
             topics = match viewer_host::parse_topics(list) {
                 Ok(topics) => topics,
@@ -169,18 +178,26 @@ fn arguments() -> Arguments {
         } else if path.is_none() {
             path = Some(PathBuf::from(argument));
         } else {
-            eprintln!("usage: pdf-viewer-confined [--trace[=topics]] [--cpu] document.pdf");
+            eprintln!(
+                "usage: pdf-viewer-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
+                viewer_host::MACHINE_FONTS
+            );
             std::process::exit(2);
         }
     }
     let Some(path) = path else {
-        eprintln!("usage: pdf-viewer-confined [--trace[=topics]] [--cpu] document.pdf");
+        eprintln!(
+            "usage: pdf-viewer-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
+            viewer_host::MACHINE_FONTS
+        );
         std::process::exit(2);
     };
     Arguments {
         path,
         topics,
         processor,
+        // The word, or the environment for a window nobody typed a command line at.
+        faces: viewer_host::offers_machine_fonts(faces),
     }
 }
 
@@ -193,6 +210,8 @@ struct Host {
     canceller: Canceller,
     /// The confined viewer, from the first `resumed` until it dies or is cancelled.
     confined: Option<Confined>,
+    /// Whether this host offers its worker the machine's faces (`doc/todo/59`'s port).
+    faces: bool,
     /// The sentence after the worker is gone — cancelled, dead, or refused — shown in the title.
     ///
     /// Once set, every later command is declined here rather than sent to a process that cannot
@@ -262,7 +281,7 @@ enum Presentation {
 }
 
 impl Host {
-    fn new(path: PathBuf, topics: u8, processor: bool, began: Instant) -> Self {
+    fn new(path: PathBuf, topics: u8, processor: bool, faces: bool, began: Instant) -> Self {
         Self {
             heading: path.file_name().map_or_else(
                 || path.to_string_lossy().into_owned(),
@@ -292,7 +311,21 @@ impl Host {
             page: 0,
             resuming: Resuming::new(),
             resume: None,
+            faces,
         }
+    }
+
+    /// Starts a confined worker, and offers it the machine's faces where this host was asked to.
+    ///
+    /// One function rather than two call sites, because the first worker and the one that replaces
+    /// a dead one must be given the same thing: a window whose *second* worker lost the port would
+    /// draw a page differently after a crash, which is the shape nobody would look for.
+    fn start_confined(&self, canceller: &Canceller) -> Result<Confined, ConfinedError> {
+        let mut confined = Confined::start_with(canceller)?;
+        if self.faces {
+            confined.offer_machine_faces();
+        }
+        Ok(confined)
     }
 
     /// The worker is gone or unusable; every later command is declined with this sentence.
@@ -373,7 +406,7 @@ impl Host {
         // old one names a process that has already been reaped, and Escape must reach the new one.
         let canceller = Canceller::new();
         let starting = Instant::now();
-        let confined = match Confined::start_with(&canceller) {
+        let confined = match self.start_confined(&canceller) {
             Ok(confined) => confined,
             Err(problem) => {
                 self.stop(problem.to_string());
@@ -1054,7 +1087,7 @@ impl ApplicationHandler for Host {
         // The worker starts when there is a document for it, not before: CLAUDE.md's launch
         // rule, and the spawn-to-confined cost is the first thing the trace says.
         let starting = Instant::now();
-        let confined = match Confined::start_with(&self.canceller) {
+        let confined = match self.start_confined(&self.canceller) {
             Ok(confined) => confined,
             Err(problem) => {
                 self.stop(problem.to_string());
@@ -1212,8 +1245,9 @@ fn main() {
         path,
         topics,
         processor,
+        faces,
     } = arguments();
-    let mut host = Host::new(path, topics, processor, began);
+    let mut host = Host::new(path, topics, processor, faces, began);
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut host).expect("the event loop runs");
@@ -1235,7 +1269,7 @@ mod tests {
     fn a_host() -> Host {
         // `--cpu`'s shape: a host with no instance thread, which is what a test wants — the
         // password path under test touches no surface either way.
-        Host::new(PathBuf::from("locked.pdf"), 0, true, Instant::now())
+        Host::new(PathBuf::from("locked.pdf"), 0, true, false, Instant::now())
     }
 
     /// §7.6.4.1's event puts the card up instead of ending the document.
@@ -1305,6 +1339,7 @@ mod tests {
             PathBuf::from("tests/does-not-exist-781.pdf"),
             0,
             true,
+            false,
             Instant::now(),
         );
         host.event(Event::PasswordRequired {

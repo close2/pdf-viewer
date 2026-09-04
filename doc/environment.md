@@ -1,7 +1,7 @@
 # The environment, and the agreements that go with it
 
-Moved here so that `CLAUDE.md` holds only principles and `doc/HANDOVER.md` only the state of
-play. **Read this before running anything**: the machine, the user the agent runs as, what it
+Moved here so that `CLAUDE.md` holds only principles and `doc/HANDOVER.md` only an index.
+**Read this before running anything**: the machine, the user the agent runs as, what it
 can and cannot open a window on, and where the build lands.
 
 ## Working agreements
@@ -113,6 +113,14 @@ can and cannot open a window on, and where the build lands.
   the neighbour had pushed in between and `pop` takes `stash@{0}`. Both trees were wrong and
   neither said so.
 
+  So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
+  `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
+  *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped
+  commit is still reachable (`pop` prints its SHA, and `git fsck` finds it): `git checkout --` the
+  files it applied, then `git stash store -m "<its original message>" <sha>` puts it back at
+  `stash@{0}` with the stack order restored, and `git stash pop stash@{1}` recovers yours.
+  Found in the five-hundred-and-twenty-fourth session.
+
 - **A worktree's *build directory* outlives the worktree, and nothing removes it.** A parallel round
   is given its own `target-dir` in a per-worktree `.cargo/config.toml` — that is right, and it is
   what keeps rounds off one build lock without the `CARGO_TARGET_DIR` export `sccache` cannot see.
@@ -204,7 +212,7 @@ can and cannot open a window on, and where the build lands.
 
   **And `git checkout -- doc` takes the symlinks away**, which is a third way into the same hole and
   the one the seven-hundred-and-twentieth session fell into: it is a *directory* argument, so git
-  restores the four submodule paths under it as empty directories and the links into the main
+  restores every submodule path under it as an empty directory and the links into the main
   worktree are gone. Nothing in `git status` says so — the gitlinks look untouched — and what a
   round sees instead is `pdf-spec`'s build script panicking with *the Arlington PDF Model is
   missing … It is a git submodule; run: `git submodule update --init`*, whose advice would clone a
@@ -212,14 +220,6 @@ can and cannot open a window on, and where the build lands.
   `rmdir doc/arlington-pdf-model doc/pdf.js && ln -s /home/cl/projects/pdf-viewer/doc/<each> doc/<each>`,
   and the rule is the same one two paragraphs up: **name the paths you mean.** A checkout of nine
   files by name does what a checkout of `doc` was meant to do and touches nothing else.
-
-  So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
-  `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
-  *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped
-  commit is still reachable (`pop` prints its SHA, and `git fsck` finds it): `git checkout --` the
-  files it applied, then `git stash store -m "<its original message>" <sha>` puts it back at
-  `stash@{0}` with the stack order restored, and `git stash pop stash@{1}` recovers yours.
-  Found in the five-hundred-and-twenty-fourth session.
 
 - **The one entry now on the stack is dead, and is recorded here so that no round spends an hour
   deciding that again.** `stash@{0}` is a WIP on a worktree branch at `ada5411`, 341 lines across
@@ -405,7 +405,6 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   that it is not checked out and pass. **Two of the four want a sparse clone rather than
   `git submodule update --init`**, which would take the whole upstream repository; the recipes are
   `doc/oracle-and-corpus.md` §2 and they are 73 MB and 12 MB instead.
-- KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
 - **`tmp/hayro` is a checkout of the whole hayro workspace**, with the project owner's fork as
   `origin` and the maintainer's as `upstream`. **The owner's standing offer is that a fix goes on a
   branch there, they push it and open the pull request, and this tree depends on the fork

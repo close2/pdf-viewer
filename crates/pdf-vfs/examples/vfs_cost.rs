@@ -51,7 +51,7 @@
 use std::time::{Duration, Instant};
 
 use pdf_vfs::worker::{Answer, InProcessWorkers, Query, Worker, Workers};
-use pdf_vfs::{Config, ConfinedWorkers, FileBacking, Vfs};
+use pdf_vfs::{Config, ConfinedWorkers, FileBacking, MachineFaces, Vfs};
 
 /// How many times each question is asked, so that one scheduling accident is not the number.
 const ROUNDS: usize = 5;
@@ -106,7 +106,7 @@ fn measure(path: &std::path::Path) {
     });
     let there = timed(ROUNDS, || {
         drop(
-            ConfinedWorkers::start(&bytes, None, policy, budget)
+            ConfinedWorkers::start(&bytes, None, policy, budget, MachineFaces::Withheld)
                 .expect("a confined generator — trap 10, `cargo build -p pdf-vfs --bins`"),
         );
     });
@@ -125,7 +125,8 @@ fn measure(path: &std::path::Path) {
     let unconfined = InProcessWorkers
         .spawn(bytes.clone(), None, policy, budget)
         .expect("an in-process worker");
-    let confined = ConfinedWorkers::start(&bytes, None, policy, budget).expect("a confined one");
+    let confined = ConfinedWorkers::start(&bytes, None, policy, budget, MachineFaces::Withheld)
+        .expect("a confined one");
     let pages = match unconfined.ask(&Query::PageCount).expect("a page count") {
         Answer::Count(pages) => pages,
         other => panic!("a page count is not {other:?}"),
@@ -182,7 +183,7 @@ fn measure(path: &std::path::Path) {
     // generation key, the path resolution, the cache — is in the number rather than beside it.
     let vfs = Vfs::new(
         Box::new(FileBacking::new(path)),
-        Box::new(ConfinedWorkers),
+        Box::new(ConfinedWorkers::default()),
         Config::default(),
     );
     let cold = timed(1, || {

@@ -119,7 +119,7 @@ costs is [`doc/performance.md`](performance.md)'s first section, and the open ha
 same six panels**, because the *list* of them is one value every host matches exhaustively on
 (`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press. A sidebar of
 six tabs, drawn in `viewer-ui` with `pdf-font`'s compiled-in Helvetica and a `pdf-render` display
-list so that both backends draw it, and in the two native hosts with a `GtkNotebook` of
+list so that every rasteriser draws it, and in the two native hosts with a `GtkNotebook` of
 `GtkListView`s and a `QTabWidget` of `QTreeView`s: §12.3.3's outline, where a click
 **activates the item** and the document decides whether that is a jump or a URI; §8.11.4.3's
 layers, where a switch turns one on unless Table 99's `/Locked` forbids it; §7.11.4's embedded
@@ -161,7 +161,12 @@ lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about
 them, with no type from a windowing or graphics library anywhere in its API.
 [`doc/ui-boundary.md`](ui-boundary.md) is the whole story; ADRs 0116 to 0121.
 
-**Seven consumers on that boundary, and not one of them has ever asked for a new message.** That is
+**Seven consumers on that boundary, and not one of them has ever asked for a new message.**
+[`doc/ui-boundary.md`](ui-boundary.md) names all seven; the list below is grouped by crate, so the
+seventh — `viewer-ui`'s second window, `pdf-viewer-confined` — sits inside another bullet rather
+than having one. **Three host *crates*, four *windows***, which is what a sentence below counting
+three means: `tools/state.sh windows` excludes the fourth for the same reason, saying so in its own
+output. That is
 the boundary's own evidence, and it is what let the C ABI be frozen — `doc/todo/30` made freezing
 conditional on two Rust consumers shaking the API out first. **A *clause* has asked for one, which
 is the other direction and is why the sentence is worded about consumers**: §12.4.4.2 conditions its
@@ -226,8 +231,16 @@ pass.
   an entry point rather than an arrangement (`doc/todo/30`). **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
-  own last line to the host rather than a bare signal number. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657; `doc/todo/34`, `doc/todo/15`.
+  own last line to the host rather than a bare signal number. **And since the
+  nine-hundred-and-twentieth it can be *given* a face** (ADR 0880): a worker that cannot walk
+  `/usr/share/fonts` — and is killed rather than told no for trying (ADR 0870) — sends a
+  *description* instead, a family and a weight and the characters a script needs, and its broker
+  matches, reads and answers. **The allow-list did not move for it and no host can move it**; what
+  a host can do is decline, which is the default everywhere. Over `doc/pdf.js` it is 40 pages that
+  differed from what this machine draws unconfined and are now byte-identical to it, twelve of them
+  blank before. ADRs 0218, 0223,
+  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657, 0870, 0880; `doc/todo/34`, `doc/todo/15`,
+  `doc/todo/59`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three
@@ -242,9 +255,15 @@ pass.
   "unless otherwise instructed" as `Command::Delegate` — which then exposed the *scale* a form
   host draws at. ADRs 0244, 0245.
 - **`viewer-qt`'s `pdf-viewer-qt`**, a real Qt 6 Widgets application, and the one that costs a C++
-  bridge: **one hand-written `unsafe` token in the tree**, the `unsafe extern "C++"` header `cxx`
+  bridge: **one hand-written `unsafe` token in this crate**, the `unsafe extern "C++"` header `cxx`
   requires, under `#![deny(unsafe_code)]` with one exemption on `mod bridge` and a test asserting
-  its position and that no other crate lifts the denial. It brought **`crates/viewer-host`**,
+  its position — and asserting that the crates lifting the denial are exactly the ones the
+  workspace names, every other crate still *forbidding* it. **This sentence read "one hand-written
+  `unsafe` token in the tree" and "no other crate lifts the denial", and both were widenings of a
+  true claim about one crate** — a C ABI writes its entry points as `pub unsafe extern "C" fn` by
+  the hundred, which is what a C ABI is. **The list is read off the test rather than counted here**,
+  because the test is named for its own length and the name moved twice while this sentence said
+  *no other*: `only_the_three_named_crates_in_the_tree_lift_the_denial`, as this is written. It brought **`crates/viewer-host`**,
   because the second host wanted four of `viewer-gtk`'s modules unchanged — the panel rows, the
   control decision, §12.7.6.4's file policy and the launch timeline named no GTK type. ADR 0246.
   **That crate's newest module is the one that decided the *shape* of a thread for both hosts**:

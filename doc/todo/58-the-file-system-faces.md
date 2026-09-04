@@ -241,10 +241,17 @@ confined worker has **no fonts**. ADR 0870 is the record — a document naming a
 and the document does not embed sent `pdf_font::substitute` walking `/usr/share/fonts`, and
 `SECCOMP_RET_KILL_PROCESS` ended the worker rather than returning the `Err` that code is written to
 shrug off. It is stated now (`no_machine_fonts`, before the confinement, in both workers), so the
-worker lives and draws from the compiled-in faces; **what is owed is the fidelity**, and the shape
-of the answer is the one ADR 0812 already used for the document: the broker is unconfined, so the
-broker hands the face across. Until it does, a confined mount and the confined viewer draw a
-CJK or Arabic page the way a machine with no such font installed draws it.
+worker lives and draws from the compiled-in faces; what was owed was the fidelity, and the shape of
+the answer is the one ADR 0812 already used for the document: the broker is unconfined, so the
+broker hands the face across.
+
+**Session 920 built that, and it is `doc/todo/59` rather than this item** (ADRs 0880, 0881). The
+worker asks by *description* and the broker answers with the face it matched; the allow-list did not
+move and no host can move it; every face is off by default, so a host that says nothing is the host
+this paragraph described. `pdffs --machine-fonts`, `pdf-viewer-confined --machine-fonts` or
+`PDF_VIEWER_MACHINE_FONTS=on`, and `PDF_VFS_MACHINE_FONTS=on` for the KIO face turn it on. Measured
+over `doc/pdf.js`: 40 pages differed from what this machine draws unconfined and are now
+byte-identical to it, twelve of them blank before.
 
 Three things this item still owes, none of them blocking a face:
 
@@ -315,13 +322,14 @@ Three things this item still owes, none of them blocking a face:
   against the generator the table delegates to, over the **confined** transport. What it found on
   its first sixty documents is ADR 0870 and is below. Two things it does *not* measure, and they
   are the shortfalls this round created rather than closed:
-  - **The substitution gap ADR 0870 opened.** A confined worker has no machine fonts, so a document
-    naming an uninstalled face is drawn from the compiled-in ones; the walk puts its own process in
-    that posture so that its columns measure the transport rather than two machines. **What closes
-    it is the broker supplying the face** — the broker is unconfined, it already hands the document
-    across as a descriptor (ADR 0812), and a face is a file like any other. Until then a confined
-    mount and a confined viewer draw such a page the way a machine with no fonts installed draws
-    it, and `pdf_model::interpret` says so per font (§9.10.2's coverage note).
+  - **The substitution gap ADR 0870 opened — closed in session 920, and the walk is unchanged.** A
+    confined worker has no machine fonts, so a document naming an uninstalled face is drawn from the
+    compiled-in ones; the walk puts its own process in that posture so that its columns measure the
+    transport rather than two machines. `doc/todo/59`'s port is what closes it (ADRs 0880, 0881):
+    the broker matches a description and hands the face over, off by default in every face. **The
+    walk keeps its `no_machine_fonts()` line and should**, because what it measures is the transport
+    and the port is a *host* decision — `crates/pdf-vfs/examples/faces_on_the_port.rs` is the
+    instrument for the fidelity, with the unconfined process as its reference.
   - **The tail of long documents.** `PAGES_READ` bounds the pages whose files are read; the
     listings are always whole. The corpus's own distribution is why the figure is affordable, and a
     population with more long documents — `doc/todo/03`'s crawls — would be a stronger denominator

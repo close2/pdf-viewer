@@ -52,11 +52,35 @@ pub enum TransportError {
     Cancelled,
 }
 
+/// A resource a host hands a confined worker: what identifies it, and what is in it.
+///
+/// **The broker opens the file; the worker never does and never could.** That is the whole of the
+/// port's security property, and it is unchanged by the bytes crossing rather than a descriptor —
+/// see [`frame::RESOURCE_ANSWER`] for why they do. The identity is whatever the asking protocol
+/// wants to call the thing; this crate does not read it.
+#[derive(Debug)]
+pub struct Provided {
+    /// What identifies the resource, in the asking protocol's own words.
+    pub identity: Vec<u8>,
+    /// The resource itself.
+    pub content: Vec<u8>,
+}
+
+/// What a host answers a confined worker's resource requests with.
+///
+/// **The default is `None` and that is the whole of `doc/todo/59`'s "`can`, not `must`"**: a host
+/// that never calls [`Host::offer`] answers every request with *nothing offered*, and its worker
+/// carries on exactly as it did before this layer existed. Registering one is a deliberate act by
+/// a host that has decided its user's own files may be read on its user's behalf.
+///
+/// It is called on the host's thread, inside the exchange the worker is blocked on, so it must
+/// not itself talk to that worker.
+pub type Broker = Box<dyn Fn(&[u8]) -> Option<Provided> + Send + Sync>;
+
 /// A running confined worker, and the frames a host exchanges with it.
 ///
 /// **Every call here blocks for as long as the work takes**, and that is deliberate — see
 /// [`Canceller`] for why the work has no deadline and what a host holds instead.
-#[derive(Debug)]
 pub struct Host {
     /// The cancel flag and the child.
     canceller: Canceller,
@@ -66,6 +90,21 @@ pub struct Host {
     from_worker: ChildStdout,
     /// What the worker reported it reached.
     confinement: Confinement,
+    /// What this host answers a resource request with, if it answers one at all.
+    resources: Option<Broker>,
+}
+
+/// Written by hand because a [`Broker`] is a closure and has nothing to print.
+impl std::fmt::Debug for Host {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Host")
+            .field("canceller", &self.canceller)
+            .field("to_worker", &self.to_worker)
+            .field("from_worker", &self.from_worker)
+            .field("confinement", &self.confinement)
+            .field("resources", &self.resources.as_ref().map(|_| "a broker"))
+            .finish()
+    }
 }
 
 impl Host {
@@ -167,7 +206,21 @@ impl Host {
             to_worker,
             from_worker,
             confinement,
+            resources: None,
         })
+    }
+
+    /// States what this host will answer the worker's resource requests with.
+    ///
+    /// **A port, not a permission.** Nothing about the worker's confinement changes: it still has
+    /// no filesystem, no network and the same allow-list, and it still cannot name a path. What it
+    /// gains is that a description it sends may come back as an open descriptor, chosen and opened
+    /// by *this* process. See `pdf_font::provider` for the one such description this tree has.
+    ///
+    /// A host that never calls this answers every request with *nothing offered*, which costs one
+    /// round trip per distinct description and changes no result.
+    pub fn offer(&mut self, broker: Broker) {
+        self.resources = Some(broker);
     }
 
     /// What confinement the worker reached.
@@ -238,10 +291,56 @@ impl Host {
     /// **The buffer is asked for rather than demanded**, because its size is a number the *worker*
     /// wrote into the header and the worker is the untrusted side here.
     fn read_frame(&mut self) -> Result<(u8, Vec<u8>), TransportError> {
-        let mut header = [0u8; frame::HEADER_LEN];
-        self.read_exactly(&mut header)?;
-        let (kind, length) =
-            frame::parse_header(header).ok_or(TransportError::UnrecognisedFrame)?;
+        loop {
+            let mut header = [0u8; frame::HEADER_LEN];
+            self.read_exactly(&mut header)?;
+            let (kind, length) =
+                frame::parse_header(header).ok_or(TransportError::UnrecognisedFrame)?;
+            // The resource port, and it is answered here rather than handed up because it is not
+            // an answer to anything the caller asked. The worker is blocked on this reply, so the
+            // loop goes straight back to reading the frame that *is* the answer.
+            if kind == frame::RESOURCE_REQUEST {
+                self.answer_a_resource_request(length)?;
+                continue;
+            }
+            return self.read_payload(kind, length);
+        }
+    }
+
+    /// Reads what a confined worker asked for, and hands it the resource or nothing.
+    ///
+    /// Nothing is the answer wherever this host has no [`Broker`], the request is longer than a
+    /// description can be, or the broker declines — and none of those is an error, because a
+    /// worker that is offered nothing draws the page without it.
+    fn answer_a_resource_request(&mut self, length: usize) -> Result<(), TransportError> {
+        let mut request = Vec::new();
+        // The length is the worker's claim and the worker is the untrusted side here, so it is
+        // bounded before it is allocated from — the same rule `read_payload` follows.
+        let provided =
+            if length > frame::MAX_RESOURCE_REQUEST || request.try_reserve_exact(length).is_err() {
+                self.discard(length)?;
+                None
+            } else {
+                request.resize(length, 0);
+                self.read_exactly(&mut request)?;
+                self.resources.as_ref().and_then(|broker| broker(&request))
+            };
+
+        let Some(provided) = provided else {
+            return self.write_frame(frame::RESOURCE_ANSWER, &[], None);
+        };
+        let identity = u32::try_from(provided.identity.len()).unwrap_or(u32::MAX);
+        if provided.content.is_empty() || provided.content.len() > frame::MAX_RESOURCE {
+            return self.write_frame(frame::RESOURCE_ANSWER, &[], None);
+        }
+        let mut payload = identity.to_be_bytes().to_vec();
+        payload.extend_from_slice(&provided.identity);
+        payload.extend_from_slice(&provided.content);
+        self.write_frame(frame::RESOURCE_ANSWER, &payload, None)
+    }
+
+    /// Reads a frame's payload, once its header has been recognised as a message.
+    fn read_payload(&mut self, kind: u8, length: usize) -> Result<(u8, Vec<u8>), TransportError> {
         let mut payload = Vec::new();
         if payload.try_reserve_exact(length).is_err() {
             // Read past it rather than giving up on the pipe: the worker has written these bytes

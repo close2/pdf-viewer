@@ -96,9 +96,9 @@ one command is how they drift, so one owns it.
 **The first four lines are the core and every round runs them**, whatever it touched — they are
 about a tenth of the sequence's cost and they are the only thing that sees a lint, a broken
 doctest or a test somewhere else in the workspace. **The two `fuzz/` lines are core as well**, and
-this sentence said "the first four" while five were owed for as long as the second of them has
-existed: `--all` and `--workspace` mean *every package in **this** workspace*, so neither of the
-four reads a line of `fuzz/`, and what covers it has to name its manifest. The rest is chosen by
+this sentence said "the first four" for as long as either of them has existed: `--all` and
+`--workspace` mean *every package in **this** workspace*, so not one of the four reads a line of
+`fuzz/`, and what covers it has to name its manifest. The rest is chosen by
 what the change can reach, and *reach* is the crate graph rather than the file's own crate:
 
 | a change in | is under | so run, beyond the core |
@@ -110,7 +110,7 @@ what the change can reach, and *reach* is the crate graph rather than the file's
 | `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | no corpus gate | the core, which builds and tests them; §5 rebuilds what a person runs. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
 | `tools/conformance`, `doc/conformance/ledger.toml`, a doc comment citing a clause | the conformance gate | `cargo test -p conformance` |
 | `pdf-transform` | the transform gate, and the writer's walk | `cargo test --profile gates -p pdf-transform --test gate`, which carries RFC 0002 section 12's perf floor and holds the verbs' inventories to the document; it needs the sandbox worker beside it like the rest. And `--test writer_corpus`, which attaches a file into every corpus document the suite opens, reads it back and removes it — §7.5.6's prefix property and this tree's own readback, exact, with the writer's refusals counted by reason; `--test split_corpus`, which splits every corpus document's first page out, re-reads it and draws it beside the source page, RFC 0002 section 9's layers 2 and 3 bit for bit; `--test merge_corpus`, which merges every corpus document's first page with a fixed second document, re-reads it, draws both carried pages, and checks each document-level reconciliation against what its source stated; `--test pages_corpus`, which rotates every corpus document's first page a quarter turn and deletes its last, re-reads it, and holds the unrotated pages to bit identity, the rotated one to §7.7.3.3's two exact claims (the sides exchange, and a turn and a turn back is the page), and §12.4.2's labels and §14.7's carried structure tree to what the clauses say; `--test optimize_corpus`, which rewrites every corpus document losslessly, re-reads it, draws page 1 beside the source's, and asks the *output* §7.5.5's and §7.5.7's own questions — nothing unreachable survived pruning, every Table 16 entry is stated, the offsets increase — before rewriting the output again and requiring the same bytes, which is RFC 0002 section 9's idempotence property gate; and `--test foreign_corpus`, which is the only one of them that asks **somebody else** — each of the five writers' output put through `qpdf --check`, `pdftoppm` and `mutool draw`, and every foreign reading compared with that *same* reader's reading of the source page, never with ours (RFC 0002 section 9's fourth layer). qpdf's verdict is read as a **fall of one step or of two**: an error where the source had none fails the run, and so does a warning where the source had none, which is the smaller signal `optimize` is likeliest to produce and which "no worse" used to make unsayable. It also asks `mutool show` for §14.7's carried parent tree, which is the part of a derived document nothing rendered can see. It skips, loudly, where those programs are not installed. All six are corpus walks, so they run under `tools/bounded.sh` (`doc/environment.md`) |
-| `pdf-vfs` | both sides' walks | `--test write_corpus`, which drives RFC 0003 section 5.2's five verbs — a one-page document copied into `pages/`, `rm pages/0001.pdf`, a file copied into `attachments/` and removed again, and `meta/info.json` overwritten and written straight back — over every corpus document the core opens, on a fresh in-memory backing per verb, and holds each commit to §7.5.6's prefix property *read off the file*, to the document re-opening at the page count the edit stated, to the renumbered listing, to §14.7.5.4's `/StructParents` stripped from the carried page and untouched on every page that was already there, and to **every surviving page drawing bit-identically to the page it was** — which because an insertion moves every ordinal down and a deletion moves every ordinal up is a comparison *between different ordinals*, and so is a check of "an ordinal is a position" as well as of the writer. RFC 0002 section 9's first layer binds beside it **except where §7.6.3.1 forbids it**: an AES-encrypted document gets a fresh random initialisation vector in front of every string, so its update differs from one save to the next by construction and only the *length* still binds. It is a corpus walk, so it runs under `tools/bounded.sh`. And `--test read_corpus`, which is the other half and the one a file manager actually exercises: for every corpus document it lists the *whole* of RFC 0003 section 4's layout — the root, `pages/`, each resolution under `renders/`, each page's directory under `images/`, `text/`, `attachments/`, `meta/` — `stat`s every entry it named, which by section 5.5's rule **generates**, and reads every file, holding each against the generator `crate::layout` says it delegates to and computing that generator's answer in the test's own process: a page is `pdf_transform::split`'s piece byte for byte, a render is `render`'s PNG, an image is one output of `images` under that run's own name, a page's text is `pdf_model::interpret`'s readback, an attachment is what the attachments verb saves, and `meta/`'s three files are what `pdf_model::metadata`, the catalog's `/Metadata` stream and the other transport answer. It mounts on the **confined** worker over a `FileBacking`, which is the posture a face has and is what makes every one of those comparisons a two-transport comparison as well — the in-process suite passed for four documents while the confined generator was being killed on a whole class of them (ADR 0870). It holds the listings to the layout's own spelling in order, a `stat` to the size of the bytes that came out, a second `stat` to generating nothing (`Vfs::generated`, not a clock — ADR 0865 section 3), and a second reading to the first. It is a corpus walk, so it runs under `tools/bounded.sh`. And the `--bins` line above it is not optional and is trap 10: a `--profile gates --test` line builds one test target and nothing else, so the `pdf-vfs-worker` beside it would be whatever an earlier round left. The core, which builds and tests the rest — and there is a second program in it, `pdf-vfs-worker`, which is **not** trap 10 — checked rather than assumed: `cargo nextest run --workspace` and `cargo test -p pdf-vfs` both build a package's bin targets, so the worker beside the test binary is this build's. Trap 10 bites where a `--profile gates --test` line is added for this crate, because such a line builds one test target and nothing else — as it does for `pdf-sandbox`. That line exists since the nine-hundred-and-ninth session, and the `--bins` build above it is what it owed. Its own tests are `cargo nextest run -p pdf-vfs`, which the workspace line already runs: `tests/a_face.rs` drives the core the way a face drives it and holds two generators byte for byte against what `pdf-transform` itself writes, so a change to the transform seam that moved either shows up here rather than in a face nobody has written yet; `tests/a_write.rs` drives the five write verbs and the transaction around them, including §7.5.6's prefix property against the file on disk and the four restriction levels; `tests/confined.rs` asks every question of both transports and compares — the write questions included, which is what catches an answer one side can encode and the other cannot decode — and re-executes itself under the confinement to check that a forbidden system call kills — including, since the nine-hundred-and-fourteenth session, that a font looked for on the machine does *not* kill, which is ADR 0870 and the same probe `viewer-confined` now carries. **Its population is every corpus on this disk since the nine-hundred-and-nineteenth session** (ADR 0878), which is where the second instrument went: `doc/pdf.js` whole, so that the figures printed since session 914 stay comparable, plus a stride-sample of every other root classified into ten classes (encrypted, locked, an encryption this reader does not implement, pageless, damaged, unopenable, huge, JBIG2, JPEG 2000, and plain as the control) with the first few of each walked beside them — which is where damaged, huge and JPEG 2000 documents actually live. It came with the half a byte comparison does not have: a **death** — a worker killed by a signal, which `confined-transport` words as `killed by signal N` — fails the run wherever the sentence appears, and each mount is asked one more question after its walk so that session 902's recovery is measured rather than claimed. The matrix is printed per class because that is the only way a population can say *which* property killed a worker: with `no_machine_fonts()` taken out, the **control** class dies more often than the encrypted one (ADR 0876). It is a corpus walk, so it runs under `tools/bounded.sh` |
+| `pdf-vfs` | both sides' walks | `--test write_corpus`, which drives RFC 0003 section 5.2's five verbs — a one-page document copied into `pages/`, `rm pages/0001.pdf`, a file copied into `attachments/` and removed again, and `meta/info.json` overwritten and written straight back — over every corpus document the core opens, on a fresh in-memory backing per verb, and holds each commit to §7.5.6's prefix property *read off the file*, to the document re-opening at the page count the edit stated, to the renumbered listing, to §14.7.5.4's `/StructParents` stripped from the carried page and untouched on every page that was already there, and to **every surviving page drawing bit-identically to the page it was** — which because an insertion moves every ordinal down and a deletion moves every ordinal up is a comparison *between different ordinals*, and so is a check of "an ordinal is a position" as well as of the writer. RFC 0002 section 9's first layer binds beside it **except where §7.6.3.1 forbids it**: an AES-encrypted document gets a fresh random initialisation vector in front of every string, so its update differs from one save to the next by construction and only the *length* still binds. It is a corpus walk, so it runs under `tools/bounded.sh`. And `--test read_corpus`, which is the other half and the one a file manager actually exercises: for every corpus document it lists the *whole* of RFC 0003 section 4's layout — the root, `pages/`, each resolution under `renders/`, each page's directory under `images/`, `text/`, `attachments/`, `meta/` — `stat`s every entry it named, which by section 5.5's rule **generates**, and reads every file, holding each against the generator `crate::layout` says it delegates to and computing that generator's answer in the test's own process: a page is `pdf_transform::split`'s piece byte for byte, a render is `render`'s PNG, an image is one output of `images` under that run's own name, a page's text is `pdf_model::interpret`'s readback, an attachment is what the attachments verb saves, and `meta/`'s three files are what `pdf_model::metadata`, the catalog's `/Metadata` stream and the other transport answer. It mounts on the **confined** worker over a `FileBacking`, which is the posture a face has and is what makes every one of those comparisons a two-transport comparison as well — the in-process suite passed for four documents while the confined generator was being killed on a whole class of them (ADR 0870). It holds the listings to the layout's own spelling in order, a `stat` to the size of the bytes that came out, a second `stat` to generating nothing (`Vfs::generated`, not a clock — ADR 0865 section 3), and a second reading to the first. It is a corpus walk, so it runs under `tools/bounded.sh`. And the `--bins` line above it is not optional and is trap 10, on a distinction worth keeping: `cargo nextest run --workspace` and `cargo test -p pdf-vfs` both build a package's bin targets, so under those the `pdf-vfs-worker` beside the test binary is this build's — checked rather than assumed. A `--profile gates --test` line builds **one test target and nothing else**, as it does for `pdf-sandbox`, so under that line the worker would be whatever an earlier round left. Its own tests are `cargo nextest run -p pdf-vfs`, which the workspace line already runs: `tests/a_face.rs` drives the core the way a face drives it and holds two generators byte for byte against what `pdf-transform` itself writes, so a change to the transform seam that moved either shows up here rather than in a face nobody has written yet; `tests/a_write.rs` drives the five write verbs and the transaction around them, including §7.5.6's prefix property against the file on disk and the four restriction levels; `tests/confined.rs` asks every question of both transports and compares — the write questions included, which is what catches an answer one side can encode and the other cannot decode — and re-executes itself under the confinement to check that a forbidden system call kills — including, since the nine-hundred-and-fourteenth session, that a font looked for on the machine does *not* kill, which is ADR 0870 and the same probe `viewer-confined` now carries. **Its population is every corpus on this disk since the nine-hundred-and-nineteenth session** (ADR 0878), which is where the second instrument went: `doc/pdf.js` whole, so that the figures printed since session 914 stay comparable, plus a stride-sample of every other root classified into ten classes (encrypted, locked, an encryption this reader does not implement, pageless, damaged, unopenable, huge, JBIG2, JPEG 2000, and plain as the control) with the first few of each walked beside them — which is where damaged, huge and JPEG 2000 documents actually live. It came with the half a byte comparison does not have: a **death** — a worker killed by a signal, which `confined-transport` words as `killed by signal N` — fails the run wherever the sentence appears, and each mount is asked one more question after its walk so that session 902's recovery is measured rather than claimed. The matrix is printed per class because that is the only way a population can say *which* property killed a worker: with `no_machine_fonts()` taken out, the **control** class dies more often than the encrypted one (ADR 0876). It is a corpus walk, so it runs under `tools/bounded.sh` |
 | `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's |
 | **documents only** (`doc/`, `CLAUDE.md`, a `tools/*.sh`) | nothing the gates rasterise | the core, **and `cargo test -p conformance`**, which reads citations and quotations out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or a pointer |
 
@@ -135,8 +135,9 @@ an example file nobody thought about either.
 
 **This sequence used to be more than twice as slow**, until the three-hundred-and-eighty-fifth
 session measured every step of it and changed four things; ADR 0222 has the table and the
-argument, and `Cargo.toml`'s profiles carry the reasoning beside the settings. Five notes bind
-here:
+argument, and `Cargo.toml`'s profiles carry the reasoning beside the settings. What binds here —
+and this line said *five notes* over ten bullets, because each round that added one counted the
+list it had read rather than the list it left:
 
 - **`--profile gates`, not `--release`.** Release-grade optimisation with cheap linking, because a
   fat whole-graph link *per gate binary* was most of a round. All eight gates were run under
@@ -416,76 +417,31 @@ forty and two hundred sessions, including `pdf-model`'s own crate documentation 
 that had *predicted* its own expiry.
 
 What each sweep is worth is in that file with its evidence. What belongs here is the shape they
-share and the two that break it:
+share, the ones that break it, and the rule each of those leaves on a round:
 
 - **Most sweeps read a row's stated *reason*** — a blocker that has expired, a capability the tree
   now has, a string a correction retired — and are therefore blind to a row with no reason at all.
   The sweep for that one prints every `partial` row whose note names nothing owed, which breaks
   the ledger's own definition of the status.
-- **One reads no source at all**, and it is the newest: `--bin overstated`, the eighteenth sweep
-  and the thirteenth to become a program (ADR 0475). Every other sweep here reads a row against
-  the tree; this one reads a **parent's** claim that an entry or a table is read against a
-  **descendant's** denial that anybody reads it, so both sides are this project's own sentences
-  about its own code. It exists for the shape the six-hundred-and-forty-first found by reading and
-  no sweep could print — an *overstating* row, which names a thing the tree lacks under a row
-  claiming the opposite of a debt, so the seventh sweep's sign and the fourteenth's population are
-  both inverted and neither can see it. Its first run found §9.9.1 claiming Table 125's three
-  lengths were read by nobody twenty sessions after its own parent recorded a reader, and §9.7.6
-  claiming a whole table its own child takes an entry out of.
-- **One reads no *row* at all, and it is the newest**: `--bin overtaken`, the nineteenth sweep
-  (ADR 0491). Its population is the tree's **page-list notes** — the doc comment above a
-  `const NAME: [&str; N]` of corpus pages, which is where the oracle keeps every contradicted
-  page's diagnosis — and its other side is `doc/adr/`, whose numbering is the only date this
-  project has. A note's citations are a claim about which decisions it has read, so the sweep
-  asks whether a decision was taken *after* the note's newest citation about *a page the note
-  explains*. It exists because trap 1's third way for a note to be wrong had no instrument:
-  a sentence true when written that nothing pointed at when the tree moved under it. **A round
-  that rewrites a note cites its own ADR in it**, which is both correct and how the note stays
-  off the sweep.
-- **One reads no *document* at all, and it is the newest**: `--bin quoted`, the twentieth sweep
-  (ADR 0495). Its left-hand side is the same population as the nineteenth's — the oracle's
-  page-list notes — and its right-hand side is the oracle's **printed output**, which is why it is
-  the only sweep here that takes an argument. It asks whether a figure a note quotes in the gate's
-  own vocabulary is one the gate still prints for a page of that note, and under every hit it
-  prints what the gate says instead. It renders nothing: a round that touched a note has run the
-  oracle already, and this reads that run's log in under a second. **The rule it comes with is the
-  one that keeps it useful: a round that quotes a gate figure in a note quotes it to the precision
-  the gate prints**, because a figure written finer is another instrument's and this sweep can
-  only rank it.
-- **One asks that sweep's mirror question, and it is the newest**: `--bin unpriced`, the
-  twenty-first sweep (ADR 0606), over the same two sides and taking the same argument. `quoted`
-  can only check a figure a note *wrote*; this asks for one it **owes** — which of the gate's four
-  bounds each contradicted page actually fails, and whether the note holding it names that
-  measure. It is ADR 0497's sixth criterion made mechanical, because a contradicted page is an
-  exemption from a *specific* bound and a note pricing its mechanism in ink or in cap rows has
-  explained the picture rather than the verdict. **The rule it comes with: a round that writes or
-  rewrites a group note names the bound its pages fail on, in the gate's own words.** Five rounds
-  had recorded this as owed and each of their thirteen diagnoses began by reading the failing
-  bound off a log by hand.
-- **One asks about *this tree* rather than about the standard, and it is the newest**: `--bin
-  parts`, the twenty-second sweep (ADR 0709). Every other sweep here judges a claim against the
-  specification, the ledger or the tree's own prose; this one judges a **cardinal counting this
-  tree's own parts** — backends, rasterisers, crates, hosts, workers, submodules — against the
-  workspace's own membership, read off the member directories, each package's `src/bin/` and
-  `.gitmodules`. It exists because "both backends" was true until the tree grew a third rasteriser,
-  and no instrument read that population at all: a `shall` was met by two backends out of three
-  under a sentence that said *both*, for three hundred and twenty-five sessions (ADR 0697). **It is
-  a decay detector, so most of what it walks is correct sentences** — read the closest rung, which
-  is a crate the whole population depends on, and know that the rung it does not list is a
-  cross-backend test naming its pair. **The rule it comes with: a round that adds a part to this
-  tree runs it**, because that is the moment every sentence counting the old population goes wrong
-  at once.
-- **One asks *which corpus* a sentence counted over, and it is the newest**: `--bin
-  undenominated`, the twenty-third sweep (ADR 0758). Its right-hand side is neither the standard
-  nor the workspace but the **corpora on disk** — the PDFs under `doc/pdf.js/test/pdfs`, under each
-  directory of `doc/corpora/` and under each of `corpus-cache/` — and its predicate is that a
-  sentence quantifies over a corpus and does not say which. It exists because the same defect was
-  found four times by four rounds, every one of them by accident while doing something else: a
-  claim of absence measured over the corpus this project has always meant, in a tree that now
-  holds two orders of magnitude more documents than that. **The rule it comes with: a round that
-  widens a population runs it**, because a claim of absence is refuted by one witness and a
-  widening is where the witnesses arrive — and a round that writes a count over a corpus names the
-  corpus in the same sentence, which is the whole of what keeps it off the sweep.
+- **Six judge a claim against something that is not a ledger row's reason**, and each leaves a rule
+  a round owes. What each asks, what its first run found and how to read its noise are
+  [`01`](01-ledger-partial-rows.md)'s, under *The sweeps as commands*; the ordinal is the ordering
+  and the anchor there.
+
+  | sweep | judges a claim against | the rule it leaves a round |
+  |---|---|---|
+  | `--bin overstated` (18th, ADR 0475) | a **descendant row's** denial of what its parent claims — the only sweep that opens no source file, and the shape neither the seventh's sign nor the fourteenth's population can see | — |
+  | `--bin overtaken` (19th, ADR 0491) | `doc/adr/`'s numbering, the only date this project has, over the oracle's page-list notes | a round that rewrites a note cites its own ADR in it |
+  | `--bin quoted` (20th, ADR 0495) | the oracle's **printed output**, which is why it is the one that takes an argument | a round quoting a gate figure in a note quotes it to the precision the gate prints |
+  | `--bin unpriced` (21st, ADR 0606) | that same output, for the bound a contradicted page actually fails — ADR 0497's sixth criterion made mechanical | a round that writes or rewrites a group note names that bound, in the gate's own words |
+  | `--bin parts` (22nd, ADR 0709) | the **workspace's own membership** — member directories, each package's `src/bin/`, `.gitmodules` — for a cardinal counting this tree's own parts | a round that adds a part to this tree runs it |
+  | `--bin undenominated` (23rd, ADR 0758) | the **corpora on disk**, for a sentence that quantifies over a corpus and does not say which | a round that widens a population runs it, and a round writing a count over a corpus names the corpus in the same sentence |
+
+  **`parts` is a decay detector, so most of what it walks is correct sentences** — read the closest
+  rung, which is a crate the whole population depends on. **Each of those six rows used to open
+  *and it is the newest*, and five of the six were false**: every round that added a sweep wrote the
+  phrase and none went back to the round before it, which is this file's own subject happening to
+  this file.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in
@@ -637,20 +593,21 @@ change.
 - `doc/HANDOVER.md`, `doc/state-of-play.md`, the `doc/traps/` group the round was in,
   `doc/todo/README.md` and this file: only if what they *claim* stopped being true. None of them
   holds a number, so a round that only moved numbers writes nothing here. **A new trap goes in the
-  group whose rounds would spring it**, keeps the next free number, and gains a row in the
-  handover's index — the numbers are consecutive across the five files, not inside one.
+  group whose rounds would spring it**, keeps the next free number, and gains **two** entries in
+  `doc/HANDOVER.md`: a row in the index *and* its number in that group's row of the table above it.
+  Traps 14, 30 and 31 each reached the index and not the table, so a round opening the group it was
+  told to open read one trap short of what the file holds — the numbers are consecutive across the
+  five files, not inside one, which is why neither entry can be derived from the other by eye.
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
 
 ## 6a. A question for the owner is a file, not a sentence in a report
 
-Stated by the owner on 2026-09-04. A round that needs the owner's word writes it into
+Stated by the owner. A round that needs the owner's word writes it into
 [`doc/questions/`](../questions/) as a `Q` file, **in the same commit as the work that raised
-it** — a question that lives only in a history file or an ADR is a question nobody can find. The
-owner answers by adding a file of the same name with `Q` replaced by `A`, so a `Q` with no `A`
-beside it is the whole open list. `doc/questions/README.md` states the four things every `Q` file
-says, of which the one rounds forget is **what the tree does meanwhile**: there is always a
-default, a refusal or a reading held, and naming it is what keeps the question from reading like a
-blocker when it is not.
+it** — a question that lives only in a history file or an ADR is a question nobody can find.
+[`doc/questions/README.md`](../questions/README.md) owns the convention and the four things every
+`Q` file says; the one rounds forget is **what the tree does meanwhile**, and naming it is what
+keeps a question from reading like a blocker when it is not.
 
 ## 7. Three habits these rounds added, which belong here rather than in a trap
 
