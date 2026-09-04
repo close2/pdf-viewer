@@ -54,7 +54,11 @@ question, which is what makes this census its home rather than a fourth file.
 — longest first, unique in poppler's answer and in ours — it issues `Command::Find(Find::Start)`,
 pumps to the answer, and asks three things:
 
-1. the search answers on page one, and `Query::Selection`'s text **is that word**, byte for byte;
+1. the search answers on page one, and `Query::Selection`'s text **is that word**, under
+   Unicode's simple lower-casing and nothing else — `select::find` documents case folding as "the
+   only judgement in it", so the property is judged *under* that rule rather than against it. Nine
+   corpus documents said so on the first run: `"Profitability"` selected `"profitability"`, and two
+   documents' `"abcdefghijklmnopqrstuvwxyz"` selected its upper case;
 2. the cache's **miss** counter does not move across the document's searches, which is the claim
    `viewer.rs`'s priming `put` makes in a comment and nothing measured: *the page a person is
    looking at is not interpreted twice*;
@@ -67,6 +71,23 @@ gates' subject; a search runs over the readback as it stands. So a word is searc
 it occurs exactly once in the untouched string, and a word the two extractors break differently
 leaves the population rather than becoming a failure. The count of searches is printed beside the
 count of documents, which is trap 11's arithmetic.
+
+## What it read
+
+Over `doc/pdf.js`'s 974 documents, page one of each, in 13.3 s:
+
+```
+the find (Command::Find → Query::Selection): 1002/1002 words selected (100.00%) over 451
+documents, 1002 lookups answered out of the readback cache
+  a search that did not leave the word it was given selected: 0
+  a search that interpreted a page the page turn had already read: 0
+```
+
+**1002 lookups where session 929 measured nought.** The two lists are what is asserted and the
+fraction is what is printed, and the split is ADR 0323's own rule rather than a preference: the
+accuracy fraction has poppler in it and joins the drag's, which enters `doc/todo/02` §2 only once
+it has held across rounds; the cost list has nobody in it but us, holds over the whole population
+on the first run, and is therefore stated as a property.
 
 ## Why the cost half is a count
 

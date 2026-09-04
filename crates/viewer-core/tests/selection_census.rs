@@ -734,7 +734,7 @@ fn search_for_the_reference(
             Answer::Selected(selection) => selection.text.into_owned(),
             _ => String::new(),
         };
-        if found.is_some_and(|found| found.page == 0) && selected == *needle {
+        if found.is_some_and(|found| found.page == 0) && folded(&selected) == folded(needle) {
             census.found = census.found.saturating_add(1);
         } else {
             census.not_found.push((
@@ -765,6 +765,18 @@ fn search_for_the_reference(
             ),
         ));
     }
+}
+
+/// Unicode's own simple lower-casing, which is the rule `select::find` matches by.
+///
+/// The needle comes from poppler and the answer is a slice of *our* readback, so comparing them
+/// byte for byte would count a correct answer as a miss on every page whose word is capitalised
+/// where the reference states it otherwise — nine documents of the corpus, `"Profitability"`
+/// against `"profitability"` and `"abcdefghijklmnopqrstuvwxyz"` against its upper case. Case
+/// folding is documented as "the only judgement in" that function, so the property is judged
+/// under it rather than against it.
+fn folded(text: &str) -> String {
+    text.chars().flat_map(char::to_lowercase).collect()
 }
 
 /// Drives one search to its answer the way a find bar does.
@@ -989,6 +1001,19 @@ fn what_a_drag_selects_agrees_with_poppler_and_with_the_page() {
         "Query::Offset did not invert Query::Caret in {} place(s): {:?}",
         census.not_inverse.len(),
         census.not_inverse
+    );
+    // The find's *cost* half is a third exact property and is asserted for the same reason, while
+    // its accuracy fraction is printed beside the drag's: the fraction has poppler in it and is
+    // ADR 0323's rule, and this one has nobody in it but us. `misses` is the number of pages a
+    // search interpreted, so an empty list is the equality "a find bar opened on the page a person
+    // is looking at reads no page", over every corpus document that states a word both extractors
+    // agree about. It is a count and not a clock, so a neighbouring round's load cannot move it by
+    // one (ADR 0905).
+    assert!(
+        census.reinterpreted.is_empty(),
+        "a search interpreted a page the page turn had already read, on {} document(s): {:?}",
+        census.reinterpreted.len(),
+        census.reinterpreted
     );
 }
 

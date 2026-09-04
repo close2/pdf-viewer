@@ -28,6 +28,20 @@
 # a coarse guard against a leak rather than a tight one — a first-page raster of any of these
 # documents is larger than the whole margin.
 #
+# **The floors fell again in the nine-hundred-and-thirty-second session, and only the floors.**
+# Every one of the four rows was below its `peak_mib` band on a tree whose only functional change
+# is nine lines in `pdf_model::image` — and on `main` itself, with that change taken back out and
+# the binary rebuilt, all four are still below (111.9, 116.2, 128.9, 140.6 against floors of 127,
+# 131, 132 and 143). So it is not a round's change, and two runs of the *same* binary ten minutes
+# apart read 108.9 and 99.3 for the first row: the figure moves by nine megabytes with nothing
+# moving in the program at all. Seven consecutive runs then sat within a megabyte of each other at
+# 98.5, 103.4, 103.8 and 116.4 — a fourth plateau for a figure that had already been demoted once
+# for the same reason. The floors are set below the lowest of those with a few per cent of margin;
+# **the ceilings are untouched**, because a high-water that falls is not a leak and the ceiling is
+# what this figure is here to guard. Whether it should be a ceiling *only* — a band whose floor
+# nothing in this process controls has now failed a gate for a reason no code can explain — is
+# `doc/questions/Q32`.
+#
 # **Every clock figure is the minimum of nine fresh processes, pinned to this machine's fastest
 # cores.** Contention adds time and never removes it, so the fastest of nine is what a loaded
 # machine can still say about a quiet one. The pinning is not tuning: this processor has four
@@ -119,7 +133,7 @@ cold_open_ms = 0.49 .. 0.80
 warm_open_ms = 0.35 .. 0.57
 first_page_ms = 30.3 .. 48.4
 turn_ms = 3.4 .. 5.6
-peak_mib = 127 .. 209
+peak_mib = 95 .. 209
 open_peak_mib = 5 .. 9
 read_kib = 106 .. 112
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
@@ -131,7 +145,7 @@ cold_open_ms = 1.95 .. 3.06
 warm_open_ms = 1.71 .. 2.66
 first_page_ms = 38.5 .. 61.4
 turn_ms = 3.99 .. 6.6
-peak_mib = 131 .. 214
+peak_mib = 100 .. 214
 open_peak_mib = 6 .. 11
 read_kib = 343 .. 359
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
@@ -154,7 +168,7 @@ first_page_ms = 34.0 .. 57.3
 # The other two rows' floors are untouched: the same change is worth 0.06 ms on the 57-page
 # document and 0.03 on the five-page one, which is inside their own spread.
 turn_ms = 3.8 .. 7.2
-peak_mib = 132 .. 215
+peak_mib = 100 .. 215
 open_peak_mib = 16 .. 20
 read_kib = 4238 .. 4412
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
@@ -166,7 +180,7 @@ cold_open_ms = 0.32 .. 0.50
 warm_open_ms = 0.23 .. 0.35
 first_page_ms = 57.3 .. 85.4
 turn_ms = none
-peak_mib = 143 .. 231
+peak_mib = 112 .. 231
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and time to first page about twice theirs. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
