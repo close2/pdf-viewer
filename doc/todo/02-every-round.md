@@ -625,6 +625,17 @@ change.
   handover's index — the numbers are consecutive across the five files, not inside one.
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
 
+## 6a. A question for the owner is a file, not a sentence in a report
+
+Stated by the owner on 2026-09-04. A round that needs the owner's word writes it into
+[`doc/questions/`](../questions/) as a `Q` file, **in the same commit as the work that raised
+it** — a question that lives only in a history file or an ADR is a question nobody can find. The
+owner answers by adding a file of the same name with `Q` replaced by `A`, so a `Q` with no `A`
+beside it is the whole open list. `doc/questions/README.md` states the four things every `Q` file
+says, of which the one rounds forget is **what the tree does meanwhile**: there is always a
+default, a refusal or a reading held, and naming it is what keeps the question from reading like a
+blocker when it is not.
+
 ## 7. Three habits these rounds added, which belong here rather than in a trap
 
 - **A closed form taken from one renderer is not a limit.** `doc/todo/00`'s step 6 climbs a
