@@ -5950,3 +5950,42 @@ moving it is §11.4.6's work, because §11.4.4's NOTE 3 is what lets a non-isola
 be composited onto transparency and a blending element is where that cancellation stops holding.
 The other six of that band are unread, and so are §12.7.8.3.2 and §12.7.8.3.3 of rank 657 — the
 sweep flags both as quoting the standard with no modal verb, and neither was read here.
+
+## The next two bands read in the nine-hundred-and-thirty-third, and a requirement written in the indicative
+
+Eight rows, the whole of the blame list's rank 656 (`fc41aff8`) and rank 667 (`bad96d5f`) bands
+that session 930 left unread, and every one of them flagged by `--bin permitted` in one of its five
+buckets. **Three moved to `implemented`, five kept `partial`, and four of the five had their stated
+reason rewritten** — which is the ratio ADR 0900 predicted and the reason it insisted the rank is a
+reading list.
+
+| row | the sweep's bucket | verdict | the sentence it turned on |
+|---|---|---|---|
+| §12.8.4.1 | quotes nothing the conversion holds | **`partial` → `implemented`** | "Long term validation (LTV) of signatures is achieved by using two types of dictionaries" — no modal verb, and both are read |
+| §12.8.4.5 | quotes nothing the conversion holds | **`partial` → `implemented`** | "the preferred order of the search for validation data should be as follows" — a recommendation whose antecedent, a search for validation data, nothing here performs |
+| §12.8.5.3 | quotes nothing the conversion holds | **`partial` → `implemented`** | "When evaluating the DocMDP restrictions … the presence of a document timestamp and/or DSS information shall be ignored" — a `shall` on this reader, met, and never named in the row |
+| §12.7.8.3.2 | quotes the standard with no modal verb | kept, correct as it stood | "importing a field causes the values of the entries in the FDF field dictionary to replace those of the corresponding entries" — a requirement in the indicative |
+| §12.7.8.3.3 | every named entry is optional | kept, its reason corrected | "If this flag is true , fields with such conflicting names shall be renamed to guarantee their uniqueness" |
+| §12.7.8.3.1 | quotes nothing the conversion holds | kept, its reason corrected | "If the header specifies a later version, or if this entry is absent, the document conforms to the version specified in the header" |
+| §12.7.8.3.4 | quotes nothing the conversion holds | kept, its reason corrected | "The ordinal page number on which this annotation shall appear, where page 0 is the first page" |
+| §12.8.2.1 | quotes nothing the conversion holds | kept, its `shall` named | "Transform methods, along with transform parameters, shall determine which objects are included and excluded in revision comparison" |
+
+**The sweep's second blindness, and it is the mirror of the one ADR 0900 recorded.** §12.7.8.3.2 is
+flagged as quoting the standard with no modal verb, and the flag is right about the words and wrong
+about the debt: every entry it names as unapplied is `(Optional)`, its prose carries one `shall`
+addressed to a writer, and what binds a reader is written as a description of what importing
+*does*. The standard states requirements in the indicative often enough that the twelve rows in
+that bucket are the ones to read by hand and never the ones to move on the flag. ADR 0907.
+
+**And a refusal resting on a claim the standard contradicts one sentence later.** §12.7.8.3.3's
+`/Rename` was owed nothing because the flag "cannot be applied by anybody, since the clause says
+outright that the flag does not define a renaming algorithm" — while Table 252 requires an
+*outcome* (uniqueness) and the prose under it offers an algorithm outright. What actually makes it
+moot is the row's other refusal. **A refusal whose reason is a quotation is worth reading the
+sentence after the quotation**, which is this file's own habit at one sentence's range.
+
+### What the next round takes
+
+Rank 674 (`961615a1`, session 517): §12.3.2, §12.8.2.3, §7.6.4.3.2 and §9.8.2, of which the first
+is `--bin permitted`'s "quotes nothing the conversion holds" and the last its "recommendation"
+bucket. Then rank 680 and 681, one row each.
