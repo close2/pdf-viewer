@@ -68,7 +68,7 @@ pub mod worker;
 
 use std::sync::{Arc, Mutex};
 
-use pdf_transform::{Budget, Policy};
+use pdf_transform::{Budget, Operation, Policy};
 
 use crate::cache::Cache;
 use crate::commit::Staged;
@@ -83,6 +83,13 @@ pub use crate::serve::{
     WORKER_PATH_VARIABLE, WORKER_PROGRAM, WorkerLimits, confine, message_budget, serve,
 };
 pub use crate::worker::InProcessWorkers;
+
+/// What [`Vfs::consult`] answers: `CLAUDE.md` principle 3's verdict for one operation, with the
+/// document's own reasons worded.
+///
+/// Re-exported rather than redefined, because it is `pdf_transform::apply`'s own answer to the
+/// same question — which is what makes asking first and acting afterwards one reading.
+pub use pdf_transform::Consulted;
 
 /// The resolutions `renders/` offers.
 ///
@@ -512,13 +519,121 @@ struct Serving {
     foreign_edits: u64,
 }
 
+/// A worker with `CLAUDE.md` principle 3's *ask* level held beside it.
+///
+/// **Where the two round trips of ADR 0874 meet.** [`Vfs::consult`] puts the question to the
+/// worker and records that it was asked; a face puts it to a person; [`Vfs::answer`] records the
+/// yes; and the very next query that performs the operation spends it, once, by going through
+/// [`Worker::ask_consented`] instead of [`Worker::ask`].
+///
+/// **Here rather than on [`Vfs`], and that is the design rather than an economy.** A consent is
+/// about one document as it stood when the question was put, so it belongs to the generation:
+/// a `Current` thrown away because somebody else edited the file underneath the mount takes the
+/// answer with it, and nothing has to remember to. And every question this crate asks goes
+/// through `current.worker`, so putting the spend here is what makes it impossible for a call
+/// site to forget — there are fifteen of them and no list of which ones matter.
+#[derive(Debug)]
+struct Consenting {
+    /// What actually answers.
+    inner: Box<dyn Worker>,
+    /// The question outstanding and the answer standing.
+    asked: Mutex<Asked>,
+}
+
+/// One question put to a person, and one answer held until it is spent.
+///
+/// One question outstanding at a time and a second replaces it — `viewer_core`'s own rule for
+/// `Event::Asking`, so that the two boundaries in this tree behave the same way.
+#[derive(Debug, Default)]
+struct Asked {
+    /// The operation [`Vfs::consult`] last answered `Consulted::Ask` about, until it is
+    /// answered.
+    outstanding: Option<Operation>,
+    /// The operation a person said yes to, until the query that performs it is asked.
+    consented: Option<Operation>,
+}
+
+impl Consenting {
+    /// A worker with nothing asked and nothing answered.
+    fn new(inner: Box<dyn Worker>) -> Self {
+        Self {
+            inner,
+            asked: Mutex::new(Asked::default()),
+        }
+    }
+
+    /// The lock, poison and all: a panic in a caller must not make this tree unusable, and the
+    /// worst a poisoned answer can be is one consent spent or not spent.
+    fn held(&self) -> std::sync::MutexGuard<'_, Asked> {
+        self.asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Records that a person is being asked about `operation`.
+    fn putting(&self, operation: Operation) {
+        let mut held = self.held();
+        held.outstanding = Some(operation);
+    }
+
+    /// Records that nothing is outstanding — a consultation that came back anything but *ask*.
+    fn nothing_outstanding(&self) {
+        let mut held = self.held();
+        held.outstanding = None;
+    }
+
+    /// The person's answer, and whether there was a question for it to be an answer to.
+    ///
+    /// A `no` forgets the question and says nothing further, which is what a declined dialogue
+    /// means everywhere else in this tree: the operation is simply not done.
+    fn answered(&self, proceed: bool) -> bool {
+        let mut held = self.held();
+        let Some(operation) = held.outstanding.take() else {
+            return false;
+        };
+        held.consented = proceed.then_some(operation);
+        true
+    }
+}
+
+impl Worker for Consenting {
+    fn ask(&self, query: &Query) -> Result<Answer, WorkerError> {
+        // Spent, or not, before the question is asked — and spent *once*: a yes to deleting one
+        // page is not a yes to deleting every page after it.
+        let spend = {
+            let mut held = self.held();
+            match (held.consented, query.operation()) {
+                (Some(given), Some(wanted)) if given == wanted => {
+                    held.consented = None;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if spend {
+            self.inner.ask_consented(query)
+        } else {
+            self.inner.ask(query)
+        }
+    }
+
+    fn ask_consented(&self, query: &Query) -> Result<Answer, WorkerError> {
+        self.inner.ask_consented(query)
+    }
+
+    fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
+}
+
 /// One generation of the document, and what has been read of it so far.
 #[derive(Debug)]
 struct Current {
     /// The key this was built for.
     generation: Generation,
-    /// The confined side, over this generation's bytes.
-    worker: Box<dyn Worker>,
+    /// The confined side, over this generation's bytes, with `CLAUDE.md` principle 3's
+    /// outstanding question and standing answer beside it.
+    worker: Consenting,
     /// How many pages ISO 32000-2 §7.7.3.2's tree holds — the one thing read eagerly, because
     /// RFC 0003 section 5.1 says listing the root "reads nothing but the page count".
     pages: usize,
@@ -660,9 +775,12 @@ impl Vfs {
             document: self.backing.describe(),
             error,
         })?;
-        let worker = self
-            .workers
-            .spawn(bytes, None, self.config.policy, self.config.budget)?;
+        let worker = Consenting::new(self.workers.spawn(
+            bytes,
+            None,
+            self.config.policy,
+            self.config.budget,
+        )?);
         let pages = match worker.ask(&Query::PageCount)? {
             Answer::Count(pages) => pages,
             other => return Err(VfsError::Worker(mismatch(&other, "count"))),
@@ -918,6 +1036,89 @@ impl Vfs {
             size: Some(handle.len()),
             generation: handle.generation,
         })
+    }
+
+    /// **Would this operation be restricted, and why** — the question a host puts to a person
+    /// before committing to the operation.
+    ///
+    /// `CLAUDE.md` principle 3's four levels are `off`, `on`, *ask before the operation* and
+    /// *warn before the operation*, and "a refusal that cannot become an 'ask' is the thing to
+    /// avoid". RFC 0003 section 6 makes the *ask* level unaskable from inside: the decision is
+    /// taken where the document is, which is a process with no channel to a person by
+    /// construction. So the question crosses instead — this call — and the answer comes back
+    /// through [`Vfs::answer`]; the operation is then issued exactly as it always was, and the
+    /// yes is spent by the query that performs it (ADR 0874).
+    ///
+    /// A face with somewhere to put the question — KIO's `messageBox`, a window's dialogue, a
+    /// terminal — puts it. A face with nowhere does not call this at all and gets
+    /// [`worker::WorkerError::Unanswerable`] from the operation, which is what a mount gets and
+    /// why the sentence names the poverty rather than hiding it.
+    ///
+    /// The level is the mount's own ([`Config::policy`]), so a tree at `off` answers
+    /// `Consulted::Proceed` for everything and a face that always asks first costs one round
+    /// trip and no dialogue.
+    ///
+    /// # Errors
+    ///
+    /// [`VfsError::NoSuchPath`] for a path the layout does not name, and the worker's own where
+    /// the document cannot be opened at all.
+    pub fn consult(&self, path: &str, verb: Verb) -> Result<Consulted, VfsError> {
+        let current = self.current()?;
+        // A write is asked about *before* the file exists — `cp new.pdf pages/0004.pdf` names a
+        // position rather than an entry — so the write side is located the way `Vfs::create`
+        // locates it and the other two the way a read does. Getting this wrong would make every
+        // insertion's consultation a `NoSuchPath`, which is the shape of a face that cannot ask.
+        let (route, _) = match verb {
+            Verb::Write => Self::locate_for_write(&current, &canonical_path(path)?)?,
+            Verb::Read | Verb::Delete => locate_in(&current, path, &self.config.resolutions)?,
+        };
+        // The layout table is what says which operation a path's verb performs, because it is
+        // the one place a path's meaning is stated; `tests/a_write.rs` holds it to
+        // `pdf_transform::Plan::operation`'s own answer rather than to this call.
+        let operation = match verb {
+            Verb::Read => route.generator.operation(),
+            Verb::Write => route.write.on_write.operation(),
+            Verb::Delete => route.write.on_delete.operation(),
+        };
+        let Some(operation) = operation else {
+            // A verb this tree will not perform, or a listing that reads nothing the standard
+            // restricts: there is no operation, so there is nothing to consult about. The
+            // refusal such a path earns is the layout's own and is unrelated to policy.
+            return Ok(Consulted::Proceed);
+        };
+        let consulted = match current.worker.ask(&Query::Consult { operation })? {
+            Answer::Consulted(consulted) => consulted,
+            other => return Err(VfsError::Worker(mismatch(&other, "a consultation"))),
+        };
+        if matches!(consulted, Consulted::Ask { .. }) {
+            current.worker.putting(operation);
+        } else {
+            current.worker.nothing_outstanding();
+        }
+        Ok(consulted)
+    }
+
+    /// The person's answer to the question [`Vfs::consult`] last put — the second of ADR 0874's
+    /// two round trips.
+    ///
+    /// `true` means *do it*: the next operation that performs the operation asked about runs at
+    /// `pdf_model::restriction::Level::Off`, which is the level `CLAUDE.md` says "shall always
+    /// be possible" and is what a person consenting to one operation has chosen for it. The
+    /// consent is spent by that one query and by no other, and it goes when the generation goes.
+    ///
+    /// `false` forgets the question and does nothing else, because a question declined is
+    /// neither the document doing something nor this program refusing — `viewer_core`'s own rule
+    /// for `Command::Answer`.
+    ///
+    /// Answers whether there was a question outstanding to answer. `false` there is a face's
+    /// defect rather than a person's: nothing asked, or the document moved underneath the mount
+    /// while the dialogue was up and the generation that was asked about is gone.
+    ///
+    /// # Errors
+    ///
+    /// The backing's, where the generation cannot be read.
+    pub fn answer(&self, proceed: bool) -> Result<bool, VfsError> {
+        Ok(self.current()?.worker.answered(proceed))
     }
 
     /// Materialises a virtual file and hands back a handle onto its bytes.
@@ -1565,6 +1766,13 @@ impl Vfs {
 /// Which of the two write verbs a refusal is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verb {
+    /// Reading a file out of the tree, or listing a directory that generates to list.
+    ///
+    /// Not one of RFC 0003 section 5.2's write verbs and never a refusal a write mapping words —
+    /// it is here because [`Vfs::consult`] answers about a read too: taking a page out of the
+    /// mount is Table 22 bit 11's assembly, a render is bit 3's printing and an image is bit 5's
+    /// extraction, and a face is owed the question before it starts the copy.
+    Read,
     /// Creating or overwriting a path.
     Write,
     /// Deleting one.
@@ -1577,6 +1785,16 @@ fn refusal_for(path: &str, verb: Verb) -> Result<Refused, VfsError> {
     let meaning = match verb {
         Verb::Write => route.write.on_write,
         Verb::Delete => route.write.on_delete,
+        // This function words what a *change* earns. A read is refused by `Vfs::open`'s own
+        // errors — a directory, a path the layout does not name — and never by a write mapping,
+        // so a caller here has asked the wrong question and is told so rather than answered
+        // with a sentence about writing (trap 5).
+        Verb::Read => {
+            return Err(VfsError::Worker(WorkerError::Mismatched {
+                got: "a read",
+                wanted: "a verb that changes the document",
+            }));
+        }
     };
     Ok(match meaning {
         Write::Refused(reason) => Refused::ByDesign {
@@ -1806,6 +2024,7 @@ fn mismatch(got: &Answer, wanted: &'static str) -> WorkerError {
             Answer::Attachments(_) => "attachments",
             Answer::Absent => "nothing",
             Answer::Written { .. } => "an updated document",
+            Answer::Consulted(_) => "a consultation",
         },
         wanted,
     }

@@ -19,6 +19,7 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Deflate | `flate2` with `zlib-rs` backend (pure Rust, ~C speed) |
 | Spec model | Arlington PDF Model → generated validation layer |
 | FUSE | `fuser`, pinned `=0.18.0`, default features — its pure-Rust `/dev/fuse` path, no libfuse and no C linkage (ADR 0861) |
+| KIO | CMake, extra-cmake-modules, `Qt6::Core` and `KF6::KIOCore`, for `kio/` alone — **outside the cargo workspace**, no `Cargo.toml`, named by no manifest, so a machine with no KDE builds and tests the whole workspace unchanged and the one test that reaches it skips saying which package is missing (ADR 0869) |
 
 **Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
 them again would move glyphs away from where the document specifies. It may return later,

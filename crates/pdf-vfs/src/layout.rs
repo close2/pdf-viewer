@@ -43,6 +43,8 @@
 //! ordinal is a position and is unique by construction. The label is answered beside the page in
 //! `meta/outline.json`, where a repeat costs nothing.
 
+use pdf_transform::Operation;
+
 use crate::path::Captures;
 
 /// Whether a row names a directory or a file.
@@ -107,6 +109,48 @@ pub enum Generator {
     Outline,
 }
 
+impl Generator {
+    /// Which of `pdf_model::restriction`'s operations *reading* a row of this shape is.
+    ///
+    /// [`Write::operation`]'s counterpart for the read side, and pinned the same way. Most rows
+    /// answer `None`: a listing reads the document's shape rather than its content, and §14.3's
+    /// metadata, §12.3.3's outline and a page's text are named by no Table 22 bit this tree can
+    /// consult — `doc/todo/38` holds bit 5's "copy or otherwise extract text and graphics" open
+    /// for the day a host can say *this is a copy*.
+    #[must_use]
+    pub const fn operation(self) -> Option<Operation> {
+        match self {
+            // A page out of the mount is `pdf_transform split`'s own output, and a split is
+            // Table 22 bit 11's "[a]ssemble the document".
+            Self::ExtractedPage => Some(Operation::Assemble),
+            // Table 22 bit 3, "Print the document": a page raster is what a print driver makes.
+            Self::RenderedPage => Some(Operation::Print),
+            // Table 22 bit 5, "[c]opy or otherwise extract text and graphics from the document",
+            // where the extraction is unambiguously a file written out.
+            //
+            // **The inventory is the extraction**, which is this table's own departure note: a
+            // listing of `images/NNNN/` is one `pdf_transform::images` run's output names, so it
+            // performs the operation whether or not a byte is read afterwards.
+            Self::ImageInventory | Self::ExtractedImage | Self::ExtractedAttachment => {
+                Some(Operation::Extract)
+            }
+            Self::Root
+            | Self::PageOrdinals
+            | Self::Resolutions
+            | Self::RenderOrdinals
+            | Self::ImagePageOrdinals
+            | Self::TextOrdinals
+            | Self::PageText
+            | Self::DocumentText
+            | Self::AttachmentInventory
+            | Self::MetaNames
+            | Self::Information
+            | Self::MetadataStream
+            | Self::Outline => None,
+        }
+    }
+}
+
 /// What creating or overwriting a path of a row's shape means, and what deleting one means.
 ///
 /// Two answers rather than one, because a file verb is two verbs: `cp new.pdf pages/0004.pdf`
@@ -163,6 +207,31 @@ pub enum Write {
     SetInformation,
     /// Refused, with the reason the refusal is worded from.
     Refused(Reason),
+}
+
+impl Write {
+    /// Which of `pdf_model::restriction`'s operations performing this write is.
+    ///
+    /// **The broker's half of `CLAUDE.md` principle 3's question**, and it is here rather than
+    /// in `crate::Vfs` because this table is the one place a path's meaning is stated. Held to
+    /// `pdf_transform::Plan::operation`'s own answer by `tests/a_write.rs` rather than merely
+    /// said to agree with it (ADR 0874).
+    #[must_use]
+    pub const fn operation(self) -> Option<Operation> {
+        match self {
+            // Table 22 bit 11 names both in as many words: "[a]ssemble the document (insert,
+            // rotate, or delete pages …)".
+            Self::InsertPages | Self::DeletePage => Some(Operation::Assemble),
+            // Bit 4's residual — "[m]odify the contents of the document by operations other than
+            // those controlled by bits 6, 9, and 11" — which is where an embedded file and
+            // §14.3.3's entries both fall (ADR 0802).
+            Self::EmbedFile | Self::RemoveAttachment | Self::SetInformation => {
+                Some(Operation::Modify)
+            }
+            // A verb this tree will not perform asks no policy: there is no operation to permit.
+            Self::Refused(_) => None,
+        }
+    }
 }
 
 /// Why a write is refused outright rather than merely unbuilt.

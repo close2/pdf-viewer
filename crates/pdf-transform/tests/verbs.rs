@@ -458,11 +458,28 @@ fn restrictions_have_levels() {
     let (code, stdout, stderr) = run(&dir, &["images", path, "--restrictions=on", "--list"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stdout.is_empty(), "the document places images");
-    // The fourth level is a usage error on a command line, before the file is opened: a pipe
-    // has nobody to ask, and the sentence says so rather than letting `ask` look like a level.
+    // The fourth level is a level here since ADR 0874, and a listing is not an operation, so
+    // there is nothing to ask about and the run is clean.
     let (code, _stdout, stderr) = run(&dir, &["images", path, "--restrictions=ask", "--list"]);
-    assert_eq!(code, 1, "{stderr}");
-    assert!(stderr.contains("cannot ask"), "{stderr}");
+    assert_eq!(code, 0, "{stderr}");
+    // An extraction under `ask` with no terminal on standard input — which is what a test
+    // harness is, and what a pipe is — is the honest degradation rather than a silent proceed:
+    // refused by name, with the document's reasons and the sentence saying nobody was asked.
+    // The interactive half is `pdf-transform`'s own `ask_before_the_operation`, which needs a
+    // terminal and is therefore not a thing a gate can drive.
+    let (code, _stdout, stderr) = run(
+        &dir,
+        &[
+            "attachments",
+            path,
+            "--restrictions=ask",
+            "--save-all",
+            "-o",
+            "asked/",
+        ],
+    );
+    assert_eq!(code, 4, "{stderr}");
+    assert!(stderr.contains("nobody to ask"), "{stderr}");
 }
 
 /// `images`: the inventory names every image `XObject` the pages reach, each object once, and

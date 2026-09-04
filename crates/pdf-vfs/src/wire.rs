@@ -28,6 +28,7 @@
 use std::collections::BTreeMap;
 
 use pdf_transform::attachments::AttachmentEntry;
+use pdf_transform::{Consulted, Operation};
 
 use crate::worker::{Answer, Query, WorkerError};
 
@@ -78,6 +79,8 @@ mod query_kind {
     pub(super) const ATTACH: u8 = 13;
     pub(super) const DETACH: u8 = 14;
     pub(super) const SET_INFORMATION: u8 = 15;
+    pub(super) const CONSULT: u8 = 16;
+    pub(super) const CONSENTED: u8 = 17;
 }
 
 /// Answer discriminants. One per variant of [`Answer`].
@@ -88,6 +91,7 @@ mod answer_kind {
     pub(super) const ATTACHMENTS: u8 = 4;
     pub(super) const ABSENT: u8 = 5;
     pub(super) const WRITTEN: u8 = 6;
+    pub(super) const CONSULTED: u8 = 7;
 }
 
 /// Refusal discriminants: the six things a face has to be able to tell apart.
@@ -359,7 +363,28 @@ pub(crate) fn encode_query(query: &Query) -> Vec<u8> {
         Query::SetInformation { json } => {
             writer.u8(k::SET_INFORMATION).bytes(json);
         }
+        Query::Consult { operation } => {
+            writer.u8(k::CONSULT).u8(operation_code(*operation));
+        }
+        // The inner question, whole, behind one byte. **A `Consented` inside a `Consented` is
+        // not a shape the broker builds**, and the decoder refuses one rather than recursing —
+        // a nesting depth a peer chooses is a stack a peer chooses.
+        Query::Consented(inner) => {
+            return encode_consented(inner);
+        }
     }
+    writer.finish()
+}
+
+/// Encodes one question with a person's *yes* behind it — `Query::Consented`, without owning
+/// the question.
+///
+/// The wrapper's own tag and then [`encode_query`]'s bytes, length-prefixed, which is exactly
+/// what `encode_query` writes for a `Query::Consented`. Separate so that a consent to an
+/// insertion does not cost a copy of the document being inserted (ADR 0874).
+pub(crate) fn encode_consented(query: &Query) -> Vec<u8> {
+    let mut writer = Writer::new();
+    writer.u8(query_kind::CONSENTED).bytes(&encode_query(query));
     writer.finish()
 }
 
@@ -412,6 +437,21 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<Query, WireError> {
         k::SET_INFORMATION => Query::SetInformation {
             json: reader.bytes("the information file")?.to_vec(),
         },
+        k::CONSULT => Query::Consult {
+            operation: operation_of(reader.u8("an operation")?)?,
+        },
+        k::CONSENTED => {
+            let inner = decode_query(reader.bytes("the question consented to")?)?;
+            // One level of wrapping and no more: a peer that nested them would be choosing how
+            // deep this decoder's own stack goes.
+            if matches!(inner, Query::Consented(_)) {
+                return Err(WireError::Unrecognised {
+                    what: "a consent wrapped in a consent",
+                    value: k::CONSENTED,
+                });
+            }
+            Query::Consented(Box::new(inner))
+        }
         value => {
             return Err(WireError::Unrecognised {
                 what: "a query's kind",
@@ -448,6 +488,19 @@ pub(crate) fn encode_answer(answer: &Answer) -> Vec<u8> {
         }
         Answer::Absent => {
             writer.u8(k::ABSENT);
+        }
+        Answer::Consulted(consulted) => {
+            let (verdict, operation, reasons) = match consulted {
+                Consulted::Proceed => (0u8, "", ""),
+                Consulted::Warn { operation, reasons } => (1, *operation, reasons.as_str()),
+                Consulted::Ask { operation, reasons } => (2, *operation, reasons.as_str()),
+                Consulted::Refuse { operation, reasons } => (3, *operation, reasons.as_str()),
+            };
+            writer
+                .u8(k::CONSULTED)
+                .u8(verdict)
+                .text(operation)
+                .text(reasons);
         }
         Answer::Written { bytes, warnings } => {
             writer.u8(k::WRITTEN).bytes(bytes).count(warnings.len());
@@ -504,6 +557,26 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Answer, WireError> {
             Answer::Attachments(entries)
         }
         k::ABSENT => Answer::Absent,
+        k::CONSULTED => {
+            let verdict = reader.u8("a verdict")?;
+            // The operation's word is `Operation::as_str`'s, which is `&'static str` on both
+            // sides of the wire: what crosses is the text and what is rebuilt is the static it
+            // came from, so a peer cannot invent an operation name this tree does not have.
+            let operation = operation_word(&reader.text("an operation")?)?;
+            let reasons = reader.text("the document's reasons")?;
+            Answer::Consulted(match verdict {
+                0 => Consulted::Proceed,
+                1 => Consulted::Warn { operation, reasons },
+                2 => Consulted::Ask { operation, reasons },
+                3 => Consulted::Refuse { operation, reasons },
+                value => {
+                    return Err(WireError::Unrecognised {
+                        what: "a verdict",
+                        value,
+                    });
+                }
+            })
+        }
         k::WRITTEN => {
             let bytes = reader.bytes("an updated document")?.to_vec();
             let count = reader.count("a warning count")?;
@@ -789,6 +862,63 @@ fn level_code(level: pdf_model::restriction::Level) -> u8 {
         Level::Ask => 2,
         Level::Warn => 3,
     }
+}
+
+/// `pdf_model::restriction::Operation`, as one byte.
+///
+/// Every arm named, for [`level_code`]'s reason: an operation added there fails to compile here
+/// rather than crossing as one of the six.
+fn operation_code(operation: Operation) -> u8 {
+    match operation {
+        Operation::FillInForm => 0,
+        Operation::Annotate => 1,
+        Operation::Print => 2,
+        Operation::Extract => 3,
+        Operation::Modify => 4,
+        Operation::Assemble => 5,
+    }
+}
+
+/// And back.
+fn operation_of(code: u8) -> Result<Operation, WireError> {
+    match code {
+        0 => Ok(Operation::FillInForm),
+        1 => Ok(Operation::Annotate),
+        2 => Ok(Operation::Print),
+        3 => Ok(Operation::Extract),
+        4 => Ok(Operation::Modify),
+        5 => Ok(Operation::Assemble),
+        value => Err(WireError::Unrecognised {
+            what: "an operation",
+            value,
+        }),
+    }
+}
+
+/// The `&'static str` an operation's word names, refused where it names none.
+///
+/// `pdf_transform::Consulted` holds `&'static str`, so the word is *matched* rather than leaked:
+/// a peer sending "deleting everything" gets a refusal instead of a sentence this tree would
+/// then show to a person as its own.
+fn operation_word(word: &str) -> Result<&'static str, WireError> {
+    if word.is_empty() {
+        return Ok("");
+    }
+    [
+        Operation::FillInForm,
+        Operation::Annotate,
+        Operation::Print,
+        Operation::Extract,
+        Operation::Modify,
+        Operation::Assemble,
+    ]
+    .into_iter()
+    .map(Operation::as_str)
+    .find(|known| *known == word)
+    .ok_or(WireError::Unrecognised {
+        what: "an operation's word",
+        value: 0,
+    })
 }
 
 /// And back.

@@ -36,6 +36,7 @@
 //! halves now come from the same faces. ADRs 0007, 0133.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use pdf_syntax::{Dictionary, Document};
@@ -556,6 +557,53 @@ type Loaded = (PathBuf, Arc<[u8]>);
 /// Font programs already read.
 static LOADED: OnceLock<RwLock<Vec<Loaded>>> = OnceLock::new();
 
+/// Whether this process may read the machine's own font files.
+///
+/// True until [`no_machine_fonts`] says otherwise, which is what a *confined* process does
+/// before it loses the filesystem.
+static MACHINE_FONTS: AtomicBool = AtomicBool::new(true);
+
+/// States that this process cannot reach the machine's fonts, and must not try.
+///
+/// # Why a switch rather than an error path
+///
+/// [`catalogue`] walks the font directories and [`read_cached`] reads a file out of them, and
+/// both are written to shrug off an `Err` — a machine with no fonts installed is a supported
+/// deployment, and [`find`] answers from [`crate::standard`] there. **A confined process does not
+/// get an `Err`.** `pdf-sandbox`'s seccomp filter is an allow-list whose action is
+/// `SECCOMP_RET_KILL_PROCESS`, so `openat` is not refused, it is fatal: `read_dir` on
+/// `/usr/share/fonts` ends the worker with `SIGSYS` before any `else` branch runs. The
+/// nine-hundred-and-fourteenth session's corpus walk found this on the first sixty documents it
+/// read — four of them name a CJK or Arabic face without embedding it, and each killed the
+/// generator outright, taking the whole generation with it.
+///
+/// So the reachability of the filesystem has to be *stated*, by the one part of the program that
+/// knows: the caller that is about to confine itself. It is the same shape, in the same place, as
+/// `pdf_sandbox::set_isolation` — asked before the confinement because after it there is
+/// nothing to ask.
+///
+/// # What it costs, which is a real cost and is written down
+///
+/// A confined worker then behaves exactly like a machine with no fonts installed: [`find`] never
+/// fails, so the text is still drawn, from the compiled-in faces. For a Latin document that is
+/// the same page; for a document naming an uninstalled CJK face it is a page whose glyphs are
+/// missing, and `pdf_model::interpret` reports that by name (§9.10.2's coverage note) rather than
+/// drawing it silently. The fix that would keep the fidelity is for the *broker* — which has the
+/// filesystem — to supply the face, the way ADR 0812 already supplies the document; `doc/todo/58`
+/// carries it.
+///
+/// There is no way to undo this, deliberately: it is called beside a confinement that cannot be
+/// undone either.
+pub fn no_machine_fonts() {
+    MACHINE_FONTS.store(false, Ordering::Relaxed);
+}
+
+/// Whether the machine's own font files may be read.
+#[must_use]
+pub fn machine_fonts() -> bool {
+    MACHINE_FONTS.load(Ordering::Relaxed)
+}
+
 /// The directories fonts are conventionally installed in.
 fn font_directories() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -583,6 +631,11 @@ fn font_directories() -> Vec<PathBuf> {
 
 /// Walks the font directories, collecting files a font reader can open.
 fn catalogue() -> &'static [Candidate] {
+    // Checked here as well as inside the initialiser, so that a process which states it late
+    // still stops reading — and so that one which states it first never walks at all.
+    if !machine_fonts() {
+        return &[];
+    }
     CATALOGUE.get_or_init(|| {
         /// Bounds the walk so a pathological directory tree cannot stall a page.
         const MAX_DEPTH: u32 = 8;
@@ -629,6 +682,11 @@ fn catalogue() -> &'static [Candidate] {
         }
 
         let mut found = Vec::new();
+        // Asked again inside the initialiser, and after the items so that the lint is happy: a
+        // process that states it *between* the guard above and this closure must still not walk.
+        if !machine_fonts() {
+            return found;
+        }
         for dir in font_directories() {
             walk(&dir, MAX_DEPTH, &mut found);
         }
@@ -828,12 +886,18 @@ static COVERING: OnceLock<RwLock<Vec<Covering>>> = OnceLock::new();
 fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
     let cache = LOADED.get_or_init(|| RwLock::new(Vec::new()));
 
+    // A path already read is answered from memory whatever the switch says; a path that is not
+    // is a file, and [`no_machine_fonts`] is the statement that this process may not open one.
+
     if let Ok(loaded) = cache.read()
         && let Some((_, bytes)) = loaded.iter().find(|(cached, _)| cached == path)
     {
         return Some(Arc::clone(bytes));
     }
 
+    if !machine_fonts() {
+        return None;
+    }
     let bytes: Arc<[u8]> = std::fs::read(path).ok()?.into();
     if let Ok(mut loaded) = cache.write() {
         loaded.push((path.to_path_buf(), Arc::clone(&bytes)));

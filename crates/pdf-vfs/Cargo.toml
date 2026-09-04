@@ -26,6 +26,11 @@ repository.workspace = true
 # (ADR 0846). `rayon` for the same reason `viewer-confined` takes it: the confined process must
 # *state* how many threads to rasterise with, because asking the machine reads `/proc/self/cgroup`.
 confined-transport.workspace = true
+# A confined process may not read the machine's font files, and has to say so before the
+# confinement rather than discover it afterwards: `openat` is off the seccomp allow-list, whose
+# action is a kill, so the substitution walk over `/usr/share/fonts` is fatal rather than empty
+# (ADR 0870). `pdf_font::substitute::no_machine_fonts` is that statement.
+pdf-font.workspace = true
 pdf-model.workspace = true
 pdf-sandbox.workspace = true
 pdf-syntax.workspace = true
