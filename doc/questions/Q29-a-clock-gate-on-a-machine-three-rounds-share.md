@@ -76,6 +76,24 @@ pressure. ADR 0909 and `doc/todo/42` have the figures.
 So whichever of the three options is chosen, the clock half is not the whole of it: this gate's
 memory figures need a memory probe, on the same idle ten minutes option 1 already asks for.
 
+## Measured again in session 935, on the quietest machine this question has had
+
+That round resolved the *memory* half of this instrument (`Q37`) and, in verifying it, ran the
+launch line fifteen times alone. The clock half's state, at one-minute load averages between 1.3
+and 5.4 with the calibration probe reading **0.704 to 0.769 ms** — inside `0.62 .. 0.78` on every
+one of them, so every run judged:
+
+| load average | runs | runs with every clock figure in band | the figures that failed |
+|---|---|---|---|
+| 1.3 – 2.0 | 3 | 2 | `bug1815476.pdf`'s cold open, 0.506 against a ceiling of 0.500 |
+| 3.3 – 5.4 | 6 | 1 | `PDF20`'s warm open (0.762, 0.936, 0.832 against 0.570); `bug1815476.pdf`'s cold open (0.537, 0.530) and warm open (0.656); `WTPDF`'s cold open (3.063 against 3.060) |
+
+**No memory figure was outside in any of the fifteen**, which is what the other half of the
+instrument now looks like. And the failures are the shape option 1 predicts: a probe reading dead
+centre while the figure it guards is half as fast again, because the probe is fifty warm passes and
+the figure is one cold one. The round did not move a band and did not derive the first-pass one —
+it had no idle ten minutes either, with two neighbours running throughout.
+
 ## What is *not* being asked
 
 Whether to widen a band. Two rounds in a row have declined to, on the same argument, and this one

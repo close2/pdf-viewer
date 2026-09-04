@@ -94,6 +94,16 @@ rejects an unknown row key, so a `peak_mib` line reaching it again fails loudly 
 rather than leaving two answers standing. `doc/todo/42` carried four accounts of this figure after
 the merge and carries one now, which is what that section itself asked the resolving round to do.
 
+## Where the gate stands at the end of the round
+
+Green, and the two halves are now legible apart. `doc/todo/02` §2's full sequence ran twice — once
+before the merge and once after — **31 lines green** the first time and **30 of 31** the second, the
+one red being the launch line on `bug1815476.pdf`'s cold open at 0.506 ms against a ceiling of
+0.500. That is `Q29`'s figure, not this round's: fifteen runs alone afterwards, with the calibration
+probe between 0.704 and 0.769 ms on every one of them, put **no memory figure outside at any load**
+and one clock figure or two outside on eight of them. `Q29` now carries that table. No band was
+moved.
+
 ## Two things measured and not used
 
 - **The software Vulkan driver is not where the mapped pages come from**, which was the first
