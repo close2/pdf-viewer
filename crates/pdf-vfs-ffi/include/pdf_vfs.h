@@ -102,11 +102,13 @@ extern "C" {
  * four levels, chosen once at `pdfvfs_mount_open` because that is the place a host can supply it.
  * OFF is the default everywhere in this tree: the program is the reader's.
  *
- * ASK reaches a caller today as EACCES with a sentence saying a question went unanswered. The
- * question is decided inside the confined generator, which RFC 0003 section 6 gives no channel to
- * a person at all; ADR 0869 says what the wire owes before `KIO::WorkerBase::messageBox` can put
- * it. WARN proceeds and says the reasons afterwards, as a commit's warnings — and that one a KIO
- * worker can already show.
+ * ASK is askable since ADR 0874, in two round trips: `pdfvfs_consult` asks whether the operation
+ * would be restricted and hands back the question, the face puts that question to a person by
+ * whatever means it has (`KIO::WorkerBase::messageBox` is one), `pdfvfs_answer` carries the
+ * answer back, and the verb is then performed unchanged. A face that never calls those two still
+ * gets the honest degradation — EACCES with a sentence saying a question went unanswered — which
+ * is what a FUSE mount gets, because a mount has nowhere to put a question. WARN proceeds and
+ * says the reasons afterwards, as a commit's warnings.
  */
 #define PDFVFS_RESTRICT_OFF   0u
 #define PDFVFS_RESTRICT_ON    1u
@@ -125,8 +127,29 @@ extern "C" {
 #define PDFVFS_MEANS_REMOVE_ATTACHMENT   4u
 #define PDFVFS_MEANS_SET_INFORMATION     5u
 
+/*
+ * Which verb a `pdfvfs_consult` is about. READ is not one of RFC 0003 section 5.2's write verbs
+ * and never a refusal a write mapping words: it is here because taking a page out of the mount is
+ * Table 22 bit 11's assembly, a render is bit 3's printing and an image is bit 5's extraction, so
+ * a face is owed the question before it starts the copy as much as before it starts the write.
+ */
+#define PDFVFS_VERB_READ     0u
+#define PDFVFS_VERB_WRITE    1u
+#define PDFVFS_VERB_DELETE   2u
+
+/*
+ * What a consultation came back with. Only ASK is a question; the other three are statements, and
+ * a face that showed one as a dialogue would be asking somebody to decide something already
+ * decided. PROCEED also covers a mount at PDFVFS_RESTRICT_OFF, so a face may consult before every
+ * verb and cost one round trip and no dialogue.
+ */
+#define PDFVFS_VERDICT_PROCEED   0u
+#define PDFVFS_VERDICT_WARN      1u
+#define PDFVFS_VERDICT_ASK       2u
+#define PDFVFS_VERDICT_REFUSE    3u
+
 /* ------------------------------------------------------------------------------------------- */
-/* The five handles, all opaque.                                                                 */
+/* The six handles, all opaque.                                                                  */
 /* ------------------------------------------------------------------------------------------- */
 
 typedef struct pdfvfs_mount pdfvfs_mount;
@@ -134,6 +157,7 @@ typedef struct pdfvfs_listing pdfvfs_listing;
 typedef struct pdfvfs_file pdfvfs_file;
 typedef struct pdfvfs_commit pdfvfs_commit;
 typedef struct pdfvfs_refusal pdfvfs_refusal;
+typedef struct pdfvfs_consultation pdfvfs_consultation;
 
 /*
  * What a `stat` answers. The only thing here passed by value, which is what PDFVFS_ABI_VERSION is
@@ -257,6 +281,22 @@ int32_t pdfvfs_commit_warning_count(const pdfvfs_commit *commit, size_t *out);
 int32_t pdfvfs_commit_warning(const pdfvfs_commit *commit, size_t index,
                               char *out, size_t cap, size_t *needed);
 void pdfvfs_commit_free(pdfvfs_commit *commit);
+
+/*
+ * CLAUDE.md principle 3's *ask* level, in the two round trips ADR 0874 chose. Call `pdfvfs_consult`
+ * before the verb; where the verdict is PDFVFS_VERDICT_ASK, show the question and call
+ * `pdfvfs_answer` with what the person said; then perform the verb unchanged — the yes is spent
+ * by the one operation it was given for, and by no other.
+ */
+int32_t pdfvfs_consult(pdfvfs_mount *mount, const char *path, uint32_t verb,
+                       pdfvfs_consultation **out, pdfvfs_refusal **why);
+int32_t pdfvfs_consultation_verdict(const pdfvfs_consultation *consultation, uint32_t *out);
+/* Empty for every verdict but PDFVFS_VERDICT_ASK. */
+int32_t pdfvfs_consultation_question(const pdfvfs_consultation *consultation,
+                                     char *out, size_t cap, size_t *needed);
+void pdfvfs_consultation_free(pdfvfs_consultation *consultation);
+int32_t pdfvfs_answer(pdfvfs_mount *mount, uint32_t proceed,
+                      uint32_t *answered, pdfvfs_refusal **why);
 
 /* Both of these always answer PDFVFS_REFUSED, with the core's own sentence saying why. */
 int32_t pdfvfs_rename(pdfvfs_mount *mount, const char *from, const char *to,

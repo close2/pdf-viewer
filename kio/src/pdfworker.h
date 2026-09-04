@@ -70,6 +70,19 @@ private:
      */
     bool locate(const QUrl &url, Located &located, KIO::WorkerResult &why);
 
+    /*!
+     * `CLAUDE.md` principle 3's *ask* level: would this verb be restricted, and if so put the
+     * question to the person through KIO's modal channel.
+     *
+     * The first of ADR 0874's two round trips, and the reason this face was singled out: a FUSE
+     * mount has nowhere to put a question and this has `KIO::WorkerBase::messageBox`. Answers
+     * whether the verb should go ahead; on `false`, `why` holds the result to return.
+     *
+     * `verb` is one of the header's `PDFVFS_VERB_*`.
+     */
+    bool mayProceed(const Located &located, uint32_t verb, const QUrl &url,
+                    KIO::WorkerResult &why);
+
     /*! Turns a refusal into KIO's vocabulary, and frees it. See the definition for the choice. */
     KIO::WorkerResult refused(pdfvfs_refusal *why, const QUrl &url);
 

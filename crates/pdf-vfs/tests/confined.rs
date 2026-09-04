@@ -116,6 +116,92 @@ fn started(bytes: &pdf_syntax::FileBytes) -> pdf_vfs::Confined {
     })
 }
 
+/// A corpus document, or `None` where `doc/pdf.js` is not checked out.
+fn corpus(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs")
+        .join(name);
+    path.exists().then_some(path)
+}
+
+/// `CLAUDE.md` principle 3's *ask* level, across the real socket.
+///
+/// **The wire is what this adds to `a_write.rs`'s version of the same story.** The question and
+/// the consent both cross `crates/confined-transport`'s frames — `Query::Consult` out,
+/// `Answer::Consulted` back, then the operation wrapped in `Query::Consented` — so a face that
+/// asks gets the same two answers whether the generator is in this process or behind a seccomp
+/// filter. That is RFC 0003 section 6's own requirement on this seam, and the reason the *ask*
+/// level could not be honoured before ADR 0874: the decision is taken where the parsing is, and
+/// nothing there can put a question to anybody.
+///
+/// `bug1815476.pdf` is encrypted with `/P -1084`, so §7.6.4.2's Table 22 bit 4 is clear.
+#[test]
+fn a_question_and_a_consent_cross_the_confinement() {
+    use pdf_vfs::{Consulted, Verb};
+
+    let Some(path) = corpus("bug1815476.pdf") else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let asking = || {
+        Vfs::new(
+            Box::new(FileBacking::new(path.clone())),
+            Box::new(ConfinedWorkers),
+            Config {
+                policy: pdf_transform::Policy {
+                    restrictions: pdf_model::restriction::Level::Ask,
+                },
+                ..Config::default()
+            },
+        )
+    };
+
+    let vfs = asking();
+    let consulted = vfs
+        .consult("/pages/0001.pdf", Verb::Read)
+        .expect("the question crosses the confinement");
+    let Consulted::Ask { operation, reasons } = &consulted else {
+        panic!("a confined worker answers the same question: {consulted:?}");
+    };
+    assert_eq!(*operation, "assembling a document out of these pages");
+    assert_eq!(reasons, "Table 22 bit 11 is clear");
+
+    // A no: the page does not come out, and the refusal is the *ask* level's own.
+    assert!(vfs.answer(false).expect("a question was outstanding"));
+    let error = vfs.open("/pages/0001.pdf").expect_err("a no is not done");
+    assert!(
+        matches!(
+            error,
+            pdf_vfs::VfsError::Worker(WorkerError::Unanswerable(_))
+        ),
+        "{error}"
+    );
+
+    // A yes. The question is put again first, because a `no` *forgets* it: an answer is an
+    // answer to one question, and a face that answered twice would be answering nothing.
+    assert!(matches!(
+        vfs.consult("/pages/0001.pdf", Verb::Read).expect("asked"),
+        Consulted::Ask { .. }
+    ));
+    assert!(vfs.answer(true).expect("a question was outstanding"));
+    let page = vfs.open("/pages/0001.pdf").expect("a yes is done");
+    assert!(page.bytes().starts_with(b"%PDF-"), "not a PDF");
+
+    // And a consent is not a blanket. Table 22 bit 5's extraction is a *different* operation
+    // from bit 11's assembly, so the yes just given does not release it and the listing of a
+    // page's images is refused with the level's own sentence.
+    let error = vfs
+        .list("/images/0001")
+        .expect_err("a yes to one operation is not a yes to another");
+    assert!(
+        matches!(
+            error,
+            pdf_vfs::VfsError::Worker(WorkerError::Unanswerable(_))
+        ),
+        "{error}"
+    );
+}
+
 /// The same worker in this process, for comparison.
 fn in_process(name: &str) -> Box<dyn Worker> {
     let bytes = pdf_syntax::FileBytes::on_disk(&committed(name)).expect("a committed document");

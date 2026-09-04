@@ -96,7 +96,7 @@ fn every_unsafe_token_in_the_abi_module_is_in_a_signature() {
         panic!("an `unsafe` that is not a signature: {line}");
     }
     assert_eq!(
-        entry_points, 35,
+        entry_points, 40,
         "the count `header_and_library_agree.rs` also states"
     );
     assert_eq!(helpers, 3, "owned_text, copy_out and refused");

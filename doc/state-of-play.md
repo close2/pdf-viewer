@@ -423,10 +423,13 @@ what it forwards over is `pdf-vfs-ffi`, a C ABI of thirty-five functions with th
 everything unchanged. What it can do that a mount cannot is show a person **why**: RFC section
 5.3's refusals reach a KIO job as the core's own sentence rather than as a category, and a
 deletion's §7.5.6 consequence — the bytes stay in the file — arrives as a non-modal warning
-instead of a log line nobody reads. What no face can do yet is put a *question*: the restriction
-decision is taken inside the confined generator, which has no channel to a person by construction,
-so `ask` still leaves as `EACCES` and ADR 0869 costs the two ways out. Driven by a KIO client on a
-machine with no session; never yet by Dolphin. And **there is a confined worker** under all of it (ADRs 0840, 0841,
+instead of a log line nobody reads. **And it can put a *question*, since the nine-hundred-and-sixteenth
+session**: the restriction decision is taken inside the confined generator, which has no channel to
+a person by construction, so the question crosses instead — `pdfvfs_consult` says whether the verb
+would be restricted and hands back the sentence, `KIO::WorkerBase::messageBox` puts it, `pdfvfs_answer`
+carries the answer back, and the verb then runs unchanged, once, at the level a yes *is* (ADRs 0874,
+0875). Driven by a KIO client on a machine with no session; never yet by Dolphin, and the dialogue
+itself therefore by nothing. And **there is a confined worker** under all of it (ADRs 0840, 0841,
 0846, 0847): `pdf-vfs-worker` confines itself before it reads a byte, takes the document as the
 descriptor a broker sends it, and answers the same questions with the same answers as the
 in-process one — question by question, both ways, asserted. It needs no system call the viewer's
@@ -439,15 +442,17 @@ annotation added, a page rendered, a file extracted, a file written in, a docume
 of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
-takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
-answer), **RFC 0003's mount honours all four for the same reason a pipe does** — a file system has
-no dialogue, so its *ask* is a refusal with its own sentence and never a silent proceed, and both
-it and *on* leave as `EACCES` — and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
+takes `off`, the default, `on`, `warn` and — since the nine-hundred-and-sixteenth session — `ask`,
+which puts the question on the terminal where there is one and is a refusal saying nobody could
+answer where there is not), **RFC 0003's mount honours all four for the same reason a pipe does** —
+a file system has no dialogue, so its *ask* is a refusal with its own sentence and never a silent
+proceed, and both it and *on* leave as `EACCES` — and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
 *refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
 caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.
 No window can put the question yet, so each answers it `false` out loud rather than letting *ask*
-behave like *on* (ADR 0814). The suite has its own gate, with
+behave like *on* (ADR 0814) — a C host of `viewer-ffi` can, through `PDFV_EVENT_KIND_ASKING` and
+`pdfv_answer`. The suite has its own gate, with
 RFC 0002 §12's perf floor and its inventories held to the document's own structure, and three
 corpus walks beside it: the writer's, `split`'s — every corpus document's first page taken
 out, re-read, and drawn against the source page bit for bit — `merge`'s, which puts every

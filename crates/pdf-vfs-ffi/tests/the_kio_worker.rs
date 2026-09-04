@@ -141,17 +141,25 @@ fn kio_loads_the_plugin_browses_the_tree_and_writes_two_verbs_through_it() {
     let scratch = build.join("scratch.pdf");
     std::fs::copy(&document, &scratch).expect("a scratch copy the write verbs may change");
 
-    let ran = Command::new(build.join("drive_the_worker"))
-        .arg(document.canonicalize().expect("the note is on disk"))
-        .arg(&scratch)
-        .env("QT_PLUGIN_PATH", build.join("plugins"))
-        // The confined generator is beside cargo's output rather than beside `kioworker`, so it
-        // is named. `pdf_vfs::WORKER_PATH_VARIABLE` exists for exactly this.
-        .env("PDF_VFS_WORKER", artefacts.join("pdf-vfs-worker"))
-        // The plugin was linked against a library in the build tree, which no loader looks in.
-        .env("LD_LIBRARY_PATH", &artefacts)
-        .output()
-        .expect("the harness runs");
+    let drive = |level: &str, scratch: &Path| {
+        let mut command = Command::new(build.join("drive_the_worker"));
+        command
+            .arg(document.canonicalize().expect("the note is on disk"))
+            .arg(scratch)
+            .env("QT_PLUGIN_PATH", build.join("plugins"))
+            // The confined generator is beside cargo's output rather than beside `kioworker`, so
+            // it is named. `pdf_vfs::WORKER_PATH_VARIABLE` exists for exactly this.
+            .env("PDF_VFS_WORKER", artefacts.join("pdf-vfs-worker"))
+            // The plugin was linked against a library in the build tree, which no loader looks in.
+            .env("LD_LIBRARY_PATH", &artefacts);
+        match level {
+            "" => command.env_remove("PDF_KIO_RESTRICTIONS"),
+            word => command.env("PDF_KIO_RESTRICTIONS", word),
+        };
+        command.output().expect("the harness runs")
+    };
+
+    let ran = drive("", &scratch);
     let said = String::from_utf8_lossy(&ran.stdout).into_owned();
     println!("{said}");
     assert!(
@@ -161,6 +169,48 @@ fn kio_loads_the_plugin_browses_the_tree_and_writes_two_verbs_through_it() {
     );
 
     what_came_back(&said);
+    the_level_it_opens_at(&drive, &document, &build);
+}
+
+/// `CLAUDE.md` principle 3's level, chosen by the one channel a KIO worker has (ADR 0874's
+/// decision 4 in `pdfworker.cpp`).
+///
+/// Two properties, and each is one a wrong reading would lose: a level the plugin *knows* changes
+/// nothing about a document that restricts nothing, and a word it does not know is a refusal
+/// naming the word rather than a silent fall back to off.
+///
+/// **The *ask* level itself is not driven here and cannot be**: `messageBox` needs a client with a
+/// UI delegate, and this harness is a `QCoreApplication` with no session — ADR 0869's own honest
+/// limit, unchanged. The two round trips are driven end to end at the boundary below this one, in
+/// `a_c_program_drives_the_abi.rs`, and in `pdf-vfs`'s own suite over both transports.
+fn the_level_it_opens_at(
+    drive: &dyn Fn(&str, &Path) -> std::process::Output,
+    document: &Path,
+    build: &Path,
+) {
+    let second = build.join("scratch-on.pdf");
+    std::fs::copy(document, &second).expect("a second scratch copy");
+    let ran = drive("on", &second);
+    let said = String::from_utf8_lossy(&ran.stdout).into_owned();
+    assert!(
+        ran.status.success(),
+        "a level the plugin knows broke a document that restricts nothing:\n{said}\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    what_came_back(&said);
+
+    let third = build.join("scratch-nonsense.pdf");
+    std::fs::copy(document, &third).expect("a third scratch copy");
+    let ran = drive("sideways", &third);
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&ran.stdout),
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert!(
+        said.contains("is not one of off, on, ask, warn"),
+        "a level nobody defines is refused by name:\n{said}"
+    );
 }
 
 /// What KIO handed the client, checked here rather than in the C++.

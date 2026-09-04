@@ -180,18 +180,38 @@ impl Confined {
 
 impl Worker for Confined {
     fn ask(&self, query: &Query) -> Result<Answer, WorkerError> {
+        self.exchange(&wire::encode_query(query))
+    }
+
+    /// The question with a person's *yes* behind it, as the one extra byte `Query::Consented`
+    /// is on the wire.
+    ///
+    /// Encoded rather than *built*: wrapping would mean owning the query, and an insertion
+    /// carries a whole document. `wire::encode_consented` writes the tag and then the same bytes
+    /// `encode_query` writes, so a copy of that document is not the price of a consent.
+    fn ask_consented(&self, query: &Query) -> Result<Answer, WorkerError> {
+        self.exchange(&wire::encode_consented(query))
+    }
+
+    fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
+    }
+}
+
+impl Confined {
+    /// One encoded question across the wire, and the answer or the refusal that came back.
+    fn exchange(&self, payload: &[u8]) -> Result<Answer, WorkerError> {
         if !self.alive.load(Ordering::SeqCst) {
             return Err(WorkerError::Transport(TransportError::WorkerDied {
                 detail: String::from("it had already stopped when this question was asked"),
             }));
         }
-        let payload = wire::encode_query(query);
         let exchanged = {
             let mut host = self
                 .host
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            host.exchange(wire::FRAME_QUERY, &payload, None)
+            host.exchange(wire::FRAME_QUERY, payload, None)
         };
         let (kind, answer) = match exchanged {
             Ok(answered) => answered,
@@ -213,10 +233,6 @@ impl Worker for Confined {
                 wanted: "an answer or a refusal",
             }),
         }
-    }
-
-    fn is_alive(&self) -> bool {
-        self.alive.load(Ordering::SeqCst)
     }
 }
 

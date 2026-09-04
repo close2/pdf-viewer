@@ -30,7 +30,8 @@ use pdf_vfs_ffi::refusal::KIND_COUNT;
 use pdf_vfs_ffi::tree::{
     KIND_DIRECTORY, KIND_FILE, LEVEL_ASK, LEVEL_OFF, LEVEL_ON, LEVEL_WARN, MEANS_DELETE_PAGE,
     MEANS_EMBED_FILE, MEANS_INSERT_PAGES, MEANS_NOTHING, MEANS_REMOVE_ATTACHMENT,
-    MEANS_SET_INFORMATION,
+    MEANS_SET_INFORMATION, VERB_DELETE, VERB_READ, VERB_WRITE, VERDICT_ASK, VERDICT_PROCEED,
+    VERDICT_REFUSE, VERDICT_WARN,
 };
 
 /// The header, with every comment removed.
@@ -135,7 +136,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        35,
+        40,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -182,12 +183,20 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     for (name, value) in [
         ("PDFVFS_KIND_DIRECTORY", KIND_DIRECTORY),
         ("PDFVFS_KIND_FILE", KIND_FILE),
-        // `CLAUDE.md` principle 3's four levels, all four, because the shape is what binds even
-        // where the last of them is not yet answerable by this face (ADR 0869).
+        // `CLAUDE.md` principle 3's four levels, all four, and since ADR 0874 all four are
+        // answerable by this face.
         ("PDFVFS_RESTRICT_OFF", LEVEL_OFF),
         ("PDFVFS_RESTRICT_ON", LEVEL_ON),
         ("PDFVFS_RESTRICT_ASK", LEVEL_ASK),
         ("PDFVFS_RESTRICT_WARN", LEVEL_WARN),
+        // The verb a consultation is about, and the verdict it comes back with (ADR 0874).
+        ("PDFVFS_VERB_READ", VERB_READ),
+        ("PDFVFS_VERB_WRITE", VERB_WRITE),
+        ("PDFVFS_VERB_DELETE", VERB_DELETE),
+        ("PDFVFS_VERDICT_PROCEED", VERDICT_PROCEED),
+        ("PDFVFS_VERDICT_WARN", VERDICT_WARN),
+        ("PDFVFS_VERDICT_ASK", VERDICT_ASK),
+        ("PDFVFS_VERDICT_REFUSE", VERDICT_REFUSE),
         // RFC 0003 section 5.2's five verbs, and the zero a refused row is.
         ("PDFVFS_MEANS_NOTHING", MEANS_NOTHING),
         ("PDFVFS_MEANS_INSERT_PAGES", MEANS_INSERT_PAGES),

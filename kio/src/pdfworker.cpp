@@ -23,8 +23,22 @@
  *    page always produces one — §7.5.6 leaves the bytes in the file — so a modal box per `rm`
  *    would be a face nobody keeps installed. `warning()` is KIO's non-modal channel and is what
  *    "the operation proceeded, and here is what the document said" wants. The modal channel is
- *    reserved for the question `CLAUDE.md` principle 3's *ask* level would put, which this face
- *    cannot yet put; ADR 0869 says why and what it would cost.
+ *    for a *question*, and a question is what CLAUDE.md principle 3's *ask* level is —
+ *    `mayProceed` below, and decision 4.
+ *
+ * 4. THE *ASK* LEVEL, AND THE LEVEL THIS FACE OPENS AT. Since ADR 0874 the question can be asked
+ *    before the operation is committed to: `pdfvfs_consult` says whether the verb would be
+ *    restricted and hands back the sentence, `messageBox` puts it to the person, `pdfvfs_answer`
+ *    carries the answer back, and the verb then runs unchanged. This is the face ADR 0869 said
+ *    was worth building for exactly this: a FUSE mount returns EPERM into a log nobody reads,
+ *    and Dolphin shows the question in a dialogue.
+ *
+ *    Which level the mount opens at is the reader's, and there is no configuration user
+ *    interface in this face to choose one — so the one channel a KIO worker has is the
+ *    environment it is started in: `PDF_KIO_RESTRICTIONS` takes off, on, ask or warn, and OFF is
+ *    the default because CLAUDE.md says a document's restrictions are the reader's to set and
+ *    that turning them off "shall always be possible". A word this face does not know is a
+ *    refusal rather than a guess, for the same reason the boundary refuses an unknown number.
  */
 
 #include "pdfworker.h"
@@ -48,6 +62,30 @@ namespace
 
 /*! How much of a virtual file is handed to KIO at a time. */
 constexpr qint64 CHUNK = 512 * 1024;
+
+/*!
+ * The restriction level this face opens mounts at, from `PDF_KIO_RESTRICTIONS`.
+ *
+ * Answers false for a word this build does not know, which is then a refusal rather than a
+ * silent OFF: a reader who asked for a level and got the opposite would be worse served than one
+ * told their word was not understood. Decision 4 at the top of this file.
+ */
+bool chosenLevel(uint32_t &level)
+{
+    const QByteArray word = qgetenv("PDF_KIO_RESTRICTIONS");
+    if (word.isEmpty() || word == "off") {
+        level = PDFVFS_RESTRICT_OFF;
+    } else if (word == "on") {
+        level = PDFVFS_RESTRICT_ON;
+    } else if (word == "ask") {
+        level = PDFVFS_RESTRICT_ASK;
+    } else if (word == "warn") {
+        level = PDFVFS_RESTRICT_WARN;
+    } else {
+        return false;
+    }
+    return true;
+}
 
 /*! A refusal's sentence, through the header's two-call idiom. */
 QString sentenceOf(const pdfvfs_refusal *why)
@@ -144,20 +182,86 @@ bool PdfWorker::locate(const QUrl &url, Located &located, KIO::WorkerResult &why
     m_document.clear();
 
     pdfvfs_refusal *refusal = nullptr;
-    /*
-     * `PDFVFS_RESTRICT_OFF`, and it is a decision rather than a default taken by accident:
-     * `CLAUDE.md` principle 3 says a document's restrictions are the reader's to set and that it
-     * "shall always be possible to turn them off". There is no user interface in this face to
-     * choose another level yet, so the level that is the reader's own is the one it takes; the
-     * other three are one argument away on the boundary, which is the shape the principle binds.
-     */
-    if (pdfvfs_mount_open(located.document.constData(), PDFVFS_RESTRICT_OFF, &m_mount, &refusal)
+    /* Decision 4 at the top of this file: the reader's level, from the one channel this face has. */
+    uint32_t level = PDFVFS_RESTRICT_OFF;
+    if (!chosenLevel(level)) {
+        why = KIO::WorkerResult::fail(
+            KIO::ERR_WORKER_DEFINED,
+            QStringLiteral("PDF_KIO_RESTRICTIONS=%1 is not one of off, on, ask, warn")
+                .arg(QString::fromLocal8Bit(qgetenv("PDF_KIO_RESTRICTIONS"))));
+        return false;
+    }
+    if (pdfvfs_mount_open(located.document.constData(), level, &m_mount, &refusal)
         != PDFVFS_OK) {
         why = refused(refusal, url);
         return false;
     }
     m_document = located.document;
     return true;
+}
+
+bool PdfWorker::mayProceed(const Located &located, uint32_t verb, const QUrl &url,
+                           KIO::WorkerResult &why)
+{
+    pdfvfs_consultation *consultation = nullptr;
+    pdfvfs_refusal *refusal = nullptr;
+    if (pdfvfs_consult(m_mount, located.inside.constData(), verb, &consultation, &refusal)
+        != PDFVFS_OK) {
+        why = refused(refusal, url);
+        return false;
+    }
+    uint32_t verdict = PDFVFS_VERDICT_PROCEED;
+    if (pdfvfs_consultation_verdict(consultation, &verdict) != PDFVFS_OK) {
+        pdfvfs_consultation_free(consultation);
+        why = KIO::WorkerResult::fail(
+            KIO::ERR_WORKER_DEFINED,
+            QStringLiteral("a consultation that would not say its verdict"));
+        return false;
+    }
+    /*
+     * PROCEED, WARN and REFUSE are statements rather than questions, and the verb itself is what
+     * acts on them: WARN's sentences arrive as the commit's warnings and REFUSE's as the verb's
+     * own refusal, in the core's words. Showing a dialogue for any of the three would be asking
+     * a person to decide something already decided.
+     */
+    if (verdict != PDFVFS_VERDICT_ASK) {
+        pdfvfs_consultation_free(consultation);
+        return true;
+    }
+
+    size_t needed = 0;
+    QString question = QStringLiteral("This document restricts what you asked for. Do it anyway?");
+    if (pdfvfs_consultation_question(consultation, nullptr, 0, &needed) == PDFVFS_BUFFER_TOO_SMALL
+        && needed > 0) {
+        QVarLengthArray<char, 512> room(static_cast<qsizetype>(needed));
+        if (pdfvfs_consultation_question(consultation, room.data(), needed, &needed) == PDFVFS_OK) {
+            question = QString::fromUtf8(room.data());
+        }
+    }
+    pdfvfs_consultation_free(consultation);
+
+    /* KIO's modal channel, which is what decision 3 reserved it for. */
+    const int chose = messageBox(KIO::WorkerBase::QuestionTwoActions, question,
+                                 QStringLiteral("Document restriction"),
+                                 QStringLiteral("Do it anyway"), QStringLiteral("Cancel"));
+    const bool proceed = chose == KIO::WorkerBase::PrimaryAction;
+
+    uint32_t answered = 0;
+    refusal = nullptr;
+    if (pdfvfs_answer(m_mount, proceed ? 1u : 0u, &answered, &refusal) != PDFVFS_OK) {
+        why = refused(refusal, url);
+        return false;
+    }
+    if (proceed) {
+        return true;
+    }
+    /*
+     * A person who declined is not a program that could not ask, so this is ERR_USER_CANCELED
+     * rather than the boundary's "a question went unanswered" — which is what the verb would say
+     * if it were issued, and would be a sentence about a question they did answer.
+     */
+    why = KIO::WorkerResult::fail(KIO::ERR_USER_CANCELED, url.toDisplayString());
+    return false;
 }
 
 KIO::WorkerResult PdfWorker::refused(pdfvfs_refusal *why, const QUrl &url)
@@ -350,6 +454,10 @@ KIO::WorkerResult PdfWorker::get(const QUrl &url)
         return why;
     }
 
+    if (!mayProceed(located, PDFVFS_VERB_READ, url, why)) {
+        return why;
+    }
+
     pdfvfs_file *file = nullptr;
     pdfvfs_refusal *refusal = nullptr;
     if (pdfvfs_open(m_mount, located.inside.constData(), &file, &refusal) != PDFVFS_OK) {
@@ -401,6 +509,14 @@ KIO::WorkerResult PdfWorker::put(const QUrl &url, int permissions, KIO::JobFlags
     }
 
     /*
+     * Asked before a byte is read off the socket, so that a person declining is not first made to
+     * wait for a file they are about to refuse to write.
+     */
+    if (!mayProceed(located, PDFVFS_VERB_WRITE, url, why)) {
+        return why;
+    }
+
+    /*
      * The whole file is collected before anything is written, which is RFC 0003 section 5.4's
      * commit point for this face: "a KIO `put` commits when the worker's `put` completes (KIO's
      * verb is already transactional)". The staged four a kernel needs are not on the boundary at
@@ -439,6 +555,9 @@ KIO::WorkerResult PdfWorker::del(const QUrl &url, bool isfile)
     Located located;
     KIO::WorkerResult why = KIO::WorkerResult::pass();
     if (!locate(url, located, why)) {
+        return why;
+    }
+    if (!mayProceed(located, PDFVFS_VERB_DELETE, url, why)) {
         return why;
     }
     pdfvfs_commit *commit = nullptr;

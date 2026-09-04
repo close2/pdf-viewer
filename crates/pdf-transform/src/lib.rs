@@ -40,7 +40,9 @@
 //! four levels — off, on, ask before the operation, warn before the operation. All four are
 //! `pdf_model::restriction::Level`, and [`Policy`] carries one; it is *asked once* in [`apply`],
 //! through `pdf_model::restriction::decide`, rather than decided at the point of any operation.
-//! **A pipe cannot ask**, so `Level::Ask` is answered here by a refusal that says a question
+//! **A pipe cannot ask** — but a terminal can, and [`consult`] is how a caller asks before it
+//! acts (ADR 0874). Where there is nobody to ask, `Level::Ask` is answered here by a refusal that
+//! says a question
 //! went unanswered — the one degradation a batch tool can make without pretending to be a
 //! window, and [`Refusal::Unanswered`] is its own variant so that a caller can tell it from a
 //! refusal by policy. The default is `Off` because the program is the reader's. ADRs 0800, 0803.
@@ -538,17 +540,33 @@ pub enum Refusal {
         /// Every reason the document gave, worded, joined by `; `.
         reasons: String,
     },
-    /// Under `Level::Ask`, the document withholds the operation and nothing here can ask.
+    /// Under `Level::Ask`, the document withholds the operation and the caller had nobody to ask.
     ///
     /// A pipe has nobody to put the question to, and going ahead on an unanswered question would
     /// be `Level::Off` under another name; not going ahead is what a closed dialogue means
     /// everywhere else. Its own variant rather than [`Refusal::Restricted`] so that a caller can
     /// tell "refused by policy" from "a question went unanswered" without parsing the sentence.
+    ///
+    /// **A caller that *has* somebody to ask asks first** — [`consult`], the round trip ADR 0874
+    /// added — and reaches this only where there is no terminal, no dialogue and no message box.
     #[error(
-        "this document restricts {operation}: {reasons}; --restrictions=ask was given and this \
-         program cannot ask, so it was not done"
+        "this document restricts {operation}: {reasons}; the restriction level is ask and there \
+         was nobody to ask, so it was not done"
     )]
     Unanswered {
+        /// What was declined.
+        operation: &'static str,
+        /// Every reason the document gave, worded, joined by `; `.
+        reasons: String,
+    },
+    /// Under `Level::Ask`, somebody *was* asked and said no.
+    ///
+    /// Its own variant rather than [`Refusal::Restricted`], and the distinction is the person:
+    /// `Restricted` is this program obeying the document at `Level::On`, and this is a reader
+    /// deciding. A sentence saying "--restrictions is on" for an answered question would be a
+    /// statement about a level nobody chose (ADR 0874).
+    #[error("this document restricts {operation}: {reasons}, and the question was answered no")]
+    Declined {
         /// What was declined.
         operation: &'static str,
         /// Every reason the document gave, worded, joined by `; `.
@@ -666,6 +684,7 @@ impl Refusal {
             // program declines to write a document the clause forbids.
             Self::Restricted { .. }
             | Self::Unanswered { .. }
+            | Self::Declined { .. }
             | Self::Update { .. }
             | Self::FieldCollision { .. }
             | Self::StructureConflict { .. }
@@ -1153,46 +1172,25 @@ pub fn apply_borrowed(
 
     // The policy is asked here, once per document, and nowhere else: this is the place a host
     // supplies its answer, and every verdict has an arm — a pipe's answer to *ask* included.
+    // [`consult`] is the call, so that a host which asked the same question a round trip earlier
+    // and is now acting on the answer cannot be told something different (ADR 0874).
     if let Some(operation) = plan.operation() {
-        let reasons = |restrictions: &[Restriction]| {
-            restrictions
-                .iter()
-                .map(|restriction| describe_restriction(operation, *restriction))
-                .collect::<Vec<_>>()
-                .join("; ")
-        };
         for (position, at) in wanted.iter().enumerate() {
             let Some(document) = opened.get(position) else {
                 continue;
             };
-            match pdf_model::restriction::decide(
-                policy.restrictions,
-                document,
-                operation,
-                None,
-                None,
-            ) {
-                Verdict::Proceed => {}
-                Verdict::Refuse(restrictions) => {
-                    return Err(Refusal::Restricted {
-                        operation: operation.as_str(),
-                        reasons: reasons(&restrictions),
-                    });
+            match consult(policy.restrictions, document, operation) {
+                Consulted::Proceed => {}
+                Consulted::Refuse { operation, reasons } => {
+                    return Err(Refusal::Restricted { operation, reasons });
                 }
-                Verdict::Ask(restrictions) => {
-                    return Err(Refusal::Unanswered {
-                        operation: operation.as_str(),
-                        reasons: reasons(&restrictions),
-                    });
+                Consulted::Ask { operation, reasons } => {
+                    return Err(Refusal::Unanswered { operation, reasons });
                 }
-                Verdict::Warn(restrictions) => report.warnings.push(Warning {
+                Consulted::Warn { operation, reasons } => report.warnings.push(Warning {
                     source: *at,
                     page: None,
-                    detail: format!(
-                        "this document restricts {}: {}",
-                        operation.as_str(),
-                        reasons(&restrictions)
-                    ),
+                    detail: format!("this document restricts {operation}: {reasons}"),
                 }),
             }
         }
@@ -1214,6 +1212,127 @@ pub fn apply_borrowed(
         Plan::Update(plan) => update::run(plan, &wanted, &opened, sinks, &mut report)?,
     }
     Ok(report)
+}
+
+/// What [`apply`] would decide about one operation on one document, asked *before* committing to
+/// the operation.
+///
+/// **The first half of the two round trips ADR 0874 chose**, and the reason it exists: the
+/// decision is taken where the document is — inside `pdf-vfs`'s confined worker, inside this
+/// crate's own `apply` — and a confined process has no channel to a person by construction (RFC
+/// 0003 section 6). So `Level::Ask` degraded to a refusal in every caller. Asking first turns the
+/// question into data: a host that has somewhere to put it — a message box, a terminal, a
+/// window — gets the level, the operation and the sentence, puts it to the person, and then
+/// issues the operation with the answer in hand.
+///
+/// It carries no restriction values, only their wording, because the *policy* is
+/// `pdf_model::restriction::decide`'s and stays there: what crosses a boundary is a question and
+/// an answer, never a second copy of the rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Consulted {
+    /// Nothing to say: the document asserts nothing against this operation, or the level is
+    /// `Level::Off`. [`apply`] would do it in silence.
+    Proceed,
+    /// [`apply`] would do it and say these afterwards — `CLAUDE.md`'s *warn*.
+    Warn {
+        /// The operation, as `Operation::as_str` words it.
+        operation: &'static str,
+        /// Every reason the document gave, worded, joined by `; `.
+        reasons: String,
+    },
+    /// The person is to be asked — `CLAUDE.md`'s *ask*, and the one verdict this type exists for.
+    ///
+    /// A caller that gets this and has somebody to ask puts [`Consulted::question`] to them; one
+    /// that has nobody says so and does not proceed, which is what [`Refusal::Unanswered`] is.
+    Ask {
+        /// The operation, as `Operation::as_str` words it.
+        operation: &'static str,
+        /// Every reason the document gave, worded, joined by `; `.
+        reasons: String,
+    },
+    /// [`apply`] would refuse it — `CLAUDE.md`'s *on*. Asking here would be theatre: the level
+    /// says the document's word stands, so there is nothing for a person to decide.
+    Refuse {
+        /// The operation, as `Operation::as_str` words it.
+        operation: &'static str,
+        /// Every reason the document gave, worded, joined by `; `.
+        reasons: String,
+    },
+}
+
+impl Consulted {
+    /// The question to put to a person, worded once here so that four hosts cannot word it four
+    /// ways.
+    ///
+    /// `None` for every verdict but [`Consulted::Ask`], because the other three are statements
+    /// rather than questions and a host that showed them as a dialogue would be asking somebody
+    /// to decide something already decided.
+    #[must_use]
+    pub fn question(&self) -> Option<String> {
+        match self {
+            Self::Ask { operation, reasons } => Some(format!(
+                "This document restricts {operation}: {reasons}. Do it anyway?"
+            )),
+            Self::Proceed | Self::Warn { .. } | Self::Refuse { .. } => None,
+        }
+    }
+
+    /// Every reason the document gave, worded; empty for [`Consulted::Proceed`].
+    #[must_use]
+    pub fn reasons(&self) -> &str {
+        match self {
+            Self::Proceed => "",
+            Self::Warn { reasons, .. }
+            | Self::Ask { reasons, .. }
+            | Self::Refuse { reasons, .. } => reasons,
+        }
+    }
+
+    /// The operation asked about, as `Operation::as_str` words it; empty for
+    /// [`Consulted::Proceed`], which is the one verdict that names nothing.
+    #[must_use]
+    pub fn operation(&self) -> &'static str {
+        match self {
+            Self::Proceed => "",
+            Self::Warn { operation, .. }
+            | Self::Ask { operation, .. }
+            | Self::Refuse { operation, .. } => operation,
+        }
+    }
+}
+
+/// What [`apply`] would decide about `operation` on this document, without doing it.
+///
+/// **The one place this crate asks the policy**, and [`apply_borrowed`] is its other caller:
+/// `pdf_model::restriction::decide` is called here and nowhere else in this crate, so a host that
+/// asks first and then acts gets the same answer twice rather than two readings that could
+/// disagree. `CLAUDE.md` principle 3: "the *policy* is asked, once, in a place a host can
+/// supply".
+#[must_use]
+pub fn consult(level: Level, document: &Document, operation: Operation) -> Consulted {
+    let reasons = |restrictions: &[Restriction]| {
+        restrictions
+            .iter()
+            .map(|restriction| describe_restriction(operation, *restriction))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let operation_word = operation.as_str();
+    match pdf_model::restriction::decide(level, document, operation, None, None) {
+        Verdict::Proceed => Consulted::Proceed,
+        Verdict::Warn(restrictions) => Consulted::Warn {
+            operation: operation_word,
+            reasons: reasons(&restrictions),
+        },
+        Verdict::Ask(restrictions) => Consulted::Ask {
+            operation: operation_word,
+            reasons: reasons(&restrictions),
+        },
+        Verdict::Refuse(restrictions) => Consulted::Refuse {
+            operation: operation_word,
+            reasons: reasons(&restrictions),
+        },
+    }
 }
 
 /// One restriction, worded for a batch tool's stderr.

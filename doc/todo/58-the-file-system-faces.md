@@ -2,8 +2,9 @@
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
 Priority: 50-band — the core landed in session 899, the confined worker in 902, the write side in
-906, the FUSE face in 909, its first mount in 911 and the KIO face in 913, so **both faces exist
-and one of them has been used by a person**; what is left is a decision the owner has not been
+906, the FUSE face in 909, its first mount in 911, the KIO face in 913 and **its question channel
+in 916**, so **both faces exist, one of them has been used by a person, and one of them can put
+`CLAUDE.md` principle 3's question to one**; what is left is a decision the owner has not been
 asked, the read side's corpus walk, and the other face's own first use — nobody has opened a PDF
 in Dolphin.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
@@ -189,7 +190,21 @@ item still owes on the write side is three things, none of them blocking a face:
   - **`: > mnt/pages/0002.pdf` is loud in the log and silent in the shell**, because `bash` does
     not check `close(2)`. Nothing can be done about the shell; what could be done is refusing the
     truncation itself, which would make a legitimate `cp` fail. Stated rather than chosen.
-- **The KIO face — done in session 913** (ADRs 0868, 0869). It was driven: a KIO *client* — a
+- **The KIO face — done in session 913** (ADRs 0868, 0869), **and given a question channel in 916**
+  (ADRs 0874, 0875). `PdfWorker::mayProceed` consults the core before `get`, `put` and `del`, puts
+  the sentence through `KIO::WorkerBase::messageBox(QuestionTwoActions, …)` where the verdict is
+  *ask*, carries the answer back with `pdfvfs_answer`, and then performs the verb unchanged; a
+  person who declines gets `ERR_USER_CANCELED` rather than the boundary's "nobody was asked",
+  because they were asked. The mount's level comes from `PDF_KIO_RESTRICTIONS` — off, on, ask,
+  warn, `off` by default, an unknown word refused by name — which is the only channel a
+  `kioworker` has and a placeholder for the configuration page `doc/todo/38` still owes.
+  **A gate cannot drive the dialogue itself**: `messageBox` needs a client with a UI delegate and
+  the harness is a `QCoreApplication` with no session, so what runs there is the round trip's
+  plumbing and the level's channel. The two round trips are driven end to end one boundary down,
+  in `crates/pdf-vfs-ffi/tests/a_c_program_drives_the_abi.rs` and in `pdf-vfs`'s own suite over
+  both transports.
+
+  It was driven: a KIO *client* — a
   `QCoreApplication` running the jobs Dolphin runs — makes KIO read the plugin's metadata, fork
   `kioworker`, load `pdf.so` and answer every command over a socket, and
   `crates/pdf-vfs-ffi/tests/the_kio_worker.rs` builds both halves and checks what came back. What
@@ -198,7 +213,8 @@ item still owes on the write side is three things, none of them blocking a face:
   - **Nothing has ever opened it in Dolphin.** The harness proves the protocol and says nothing
     about a person: not how a listing renders, not the `archiveMimetype` association that should
     make a click on a PDF *enter* it rather than open it, not drag and drop out of `pages/`, not
-    what a refusal's dialogue looks like. What is owed is the same shape as the mount's: install
+    what a refusal's dialogue looks like, and — since session 916 — not what the *ask* level's
+    message box looks like or whether its two button labels read well in it. What is owed is the same shape as the mount's: install
     the plugin, open a PDF in Dolphin, and write up what happened. The mime association in
     particular is asserted by the metadata and exercised by nothing.
   - **The plugin is not installed anywhere and nothing packages it.** `make install` puts `pdf.so`
@@ -229,6 +245,13 @@ Three things this item still owes, none of them blocking a face:
   asks `Worker::is_alive` beside the generation key, so the operation after a death gets a fresh
   worker — but the operation that *found* the death still fails, and a face has to decide whether
   to show that or to retry once. Stated rather than chosen, because it is a face's policy.
+- **A page of an *encrypted* document kills the confined worker with `SIGSYS` when it is
+  rendered**, found in session 916 and not chased there. `bug1815476.pdf` answers `Query::Consult`,
+  `Query::ExtractPage`, `Query::ExtractImages` and the attachment questions through the confinement
+  and dies on `Query::RenderPage`; every committed document in `tests/confined.rs` renders. That
+  makes encryption the difference, and it is the same shape as round 911's `openat` finding — a
+  library sizing something from a file the filter forbids — rather than anything about the level
+  work that found it. `strace -ff` on the worker is what settles it.
 - **A `Canceller` reaches the worker and nothing reaches it through `Vfs`.** `Confined::canceller`
   exists and `Vfs` holds `Box<dyn Worker>`, so a face that wants to end a render a person navigated
   away from has to hold its own factory the way `tests/confined.rs` does. That is a small piece of

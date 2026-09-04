@@ -7,7 +7,7 @@
 //! the core takes a [`pdf_vfs::generation::Backing`] somebody else made.
 
 use pdf_vfs::layout::{Kind, Write};
-use pdf_vfs::{Config, ConfinedWorkers, Errno, FileBacking, Handle, Vfs};
+use pdf_vfs::{Config, ConfinedWorkers, Consulted, Errno, FileBacking, Handle, Vfs};
 
 use crate::refusal::Refusal;
 use crate::status::Status;
@@ -18,11 +18,11 @@ use crate::status::Status;
 /// and the reason this is an argument to [`Mount::open`] rather than a switch anywhere later.
 /// `Off` is the default and stays the default: the program is the reader's.
 ///
-/// What `Ask` means *for this face* is the honest part. The question is decided inside the
-/// confined worker, a process RFC 0003 section 6 gives no channel to a person at all, so today
-/// the level reaches a caller as `EACCES` with a sentence saying a question went unanswered.
-/// A KIO worker has `WorkerBase::messageBox` and could put it; ADR 0869 says what the wire owes
-/// before it can.
+/// `Ask` is askable since ADR 0874, and this is where a face reaches it: [`Mount::consult`] puts
+/// the question and [`Mount::answer`] carries the person's answer back. A face that never calls
+/// them still gets the level's honest degradation — `EACCES` with a sentence saying a question
+/// went unanswered — because proceeding on a question nobody put would be *off* under another
+/// name.
 pub const LEVEL_OFF: u32 = 0;
 /// The document's assertions are obeyed and the operation is refused. See [`LEVEL_OFF`].
 pub const LEVEL_ON: u32 = 1;
@@ -48,6 +48,25 @@ pub const MEANS_REMOVE_ATTACHMENT: u32 = 4;
 /// Setting the §14.3.3 entries the written file states.
 pub const MEANS_SET_INFORMATION: u32 = 5;
 
+/// Reading a file out of the tree, or listing a directory that generates to list.
+pub const VERB_READ: u32 = 0;
+/// Creating or overwriting a path.
+pub const VERB_WRITE: u32 = 1;
+/// Deleting one.
+pub const VERB_DELETE: u32 = 2;
+
+/// Nothing to ask about: the document asserts nothing against the operation, or the mount's
+/// level is [`LEVEL_OFF`]. The operation would proceed in silence.
+pub const VERDICT_PROCEED: u32 = 0;
+/// The operation would proceed and the reasons would be said afterwards, as a commit's warnings.
+pub const VERDICT_WARN: u32 = 1;
+/// **Ask the person.** [`Mount::answer`] is what their answer is, and the operation is issued
+/// afterwards exactly as it always was.
+pub const VERDICT_ASK: u32 = 2;
+/// The mount's level refuses it outright, so there is nothing for a person to decide; putting a
+/// dialogue in front of one here would be asking them to choose something already chosen.
+pub const VERDICT_REFUSE: u32 = 3;
+
 /// A directory, as [`Kind`] says.
 pub const KIND_DIRECTORY: u32 = 0;
 /// A file.
@@ -72,6 +91,30 @@ pub fn kind_of(kind: Kind) -> u32 {
     match kind {
         Kind::Directory => KIND_DIRECTORY,
         Kind::File => KIND_FILE,
+    }
+}
+
+/// The verb a number names, or `None` for a number this build does not define.
+///
+/// Refused rather than defaulted, for [`level_of`]'s reason: a caller asking about a verb this
+/// build has never heard of has asked something, and answering about a different verb would be
+/// this boundary deciding what they meant.
+fn verb_of(number: u32) -> Option<pdf_vfs::Verb> {
+    match number {
+        VERB_READ => Some(pdf_vfs::Verb::Read),
+        VERB_WRITE => Some(pdf_vfs::Verb::Write),
+        VERB_DELETE => Some(pdf_vfs::Verb::Delete),
+        _ => None,
+    }
+}
+
+/// The number a consultation's verdict is, and the question to put where there is one.
+fn verdict_of(consulted: &Consulted) -> (u32, Option<String>) {
+    match consulted {
+        Consulted::Proceed => (VERDICT_PROCEED, None),
+        Consulted::Warn { .. } => (VERDICT_WARN, None),
+        Consulted::Ask { .. } => (VERDICT_ASK, consulted.question()),
+        Consulted::Refuse { .. } => (VERDICT_REFUSE, None),
     }
 }
 
@@ -245,6 +288,47 @@ impl Mount {
             .map_err(|error| Refusal::of(&error))
     }
 
+    /// **Would this operation be restricted, and why** — the first of ADR 0874's two round
+    /// trips, and the reason this face can honour `CLAUDE.md`'s *ask* level at all.
+    ///
+    /// A face calls this before the verb it is about to perform, shows the question where the
+    /// verdict is [`VERDICT_ASK`], calls [`Mount::answer`] with what the person said, and then
+    /// performs the verb unchanged. Nothing else about the face moves.
+    ///
+    /// # Errors
+    ///
+    /// `EINVAL` for a verb this build does not define, `ENOENT` for a path the layout does not
+    /// name, and the core's own where the document cannot be opened.
+    pub fn consult(&self, path: &str, verb: u32) -> Result<Consultation, Refusal> {
+        let Some(verb) = verb_of(verb) else {
+            return Err(Refusal::stated(
+                Errno::Invalid,
+                format!("{verb} is not one of this boundary's three verbs (read, write, delete)"),
+            ));
+        };
+        let consulted = self
+            .vfs
+            .consult(path, verb)
+            .map_err(|error| Refusal::of(&error))?;
+        let (verdict, question) = verdict_of(&consulted);
+        Ok(Consultation { verdict, question })
+    }
+
+    /// The person's answer to the question [`Mount::consult`] last put.
+    ///
+    /// `true` releases the very next operation that performs the operation asked about, once,
+    /// at the level `CLAUDE.md` says "shall always be possible". Answers whether there was a
+    /// question outstanding for it to be an answer to.
+    ///
+    /// # Errors
+    ///
+    /// The core's, where the document's generation cannot be read.
+    pub fn answer(&self, proceed: bool) -> Result<bool, Refusal> {
+        self.vfs
+            .answer(proceed)
+            .map_err(|error| Refusal::of(&error))
+    }
+
     /// What writing to and deleting this path would each mean, or `None` where the layout names
     /// no row at all.
     #[must_use]
@@ -327,6 +411,33 @@ impl Mount {
             .into_iter()
             .map(|shortfall| format!("{}: {}", shortfall.pattern, shortfall.detail))
             .collect()
+    }
+}
+
+/// What [`Mount::consult`] answered, owned.
+///
+/// The verdict as one of the four `VERDICT_*` numbers, and — for [`VERDICT_ASK`] alone — the
+/// question to put in front of a person, worded once by `pdf_transform::Consulted::question` so
+/// that this face and the viewer's cannot word it two ways.
+#[derive(Debug)]
+pub struct Consultation {
+    /// One of [`VERDICT_PROCEED`], [`VERDICT_WARN`], [`VERDICT_ASK`], [`VERDICT_REFUSE`].
+    verdict: u32,
+    /// The question, where the verdict is [`VERDICT_ASK`].
+    question: Option<String>,
+}
+
+impl Consultation {
+    /// The verdict.
+    #[must_use]
+    pub const fn verdict(&self) -> u32 {
+        self.verdict
+    }
+
+    /// The question to put to a person, empty where the verdict is not [`VERDICT_ASK`].
+    #[must_use]
+    pub fn question(&self) -> &str {
+        self.question.as_deref().unwrap_or("")
     }
 }
 

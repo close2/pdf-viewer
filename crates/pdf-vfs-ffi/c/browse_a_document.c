@@ -215,6 +215,102 @@ static int reading(const char *document)
 }
 
 /* The write half: RFC 0003 section 5.2, over a scratch copy this program is allowed to change. */
+/*
+ * CLAUDE.md principle 3's *ask* level, in the two round trips ADR 0874 chose.
+ *
+ * This is what a face does: ask whether the verb would be restricted, put the question to the
+ * person by whatever means it has, carry the answer back, then perform the verb unchanged. The
+ * "person" here is this function, which says no once and yes once so that both outcomes are
+ * driven — and the property that matters most is the first: answering no leaves the document
+ * exactly as it was.
+ */
+static int restricting(const char *restricted)
+{
+    pdfvfs_mount *mount = NULL;
+    pdfvfs_refusal *why = NULL;
+    pdfvfs_consultation *asked = NULL;
+    pdfvfs_file *file = NULL;
+    uint32_t verdict = PDFVFS_VERDICT_PROCEED;
+    uint32_t answered = 0;
+    char question[ROOM];
+    size_t needed = 0;
+
+    if (pdfvfs_mount_open(restricted, PDFVFS_RESTRICT_ASK, &mount, &why) != PDFVFS_OK) {
+        describe("mount restricted", why);
+        return 1;
+    }
+
+    /* The question. */
+    why = NULL;
+    if (pdfvfs_consult(mount, "/pages/0001.pdf", PDFVFS_VERB_READ, &asked, &why) != PDFVFS_OK) {
+        describe("consult", why);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    if (pdfvfs_consultation_verdict(asked, &verdict) != PDFVFS_OK
+        || pdfvfs_consultation_question(asked, question, sizeof question, &needed) != PDFVFS_OK) {
+        fprintf(stderr, "a consultation that would not say what it was\n");
+        pdfvfs_consultation_free(asked);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    pdfvfs_consultation_free(asked);
+    printf("consulted: verdict %u, question '%s'\n", verdict, question);
+    if (verdict != PDFVFS_VERDICT_ASK) {
+        fprintf(stderr, "this document was supposed to withhold the operation\n");
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+
+    /* A no. The page does not come out, and the refusal says a question went unanswered. */
+    why = NULL;
+    if (pdfvfs_answer(mount, 0u, &answered, &why) != PDFVFS_OK || answered == 0u) {
+        describe("answer no", why);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    why = NULL;
+    if (pdfvfs_open(mount, "/pages/0001.pdf", &file, &why) == PDFVFS_OK) {
+        fprintf(stderr, "a no let the operation through\n");
+        pdfvfs_file_free(file);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    describe("after a no", why);
+
+    /* A yes. The question is put again first: an answer answers one question. */
+    asked = NULL;
+    why = NULL;
+    if (pdfvfs_consult(mount, "/pages/0001.pdf", PDFVFS_VERB_READ, &asked, &why) != PDFVFS_OK) {
+        describe("consult again", why);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    pdfvfs_consultation_free(asked);
+    why = NULL;
+    if (pdfvfs_answer(mount, 1u, &answered, &why) != PDFVFS_OK || answered == 0u) {
+        describe("answer yes", why);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    why = NULL;
+    file = NULL;
+    if (pdfvfs_open(mount, "/pages/0001.pdf", &file, &why) != PDFVFS_OK) {
+        describe("after a yes", why);
+        pdfvfs_mount_free(mount);
+        return 1;
+    }
+    {
+        uint64_t size = 0;
+        if (pdfvfs_file_size(file, &size) == PDFVFS_OK) {
+            printf("after a yes: %" PRIu64 " byte(s) of page\n", size);
+        }
+    }
+    pdfvfs_file_free(file);
+    pdfvfs_mount_free(mount);
+    return 0;
+}
+
 static int writing(const char *source, const char *scratch)
 {
     pdfvfs_mount *reader = NULL;
@@ -294,8 +390,9 @@ int main(int argc, char **argv)
     size_t document = 0;
     char joined[ROOM];
 
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s <document.pdf> <scratch-copy.pdf>\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "usage: %s <document.pdf> <scratch-copy.pdf> <restricted.pdf|->\n",
+                argv[0]);
         return 2;
     }
 
@@ -327,6 +424,13 @@ int main(int argc, char **argv)
         return 1;
     }
     if (writing(argv[1], argv[2]) != 0) {
+        return 1;
+    }
+    /* A hyphen where the pdf.js corpus is not checked out: the caller says so rather than this
+     * program guessing, and the line it prints is what the harness asserts on either way. */
+    if (strcmp(argv[3], "-") == 0) {
+        printf("restricted: skipped, no corpus\n");
+    } else if (restricting(argv[3]) != 0) {
         return 1;
     }
     printf("ok\n");

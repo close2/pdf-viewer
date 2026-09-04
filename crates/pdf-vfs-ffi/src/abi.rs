@@ -62,7 +62,7 @@ use core::ffi::{c_char, c_int};
 
 use crate::refusal::{self, Refusal};
 use crate::status::Status;
-use crate::tree::{self, Attributes, Commit, File, Listing, Mount};
+use crate::tree::{self, Attributes, Commit, Consultation, File, Listing, Mount};
 
 /// The revision of everything in this header that a caller compiles against **by value**.
 ///
@@ -745,6 +745,129 @@ pub unsafe extern "C" fn pdfvfs_remove(
     match mount.remove(&inside) {
         Ok(commit) => {
             *out = Box::into_raw(Box::new(commit));
+            Status::Ok.code()
+        }
+        Err(refusal) => refused(refusal, why),
+    }
+}
+
+/// **Would this operation be restricted, and why** — `CLAUDE.md` principle 3's *ask* level, put
+/// to a face that has somewhere to put it.
+///
+/// The first of ADR 0874's two round trips. A face calls this before the verb it is about to
+/// perform; where the verdict is `PDFVFS_VERDICT_ASK` it shows
+/// [`pdfvfs_consultation_question`]'s sentence, calls [`pdfvfs_answer`] with what the person
+/// said, and then performs the verb unchanged. A face that never calls it is not broken — it
+/// gets the level's honest degradation, `EACCES` with a sentence saying a question went
+/// unanswered — which is what a FUSE mount gets, because a mount has nowhere to put a question.
+///
+/// `verb` is one of `PDFVFS_VERB_READ`, `PDFVFS_VERB_WRITE`, `PDFVFS_VERB_DELETE`.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfvfs_consult(
+    mount: *mut Mount,
+    path: *const c_char,
+    verb: u32,
+    out: *mut *mut Consultation,
+    why: *mut *mut Refusal,
+) -> c_int {
+    let inside = match owned_text(path) {
+        Ok(Some(inside)) => inside,
+        Ok(None) => return Status::NullArgument.code(),
+        Err(()) => return Status::NotUtf8.code(),
+    };
+    let (Some(mount), Some(out)) = (mount.as_ref(), out.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match mount.consult(&inside, verb) {
+        Ok(consultation) => {
+            *out = Box::into_raw(Box::new(consultation));
+            Status::Ok.code()
+        }
+        Err(refusal) => refused(refusal, why),
+    }
+}
+
+/// The verdict a consultation came back with: one of the four `PDFVFS_VERDICT_*` numbers.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfvfs_consultation_verdict(
+    consultation: *const Consultation,
+    out: *mut u32,
+) -> c_int {
+    let (Some(consultation), Some(out)) = (consultation.as_ref(), out.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *out = consultation.verdict();
+    Status::Ok.code()
+}
+
+/// The question to put in front of a person, in the two-call idiom.
+///
+/// Empty for every verdict but `PDFVFS_VERDICT_ASK`: the other three are statements rather than
+/// questions, and a face that showed one as a dialogue would be asking somebody to decide
+/// something already decided.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfvfs_consultation_question(
+    consultation: *const Consultation,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(consultation) = consultation.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    copy_out(consultation.question(), out, cap, needed)
+}
+
+/// Releases a consultation. Freeing null is nothing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfvfs_consultation_free(consultation: *mut Consultation) {
+    if !consultation.is_null() {
+        drop(Box::from_raw(consultation));
+    }
+}
+
+/// The person's answer to the question [`pdfvfs_consult`] last put — the second round trip.
+///
+/// A non-zero `proceed` releases the very next operation that performs the operation asked
+/// about, once, at the level `CLAUDE.md` says "shall always be possible"; a zero forgets the
+/// question and does nothing else, because a question declined is neither the document doing
+/// something nor this program refusing. `answered` is written non-zero where there was a
+/// question outstanding for this to be an answer to, and zero where there was not — which is a
+/// face's defect rather than a person's, or a document that moved underneath the mount while
+/// the dialogue was up.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfvfs_answer(
+    mount: *mut Mount,
+    proceed: u32,
+    answered: *mut u32,
+    why: *mut *mut Refusal,
+) -> c_int {
+    let (Some(mount), Some(answered)) = (mount.as_ref(), answered.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match mount.answer(proceed != 0) {
+        Ok(was_asked) => {
+            *answered = u32::from(was_asked);
             Status::Ok.code()
         }
         Err(refusal) => refused(refusal, why),

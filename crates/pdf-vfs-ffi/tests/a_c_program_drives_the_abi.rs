@@ -133,9 +133,20 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
     let scratch = artefacts.join("pdfvfs_scratch.pdf");
     std::fs::copy(&document, &scratch).expect("a scratch copy is made beside the test binary");
 
+    // `bug1815476.pdf` is encrypted with `/P -1084`, so §7.6.4.2's Table 22 bit 11 is clear and
+    // taking a page out of the mount is withheld — which is what makes the *ask* level reachable
+    // from C. A hyphen where `doc/pdf.js` is not checked out; the C program says which it did.
+    let restricted = crate_root.join("../../doc/pdf.js/test/pdfs/bug1815476.pdf");
+    let restricted = if restricted.exists() {
+        restricted.display().to_string()
+    } else {
+        String::from("-")
+    };
+
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&scratch)
+        .arg(&restricted)
         // The confined generator is beside `cargo build`'s output rather than beside this
         // program, so it is named rather than searched for. `pdf_vfs::WORKER_PATH_VARIABLE`
         // exists for exactly this case.
@@ -151,6 +162,28 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
     );
 
     what_it_printed(&said);
+    what_it_asked(&said, &restricted);
+}
+
+/// `CLAUDE.md` principle 3's *ask* level, driven from C the way a face drives it (ADR 0874): the
+/// question, a no that leaves the document alone, and a yes that performs the operation.
+fn what_it_asked(said: &str, restricted: &str) {
+    if restricted == "-" {
+        assert!(said.contains("restricted: skipped, no corpus"), "{said}");
+        println!("the *ask* round trips were skipped: the pdf.js corpus is not checked out");
+    } else {
+        for expected in [
+            "consulted: verdict 2, question 'This document restricts assembling a document out \
+             of these pages: Table 22 bit 11 is clear. Do it anyway?'",
+            "after a no: EACCES —",
+            "after a yes: ",
+        ] {
+            assert!(
+                said.contains(expected),
+                "the C program did not say {expected:?}"
+            );
+        }
+    }
 }
 
 /// The lines the C program printed, checked here rather than in the C.
