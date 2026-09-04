@@ -264,6 +264,15 @@ mod resources {
         payload.resize(length, 0);
         link.fill(&mut payload, &mut descriptors).ok()?;
 
+        // A resource answer carries no descriptor, and one that arrived would be a host with a
+        // defect — but **dropping it here would kill this process**, because `OwnedFd::drop` asks
+        // `fcntl(F_GETFD)` first and `fcntl` is off the allow-list (trap 32, ADR 0880). Leaking a
+        // descriptor a host should never have sent is the lesser of the two, and it is bounded by
+        // `RLIMIT_NOFILE` refusing the next one rather than by anything this process does.
+        for arrived in descriptors.drain(..) {
+            std::mem::forget(arrived);
+        }
+
         let named = usize::try_from(u32::from_be_bytes(payload.get(..4)?.try_into().ok()?)).ok()?;
         let identity = payload.get(4..4usize.checked_add(named)?)?.to_vec();
         let content = payload.get(4usize.checked_add(named)?..)?.to_vec();

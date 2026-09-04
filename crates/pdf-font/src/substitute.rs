@@ -804,7 +804,7 @@ fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> 
 /// length is bounded by those two tables and is well under this on every family. The constant is
 /// a bound on *round trips* rather than a policy about faces: a broker that answered every `skip`
 /// would otherwise be able to keep a worker asking.
-const MAX_OFFERS: u32 = 64;
+pub(crate) const MAX_OFFERS: u32 = 64;
 
 /// Every face this machine offers for a request, in the order [`PREFERENCES`] puts them.
 ///
@@ -852,10 +852,12 @@ fn preferred_paths(request: Request) -> Vec<&'static Path> {
 /// implementation of "which face answers this description" for a confined worker to disagree with
 /// an unconfined one about (`doc/todo/59`).
 ///
-/// `skip` passes over that many of the answers, so a caller judging faces by their contents can
-/// walk the list rather than being handed one candidate. It is meaningful only where `wanted` is
-/// empty: a covering search is a search for *the* widest face that draws a script, and there is
-/// no second answer to it — a `skip` past zero with characters asked for is `None`.
+/// `skip` passes over that many of the answers, so a caller judging faces by their *contents* can
+/// walk the list rather than being handed one candidate — which is what [`installed_wider`] needs,
+/// because §9.6.5.4's code table is built from the face's own program and cannot cross a wire. It
+/// is meaningful only where `wanted` is empty: a covering search is a search for *the* widest face
+/// that draws a script (§9.10.2 gives a composite font's substitute characters and nothing else),
+/// and there is no second answer to it — a `skip` past zero with characters asked for is `None`.
 #[must_use]
 pub fn machine_face(request: Request, wanted: &[char], skip: u32) -> Option<PathBuf> {
     if wanted.is_empty() {

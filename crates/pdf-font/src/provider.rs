@@ -12,6 +12,19 @@
 //!
 //! This module is how the cost is paid back **without giving the worker a filesystem**.
 //!
+//! # What the description is, and why the standard already names it
+//!
+//! ISO 32000-2 §9.8.1, on the font descriptor:
+//!
+//! > These font metrics provide information that enables a PDF processor to synthesise a
+//! > substitute font or select a similar font when the font program is unavailable.
+//!
+//! **So the thing that crosses this port is the thing the clause says the descriptor is for.**
+//! [`crate::substitute::Request`] is derived from the document alone — Table 120's `/Flags`,
+//! `/FontWeight` and `/ItalicAngle`, and the `/BaseFont` name — and the characters beside it are
+//! §9.10.2's, the ones a composite font's script needs before a face can be said to draw it. A
+//! path is not among them and could not be: the document never states one.
+//!
 //! # A port, not a permission
 //!
 //! The worker's system-call set does not change and no host can change it. What changes is that
@@ -85,6 +98,13 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 type Offered = (Vec<u8>, Option<(Arc<[u8]>, String)>);
 
 /// Offers already made, so a miss costs one round trip rather than one per page.
+///
+/// **Bounded by the description rather than by a ceiling**, which is why there is no eviction: a
+/// key is a family (five), a weight and a slope (four combinations), a `skip` under
+/// `substitute::MAX_OFFERS`, and the characters a registered character collection samples. A
+/// document cannot invent a key outside that set, so what this holds is at most the machine's
+/// faces for the families a document names — the same population `substitute::LOADED` holds in a
+/// process that reads them itself.
 static OFFERS: OnceLock<RwLock<Vec<Offered>>> = OnceLock::new();
 
 /// Arms this process to ask its broker for faces it cannot look up itself.

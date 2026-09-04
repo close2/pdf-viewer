@@ -133,3 +133,44 @@ decoder now, and the same command then reports 0.
 
 ## 6. Gates
 
+The full `doc/todo/02` §2 sequence, in a worktree branched from `main`'s merge of round 917, one
+line at a time and waiting on `/proc/PID/exe` for a neighbour's walk before every bounded line. The
+change reaches `pdf-font`, which is the map's first row, so everything was owed — and this is a
+fifth round, so everything was owed twice over. **All twenty-four lines exit 0.**
+
+`cargo fmt --all --check`, `clippy --workspace --all-targets` under `RUSTFLAGS="-D warnings"`, and
+both `fuzz/` lines: silent. `nextest` is **3303 tests in 69.2 s**, one slow, 31 skipped — one of the
+31 being this round's own `#[ignore]`d witness. The doctest line is green.
+
+| line | |
+|---|---|
+| corpus | 974 documents in 10.8 s: 0 unopenable, 9 locked, 1 encrypted beyond us, 5 pageless, 64 incomplete, 0 slow |
+| oracle | 979 agree, 61 contradicted, 836 ambiguous, 47 not comparable |
+| quorra | 958 pages in 34.3 s: 929 agree, 22 differ, 7 refused, 16 not comparable |
+| fixed documents | 71 checked, 0 absent, 71 rows |
+| transform gate | 101.2 pages/s against RFC 0002 §12's floor of 40 |
+| the five transform walks | writer 8.1 s, split 60.6 s, merge 134.5 s, pages 166.3 s, optimize 30.2 s, foreign 203 of 974 in 84.5 s — every fault count 0 |
+| `vfs-write` | 974 documents in 43.7 s |
+| `vfs-read` | 974 documents in **1503.7 s**, 12 743 files read (552.5 MiB), *not the generator's bytes: 0*, *the two transports disagree: 0* |
+| `vfs-awkward` | 8 roots, 3916 documents classified, 258 chosen, **0 killed** in every one of the ten classes |
+| conformance | 218 tests |
+
+`vfs-read` took 1503.7 s against session 914's 324.6 s, and the reason is the machine rather than
+the tree: a neighbouring round's own `read_corpus` was walking the corpus beside it for most of it.
+`doc/todo/02` §2's rule about a loaded machine is about *clocks*, and this line has no assertion on
+one — every count it holds is exact and every one of them is the same as 914's.
+
+**§5's binaries were rebuilt and installed**, which this round owed twice: it is a fifth round, and
+the measurement in §5 above is a measurement.
+
+## 7. What the item still owes
+
+`doc/todo/59` carries it: **the second resource** (ICC profiles, §14.11.5 and RFC 0006 §5.3, for
+which the transport already carries opaque bytes and knows nothing about fonts); **a way for a
+person to choose** rather than a flag and two environment variables, which is `doc/todo/38`'s
+sentence and not this round's to break; and **`CLAUDE.md` principle 3's amendment**, which is the
+owner's own sentence — `doc/questions/Q24` proposes the exact wording and this round deliberately
+did not touch the file.
+
+And `doc/todo/61` §3 is owed by somebody: the document's descriptor, dropped on close, kills a debug
+worker today.
