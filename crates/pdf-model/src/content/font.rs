@@ -637,11 +637,11 @@ impl Interpreter<'_> {
         // for seven fonts on page 101 of ISO 32000-2 — so the copy was made 273 times for a
         // load that did not happen. `load_font` asks again, because it is the authority and
         // Table 57's route reaches it without coming through here.
-        if let Some(cached) = self.cached_font(key.as_ref()) {
+        let label = String::from_utf8_lossy(name.as_bytes());
+        if let Some(cached) = self.cached_font(key.as_ref(), &label) {
             return cached;
         }
 
-        let label = String::from_utf8_lossy(name.as_bytes());
         // Which of §7.8.3's two failures this is has to be decided *here*, because it is the
         // only place that still holds the unresolved entry: a lookup that found nothing and one
         // that found a reference to an object the file never wrote both arrive at `load_font`
@@ -673,7 +673,7 @@ impl Interpreter<'_> {
                   load under it produced no font. The lint is right that they are usually one \
                   question wearing two shapes, and here they are two questions"
     )]
-    fn cached_font(&self, key: Option<&FontKey>) -> Option<Option<Font>> {
+    fn cached_font(&mut self, key: Option<&FontKey>, name: &str) -> Option<Option<Font>> {
         let key = key?;
         if let Some(found) = self.fonts.get(key).cloned() {
             return Some(found);
@@ -682,7 +682,28 @@ impl Interpreter<'_> {
         // load is there — see [`FontCache`] for why keeping a failure would change the second
         // page's reports rather than only its cost — so a miss here falls through to the load,
         // which is exactly what an uncached font does.
-        Some(Some(self.across.get(self.document, key)?))
+        let font = self.across.get(self.document, key)?;
+        // A report is about **this page** rather than about the font, so a font served out of
+        // the cache that outlives the page owes the same sentence a fresh load owes: a second
+        // page drawing part of a damaged `/CharProcs` in silence is trap 5's own failure, and it
+        // is the level above that keeps it from firing once per `Tf`.
+        self.note_char_procs_damage(&font, name);
+        self.fonts.insert(key.clone(), Some(font.clone()));
+        Some(Some(font))
+    }
+
+    /// Says what a Type 3 font drawn from part of its `/CharProcs` is not drawing.
+    ///
+    /// ADR 0866: the entries are the producer's own and §9.6.4 step b) makes every name the
+    /// damage took paint nothing, so what the page owes is the list of those names rather than
+    /// a refusal. `crate::type3::CharProcsDamage::detail` words it.
+    fn note_char_procs_damage(&mut self, font: &Font, name: &str) {
+        if let Font::Type3(type3) = font
+            && let Some(damage) = type3.char_procs_damage()
+        {
+            let detail = damage.detail(name);
+            self.note(Unsupported::Font { detail });
+        }
     }
 
     /// Loads a font, caching it under `key`, which is what `Tf` and Table 57's `/Font` share.
@@ -703,7 +724,7 @@ impl Interpreter<'_> {
         name: &str,
         absent: Absent,
     ) -> Option<Font> {
-        if let Some(cached) = self.cached_font(key.as_ref()) {
+        if let Some(cached) = self.cached_font(key.as_ref(), name) {
             return cached;
         }
 
@@ -716,7 +737,11 @@ impl Interpreter<'_> {
             // the hand-off rather than a failure, which is why this is not a report.
             Some(Err(pdf_font::FontError::Type3 { .. })) => {
                 match dict.map(|dict| crate::type3::Type3Font::read(self.document, dict, name)) {
-                    Some(Ok(font)) => Some(Font::Type3(Arc::new(font))),
+                    Some(Ok(font)) => {
+                        let font = Font::Type3(Arc::new(font));
+                        self.note_char_procs_damage(&font, name);
+                        Some(font)
+                    }
                     Some(Err(error)) => {
                         self.note(Unsupported::Font {
                             detail: error.to_string(),

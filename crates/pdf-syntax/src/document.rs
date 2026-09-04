@@ -619,8 +619,13 @@ impl Document {
     /// a caller asks *instead*, having already been refused, and it is the only route in this
     /// crate to [`Parser::parse_damaged_dictionary`] — which carries the reading of §7.3.7 that
     /// says what such a prefix is and what it is not. A caller takes one on the strength of the
-    /// entries' own content, never on the strength of the object number it asked about; ADR 0784
-    /// is the argument, and `pdf_model::Pages`'s recovery is the one consumer.
+    /// entries' own content, or on a reference to it out of an object that parses whole; ADR 0784
+    /// is the argument. **There are two consumers, and each was decided by its own clause.**
+    /// `pdf_model::Pages`' recovery takes one where the entries state Table 31's `/Type /Page`
+    /// themselves or where §7.7.3.2's `/Kids` names the object (ADRs 0784, 0786), and
+    /// `pdf_model::type3::Type3Font` takes one named by a Type 3 font dictionary's `/CharProcs`,
+    /// because §9.6.4's step b) states that a name a `/CharProcs` has no key for paints nothing —
+    /// so that subset substitutes no mark (ADR 0866). ADR 0867 is why no other key comes through.
     ///
     /// `None` for an object that parses, for one this file does not place at a byte offset, and
     /// for one stored inside §7.5.7's object stream — the last because a compressed object has no

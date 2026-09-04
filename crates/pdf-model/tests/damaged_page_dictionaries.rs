@@ -10,9 +10,10 @@
 //!
 //! So the entries read whole before the damage are a **subset** of the dictionary's, every
 //! member of it the producer's own, selected by an order the clause tells a reader to ignore —
-//! which is why `pdf_syntax::Document::get` still refuses the object outright and why exactly
-//! one caller may ask for the subset: `Pages`' recovery scan, which runs only where the page
-//! tree yields no page at all. ADR 0784.
+//! which is why `pdf_syntax::Document::get` still refuses the object outright and why a caller
+//! asks for the subset **by name**. This file is the first such caller: `Pages`' recovery scan,
+//! which runs only where the page tree yields no page at all (ADR 0784). The second is
+//! `damaged_char_procs.rs`, on a sentence of §9.6.4 rather than of this clause (ADR 0866).
 //!
 //! # Two doors, and the second one is the tree's
 //!

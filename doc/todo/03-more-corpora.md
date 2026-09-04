@@ -2085,11 +2085,28 @@ by the survey's own census as one of this directory's three "codes reaching no g
 `pdftoppm` and `mutool draw` produce no raster for either, so the disagreement is about what a
 reconstruction may claim rather than about a page.
 
+**The consumer that was left here was taken by the nine-hundred-and-twelfth**, and it is the same
+document. `cairo-85141-0.zip-3.pdf`'s object 76 states **41 entries** readably — 39 references to
+glyph descriptions, `/a112` cut to a bare integer, and one key lexed out of the binary damage — and
+`Type3Font::read` now comes through ADR 0784's door for them, on §9.6.4's step b): "If the name is
+not present as a key in CharProcs , no glyph shall be painted" states the residue, so a subset
+substitutes nothing, Table 110's `/Widths` is in the whole font dictionary so no advance moves, and
+§9.6.5.3 makes `/Differences` the complete encoding so what is lost is a **list**. 39 of the font's
+49 encoded names draw and 10 paint nothing; the page renders its problem sheet with those ten
+letters as holes, at ink **4.63038** against `pdftoppm` 1.75734, `mutool` 1.66218 and `hayro`
+1.69921 — all three discard the object — and `ghostscript` 8.93729, which draws glyphs for names
+whose descriptions are physically not in the file. ADRs 0866 and 0867, and the row in
+`doc/checks/fixed-documents.toml` moved to session 912.
+
+**And the population of the general question is now measured**, by
+`pdf-model --example damaged_dictionary_consumers` over 90 535 documents: 311 hold a damaged
+dictionary, 953 in all, 99 hold one that a reference out of an object that parses names, 328 such
+references over 58 keys, and exactly one of the 328 is a `/CharProcs`. ADR 0867 says why the door
+stays shut for the other 327, key family by key family.
+
 **What is left here**: `batch5`'s other seventeen trackers, `pdfminer.six` (123) and `qpdf` (111)
-the largest of the remainder; the two reconstruction cases above; `batch4` once its pieces land;
-and a consumer for `Document::damaged_dictionary` beyond `Pages` — `cairo-85141-0.zip-3.pdf`'s
-forty glyph procedures are still there behind the door ADR 0784 built, and drawing them
-*deliberately and with a report* is a different change from the splice this round removed.
+the largest of the remainder; the two reconstruction cases above; and `batch4` once its pieces
+land.
 
 
 ## What the whole crawl says, now that all of it has been ranked
@@ -2478,8 +2495,10 @@ handed on — whether §7.3.7's dictionary has a prefix worth drawing — is ans
 the answer is neither *draw it* nor *refuse it*: the clause states no extent for a dictionary
 beyond its closing `>>` and states that the written order is not information, so the entries whole
 before the damage are a **subset** of the producer's rather than the dictionary. `Document::get`
-still refuses the object outright; a second door hands the subset to one consumer, which takes it
-only where those entries themselves state Table 31's `/Type /Page`.
+still refuses the object outright; a second door hands the subset to a caller that asks by name —
+first `Pages`' recovery, only where those entries themselves state Table 31's `/Type /Page`, and
+since the nine-hundred-and-twelfth session a Type 3 font's `/CharProcs` as well, on §9.6.4's own
+step b) (ADRs 0866, 0867).
 
 **The population was measured first and it is several defects rather than one.**
 `crates/pdf-model/examples/standing_count_census` over `batch1`, `batch2`, `batch3` and `batch6`
@@ -2670,8 +2689,8 @@ and what it draws.
 
 Three ways of saving it were weighed and each fails. Requiring the resumed reading to reach `>>`
 makes it worse — an object assembled across a gap that closes cleanly stops being a
-`DamagedDictionary` and reaches every reader through `Document::get` rather than the one consumer
-that asks for a prefix by name. Refusing on an unmatched `)` fails because the same damage eats the
+`DamagedDictionary` and reaches every reader through `Document::get` rather than a consumer that
+asks for a prefix by name. Refusing on an unmatched `)` fails because the same damage eats the
 `)`: `699695-1`'s corruption is *runs of `0xFF` over arbitrary bytes*, which is precisely the
 mechanism that would destroy a `(`, so **the witness cannot distinguish its own case from the
 counterexample**. And taking the witnesses' corroboration — that their object 4 really is a content
