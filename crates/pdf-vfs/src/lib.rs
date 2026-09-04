@@ -83,6 +83,7 @@ pub use crate::serve::{
     WORKER_PATH_VARIABLE, WORKER_PROGRAM, WorkerLimits, confine, message_budget, serve,
 };
 pub use crate::worker::InProcessWorkers;
+pub use pdf_font::provider::MachineFaces;
 
 /// What [`Vfs::consult`] answers: `CLAUDE.md` principle 3's verdict for one operation, with the
 /// document's own reasons worded.

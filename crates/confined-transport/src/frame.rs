@@ -15,6 +15,72 @@ pub const HEADER_LEN: usize = 1 + 8;
 /// refuses before it allocates, rather than believing a header and asking for the machine.
 pub const MAX_MESSAGE: u64 = 2 << 30;
 
+/// The kind a confined worker asks its host for a resource with.
+///
+/// **This is the one kind this crate defines, and the exception is argued rather than assumed.**
+/// Everything else about a frame's kind byte is the caller's — see [`parse_header`] — because a
+/// transport that knew both protocols' discriminants could not be shared by both. This pair is
+/// not either protocol's: it is a *request in the other direction*, from the confined side to the
+/// privileged one, and it is answered inside [`crate::Host`] before a protocol's own reader ever
+/// sees it. Neither `viewer-confined`'s vocabulary nor `pdf-vfs`'s gains an arm, and neither
+/// crate's brokers gain a re-entrant call site — which is the cost ADR 0874 declined to pay for
+/// the *ask* level and does not have to pay here.
+///
+/// The value is past both protocols' ranges (each numbers its frames from 1), so a build of
+/// either that has never heard of this one refuses it by name rather than reading it as a
+/// message.
+pub const RESOURCE_REQUEST: u8 = 0xF0;
+
+/// The kind a host answers [`RESOURCE_REQUEST`] with.
+///
+/// Its payload is a big-endian `u32` naming the length of the *identity* — whatever the asking
+/// protocol calls the thing, which this crate does not read — followed by that identity and then
+/// the resource's own bytes. An empty payload is *nothing offered*, which is the default answer
+/// and is not an error.
+///
+/// # Why the bytes and not a descriptor, which is what was written first
+///
+/// `doc/todo/59` stated a descriptor, beside the document's (ADR 0812), and the first
+/// implementation sent one: it worked, and it **killed every debug build**. The descriptor arrives
+/// as a `std::os::fd::OwnedFd`, a font file is read once and the descriptor is then dropped — and
+/// `OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before `close`, under
+/// `core::ub_checks::check_library_ub()`, to catch a double close. `fcntl` is not on the
+/// confinement's allow-list and the allow-list's action is `SECCOMP_RET_KILL_PROCESS`, so the
+/// worker died with `SIGSYS` on the line *after* the `pread64` succeeded. From the worker's own
+/// `strace`:
+///
+/// ```text
+/// recvmsg(0, …, cmsg_type=SCM_RIGHTS, cmsg_data=[3] …) = 9
+/// pread64(3, "OTTO\0\f\0\200\0\3\0@CFF …", 82264, 0) = 82264
+/// fcntl(3, F_GETFD)                       = 0x48
+/// +++ killed by SIGSYS (core dumped) +++
+/// ```
+///
+/// There is no way to close a descriptor from safe Rust without that check — every std type that
+/// owns one closes through `OwnedFd` — and the two ways out are both refused here: widening the
+/// allow-list is what `doc/todo/61` exists to forbid, and leaking the descriptor spends one of the
+/// eight `RLIMIT_NOFILE` leaves. So the resource crosses as bytes, which costs one copy of a file
+/// that is tens of megabytes at worst and is the same arm `Command::Open` already has for a
+/// document held in memory.
+///
+/// **The finding is larger than this port and is recorded rather than fixed here**: the document's
+/// own descriptor is dropped when a document is *closed*, so ADR 0812's route has the same latent
+/// kill in a build with library-UB checks on. `doc/todo/61` carries it.
+pub const RESOURCE_ANSWER: u8 = 0xF1;
+
+/// Largest resource request a host will read before refusing it.
+///
+/// A description is a family, a weight and a handful of characters. The bound is here because the
+/// worker is the untrusted side of this boundary and a length it states is a claim.
+pub const MAX_RESOURCE_REQUEST: usize = 64 * 1024;
+
+/// Largest resource that crosses this wire, in bytes.
+///
+/// The largest font file on a normal machine is a CJK collection of a few tens of megabytes. This
+/// is well past that and well under the worker's address-space ceiling, and it exists at both ends
+/// so that neither side turns the other's stated length into an allocation it cannot survive.
+pub const MAX_RESOURCE: usize = 256 << 20;
+
 /// A payload's kind and length, to be written in front of it.
 ///
 /// **Nine bytes, written separately from the payload rather than in front of a copy of it.** A

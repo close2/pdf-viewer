@@ -50,7 +50,7 @@ mod channel_unix;
 
 mod host;
 
-pub use crate::host::{Host, TransportError};
+pub use crate::host::{Broker, Host, Provided, TransportError};
 pub use crate::supervision::{Canceller, ProgramMissing, describe_exit, program_beside_executable};
 
 #[cfg(not(unix))]

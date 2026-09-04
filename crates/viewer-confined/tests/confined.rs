@@ -2236,3 +2236,166 @@ fn an_encoder_given_a_budget_stops_at_it_rather_than_finishing() {
         }
     }
 }
+
+/// `doc/todo/59`'s resource port: a face this process can look up reaches the worker that cannot.
+///
+/// **This is ADR 0870's stated cost, measured and then paid.** That round stopped a confined
+/// worker being killed for walking `/usr/share/fonts` by declaring the machine's fonts
+/// unreachable, and wrote down what it cost: a document naming an uninstalled CJK face is drawn
+/// from the compiled-in Latin faces instead, so the confined viewer loses the page rather than a
+/// glyph. `XiaoBiaoSong.pdf` is one of the four documents that walk found.
+///
+/// The port (ADR 0880) does not widen the confinement — the worker's system-call set is
+/// byte-for-byte the one `PERMITTED_INTERPRETER_EXTRA` already held, and it still cannot name a
+/// path. What it gains is that a *description* it sends comes back as a descriptor this process
+/// opened. So the discriminating comparison is against **this** process, unconfined, with the
+/// machine's own fonts: offered, the two rasters agree; withheld, they do not.
+///
+/// Calibrated by its own second half, which is what makes it a test of the port rather than of
+/// rendering: if `offer_machine_faces` did nothing, the first assertion would fail with the two
+/// columns equal.
+#[test]
+fn a_face_this_host_can_look_up_reaches_a_worker_that_cannot() {
+    let Some(bytes) = corpus_bytes("XiaoBiaoSong.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+
+    // What this machine draws with every font it has, which is the fidelity the port is for.
+    // One strip, for `drawn_here`'s reason and because the confined side rasterises with one;
+    // the loop is written out because `drawn_here`'s `clone_command` replays the *committed*
+    // document whatever it is handed.
+    let mut here = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
+    let mut rasterizer = CpuRasterizer::new().with_strips(1);
+    let mut pending = vec![Command::Open {
+        id: DOCUMENT,
+        bytes: bytes.clone().into(),
+        password: None,
+        fragment: None,
+    }];
+    while let Some(command) = pending.pop() {
+        for event in here.handle(command) {
+            if let Event::NeedsRender(request) = event {
+                let raster = rasterizer
+                    .rasterize(&request.list, request.target)
+                    .expect("the CPU backend draws this page");
+                pending.push(Command::RenderReady {
+                    token: request.token,
+                    rendered: Rendered::Raster(raster),
+                });
+            }
+        }
+    }
+    let ours = frame_here(&here).1;
+    assert!(
+        ours.data.chunks_exact(4).filter(|p| p[0] < 200).count() > 1000,
+        "the reference page came back nearly blank, so nothing below discriminates"
+    );
+
+    let confined_raster = |offer: bool| {
+        let mut confined = Confined::start().expect("a confined viewer starts");
+        if offer {
+            confined.offer_machine_faces();
+        }
+        confined
+            .handle(&Command::Resize {
+                width: VIEWPORT.0,
+                height: VIEWPORT.1,
+                scale: 1.0,
+            })
+            .expect("a resize crosses");
+        confined
+            .handle(&Command::Open {
+                id: DOCUMENT,
+                bytes: bytes.clone().into(),
+                password: None,
+                fragment: None,
+            })
+            .expect("an open crosses");
+        let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+            panic!("a page draws in the confined process");
+        };
+        let [shown] = frames.as_slice() else {
+            panic!("a single-page arrangement crosses as one frame");
+        };
+        pixels(shown)
+    };
+
+    let offered = differing_bytes(&confined_raster(true).data, &ours.data);
+    let withheld = differing_bytes(&confined_raster(false).data, &ours.data);
+    assert_eq!(
+        offered, 0,
+        "the port was offered and the confined page still differs from this machine's own in \
+         {offered} bytes ({withheld} without the port)"
+    );
+    assert!(
+        withheld > 0,
+        "the calibration: without the port this document is exactly the fidelity ADR 0870 traded \
+         away, and a run where the two agree is measuring a machine with no CJK face installed \
+         rather than the port"
+    );
+}
+
+/// Closing a document in a confined worker drops the descriptor it was handed, and that is a
+/// system call.
+///
+/// **Trap 32, aimed at the instance ADR 0880 did not fix.** ADR 0812 hands the worker a descriptor
+/// per document opened on disk; `Command::Close` drops the `pdf_syntax::FileBytes` holding it, and
+/// `std::os::fd::OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before `close` under
+/// `core::ub_checks::check_library_ub()`. `fcntl` is not on `PERMITTED_INTERPRETER_EXTRA`, so a
+/// build with those checks on would be killed by `SIGSYS` where a release build is not.
+///
+/// This test exists because `doc/todo/61` says the class is found by sweeping rather than by
+/// waiting, and because the claim "nothing in this tree closes a document in a confined worker"
+/// was one nobody had run. The worker is alive afterwards, and *that* is the assertion.
+///
+/// **It is `#[ignore]`d because it fails, and the failure is the finding rather than a regression
+/// this round introduced.** Session 920 ran it both ways and the answer is exactly trap 32's:
+///
+/// ```text
+/// cargo nextest run -p viewer-confined -E 'test(a_document_closed_in_the_confined)'
+///     -> killed by signal 31 (SIGSYS: a system call the confinement forbids)
+/// PDF_VIEW_WORKER=…/release/pdf-view-worker  (the same command)
+///     -> PASS
+/// ```
+///
+/// So the shipped binary is not affected and every debug worker is. Fixing it is `doc/todo/61`
+/// §3's, and it is not this round's: the only fix that does not leak a descriptor is a seccomp
+/// rule for `fcntl` **narrowed by argument** to `F_GETFD`, and widening the allow-list — even by a
+/// read-only query about a descriptor the process already holds — is a decision that item exists
+/// to make deliberately rather than as a side effect of a round about fonts.
+#[test]
+#[ignore = "a witness for doc/todo/61 §3 and trap 32: a confined worker is killed for dropping the descriptor it was handed, in a build with library-UB checks on. Run it explicitly."]
+#[cfg(unix)]
+fn a_document_closed_in_the_confined_process_leaves_a_worker_that_still_answers() {
+    let on_disk = pdf_syntax::FileBytes::on_disk(&specification_path())
+        .expect("the committed document opens");
+    assert!(
+        on_disk.descriptor().is_some(),
+        "a descriptor is what crosses"
+    );
+
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes: on_disk,
+            password: None,
+            fragment: None,
+        })
+        .expect("a document on disk crosses as a descriptor");
+    confined
+        .handle(&Command::Close(DOCUMENT))
+        .expect("a close crosses, and the worker survives dropping the descriptor");
+    assert!(
+        confined.query(Query::Frame).is_ok(),
+        "the worker answered a close and then died"
+    );
+}

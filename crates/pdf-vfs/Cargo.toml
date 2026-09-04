@@ -38,6 +38,18 @@ pdf-transform.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
 
+# The population `tests/read_corpus.rs` walks: every corpus root on this disk, sampled at a fixed
+# stride and classified into the ten classes a confined worker is swept over. A crate rather than
+# a helper in the test file because `viewer-confined` sweeps its own worker over the same
+# population, and two copies of a population are two populations (ADR 0879).
+#
+# `png` for one example: `examples/faces_on_the_port` measures what `doc/todo/59`'s resource port
+# buys, and "buys" means ink on a page — which needs the mount's own PNG decoded. Nothing in the
+# crate itself decodes an image.
+[dev-dependencies]
+corpus-classes.workspace = true
+png.workspace = true
+
 # The confinement probes need signal numbers to tell "killed by the seccomp filter" apart from
 # every other way a process can end — which is a question only the platform with a filter can be
 # asked.

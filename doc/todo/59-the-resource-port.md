@@ -1,7 +1,8 @@
 # 59 — The resource port: what a confined worker may be given, and by whom
 
-Status: **accepted** by the project owner on 2026-09-04, in these words: *"I think we need to
-rethink our 'no access to the filesystem' policy. what do you think about a clean layer, which
+Status: **built for fonts** by session 920 (ADRs 0880, 0881); the item stays open for what "What is
+still owed" below names. Originally **accepted** by the project owner on 2026-09-04, in these
+words: *"I think we need to rethink our 'no access to the filesystem' policy. what do you think about a clean layer, which
 every implementation must (can?) overwrite. the cli would wrap the access with a flag. GUIs could
 either have a setting, or ask the user. access to fonts might be reasonable without user
 intervention."*
@@ -57,19 +58,51 @@ leave implied: **the broker would parse the user's own fonts in an unconfined pr
 moves attack surface in the wrong direction, though the input is the user's rather than the
 document's.
 
-## What is owed
+## What landed, in session 920
 
-1. The port itself: the request type (a description, never a path), the answer (a descriptor plus
-   what identifies the face), the default implementation that provides nothing, and the wire arms
-   in `confined-transport`.
-2. The broker's matcher, lazy and cached, and where it lives so that both `pdf-vfs` and
-   `viewer-confined` use one implementation rather than two.
-3. The hosts: a flag for the command line, a setting for the windows, and whatever the KIO and FUSE
-   faces can honestly offer.
-4. The measurement `no_machine_fonts()` cost us, taken again with the port on: the four documents
-   above, and the population `read_corpus`/`awkward_classes` can name.
-5. An amendment to `CLAUDE.md` principle 3's sentence — **as a clarification of what the broker may
-   do, not a weakening of what the worker may** — once the port exists.
+1. **The port itself** — `crates/pdf-font/src/provider.rs`: the description (a family, a weight, a
+   slope, the characters a script needs, and how many answers to pass over — never a path), the
+   answer (the face's program and the file's own *name*), `faces_come_from` to arm a worker,
+   `MachineFaces` for a host to state, and a default that provides nothing. The wire is
+   `confined-transport`'s `frame::RESOURCE_REQUEST` / `RESOURCE_ANSWER`, answered inside
+   `Host::read_frame`, so **neither protocol's vocabulary gained an arm and no broker call site is
+   re-entered** — the cost ADR 0874 declined to pay for the *ask* level is avoided rather than
+   paid.
+2. **One matcher** — `substitute::machine_face`, which is this module's own families-by-endings walk
+   and its covering search, factored so that the broker runs the same order an unconfined process
+   runs. `provider::open_a_face` is a decode, that call, and a read.
+3. **The hosts** — `pdffs --machine-fonts`, `pdf-viewer-confined --machine-fonts` (or
+   `PDF_VIEWER_MACHINE_FONTS=on`, which is `viewer_host::MACHINE_FONTS_VARIABLE` and is what a window
+   started from a desktop entry has), and `PDF_VFS_MACHINE_FONTS=on` for the KIO face, whose C
+   boundary is an ABI of thirty-five functions (ADR 0868) and whose only channel is the environment
+   (ADR 0875 says the same of its restriction level). Every one of them is **off** by default.
+4. **The measurement** — `crates/pdf-vfs/examples/faces_on_the_port.rs`, over the four documents
+   above and over any population a caller names, with the unconfined process as the reference and
+   byte identity as the comparison. ADR 0881 has the figures: over all 974 documents of
+   `doc/pdf.js`, 40 pages differed from what this machine draws unconfined and are now
+   byte-identical to it, 0 are offered and still different, and twelve of the forty were blank
+   before. **`crates/corpus-classes`, which session 919 made the confined sweeps' population (ADRs
+   0878, 0879), is the wider denominator this example should take next** — it is a different
+   question from the sweeps' own (they ask whether the worker survives; this asks what it drew) and
+   it is the same population.
 
-ICC profiles are the obvious second resource (§14.11.5, and RFC 0006 §5.3's converter needs one).
-Not in this item; named so the port is designed for more than one kind.
+**One thing did not land the way this file specified it, and the reason is a finding.** The resource
+crosses as **bytes on the frame**, not as a descriptor: a descriptor works and then kills every debug
+build, because `OwnedFd::drop` asks `fcntl(fd, F_GETFD)` before `close` and `fcntl` is not on the
+allow-list. ADR 0880 §6 has the `strace`, and trap 32 is the general shape. Nothing about the port's
+security property depends on which of the two it is — the broker opens, the worker never does.
+
+## What is still owed
+
+1. **The other resources.** ICC profiles are the obvious second (§14.11.5, and RFC 0006 §5.3's
+   converter needs one). The port is shaped for more than one kind — the transport's request and
+   answer carry opaque bytes and know nothing about fonts — but nothing but fonts speaks it yet.
+2. **A way for a person to *choose*, rather than a flag and two environment variables.**
+   `doc/todo/38`'s sentence binds here too: no user interface until the owner asks for one. What
+   exists is what a command line and a desktop entry can carry.
+3. **`installed_wider`'s walk over the port is bounded at `MAX_OFFERS` round trips**, which is past
+   the preference list's length on every family and is a bound rather than a policy. If a family
+   list ever grows past it the port would answer fewer candidates than the machine would.
+4. **`CLAUDE.md` principle 3's amendment**, which is the owner's sentence to write:
+   `doc/questions/Q24` proposes the exact wording. This round deliberately did not touch
+   `CLAUDE.md`.

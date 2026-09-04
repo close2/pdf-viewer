@@ -7,7 +7,22 @@
 //! the core takes a [`pdf_vfs::generation::Backing`] somebody else made.
 
 use pdf_vfs::layout::{Kind, Write};
-use pdf_vfs::{Config, ConfinedWorkers, Consulted, Errno, FileBacking, Handle, Vfs};
+use pdf_vfs::{Config, ConfinedWorkers, Consulted, Errno, FileBacking, Handle, MachineFaces, Vfs};
+
+/// The environment name a face turns `doc/todo/59`'s resource port on with.
+///
+/// `on` turns it on; anything else, including absence, leaves it off. It is a poor interface and
+/// it is the only channel a KIO worker has — ADR 0875 says the same about `PDF_KIO_RESTRICTIONS`,
+/// and the two are the same shape for the same reason.
+pub const MACHINE_FONTS_VARIABLE: &str = "PDF_VFS_MACHINE_FONTS";
+
+/// Whether this process offers its confined workers the faces installed on this machine.
+fn machine_faces() -> MachineFaces {
+    match std::env::var(MACHINE_FONTS_VARIABLE).as_deref() {
+        Ok("on" | "1" | "true" | "yes") => MachineFaces::Offered,
+        _ => MachineFaces::Withheld,
+    }
+}
 
 use crate::refusal::Refusal;
 use crate::status::Status;
@@ -191,6 +206,14 @@ impl Mount {
     /// The workers are [`ConfinedWorkers`] and there is no switch beside them, for RFC 0003
     /// section 6's reason: a face is fed hostile bytes by anything that opens a folder.
     ///
+    /// **What there *is* a switch for is `doc/todo/59`'s resource port**, and it is not that
+    /// switch wearing another name: the worker's confinement is identical either way, and what
+    /// the port adds is that *this* process may open a font file the worker described and hand
+    /// the descriptor across. It is read from [`MACHINE_FONTS_VARIABLE`] rather than taken as a
+    /// parameter, for ADR 0875's reason about the restriction level — the environment is the only
+    /// channel a KIO worker has, and the C boundary's thirty-five functions are an ABI (ADR 0868).
+    /// A word the variable does not define is *off*, never a guess.
+    ///
     /// # Errors
     ///
     /// A [`Refusal`] carrying `ENOENT` for a path that is not there, `EISDIR` for a directory,
@@ -229,7 +252,9 @@ impl Mount {
         Ok(Self {
             vfs: Vfs::new(
                 Box::new(FileBacking::new(std::path::PathBuf::from(document))),
-                Box::new(ConfinedWorkers),
+                Box::new(ConfinedWorkers {
+                    faces: machine_faces(),
+                }),
                 config,
             ),
         })

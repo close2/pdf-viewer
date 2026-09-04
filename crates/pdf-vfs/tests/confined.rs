@@ -107,6 +107,7 @@ fn started(bytes: &pdf_syntax::FileBytes) -> pdf_vfs::Confined {
         None,
         pdf_transform::Policy::default(),
         pdf_transform::Budget::default(),
+        pdf_vfs::MachineFaces::Withheld,
     )
     .unwrap_or_else(|error| {
         panic!(
@@ -146,7 +147,7 @@ fn a_question_and_a_consent_cross_the_confinement() {
     let asking = || {
         Vfs::new(
             Box::new(FileBacking::new(path.clone())),
-            Box::new(ConfinedWorkers),
+            Box::new(ConfinedWorkers::default()),
             Config {
                 policy: pdf_transform::Policy {
                     restrictions: pdf_model::restriction::Level::Ask,
@@ -308,7 +309,7 @@ fn an_attachment_crosses_the_confinement_under_the_name_the_document_files_it_by
 fn a_mount_over_a_confined_worker_lists_stats_and_reads() {
     let vfs = Vfs::new(
         Box::new(FileBacking::new(committed(FIVE_PAGES))),
-        Box::new(ConfinedWorkers),
+        Box::new(ConfinedWorkers::default()),
         Config::default(),
     );
     assert_eq!(vfs.pages().expect("a page count"), 5);
@@ -407,6 +408,7 @@ impl Workers for Recording {
             password.as_ref(),
             policy,
             budget,
+            pdf_vfs::MachineFaces::Withheld,
         )?);
         *LAST
             .lock()
@@ -703,4 +705,96 @@ fn confined_probe() {
     };
 
     std::process::exit(if permitted { ALLOWED } else { REFUSED });
+}
+
+/// `doc/todo/59`'s resource port: a face this broker can look up reaches the worker that cannot.
+///
+/// **ADR 0870's stated cost, measured on the mount and then paid.** That round stopped the
+/// confined generator being killed for walking `/usr/share/fonts`, and wrote down what it cost:
+/// four documents in the first sixty of `doc/pdf.js` name a CJK or Arabic face without embedding
+/// it, and each of them is drawn from the compiled-in Latin faces instead — a whole page rather
+/// than a glyph. `XiaoBiaoSong.pdf` is the first of the four.
+///
+/// The comparison is against the same tree mounted **in this process**, unconfined and with the
+/// machine's own fonts, and it is byte identity on the mount's own PNG — which is what
+/// `tests/read_corpus.rs` holds the two transports to on every document whose fonts are embedded
+/// and had to exclude here. Offered, the confined answer is that answer; withheld, it is not.
+///
+/// The second assertion is the calibration and is what makes this a test of the port: without it,
+/// a machine with no CJK face installed would pass the first one for the wrong reason.
+/// `examples/faces_on_the_port` is the same measurement over a population.
+#[test]
+fn a_face_this_broker_can_look_up_reaches_a_generator_that_cannot() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/XiaoBiaoSong.pdf");
+    if !path.is_file() {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    }
+
+    let drawn = |workers: Box<dyn Workers>| {
+        let vfs = Vfs::new(
+            Box::new(FileBacking::new(&path)),
+            workers,
+            Config::default(),
+        );
+        let bytes = match vfs.open("/renders/150dpi/0001.png") {
+            Ok(handle) => handle.bytes().to_vec(),
+            Err(error) => panic!("a page draws: {error}"),
+        };
+        // A length and a sum rather than the pixels: a failed `assert_eq!` on a 300 kB PNG prints
+        // all of it, and what a reader needs is whether the two are the page.
+        let sum = bytes
+            .iter()
+            .fold(1_469_598_103_934_665_603u64, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(1_099_511_628_211)
+            });
+        (bytes.len(), sum)
+    };
+
+    // One strip in this process, because the confined generator rasterises with one: pinning it
+    // means a difference below is about the fonts rather than about the strip planner (ADR 0219).
+    let here = drawn(Box::new(OneStrip));
+    let offered = drawn(Box::new(ConfinedWorkers {
+        faces: pdf_vfs::MachineFaces::Offered,
+    }));
+    let withheld = drawn(Box::new(ConfinedWorkers {
+        faces: pdf_vfs::MachineFaces::Withheld,
+    }));
+
+    assert_eq!(
+        offered, here,
+        "the port was offered and the confined page is still not the one this process draws"
+    );
+    assert_ne!(
+        withheld, here,
+        "the calibration: without the port this document is exactly the fidelity ADR 0870 traded \
+         away, and a run where the two agree is measuring a machine with no CJK face installed \
+         rather than measuring the port"
+    );
+}
+
+/// In-process workers that rasterise on one thread, so a comparison is of the fonts.
+#[derive(Debug)]
+struct OneStrip;
+
+impl Workers for OneStrip {
+    fn spawn(
+        &self,
+        bytes: pdf_syntax::FileBytes,
+        password: Option<pdf_transform::Secret>,
+        policy: pdf_transform::Policy,
+        budget: pdf_transform::Budget,
+    ) -> Result<Box<dyn Worker>, WorkerError> {
+        let source = match password {
+            Some(secret) => pdf_transform::Source::with_password(bytes, secret),
+            None => pdf_transform::Source::new(bytes),
+        };
+        Ok(Box::new(pdf_vfs::worker::InProcess::new(
+            source,
+            policy,
+            budget,
+            Some(1),
+        )))
+    }
 }
