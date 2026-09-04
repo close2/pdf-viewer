@@ -41,40 +41,69 @@ reading. Three consequences for the items below:
   as a row so the cost has a band rather than a sentence; ADR 0885 has the evidence, and the
   wording is the owner's (round 921's question).
 
-## What the nine-hundred-and-twenty-sixth session read on `main`, and the one band it could not settle
+## The one band that would not sit, settled in the nine-hundred-and-thirty-first
 
-The merge that brought the gate to `main` ran it there. **Twenty-seven of the twenty-eight figures
-are inside their bands and one is not**: `doc/PDF20_AN001-BPC.pdf`'s cold open, held to
-`0.49 .. 0.80`, read **0.87, 1.30, 0.72 and 0.86 ms** over four runs at one-minute load averages
-of 12, 3.6, 2.8 and 1.9. Two of those runs had both probes in band and therefore *judged* the
-figure and failed; one declined it on the calibration probe; one had it in band. The figure was
-the same before this round's own change to `pdf-model`, so it is not that change.
+Session 926 ran the gate on `main` four times: twenty-seven of the twenty-eight figures inside
+their bands, and `doc/PDF20_AN001-BPC.pdf`'s cold open — held to `0.49 .. 0.80` — reading
+**0.87, 1.30, 0.72 and 0.86**. It did not move the band, wrote three hypotheses here, and named the
+experiments that would separate them. Session 931 ran them. **All three are refuted, two of them by
+construction**, and this section is now what they found rather than what they asked. ADR 0902 is
+the reading and ADR 0903 the change; `doc/questions/Q29` is what is left for the owner.
 
-**The band was not moved, and the reason is that this round could not separate three hypotheses**
-— which is exactly the discipline ADR 0884 asks for when it says a band is a machine:
+- **The copies are reflinks, so the sweep hypothesis is refuted by one command.** `std::fs::copy`
+  is `copy_file_range`, and on btrfs `copy_file_range` is a reflink: `filefrag -v` prints the same
+  physical extents for the gate's copy and for the repository file it was made from, flagged
+  `shared`. No copy this gate has ever made has had an extent of its own. A copy written with
+  `--reflink=never` — which does get fresh extents — reads cold in `0.109 / 0.125 / 0.543` ms
+  against the reflink's `0.109 / 0.127 / 0.613`. **A copy is not a rewrite, and on a
+  copy-on-write filesystem it is not even a write.**
+- **The disk is not what moves this figure**, so a latency probe beside the throughput one would
+  not have separated anything. In every one of the twelve-run set's excursions the *warm* open —
+  which has no disk in it at all — moved by a **larger** proportion than the cold one (×1.28,
+  ×1.38 and ×2.15 against ×1.13, ×1.14 and ×1.88), while `io_ms` stayed inside `2.0 .. 4.5`
+  throughout.
+- **There is no regression.** `git diff db4a76f1 HEAD` over `pdf-syntax`, `pdf-model`,
+  `viewer-core` and `pdf-font` is session 925's outline change — the same page-tree walk, held —
+  plus `type3.rs`, a test and an example, and not a line of `Document::open` or of `Open::around`'s
+  cost. The calibration probe *is* `Document::open` plus `Pages::new` plus `interpret` on fixed
+  bytes, and it reads 0.703 to 0.749 ms against the `0.62 .. 0.78` session 922 derived.
 
-1. **The gate's second probe measures throughput and this figure is latency.** `io_ms` is a cold
-   read of eight mebibytes, spanning `2.0 .. 7.0` — a factor of 3.5 — while the cold-open bands
-   span about 1.6. The five-page document's cold open reads **109 KiB**, which is one seek and a
-   little transfer, so a disk 40 % slower at latency passes the probe and pushes the figure out.
-   The readings pair as `io 3.0 → 0.87`, `3.1 → 0.72`, `4.3 → 0.86`, `5.2 → 1.30`, which is
-   suggestive and not monotone. ADR 0884's own sentence — *a guard has to sense every subsystem the
-   figure it guards is made of* — has a finer version inside it, and this is it.
-2. **This round swept the build directory** (`doc/todo/02` §5a, 104 GiB), and the gate's cold arm
-   reads **a copy it makes beside the build directory** rather than the repository's file. Every
-   copy since the sweep lands on freshly allocated extents of a btrfs filesystem that had just had
-   a hundred gigabytes returned to it. The bands were derived in a worktree whose build directory
-   was months old.
-3. **A real regression in the open**, which is what the gate is for. Nothing in the merge touches
-   `Document::open`, and the same figure's *warm* arm (0.42, 0.43) is inside its band on every run
-   — a warm open with no seek in it — which argues against this one without excluding it.
+**What is true instead**, and it is a fourth thing none of the three named: the calibration probe
+is the **quickest of fifty passes inside one warmed process**, and every figure it guards is
+**one first pass in a fresh one**. Over twelve consecutive runs the probe moved 1.3 % while the
+figures moved by factors of two. The rule that leaves a round is general — *a probe has to be made
+of the same stuff as the figure it guards* — and it is a finer version of ADR 0884's own sentence
+about sensing every subsystem: that one is about *which* subsystems, this one about the *state*
+they are in.
 
-**What a later round should do**, in this order and none of it expensive: re-run the gate a dozen
-times and read the distribution rather than a run; take `io_ms` and the cold open together and see
-whether a *latency* probe — a small read at a random offset, beside the existing throughput one —
-separates the runs the throughput probe cannot; and only then decide whether the band moved or the
-machine did. Round 925 is working on the open path from this same branch, so its numbers belong
-beside these.
+**And the band that will not sit is not the one 926 named.** Of six failing runs in twelve, five
+failed on `doc/pdf.js/test/pdfs/bug1815476.pdf`'s cold open and one on `PDF20_AN001-BPC.pdf`'s.
+Reversing the check file's own derivation rule, every clock figure's median today sits within a few
+percent of its derived maximum — high for the two smallest documents, *low* for the two largest,
+which is a per-operation cost and not a regression:
+
+| figure | derived range | 12 runs on merged `main` | median against derived max |
+|---|---|---|---|
+| `bug1815476` cold open | 0.376 .. 0.417 | 0.42 .. 0.95, median 0.50 | **+20 %** |
+| `bug1815476` warm open | 0.271 .. 0.292 | 0.28 .. 0.60, median 0.34 | **+16 %** |
+| `PDF20` cold open | 0.576 .. 0.667 | 0.67 .. 1.35, median 0.72 | +8 % |
+| `PDF20` warm open | 0.412 .. 0.475 | 0.45 .. 1.01, median 0.47 | −1 % |
+| `WTPDF` cold open | 2.294 .. 2.55 | 2.44 .. 5.16, median 2.50 | −2 % |
+| `ISO 32000-2` cold open | 22.59 .. 25.33 | 22.35 .. 50.73, median 23.16 | −9 % |
+
+**And the gate declines nearly everything when it is run the way `doc/todo/02` §2 runs it.** In
+session 931's own full sequence the launch line read its calibration at 1.577 ms against
+`0.62 .. 0.78` at a one-minute load average of about 20 — two other rounds building and walking —
+printed `NOT JUDGED`, printed all twenty-eight figures with the reason beside each, and exited 0.
+The guard is working; the consequence is that principle 2's four numbers are gated in principle and
+unwatched in practice, which is what `Q29` is about.
+
+**No band was moved, for the second round running.** A band is a claim about a machine, and
+widening one to admit a loaded machine puts the loaded machine into the claim. What changed is the
+instrument: every child now reports its **first pass** beside its best of fifty (printed, not
+judged — there was no quiet machine to derive a band on), and a figure that is declined says which
+probe declined it and what all three probes read. What is owed is the band for that first-pass
+probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
 ## Why this is a todo and not a caveat
 
