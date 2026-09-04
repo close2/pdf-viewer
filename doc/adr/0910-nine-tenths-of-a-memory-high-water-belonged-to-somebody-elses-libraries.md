@@ -19,8 +19,13 @@ the gate that measures them. The fourth of them has now fallen out of its band t
 - **Session 933**, which ran the full sequence with every calibration between 0.712 and 0.720 ms —
   so the run *was* judging — and had all four rows fail **below** their floors by about 13%,
   reproduced within a kilobyte on a quiet re-run.
+- **Sessions 932 and 934**, on a parallel branch and on the merge that took it: 932 lowered the
+  four floors on readings of 98.5 to 116.4 and asked `Q32`; 934 measured nine runs of an untouched
+  binary with 29 GiB free at **161 to 182 MiB**, against 99 to 116 in a run made with 19 GiB of
+  swap in use, and the merge restored 931's floors. ADR 0909 read that as memory pressure — the
+  right direction, one step short of the mechanism.
 
-Three rounds in a row declined to widen the band, on an argument this project should keep: a band
+Four rounds in a row declined to widen the band, on an argument this project should keep: a band
 is a claim about a machine, and widening one to admit whatever the machine is doing puts the
 machine into the claim. That refusal was right and it was not a resolution — a gate that is red on
 every run gets ignored, which is the failure mode this tree has already written down for cost

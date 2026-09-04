@@ -45,13 +45,13 @@ whether *we* regressed reads the second.
 Three resolutions were priced for the failing figure. The others are recorded because the argument
 against them is what makes this one worth keeping.
 
-- **Widen the band.** Declined by sessions 926, 931 and 933 and declined again: a band widened to
+- **Widen the band.** Declined by sessions 926, 931, 933 and 934 and declined again: a band widened to
   admit whatever the machine is doing has put the machine into the claim. It is also useless here —
   the whole-process figure was seen at 92 MiB and at 180 MiB on one afternoon, and a band spanning
   that is not a guard against anything.
 - **Derive the band per driver version and fail only on an increase.** It fails on the measurement:
   the driver version did not change between session 922's forty-four identical runs and the fall an
-  hour later, and Mesa has been at 26.2.1 since before every one of the three recurrences. What
+  hour later, and Mesa has been at 26.2.1 since six days before the first of these recurrences. What
   moves the figure is the page cache, which has no version.
 - **Keep the figure and take its floor off, leaving a one-sided ceiling.** This is round 932's
   `Q32`, asked from the same red lines on a parallel branch, and it is the closest of the

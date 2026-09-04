@@ -72,13 +72,17 @@ the lowest reading it had seen, ceilings untouched. **`Q37` supersedes `Q32`'s r
   wolf.
 - **The other half of its recommendation is already true**: `open_peak_mib` has had a two-sided
   band since session 922, and it is one of the figures judged on any machine.
-- **Its floor edit is superseded rather than merged.** `peak_mib` no longer exists in
-  `doc/checks/launch-path.toml`, and the harness rejects an unknown row key rather than skipping
-  it, so a merge that took `peak_mib = 95 .. 209` from that branch **fails the gate loudly on the
-  first run** instead of leaving two answers standing quietly. Whoever merges the two takes
-  `peak_anon_mib` and drops the four `peak_mib` lines; `Q32`'s file and the paragraph it added to
-  the check file's header are the record of how the question was asked, and the header paragraph
-  is the one thing worth carrying across, as a fourth recurrence in the list this round rewrote.
+- **Its floor edit was already declined by the merge, on session 934's evidence**, and is now moot:
+  `peak_mib` no longer exists in `doc/checks/launch-path.toml`, and the harness rejects an unknown
+  row key rather than skipping it, so a `peak_mib` line reaching that file again **fails the gate
+  loudly on the first run** instead of leaving two answers standing quietly. `Q32`'s file stays as
+  the record of how the question was asked; its numbers and 934's are folded into the check file's
+  own history paragraph and into `doc/todo/42`, which this round left as one account of the figure
+  rather than four.
+- **Session 934's ask is answered by removal.** ADR 0909 said what was owed was a third probe —
+  what the machine had free when the sample was taken — so that a pressed machine declines the
+  memory figure. A figure that is a property of this program needs no probe, and a figure that is a
+  property of the page cache should not be banded for a probe to rescue.
 
 ## What is *not* being asked
 

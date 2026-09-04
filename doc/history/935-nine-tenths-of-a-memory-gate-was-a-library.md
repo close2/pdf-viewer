@@ -66,7 +66,7 @@ banded nowhere. **What the gate no longer claims** is written into the check fil
 `Q37`: it says nothing about how much memory the *process* occupies, so a document `mmap`ped whole
 rather than read incrementally would not fail this line — `read_kib` is what gates that side.
 
-**No band was widened**, for the fourth round running. Three rounds refused on the argument that a
+**No band was widened**, for the fifth round running. Four rounds refused on the argument that a
 band is a claim about a machine; this one agrees and found that the figure was a claim about the
 machine's page cache.
 
@@ -79,10 +79,20 @@ binary ten minutes apart read 108.9 and 99.3 MiB**, and seven consecutive runs t
 megabyte of each other. Stable within a plateau, stepping between them, is what a page cache that
 holds and then changes produces.
 
-`Q37` says what becomes of `Q32` and of those floors: superseded, because the ceiling is no more a
-claim about this program than the floor was, and because `peak_mib` no longer exists in the check
-file — the harness rejects an unknown row key, so a merge that carried `peak_mib = 95 .. 209`
-across fails loudly on its first run rather than leaving two answers standing.
+The merge into `main` had already declined those floors on session 934's evidence: nine runs with 29
+GiB free read 161 to 182 MiB where the failing run, with 19 GiB of swap in use, read 99 to 116. ADR
+0909 called that memory pressure and was right about the direction — pressure is what makes the
+kernel reclaim a mapped library's pages, which is what this round did on purpose to two named files
+and watched the anonymous total not move. What 0909 said was owed, a third probe so that a pressed
+machine declines the figure, is answered by removal: a figure that is a property of this program
+needs no probe, and one that is a property of the page cache should not be banded for a probe to
+rescue.
+
+`Q37` says what becomes of `Q32`: superseded, because the ceiling is no more a claim about this
+program than the floor was, and because `peak_mib` no longer exists in the check file — the harness
+rejects an unknown row key, so a `peak_mib` line reaching it again fails loudly on its first run
+rather than leaving two answers standing. `doc/todo/42` carried four accounts of this figure after
+the merge and carries one now, which is what that section itself asked the resolving round to do.
 
 ## Two things measured and not used
 

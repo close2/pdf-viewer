@@ -66,6 +66,23 @@
 # wide, three times the whole quantity now being judged, so a page one that allocated three
 # mebibytes more than it does passed then and fails now.
 #
+# **Two more rounds measured this figure between session 933 and the change above, and both of
+# their observations are explained by the paragraph before this one.** Session 932 lowered the four
+# floors to 95, 100, 100 and 112 and asked `doc/questions/Q32`; the merge into `main` did not take
+# them, because session 934 measured the same figure nine times on a machine with 29 GiB free and
+# read **161 to 182 MiB on every document on every run** — inside every band — against 99 to 116 in
+# the run that failed, on a binary no merge had touched a line of, with 19 GiB of swap in use.
+# ADR 0909 read that as memory *pressure*, and it is right about the direction and one step short
+# of the mechanism: pressure is what makes the kernel reclaim the resident pages of a mapped
+# library, and eviction is what session 935 did deliberately, to two named libraries, with the same
+# result and with the anonymous total unmoved. The two rounds' figures do not disagree — 161 to 182
+# with memory free and 99 to 116 with swap in use is one quantity moving with the page cache.
+#
+# What ADR 0909 said was owed — a third probe, so that a pressed machine *declines* the memory
+# figure rather than failing it — is therefore not owed: a figure that is a property of this
+# program needs no probe, and a figure that is a property of the page cache should not be banded
+# for a probe to rescue. `doc/todo/42` carries all three rounds' tables.
+#
 # **Every clock figure is the minimum of nine fresh processes, pinned to this machine's fastest
 # cores.** Contention adds time and never removes it, so the fastest of nine is what a loaded
 # machine can still say about a quiet one. The pinning is not tuning: this processor has four

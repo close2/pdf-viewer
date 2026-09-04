@@ -755,6 +755,27 @@ It is trap 33's shape in the other dimension. There a counter named the wrong **
 probe names the right work in the wrong **state**, and both come back with a clean number about a
 question nobody asked.
 
+**And there is a third dimension, which is the units — the sharpest of the three, because nothing
+in the gate's shape hints at it.** The same gate's `peak_mib` is a *memory* high-water, classified
+as needing the guard, and the guard is a **clock**. Session 934 ran the sequence on a machine with
+9 GiB free after two neighbours' corpus walks: the calibration probe read 0.706 ms inside
+`0.62 .. 0.78`, so the run judged, and all four documents' memory high-waters came in a quarter
+below their minima together — 99, 103, 104 and 116 MiB against floors of 127, 131, 132 and 143. Nine
+re-runs on the same binary with 29 GiB free read 161 to 182 MiB, inside every band, two of them
+judging every figure with nothing outside. `open_peak_mib`, the memory figure with **no graphics
+device in it**, did not move by a megabyte in either state, which names the mechanism as the
+driver's allocation — the thing the harness's own doc comment already says nothing in the process
+can see. A clock cannot sense an allocator, and would read in band on a machine with a gigabyte free
+and on one with sixty. So: *the same work, in the same state, and in the same units* — and the third
+of those is the one a `steady: false` classification can look like it has already handled. ADR
+0909.
+
+**One word of that paragraph is superseded by the trap below, and the correction is worth having:**
+what falls is not "the driver's allocation" but the *resident pages of the driver's shared
+objects*, which the kernel reclaims under exactly the pressure session 934 measured. The
+allocation did not move at all — session 935 evicted two named libraries and watched the anonymous
+total hold to 30 KiB while the whole-process figure fell a quarter (ADR 0910).
+
 ### 35. A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident
 
 `VmHWM` — and `getrusage`'s `ru_maxrss`, and everything else that says *peak resident* — counts
@@ -771,9 +792,9 @@ an hour ago moves this number**. Measured by evicting two libraries and changing
 same binary's high-water fell 25% while its anonymous total moved by 30 KiB; over one afternoon the
 same figure was seen at 92 MiB and at 180 MiB.
 
-Three rounds chased that as a regression, correctly refused to widen the band, and could not
-decline the figure either — because there is no clock in it, and none of the gate's probes senses
-the page cache. ADRs 0910 and 0911.
+Five rounds met that as a regression, four of them correctly refused to widen the band, and none
+could decline the figure either — because there is no clock in it, and none of the gate's probes
+senses the page cache. ADRs 0910 and 0911.
 
 **So a memory gate bands `Rss - file-backed`**, which off `/proc/self/smaps_rollup` is `Anonymous`,
 and prints the whole-process figure beside it unbanded. Two things follow that are worth having in

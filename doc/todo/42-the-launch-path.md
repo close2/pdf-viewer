@@ -105,30 +105,56 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
-**And the figure that failed with no clock in it is settled in the nine-hundred-and-thirty-fifth.**
-Everything above is about clocks, and a clock the gate can decline to judge; `peak_mib` could be
-declined by no probe, because contention does not lower a memory high-water. It fell out of its
-band three times — 12% an hour after forty-four identical runs (session 922), unsettled through
-926 and 931, and 13% below floors already widened once for it in session 933, reproduced within a
-kilobyte on a quiet re-run. Three rounds declined to widen it, rightly.
+**And the figure with no clock in it is settled in the nine-hundred-and-thirty-fifth, which is the
+one account of it.** Everything above is about clocks, and a clock the gate can decline to judge;
+`peak_mib` could be declined by no probe, because contention does not lower a memory high-water.
+Five rounds met it: it was derived identical over forty-four runs and fell 12% an hour later
+(session 922), would not sit for 926 and 931, fell 13% below already-widened floors in 933,
+was lowered by 932 and restored by the merge on 934's evidence. **No band was ever widened**, and
+the refusal was right.
 
-**What it was measuring was mostly not this program.** `VmHWM` counts every resident page, and in
-a process that has brought the graphics device up **nine tenths of them are pages of a mapped
-file**: 52 MiB of `libLLVM.so` (which `libvulkan_radeon.so` links directly), 26 MiB of
-`libgallium.so` (which comes with `libEGL_mesa.so`), against 11 MiB of memory this program had
-asked for. `libLLVM.so` is 163 MiB on disk, so *how much of it is resident* is decided by the page
-cache and by fault-around — and a neighbouring round walking a corpus is exactly what evicts it.
-Measured: evicting those two libraries and nothing else took the figure from 108.4 MiB to 81.2 MiB
-while the anonymous total moved by 30 KiB, and over one afternoon the whole-process figure was seen
-at 92 and at 180 MiB on the same binary. ADR 0910 has the tables.
+**What it was measuring was mostly not this program.** `VmHWM` counts every resident page, and in a
+process that has brought the graphics device up **nine tenths of them are pages of a mapped file**:
+52 MiB of `libLLVM.so` (which `libvulkan_radeon.so` links directly), 26 MiB of `libgallium.so`
+(which comes with `libEGL_mesa.so`), against 11 MiB of memory this program had asked for.
+`libLLVM.so` is 163 MiB on disk, so *how much of it is resident* is decided by the page cache and by
+fault-around — and a neighbouring round walking a corpus, or a machine under pressure, is exactly
+what evicts it. Measured: evicting those two libraries and nothing else took the figure from 108.4
+MiB to 81.2 MiB while the anonymous total moved by 30 KiB, and over one afternoon the whole-process
+figure was seen at 92 and at 180 MiB on the same binary. ADR 0910 has the tables.
 
-So the gate bands the **anonymous** high-water now (`peak_anon_mib`), judged on any machine like
-the other two figures with no clock in them, and prints `VmHWM` beside it unbanded; the graphics
+**934's table is the same quantity seen from the other end**, and the two rounds do not disagree:
+
+| | 934's failing run | 934's nine runs alone | 935's eviction, deliberate |
+|---|---|---|---|
+| the machine | ~9 GiB free, 19 GiB of swap in use | 29 GiB free | quiet, two libraries evicted |
+| `peak_mib`, four documents | 99.1, 103.1, 104.2, 116.5 | 161–164, 168–169, 168–169, 180–182 | 108.4 → 81.2 on the bring-up child |
+| the anonymous share | not measured | not measured | 11.16 → 11.16 MiB |
+| `open_peak_mib`, no device in it | 7, 8, 18 MiB, in band | 7, 8, 18 MiB, in band | unmoved |
+
+ADR 0909 read that as memory *pressure* and was right about the direction; the mechanism is that
+pressure makes the kernel reclaim a mapped library's resident pages, which is what 935 did on
+purpose to two named files. The last row is the control in both rounds, and it is a control because
+that process maps no driver.
+
+**So the gate bands the anonymous high-water** (`peak_anon_mib`), judged on any machine like the
+other two figures with no clock in them, and prints `VmHWM` beside it unbanded; the graphics
 device's own share is a figure of the bring-up gate (`bring_up_anon_mib`, ADR 0911), which is where
 principle 2 says a driver's regression belongs. The four documents separate at 27, 31, 32 and 44
-MiB where the old figure separated them by a tenth against a band 82 MiB wide. What the gate no
-longer claims — how much memory the *process* occupies, which is what a user's machine pays — is
-`doc/questions/Q37`.
+MiB where the old figure separated them by a tenth against a band 82 MiB wide.
+
+That answers the three things the merge left open, and two of them by removing the question:
+
+1. **the availability probe** 934 asked for is not owed. A figure that is a property of this program
+   needs no probe, and a figure that is a property of the page cache should not be banded for a
+   probe to rescue;
+2. **`Q32`'s question** — should the high-water carry a minimum at all — is superseded by `Q37`:
+   neither edge of the whole-process figure is a claim about this program, so a one-sided band on it
+   would be a guard that can neither cry wolf nor see one;
+3. **the first-pass band** `Q29` asks for is still owed, and is still the same idle ten minutes.
+
+What the gate no longer claims — how much memory the *process* occupies, which is what a user's
+machine pays — is `doc/questions/Q37`.
 
 ## Why this is a todo and not a caveat
 
