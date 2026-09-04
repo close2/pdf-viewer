@@ -23,12 +23,18 @@ mod support;
 
 use std::process::Command;
 
+use std::collections::BTreeSet;
+
 use pdf_model::Pages;
+use pdf_model::destination::Destination;
+use pdf_model::outline::Outline;
+use pdf_model::page_label::PageLabels;
+use pdf_model::retrieval::sections;
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::split::{Pieces, SplitPlan};
-use pdf_transform::{Budget, MemorySinks, Origin, Plan, Policy, Report, Source, apply};
+use pdf_transform::{Budget, MemorySinks, Origin, Plan, Policy, Refusal, Report, Source, apply};
 
 use support::committed;
 
@@ -268,12 +274,15 @@ fn the_cuts_are_where_the_grammar_and_the_flag_say_they_are() {
 
 /// The document-level constructs a piece does not carry are named in a warning, never dropped
 /// in silence — trap 5, and RFC 0002 section 6.1's "not silently".
+///
+/// `/Outlines`, `/Names`, `/Dests` and `/PageLabels` **left this list in session 910** and have
+/// their own tests below; what stays here is what `split` still leaves behind.
 #[test]
 fn what_a_piece_does_not_carry_is_named() {
     let bytes = std::fs::read(committed("PDF20_AN001-BPC.pdf")).expect("a committed document");
     let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
     let catalog = source.catalog().expect("a catalog");
-    let stated: Vec<&str> = ["Outlines", "Names", "PageLabels", "Metadata"]
+    let stated: Vec<&str> = ["Metadata", "Threads", "Collection", "Perms"]
         .into_iter()
         .filter(|key| catalog.get(key).is_some())
         .collect();
@@ -294,6 +303,244 @@ fn what_a_piece_does_not_carry_is_named() {
             "the report does not name /{key}: {said:?}"
         );
     }
+}
+
+/// §12.4.2: a piece's labels are the labels its pages had, keyed by the *piece's* own indices.
+///
+/// The clause makes a page index "the page's relative position within the document" and requires
+/// the number tree to "include a value for page index 0", so a piece that carried the source's
+/// tree unchanged would state one with no value for its own first page. What is asserted is the
+/// property that follows: page *k* of the piece is labelled what the source page it came from
+/// was labelled.
+#[test]
+fn a_pieces_page_labels_are_its_own_indices_and_its_sources_labels() {
+    let bytes = std::fs::read(committed("PDF20_AN002-AF.pdf")).expect("a committed document");
+    let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
+    let before = PageLabels::read(&source);
+    if before.is_empty() {
+        eprintln!("skipped: the fixture states no §12.4.2 labels");
+        return;
+    }
+    let (_, outputs) = split(&bytes, "4-6", Pieces::Groups);
+    let read =
+        Document::open_with_limits(piece(&outputs, "piece-1.pdf"), Limits::DEFAULT).expect("opens");
+    let after = PageLabels::read(&read);
+    assert!(
+        !after.is_empty(),
+        "the source labels its pages and the piece labels none"
+    );
+    for (position, index) in (3..6_usize).enumerate() {
+        assert_eq!(
+            after.label(position),
+            before.label(index),
+            "piece page {position} came from source page {index}"
+        );
+    }
+}
+
+/// §12.3.3: the piece's outline is the subset that reaches its pages, and every item in it
+/// resolves to a page the piece holds.
+///
+/// The strong half is the second clause of that sentence: an outline carried whole would name
+/// pages the piece does not have, and Table 151's hierarchy would still read as valid. What
+/// discriminates is asking the *output* where its items go.
+#[test]
+fn a_pieces_outline_resolves_only_to_pages_the_piece_holds() {
+    let bytes = std::fs::read(committed("PDF20_AN002-AF.pdf")).expect("a committed document");
+    let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
+    let pages = Pages::new(&source);
+    if Outline::read(&source, &pages).is_empty() {
+        eprintln!("skipped: the fixture states no §12.3.3 outline");
+        return;
+    }
+    let (_, outputs) = split(&bytes, "5-7", Pieces::Groups);
+    let read =
+        Document::open_with_limits(piece(&outputs, "piece-1.pdf"), Limits::DEFAULT).expect("opens");
+    let held = Pages::new(&read);
+    assert_eq!(held.len(), 3);
+    let outline = Outline::read(&read, &held);
+    assert!(
+        !outline.is_empty(),
+        "three pages of a document with an outline and the piece carries none"
+    );
+    let carried = sections(&read, &held, &outline);
+    assert!(
+        !carried.is_empty(),
+        "the piece states an outline whose items resolve nowhere"
+    );
+    for section in &carried {
+        assert!(
+            section.first_page < held.len(),
+            "{:?} resolves to page {} of a {}-page piece",
+            section.title,
+            section.first_page,
+            held.len()
+        );
+    }
+    // Table 151: "The parent of a top-level item shall be the outline dictionary itself", and
+    // `/Prev` is "( Required for all but the first item at each level )" — so the first item of
+    // the rebuilt chain states none.
+    let catalog = read.catalog().expect("a catalog");
+    let root = read.get_key(&catalog, "Outlines");
+    let root = root.as_dict().expect("an outline dictionary");
+    let first = root
+        .get("First")
+        .and_then(Object::as_reference)
+        .expect("/First");
+    let item = read.get(first);
+    let item = item.as_dict().expect("an outline item");
+    assert!(
+        item.get("Prev").is_none(),
+        "the chain's first item states /Prev"
+    );
+    assert_eq!(
+        item.get("Parent").and_then(Object::as_reference),
+        catalog.get("Outlines").and_then(Object::as_reference),
+        "a top-level item's /Parent is the outline dictionary itself"
+    );
+}
+
+/// §12.3.2.4: the named destinations a piece keeps are the ones that resolve inside it.
+///
+/// A name is not an indirect reference, so §7.3.10's null cannot stand in for one that names a
+/// page the piece does not hold — which is why the entry is dropped rather than carried.
+#[test]
+fn a_pieces_named_destinations_all_resolve_inside_it() {
+    let bytes = std::fs::read(committed("Well-Tagged-PDF-WTPDF-1.0.pdf")).expect("committed");
+    let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
+    let catalog = source.catalog().expect("a catalog");
+    let names = source.get_key(&catalog, "Names");
+    let stated = names
+        .as_dict()
+        .map(|names| source.get_key(names, "Dests"))
+        .and_then(|root| {
+            root.as_dict()
+                .map(|root| pdf_syntax::tree::name_entries(root, &|o| source.resolve(o)).len())
+        })
+        .unwrap_or_default();
+    if stated == 0 {
+        eprintln!("skipped: the fixture states no §12.3.2.4 name tree");
+        return;
+    }
+    let (_, outputs) = split(&bytes, "6-12", Pieces::Groups);
+    let read =
+        Document::open_with_limits(piece(&outputs, "piece-1.pdf"), Limits::DEFAULT).expect("opens");
+    let held = Pages::new(&read);
+    let catalog = read.catalog().expect("a catalog");
+    let names = read.get_key(&catalog, "Names");
+    let names = names.as_dict().expect("the piece states a name dictionary");
+    let root = read.get_key(names, "Dests");
+    let root = root.as_dict().expect("the piece states a /Dests tree");
+    let kept = pdf_syntax::tree::name_entries(root, &|o| read.resolve(o));
+    assert!(!kept.is_empty(), "seven pages and not one destination kept");
+    assert!(
+        kept.len() < stated,
+        "a seven-page piece of a {}-page document kept all {stated} destinations",
+        Pages::new(&source).len()
+    );
+    for (key, value) in &kept {
+        let landed = Destination::read(&read, value)
+            .and_then(|destination| destination.page_index(&read, &held));
+        assert!(
+            landed.is_some_and(|index| index < held.len()),
+            "{:?} resolves to {landed:?} in a {}-page piece",
+            String::from_utf8_lossy(key),
+            held.len()
+        );
+    }
+}
+
+/// RFC 0002 section 6.1's `--at-bookmarks`: a piece begins where an outline item at the stated
+/// depth or shallower lands, and the pieces cover the selection exactly once.
+#[test]
+fn at_bookmarks_cuts_where_the_outline_lands_and_loses_no_page() {
+    let bytes = std::fs::read(committed("PDF20_AN002-AF.pdf")).expect("a committed document");
+    let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
+    let pages = Pages::new(&source);
+    let outline = Outline::read(&source, &pages);
+    let marks: BTreeSet<usize> = sections(&source, &pages, &outline)
+        .into_iter()
+        .filter(|section| section.depth == 0)
+        .map(|section| section.first_page)
+        .collect();
+    if marks.len() < 2 {
+        eprintln!("skipped: the fixture's outline names fewer than two pages at level 1");
+        return;
+    }
+    let (report, outputs) = split(&bytes, "1-end", Pieces::AtBookmarks(1));
+    // One piece per mark, plus a leading one where the first mark is not the first page.
+    let expected = marks.len() + usize::from(!marks.contains(&0));
+    assert_eq!(outputs.len(), expected, "{:?}", names(&outputs));
+
+    let mut covered = Vec::new();
+    for output in &report.outputs {
+        let Origin::Piece {
+            first_page, pages, ..
+        } = output.origin
+        else {
+            panic!("a split writes pieces");
+        };
+        covered.extend(first_page..first_page + pages);
+    }
+    covered.sort_unstable();
+    assert_eq!(
+        covered,
+        (1..=Pages::new(&source).len()).collect::<Vec<_>>(),
+        "the pieces cover every page exactly once"
+    );
+
+    // Every piece but the first begins on a marked page.
+    let mut starts: Vec<usize> = report
+        .outputs
+        .iter()
+        .filter_map(|output| match output.origin {
+            Origin::Piece { first_page, .. } => Some(first_page - 1),
+            _ => None,
+        })
+        .collect();
+    starts.sort_unstable();
+    for start in starts.iter().skip(usize::from(!marks.contains(&0))) {
+        assert!(
+            marks.contains(start),
+            "a piece begins on unmarked page {start}"
+        );
+    }
+}
+
+/// `--at-bookmarks` on a document whose outline names no page is refused by name, never answered
+/// with one piece that cut nowhere.
+#[test]
+fn at_bookmarks_without_an_outline_is_refused_by_name() {
+    let sinks = MemorySinks::new();
+    let empty = apply(
+        &Plan::Split(SplitPlan {
+            source: 0,
+            pages: "1-end".parse::<Selection>().expect("a selection"),
+            pieces: Pieces::AtBookmarks(1),
+            names: "piece-%d.pdf".parse().expect("a pattern"),
+        }),
+        &[Source::new(
+            std::fs::read(committed("PDF-Declarations.pdf")).expect("a committed document"),
+        )],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    );
+    match empty {
+        Err(Refusal::NoBookmarks { at, depth }) => {
+            assert_eq!((at, depth), (0, 1));
+            assert_eq!(empty_exit(), 2, "§12.3.3 says nowhere to cut, so exit 2");
+        }
+        Ok(_) => eprintln!(
+            "skipped: this fixture's outline does resolve at level 1, so nothing is refused"
+        ),
+        Err(other) => panic!("--at-bookmarks answered {other}"),
+    }
+}
+
+/// The status [`Refusal::NoBookmarks`] carries, named where the test above reads it.
+fn empty_exit() -> u8 {
+    Refusal::NoBookmarks { at: 0, depth: 1 }.exit().code()
 }
 
 /// Foreign evidence, in principle 5's register: `qpdf --check` accepts what this program wrote.
