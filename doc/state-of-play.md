@@ -406,8 +406,19 @@ deletion does not destroy bytes" said where a page is deleted and not where an e
 **And there is a face**: `pdffs <file.pdf> <mountpoint>` mounts a document as a directory on
 `fuser`'s pure-Rust path, with no C linkage, no layout knowledge of its own, an inode per *name*
 because an ordinal is a position, every refusal logged as a sentence as well as returned as a
-number, and RFC 0003 section 5.4's invalidation on a thread of its own (ADR 0861). The KIO plugin
-is still unwritten. And **there is a confined worker** under all of it (ADRs 0840, 0841,
+number, and RFC 0003 section 5.4's invalidation on a thread of its own (ADR 0861). **And there is
+a second face**: `kio/` is a C++ `MODULE` plugin subclassing `KIO::WorkerBase` that serves `pdf:/`,
+so Dolphin and every KIO-aware program browse into a document the way they browse into a tar — and
+what it forwards over is `pdf-vfs-ffi`, a C ABI of thirty-five functions with the same self-checks
+`viewer-ffi` has, because RFC 0003 section 7 records that KF6 admits no Rust worker at all (ADRs
+0868, 0869). It is outside the cargo workspace, so a machine with no KDE builds and tests
+everything unchanged. What it can do that a mount cannot is show a person **why**: RFC section
+5.3's refusals reach a KIO job as the core's own sentence rather than as a category, and a
+deletion's §7.5.6 consequence — the bytes stay in the file — arrives as a non-modal warning
+instead of a log line nobody reads. What no face can do yet is put a *question*: the restriction
+decision is taken inside the confined generator, which has no channel to a person by construction,
+so `ask` still leaves as `EACCES` and ADR 0869 costs the two ways out. Driven by a KIO client on a
+machine with no session; never yet by Dolphin. And **there is a confined worker** under all of it (ADRs 0840, 0841,
 0846, 0847): `pdf-vfs-worker` confines itself before it reads a byte, takes the document as the
 descriptor a broker sends it, and answers the same questions with the same answers as the
 in-process one — question by question, both ways, asserted. It needs no system call the viewer's

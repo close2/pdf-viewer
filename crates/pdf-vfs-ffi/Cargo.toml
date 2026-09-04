@@ -1,0 +1,30 @@
+[package]
+name = "pdf-vfs-ffi"
+description = "The C ABI over pdf-vfs: RFC 0003's tree as functions, so that a C++ KIO worker can serve a PDF as a folder without one line of PDF logic of its own."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The same three as `viewer-ffi`, and for the same three callers. `cdylib` is what the KIO
+# plugin links against and what a `dlopen` reaches; `staticlib` is what a host embedding the
+# tree in its own binary wants; `rlib` is what this crate's own tests and the workspace's
+# `--all-targets` build.
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# The core this crate is a C spelling of. RFC 0003 section 7 puts the layout, the cache, the
+# generation rules and the broker side of the worker protocol there, and says the faces contain
+# none of it — so nothing here re-decides anything `pdf-vfs` says, including which `errno` a
+# refusal is.
+pdf-vfs.workspace = true
+# `pdf_model::restriction::Level`, and nothing else: `CLAUDE.md` principle 3's four levels are
+# that type, and this boundary states all four as numbers a host chooses between. Naming them
+# through their own crate rather than re-declaring them here is what keeps a fifth level from
+# meaning two different things.
+pdf-model.workspace = true
+
+[lints]
+workspace = true

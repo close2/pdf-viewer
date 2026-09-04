@@ -2,8 +2,9 @@
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
 Priority: 50-band — the core landed in session 899, the confined worker in 902, the write side in
-906 and the FUSE face in 909, so what is left is the **second** face, a decision the owner has not
-been asked, and a measurement nobody has taken — starting with a mount, which no gate may make.
+906, the FUSE face in 909 and the KIO face in 913, so **both faces exist** and what is left is a
+decision the owner has not been asked, a measurement nobody has taken, and two things no gate may
+do: mount the one and open the other in Dolphin.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
 `doc/PDF-Declarations.pdf` (two §7.11.4 embedded files whose names hold a COLON, so it is the
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
@@ -15,8 +16,9 @@ Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`),
 §14.3.3, §14.3.4, §14.7.5.4, §14.8.2.5.1.
 Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/write_corpus.rs`,
 `tests/confined.rs` and `examples/vfs_cost.rs`, `crates/pdf-fuse/` and its `tests/a_face.rs`,
+`crates/pdf-vfs-ffi/` and its four tests, `kio/`,
 `crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
-ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861.
+ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861, 0868, 0869.
 
 ## What is done
 
@@ -81,6 +83,24 @@ string — so what binds there is the length. And `crates/pdf-fuse` is the first
 no C linkage, no layout knowledge, an inode per name, every refusal logged as a sentence as well
 as returned as a number, and RFC section 5.4's invalidation on a thread of its own (ADR 0861).
 
+Session 913, RFC 0003's fifth landing: **the KIO face, and the C ABI under it.**
+`crates/pdf-vfs-ffi` is RFC section 7's boundary — thirty-five `extern "C"` functions with
+`viewer-ffi`'s shape and its two self-checks, a hand-written header held against `src/abi.rs` as
+text and a C program compiled with `-Werror` and run over a document and a scratch copy. Four
+things differ from `viewer-ffi` and each is argued in ADR 0868: a refusal is an owned *object*
+carrying `pdf_vfs::Errno` and section 5.3's sentence rather than a status or a last-error slot;
+the counted enumeration is `errno`, held complete by an exhaustive `match` that cannot be written
+incompletely; the staged four are deliberately absent, because a KIO `put` is already a
+transaction and only a kernel needs `create`/`write_at`/`flush`/`release`; and `pdfvfs_split` is
+the one question a face has of its own — where a URL's document ends and the tree begins, which
+only `stat(2)` can answer. `kio/` is the plugin, outside the cargo workspace, built by CMake
+against ECM, Qt 6 and KF6 KIOCore, and it holds the Qt types so the core never sees one. Three
+decisions in it are KIO's own (ADR 0869): section 5.3's predicted `ERR_UNSUPPORTED_ACTION` mapping
+would have destroyed the sentence it was meant to carry, so a refusal that carries its reason is
+`ERR_WORKER_DEFINED`; a `listDir` states no size, because it would generate every file in the
+directory; and a commit's warnings reach a person through KIO's non-modal `warning()`, which is
+`CLAUDE.md` principle 3's *warn* level shown rather than logged for the first time in this tree.
+
 ## 1. The departure the owner should overrule or ratify
 
 **`images/` is a directory per page** — `images/0035/01.png` — where RFC §4 draws it flat as
@@ -123,9 +143,26 @@ item still owes on the write side is three things, none of them blocking a face:
   offsets survive a directory larger than one reply buffer, whether a zero attribute timeout is
   too expensive for a file manager that stats a thousand names, and what `--allow-other` needs
   from `/etc/fuse.conf` on this machine.
-- **The KIO face** — a C++ `MODULE` plugin subclassing `KIO::WorkerBase` over a C ABI into this
-  core, the `viewer-ffi` precedent. Toolchain risk moderate: CMake, Qt 6 and KF6 enter the build
-  of that one component, which lives outside the cargo workspace.
+- **The KIO face — done in session 913** (ADRs 0868, 0869). It was driven: a KIO *client* — a
+  `QCoreApplication` running the jobs Dolphin runs — makes KIO read the plugin's metadata, fork
+  `kioworker`, load `pdf.so` and answer every command over a socket, and
+  `crates/pdf-vfs-ffi/tests/the_kio_worker.rs` builds both halves and checks what came back. What
+  is left of it is three things, and the first is the counterpart of the mount above:
+
+  - **Nothing has ever opened it in Dolphin.** The harness proves the protocol and says nothing
+    about a person: not how a listing renders, not the `archiveMimetype` association that should
+    make a click on a PDF *enter* it rather than open it, not drag and drop out of `pages/`, not
+    what a refusal's dialogue looks like. What is owed is the same shape as the mount's: install
+    the plugin, open a PDF in Dolphin, and write up what happened. The mime association in
+    particular is asserted by the metadata and exercised by nothing.
+  - **The plugin is not installed anywhere and nothing packages it.** `make install` puts `pdf.so`
+    in KF6's plugin directory; nothing puts `pdf-vfs-worker` where the plugin will find it, and
+    without that the face refuses every document by name. Whether that is a `$PDF_VFS_WORKER` in a
+    unit, a copy beside `kioworker`, or a packaging decision is unmade.
+  - **A worker holds one mount and never lets it go.** KIO keeps a worker in a pool between
+    operations, which is what keeps the confined generator warm across a `cp -r`; browsing a
+    *directory* of PDFs replaces it per document, and nothing reaps or bounds. That is the broker
+    half of section 4's first bullet, now with a face that provokes it.
 
 ## 4. The confined worker — **done in session 902**, and what is left of it
 
@@ -208,7 +245,28 @@ refer to it (also now live: a page deleted through the mount keeps its bytes, an
 says so), page-label alias symlinks, and the resolution set for `renders/`, where 150 and 300 are
 what the core states.
 
-**And a seventh the write side raised**: §5.3's refusals return `EACCES` for both `on` and *ask*,
-because a file system has nobody to ask. A KIO worker *can* put a question to a person — Dolphin
-will show a dialogue — so a face with a channel could implement the *ask* level properly and
-re-issue the write. Nothing in the core has to change for it; whether it is wanted is the owner's.
+**And a seventh the write side raised, with its last sentence now corrected.** §5.3's refusals
+return `EACCES` for both `on` and *ask*, because a file system has nobody to ask. A KIO worker
+*can* put a question to a person — `KIO::WorkerBase::messageBox`, and Dolphin shows a dialogue —
+so a face with a channel could implement the *ask* level properly and re-issue the write.
+
+This item used to end "[n]othing in the core has to change for it", and **that is false**, found
+by building the face (ADR 0869 §3). The restriction decision is taken inside the *confined
+generator*: `pdf_transform::apply` asks `pdf_model::restriction::decide` once at the seam, and RFC
+§6 gives that process no channel to a person by construction — which is what confinement is. So
+the question cannot reach the shim without one of two core changes, both of which belong to
+`pdf-vfs` and `confined-transport` rather than to a face, since RFC §7 forbids a face knowing
+anything both faces do not:
+
+- **make the wire a dialogue** — `crates/confined-transport` is one frame each way, and a worker
+  that could interrupt an answer with a question changes the protocol *both* confined workers
+  speak, `pdf-view-worker` included; or
+- **ask first, in two round trips** — a `Query` answering *would this operation be restricted, and
+  with what reasons*, put before the operation; the broker asks the face, the face asks the
+  person, and the operation is then issued at `off` or refused. No protocol change, two extra
+  crossings on a path a person is already waiting on, and one new thing that can be true between
+  the two calls.
+
+The second is the smaller and is the recommendation. What *is* wired today is the **warn** level,
+which the KIO face shows with `warning()`; ADR 0869 §3 has both halves. Whether the *ask* is
+wanted at all is still the owner's.

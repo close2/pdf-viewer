@@ -3263,6 +3263,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-vfs-ffi"
+version = "0.1.0"
+dependencies = [
+ "pdf-model",
+ "pdf-vfs",
+]
+
+[[package]]
 name = "pdfref"
 version = "0.1.0"
 dependencies = [
