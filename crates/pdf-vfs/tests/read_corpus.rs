@@ -38,8 +38,8 @@
 //! - **and a widened document is read to a smaller depth**, which is [`Bounds`] and is the one
 //!   place the two halves of the population differ. Listings are whole for both — every name of
 //!   every directory against the layout's own — and what is bounded is the *reads*: a widened
-//!   document's first [`PAGES_SAMPLED`] pages and the first [`ENTRIES_SAMPLED`] entries of one
-//!   directory. One corpus document is why, and its measurement is under [`ENTRIES_SAMPLED`].
+//!   document's first [`PAGES_SAMPLED`] pages. A second bound stood beside it for one round, on
+//!   the entries of a directory, and [`Bounds`] says why it is gone.
 //!
 //! A class is not a diagnosis: a document is in as many of them as it satisfies, and *plain* is
 //! in the list because a sweep that meets only awkward documents cannot say whether what it found
@@ -173,48 +173,35 @@ const PAGES_READ: usize = 16;
 /// is there because the first page of a document is the one every other test reads.
 const PAGES_SAMPLED: usize = 2;
 
-/// How many entries of one directory a *widened* document has read.
-///
-/// The second bound, and the document that priced it is why it is not the first one over again.
-/// `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` states **10 084 images on one page**, each
-/// two pixels by one, so `/images/0001/` is a directory of ten thousand files — and this walk
-/// `stat`s and reads every entry it lists. A `stat` generates (RFC 0003 section 5.5), a read puts
-/// a whole extraction run in the cache at once, and a run too large for the cache's budget is put
-/// nowhere at all (ADR 0865 section 3, round 911's finding), so on that page every one of twenty
-/// thousand questions re-ran an extraction of ten thousand images. The walk was still inside that
-/// one document after twenty-five minutes, at sixteen pages and at two alike.
-///
-/// That is a fact about the *mount* rather than only about the walk — `doc/todo/58` §5 carries it
-/// — and what the walk owes is to be bounded rather than to rediscover it every run. Four
-/// entries; the ones past it are still listed and still held to the layout's own names, and they
-/// are counted as read by nobody.
-const ENTRIES_SAMPLED: usize = 4;
-
-/// What a document of this root has read of it: pages, and entries of one directory.
+/// What a document of this root has read of it.
 ///
 /// **Two depths, one instrument.** `doc/pdf.js` is walked exactly as it was before the widening,
 /// which is what keeps the figures printed since session 914 comparable; every other root is
 /// sampled, because the population that carries the awkward classes carries the pathological
 /// documents too, and a gate one document can hold for half an hour is not a gate (ADR 0878).
+///
+/// **A second bound stood here for one round and has come off, which is the point of it.** Session
+/// 919 found `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf` — 10 084 images on one page, so
+/// `/images/0001/` is a directory of ten thousand files — holding this walk for twenty-five
+/// minutes, and bounded the reads to four entries a directory to get past it. That was a bound on
+/// the *instrument*: a walk that skips the pathological case cannot see the next one. Round 923
+/// measured what was actually costing the time (a name validated by re-running the extraction that
+/// named it, ADR 0886) and fixed it in the core, and that document's whole ten-thousand-entry
+/// directory is now listed, `stat`ed and read in seconds. So the entries are whole again, and only
+/// the pages are bounded.
 #[derive(Debug, Clone, Copy)]
 struct Bounds {
     /// How many of the document's pages are read.
     pages: usize,
-    /// How many entries of one directory are `stat`ed and read.
-    entries: usize,
 }
 
 /// What this document is walked to, by the root it came from.
 fn bounds(chosen: &Chosen) -> Bounds {
     if chosen.root == PDFJS {
-        Bounds {
-            pages: PAGES_READ,
-            entries: usize::MAX,
-        }
+        Bounds { pages: PAGES_READ }
     } else {
         Bounds {
             pages: PAGES_SAMPLED,
-            entries: ENTRIES_SAMPLED,
         }
     }
 }
@@ -481,8 +468,6 @@ struct Tally {
     both_refused: usize,
     /// Pages past [`PAGES_READ`], listed and not read.
     pages_not_read: usize,
-    /// Directory entries past [`ENTRIES_SAMPLED`], listed and not read.
-    entries_not_read: usize,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
     /// A question whose sentence names a signal: the confined worker died.
@@ -541,7 +526,6 @@ struct Local {
     transport_differ: Vec<String>,
     both_refused: usize,
     pages_not_read: usize,
-    entries_not_read: usize,
     /// Every file read in the first pass, by path, as (size, digest).
     seen: BTreeMap<String, (u64, u64)>,
     /// Whether the whole layout was walked, which a document the core cannot open is not.
@@ -887,10 +871,7 @@ fn images(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, count: usize, b
         // The listing is whole — every name of it against the extraction's own — and only the
         // *reads* are bounded, which is the split `PAGES_READ` already makes for pages.
         holds_names(local, &at, &inventory, &wanted);
-        local.entries_not_read = local
-            .entries_not_read
-            .saturating_add(inventory.len().saturating_sub(bounds.entries));
-        for entry in inventory.iter().take(bounds.entries) {
+        for entry in &inventory {
             let expected = outputs
                 .iter()
                 .find(|(name, _)| *name == entry.name)
@@ -990,7 +971,7 @@ fn text(vfs: &Vfs, local: &mut Local, path: &Path, name: &str, count: usize, bou
 }
 
 /// `attachments/`: §7.11.4's embedded files, under the names the document files them by.
-fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, bounds: Bounds) {
+fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path) {
     let Ok(listed) =
         listing(vfs, "/attachments").inspect_err(|why| local.refused.push(why.clone()))
     else {
@@ -1036,10 +1017,7 @@ fn attachments(vfs: &Vfs, local: &mut Local, name: &str, path: &Path, bounds: Bo
         ));
         return;
     }
-    local.entries_not_read = local
-        .entries_not_read
-        .saturating_add(listed.len().saturating_sub(bounds.entries));
-    for (entry, document_name) in listed.iter().zip(names.iter()).take(bounds.entries) {
+    for (entry, document_name) in listed.iter().zip(names.iter()) {
         let expected = produce(
             name,
             path,
@@ -1274,7 +1252,7 @@ fn examine(chosen: &Chosen, tally: &Mutex<Tally>) {
             renders(&vfs, &mut local, name, path, count, bounds);
             images(&vfs, &mut local, name, path, count, bounds);
             text(&vfs, &mut local, path, name, count, bounds);
-            attachments(&vfs, &mut local, name, path, bounds);
+            attachments(&vfs, &mut local, name, path);
             meta(&vfs, &here, &mut local, path, name);
             again(&vfs, &mut local);
         }
@@ -1332,7 +1310,6 @@ fn merge(chosen: &Chosen, local: Local, tally: &Mutex<Tally>) {
         t.bytes = t.bytes.saturating_add(local.bytes);
         t.both_refused = t.both_refused.saturating_add(local.both_refused);
         t.pages_not_read = t.pages_not_read.saturating_add(local.pages_not_read);
-        t.entries_not_read = t.entries_not_read.saturating_add(local.entries_not_read);
         for (row, count) in local.matched {
             let held = t.matched.entry(row).or_default();
             *held = held.saturating_add(count);
@@ -1438,9 +1415,8 @@ fn every_corpus_document_reads_as_the_layouts_own_generators_do() {
         println!("vfs-read:   {row}: {count} files are their own generator's bytes");
     }
     println!(
-        "vfs-read:   the tree and the generator both refused: {}, pages past the ceiling: {}, \
-         entries listed and not read: {}",
-        tally.both_refused, tally.pages_not_read, tally.entries_not_read
+        "vfs-read:   the tree and the generator both refused: {}, pages past the ceiling: {}",
+        tally.both_refused, tally.pages_not_read
     );
     print_list("refused by name", &tally.refused);
     print_list("not the generator's bytes", &tally.differ);

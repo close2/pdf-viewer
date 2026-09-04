@@ -306,6 +306,123 @@ fn an_image_is_read_under_exactly_the_name_its_own_listing_gave() {
     ));
 }
 
+/// Workers that count the `ExtractImages` questions put to them.
+///
+/// **What `Vfs::generated` cannot see.** That counter says how many virtual files the tree
+/// produced the bytes of, and it stayed at *one* through the whole defect round 923 fixed: the
+/// bytes were produced once and cached, and every subsequent question re-ran the extraction
+/// anyway — to validate a *name* (ADR 0886). A property about how often a generator runs has to
+/// count the generator running, which is what this does.
+#[derive(Debug, Default)]
+struct CountingWorkers(Arc<std::sync::atomic::AtomicUsize>);
+
+impl pdf_vfs::worker::Workers for CountingWorkers {
+    fn spawn(
+        &self,
+        bytes: pdf_syntax::FileBytes,
+        password: Option<pdf_transform::Secret>,
+        policy: pdf_transform::Policy,
+        budget: pdf_transform::Budget,
+    ) -> Result<Box<dyn pdf_vfs::worker::Worker>, pdf_vfs::worker::WorkerError> {
+        Ok(Box::new(Counting {
+            inner: pdf_vfs::worker::Workers::spawn(
+                &InProcessWorkers,
+                bytes,
+                password,
+                policy,
+                budget,
+            )?,
+            extractions: Arc::clone(&self.0),
+        }))
+    }
+}
+
+/// One such worker.
+#[derive(Debug)]
+struct Counting {
+    inner: Box<dyn pdf_vfs::worker::Worker>,
+    extractions: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Counting {
+    fn count(&self, query: &pdf_vfs::worker::Query) {
+        if matches!(query, pdf_vfs::worker::Query::ExtractImages { .. }) {
+            self.extractions
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+impl pdf_vfs::worker::Worker for Counting {
+    fn ask(
+        &self,
+        query: &pdf_vfs::worker::Query,
+    ) -> Result<pdf_vfs::worker::Answer, pdf_vfs::worker::WorkerError> {
+        self.count(query);
+        self.inner.ask(query)
+    }
+
+    fn ask_consented(
+        &self,
+        query: &pdf_vfs::worker::Query,
+    ) -> Result<pdf_vfs::worker::Answer, pdf_vfs::worker::WorkerError> {
+        self.count(query);
+        self.inner.ask_consented(query)
+    }
+
+    fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
+}
+
+/// Listing `images/NNNN/`, `stat`ing every entry and reading every entry is **one** extraction.
+///
+/// RFC 0003 section 4's `images/NNNN/` is the one directory whose listing *is* an extraction's own
+/// output names — deliberately, so that a listing and a read cannot disagree — and until round 923
+/// that made every question about a path under it run the extraction again, because that is how the
+/// name was validated. On `tika-issue-tracker/batch1/PDFBOX/PDFBOX-186-0.pdf`, which states 10 084
+/// images on one page, twenty thousand questions at 176 ms each held a corpus walk for
+/// twenty-five minutes (ADR 0878) while the bytes sat in the cache (ADR 0886).
+///
+/// The committed document has one image on page 35 rather than ten thousand, so what is asserted
+/// is the *count* rather than a clock: three questions of one directory, one run.
+#[test]
+fn a_directorys_names_are_asked_of_the_extraction_once() {
+    let bytes = std::fs::read(committed(WITH_IMAGES)).expect("a committed document");
+    let backing = Arc::new(MemoryBacking::new(WITH_IMAGES, bytes));
+    let extractions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let vfs = Vfs::new(
+        Box::new(SharedBacking(Arc::clone(&backing))),
+        Box::new(CountingWorkers(Arc::clone(&extractions))),
+        Config::default(),
+    );
+
+    let listed = vfs.list("/images/0035").expect("page 35's images");
+    assert!(!listed.is_empty(), "page 35 places an image");
+    let after_the_listing = extractions.load(std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(after_the_listing, 1, "a listing is one extraction");
+
+    for entry in &listed {
+        let path = format!("/images/0035/{}", entry.name);
+        assert!(vfs.stat(&path).expect("a stat").size.is_some());
+        assert!(!vfs.open(&path).expect("an open").is_empty());
+    }
+    // The listing again, which is what a file manager does when somebody scrolls back.
+    assert_eq!(vfs.list("/images/0035").expect("again").len(), listed.len());
+    assert_eq!(
+        extractions.load(std::sync::atomic::Ordering::Relaxed),
+        after_the_listing,
+        "the listing, every stat, every read and a second listing are one extraction between them"
+    );
+
+    // And a name the document did not produce is still refused — the validation the inventory
+    // took over has to keep refusing what the extraction never named.
+    assert!(matches!(
+        vfs.stat("/images/0035/99.png"),
+        Err(VfsError::NoSuchPath(_))
+    ));
+}
+
 #[test]
 fn renders_offers_the_resolutions_the_core_decided_and_no_others() {
     let (_backing, vfs) = mounted(FIVE_PAGES);

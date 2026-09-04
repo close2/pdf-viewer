@@ -19,6 +19,16 @@
 //!   the confined worker, so the difference is the socket and nothing else. Cheap questions
 //!   (a page count, a page's text) are where a round trip shows; expensive ones (a 300 dpi render)
 //!   are where it disappears into the work.
+//! - **A wide directory, listed and read whole.** `doc/todo/58` §5 asked for "`ls images/` on a
+//!   scanned book, the cache's hit rate under a `cp -r` of one directory", and this is that: the
+//!   first page of the document that states any image has its `images/NNNN/` listed, listed again,
+//!   and then every entry of it `stat`ed and read — which is what `cp -r` of that directory is.
+//!   **The clock is the whole of the discriminator here, and that is worth saying**: round 923
+//!   found `images/NNNN/` costing one extraction per *question* rather than per run, and
+//!   `Vfs::generated` — the tree's own count of what it produced — stayed at one throughout,
+//!   because the work was in validating the name rather than in producing the bytes (ADR 0886).
+//!   It is printed beside the clock all the same, as the statement that the reads came out of the
+//!   cache.
 //! - **The peak, and where it is.** The broker's own resident high-water mark beside the largest
 //!   answer this document produces — which is small, and that is the finding rather than an
 //!   omission: the page's pixels are allocated in the *worker*, and what the broker ever holds is
@@ -185,6 +195,68 @@ fn measure(path: &std::path::Path) {
         "  a `stat` that generates   {:>9} cold (the mount had no worker)   {:>9} cached",
         span(cold),
         span(warm)
+    );
+    wide_directory(&vfs, pages);
+}
+
+/// How many pages are asked for an image before the search gives up.
+///
+/// Each ask is one `pdf_transform::images` run, so this is a real cost and is stated rather than
+/// left as `pages`. Sixty-four reaches page 60 of `Tagged-PDF-Best-Practice-Guide.pdf`, which is
+/// the only page of it with more than one image and therefore the one worth timing.
+const LOOKED_AT: usize = 64;
+
+/// `ls -l` and then `cp -r` of one `images/NNNN/`, on the first page that states an image.
+///
+/// The module comment says what this is for. The listing is timed twice because the second one is
+/// what says whether anything was remembered, and every entry is `stat`ed and read because that is
+/// what a copy does — twenty thousand questions on the document that made this worth writing.
+fn wide_directory(vfs: &Vfs, pages: usize) {
+    // The search *is* the cold listing — a page asked for its images has had them extracted — so
+    // the clock on the one that answers is the figure, and timing a second call afterwards would
+    // print a warm listing under a cold heading.
+    let mut found = None;
+    for page in 1..=pages.min(LOOKED_AT) {
+        let at = format!("/images/{page:04}");
+        let started = Instant::now();
+        let listed = vfs.list(&at).is_ok_and(|entries| !entries.is_empty());
+        if listed {
+            found = Some((at, started.elapsed()));
+            break;
+        }
+    }
+    let Some((at, cold)) = found else {
+        println!("  no page of the first {LOOKED_AT} states an image");
+        return;
+    };
+    let entries = vfs.list(&at).expect("a listing");
+    let warm = timed(ROUNDS, || {
+        std::hint::black_box(vfs.list(&at).expect("a listing"));
+    });
+    let before = vfs.generated();
+    let copied = Instant::now();
+    let mut bytes = 0_usize;
+    for entry in &entries {
+        let path = format!("{at}/{}", entry.name);
+        vfs.stat(&path).expect("a stat");
+        bytes = bytes.saturating_add(
+            usize::try_from(vfs.open(&path).expect("an open").len()).unwrap_or(usize::MAX),
+        );
+    }
+    let copied = copied.elapsed();
+    println!(
+        "  {at} ({} entries)   listed {:>9}   listed again {:>9}",
+        entries.len(),
+        span(cold),
+        span(warm)
+    );
+    println!(
+        "  a `cp -r` of it           {:>9} for {} stats and {} reads ({}), {} of them generated",
+        span(copied),
+        entries.len(),
+        entries.len(),
+        bytes_of(bytes),
+        vfs.generated().saturating_sub(before)
     );
 }
 

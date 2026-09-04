@@ -856,7 +856,7 @@ impl Vfs {
     /// have, [`VfsError::NotADirectory`] for a file, and the backing's or the worker's own.
     pub fn list(&self, path: &str) -> Result<Vec<DirEntry>, VfsError> {
         let current = self.current()?;
-        let (route, captures) = locate_in(&current, path, &self.config.resolutions)?;
+        let (route, captures) = locate_in(&current, path, &self.config.resolutions, &self.cache)?;
         let directory = canonical_path(path)?;
         if route.kind != Kind::Directory {
             return Err(VfsError::NotADirectory(path.to_owned()));
@@ -926,12 +926,12 @@ impl Vfs {
                 .collect(),
             Generator::ImageInventory => {
                 let page = captures.page.ok_or(VfsError::NoSuchPath(path.to_owned()))?;
-                let mut names: Vec<String> = images(current, page)?.keys().cloned().collect();
-                names.sort();
-                names
-                    .into_iter()
+                // Already in the extraction's own order: a `BTreeMap`'s keys are sorted, and the
+                // inventory is those keys.
+                image_names(&self.cache, current, page)?
+                    .iter()
                     .map(|name| DirEntry {
-                        name,
+                        name: name.clone(),
                         kind: Kind::File,
                     })
                     .collect()
@@ -1009,7 +1009,7 @@ impl Vfs {
                 generation: staged.generation,
             });
         }
-        let (route, _) = locate_in(&current, path, &self.config.resolutions)?;
+        let (route, _) = locate_in(&current, path, &self.config.resolutions, &self.cache)?;
         if route.kind == Kind::Directory {
             return Ok(Attributes {
                 kind: Kind::Directory,
@@ -1070,7 +1070,9 @@ impl Vfs {
         // insertion's consultation a `NoSuchPath`, which is the shape of a face that cannot ask.
         let (route, _) = match verb {
             Verb::Write => Self::locate_for_write(&current, &canonical_path(path)?)?,
-            Verb::Read | Verb::Delete => locate_in(&current, path, &self.config.resolutions)?,
+            Verb::Read | Verb::Delete => {
+                locate_in(&current, path, &self.config.resolutions, &self.cache)?
+            }
         };
         // The layout table is what says which operation a path's verb performs, because it is
         // the one place a path's meaning is stated; `tests/a_write.rs` holds it to
@@ -1133,7 +1135,7 @@ impl Vfs {
         if let Some(staged) = self.staged_at(path) {
             return Ok(staged);
         }
-        let (route, captures) = locate_in(&current, path, &self.config.resolutions)?;
+        let (route, captures) = locate_in(&current, path, &self.config.resolutions, &self.cache)?;
         if route.kind == Kind::Directory {
             return Err(VfsError::IsADirectory(path.to_owned()));
         }
@@ -1456,7 +1458,8 @@ impl Vfs {
         let mut held = self.held();
         let current = self.current_in(&mut held)?;
         let canonical = canonical_path(path)?;
-        let (route, captures) = locate_in(&current, &canonical, &self.config.resolutions)?;
+        let (route, captures) =
+            locate_in(&current, &canonical, &self.config.resolutions, &self.cache)?;
         let query = match route.write.on_delete {
             Write::DeletePage => Query::DeletePage {
                 page: captures
@@ -1677,25 +1680,12 @@ impl Vfs {
                 dpi: captures.dpi.ok_or_else(missing)?,
             })?,
             Generator::ExtractedImage => {
-                // One extraction, every output kept. A page's images come out of one
-                // `pdf_transform::images` run, so reading them one at a time would re-run it once
-                // per file — and a `cp -r` of an `images/NNNN/` directory reads them all. The
-                // whole run goes into the cache under each output's own path, and the caller's is
-                // returned from there; the cache's byte budget decides how much of it survives,
-                // which is the one place a decision about memory belongs.
                 let page = page()?;
                 let name = captures.name.clone().ok_or_else(missing)?;
-                let width = width(current);
-                let stem = path::page_name_stem(page, width);
-                let mut wanted = None;
-                for (output, bytes) in images(current, page)? {
-                    let at = format!("/images/{stem}/{output}");
-                    let kept = self.cache.put(current.generation, &at, bytes);
-                    if output == name {
-                        wanted = Some(kept.to_vec());
-                    }
-                }
-                return wanted.ok_or_else(missing);
+                return extract_images(&self.cache, current, page)?
+                    .get(&name)
+                    .map(|kept| kept.to_vec())
+                    .ok_or_else(missing);
             }
             Generator::PageText => current.worker.ask(&Query::PageText { page: page()? })?,
             Generator::DocumentText => return self.document_text(current),
@@ -1825,6 +1815,7 @@ fn locate_in(
     current: &Current,
     path: &str,
     resolutions: &[u32],
+    cache: &Cache,
 ) -> Result<(&'static Route, path::Captures), VfsError> {
     let missing = || VfsError::NoSuchPath(path.to_owned());
     let (route, captures) = path::resolve(path).ok_or_else(missing)?;
@@ -1858,7 +1849,11 @@ fn locate_in(
         Generator::ExtractedImage => {
             let page = captures.page.ok_or_else(missing)?;
             let name = captures.name.clone().ok_or_else(missing)?;
-            if !spells(current, path, page) || !images(current, page)?.contains_key(&name) {
+            // The inventory rather than the extraction. Validating a name by re-running the run
+            // that produced it is what made a wide directory quadratic (round 923, ADR 0886): on
+            // a page of ten thousand images every `stat` and every `open` paid 176 ms here while
+            // the bytes it was about sat in the cache.
+            if !spells(current, path, page) || !image_names(cache, current, page)?.contains(&name) {
                 return Err(missing());
             }
         }
@@ -1975,14 +1970,59 @@ fn attachments(current: &Current) -> Result<Arc<Vec<Embedded>>, VfsError> {
     Ok(shared)
 }
 
-/// One page's images, by the name each output took.
+/// The directory one page's images are listed in.
+fn images_directory(current: &Current, page: usize) -> String {
+    format!("/images/{}", path::page_name_stem(page, width(current)))
+}
+
+/// What `images/NNNN/` holds, without producing it a second time.
 ///
-/// Not held per generation the way the attachments are: an image is bytes rather than a name, so
-/// what would be kept is the content, and [`cache`] is what keeps content — under the same
-/// generation key and the same byte budget. What that costs is stated rather than hidden: a
-/// *listing* of `images/NNNN/` re-runs the extraction every time, because a listing is exactly
-/// this call's keys, and only a **read** puts the bytes in the cache. `doc/todo/58` §5 carries it,
-/// beside the measurement nobody has taken of it.
+/// **The listing of that directory *is* the extraction's own output names** — the whole argument
+/// for `crate::layout`'s departure from RFC 0003 section 4, because a listing and a read that are
+/// one call cannot disagree — so every question about a path under it used to run the extraction:
+/// [`locate_in`]'s validation, [`Vfs::entries_of`]'s listing, and the [`Vfs::stat`] and
+/// [`Vfs::open`] that go through the first of those. On a page of ten thousand images that is one
+/// extraction per question rather than per run (round 923, ADR 0886).
+///
+/// So the *names* are kept where the content is kept, past the eviction of the content, exactly as
+/// a length is: `Cache::inventory`. They are a run's own output names rather than a guess, which is
+/// the same rule RFC 0003 section 5.5 states for a size.
+fn image_names(cache: &Cache, current: &Current, page: usize) -> Result<Arc<[String]>, VfsError> {
+    if let Some(names) = cache.inventory(current.generation, &images_directory(current, page)) {
+        return Ok(names);
+    }
+    let mut names: Vec<String> = Vec::new();
+    for name in extract_images(cache, current, page)?.keys() {
+        names.push(name.clone());
+    }
+    Ok(names.into())
+}
+
+/// One extraction, every output kept, and the names noted.
+///
+/// A page's images come out of one `pdf_transform::images` run, so reading them one at a time
+/// would re-run it once per file — and a `cp -r` of an `images/NNNN/` directory reads them all.
+/// The whole run goes into the cache under each output's own path; the cache's byte budget decides
+/// how much of it survives, which is the one place a decision about memory belongs. The
+/// inventory is noted beside it and is not under that budget, because a name is not content.
+fn extract_images(
+    cache: &Cache,
+    current: &Current,
+    page: usize,
+) -> Result<std::collections::BTreeMap<String, Arc<[u8]>>, VfsError> {
+    let directory = images_directory(current, page);
+    let mut kept = std::collections::BTreeMap::new();
+    for (output, bytes) in images(current, page)? {
+        let at = format!("{directory}/{output}");
+        let shared = cache.put(current.generation, &at, bytes);
+        kept.insert(output, shared);
+    }
+    let names: Arc<[String]> = kept.keys().cloned().collect::<Vec<String>>().into();
+    cache.note_inventory(current.generation, &directory, names);
+    Ok(kept)
+}
+
+/// One page's images, by the name each output took: the run itself, asked of the worker.
 fn images(
     current: &Current,
     page: usize,
