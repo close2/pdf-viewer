@@ -14,6 +14,33 @@ Corpus: every document; the two costs that scale do so with the *document*, not 
 Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
 `crates/render-quorra/examples/bring_up.rs`, `first_frame.rs`, ADRs 0179, 0180, 0181, 0182
 
+## What changed in the nine-hundred-and-twenty-second session
+
+**There is a gate now, and this file should stop being where a round reads these numbers.**
+`crates/viewer-ui/tests/launch_path.rs` measures principle 2's four figures and the fifth it makes
+a gate of its own, over four documents, with a band on each in `doc/checks/launch-path.toml`;
+`tools/state.sh launch` prints them and `doc/todo/02` §2 runs it. ADR 0884 is the construction —
+including why a wall-clock band is believable on this machine at all — and ADR 0885 is the
+reading. Three consequences for the items below:
+
+- **Item 1's question is now answered by a command rather than by this file.** The open is tens of
+  times more expensive on 1023 pages than on 5 and the *launch* is not, because `document joined`
+  and `device up` come back as the same figure in every run: the document thread finishes before
+  the graphics device does, so the whole of the open is hidden. The margin is now legible as well
+  as the ratio.
+- **Item 5's "number nobody has taken" is half-taken.** A launch on the *real adapter* is measured
+  every time the gate runs — headless, on this machine's Radeon 890M through RADV, which
+  `doc/environment.md` has said since session 552 is reachable without the owner's session. What
+  is still the owner's is the other half: that adapter through a real window, with a swapchain and
+  a present.
+- **The "Nothing eager" rule quoted below has one clause that is false as written**, and it is not
+  the one this file was about: a page naming a font it does not embed sends `pdf_font::substitute`
+  through the machine's font directories on the launch path, which roughly doubles time to first
+  page. It is *needed to show page one*, so it is not eager by the rule's own definition — but the
+  bullet says "[n]o system font enumeration" without a condition. The gate carries such a document
+  as a row so the cost has a band rather than a sentence; ADR 0885 has the evidence, and the
+  wording is the owner's (round 921's question).
+
 ## Why this is a todo and not a caveat
 
 `CLAUDE.md`'s startup section states two rules this path breaks:
