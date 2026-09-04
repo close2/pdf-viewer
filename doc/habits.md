@@ -118,8 +118,9 @@ reading in this project goes through them:
   `doc/specifications.zip` (ADR 0187). A test may still depend on them without a skip path, but for
   the other reason — a test that cannot find them **fails loudly** rather than skipping, which is
   what the owner decided in that session.
-  `ISO_32000-2_sponsored_EC3.md` is 24 MB and its 860 `##` headings give a clause number, title and
-  line range apiece, which is the whole basis of the citation checker and the ledger. **Three
+  `ISO_32000-2_sponsored_EC3.md` is 24 MB and its `##` headings give a clause number, title and
+  line range apiece, which is the whole basis of the citation checker and the ledger — `grep -c '^## '`
+  is the count, and this sentence carried one that was wrong by four hundred. **Three
   caveats, each met the hard way**: it is a *conversion*, so a quotation the checker cannot find
   may be an artefact — check `doc/`'s PDF before editing the comment; one heading number
   (`14.8.4.7.3`) occurs twice; and **the conversion drops content** — Table 164's `/Di` row ends
@@ -389,6 +390,15 @@ reading in this project goes through them:
   that round recorded as unobtainable. **An environmental limit a round is about to reason from is one
   command away from being checked**, and a round that reasons from it instead spends its whole budget
   inside a constraint that does not exist. ADR 0829.
+- **A superlative is a claim with no anchor, and the round that falsifies it is the next round doing
+  the same work.** Six bullets of `doc/todo/02` §4 each opened "and it is the newest" — one per
+  sweep, each written by the round that built that sweep — and five were false, with `doc/todo/01`
+  carrying the same phrase five more times. No instrument could see it: the right-hand side is the
+  *neighbouring paragraph*, which is nothing's population. Checking an ordinal ("the twenty-second
+  sweep") is one `grep` against the catalogue; checking "the newest" means reading every sibling,
+  which is the check nobody runs. **So write the ordinal and the pointer, never *newest*, *latest*
+  or *the only one*** — and the same goes for a count of a list written beside the list ("five notes
+  bind here", over ten bullets; "the four things a round has got wrong", over five). ADR 0882.
 - **When two clauses describe one mechanism, reviewing one leaves the other lying.** Four instances
   in ten sessions; the check is one `grep` for the *other* clause a family cites.
 - **"This crate does not have X" is a claim about the crate, and the crate is greppable.**

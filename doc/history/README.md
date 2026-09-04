@@ -24,9 +24,9 @@ twenty or thirty rounds had in common — which a closing round appends below th
 others, because it is about a run of rounds rather than about one and the per-round files already
 hold each. That is the only exception to "a round writes one file here and nothing else about
 itself", and it belongs to the closing round alone. What the table cannot do is take more than a
-sentence without becoming unreadable, and that is the pressure that produced this round's whole problem: a round with more to
+sentence without becoming unreadable, and that is the pressure this directory exists to relieve: a round with more to
 say than a cell holds says it somewhere a round *reads*, and the gate table in `doc/HANDOVER.md`
-grew 816 lines of per-round narrative that way.
+grew hundreds of lines of per-round narrative that way.
 
 Three things a file gives that a row does not:
 
