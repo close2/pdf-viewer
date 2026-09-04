@@ -596,7 +596,19 @@ whole directory including that, which is why the sweep names its subdirectories 
 The cost of the sweep is one cold build, measured on the swept tree at about three minutes for
 `cargo test --workspace --no-run` plus the whole gates profile, with `release` on top of that only
 when §5 runs. It buys no speed — the warm no-op build was 0.42 s with the directory at 311 GB — so
-it is hygiene, on its own schedule rather than every round.
+it is hygiene, on its own schedule rather than every round. **`sccache` pays most of the cold
+build**, which is the reason two rounds in a row declined the sweep for a cost that had already
+been paid: the whole of §5's release set came back in a little over two minutes on a swept tree.
+
+**Three things a sweeping round should expect, and none of them is a number.** Most of what comes
+back is the *main checkout's own profiles*, not orphaned directories — a parallel round's
+directory is live until its worktree is closed, and `tools/worktree.sh close` is what takes both.
+**The root crosses the threshold again as soon as new rounds open**, because each new worktree
+builds twenty to thirty gigabytes of its own within its first hour, so a sweep is a recurring
+cost rather than a fix and the *rate* is set by how many rounds run at once. And **the sweep can
+move a measurement**: the launch gate's cold arm reads a copy it makes beside the build directory,
+so a swept tree hands it freshly allocated extents — `doc/todo/42` has what that cost session 926
+and how to tell it from a regression.
 
 ## 6. Write it down, then commit
 

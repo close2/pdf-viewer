@@ -2106,7 +2106,77 @@ stays shut for the other 327, key family by key family.
 
 **What is left here**: `batch5`'s other seventeen trackers, `pdfminer.six` (123) and `qpdf` (111)
 the largest of the remainder; the two reconstruction cases above; and `batch4` once its pieces
-land.
+land. (`pdfminer.six` was taken in the nine-hundred-and-twenty-sixth — §48.)
+
+
+### 48. What the nine-hundred-and-twenty-sixth took: `batch5/pdfminer.six`, a Table cell read as an algorithm, and a substitution that made black bars
+
+**The directory, surveyed whole under the four rules** — `tools/bounded.sh --shards 2 --data 8
+--tree 12`, twelve rayon threads, 0.4 s, 0.04 GiB peak. The line, a baseline for this directory and
+never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/pdfminer.six` | 123 | 0 unopenable, 0 locked, 0 encrypted beyond us, 0 pageless, 4 incomplete, 0 slow |
+
+**4 of 123 is 3.25% incomplete**, which is above `MOZILLA`'s 2.47% and below every other rate this
+file records — `REDHAT`'s 6.07%, `PDFBOX`'s 7.25%, `cairo`'s 10.84%. The shape is the tracker's:
+pdfminer.six is a *text extraction* library, so its attachments are files somebody could not get
+words out of rather than files that would not draw. Nothing here is unopenable, locked, pageless or
+slow, and the four reports are three distinct populations.
+
+**Ranked by ink**, ours flattened on white against `pdftoppm -cropbox` and `mutool draw -b CropBox`
+at 72 dpi, over the 122 documents both references drew, by distance *outside* the interval the two
+references bracket (§47's measure). The head was read through `examples/open_one` first, which is
+`doc/oracle-and-corpus.md` §3d's fourth rule — this round had swept the build directory, so
+`release/examples/` was new and held no stale worker, and the head's own report was `unsupported []`.
+
+- **35 of the 122 sit inside the interval** and the dark end is nothing: the largest departure above
+  both references is `pdfminer.six-277-0.pdf` at **+0.053**.
+- **The light end's head is a substitution, and the instruments say so before the page does.**
+  `pdfminer.six-29-0.pdf` (byte-identical to `pdfminer.six-289-3.pdf`) is a `NeuroImage` article at
+  **9.228 against `pdftoppm`'s 12.612 and `mutool draw`'s 10.289**, reporting nothing. Step 6's
+  ladder does **not converge**: over 72, 144, 288 and 576 dpi ours is flat at 9.23, poppler flat at
+  12.61 and mupdf drifts *up* from 10.29 to 10.71, so no limit is available and the difference is
+  not scan conversion. A difference map against poppler is uniform over every glyph on the page and
+  empty everywhere else, and `pdffonts` closes it: **six of the seven fonts are not embedded**, and
+  five of those (`NewCenturySchlbk-Roman`, `-Italic`, `-Bold`, `-BoldItalic`, `NewBaskerville-Bold`)
+  are not §9.6.2.2's standard 14, so each renderer is measuring **its own substitute's stem widths**.
+  [`21`](21-font-substitution.md)'s standing population; held, and not a page to open.
+
+**The head whose cause was not already held was one row down, and it is a clause reading.**
+`pdfminer.six-56-0.pdf` at **−0.341** — a bank statement drawn as two rules and one glyph, at
+**0.159 against 0.500 and 0.522**, with both references drawing the whole table. Its two Type 3
+fonts state `/Encoding /WinAnsiEncoding` and key their `/CharProcs` by Annex D's own names, and this
+tree read Table 110's "[a]n encoding dictionary whose Differences array shall specify the complete
+character encoding" as the shape of the *lookup* rather than as a requirement on the **file** —
+where §9.6.4's step a) says "[l]ook up the character code in the font's Encoding entry, **as
+described in 9.6.5**" and §9.6.5.1 permits a name there. Fixed; the page is now line for line what
+`pdftoppm` draws, at 0.529. **Four documents of 24 324 change** and two of the six that carried the
+report still do, both of them `/Encoding <ref>` into an object their damaged file does not define,
+which is the condition §9.6.5.3's NOTE really does leave nowhere to go. **The same before/after over
+`CC-MAIN-2021-31`'s 65 944 documents diffs to zero lines and not one of them carries the report at
+all**, which is §47's finding arriving from the same direction: a crawled document is one a web
+server served, a tracker attachment is one that broke a program. ADR 0892.
+
+**And the two the ranking could not settle are now a decision and a question rather than a silence.**
+`pdfminer.six-90-0.pdf` — truncated at object 7, so its eight fonts and five images are §7.3.10's
+null object — is drawn by `mutool draw` with substituted faces as a legible letter (8.470 against
+our 2.636) and refused outright by `pdftoppm`, which produces no raster. `pdfminer.six-50-0.pdf` is
+the same condition with the references the other way round: `mutool draw` agrees with us at 1.028
+against our 1.145, and `pdftoppm` substitutes at 3.794 — putting **solid black blocks** where an
+engineering drawing's labels belong, because the codes shown are `<000102…0c>`, a subset's own.
+So the guess reads as the document on one page and destroys the other, nothing in the file tells
+them apart, and §9.5 makes every input to a substitution an entry of the dictionary that is missing.
+The refusal is kept and argued in ADR 0893; whether a *reader* should offer the guess anyway is
+[`Q27`](../questions/Q27-a-font-the-file-does-not-carry.md).
+
+**What is held**: `pdfminer.six-391-0.pdf` at −0.018, an image whose samples stop at 3 bytes of the
+59 850 its dictionary infers — §7.3.8.2, drawn as far as it carries and reported (unchanged); and
+the substitution head above.
+
+**What is left here**: `batch5`'s other sixteen trackers, `qpdf` (111) the largest of the remainder;
+and `batch4` once its pieces land.
 
 
 ## What the whole crawl says, now that all of it has been ranked
