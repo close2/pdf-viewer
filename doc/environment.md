@@ -260,6 +260,21 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   `new_headless_software` pins llvmpipe on purpose and stays what it is for — a gate that must not
   depend on hardware.
 
+- **Two classes of core, and every duration taken here is affected by which one it got.** The
+  processor is an AMD Ryzen AI 9 HX 370 — four Zen 5 cores and eight denser Zen 5c, twenty-four
+  threads — and the split is not a specification sheet but a file:
+
+  ```sh
+  for c in /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq; do
+      printf '%s %s\n' "${c%/cpufreq/*}" "$(cat "$c")"
+  done | sort -k2 -n
+  ```
+
+  What follows for anybody measuring is in `doc/habits.md`'s *Measuring* section, and the short
+  form is: pin with `taskset -c` to the fastest class and take the minimum of several fresh
+  processes, or the number is a lottery. `crates/viewer-ui/tests/launch_path.rs` derives that list
+  rather than naming it.
+
 - KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
 - **Launch with a login shell** so `umask 002` applies, or every file the agent creates is
   unwritable by `cl`: `sudo -u AI bash -lc 'cd /home/cl/projects/pdf-viewer && claude'`

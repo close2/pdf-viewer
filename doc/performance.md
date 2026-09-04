@@ -14,6 +14,20 @@ number is quoted against a number taken the same afternoon.
 critical path and what it costs is a number to keep rather than a cost to hide —
 `doc/state-of-play.md` states the decision and this is the timeline under it.
 
+**Since the nine-hundred-and-twenty-second session there is a *gate* under all of this**, and it
+is the first: `crates/viewer-ui/tests/launch_path.rs` measures principle 2's four numbers and the
+fifth it makes a gate of its own, over four documents, with a band on each in
+`doc/checks/launch-path.toml`; `tools/state.sh launch` prints them. Nothing below is retracted by
+it — every figure here was taken by an instrument named beside it — but **a number in this file is
+a round's afternoon and a number that gate prints is today's**, so quote the gate. Two things it
+established are worth having in front of the timeline that follows. **This machine has two classes
+of core** — four Zen 5 at 5.16 GHz and eight Zen 5c at 3.29 — so an *unpinned* wall-clock figure
+here is a draw from a bimodal lottery: the same fixed in-memory work measured 0.75 ms and 1.50 ms
+in consecutive processes on an idle machine, and every launch figure in this file was taken that
+way. And **the launch's document half is measured on the real adapter now**, headless, where every
+number below `lavapipe` is not. ADR 0884 is the construction, ADR 0885 is which of principle 2's
+claims survived it.
+
 **Since the two-hundred-and-seventy-fourth session `--trace` prints the whole
 launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,
 printed when the first frame lands. It was **145 ms from process start to the first frame** on this
@@ -44,6 +58,18 @@ frame a person waited for. What the division found on the owner's own document i
 `upload_outline`, four fifths of a cold frame's `scene` phase, for a representation only its GPU
 coverage lane reads and no launch of this viewer takes.
 
+**Re-taken whole in the nine-hundred-and-twenty-second**, under `Xvfb` on the software adapter,
+ISO 32000-2, one launch: **120.7 ms to the first present** — arguments 0.3, chrome fonts 3.1,
+event loop 30.4, window 30.8, graphics instance 33.3, graphics device 47.3, surface configured
+69.4, document joined 69.5, page one interpreted (547 commands) 81.1, first scene built 84.5,
+first present 120.7 — with five arrow keys presenting in **8.8 to 14.4 ms**. The shape is
+unchanged since the four-hundred-and-forty-fifth. What is new beside it is the same launch
+**without the window**, which the gate measures nine times per run on the machine's own Radeon
+890M through RADV: **39.4 ms to page one's pixels for a five-page document and 43.4 for ISO
+32000-2's 1023 pages**, of which the graphics device is 27 to 30 and the document is none of it —
+`document joined` and `device up` are the same figure to a tenth of a millisecond in every run,
+which is why the two documents cost the same launch.
+
 **Two things on it broke a rule `CLAUDE.md` states and both are closed**, in
 [todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
 against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
@@ -53,7 +79,10 @@ re-decided once per cross-reference entry instead of once per file (ADR 0180, 13
 to 76.6 M) — and the rest of both went *beside* the window rather than in front of it. Measured in
 the two-hundred-and-eighty-ninth: **1023 pages and 5 pages now cost the launch the same**, 5 ms of
 join either way. The rule read as a statement about `Document::open` itself is still 10 to 13 ms
-against 0.2, and todo 42 keeps that question open as a question about the function. **A third cost on
+against 0.2, and todo 42 keeps that question open as a question about the function. **Both halves
+are now one command's output** (ADR 0885): the open is 38× on a cold page cache and 31× warm, the
+launch is 1.1×, and the margin is legible — the open would have to grow by another 20 ms before
+the launch began to show it. **A third cost on
 that path turned out to be a clause nobody had read**: §12.8's signature walk spent 1.681 ms
 finding nothing on a document whose form could have said so in one integer, and §12.7.3's Table
 225 exists precisely so that a processor need not scan — 0.017 ms now, with the ledger row that
