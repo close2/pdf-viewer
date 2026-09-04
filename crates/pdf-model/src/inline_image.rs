@@ -554,9 +554,19 @@ fn data_extent(
 }
 
 /// The byte count of unfiltered sample data, from §8.9.3's layout.
+///
+/// The two dimensions are read through [`crate::integer_entry::dimension`] rather than with
+/// `as_integer`, and that is the whole of ADR 0913's fix here: Table 87 types them integers and
+/// §7.3.3 makes a real the file's error, but `crate::image` has answered that error since ADR
+/// 0904 and this function had not — so a real `/W` gave a grid to the decoder and none to the
+/// arithmetic that says where `EI` stands. The extent then fell back to the forward search, which
+/// is the reading `data_that_contains_ei_is_not_cut_short_by_it` exists to show is wrong: two
+/// readers of one entry inside one crate, which is the failure ADR 0904 named and the shape it
+/// left one module away.
 fn unfiltered_length(document: &Document, dict: &Dictionary) -> Option<usize> {
-    let width = usize::try_from(document.get_key(dict, "Width").as_integer()?).ok()?;
-    let height = usize::try_from(document.get_key(dict, "Height").as_integer()?).ok()?;
+    let width = usize::try_from(crate::integer_entry::dimension(document, dict, "Width")?).ok()?;
+    let height =
+        usize::try_from(crate::integer_entry::dimension(document, dict, "Height")?).ok()?;
 
     // §8.9.6.2, of a stencil mask: `/BitsPerComponent` "shall be 1", and no colour space is
     // consulted, so the one bit per sample is the whole of it.

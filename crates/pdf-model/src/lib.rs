@@ -55,6 +55,7 @@ pub mod icc;
 mod icon;
 pub mod image;
 pub mod inline_image;
+mod integer_entry;
 pub mod link;
 mod markup;
 pub mod measurement;

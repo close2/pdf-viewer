@@ -127,6 +127,20 @@ cargo run --release -p pdf-model --example content_budget_census -- doc doc/pdf.
   # (ADR 0306). Also the largest single decoded stream and the largest page /Contents total, which
   # are the two numbers `Limits::max_stream_len` is set against: 483.84 MiB over 5 047 187 streams
   # of 65 967 crawled documents. Every argument is walked recursively, so `corpus-cache` is one
+cargo run --release -p pdf-model --example integer_entry_census -- @<paths>  # --list-keys, --witnesses N
+  # where in the world a **real** stands at an entry ISO 32000-2 types as an **integer**, which is
+  # §7.3.3's writer-side error and the population `doc/questions/Q31` and `Q39` are about. The keys
+  # are derived from the Arlington model rather than listed (trap 25) — every name typed `integer`
+  # or `bitmask` in some table and `number` in none — and the fifteen names typed both ways are
+  # counted in a table of their own with witnesses instead of being judged. Two halves, because an
+  # inline image is not an object and both documents in the world that write a Table 87 dimension
+  # as a real write it inside a `BI`; the second half reads its own tokens rather than asking
+  # `pdf_model::inline_image` (trap 8). `--list-keys` prints the population itself, so a zero can
+  # be told from nothing having looked; `--witnesses N` prints every document a key's real appears
+  # in, which is what a round measuring *reach* needs. About twelve seconds per eight thousand
+  # documents; the whole disk at 24 threads crosses an 8 GiB `RLIMIT_DATA`, so it shards, and one
+  # 5.6 GiB attachment in `batch5/poppler` is not walkable inside a round's memory budget at all.
+  # ADR 0912
 cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pdf.js doc/corpora
   # what a *rebuilt* cross-reference table loses to §7.5.7's object streams: how many documents
   # reach `xref::rebuild` at all, how many of those carry object streams the scan can see, and

@@ -183,17 +183,15 @@ fn an_inline_image_draws_from_its_abbreviated_keys() {
     assert_marker(&raster);
 }
 
-/// A `/W` and `/H` written as **reals** still name the grid they truncate to.
+/// A `/W` and `/H` written as **reals** still name their grid.
 ///
 /// §7.3.3 makes that the file's error and says nothing about what a reader does with it:
 ///
 /// > A real number shall not be present when an integer is expected.
 ///
-/// This tree's answer to that sentence was decided once, for §7.10.5's calculator, and is a rule
-/// rather than a refusal — a real is truncated where an integer is wanted, "and a file that does
-/// it anyway is a file this viewer still has to draw" (ADR 0371). `pdf_model::image` applies the
-/// same rule since the nine-hundred-and-thirty-second session, and the witness is
-/// `qpdf-278-0.pdf`, whose entire content stream is one inline image stating `/W 1062.00
+/// So the answer is a choice, and this tree makes it in one place — `pdf_model::integer_entry`,
+/// whose module comment carries the four families and which entries it answers for. The witness
+/// is `qpdf-278-0.pdf`, whose entire content stream is one inline image stating `/W 1062.00
 /// /H 1425.00`: a full-page book cover drawn as a blank sheet, at 0 ink against poppler's 177.97
 /// and mupdf's 177.31 (ADR 0904).
 ///
@@ -214,24 +212,73 @@ fn a_dimension_written_as_a_real_still_names_its_grid() {
     assert_marker(&raster);
 }
 
-/// A fraction is **truncated** rather than rounded, and the page is what says which.
+/// A fraction names the **nearest** integer rather than the truncated one, and a real document
+/// is what says which.
 ///
-/// `/W 2.9` over twelve `DeviceRGB` bytes is two samples a row under truncation and three under
-/// rounding — and three would want eighteen bytes for two rows, so the quadrants below can only
-/// come out of the truncating reading. That is the half of ADR 0371's rule a value of `1062.00`
-/// cannot exercise, which is why it is a test of its own rather than a second assertion above.
+/// The two rules agree on every value a file writes as an integer with a period after it, which
+/// is 428 of the 443 reals `examples/integer_entry_census` finds at an integer-typed entry over
+/// every corpus on this disk. They differ only where a file states a fractional value, and the
+/// world holds exactly one such document among the dimensions: `GHOSTSCRIPT-695872-0.pdf`, whose
+/// inline image says `/W 737.999999999715 /H 49.999999999` over a JPEG whose own frame is
+/// 738 × 50. Truncation reads that grid one short in *both* axes and makes this reader report the
+/// §7.4.8 disagreement that is its own; the nearest integer agrees with the codestream twice.
+/// ADR 0912 is the measurement, and it supersedes ADR 0904's truncating half.
+///
+/// `/W 2.9` over twelve `DeviceRGB` bytes is what separates the two rules on a page: three
+/// samples a row under this rule, so the twelve bytes are a row and a third of a 3 × 3 grid and
+/// the image is refused for want of samples — where truncation would have drawn the quadrants
+/// below. The marker still comes out, which is the other half of the reading: a refused image is
+/// reported and interpretation goes on past `EI`.
 #[test]
-fn a_fractional_dimension_is_truncated_rather_than_rounded() {
+fn a_fractional_dimension_names_the_nearest_integer_rather_than_the_truncated_one() {
     let mut content: Vec<u8> = b"q 40 0 0 40 0 0 cm BI /W 2.9 /H 2.9 /BPC 8 /CS /RGB ID ".to_vec();
     content.extend_from_slice(QUADRANTS);
     content.extend_from_slice(b" EI Q");
     content.extend_from_slice(MARKER);
 
+    let (raster, unsupported) = render(fixture(&content, ""));
+    assert!(
+        unsupported
+            .iter()
+            .any(|report| format!("{report:?}").contains("3x3")),
+        "a 3x3 grid over twelve bytes is short and must say so: {unsupported:?}"
+    );
+    // The image's first row, which §8.9.3 puts at the *top*, across the grid's thirds. Under
+    // truncation the same three bytes are two samples across halves, which puts green at the
+    // right edge and blue in the row below rather than beside it.
+    assert_colour(&raster, 5, 31, [255, 0, 0], "the first sample");
+    assert_colour(
+        &raster,
+        20,
+        31,
+        [0, 255, 0],
+        "the second sample, in the middle third",
+    );
+    assert_colour(&raster, 35, 31, [0, 0, 255], "the third sample");
+    assert_marker(&raster);
+}
+
+/// Sample data that spells ` EI ` does not end the image **when the grid is written as a real**.
+///
+/// This is `data_that_contains_ei_is_not_cut_short_by_it` with `6` written `6.00`, and it is the
+/// site ADR 0904 missed: `crate::image` answered §7.3.3 for `/Width` and
+/// `crate::inline_image::unfiltered_length` did not, so a real `/W` gave the decoder a grid and
+/// gave the extent arithmetic nothing. The extent then fell back to the forward search, which
+/// stops at the ` EI ` in the middle of these six samples — a torn image, interpretation resumed
+/// inside the remaining bytes, and the marker square lost with no report at all. Two readers of
+/// one entry inside one crate, which is the failure ADR 0904 named (ADR 0913).
+#[test]
+fn a_real_grid_still_predicts_where_the_data_ends() {
+    // Six `DeviceGray` samples, the middle four spelling ` EI ` — 0x20, 0x45, 0x49, 0x20.
+    let samples: &[u8] = b"\xff EI \x00";
+    let mut content: Vec<u8> = b"q 40 0 0 40 0 0 cm BI /W 6.00 /H 1 /BPC 8 /CS /G ID ".to_vec();
+    content.extend_from_slice(samples);
+    content.extend_from_slice(b" EI Q");
+    content.extend_from_slice(MARKER);
+
     let raster = render_complete(fixture(&content, ""));
-    assert_colour(&raster, 5, 35, [255, 0, 0], "top left");
-    assert_colour(&raster, 35, 35, [0, 255, 0], "top right");
-    assert_colour(&raster, 5, 15, [0, 0, 255], "bottom left");
-    assert_colour(&raster, 35, 15, [255, 255, 255], "bottom right");
+    assert_colour(&raster, 3, 20, [255, 255, 255], "the first sample");
+    assert_colour(&raster, 36, 20, [0, 0, 0], "the sixth sample");
     assert_marker(&raster);
 }
 

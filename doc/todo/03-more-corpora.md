@@ -2266,6 +2266,16 @@ largest of the remainder — both already walked, so what is left is the small o
 which is where the population is. Whether it should travel to every entry a table types as an
 integer is [`Q31`](../questions/Q31-how-far-a-readers-tolerance-of-7-3-3-travels.md).
 
+**Session 936 swept that class and amended two things in this paragraph's finding.** The rule lives
+in `pdf_model::integer_entry` now rather than in `image.rs`, and it is **the nearest integer rather
+than the truncated one** — because the second document above is what settles it. `GHOSTSCRIPT-695872-0.pdf`'s
+inline image says `/W 737.999999999715 /H 49.999999999` over a JPEG frame of 738 × 50, so the new
+report this chunk recorded as "ADR 0799's reading arriving one clause later" was in fact *our*
+truncation accusing the file of a §7.4.8 disagreement it had not committed. That report is gone.
+The general population is `examples/integer_entry_census` and ADR 0912: 443 reals at an
+integer-typed entry over 90 128 documents, in 212 of them, and the only fractional *dimension* in
+the world is that one. `doc/questions/Q39` is the part the measurement could not decide.
+
 **And one thing this chunk learned about its own instrument.** A survey of *every* corpus at
 twenty-four rayon threads crossed `RLIMIT_DATA` at 11.25 GiB and died with **no verdict at all**;
 at twelve threads over the issue trackers alone it died again at 10.44 GiB. What is in flight is
