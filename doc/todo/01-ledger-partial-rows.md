@@ -249,7 +249,7 @@ depends on nothing but `thiserror`.
   itself on its neighbour's keys. The noise it leaves is a partitive with no table to divide it
   ("three of the four locations a `/Lang` may occupy"), which is left to the reader on purpose.
   Its first run found two live defects, §9.9.1's and §9.7.6's, both below.
-- **One reads no row at all, and it is the newest**: `cargo run --release -p conformance --bin
+- **One reads no row at all**: `cargo run --release -p conformance --bin
   overtaken`, a fraction of a second, over the tree's **page-list notes** and `doc/adr/` — the
   nineteenth sweep and the fourteenth to be a program (ADR 0491). A page-list note is the doc
   comment above a `const NAME: [&str; N]` of corpus pages: the oracle's contradicted and ambiguous
@@ -271,7 +271,7 @@ depends on nothing but `thiserror`.
   and a note may deliberately not cite a later ADR about a different property of the same page.
   **The cheapest way to keep off it: cite your own ADR in the note you rewrite.** The 62 notes that
   cite no ADR at all are counted rather than listed; the comparison has no left-hand side.
-- **One reads no source at all and no row either, and it is the newest**: `cargo run --release -p
+- **One reads no source at all and no row either**: `cargo run --release -p
   conformance --bin quoted -- <the oracle's log>`, under a second, over the oracle's page-list
   notes and **the oracle's own printed output** — the twentieth sweep and the fifteenth to be a
   program (ADR 0495). Every other sweep here compares two things this tree wrote *down*; this one
@@ -295,7 +295,7 @@ depends on nothing but `thiserror`.
   prose is right), another instrument's table borrowing the gate's words, and a range read as its
   first endpoint. Calibrated per trap 13 by planting a wrong worst tile in a confirmed sentence:
   named, with the gate's own value offered first, and gone when the plant was restored.
-- **One asks the twentieth's mirror question, and it is the newest**: `cargo run --release -p
+- **One asks the twentieth's mirror question**: `cargo run --release -p
   conformance --bin unpriced -- <the oracle's log>`, under a second, over the same two sides — the
   twenty-first sweep and the sixteenth to be a program (ADR 0606). `quoted` checks a figure a note
   *quotes*; **its own closing sentence says it cannot ask for one that is missing**, and five
@@ -318,7 +318,7 @@ depends on nothing but `thiserror`.
   populations it names rather than counts**: a page whose figure and bound print identically at
   the gate's two decimals, so its own line cannot say what its verdict rests on; and a
   contradicted page sitting in no note at all.
-- **One asks a question about *this tree* rather than about the standard, and it is the newest**:
+- **One asks a question about *this tree* rather than about the standard**:
   `cargo run --release -p conformance --bin parts`, a fraction of a second, over `ledger.toml`, the
   source roots and every Markdown document under `doc/` bar `doc/history/` — the twenty-second
   sweep and the seventeenth to be a program (ADR 0709). The tenth sweep reads a cardinal only where
@@ -346,7 +346,7 @@ depends on nothing but `thiserror`.
   of running it, which the ninth sweep has too. Calibrated per trap 13 against **767's live
   defect** rather than a plant: `Image::is_smoothed`'s doc comment is rung 1 today, and correcting
   it to name three takes it off the rung and moves the agreeing count by one.
-- **One asks which corpus a sentence counted over, and it is the newest**: `cargo run --release
+- **One asks which corpus a sentence counted over**: `cargo run --release
   -p conformance --bin undenominated`, ten seconds, over `ledger.toml`, the source roots and every
   Markdown document under `doc/` bar `doc/history/` — the twenty-third sweep and the eighteenth to
   be a program (ADR 0758). Ten seconds rather than a fraction of one because its **right-hand side

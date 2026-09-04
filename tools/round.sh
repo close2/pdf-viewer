@@ -5,7 +5,7 @@
 # `tools/state.sh` answers "what are the numbers"; this one answers the questions a round asks
 # *before* it has done anything: which session is next, what to read for the kind of work it is
 # about, which of `doc/todo/02` §2's gates that kind of change actually needs, and whether this
-# round owes the full sequence and §5's binaries. Then it checks the four things a round has
+# round owes the full sequence and §5's binaries. Then it checks the things a round has
 # actually got wrong here — an uninitialised submodule, a build script baked against a checkout
 # that no longer exists, installed binaries older than `HEAD`, an exported `CARGO_TARGET_DIR`, and
 # a pipeline on `main` that has been failing since a push no round watched (ADR 0450).

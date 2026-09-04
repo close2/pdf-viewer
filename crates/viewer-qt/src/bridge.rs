@@ -21,7 +21,9 @@
 //! `#[export_name]` functions — eighteen lints' worth on this module, counted by trying it. A
 //! `forbid` cannot be lifted by an inner `allow`, which is the whole point of `forbid` and the
 //! reason it is the attribute every crate touching PDF bytes carries. So the crate root denies
-//! and `crate::bridge` is the single `#[allow(unsafe_code)]` in the tree outside a test.
+//! and `crate::bridge` is one of the two `#[allow(unsafe_code)]` the workspace names — the other
+//! is `viewer_ffi::abi`, and `only_the_two_named_crates_in_the_tree_lift_the_denial` is what
+//! holds the list at two. This line said *the single* one for as long as the second has existed.
 //!
 //! **One `unsafe` token in this crate is written by hand**, and it is the `unsafe extern "C++"`
 //! header below. `cxx` requires it, and what it requires is a *statement*: that the C++

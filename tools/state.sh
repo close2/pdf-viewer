@@ -155,13 +155,26 @@ section_writer() {
     run "pages over the corpus (a quarter turn and a page out, RFC 0002 section 9's layers 2 and 3)" \
         '^transform-pages:' \
         cargo test --profile gates -p pdf-transform --test pages_corpus -- --ignored --nocapture
-    # RFC 0002 section 9's fourth layer, and the only gate here that asks somebody else: the four
+    run "optimize over the corpus (RFC 0002 section 9's layers 2 and 3, and its idempotence gate)" \
+        '^transform-optimize:' \
+        cargo test --profile gates -p pdf-transform --test optimize_corpus -- --ignored --nocapture
+    # RFC 0002 section 9's fourth layer, and the only gate here that asks somebody else: the five
     # writers' output read by poppler, mupdf and qpdf, each foreign reading compared with that
     # same reader's reading of the source. It prints a skip line under its own prefix where the
     # readers are not installed, so this line stays green on a machine without them.
-    run "the four writers' output read by poppler, mupdf and qpdf (RFC 0002 section 9's foreign readback)" \
+    run "the five writers' output read by poppler, mupdf and qpdf (RFC 0002 section 9's foreign readback)" \
         '^transform-foreign:' \
         cargo test --profile gates -p pdf-transform --test foreign_corpus -- --ignored --nocapture
+}
+
+# RFC 0003 section 5.2's five write verbs, over every corpus document the core opens. The `--bins`
+# build is trap 10: a `--profile gates --test` line builds one test target and nothing else, so
+# `pdf-vfs-worker` beside it would otherwise be whatever an earlier round left.
+section_vfs() {
+    cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
+    run "the five write verbs over the corpus, through the core (RFC 0003 section 5.2)" \
+        '^vfs-write:' \
+        cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
 }
 
 section_dates() {
@@ -467,7 +480,7 @@ section_disk() {
     fi
 }
 
-all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer dates xmp jpeg2000"
+all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer vfs dates xmp jpeg2000"
 quick="ledger conformance annex-o counts hosts windows binaries disk"
 
 case ${1-} in
@@ -494,6 +507,7 @@ for section in $sections; do
     fixed) section_fixed ;;
     transform) section_transform ;;
     writer) section_writer ;;
+    vfs) section_vfs ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     jpeg2000) section_jpeg2000 ;;

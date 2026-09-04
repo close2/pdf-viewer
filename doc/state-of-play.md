@@ -161,7 +161,12 @@ lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about
 them, with no type from a windowing or graphics library anywhere in its API.
 [`doc/ui-boundary.md`](ui-boundary.md) is the whole story; ADRs 0116 to 0121.
 
-**Seven consumers on that boundary, and not one of them has ever asked for a new message.** That is
+**Seven consumers on that boundary, and not one of them has ever asked for a new message.**
+[`doc/ui-boundary.md`](ui-boundary.md) names all seven; the list below is grouped by crate, so the
+seventh — `viewer-ui`'s second window, `pdf-viewer-confined` — sits inside another bullet rather
+than having one. **Three host *crates*, four *windows***, which is what a sentence below counting
+three means: `tools/state.sh windows` excludes the fourth for the same reason, saying so in its own
+output. That is
 the boundary's own evidence, and it is what let the C ABI be frozen — `doc/todo/30` made freezing
 conditional on two Rust consumers shaking the API out first. **A *clause* has asked for one, which
 is the other direction and is why the sentence is worded about consumers**: §12.4.4.2 conditions its
@@ -242,9 +247,14 @@ pass.
   "unless otherwise instructed" as `Command::Delegate` — which then exposed the *scale* a form
   host draws at. ADRs 0244, 0245.
 - **`viewer-qt`'s `pdf-viewer-qt`**, a real Qt 6 Widgets application, and the one that costs a C++
-  bridge: **one hand-written `unsafe` token in the tree**, the `unsafe extern "C++"` header `cxx`
+  bridge: **one hand-written `unsafe` token in this crate**, the `unsafe extern "C++"` header `cxx`
   requires, under `#![deny(unsafe_code)]` with one exemption on `mod bridge` and a test asserting
-  its position and that no other crate lifts the denial. It brought **`crates/viewer-host`**,
+  its position — and asserting that the crates lifting the denial are the two the workspace names,
+  this one and `viewer-ffi`'s C ABI, every other crate still *forbidding* it. **This sentence read
+  "one hand-written `unsafe` token in the tree" and "no other crate lifts the denial", and both
+  were widenings of a true claim about one crate** — `viewer-ffi::abi` writes its entry points as
+  `pub unsafe extern "C" fn` by the hundred, which is what a C ABI is, and
+  `only_the_two_named_crates_in_the_tree_lift_the_denial` has said *two* since ADR 0247. It brought **`crates/viewer-host`**,
   because the second host wanted four of `viewer-gtk`'s modules unchanged — the panel rows, the
   control decision, §12.7.6.4's file policy and the launch timeline named no GTK type. ADR 0246.
   **That crate's newest module is the one that decided the *shape* of a thread for both hosts**:
