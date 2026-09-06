@@ -34,7 +34,7 @@
 //! crosses a single line is rounded **up** to a quarter of a row. Along x the same converter
 //! quantises a run to quarter-pixel steps. So its coverage is a multiple of a sixteenth of a
 //! pixel and its smallest non-zero answer is 1/16, measured by
-//! `render-quorra/examples/sub_pixel_marks`: an 80-unit rule 0.05 and 0.1 units thick draws
+//! `render-raster/examples/sub_pixel_marks`: an 80-unit rule 0.05 and 0.1 units thick draws
 //! **nothing**, 0.2 units draws 0.2471 where its area is 0.2. The graphics device has no such
 //! quantum and answers 0.0510, 0.1020 and 0.2000 for the same three.
 //!
@@ -162,7 +162,7 @@
 //! is eight bits. So each of them has a second floor, further down than the rasteriser's coverage
 //! quantum and reached by a different road: a coverage under `1/255` rounds to nothing, and the
 //! mark is gone as completely as it was before any of this existed. Measured on
-//! `render-quorra/examples/sub_pixel_marks`' seventh section, a 200-unit rule at 0.002 and 0.001
+//! `render-raster/examples/sub_pixel_marks`' seventh section, a 200-unit rule at 0.002 and 0.001
 //! of a device pixel drew **no ink at all** on both backends, and §8.5.3.2's dot — whose alpha is
 //! a *square* — was gone at 0.05, which is twenty times thicker and is a width the corpus states.
 //!

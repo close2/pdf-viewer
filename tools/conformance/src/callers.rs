@@ -31,7 +31,7 @@
 //!   a list of host crates typed into the script, which grew from two to four to five to eight as
 //!   hosts arrived and which nothing maintained. Here a consumer is a crate whose `Cargo.toml`
 //!   names the answering crate, so the population maintains itself — and a crate that names it in
-//!   `[dev-dependencies]` only, as `render-quorra` does, cannot call it from `src/` at all, which
+//!   `[dev-dependencies]` only, as `render-raster` does, cannot call it from `src/` at all, which
 //!   is a false positive no grep over crate directories can drop.
 //! - **The three known populations are rungs rather than prose.** Every run has ended by sorting
 //!   its unnamed names into "functions `pdf-model` calls itself", "functions only a test or an
@@ -118,7 +118,7 @@ impl fmt::Display for Reach {
 pub enum Dependency {
     /// An ordinary or build dependency: the crate's own sources can call it.
     Normal,
-    /// A dev-dependency: only its tests, examples and benchmarks can. `render-quorra` names
+    /// A dev-dependency: only its tests, examples and benchmarks can. `render-raster` names
     /// `pdf-model` this way, so a match in its `src/` is a word rather than a call.
     Dev,
 }
@@ -673,22 +673,22 @@ mod tests {
         assert_eq!(report.functions.first().expect("one").name, "version");
     }
 
-    /// A dev-dependency cannot be called from `src/`, which `render-quorra` is the tree's own
+    /// A dev-dependency cannot be called from `src/`, which `render-raster` is the tree's own
     /// instance of — a match there is a word rather than a call.
     #[test]
     fn a_dev_dependency_cannot_call_from_its_own_source() {
         let sources = vec![
             file("crates/pdf-model/src/page.rs", "pub fn page_group() {}\n"),
             file(
-                "crates/render-quorra/src/lib.rs",
+                "crates/render-raster/src/lib.rs",
                 "// page_group is drawn here\n",
             ),
             file(
-                "crates/render-quorra/tests/corpus.rs",
+                "crates/render-raster/tests/corpus.rs",
                 "fn t() { page_group(); }\n",
             ),
         ];
-        let consumers = vec![consumer("crates/render-quorra", Dependency::Dev)];
+        let consumers = vec![consumer("crates/render-raster", Dependency::Dev)];
         let report = sweep("crates/pdf-model", &sources, &consumers);
         assert_eq!(report.on(Reach::TestOrExample), 1);
     }

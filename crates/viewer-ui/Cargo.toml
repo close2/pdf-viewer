@@ -17,15 +17,15 @@ pdf-sandbox.workspace = true
 # and §7.9.4's date is what §14.3.3's `/CreationDate` parses to.
 pdf-syntax.workspace = true
 render-cpu.workspace = true
-render-quorra.workspace = true
+render-raster.workspace = true
 # The typed refusals the presenter surfaces (swapchain states a host reacts to
 # rather than reports), named directly for the match arms.
-quorra-gpu.workspace = true
-# A `quorra_gpu::Layer`'s placement and filter are `quorra-scene`'s `Affine` and `ImageFilter`,
-# and `quorra-gpu` re-exports `wgpu` but not the scene crate — so a host that presents its own
+raster-gpu.workspace = true
+# A `raster_gpu::Layer`'s placement and filter are `raster-scene`'s `Affine` and `ImageFilter`,
+# and `raster-gpu` re-exports `wgpu` but not the scene crate — so a host that presents its own
 # finished rasters names them itself. No scene is built here and none can be: this crate has no
-# `SceneBuilder` and `render-quorra` remains the only translator in the tree.
-quorra-scene.workspace = true
+# `SceneBuilder` and `render-raster` remains the only translator in the tree.
+raster-scene.workspace = true
 viewer-core.workspace = true
 # The confined boundary, for the one binary here that sits on it: `pdf-viewer-confined` spawns
 # `pdf-view-worker` and takes its pages over a pipe (ADR 0713). `pdf-viewer` names nothing from

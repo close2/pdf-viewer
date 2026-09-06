@@ -143,7 +143,7 @@ fn assert_raster_is_the_clauses_area(what: &str, list: &DisplayList, path: &Path
 
 /// An edge at every twentieth of a pixel, on both axes at once.
 ///
-/// The rungs are the ones `render-quorra/examples/edge_coverage_ladder` prints. Four of the
+/// The rungs are the ones `render-raster/examples/edge_coverage_ladder` prints. Four of the
 /// twenty-one are exact multiples of a quarter and would pass under the quantum too, which is why
 /// the sweep is over all of them rather than over a chosen offset.
 #[test]

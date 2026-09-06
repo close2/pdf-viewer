@@ -63,7 +63,7 @@
 //!
 //! **The graphics device draws this window's pages** (ADR 0725), which is what the marks cross
 //! the pipe *for*: the device is this side's by necessity — a confined process holding one dies
-//! on its first `ioctl` (ADR 0607) — so a list payload goes to `render-quorra` on
+//! on its first `ioctl` (ADR 0607) — so a list payload goes to `render-raster` on
 //! [`crate::device`]'s render thread and its pixels never touch the processor, while a raster
 //! payload is wrapped as the one-image list the same device places. The processor keeps exactly
 //! the two jobs `CLAUDE.md` leaves it: `--cpu` is the window with no device — a raster payload
@@ -90,7 +90,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use render_quorra::QuorraWindowRenderer;
+use render_raster::QuorraWindowRenderer;
 use viewer_confined::{
     Canceller, Confined, ConfinedError, Payload, Reopen, Reply, Resume, Resuming,
 };
@@ -222,9 +222,9 @@ struct Host {
     /// that would not come up). Chosen once in `resumed` and never switched mid-life.
     presentation: Option<Presentation>,
     /// The thread creating the graphics instance — roughly 80% of what device bring-up blocks
-    /// for, started before the window exists (the flagship's arrangement, quorra's ADR 0014).
+    /// for, started before the window exists (the flagship's arrangement, raster's ADR 0014).
     /// `None` under `--cpu`, where no driver may be loaded at all.
-    instancing: Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>>,
+    instancing: Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>>,
     /// The drawing thread — `viewer_host::drawing`'s arrangement, on this side's own request
     /// shape. Under `--cpu` it draws every list payload; behind a device it draws the frames
     /// the device refused, which is `CLAUDE.md`'s second job for the CPU backend.
@@ -271,7 +271,7 @@ struct Host {
 
 /// What puts this window's pixels up (ADR 0725): the graphics device, or the processor.
 enum Presentation {
-    /// A `render-quorra` device on its own thread, presented through a `quorra_gpu::Presenter`.
+    /// A `render-raster` device on its own thread, presented through a `raster_gpu::Presenter`.
     ///
     /// Boxed because a `Device` holds the renderer until the first job moves it to its thread,
     /// and an enum is as wide as its widest variant.

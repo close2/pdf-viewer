@@ -124,7 +124,7 @@ use std::time::Instant;
 
 use pdf_render::Rasterizer as _;
 use pdf_syntax::FileBytes;
-use render_quorra::QuorraRasterizer;
+use render_raster::QuorraRasterizer;
 use viewer_core::{Command, DocumentId, Event, PageTarget, Rendered, RestrictionLevel, Viewer};
 
 /// What a child's one line of numbers begins with.
@@ -555,7 +555,7 @@ fn phase_bring_up() {
         // adapter: a machine that quietly fell back to a software rasteriser reports a bring-up
         // that is a different measurement wearing the same figure, which is precisely what
         // principle 2 means by a regression in adapter selection being "legible as itself".
-        Ok(ref quorra) => quorra.adapter_description().replace(' ', "_"),
+        Ok(ref raster) => raster.adapter_description().replace(' ', "_"),
         Err(ref error) => {
             println!("failed no graphics device: {error}");
             std::process::exit(1);

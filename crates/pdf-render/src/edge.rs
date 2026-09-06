@@ -25,7 +25,7 @@
 //! times per axis, at 0.125, 0.375, 0.625 and 0.875, and an **axis-aligned** edge is seen the same
 //! way by all four sub-rows — so the sixteenth of a pixel that is that converter's quantum for a
 //! general shape becomes a **quarter** for the commonest shape in every PDF, and anything under an
-//! eighth of a pixel becomes nothing. `render-quorra/examples/edge_coverage_ladder` reads it off
+//! eighth of a pixel becomes nothing. `render-raster/examples/edge_coverage_ladder` reads it off
 //! both backends with no document in the way, and ADR 0474 measured a whole page of it.
 //!
 //! # The geometry, derived from the clause and not from a renderer

@@ -1,6 +1,6 @@
 //! Re-runs the check every round that fixed a document outside the gates wrote down.
 //!
-//! **Why this exists is a merge, not a document.** The corpus, oracle and quorra gates walk
+//! **Why this exists is a merge, not a document.** The corpus, oracle and raster gates walk
 //! `doc/pdf.js`; a fix found by ranking the `SafeDocs` crawl is measured once, by the round that
 //! makes it, in a tree that does not yet contain its neighbours' work. Two branches that touch
 //! no common line can then defeat each other with every gate green — which is what session 623

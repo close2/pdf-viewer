@@ -71,7 +71,7 @@ use crate::retired::{self, Kind};
 ///
 /// The workspace's own top-level directories, and nothing else: a token whose head is not one of
 /// these or of [`RELATIVE_HEADS`] is not a pointer into this tree at all, which is how
-/// `quorra-gpu/tests/two_rasters.rs` and `https://github.com/…` are never collected rather than
+/// `raster-gpu/tests/two_rasters.rs` and `https://github.com/…` are never collected rather than
 /// collected and excused.
 pub const ROOTED_HEADS: [&str; 5] = ["doc", "crates", "tools", "fuzz", "data"];
 

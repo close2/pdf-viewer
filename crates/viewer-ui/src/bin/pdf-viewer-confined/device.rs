@@ -4,13 +4,13 @@
 //! cannot hold a device — its first `ioctl` under the confinement is a kill — so a page's
 //! display list crosses to this side and the device here draws it. Until this module existed
 //! the window presented through the processor, and the tier change's whole payload arm ended in
-//! a CPU rasteriser; now a page shipped as marks is drawn by `render-quorra` into textures this
+//! a CPU rasteriser; now a page shipped as marks is drawn by `render-raster` into textures this
 //! module owns, and the pixels never cross back to the CPU.
 //!
 //! # The arrangement, and what it is a smaller copy of
 //!
 //! The flagship's `renderer` module split one device into a presenter the event thread keeps
-//! and a renderer a thread of its own drives (quorra's ADR 0056), because encoding a display
+//! and a renderer a thread of its own drives (raster's ADR 0056), because encoding a display
 //! list is CPU work proportional to the list and the only path to the screen must not wait on
 //! it. That argument is *sharper* here, not weaker: the lists this window draws are a hostile
 //! document's, decoded from a pipe. So the same split, without the parts this window has no use
@@ -38,8 +38,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use pdf_render::{DisplayList, TargetSpec, Transform};
-use quorra_gpu::wgpu;
-use render_quorra::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
+use raster_gpu::wgpu;
+use render_raster::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 
 /// The two window-sized textures one frame is drawn into, travelling as one thing.
 ///
@@ -77,7 +77,7 @@ impl Pair {
 /// One window frame the event thread asks the render thread to draw.
 ///
 /// Everything in it is owned, because it crosses a thread: each page by the `Arc` whose address
-/// is its identity for the retained scene (`render_quorra::PresentFrame::pages`), the chrome by
+/// is its identity for the retained scene (`render_raster::PresentFrame::pages`), the chrome by
 /// value because the host rebuilds it from its own state anyway.
 #[derive(Debug)]
 struct Job {
@@ -111,7 +111,7 @@ pub(crate) struct Landed {
     /// The device's refusal — `None` for a frame that was drawn and adopted. The host's answer
     /// to `Some` is [`super::screen::Screen::fall_back`], and saying so.
     pub(crate) refused: Option<String>,
-    /// What the frame cost on the render thread, in the parts quorra measures it in.
+    /// What the frame cost on the render thread, in the parts raster measures it in.
     pub(crate) cost: FrameCost,
     /// From the ask to the render thread finishing it.
     pub(crate) waited: Duration,
@@ -173,11 +173,11 @@ pub(crate) enum Presented {
 
 /// This window's half of the arrangement: the surface, and a handle on the thread that draws.
 ///
-/// Lives on the event thread and never leaves it. What it owns of quorra is a
-/// [`quorra_gpu::Presenter`] — the surface, its swapchain, one pipeline — which no `&mut Device`
+/// Lives on the event thread and never leaves it. What it owns of raster is a
+/// [`raster_gpu::Presenter`] — the surface, its swapchain, one pipeline — which no `&mut Device`
 /// stands in front of.
 pub(crate) struct Device {
-    presenter: quorra_gpu::Presenter,
+    presenter: raster_gpu::Presenter,
     /// One opaque texel of the window's surround, scaled over the window under every frame.
     medium: wgpu::Texture,
     /// The renderer, until the first job moves it to a thread of its own.
@@ -198,13 +198,13 @@ pub(crate) struct Device {
     wanted: Option<Pending>,
     /// The window's size in device pixels, as the presenter was last told it.
     size: (u32, u32),
-    /// The adapter quorra selected, read before the device left this thread.
+    /// The adapter raster selected, read before the device left this thread.
     description: String,
     /// What bringing the device up cost — `pipeline_compilation` is `None` for ever here,
     /// because nothing on the launch path waits for warmth.
-    startup: quorra_gpu::StartupTimings,
+    startup: raster_gpu::StartupTimings,
     /// What the device has said that no call returned, taken once per present.
-    uncaptured: Arc<render_quorra::UncapturedErrors>,
+    uncaptured: Arc<render_raster::UncapturedErrors>,
 }
 
 impl std::fmt::Debug for Device {
@@ -247,10 +247,10 @@ impl Ungrounded {
             reason = "window dimensions are far below f32's exact integer range"
         )]
         let extent = Transform::scale(width as f32, height as f32);
-        let layers = [quorra_gpu::Layer {
+        let layers = [raster_gpu::Layer {
             texture: &self.0.medium,
             placement: affine(extent),
-            filter: quorra_scene::ImageFilter::Nearest,
+            filter: raster_scene::ImageFilter::Nearest,
         }];
         let refused = self.0.presenter.present(&layers).err();
         // Taken whether the present refused or not: `Surface::configure` returns `()`, so a
@@ -302,13 +302,13 @@ impl Device {
         }))
     }
 
-    /// The adapter quorra selected, for reports.
+    /// The adapter raster selected, for reports.
     pub(crate) fn description(&self) -> &str {
         &self.description
     }
 
-    /// What bringing the device up cost, in the parts quorra measures it in.
-    pub(crate) fn startup(&self) -> quorra_gpu::StartupTimings {
+    /// What bringing the device up cost, in the parts raster measures it in.
+    pub(crate) fn startup(&self) -> raster_gpu::StartupTimings {
         self.startup
     }
 
@@ -449,20 +449,20 @@ impl Device {
             )]
             let extent = Transform::scale(self.size.0 as f32, self.size.1 as f32);
             let layers = [
-                quorra_gpu::Layer {
+                raster_gpu::Layer {
                     texture: &self.medium,
                     placement: affine(extent),
-                    filter: quorra_scene::ImageFilter::Nearest,
+                    filter: raster_scene::ImageFilter::Nearest,
                 },
-                quorra_gpu::Layer {
+                raster_gpu::Layer {
                     texture: &shown.page,
-                    placement: quorra_scene::Affine::IDENTITY,
-                    filter: quorra_scene::ImageFilter::Nearest,
+                    placement: raster_scene::Affine::IDENTITY,
+                    filter: raster_scene::ImageFilter::Nearest,
                 },
-                quorra_gpu::Layer {
+                raster_gpu::Layer {
                     texture: &shown.chrome,
-                    placement: quorra_scene::Affine::IDENTITY,
-                    filter: quorra_scene::ImageFilter::Nearest,
+                    placement: raster_scene::Affine::IDENTITY,
+                    filter: raster_scene::ImageFilter::Nearest,
                 },
             ];
             self.presenter.present(&layers)
@@ -475,7 +475,7 @@ impl Device {
         }
         match outcome {
             Ok(()) => Presented::Shown,
-            Err(quorra_gpu::RenderError::SurfaceUnavailable { reason }) => {
+            Err(raster_gpu::RenderError::SurfaceUnavailable { reason }) => {
                 swapchain(reason, said.as_ref())
             }
             Err(problem) => Presented::Refused(problem.to_string()),
@@ -486,24 +486,24 @@ impl Device {
 /// What a swapchain state means for the tick after it — the flagship's reading of the same
 /// four states, told apart here so each is testable without a graphics device.
 fn swapchain(
-    reason: quorra_gpu::SurfaceProblem,
-    said: Option<&render_quorra::Uncaptured>,
+    reason: raster_gpu::SurfaceProblem,
+    said: Option<&render_raster::Uncaptured>,
 ) -> Presented {
     match reason {
-        // The window system moved under the swapchain — a resize, a compositor restart. quorra
+        // The window system moved under the swapchain — a resize, a compositor restart. raster
         // has marked the surface for reconfiguration; the next acquire finds a fresh one.
-        quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
+        raster_gpu::SurfaceProblem::Outdated | raster_gpu::SurfaceProblem::Lost => {
             Presented::AskAgain
         }
         // Ordinary, and neither is this program's to fix: an occluded window is one nobody can
         // see, a timeout is a swapchain whose images are all still in flight.
-        quorra_gpu::SurfaceProblem::Timeout | quorra_gpu::SurfaceProblem::Occluded => {
+        raster_gpu::SurfaceProblem::Timeout | raster_gpu::SurfaceProblem::Occluded => {
             Presented::Waited
         }
         // A validation failure that reaches a configured surface is very nearly always a
         // reconfigure that failed, and the only account of it is what the device told the
         // handler — carried where it exists.
-        quorra_gpu::SurfaceProblem::Validation => Presented::Refused(match said {
+        raster_gpu::SurfaceProblem::Validation => Presented::Refused(match said {
             Some(said) => format!(
                 "the window's swapchain could not be rebuilt, and the graphics device said: {}",
                 said.last.trim()
@@ -583,9 +583,9 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     }
 }
 
-/// quorra's affine from this tree's transform — §8.3.3's six coefficients, in the same order.
-fn affine(transform: Transform) -> quorra_scene::Affine {
-    quorra_scene::Affine {
+/// raster's affine from this tree's transform — §8.3.3's six coefficients, in the same order.
+fn affine(transform: Transform) -> raster_scene::Affine {
+    raster_scene::Affine {
         a: transform.a,
         b: transform.b,
         c: transform.c,
@@ -603,11 +603,11 @@ mod tests {
     #[test]
     fn a_replaced_swapchain_asks_again() {
         assert_eq!(
-            swapchain(quorra_gpu::SurfaceProblem::Outdated, None),
+            swapchain(raster_gpu::SurfaceProblem::Outdated, None),
             Presented::AskAgain
         );
         assert_eq!(
-            swapchain(quorra_gpu::SurfaceProblem::Lost, None),
+            swapchain(raster_gpu::SurfaceProblem::Lost, None),
             Presented::AskAgain
         );
     }
@@ -616,11 +616,11 @@ mod tests {
     #[test]
     fn an_occluded_or_saturated_swapchain_waits() {
         assert_eq!(
-            swapchain(quorra_gpu::SurfaceProblem::Timeout, None),
+            swapchain(raster_gpu::SurfaceProblem::Timeout, None),
             Presented::Waited
         );
         assert_eq!(
-            swapchain(quorra_gpu::SurfaceProblem::Occluded, None),
+            swapchain(raster_gpu::SurfaceProblem::Occluded, None),
             Presented::Waited
         );
     }
@@ -629,17 +629,17 @@ mod tests {
     /// left — the account `Surface::configure` gives nowhere else.
     #[test]
     fn a_validation_failure_refuses_with_the_devices_words() {
-        let said = render_quorra::Uncaptured {
+        let said = render_raster::Uncaptured {
             since: 1,
             last: "  the device's own sentence  ".to_owned(),
         };
         let Presented::Refused(why) =
-            swapchain(quorra_gpu::SurfaceProblem::Validation, Some(&said))
+            swapchain(raster_gpu::SurfaceProblem::Validation, Some(&said))
         else {
             panic!("a validation failure is a refusal");
         };
         assert!(why.contains("the device's own sentence"), "was {why:?}");
-        let Presented::Refused(why) = swapchain(quorra_gpu::SurfaceProblem::Validation, None)
+        let Presented::Refused(why) = swapchain(raster_gpu::SurfaceProblem::Validation, None)
         else {
             panic!("a validation failure is a refusal");
         };

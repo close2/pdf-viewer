@@ -9,7 +9,7 @@
 //! that is what every backend draws unless it can do better.
 //!
 //! What ADR 0376 adds is the *option* of doing better. A backend whose graphics library can
-//! evaluate the program itself — quorra's `Paint::Function`, one generated fragment shader —
+//! evaluate the program itself — raster's `Paint::Function`, one generated fragment shader —
 //! needs the program, and it can only see this crate. So [`ShadingProgram`] rides beside the
 //! producer on [`ShadingKind::Sampled`](crate::ShadingKind::Sampled), as an *alternative
 //! statement of the same colours*, and a backend that has no use for it ignores the field.

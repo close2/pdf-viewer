@@ -337,7 +337,7 @@ impl ApplicationHandler for App {
                     let extent = (size.width.max(1), size.height.max(1));
                     state.size = extent;
                     // **The presenter is told every time the window system speaks**, which is
-                    // what quorra's `Presenter::resize` asks of a host: it configures nothing and
+                    // what raster's `Presenter::resize` asks of a host: it configures nothing and
                     // the swapchain follows at the next present, so calling it with a size it
                     // already had costs a field write. A presenter that was never told refuses by
                     // name, and a minimised window is a state rather than an error.

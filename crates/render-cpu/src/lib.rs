@@ -2084,7 +2084,7 @@ impl CpuRasterizer {
 ///   of its own 0.1 at the top edge of a 320-unit page, where the graphics device carried 0.0980;
 /// - and lays that mark down **one pixel per step along the line's longer device axis**, so a rule
 ///   at `θ` from the nearer axis carries `cos θ` of its area. Measured by
-///   `render-quorra/examples/sub_pixel_marks`: 3.4% short at 15°, 13.4% at 30° and **29.3% at
+///   `render-raster/examples/sub_pixel_marks`: 3.4% short at 15°, 13.4% at 30° and **29.3% at
 ///   45°**, at every thickness rather than only near the coverage quantum.
 ///
 /// The second reads directly against the sentence three along from the one above — "[t]he area
@@ -2181,7 +2181,7 @@ fn draw_sub_pixel_rule(
 /// wide *along an axis* is thinner than that measured across the line. Neither reading is forced.
 /// What decides it here is this project's own rule about two backends: `pdf_render::Stroke::
 /// device_width` resolves a zero width to one device pixel **in the shared crate**, so that both
-/// backends draw one mark, and quorra strokes exactly that. Leaving the hairline in place would
+/// backends draw one mark, and raster strokes exactly that. Leaving the hairline in place would
 /// be `render-cpu` privately re-deciding what `pdf-render` had decided, and the two backends
 /// would disagree by 29% on every turned `0 w` line with no clause to arbitrate. No corpus
 /// document ranks the choice: the whole gate is identical either way, measured.
@@ -2516,7 +2516,7 @@ fn draw_stroked_outline(
 /// `1 / sqrt((1/4096) / 2)` = 90.51 in disguise, and every sharper join is bevelled with the file's
 /// limit unread.
 ///
-/// **Measured as well as derived**, by `render-quorra/examples/mitre_ladder`: this backend draws
+/// **Measured as well as derived**, by `render-raster/examples/mitre_ladder`: this backend draws
 /// the mitre at a ratio of 90.23 and nothing at all at 95.50, where the two graphics-device
 /// backends draw the tip within a pixel of the clause's arithmetic at every rung.
 const BEVELLED_BY_THE_STROKER: f32 = 90.51;

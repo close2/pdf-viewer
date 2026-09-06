@@ -295,7 +295,7 @@ fn luminosity(
 /// > transfer function, allowing the masking effect to be customised.
 ///
 /// The two are composed into one table rather than applied in turn, and the reason is not
-/// economy. A backend that can express a luminosity mask *natively* — `render-quorra` does —
+/// economy. A backend that can express a luminosity mask *natively* — `render-raster` does —
 /// takes a backdrop colour and a 256-entry table and computes the luminosity in a shader of
 /// its own, so a second arithmetic step outside the table would be a step the CPU oracle
 /// takes and the graphics device does not. Composed here, both backends are handed the same

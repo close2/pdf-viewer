@@ -114,7 +114,7 @@ use crate::display_list::{Command, DisplayList};
 /// It is `CLAUDE.md` principle 3's explicit resource bound and nothing more: it stops a page
 /// that **cannot finish** from being started. It is deliberately *not* a bound on how long a
 /// reader waits — a page right at it still costs about seventy seconds of drawing, and
-/// `render-quorra/tests/group_cost.rs` measured four minutes for one under the test profile.
+/// `render-raster/tests/group_cost.rs` measured four minutes for one under the test profile.
 /// Interactivity is [`Interrupt`](crate::Interrupt)'s job (ADR 0650): a host abandons a draw
 /// it no longer wants, per command, and gets its thread back in milliseconds. Setting this
 /// constant low enough to make a draw feel fast would refuse `1530064.pdf` and four other

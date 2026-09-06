@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use pdf_render::{TargetSpec, Transform};
-use render_quorra::QuorraWindowRenderer;
+use render_raster::QuorraWindowRenderer;
 use viewer_core::{Answer, Command, Query, Rendered};
 use viewer_ui::software::SoftwareSurface;
 use winit::window::Window;
@@ -31,16 +31,16 @@ use crate::overlays::Overlays;
 use crate::timing::Stages;
 use crate::trace::Topic;
 
-/// The magnification past which quorra's GPU coverage lane is the cheaper one.
+/// The magnification past which raster's GPU coverage lane is the cheaper one.
 ///
-/// **Derived, not tuned.** quorra keeps a glyph's rasterised coverage in an atlas until
+/// **Derived, not tuned.** raster keeps a glyph's rasterised coverage in an atlas until
 /// the glyph exceeds 128 device pixels; past that it rasterises the glyph again on
 /// every frame, which is where its cost stops being flat (its ADR 0016). The
 /// magnification that happens at is `128 ÷ the height of the text`, so body text of 10
 /// to 12 points crosses it between 10.7× and 13×. Ten is the low end of that band,
 /// chosen because being early costs a fraction of a millisecond and being late costs
 /// ten — measured on this machine at 0.44 ms per frame at 8× against 4.4 ms at 12×
-/// (`doc/quorra-gpu-coverage.md`).
+/// (`doc/raster-gpu-coverage.md`).
 ///
 /// A page whose text is much larger or much smaller than a book's crosses it somewhere
 /// else, and the honest way to do better would be to ask the display list what size its
@@ -57,14 +57,14 @@ const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 /// number to compare, and it is right for a rotated page as well.
 /// Which lane `auto` picks for one frame, from what the window is already showing.
 ///
-/// Three cases, each a measurement (quorra's ADR 0080/0081, this tree's ADR 0700):
+/// Three cases, each a measurement (raster's ADR 0080/0081, this tree's ADR 0700):
 ///
 /// - **The view moved** — any coefficient of the arrangement's transform differs from
 ///   the shown frame's — so every cached tile is cold, which is the regime the compute
 ///   lane wins on both page shapes measured (a 58k-fill page: ~150 ms against ~270; a
 ///   dense text page's cold sweep: 0.93 ms of encode against 8.84).
 /// - **The view is the one being shown** — a chrome-only ask — so the frame replays
-///   its retained encode, *if* the lane does not move: quorra keys a retained encode on
+///   its retained encode, *if* the lane does not move: raster keys a retained encode on
 ///   the lane, so the choice is **sticky** here, and flipping it would turn a selection
 ///   change into a full re-encode.
 /// - **There is no shown frame** — the launch path — which keeps the lane the
@@ -72,7 +72,7 @@ const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 ///   the compute lane's first frame pays its pipeline compile and its segment
 ///   residency, and the launch path pays for nothing it can defer.
 ///
-/// The sampled [`Gpu`](quorra_gpu::Coverage::Gpu) lane is deliberately absent from the
+/// The sampled [`Gpu`](raster_gpu::Coverage::Gpu) lane is deliberately absent from the
 /// moved-view case: the compute lane beats it on the cold sweep (0.93 against 9.8 ms),
 /// matches it held at 100×, and is exact where §10.7.4 records it non-conformant. It
 /// stays reachable by `--coverage gpu`, and in the launch rule until a first-frame
@@ -80,11 +80,11 @@ const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 pub(crate) fn lane_for(
     asked: Transform,
     shown: Option<Transform>,
-    last: Option<quorra_gpu::Coverage>,
+    last: Option<raster_gpu::Coverage>,
     seen_by_the_atlas: &[[u32; 4]],
     software: bool,
     choice: crate::arguments::CoverageChoice,
-) -> quorra_gpu::Coverage {
+) -> raster_gpu::Coverage {
     if let crate::arguments::CoverageChoice::Fixed(lane) = choice {
         return lane;
     }
@@ -97,20 +97,20 @@ pub(crate) fn lane_for(
     match (shown, last) {
         (Some(drawn), Some(lane)) if same_transform(drawn, asked) => lane,
         // A magnification the atlas has drawn before is a magnification it still
-        // holds: quorra's tiles are keyed by the linear part and evicted only by a
+        // holds: raster's tiles are keyed by the linear part and evicted only by a
         // repack, so a revisit — zooming back to the fit, the other window size of a
         // pair — hits, and the hit is worth 69 against the compute lane's 130 ms on
         // the worst page (the loop measurement in ADR 0700). A repack in between costs
         // one cold CPU frame, which is the bounded downside of remembering.
         (Some(_), _) if seen_by_the_atlas.contains(&linear_bits_of(asked)) => {
-            quorra_gpu::Coverage::Cpu
+            raster_gpu::Coverage::Cpu
         }
-        (Some(_), _) => quorra_gpu::Coverage::Compute,
+        (Some(_), _) => raster_gpu::Coverage::Compute,
         _ => coverage_for(asked, choice),
     }
 }
 
-/// The linear part as the bits the atlas keys tiles by — the same reading quorra
+/// The linear part as the bits the atlas keys tiles by — the same reading raster
 /// makes, so "seen" here and "resident" there mean the same magnification.
 pub(crate) fn linear_bits_of(transform: Transform) -> [u32; 4] {
     [
@@ -121,15 +121,15 @@ pub(crate) fn linear_bits_of(transform: Transform) -> [u32; 4] {
     ]
 }
 
-/// Whether this adapter is a software rasteriser, read from the description quorra
+/// Whether this adapter is a software rasteriser, read from the description raster
 /// formats as `"{name} ({device_type:?}, {backend:?})"` (their `construct.rs`) — a
-/// string test with a named source, to be replaced by a typed accessor when quorra
+/// string test with a named source, to be replaced by a typed accessor when raster
 /// grows one.
 pub(crate) fn software_adapter(description: &str) -> bool {
     description.contains("(Cpu,")
 }
 
-/// Bit equality of the six coefficients — the same reading quorra's retained-frame key
+/// Bit equality of the six coefficients — the same reading raster's retained-frame key
 /// makes, so "the view moved" here and "the encode survives" there cannot disagree.
 fn same_transform(a: Transform, b: Transform) -> bool {
     [a.a, a.b, a.c, a.d, a.e, a.f]
@@ -141,7 +141,7 @@ fn same_transform(a: Transform, b: Transform) -> bool {
 pub(crate) fn coverage_for(
     transform: Transform,
     choice: crate::arguments::CoverageChoice,
-) -> quorra_gpu::Coverage {
+) -> raster_gpu::Coverage {
     if let crate::arguments::CoverageChoice::Fixed(lane) = choice {
         return lane;
     }
@@ -151,16 +151,16 @@ pub(crate) fn coverage_for(
         .abs()
         .sqrt();
     if magnification >= GPU_COVERAGE_MAGNIFICATION {
-        quorra_gpu::Coverage::Gpu
+        raster_gpu::Coverage::Gpu
     } else {
-        quorra_gpu::Coverage::Cpu
+        raster_gpu::Coverage::Cpu
     }
 }
 
 /// What a swapchain state means for the tick after it, which is the whole of what a host decides.
 ///
 /// A free function over an enum rather than a `match` inside [`App::put_up`], for one reason: the
-/// decision is now made from **two** inputs — the state quorra reports and whatever the device
+/// decision is now made from **two** inputs — the state raster reports and whatever the device
 /// said to its uncaptured-error handler on the way — and a decision with two inputs is one worth
 /// being able to test without a graphics device. Its tests are at the foot of this file.
 #[derive(Debug, PartialEq, Eq)]
@@ -180,27 +180,27 @@ pub(crate) enum Swapchain {
 ///
 /// **`Validation` is the one that changed in the six-hundred-and-twenty-eighth session.** It used
 /// to be `swapchain validation failed`, four words that name no cause and suggest no action —
-/// and by construction there *is* a cause to name: quorra reaches this state by asking wgpu for a
+/// and by construction there *is* a cause to name: raster reaches this state by asking wgpu for a
 /// texture and being refused, and the refusal that reaches a surface which has been configured
 /// once is very nearly always a *re*configure that failed. `Surface::configure` returns `()`, so
 /// the only account of it is what the device told the handler, which is why `said` is here.
 pub(crate) fn swapchain(
-    reason: quorra_gpu::SurfaceProblem,
-    said: Option<&render_quorra::Uncaptured>,
+    reason: raster_gpu::SurfaceProblem,
+    said: Option<&render_raster::Uncaptured>,
 ) -> Swapchain {
     match reason {
         // The window system has moved under the swapchain — a resize, a monitor change, a
-        // compositor restart. quorra has already marked the surface for reconfiguration, so the
+        // compositor restart. raster has already marked the surface for reconfiguration, so the
         // frame that follows this one will replace it.
-        quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
+        raster_gpu::SurfaceProblem::Outdated | raster_gpu::SurfaceProblem::Lost => {
             Swapchain::AskAgain
         }
         // Both are ordinary and neither is this program's to fix: an occluded window is one
         // nobody can see, and a timeout is a swapchain whose images are all still in flight.
-        quorra_gpu::SurfaceProblem::Timeout | quorra_gpu::SurfaceProblem::Occluded => {
+        raster_gpu::SurfaceProblem::Timeout | raster_gpu::SurfaceProblem::Occluded => {
             Swapchain::Wait
         }
-        quorra_gpu::SurfaceProblem::Validation => Swapchain::Refused(match said {
+        raster_gpu::SurfaceProblem::Validation => Swapchain::Refused(match said {
             Some(said) => format!(
                 "the window's swapchain could not be rebuilt, and the graphics device said: {}",
                 said.last.trim()
@@ -223,7 +223,7 @@ pub(crate) fn swapchain(
 /// draws pages, a store of finished pictures on this thread, and a present on the clock's tick.
 /// What they do not share is the price of a stand-in, which is [`crate::stale::Standing`].
 pub(crate) enum Surface {
-    /// The window's surface, held apart from the device that made it (quorra's ADR 0056): this
+    /// The window's surface, held apart from the device that made it (raster's ADR 0056): this
     /// thread presents finished rasters and [`crate::renderer`]'s thread draws them.
     Device(Box<crate::renderer::Window>),
     /// The processor's raster copied onto the window, with the overlays composited into it
@@ -373,7 +373,7 @@ impl App {
         // magnifications the atlas has drawn (a short ring; older entries age out as
         // the atlas's own tiles do, by being forgotten).
         self.lane = Some(drawing.1);
-        if drawing.1 == quorra_gpu::Coverage::Cpu
+        if drawing.1 == raster_gpu::Coverage::Cpu
             && let Some(first) = pages.first()
         {
             let bits = linear_bits_of(first.target.transform);
@@ -534,14 +534,14 @@ impl App {
         // reads both: the placement to carry the pixels *from*, and the cost to predict whether
         // the frame after it will miss its refresh (`doc/todo/37` rule 5, ADR 0384).
         //
-        // **Whether the frame *built* its picture is part of that**, and it is quorra's own
+        // **Whether the frame *built* its picture is part of that**, and it is raster's own
         // observable rather than an inference from a small duration: a frame that replayed a
         // retained encode (ADR 0351) says what a replay costs and nothing about what the next
         // render will, and a view change never replays.
         if !landed.pages.is_empty() {
             let built = !matches!(
                 landed.cost.encode_source,
-                Some(quorra_gpu::EncodeSource::Replayed)
+                Some(raster_gpu::EncodeSource::Replayed)
             );
             self.stale.settled(&landed.pages, landed.waited, built);
         }
@@ -550,7 +550,7 @@ impl App {
     /// Puts the frame on hand on the window under `placement`, and says what it was.
     ///
     /// The one place a swapchain state is answered, and it is answered exactly as it was when the
-    /// device owned the surface: quorra's presenter reconfigures itself on a timeout or an
+    /// device owned the surface: raster's presenter reconfigures itself on a timeout or an
     /// outdated surface, so these are events to try again on rather than failures to report.
     ///
     /// `None` where nothing was put up — there is no frame yet, or the swapchain said to try
@@ -574,7 +574,7 @@ impl App {
                 // **The one place a device's uncaptured complaint is taken**, and it is here
                 // rather than once a frame because this is the call that can provoke one:
                 // `Surface::configure` returns `()` and says what it thought only through the
-                // handler `render-quorra` installs. Taken whether the present refused or not, so
+                // handler `render-raster` installs. Taken whether the present refused or not, so
                 // that a failure under a present that then succeeded is not left in the record to
                 // be attributed to some later frame.
                 window.device_said(),
@@ -590,7 +590,7 @@ impl App {
             Ok(false) => return None,
             // Swapchain states are events, not failures: nothing was presented, nothing is stale,
             // and the processor cannot help a window that is not presentable.
-            Err(quorra_gpu::RenderError::SurfaceUnavailable { reason }) => {
+            Err(raster_gpu::RenderError::SurfaceUnavailable { reason }) => {
                 return match swapchain(reason, said.as_ref()) {
                     Swapchain::AskAgain => {
                         self.redraw();
@@ -655,15 +655,15 @@ impl App {
     /// **The half that was missing when the project owner's viewer aborted.** The device's own
     /// sentence was printed by the handler, and then nothing said what became of it — so a person
     /// reading the output could not tell whether the program had noticed. Two sentences, two
-    /// authors: `render-quorra`'s handler says what the device said, and this says what was done.
+    /// authors: `render-raster`'s handler says what the device said, and this says what was done.
     ///
     /// `refused` is whether the present that provoked it went on to refuse, because those are two
     /// different reports: an error under a present that succeeded is a fact about the device that
     /// cost this frame nothing, and one under a present that refused is this frame's cause.
-    fn device_reported(&mut self, said: &render_quorra::Uncaptured, refused: bool) {
+    fn device_reported(&mut self, said: &render_raster::Uncaptured, refused: bool) {
         if refused {
             // The refusal itself is reported by the arm that classifies it, which has the state
-            // quorra named and can therefore say something this cannot; a second sentence here
+            // raster named and can therefore say something this cannot; a second sentence here
             // would be the same event twice.
             self.trace.say(
                 Topic::Frames,
@@ -1246,9 +1246,9 @@ impl App {
         let brought_up = began.elapsed();
         self.launch.mark("graphics device");
         // **The surface leaves the device here, on the launch path, and that is deliberate.**
-        // quorra's `detach_presenter` clones four handles and moves the surface state; it asks the
+        // raster's `detach_presenter` clones four handles and moves the surface state; it asks the
         // pipeline store nothing, so it cannot compile, cannot wait for warmth and cannot block
-        // (quorra's ADR 0056). The *thread* is not started here — that is the first job's, which
+        // (raster's ADR 0056). The *thread* is not started here — that is the first job's, which
         // is `CLAUDE.md`'s rule about scheduler decisions in front of a launch milestone.
         let size = window.inner_size();
         let ungrounded = match crate::renderer::Window::split(
@@ -1262,7 +1262,7 @@ impl App {
             Ok(ungrounded) => ungrounded,
             Err(renderer) => {
                 // A device built with `for_surface` always has one to hand over, so this is a
-                // proof about quorra's constructors rather than a state anybody has seen — and it
+                // proof about raster's constructors rather than a state anybody has seen — and it
                 // is still a sentence rather than a panic, because the alternative to a window
                 // that cannot present is a window nobody can read.
                 eprintln!(
@@ -1299,7 +1299,7 @@ impl App {
             let startup = presenter.startup();
             // Two lines about one choice, and they answer different questions. The first is what
             // was *asked for* — which is a fact about this command line — and the second ends in
-            // the backend that was actually chosen, because quorra's adapter description carries
+            // the backend that was actually chosen, because raster's adapter description carries
             // it: `llvmpipe (LLVM 22.1.8, 256 bits) (Cpu, Vulkan)`. A person diagnosing a driver
             // crash needs both, and before the three-hundred-and-eighty-fourth session there was
             // no way to ask for the first at all.
@@ -1386,8 +1386,8 @@ impl App {
     fn no_device(
         &self,
         window: &Arc<Window>,
-        instance: Option<&quorra_gpu::wgpu::Instance>,
-        problem: &render_quorra::QuorraRasterError,
+        instance: Option<&raster_gpu::wgpu::Instance>,
+        problem: &render_raster::QuorraRasterError,
     ) -> Option<Surface> {
         eprintln!("the graphics device could not be brought up: {problem}");
         eprintln!("  asked for: {}", self.backend_description());
@@ -1407,7 +1407,7 @@ impl App {
         // And what the machine has by every route, which is the list a person picks their next
         // `--backend` out of. Its own all-backends instance, so it costs a driver load — which is
         // acceptable here and nowhere else on this path: this run has already failed.
-        let every = quorra_gpu::Device::adapter_names();
+        let every = raster_gpu::Device::adapter_names();
         eprintln!(
             "  adapters on this machine: {}",
             if every.is_empty() {
@@ -1465,7 +1465,7 @@ impl App {
     /// wait nobody did would have ended — so a first frame that absorbed a shader compilation
     /// and one that did not read identically. Polled once a frame, which behind the topic check
     /// is one `Option` read; *noticed* rather than *finished*, because the compilation ends on
-    /// quorra's own thread and this is only the first frame to look.
+    /// raster's own thread and this is only the first frame to look.
     ///
     /// **Read off the last finished frame since ADR 0391**, because the device is no longer on
     /// this thread to ask: [`crate::renderer::Window`] keeps whatever the render thread saw when
@@ -1594,7 +1594,7 @@ impl App {
 mod tests {
 
     /// **The `auto` policy in its three cases** (ADR 0700): a moved view takes the
-    /// compute lane, an unchanged view keeps the lane it was drawn in — quorra keys a
+    /// compute lane, an unchanged view keeps the lane it was drawn in — raster keys a
     /// retained encode on the lane, so a flip would cost a selection change a full
     /// re-encode — and a window with nothing shown keeps the launch rule.
     #[test]
@@ -1606,58 +1606,58 @@ mod tests {
             super::lane_for(
                 at(1.5),
                 Some(at(1.0)),
-                Some(quorra_gpu::Coverage::Cpu),
+                Some(raster_gpu::Coverage::Cpu),
                 &[],
                 false,
                 auto
             ),
-            quorra_gpu::Coverage::Compute,
+            raster_gpu::Coverage::Compute,
             "a zoom is cold tiles everywhere, which is the compute lane's regime"
         );
         assert_eq!(
             super::lane_for(
                 at(1.0),
                 Some(at(1.0)),
-                Some(quorra_gpu::Coverage::Compute),
+                Some(raster_gpu::Coverage::Compute),
                 &[],
                 false,
                 auto
             ),
-            quorra_gpu::Coverage::Compute,
+            raster_gpu::Coverage::Compute,
             "an unchanged view keeps its lane, or the replay dies with the flip"
         );
         assert_eq!(
             super::lane_for(
                 at(1.0),
                 Some(at(1.0)),
-                Some(quorra_gpu::Coverage::Cpu),
+                Some(raster_gpu::Coverage::Cpu),
                 &[],
                 false,
                 auto
             ),
-            quorra_gpu::Coverage::Cpu,
+            raster_gpu::Coverage::Cpu,
             "sticky in both directions: the lane is the shown frame's, not a favourite"
         );
         assert_eq!(
             super::lane_for(at(1.0), None, None, &[], false, auto),
-            quorra_gpu::Coverage::Cpu,
+            raster_gpu::Coverage::Cpu,
             "the launch path keeps the rule its gates were measured on"
         );
         assert_eq!(
             super::lane_for(
                 at(1.5),
                 Some(at(1.0)),
-                Some(quorra_gpu::Coverage::Cpu),
+                Some(raster_gpu::Coverage::Cpu),
                 &[],
                 true,
                 auto
             ),
-            quorra_gpu::Coverage::Cpu,
+            raster_gpu::Coverage::Cpu,
             "a software adapter loses on the dispatch and keeps the processor's lanes"
         );
         assert!(
             super::software_adapter("llvmpipe (LLVM 22.1.8, 256 bits) (Cpu, Vulkan)"),
-            "the format quorra's construct.rs states"
+            "the format raster's construct.rs states"
         );
         assert!(!super::software_adapter(
             "AMD Radeon 890M Graphics (RADV STRIX1) (IntegratedGpu, Vulkan)"
@@ -1666,30 +1666,30 @@ mod tests {
             super::lane_for(
                 at(1.0),
                 Some(at(1.5)),
-                Some(quorra_gpu::Coverage::Compute),
+                Some(raster_gpu::Coverage::Compute),
                 &[super::linear_bits_of(at(1.0))],
                 false,
                 auto
             ),
-            quorra_gpu::Coverage::Cpu,
+            raster_gpu::Coverage::Cpu,
             "a magnification the atlas has drawn is a revisit, and the atlas holds it"
         );
         assert_eq!(
             super::lane_for(
                 at(1.5),
                 Some(at(1.0)),
-                Some(quorra_gpu::Coverage::Cpu),
+                Some(raster_gpu::Coverage::Cpu),
                 &[],
                 false,
-                CoverageChoice::Fixed(quorra_gpu::Coverage::Gpu)
+                CoverageChoice::Fixed(raster_gpu::Coverage::Gpu)
             ),
-            quorra_gpu::Coverage::Gpu,
+            raster_gpu::Coverage::Gpu,
             "a pinned lane is pinned"
         );
     }
     use pdf_render::Transform;
-    use quorra_gpu::SurfaceProblem;
-    use render_quorra::Uncaptured;
+    use raster_gpu::SurfaceProblem;
+    use render_raster::Uncaptured;
 
     use super::{GPU_COVERAGE_MAGNIFICATION, Swapchain, coverage_for, swapchain};
 
@@ -1765,12 +1765,12 @@ mod tests {
         };
         assert_eq!(
             coverage_for(page(8.0), crate::arguments::CoverageChoice::Auto),
-            quorra_gpu::Coverage::Cpu,
+            raster_gpu::Coverage::Cpu,
             "below the atlas cliff the cached lane is cheaper"
         );
         assert_eq!(
             coverage_for(page(12.0), crate::arguments::CoverageChoice::Auto),
-            quorra_gpu::Coverage::Gpu,
+            raster_gpu::Coverage::Gpu,
             "above it the CPU lane rasterises every glyph on every frame"
         );
         assert_eq!(
@@ -1778,7 +1778,7 @@ mod tests {
                 page(GPU_COVERAGE_MAGNIFICATION),
                 crate::arguments::CoverageChoice::Auto
             ),
-            quorra_gpu::Coverage::Gpu,
+            raster_gpu::Coverage::Gpu,
             "the threshold itself belongs to the lane it names"
         );
     }
@@ -1801,6 +1801,6 @@ mod tests {
         };
         let auto = crate::arguments::CoverageChoice::Auto;
         assert_eq!(coverage_for(upright, auto), coverage_for(turned, auto));
-        assert_eq!(coverage_for(turned, auto), quorra_gpu::Coverage::Gpu);
+        assert_eq!(coverage_for(turned, auto), raster_gpu::Coverage::Gpu);
     }
 }

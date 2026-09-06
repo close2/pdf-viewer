@@ -271,7 +271,7 @@ fn the_gpu_refuses_a_non_isolated_group() {
 /// with no place in this backend to hold the second. Drawing the chromatic list alone would
 /// paint the page in the complements of cyan, magenta and yellow with no black in it at all,
 /// which is a plausible wrong picture rather than an obvious one, so the frame goes to the
-/// CPU backend instead. `render-quorra` draws it since the four-hundred-and-thirty-ninth
+/// CPU backend instead. `render-raster` draws it since the four-hundred-and-thirty-ninth
 /// session, on two `Target::Readback` renders against one device; this fails if the refusal
 /// here ever becomes silent.
 #[test]
@@ -296,7 +296,7 @@ fn the_gpu_refuses_a_four_component_page() {
 /// A function-based shading's colours resolve to a grid at the device's own resolution
 /// (`Shading::sampled_at`), and a grid is not a brush any Vello gradient can express. The
 /// sibling backends draw it their own way — a pattern on the CPU, an image clipped to the
-/// path on quorra, which is what the window presents with — and this backend reports, which
+/// path on raster, which is what the window presents with — and this backend reports, which
 /// keeps the two honestly different: the comparison harness excludes a page a backend says
 /// it cannot draw instead of blaming the difference on the GPU. This fails if the refusal
 /// ever becomes silent, and the CPU draw beside it fails if the oracle stops covering what
@@ -1284,7 +1284,7 @@ fn cpu_and_gpu_agree_on_a_stroke_with_no_length() {
 /// **A cross-backend comparison cannot gate this and that is why the assertion is absolute.**
 /// One lost pixel out of forty thousand moves no differing-channel fraction, so the quantity
 /// checked here is the raster's own ink against the mark's own area — the same reading
-/// `render-quorra/tests/sub_pixel_coverage.rs` takes of the other two rasterisers.
+/// `render-raster/tests/sub_pixel_coverage.rs` takes of the other two rasterisers.
 ///
 /// The mark lands in one device pixel (`pdf_render::point_mark`), so what an eight-bit raster
 /// can hold is the mark's area quantised to a level, and the least it can hold at all is one
@@ -1504,7 +1504,7 @@ fn cpu_and_gpu_agree_on_a_fill_with_no_area() {
 /// **This scene exists because every other image in this suite is opaque**, and on an opaque
 /// raster the two filters are the same arithmetic — so the rule had nothing holding it in any
 /// backend. It is calibrated against a live failure rather than a plant: the third rasteriser
-/// in this tree filters straight alpha, and `render-quorra`'s `filtered_edge_colour` example
+/// in this tree filters straight alpha, and `render-raster`'s `filtered_edge_colour` example
 /// prints this scene's partly covered pixels for all three (ADR 0697).
 #[test]
 fn cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour() {

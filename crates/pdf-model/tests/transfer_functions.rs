@@ -540,7 +540,7 @@ fn a_mesh_corner_colour_goes_through_the_transfer_function() {
 /// The colours of a type 1 shading do not exist until a device says how large the domain will be
 /// drawn, so the transfer travels with the producer and is applied as each cell is made. The
 /// second half of the test is the reason it has to: a device *program* — §7.10.5's function lowered
-/// to instructions `render-quorra` evaluates on the GPU — computes the colour and nothing else, so
+/// to instructions `render-raster` evaluates on the GPU — computes the colour and nothing else, so
 /// there is nowhere on that path to put the function, and it is withdrawn.
 #[test]
 fn a_function_based_shading_maps_every_cell_and_withdraws_its_device_program() {

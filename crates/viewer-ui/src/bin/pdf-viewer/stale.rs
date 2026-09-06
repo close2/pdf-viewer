@@ -116,7 +116,7 @@
 //! `pdf-viewer`'s binary. A binary crate is not a dependency: `pdf-model`'s corpus and oracle
 //! gates, `viewer-core`'s headless harness, `Query::Frame`, `render_at`, `viewer-confined`'s
 //! worker and every diagnostic artefact in this tree are compiled without a line of it. **Nothing
-//! crosses into a library at all any more**: `render-quorra` draws a window's frame into two
+//! crosses into a library at all any more**: `render-raster` draws a window's frame into two
 //! textures and hands them back, `viewer_ui::software::compose_pages` draws one into a raster and
 //! hands that back, and `crate::renderer` and `crate::composer` put them on a window under
 //! placements this file computes. None of the three knows what a reprojection is, and the test at
@@ -233,7 +233,7 @@ impl Placed {
     /// Whether these two are the same interpretation of the same page at the same placement.
     ///
     /// **The `Arc`'s address and the target, which is the exact question** — see [`Picture`] for
-    /// why the retained layer asks a different one. `render-quorra` reuses a scene by the same
+    /// why the retained layer asks a different one. `render-raster` reuses a scene by the same
     /// address for the same ABA reason (ADR 0351).
     pub(crate) fn is(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.list, &other.list) && self.target == other.target
@@ -619,7 +619,7 @@ impl Plan {
 /// **Chosen from a measurement, and the measurement said the opposite of what was expected.**
 /// `doc/todo/37` illustrated the idea with "an eighth of device scale" and said outright that the
 /// scale was still open. What decides it is what a proxy *costs*, and on this machine's Radeon
-/// 890M — `cargo run --release -p render-quorra --example zoom_frame`, sequence
+/// 890M — `cargo run --release -p render-raster --example zoom_frame`, sequence
 /// `1.188,0.152,0.304,0.456,0.608,0.912,1.216` — **the cost is flat in the scale**:
 ///
 /// | page | 91 × 128 | 362 × 512 | 724 × 1024 |
@@ -636,7 +636,7 @@ impl Plan {
 /// unmistakably a stand-in, and unmistakably the page.
 ///
 /// **A fixed edge rather than a fraction of the current magnification, for a second reason the
-/// ladder showed.** A run that drew the same page at seven scales made quorra throw its whole
+/// ladder showed.** A run that drew the same page at seven scales made raster throw its whole
 /// glyph atlas away — `repacked` on the last rung — and the real frame after a repack cost 411 ms
 /// where the one after a single proxy cost 82. A proxy scale that followed the zoom would put a
 /// new glyph size in the atlas at every step; one fixed edge puts in one, once, per page.
@@ -1160,7 +1160,7 @@ struct Settled {
     /// device pixels.
     ///
     /// Each page by the `Arc` that makes its address mean something — the identity
-    /// `render-quorra` reuses a scene by, for the same ABA reason (ADR 0351). **A list since ADR
+    /// `render-raster` reuses a scene by, for the same ABA reason (ADR 0351). **A list since ADR
     /// 0442**: `OneColumn` puts several pages in one texture, and which pages those are is what
     /// decides whether one placement carries the whole picture.
     ///
@@ -1775,7 +1775,7 @@ impl Stale {
     /// type instead of a rule somebody has to follow — and since ADR 0391 it is stronger still,
     /// because what comes back is a transform and the pixels never leave `crate::renderer`.
     ///
-    /// The answer is in the page texture's own texel space, which is the window's: quorra's
+    /// The answer is in the page texture's own texel space, which is the window's: raster's
     /// `Layer::placement` maps a layer's texels to the surface's pixels, and the identity puts
     /// texel (0, 0) at the window's corner. So a frame of the view being asked for composes to the
     /// identity, exactly as it should.
@@ -2406,7 +2406,7 @@ mod tests {
     /// replayed an encode the device already had (ADR 0351).
     ///
     /// **This is the owner's trace, frame for frame.** A `Focused(true)` event redrew the launch
-    /// frame, quorra replayed it in 2.1 ms, and the zoom step after it was judged against that
+    /// frame, raster replayed it in 2.1 ms, and the zoom step after it was judged against that
     /// rather than against the 778.6 ms rendering the replay was a replay *of*. A replay measures
     /// the replay; rule 5 asks what the next *render* will cost, and a view change never replays.
     #[test]
@@ -2569,7 +2569,7 @@ mod tests {
     /// **A frame of the view being asked for composes to the identity**, which is what makes one
     /// method serve both a rendering and a stand-in.
     ///
-    /// quorra's `Layer::placement` maps the layer's own texels to the surface's pixels, so the
+    /// raster's `Layer::placement` maps the layer's own texels to the surface's pixels, so the
     /// identity puts texel (0, 0) at the window's corner and one texel on one pixel — the page
     /// exactly where it was drawn. A composition that produced anything else for an unmoved view
     /// would resample a frame that needs no resampling.
@@ -2596,7 +2596,7 @@ mod tests {
 
     /// A placement that does not invert has no arithmetic to carry the pixels through, and it is
     /// refused rather than substituted — a degenerate composition handed to the presenter would
-    /// earn quorra's own `LayerProblem::Placement` mid-frame instead of a sentence this program
+    /// earn raster's own `LayerProblem::Placement` mid-frame instead of a sentence this program
     /// can print.
     #[test]
     fn a_placement_that_does_not_invert_is_refused() {
@@ -2898,7 +2898,7 @@ mod tests {
             assert_eq!(
                 stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, QUADS),
                 Plan::Render,
-                "the same view, redrawn: quorra replays it and nothing is being stood in for"
+                "the same view, redrawn: raster replays it and nothing is being stood in for"
             );
         }
         assert_eq!(stale.refusals().total(), 0);

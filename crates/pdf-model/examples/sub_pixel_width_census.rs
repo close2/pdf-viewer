@@ -1,6 +1,6 @@
 //! What a page's sub-pixel strokes are, and what their caps are worth in ink.
 //!
-//! `render-quorra/examples/sub_pixel_marks` measures what each backend does with a mark thinner
+//! `render-raster/examples/sub_pixel_marks` measures what each backend does with a mark thinner
 //! than a device pixel, on synthetic pages where every dimension is chosen. This one asks the
 //! other half of the question — **what a real page actually states** — because ISO 32000-2
 //! §10.7.4's substitutions are conditioned on a width, and a page's own widths decide whether a

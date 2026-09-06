@@ -30,7 +30,7 @@
 //! three queries; what is host-specific is the drawing, not the data.
 //!
 //! Tier 2 means the pixels never cross the boundary: `viewer-core` hands over a display list and
-//! a target, this draws it onto the surface with `render-quorra`, and answers `Rendered::Presented`.
+//! a target, this draws it onto the surface with `render-raster`, and answers `Rendered::Presented`.
 //! A tier-1 host would take the raster back instead; the protocol is otherwise identical, which
 //! is the property that makes the interface worth having.
 //!
@@ -238,7 +238,7 @@ fn main() {
     });
 
     // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:
-    // a `wgpu::Instance` is the driver loader, it needs no window either, and quorra measured it
+    // a `wgpu::Instance` is the driver loader, it needs no window either, and raster measured it
     // at roughly 80% of what bringing a device up blocks for (their ADR 0014, answering
     // `doc/QUORRA_FEEDBACK.md` section 8.2). Its own thread rather than the document's, and the
     // difference is not style: the device *needs* the instance and does not need the document, so

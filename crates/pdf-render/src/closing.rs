@@ -28,8 +28,8 @@
 //! Because a dasher that merges the first and last dash of a closed contour cannot tell the two
 //! cases apart: it sees "on at the start, on at the end" and merges. **All three dashers this tree
 //! draws through did**, which is what makes this trap 2's shape rather than one library's bug —
-//! measured with this rule turned off, on the scene `render-quorra/tests/dashed_close.rs` states:
-//! the processor put 3.133 square units into a quadrant the clause leaves empty, quorra 3.086 and
+//! measured with this rule turned off, on the scene `render-raster/tests/dashed_close.rs` states:
+//! the processor put 3.133 square units into a quadrant the clause leaves empty, raster 3.086 and
 //! vello 2.753.
 //!
 //! `doc/corpora/pdf-differences`'s `DegenerateDashing.pdf` is the witness and it states both cases

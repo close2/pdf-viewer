@@ -699,7 +699,7 @@ fn knockout_shape_is_coverage(commands: &[Command], alpha: AlphaSource) -> bool 
 /// which is `doc/todo/02` §1's *capability that arrived and announced nothing*:
 /// [`Command::Shaped`] arrived, and the guard in front of it stayed. Ten clipped knockout
 /// groups on one corpus drawing were being composited by a product where the clause asks for
-/// a set, and quorra's own proof of the same condition had already stopped declining them.
+/// a set, and raster's own proof of the same condition had already stopped declining them.
 ///
 /// Isolation is *not* asked here and is not this function's to ask: a non-isolated group's
 /// buffer starts as a copy of its backdrop, so the alpha in it is not the group's shape at

@@ -9,7 +9,7 @@
 //! frame *started* and had no say in how long one lasted, and the owner's median interval between
 //! presents was 167.4 ms against a 8.333 ms refresh.
 //!
-//! quorra's ADR 0056 answered the ask in `doc/QUORRA_NONBLOCKING_RENDER.md`: the surface leaves
+//! raster's ADR 0056 answered the ask in `doc/QUORRA_NONBLOCKING_RENDER.md`: the surface leaves
 //! the device as a `Send` `Presenter`, and `Presenter::present(&[Layer])` puts finished rasters on
 //! the window under their own affines. This module is the arrangement that follows from it.
 //!
@@ -17,7 +17,7 @@
 //!
 //! | | the event thread | the render thread |
 //! |---|---|---|
-//! | holds | [`quorra_gpu::Presenter`] — the surface, its swapchain, one pipeline | `QuorraWindowRenderer` — the device, the caches, the retained scenes |
+//! | holds | [`raster_gpu::Presenter`] — the surface, its swapchain, one pipeline | `QuorraWindowRenderer` — the device, the caches, the retained scenes |
 //! | does | acquires, draws three textured quads, presents | walks display lists, encodes, draws into textures |
 //! | costs | one present, measured in tenths of a millisecond | a frame, measured in hundreds |
 //!
@@ -48,7 +48,7 @@
 //! 4. **the chrome**, at the identity, on transparency. It is drawn in window pixels and it does
 //!    not move with the page, which is what keeps a sidebar still while a page is being zoomed.
 //!
-//! **Layer 3 is opaque and that is what makes the pair complementary.** `render-quorra` draws the
+//! **Layer 3 is opaque and that is what makes the pair complementary.** `render-raster` draws the
 //! window's medium under the page into that texture, so wherever the base covers the window it
 //! wins outright and the blurrier picture beneath it is invisible; wherever a new view has moved
 //! the base off, the retained page shows through. Neither layer has to know about the other.
@@ -70,7 +70,7 @@
 //!
 //! `CLAUDE.md` forbids a scheduler decision in front of page one, so **the thread is spawned by
 //! the first job and not by `resumed`**. Nothing on the launch path joins it, waits for warmth or
-//! blocks on a first frame: `detach_presenter` asks the pipeline store nothing (quorra's own
+//! blocks on a first frame: `detach_presenter` asks the pipeline store nothing (raster's own
 //! documentation, verified against `Device::detach_presenter`'s four handle clones), and the first
 //! present compiles the presenting pass inline if the warm-up thread has not reached it yet —
 //! which `PresentCost::compiled` reports, exactly as any first frame of any lane does.
@@ -80,8 +80,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use pdf_render::{DisplayList, TargetSpec, Transform};
-use quorra_gpu::wgpu;
-use render_quorra::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
+use raster_gpu::wgpu;
+use render_raster::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 
 /// The two window-sized textures one frame is drawn into, travelling as one thing.
 ///
@@ -121,7 +121,7 @@ impl Pair {
 /// One window frame the event thread asks the render thread to draw.
 ///
 /// Everything in it is **owned**, because it crosses a thread: each page by the `Arc` whose address
-/// is its identity for as long as something pins it (`render_quorra::PresentFrame::pages`), the
+/// is its identity for as long as something pins it (`render_raster::PresentFrame::pages`), the
 /// chrome by value because this host rebuilds it from its own state every frame anyway.
 #[derive(Debug)]
 struct Job {
@@ -137,7 +137,7 @@ struct Job {
     /// The chrome, in window pixels.
     overlays: Vec<DisplayList>,
     /// Which coverage lane this frame's magnification asks for (`crate::surface::coverage_for`).
-    coverage: quorra_gpu::Coverage,
+    coverage: raster_gpu::Coverage,
     /// The pair the event thread has finished with, for this frame to draw into.
     reuse: Option<Pair>,
 }
@@ -153,9 +153,9 @@ struct Done {
     fell_back: Option<String>,
     /// What refused when neither the device nor the processor could draw the page.
     refused: Option<String>,
-    /// §8.7.4.5.2 programs the device declined, in quorra's own words (ADR 0376).
+    /// §8.7.4.5.2 programs the device declined, in raster's own words (ADR 0376).
     function_refusals: Vec<String>,
-    /// What compiling the pipelines cost, once quorra's own background thread has finished.
+    /// What compiling the pipelines cost, once raster's own background thread has finished.
     pipelines: Option<Duration>,
     /// When the render thread finished this frame — the end of [`Landed::waited`]'s span.
     ///
@@ -247,7 +247,7 @@ pub(crate) struct Shown {
 pub(crate) struct Landed {
     /// The pages it drew and where, for [`crate::stale`] to record as the view now settled.
     pub(crate) pages: Vec<crate::stale::Placed>,
-    /// What the whole frame cost on the render thread, in the parts quorra measures it in.
+    /// What the whole frame cost on the render thread, in the parts raster measures it in.
     pub(crate) cost: FrameCost,
     /// How long the frame took from the ask to the render thread finishing it — which is
     /// what rule 5 predicts the next one by. Not "until collected": see [`Done::finished`].
@@ -259,11 +259,11 @@ pub(crate) struct Landed {
 
 /// This window's half of the arrangement: the surface, and a handle on the thread that draws.
 ///
-/// Lives on the event thread and never leaves it. What it owns of quorra is a
-/// [`quorra_gpu::Presenter`] — the surface, its swapchain and one pipeline — which is `Send` and
+/// Lives on the event thread and never leaves it. What it owns of raster is a
+/// [`raster_gpu::Presenter`] — the surface, its swapchain and one pipeline — which is `Send` and
 /// which no `&mut Device` stands in front of.
 pub(crate) struct Window {
-    presenter: quorra_gpu::Presenter,
+    presenter: raster_gpu::Presenter,
     /// One opaque texel of the window's background. See this module's third layer.
     medium: wgpu::Texture,
     /// The renderer, until the first job moves it to a thread of its own.
@@ -324,7 +324,7 @@ pub(crate) struct Window {
     /// What the adapter is, and what bringing it up cost — read before the device left this
     /// thread, because afterwards there is nothing here to ask.
     description: String,
-    startup: quorra_gpu::StartupTimings,
+    startup: raster_gpu::StartupTimings,
     /// What compiling the pipelines cost, once a finished frame has reported it.
     ///
     /// Kept here because the device is not on this thread to ask: [`Self::startup`] is a snapshot
@@ -334,8 +334,8 @@ pub(crate) struct Window {
     /// The window's size in device pixels, as the presenter was last told it.
     size: (u32, u32),
     /// What the graphics device has said that no call returned — the other end of the handler
-    /// `render-quorra` installs, taken from on this thread once per present.
-    uncaptured: Arc<render_quorra::UncapturedErrors>,
+    /// `render-raster` installs, taken from on this thread once per present.
+    uncaptured: Arc<render_raster::UncapturedErrors>,
 }
 
 /// A presenter whose surface has never been configured — and the only way to reach a [`Window`].
@@ -346,7 +346,7 @@ pub(crate) struct Window {
 /// which one it chooses is decided by a single field. `CoreSurface::error_sink` is set **only on a
 /// configure that succeeded** (`wgpu-30.0.0/src/backend/wgpu_core.rs:3979-3985`), and
 /// `get_current_texture` reads it: with a sink it reports `CurrentSurfaceTexture::Validation`,
-/// which quorra turns into a typed refusal this host already handles; **without one it calls
+/// which raster turns into a typed refusal this host already handles; **without one it calls
 /// `handle_error_fatal`, which panics** (`ibid.:4023-4037`) — and under `panic = "abort"` that is
 /// a core dump. So the fatal branch is reachable on the first configure of a process and never
 /// again.
@@ -398,10 +398,10 @@ impl Ungrounded {
             reason = "window dimensions are far below f32's exact integer range"
         )]
         let extent = Transform::scale(width as f32, height as f32);
-        let layers = [quorra_gpu::Layer {
+        let layers = [raster_gpu::Layer {
             texture: &self.0.medium,
             placement: affine(extent),
-            filter: quorra_scene::ImageFilter::Nearest,
+            filter: raster_scene::ImageFilter::Nearest,
         }];
         let refused = self.0.presenter.present(&layers).err();
         // Taken whether the present refused or not: `Surface::configure` returns `()`, so a
@@ -431,9 +431,9 @@ impl std::fmt::Debug for Window {
     }
 }
 
-/// quorra's affine from this tree's transform — §8.3.3's six coefficients, in the same order.
-fn affine(transform: Transform) -> quorra_scene::Affine {
-    quorra_scene::Affine {
+/// raster's affine from this tree's transform — §8.3.3's six coefficients, in the same order.
+fn affine(transform: Transform) -> raster_scene::Affine {
+    raster_scene::Affine {
         a: transform.a,
         b: transform.b,
         c: transform.c,
@@ -454,7 +454,7 @@ impl Window {
     /// The renderer comes back boxed on the failing path rather than by value, because a
     /// `QuorraWindowRenderer` is thousands of bytes and a `Result` is as wide as its widest arm —
     /// so the arm that never happens would otherwise size the one that always does. Which is
-    /// quorra's own argument for boxing the presenter inside `ForeignPresenter`, one layer down.
+    /// raster's own argument for boxing the presenter inside `ForeignPresenter`, one layer down.
     ///
     /// `proxy_pages` is how many whole pages this window retains a low-resolution picture of —
     /// the host's `--proxy-pages`, zero for a run that asked for none.
@@ -473,7 +473,7 @@ impl Window {
         let Some(mut presenter) = renderer.detach_presenter() else {
             return Err(Box::new(renderer));
         };
-        // Before the first present and on every resize, which is what quorra's presenter asks of
+        // Before the first present and on every resize, which is what raster's presenter asks of
         // a host: a resize configures nothing and the swapchain follows at the next present, so
         // it is cheap to say whenever the window system speaks.
         presenter.resize(size.0, size.1);
@@ -506,22 +506,22 @@ impl Window {
     ///
     /// **Taken once per present and nowhere else**, so that there is one place a device's
     /// complaint becomes a decision rather than several that each see part of it. See
-    /// [`render_quorra::UncapturedErrors`] for why the channel exists at all.
-    pub(crate) fn device_said(&self) -> Option<render_quorra::Uncaptured> {
+    /// [`render_raster::UncapturedErrors`] for why the channel exists at all.
+    pub(crate) fn device_said(&self) -> Option<render_raster::Uncaptured> {
         self.uncaptured.take()
     }
 
-    /// The adapter quorra selected, for reports.
+    /// The adapter raster selected, for reports.
     pub(crate) fn description(&self) -> &str {
         &self.description
     }
 
-    /// What bringing the device up cost, in the parts quorra measures it in.
+    /// What bringing the device up cost, in the parts raster measures it in.
     ///
     /// **Read before the device left this thread**, so its `pipeline_compilation` is whatever was
     /// true at bring-up — which is `None`, because nothing on the launch path waits for warmth.
     /// [`Self::pipelines`] is where the answer arrives.
-    pub(crate) fn startup(&self) -> quorra_gpu::StartupTimings {
+    pub(crate) fn startup(&self) -> raster_gpu::StartupTimings {
         self.startup
     }
 
@@ -634,7 +634,7 @@ impl Window {
         &mut self,
         pages: Vec<crate::stale::Placed>,
         overlays: Vec<DisplayList>,
-        coverage: quorra_gpu::Coverage,
+        coverage: raster_gpu::Coverage,
         now: Instant,
     ) {
         if self.in_flight.is_some() {
@@ -722,7 +722,7 @@ impl Window {
         &mut self,
         placement: Option<Transform>,
         under: &[(usize, Transform)],
-    ) -> Result<bool, quorra_gpu::RenderError> {
+    ) -> Result<bool, raster_gpu::RenderError> {
         let Some(shown) = self.shown.as_ref() else {
             return Ok(false);
         };
@@ -736,20 +736,20 @@ impl Window {
         let (width, height) = (self.size.0 as f32, self.size.1 as f32);
         // One texel over the whole window: what a moved page reveals at its edge and no retained
         // page covers.
-        let mut layers = vec![quorra_gpu::Layer {
+        let mut layers = vec![raster_gpu::Layer {
             texture: &self.medium,
             placement: affine(Transform::scale(width, height)),
-            filter: quorra_scene::ImageFilter::Nearest,
+            filter: raster_scene::ImageFilter::Nearest,
         }];
         // The blurrier layer first, so that the sharp one is drawn over it wherever it has pixels.
         for (index, moved) in under {
             let Some(retained) = self.proxies.get(*index) else {
                 continue;
             };
-            layers.push(quorra_gpu::Layer {
+            layers.push(raster_gpu::Layer {
                 texture: &retained.pixels,
                 placement: affine(*moved),
-                filter: quorra_scene::ImageFilter::Linear,
+                filter: raster_scene::ImageFilter::Linear,
             });
         }
         if let Some(placement) = placement {
@@ -762,12 +762,12 @@ impl Window {
                 (sharp.width, sharp.height) == self.size && same_pages(&sharp.pages, &shown.pages)
             });
             match sharp {
-                Some(sharp) => layers.push(quorra_gpu::Layer {
+                Some(sharp) => layers.push(raster_gpu::Layer {
                     texture: &sharp.texture,
                     placement: affine(Transform::scale(0.5, 0.5).then(placement)),
-                    filter: quorra_scene::ImageFilter::Linear,
+                    filter: raster_scene::ImageFilter::Linear,
                 }),
-                None => layers.push(quorra_gpu::Layer {
+                None => layers.push(raster_gpu::Layer {
                     texture: &shown.textures.page,
                     placement: affine(placement),
                     // **Smoothed on purpose, and it is the one place this host chooses how a
@@ -775,24 +775,24 @@ impl Window {
                     // mistakes it for the page — where squares of four device pixels look like a
                     // rendering decision somebody made. At the identity the sampler lands on texel
                     // centres and the two filters agree exactly, so this costs a frame of the real
-                    // page nothing (quorra's `present.wgsl`).
-                    filter: quorra_scene::ImageFilter::Linear,
+                    // page nothing (raster's `present.wgsl`).
+                    filter: raster_scene::ImageFilter::Linear,
                 }),
             }
         }
-        layers.push(quorra_gpu::Layer {
+        layers.push(raster_gpu::Layer {
             texture: &shown.textures.chrome,
             // The chrome is drawn in window pixels and stays where it was drawn: a sidebar
             // does not move because a page is being zoomed.
-            placement: quorra_scene::Affine::IDENTITY,
-            filter: quorra_scene::ImageFilter::Nearest,
+            placement: raster_scene::Affine::IDENTITY,
+            filter: raster_scene::ImageFilter::Nearest,
         });
         self.presenter.present(&layers)?;
         Ok(true)
     }
 
-    /// What the last present cost, in quorra's own units, or `None` before there has been one.
-    pub(crate) fn last_present(&self) -> Option<quorra_gpu::PresentCost> {
+    /// What the last present cost, in raster's own units, or `None` before there has been one.
+    pub(crate) fn last_present(&self) -> Option<raster_gpu::PresentCost> {
         self.presenter.last()
     }
 
@@ -894,7 +894,7 @@ fn draw_until_told_to_stop(
             let finished = draw(&mut renderer, job);
             if !matches!(
                 finished.cost.encode_source,
-                Some(quorra_gpu::EncodeSource::Replayed)
+                Some(raster_gpu::EncodeSource::Replayed)
             ) {
                 last_built = Some(finished.cost.total);
             }
@@ -960,7 +960,7 @@ fn same_pages(a: &[crate::stale::Placed], b: &[crate::stale::Placed]) -> bool {
 /// The most the settled view's sharp pass may be *predicted* to cost before it is declined.
 ///
 /// The prediction is four times the last frame this thread had to build — the pass draws
-/// the same commands at four times the pixels — and the pass is uninterruptible: quorra
+/// the same commands at four times the pixels — and the pass is uninterruptible: raster
 /// draws it in one call and one submission, so for its whole length a newly arrived view
 /// change waits behind it, and on DirectX 12 so does every present the event thread
 /// issues, because a present is a queue operation and executes after whatever was
@@ -1027,9 +1027,9 @@ fn draw_sharp(
         crate::arguments::CoverageChoice::Fixed(lane) => lane,
         crate::arguments::CoverageChoice::Auto => {
             if crate::surface::software_adapter(renderer.adapter_description()) {
-                quorra_gpu::Coverage::Cpu
+                raster_gpu::Coverage::Cpu
             } else {
-                quorra_gpu::Coverage::Compute
+                raster_gpu::Coverage::Compute
             }
         }
     });
@@ -1074,11 +1074,11 @@ fn draw_whole_page(
 ) -> Option<crate::stale::Retained<Arc<wgpu::Texture>>> {
     let target = crate::stale::proxy_target(&page.list)?;
     let (width, height) = (target.width, target.height);
-    // A whole page at a few hundred pixels is far below the magnification at which quorra's GPU
+    // A whole page at a few hundred pixels is far below the magnification at which raster's GPU
     // coverage lane is the cheaper one, whatever the window is showing (`crate::surface`), so the
     // lane is stated rather than inherited from whatever the last frame asked for. `draw` sets it
     // per job, so the next window frame is unaffected.
-    renderer.set_coverage(quorra_gpu::Coverage::Cpu);
+    renderer.set_coverage(raster_gpu::Coverage::Cpu);
     let chrome = match scratch.take() {
         Some((held_width, held_height, texture))
             if (held_width, held_height) == (width, height) =>

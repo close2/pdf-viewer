@@ -66,7 +66,7 @@ pub(crate) struct App {
     /// the screen could not draw — the title, beside [`App::retitle_incomplete`] — and on standard
     /// output like every other note here.
     ///
-    /// `None` on the device path, always: the render thread's frame is quorra's and there is no
+    /// `None` on the device path, always: the render thread's frame is raster's and there is no
     /// interrupt that reaches it (ADR 0725), so this window warns about what it can also stop and
     /// says nothing about what it cannot. `--cpu` is the path with the interruptible thread.
     pub(crate) still_drawing: Option<String>,
@@ -169,7 +169,7 @@ pub(crate) struct App {
     pub(crate) coverage: crate::arguments::CoverageChoice,
     /// The lane the last asked frame used — the sticky half of
     /// [`crate::surface::lane_for`], so a chrome-only ask keeps its replay.
-    pub(crate) lane: Option<quorra_gpu::Coverage>,
+    pub(crate) lane: Option<raster_gpu::Coverage>,
     /// Magnifications the atlas has drawn (linear parts, by bits, newest last, at most
     /// eight) — the revisit half of [`crate::surface::lane_for`].
     pub(crate) atlas_saw: Vec<[u32; 4]>,
@@ -374,7 +374,7 @@ pub(crate) struct App {
     /// **`None` under `--cpu`, where it was never spawned** — the one place in this program that
     /// distinguishes "the instance is not ready yet" from "there will not be one", and both read
     /// as `None` here only because `resumed` asks `processor` first.
-    pub(crate) instancing: Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>>,
+    pub(crate) instancing: Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>>,
     /// The launch path's milestones, printed once under `--trace` when the first frame lands.
     pub(crate) launch: Launch,
     /// §14.7's structure on AT-SPI, once there is a page to put there.
@@ -542,7 +542,7 @@ impl App {
     /// Nothing is reported to the core for it (trap 20), so the window keeps whatever it was
     /// showing and draws again the next time the view changes, which is what the sentence says.
     ///
-    /// **The device path never gets here, and that is stated rather than guarded against.** Quorra
+    /// **The device path never gets here, and that is stated rather than guarded against.** Raster
     /// has no interrupt, so a frame on the render thread cannot be taken back at all (ADR 0725);
     /// [`App::mind_a_long_draw`] therefore says nothing on that surface, Escape never comes to
     /// mean this there, and a branch here refusing an act the table cannot produce would be a path

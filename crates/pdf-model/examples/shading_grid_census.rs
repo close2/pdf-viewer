@@ -5,7 +5,7 @@
 //! (`pdf_render::Shading::sampled_at`). A viewer past the magnification at which a page fits
 //! does not rasterise the page: it rasterises the **window**, at a transform that scales the
 //! page and translates the region of interest into view — which is what
-//! `render-quorra/examples/zoom_ladder.rs` models and what `viewer-ui`'s own surface builds.
+//! `render-raster/examples/zoom_ladder.rs` models and what `viewer-ui`'s own surface builds.
 //! So the grid grows with the magnification while the window does not, and the share of it a
 //! person can see falls as the square of the zoom.
 //!

@@ -147,7 +147,7 @@ pub enum FillRule {
 /// How the ends of an open subpath are drawn.
 ///
 /// `Hash` because a backend that caches an expanded stroke outline has to key it on every
-/// parameter that decided the geometry, and this is one of them (`render-quorra`'s
+/// parameter that decided the geometry, and this is one of them (`render-raster`'s
 /// `cache::StrokeKey`, ADR 0402).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LineCap {
@@ -184,7 +184,7 @@ pub struct Stroke {
     /// field directly: [`Self::device_width`] is where that rule and §10.7.5's live, so
     /// that no two of this workspace's rasterisers can answer it differently. **All three
     /// of them call it** — `render_cpu::convert`, `render_gpu::scene` and
-    /// `render_quorra::stroke` — and this sentence counted two until the
+    /// `render_raster::stroke` — and this sentence counted two until the
     /// seven-hundred-and-ninety-seventh session, which is ADR 0697's shape: a rule met by
     /// every backend, under a sentence that had not noticed the third arrive.
     pub width: f32,
@@ -347,7 +347,7 @@ pub fn thinnest_line(to_device: Transform) -> Option<f32> {
 /// rendering processor for the page's contents with no exception for one of them. Until ADR 0482
 /// all three backends disagreed, each in its own way and each fatally: `render-cpu` and
 /// `render-gpu` inverted the transform to place a paint and turned the failure into
-/// `UnsupportedPaint`, and `render-quorra` multiplied a width by a stretch of zero and refused the
+/// `UnsupportedPaint`, and `render-raster` multiplied a width by a stretch of zero and refused the
 /// scene with `InvalidStroke`. Any of the three cost a reader the whole page, and
 /// `4605705.pdf`'s 293 drawn commands went that way for one `cm` in a damaged stream.
 ///
@@ -356,7 +356,7 @@ pub fn thinnest_line(to_device: Transform) -> Option<f32> {
 /// A decision either backend can make alone is a decision neither has made (trap 2), and this one
 /// is not even the same *shape* in all three: `tiny-skia` and Vello apply a draw's transform to
 /// its paint as well as to its shape, so each needs the inverse this returns to place a paint back
-/// in page space; `render-quorra` positions a paint in page space directly and needs no inverse at
+/// in page space; `render-raster` positions a paint in page space directly and needs no inverse at
 /// all, so it reads only whether there is one. That asymmetry is exactly how the tree came to have
 /// three different refusals for one condition — so the condition is stated here, once, and the
 /// value is there for the two that need it.
@@ -588,7 +588,7 @@ impl Image {
     /// "the clause says the opposite" is a debt to record. ADR 0025.
     ///
     /// Every rasteriser asks this rather than deciding for itself — `render_cpu`'s
-    /// `draw_image`, `render_gpu::scene` and `render_quorra::scene` all call it — because the
+    /// `draw_image`, `render_gpu::scene` and `render_raster::scene` all call it — because the
     /// CPU backend is the oracle the other two are compared against and a difference in this
     /// choice would show up as a disagreement about every magnified image. (The count in this
     /// sentence was one short of the workspace's until the seven-hundred-and-ninety-seventh
@@ -1290,7 +1290,7 @@ mod resampling {
     /// its minimum exceeds its maximum — which a zero-width image makes it do. Until session
     /// 391 the reduction was computed *before* `is_consistent`, so the only thing standing
     /// between a public method and that panic was that two of its three callers happened to
-    /// ask the question first; `render-quorra`'s did not. The order is now the other way
+    /// ask the question first; `render-raster`'s did not. The order is now the other way
     /// round and this is the guard on it.
     #[test]
     fn an_image_with_no_samples_is_not_reduced_and_does_not_panic() {
@@ -1310,7 +1310,7 @@ mod resampling {
 
     /// What a backend is told it would get is what it gets, over every regime of the two axes.
     ///
-    /// The cache in `render-quorra` keeps a reduced raster under [`Image::reduction`]'s answer
+    /// The cache in `render-raster` keeps a reduced raster under [`Image::reduction`]'s answer
     /// and never looks at the raster again, so a `Reduction` that disagreed with
     /// [`Image::area_averaged`] in any field would serve a raster of the wrong size or filter
     /// it the wrong way, on a hit, silently. The two regimes are asked *per axis* on purpose:

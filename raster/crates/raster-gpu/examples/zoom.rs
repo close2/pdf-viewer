@@ -1,0 +1,185 @@
+//! What a zoomed frame costs — the measurement behind command culling.
+//!
+//! A viewer zooms by handing the same page a larger transform and a viewport that
+//! has not changed size. At 20× a 1191×1684 window shows about 1/400 of the page,
+//! so a frame *should* get cheaper as the zoom rises: fewer glyphs are visible, and
+//! every lane already clamps its geometry to the target before drawing.
+//!
+//! What this example prices is whether it does. ADR 0012 recorded that encode walks
+//! the whole scene whatever is visible, and named command culling as the lever; the
+//! numbers here are what that lever is worth, per zoom, per adapter.
+//!
+//! The scene is `floor.rs`'s dense page — 5 933 glyph-lane fills over 107 distinct
+//! outlines — because it is the shape the brief's §0 says a document renderer must be
+//! fast at, and because zoom is exactly where its premise (a few outlines repeated
+//! many times) stops holding: a magnified letterform eventually takes more of the atlas
+//! than `MAX_TILE_SHARE` allows, leaves it for the coverage path, and is rasterised
+//! again on every frame.
+//!
+//! This comment named `MAX_GLYPH_DIM` until 2026-08-17, fourteen ADRs after ADR 0024
+//! deleted that constant and replaced the dimension with a share of *this* atlas. And on
+//! real pages that mechanism is a rounding error next to the other one — an atlas with no
+//! **room**, because it is full of earlier pages' tiles (ADR 0063).
+//!
+//! Run: `cargo run --release -p raster-gpu --example zoom`
+
+// The f64→f32 casts build scene coordinates bounded by the page size; exact there.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::print_stdout
+)]
+
+use std::time::Duration;
+
+use raster_gpu::{Coverage, Device, Options, Target, Viewport, wgpu};
+use raster_pages::{GLYPH_PAGE, GlyphPage};
+use raster_scene::{OutlineId, Scene};
+
+/// A real window, which is what the zoom is relative to.
+const WIDTH: u32 = 1191;
+const HEIGHT: u32 = 1684;
+
+/// 5 933 glyph-lane fills over 107 distinct outlines at integer phases, so the atlas
+/// helps as much as it can at 1×.
+///
+/// **`raster_pages::GLYPH_PAGE`** — the definition `examples/floor.rs` and
+/// `examples/retained.rs` also draw. Each of the three carried its own copy until
+/// 2026-08-17, and one of them differed (ADR 0060).
+const PAGE: &GlyphPage = &GLYPH_PAGE;
+
+/// The page, built on this device.
+fn glyph_page(device: &mut Device) -> Scene {
+    let outlines: Vec<OutlineId> = raster_pages::glyph_outlines(PAGE)
+        .iter()
+        .map(|path| device.upload_outline(path).expect("a letterform"))
+        .collect();
+    raster_pages::glyph_scene(PAGE, &outlines).expect("the glyph page builds")
+}
+
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1e3
+}
+
+/// One frame at `magnification`, reported as (encode, execute, wall, culled,
+/// segments).
+fn frame(
+    device: &mut Device,
+    scene: &Scene,
+    texture: &wgpu::Texture,
+    magnification: f32,
+) -> (Duration, Duration, Duration, u32, u32, Duration) {
+    let viewport = Viewport::full(WIDTH, HEIGHT, raster_pages::zoomed(PAGE, magnification));
+    let started = std::time::Instant::now();
+    let drawn = device
+        .render(scene, &viewport, Target::Texture(texture))
+        .expect("the dense page is within every budget");
+    let wall = started.elapsed();
+    let timings = drawn.timings();
+    let counters = drawn.counters();
+    (
+        timings.encode,
+        timings.execute,
+        wall,
+        counters.commands_culled,
+        counters.segments,
+        timings.upload,
+    )
+}
+
+/// `--check`: the smallest run that exercises every path this example has.
+///
+/// Two magnifications, one frame each, and no gesture sweep — enough to reach both
+/// regimes (a page the atlas answers, and one past `MAX_GLYPH_DIM` where every visible
+/// glyph rasterises) and every `expect` between them. `cargo test` neither builds nor
+/// runs an example (ADR 0060); CI runs `--check` for every example named in
+/// `.github/workflows/ci.yml`.
+fn main() {
+    let check = std::env::args().any(|arg| arg == "--check");
+    let coverage = if std::env::args().any(|arg| arg == "gpu") {
+        Coverage::Gpu
+    } else if std::env::args().any(|arg| arg == "compute") {
+        Coverage::Compute
+    } else {
+        Coverage::Cpu
+    };
+    let mut device = Device::headless(&Options {
+        coverage,
+        ..Options::default()
+    })
+    .expect("some adapter must exist");
+    device.wait_until_warm();
+    let scene = glyph_page(&mut device);
+    let texture = device.wgpu().0.create_texture(&wgpu::TextureDescriptor {
+        label: Some("zoom target"),
+        size: wgpu::Extent3d {
+            width: WIDTH,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+
+    println!(
+        "dense glyph page at {WIDTH}x{HEIGHT} on {}, coverage {coverage:?}",
+        device.description()
+    );
+    if check {
+        for magnification in [1.0_f32, 20.0] {
+            let (_, _, _, culled, segments, _) =
+                frame(&mut device, &scene, &texture, magnification);
+            println!("  {magnification:>5.0}  {culled} culled, {segments} segments");
+        }
+        println!("check: the glyph page drew at 1x and at 20x");
+        return;
+    }
+
+    println!("held at one magnification (fastest of five, after a warm-up frame)");
+    println!("  zoom   encode      execute     upload      wall      culled  segments");
+    for magnification in [1.0_f32, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 100.0] {
+        frame(&mut device, &scene, &texture, magnification);
+        let mut best = (Duration::MAX, Duration::MAX, Duration::MAX);
+        let mut best_upload = Duration::MAX;
+        let mut counted = (0, 0);
+        for _ in 0..5 {
+            let (encode, execute, wall, culled, segments, upload) =
+                frame(&mut device, &scene, &texture, magnification);
+            best = (best.0.min(encode), best.1.min(execute), best.2.min(wall));
+            counted = (culled, segments);
+            best_upload = best_upload.min(upload);
+        }
+        println!(
+            "  {magnification:>5.0}  {:>7.3} ms  {:>7.3} ms  {:>7.3} ms  {:>7.3} ms  {:>7}  {:>8}",
+            milliseconds(best.0),
+            milliseconds(best.1),
+            milliseconds(best_upload),
+            milliseconds(best.2),
+            counted.0,
+            counted.1,
+        );
+    }
+
+    // A zoom *gesture*, which is the case a cache cannot help: every frame carries a
+    // different linear transform, so every glyph key is new and every tile is cold.
+    // Worst of the sweep, not the fastest — a gesture is judged by its slowest frame.
+    println!("sweeping 1x -> 20x over 24 frames (worst frame, every tile cold)");
+    let mut worst = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+    for step in 0..24_u32 {
+        let magnification = 1.0 + (step as f32) * (19.0 / 23.0);
+        let (encode, execute, wall, _, _, _) = frame(&mut device, &scene, &texture, magnification);
+        worst = (worst.0.max(encode), worst.1.max(execute), worst.2.max(wall));
+    }
+    println!(
+        "         {:>7.3} ms  {:>7.3} ms  {:>7.3} ms",
+        milliseconds(worst.0),
+        milliseconds(worst.1),
+        milliseconds(worst.2),
+    );
+}

@@ -317,7 +317,7 @@ pub enum Unsupported {
     /// from the display list, before any target exists, and every other per-mark refusal in this
     /// tree is named on this enum. Until ADR 0482 each backend answered it fatally and
     /// differently — `render-cpu` and `render-gpu` with an `UnsupportedPaint` raised while
-    /// inverting the transform to place a paint, `render-quorra` with an `InvalidStroke` raised
+    /// inverting the transform to place a paint, `render-raster` with an `InvalidStroke` raised
     /// on a width multiplied by a stretch of zero — and any of the three cost the reader the
     /// **whole page**. 293 commands of `4605705.pdf`'s went that way for one `cm` in a damaged
     /// stream.

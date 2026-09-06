@@ -69,7 +69,7 @@ impl Launch {
     ///
     /// The boundary is relayed rather than fabricated: scene building and device submission
     /// happen inside one `QuorraWindowRenderer::present` call, so this host cannot take a clock
-    /// reading between them — but `FrameCost::scene` is quorra's own measurement of the
+    /// reading between them — but `FrameCost::scene` is raster's own measurement of the
     /// translation from the moment that call began, so the mark is `handed` (when this host
     /// handed the frame over) plus that duration. First frame only, as above.
     pub(crate) fn scene_built(&mut self, handed: std::time::Instant, scene: std::time::Duration) {
@@ -136,8 +136,8 @@ impl Launch {
     /// frame a person waited for, and a launch measured by killing the window never prints one at
     /// all.
     ///
-    /// So the phases are printed here, off the same [`render_quorra::FrameCost`] the frame line
-    /// reads — including [`render_quorra::FrameCost::handover`], which divides `scene` into this
+    /// So the phases are printed here, off the same [`render_raster::FrameCost`] the frame line
+    /// reads — including [`render_raster::FrameCost::handover`], which divides `scene` into this
     /// host's own walk of the display list and the boundary it hands each resource across (ADR
     /// 0423). `readback` is not in the arithmetic because a window frame never reads back; the
     /// remainder is named `elsewhere` for the same reason and with the same caveat the summary
@@ -212,9 +212,9 @@ pub(crate) struct Stages {
     /// This host's own work before anything is handed over: the page's geometry, the selection,
     /// the focus ring, the caret, the popup windows and the panel, each a query into the core.
     pub(crate) host: std::time::Duration,
-    /// What `render-quorra` reported for the same frame, which is where the device's own
+    /// What `render-raster` reported for the same frame, which is where the device's own
     /// accounting arrives from.
-    pub(crate) gpu: render_quorra::FrameCost,
+    pub(crate) gpu: render_raster::FrameCost,
     /// What drawing this frame cost the composing thread, on a window with no device.
     ///
     /// **Somebody else's thread since ADR 0461**, which is why it is beside [`Self::total`] rather
@@ -228,7 +228,7 @@ pub(crate) struct Stages {
     /// **The whole of what the event thread spends on a picture, since ADR 0391**, and the number
     /// `doc/todo/36`'s rate stands or falls on: everything in [`Self::gpu`] happens on another
     /// thread now, so a frame line whose `present` is inside one refresh is a window keeping the
-    /// cadence however long its render takes. quorra's own `PresentCost`, summed over the three
+    /// cadence however long its render takes. raster's own `PresentCost`, summed over the three
     /// wall clocks it reports — and they are wall clocks, which that type says in their names.
     pub(crate) present: std::time::Duration,
     /// The accessibility publication — measured *beside* the frame rather than inside it.
@@ -238,7 +238,7 @@ pub(crate) struct Stages {
     /// `doc/todo/37`'s third rule: a reader of the trace must never have to infer that a frame
     /// was approximated. It is in the frame line's outcome word, it is counted in the summary,
     /// and it is here rather than derived from a small duration for the same reason
-    /// [`render_quorra::FrameCost::encode_source`] is an observable — an inference is not
+    /// [`render_raster::FrameCost::encode_source`] is an observable — an inference is not
     /// something a person or a test can assert on.
     ///
     /// **A [`crate::stale::Source`] rather than a `bool` since ADR 0443**, because there are two
@@ -306,7 +306,7 @@ const SUMMARY_ROWS: [(&str, StageOf); 11] = [
     ("host", |frame| frame.host),
     ("scene", |frame| frame.gpu.scene),
     // Inside `scene`, and the only part of it this host does not do itself: what the `upload_*`
-    // calls across quorra's boundary took. Nested under it exactly as the three device phases are
+    // calls across raster's boundary took. Nested under it exactly as the three device phases are
     // nested under `device`, because it is a subdivision and not a phase beside one — a reader who
     // added it to the rows above would be counting the same milliseconds twice. ADR 0423.
     ("  handover", |frame| frame.gpu.handover),
@@ -320,10 +320,10 @@ const SUMMARY_ROWS: [(&str, StageOf); 11] = [
     //
     // **This comment used to name what was in it — "acquiring the swapchain texture, presenting
     // it, and reading the timestamp queries back" — and session 552 measured those three and they
-    // are not it.** `render_quorra::QuorraWindowRenderer::last_phases` now carries quorra's own
+    // are not it.** `render_raster::QuorraWindowRenderer::last_phases` now carries raster's own
     // `target acquire` and `present` spans across the boundary, and on the project owner's adapter
     // the pair is under a twentieth of a millisecond on a frame whose remainder is over a hundred.
-    // What is left is host time inside `Device::render` that quorra measures and discards — it
+    // What is left is host time inside `Device::render` that raster measures and discards — it
     // times its own submit-and-wait and then reports the adapter's timestamp instead — plus the
     // wgpu command recording, which nothing times at all. `doc/QUORRA_FEEDBACK.md` section 29.
     //
@@ -387,7 +387,7 @@ impl FrameLog {
             }
         }
         // The third strange frame, and the same rule: a repack throws every atlas placement away
-        // and so kills the retained encode the next frame would have replayed (quorra's ADR
+        // and so kills the retained encode the next frame would have replayed (raster's ADR
         // 0050). A page settles after at most one, so the word appearing on frame after frame is
         // the pathology rather than the event.
         if stages.gpu.atlas_repacked {
@@ -396,11 +396,11 @@ impl FrameLog {
         // Whether this frame's device commands were encoded or replayed, one character wide,
         // beside the number it explains. A frame loop that means to reuse its scene and does
         // not is the one defect ADR 0351 can have, and reading it off a small `encode` is
-        // exactly the inference quorra's `EncodeSource` exists so that nobody has to make.
+        // exactly the inference raster's `EncodeSource` exists so that nobody has to make.
         let source = match stages.gpu.encode_source {
-            Some(quorra_gpu::EncodeSource::Replayed) => " replayed",
-            Some(quorra_gpu::EncodeSource::RecordReplayed) => " re-placed",
-            Some(quorra_gpu::EncodeSource::Encoded) => " encoded",
+            Some(raster_gpu::EncodeSource::Replayed) => " replayed",
+            Some(raster_gpu::EncodeSource::RecordReplayed) => " re-placed",
+            Some(raster_gpu::EncodeSource::Encoded) => " encoded",
             None => "",
         };
         // Table 29's arrangement, in the page column: `p3` is one page and `p3+1` is page three
@@ -456,7 +456,7 @@ impl FrameLog {
             ),
             (
                 "device",
-                "quorra's render: encoding, transfers, and the passes it already waits on — \
+                "raster's render: encoding, transfers, and the passes it already waits on — \
                  followed by whether it encoded this frame's scene or replayed one (ADR 0351). \
                  Also the render thread's, and zero on a tick that adopted no frame",
             ),
@@ -605,12 +605,12 @@ impl FrameLog {
         );
         self.transferred(trace);
         // **Said out loud because the row is arithmetic on two clocks** (ADR 0228). `elsewhere`
-        // is `device` minus the three phases quorra names, and where `execute` came from
+        // is `device` minus the three phases raster names, and where `execute` came from
         // timestamp queries it is a *device* duration being subtracted from a *host* wall clock:
         // the host's wait for a submitted frame is not the GPU's own measure of the passes in
         // it, so the remainder carries whatever the two clocks disagree by as well as the
         // acquire, the present and the readback. It is a bound on the unnamed cost rather than a
-        // measurement of it, and it is quorra's to subdivide — `doc/QUORRA_FEEDBACK.md` section 13.
+        // measurement of it, and it is raster's to subdivide — `doc/QUORRA_FEEDBACK.md` section 13.
         if measured {
             trace.more(
                 Topic::Frames,
@@ -691,15 +691,15 @@ impl FrameLog {
     /// What the `transfer` row was moving, which is the denominator that row never had.
     ///
     /// **The line above this one counts *resources* and it is a different quantity**, which is
-    /// the whole reason this exists. `up` is what `render-quorra`'s caches handed the device —
+    /// the whole reason this exists. `up` is what `render-raster`'s caches handed the device —
     /// outlines, images, ramps, programs — and on a magnification of the project owner's own
     /// drawing it is 40 while `transfer` is tens of milliseconds. Reading the second as the cost
     /// of the first is the inference a trace with only one of the two numbers invites, and it is
-    /// wrong by three orders of magnitude: the bytes are quorra's own encoded scene — coverage
+    /// wrong by three orders of magnitude: the bytes are raster's own encoded scene — coverage
     /// tiles, instance streams, the atlas — staged for the device on every frame that encodes,
     /// and a frame that uploads no resource at all still moves megabytes of them. ADR 0387.
     ///
-    /// quorra has counted them since ADR 0227 and `FrameCost` has carried the number across the
+    /// raster has counted them since ADR 0227 and `FrameCost` has carried the number across the
     /// boundary ever since; nothing read it until this line.
     fn transferred(&self, trace: Trace) {
         let mut bytes: Vec<u64> = self
@@ -713,7 +713,7 @@ impl FrameLog {
             Topic::Frames,
             format_args!(
                 "the transfer row moved {total} byte(s) over those frames: median {}, most {} \
-                 in one — quorra's own encoded scene, which is not what up counts",
+                 in one — raster's own encoded scene, which is not what up counts",
                 at_rank(&bytes, 1, 2),
                 bytes.last().copied().unwrap_or(0),
             ),
@@ -730,8 +730,8 @@ impl FrameLog {
     ///
     /// **The repack is on the same line because it is the one explanation of a low replay count
     /// this program cannot otherwise give.** Every other reason a frame re-encodes is
-    /// `render_quorra`'s own scene key, which ADR 0351 enumerated and gave a test each; a repack
-    /// is the device's own invalidation (quorra's ADR 0050), and the working set beside it is what
+    /// `render_raster`'s own scene key, which ADR 0351 enumerated and gave a test each; a repack
+    /// is the device's own invalidation (raster's ADR 0050), and the working set beside it is what
     /// says whether raising the atlas budget would stop it or whether this page has never fitted.
     fn retention(&self, trace: Trace) {
         let replayed = self
@@ -740,7 +740,7 @@ impl FrameLog {
             .filter(|frame| {
                 matches!(
                     frame.gpu.encode_source,
-                    Some(quorra_gpu::EncodeSource::Replayed)
+                    Some(raster_gpu::EncodeSource::Replayed)
                 )
             })
             .count();
@@ -802,7 +802,7 @@ fn percent(part: usize, whole: usize) -> f64 {
 /// computed in floating point would have to justify its rounding as well as its rank.
 ///
 /// Generic over the sample because the summary now has one distribution that is not a duration —
-/// the bytes quorra staged for the device — and two ranks that disagreed about their rounding
+/// the bytes raster staged for the device — and two ranks that disagreed about their rounding
 /// would be worse than one that is used twice.
 fn at_rank<T: Copy + Default>(sorted: &[T], numerator: usize, denominator: usize) -> T {
     let rank = sorted

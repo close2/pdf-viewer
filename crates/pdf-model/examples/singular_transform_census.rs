@@ -22,7 +22,7 @@
 //!    the clause's own condition and it is the set on which the standard states no behaviour.
 //! 2. **Of those, the ones a backend refused the page for**: a `Fill` or a `Stroke`, whatever its
 //!    paint, because `render-cpu` and `render-gpu` inverted the command's transform before they
-//!    looked at what the paint was and `render-quorra` resolved a stroke width through a stretch of
+//!    looked at what the paint was and `render-raster` resolved a stroke width through a stretch of
 //!    zero. An `Image` reached none of those, and drew nothing because it had no area.
 //! 3. **Of those, the ones whose paint would genuinely have needed an inverse**: a
 //!    `Paint::Shading`, which the two library backends position in the path's own space (trap 2). A

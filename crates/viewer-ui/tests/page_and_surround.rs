@@ -5,7 +5,7 @@
 //! `doc/traps/pixels-and-rasterisers.md` trap 2: *a decision either backend can make alone is a
 //! decision neither has made*. Where the page's own colour ends and the window's surround begins
 //! is exactly such a decision — `render-cpu` composites it per pixel after the page is drawn,
-//! `render-quorra` draws it as two rectangles at the bottom of a scene — and until the
+//! `render-raster` draws it as two rectangles at the bottom of a scene — and until the
 //! six-hundred-and-eleventh session there was no boundary at all, because one colour served as
 //! both. The gap between two pages of Table 29's `OneColumn` was page white on page white, so a
 //! reader could not see where one page ended.
@@ -31,7 +31,7 @@
 use std::sync::Arc;
 
 use pdf_render::{DisplayList, Medium, Raster, Size, TargetSpec, Transform};
-use render_quorra::{PresentFrame, QuorraRasterizer};
+use render_raster::{PresentFrame, QuorraRasterizer};
 
 /// The window this pretends to be, in device pixels.
 const WINDOW: (u32, u32) = (240, 120);

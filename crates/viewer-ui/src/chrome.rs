@@ -1561,7 +1561,7 @@ fn draw_thumbnail(
     let x = left + (width - drawn_w) * 0.5;
     let y = top + margin + (room_y - drawn_h) * 0.5;
     // The unit square carries an image with its top row at unit y = 1 (§8.9.5), so placing the
-    // top row at the box's own top takes a flip — the same composition `render-quorra`'s
+    // top row at the box's own top takes a flip — the same composition `render-raster`'s
     // presenter makes for a CPU raster.
     list.push(Command::Image {
         image: image.clone().into(),

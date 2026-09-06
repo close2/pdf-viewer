@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use render_quorra::QuorraWindowRenderer;
+use render_raster::QuorraWindowRenderer;
 use viewer_core::RestrictionLevel;
 
 use crate::trace::{Trace, parse_topics, speak_up, topic_names};
@@ -19,7 +19,7 @@ use crate::trace::{Trace, parse_topics, speak_up, topic_names};
 /// that can drive it, under the *device's* name each time, so a name filter selects hardware and
 /// cannot express "this card, through DX12". The set of backends is an instance-level choice and
 /// the instance is made before anything else, which is why this is decided on the command line
-/// and carried to `QuorraWindowRenderer::instance_with` (quorra's ADR 0017; ours is 0221).
+/// and carried to `QuorraWindowRenderer::instance_with` (raster's ADR 0017; ours is 0221).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Backend {
     /// Vulkan: Linux's and Android's, and one of Windows' two.
@@ -58,12 +58,12 @@ impl Backend {
     }
 
     /// The one-backend set this restricts an instance to.
-    fn backends(self) -> quorra_gpu::wgpu::Backends {
+    fn backends(self) -> raster_gpu::wgpu::Backends {
         match self {
-            Self::Vulkan => quorra_gpu::wgpu::Backends::VULKAN,
-            Self::Dx12 => quorra_gpu::wgpu::Backends::DX12,
-            Self::Metal => quorra_gpu::wgpu::Backends::METAL,
-            Self::Gl => quorra_gpu::wgpu::Backends::GL,
+            Self::Vulkan => raster_gpu::wgpu::Backends::VULKAN,
+            Self::Dx12 => raster_gpu::wgpu::Backends::DX12,
+            Self::Metal => raster_gpu::wgpu::Backends::METAL,
+            Self::Gl => raster_gpu::wgpu::Backends::GL,
         }
     }
 }
@@ -127,7 +127,7 @@ pub(crate) struct Arguments {
     ///
     /// A host's setting for `--backend`'s reason: it changes which of several
     /// equally-correct producers runs, and the honest way to compare them is to be
-    /// able to hold one still. `compute` is quorra's device lane (their ADR 0080/0081)
+    /// able to hold one still. `compute` is raster's device lane (their ADR 0080/0081)
     /// — bytes identical to the CPU lane's, cost flat across magnifications, no atlas
     /// in front of it — and pinning it is how its zoom behaviour is seen before the
     /// policy that mixes the lanes is designed.
@@ -282,7 +282,7 @@ pub(crate) enum CoverageChoice {
     /// The magnification policy (`crate::surface::coverage_for`'s own).
     Auto,
     /// One lane, held for the whole session.
-    Fixed(quorra_gpu::Coverage),
+    Fixed(raster_gpu::Coverage),
 }
 
 /// The lane `--coverage` asked for. Refused rather than defaulted, for
@@ -290,9 +290,9 @@ pub(crate) enum CoverageChoice {
 fn coverage_choice(word: Option<std::ffi::OsString>) -> CoverageChoice {
     match word.and_then(|value| value.into_string().ok()).as_deref() {
         Some("auto") => CoverageChoice::Auto,
-        Some("cpu") => CoverageChoice::Fixed(quorra_gpu::Coverage::Cpu),
-        Some("gpu") => CoverageChoice::Fixed(quorra_gpu::Coverage::Gpu),
-        Some("compute") => CoverageChoice::Fixed(quorra_gpu::Coverage::Compute),
+        Some("cpu") => CoverageChoice::Fixed(raster_gpu::Coverage::Cpu),
+        Some("gpu") => CoverageChoice::Fixed(raster_gpu::Coverage::Gpu),
+        Some("compute") => CoverageChoice::Fixed(raster_gpu::Coverage::Compute),
         _ => {
             eprintln!("--coverage wants auto, cpu, gpu or compute (default auto)");
             std::process::exit(2);
@@ -362,7 +362,7 @@ fn say_what_this_build_cannot_do() {
 /// The thread that creates the graphics instance, or `None` where this run will not have one.
 ///
 /// **A function rather than three lines in `main`, so that the promise `--cpu` makes has a
-/// test.** Creating a `wgpu::Instance` *is* loading the driver — it is where quorra measured
+/// test.** Creating a `wgpu::Instance` *is* loading the driver — it is where raster measured
 /// roughly 80% of what bring-up blocks for, and it is where the project owner's machine crashed —
 /// so a flag that means "no graphics device" has to mean this thread is not spawned. The
 /// difference between a flag that chooses a rasteriser and a flag that avoids a driver is exactly
@@ -370,7 +370,7 @@ fn say_what_this_build_cannot_do() {
 pub(crate) fn spawn_instancing(
     processor: bool,
     backend: Option<Backend>,
-) -> Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>> {
+) -> Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>> {
     (!processor).then(|| {
         std::thread::spawn(move || match backend {
             Some(named) => QuorraWindowRenderer::instance_with(named.backends()),
@@ -492,7 +492,7 @@ fn usage() {
 
 #[cfg(test)]
 mod tests {
-    use render_quorra::QuorraWindowRenderer;
+    use render_raster::QuorraWindowRenderer;
 
     use super::{Backend, DEFAULT_BACKEND, backend_names, spawn_instancing};
 

@@ -6,8 +6,8 @@
 //! down by an amount that grows with the zoom. Under `--cpu` it is drawn whole at every rung.
 //!
 //! **No gate in this tree could see it**, and that is the reason this file exists. The corpus and
-//! the oracle rasterise a page; `render-quorra/tests/corpus.rs` rasterises a page at 1×, 2× and
-//! 4×; `render-quorra/examples/zoom_ladder` magnifies a page and draws no chrome. Every one of
+//! the oracle rasterise a page; `render-raster/tests/corpus.rs` rasterises a page at 1×, 2× and
+//! 4×; `render-raster/examples/zoom_ladder` magnifies a page and draws no chrome. Every one of
 //! them rasterises **one** display list, and the window draws several into one scene — the page
 //! under its target transform and the overlays at identity over it. That combination is what
 //! breaks, so that combination is what this walks.
@@ -34,14 +34,14 @@
 )]
 
 use pdf_render::{TargetSpec, Transform};
-use render_quorra::{PresentFrame, QuorraRasterizer};
+use render_raster::{PresentFrame, QuorraRasterizer};
 use viewer_core::{Answer, Command, DocumentId, Layer, Query, Viewer};
 use viewer_ui::chrome::{Chrome, Content, Sidebar, Tab};
 
 /// The window this pretends to be — ADR 0198's own 900 × 1100.
 const WINDOW: (u32, u32) = (900, 1100);
 
-/// The magnification `viewer-ui` switches quorra to its GPU coverage lane above.
+/// The magnification `viewer-ui` switches raster to its GPU coverage lane above.
 ///
 /// The same constant `pdf-viewer.rs` uses, restated rather than shared because a binary's
 /// constant is not an API — and a ladder that does not switch lanes is not measuring what a
@@ -215,9 +215,9 @@ fn ladder(
         };
         let lane = usize::from(rung >= GPU_COVERAGE_MAGNIFICATION);
         gpu.set_coverage(if lane == 1 {
-            quorra_gpu::Coverage::Gpu
+            raster_gpu::Coverage::Gpu
         } else {
-            quorra_gpu::Coverage::Cpu
+            raster_gpu::Coverage::Cpu
         });
         let overlays: Vec<&pdf_render::DisplayList> = vec![panel];
         let frame = PresentFrame {

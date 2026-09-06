@@ -4,7 +4,7 @@
 //! The flag decides one arithmetic and only one: §8.5.4 constrains a group's shape by the clip
 //! in force at its blit, and §10.7.4 makes that influence an intersection of sets rather than a
 //! product, so a backend that holds the flag composites `min(f, C)` where one that does not
-//! composites `α × C`. `render-cpu` takes the first since ADR 0492; quorra takes it where its own
+//! composites `α × C`. `render-cpu` takes the first since ADR 0492; raster takes it where its own
 //! `encode::opacity::every_opacity_is_one` can prove the same condition from the command list
 //! alone (their ADR 0074).
 //!
@@ -56,7 +56,7 @@ impl Tally {
 }
 
 /// The same question asked of the command list **alone**, the way a backend that never sees the
-/// `/AIS` flag has to ask it (quorra's `encode::opacity::every_opacity_is_one`, their ADR 0074).
+/// `/AIS` flag has to ask it (raster's `encode::opacity::every_opacity_is_one`, their ADR 0074).
 ///
 /// ISO 32000-2 §11.6.4.2 gives every elementary object an intrinsic opacity of 1.0, so an opacity
 /// below 1.0 can only enter through §11.6.4.3's mask, §11.6.4.4's constant, or a nested group
@@ -65,7 +65,7 @@ impl Tally {
 /// opacity, which is shape all the way down and leaves the equality intact. Only an interpreter
 /// knows that, which is why [`Command::Group::alpha_is_shape`] is answered in `pdf-model`.
 ///
-/// **This is a model of quorra's predicate over our display list rather than their code over
+/// **This is a model of raster's predicate over our display list rather than their code over
 /// their scene**, so the count it produces is the size of a population and not a claim about any
 /// particular group of theirs. It is written to refuse exactly what theirs refuses: an image,
 /// any paint but an opaque solid, a mask anywhere, an alpha below 1.0, and a non-isolated nested

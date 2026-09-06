@@ -3607,22 +3607,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quorra-gpu"
-version = "0.1.0"
-source = "git+https://github.com/close2/quorra#5fb011a4b0450225a090253bb18672a584c08f64"
-dependencies = [
- "pollster",
- "quorra-scene",
- "thiserror 2.0.19",
- "wgpu 30.0.0",
-]
-
-[[package]]
-name = "quorra-scene"
-version = "0.1.0"
-source = "git+https://github.com/close2/quorra#5fb011a4b0450225a090253bb18672a584c08f64"
-
-[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3656,12 +3640,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 
 [[package]]
+name = "raster"
+version = "0.1.0"
+dependencies = [
+ "raster-gpu",
+ "raster-scene",
+]
+
+[[package]]
 name = "raster-compare"
 version = "0.1.0"
 dependencies = [
  "pdf-render",
  "thiserror 2.0.19",
 ]
+
+[[package]]
+name = "raster-function-conformance"
+version = "0.1.0"
+dependencies = [
+ "raster-scene",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "raster-gpu"
+version = "0.1.0"
+dependencies = [
+ "png",
+ "pollster",
+ "raster-function-conformance",
+ "raster-pages",
+ "raster-scene",
+ "thiserror 2.0.19",
+ "wgpu 30.0.0",
+ "winit",
+]
+
+[[package]]
+name = "raster-pages"
+version = "0.1.0"
+dependencies = [
+ "raster-scene",
+]
+
+[[package]]
+name = "raster-scene"
+version = "0.1.0"
 
 [[package]]
 name = "raw-window-handle"
@@ -3835,7 +3860,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "render-quorra"
+name = "render-raster"
 version = "0.1.0"
 dependencies = [
  "kurbo",
@@ -3845,9 +3870,9 @@ dependencies = [
  "pdf-syntax",
  "png",
  "pollster",
- "quorra-gpu",
- "quorra-scene",
  "raster-compare",
+ "raster-gpu",
+ "raster-scene",
  "render-cpu",
  "render-gpu",
  "test-scenes",
@@ -4901,10 +4926,10 @@ dependencies = [
  "pdf-sandbox",
  "pdf-syntax",
  "png",
- "quorra-gpu",
- "quorra-scene",
+ "raster-gpu",
+ "raster-scene",
  "render-cpu",
- "render-quorra",
+ "render-raster",
  "sha2",
  "softbuffer",
  "test-scenes",

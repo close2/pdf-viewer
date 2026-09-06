@@ -3001,7 +3001,7 @@ fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, Prot
 /// [`Query::Frame`] until a re-render replaces them — but a decode that allocated a fresh
 /// `Arc<pdf_render::DisplayList>` per reply gave a host a new identity for an unchanged page on every scroll,
 /// so everything keyed by `Arc` identity on the host side — the confined screen's
-/// same-drawing-moved reuse, `render-quorra`'s retained scenes — missed on every frame. The
+/// same-drawing-moved reuse, `render-raster`'s retained scenes — missed on every frame. The
 /// promise was written down twice and kept only inside unit tests that shared the `Arc` by hand.
 ///
 /// The key is the page and the test is the encoded bytes themselves, compared whole: the worker

@@ -975,7 +975,7 @@ fn narrow(value: f64) -> f32 {
 /// types — while it types `gt`, `ge`, `lt` and `le` as `num 1 num 2`, `and`, `or`, `xor` and
 /// `not` as `bool | int`, and `bitshift` as `int 1 shift`. A stack of numbers cannot tell those
 /// apart: with a boolean stored as `1.0`, `true 1 eq` answered *true*, which is a colour decided
-/// by a type confusion. The quorra team found that in their own device-side evaluator by running
+/// by a type confusion. The raster team found that in their own device-side evaluator by running
 /// this tree's corpus against it and reported that ours had the same shape
 /// (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5); ADR 0371 is this side's.
 ///
@@ -1411,7 +1411,7 @@ fn operand_demand<T: Copy>(
 /// computing the constant 3141 again.
 ///
 /// **And it decides where the shading is drawn.** ADR 0376 hands a type 4 program to the graphics
-/// device where the device will state a bound on its disagreement with this evaluator; quorra's
+/// device where the device will state a bound on its disagreement with this evaluator; raster's
 /// rule (their ADR 0053) refuses a program in which an operator WGSL 15.7.4.1 gives an error
 /// budget — `div` at 2.5 ULP, `exp` through `exp2(y · log2(x))` — reaches one that turns a last-bit
 /// difference into a whole unit. An operator whose operands are literals is not evaluated on the
@@ -2260,7 +2260,7 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
 /// arm says so and says what was chosen instead.
 ///
 /// Two arms exist as they do because the tolerant reading was wrong, and both were found by the
-/// quorra team reading this file to build a device-side evaluator —
+/// raster team reading this file to build a device-side evaluator —
 /// `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6, ADR 0369. `round` is [`round_to_greater`].
 /// `eq` and `ne` are §B.3's:
 ///
@@ -2561,7 +2561,7 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // object has to answer across the types rather than through them, so a boolean is never
         // equal to a number — `true 1 eq` is false — and two numbers are equal when they stand
         // for the same number whether they were written `1` or `1.0`. [`Value::equals`] is the
-        // whole of it. The quorra team found this in their own device-side evaluator by running
+        // whole of it. The raster team found this in their own device-side evaluator by running
         // this tree's corpus against it and reported that ours had the same shape
         // (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5).
         //
@@ -2583,7 +2583,7 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // decide, and there [`Value`]'s conversion policy still stands — `true 0 gt` compares 1
         // with 0 — because an evaluator has no way to raise §7.10.5's error at a device pixel.
         // The five-hundred-and-thirty-sixth session's reading, that this was a choice rather than
-        // a departure, is what ADR 0412 corrected; the question came from the quorra team's ADR
+        // a departure, is what ADR 0412 corrected; the question came from the raster team's ADR
         // 0053 section 3.2 by way of `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3.
         Operator::Ge => binary(stack, |a, b| Value::Boolean(a.as_f64() >= b.as_f64())),
         Operator::Gt => binary(stack, |a, b| Value::Boolean(a.as_f64() > b.as_f64())),
@@ -2684,7 +2684,7 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
 /// boolean because a `false` here would silently satisfy `if` and `not` — the two operators that
 /// decide what the *rest* of the program does — where an integer only feeds the arithmetic.
 ///
-/// The quorra team's device-side evaluator chose integer `0` too and raises a report at upload
+/// The raster team's device-side evaluator chose integer `0` too and raises a report at upload
 /// (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3). This side does not report, and the reason is
 /// not that it would be unwelcome: they can count the underflows statically because they refuse a
 /// `copy`, `index` or `roll` whose count is not a constant, and this evaluator admits those, so
@@ -2715,7 +2715,7 @@ const MAX_STACK: usize = 1000;
 ///
 /// **This was `f32::round` until the five-hundred-and-thirty-fourth session**, which rounds half
 /// away from zero, so every negative tie went the wrong way — `-6.5` to `-7` where the greater is
-/// `-6`. The quorra team found it reading this file to build a device-side evaluator and reported
+/// `-6`. The raster team found it reading this file to build a device-side evaluator and reported
 /// it in `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6; ADR 0369 is this side's. Their
 /// observation that WGSL's `round` is half to *even* belongs beside this one, because it agrees
 /// with the greater at `-6.5` and disagrees at `2.5`: a generated shader is not this function.
@@ -2997,7 +2997,7 @@ mod tests {
     /// §B.3 types `eq` and `ne` `any 1 any 2`, so a boolean is an operand and is never a number.
     ///
     /// **This is the defect the typed stack was built for**, and the first line is the whole of
-    /// it: with a boolean stored as `1.0`, `true 1 eq` answered *true*. The quorra team found it
+    /// it: with a boolean stored as `1.0`, `true 1 eq` answered *true*. The raster team found it
     /// in their own device-side evaluator by running this tree's corpus against it and reported
     /// that ours had the same shape (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5).
     ///
@@ -3080,7 +3080,7 @@ mod tests {
     ///
     /// What this one pins is the arm underneath that refusal: for every program the compile-time
     /// walk could not decide, the evaluator still has to answer at a device pixel, and there
-    /// [`Value`]'s conversion policy stands. It is also the contract answer quorra asked for in
+    /// [`Value`]'s conversion policy stands. It is also the contract answer raster asked for in
     /// `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3, pinned so that the two evaluators cannot
     /// drift apart on it.
     #[test]
@@ -3736,7 +3736,7 @@ mod tests {
     /// display, and every operand of every `div` and `exp` in it is a literal: the BBP series it
     /// evaluates once per device pixel is a *constant*. After folding, no operator that WGSL
     /// 15.7.4.1 gives an error budget is left in the program a device is handed — which is what
-    /// lets that device evaluate the shading under quorra's agreement rule unweakened. ADR 0406.
+    /// lets that device evaluate the shading under raster's agreement rule unweakened. ADR 0406.
     #[test]
     fn the_witness_pages_program_keeps_no_inexact_operator() {
         use pdf_render::{ProgramOperator, ProgramStep};

@@ -18,7 +18,7 @@
 //!   samples thirteen times.
 //! - **A redraw is another replay.** A host that draws one page repeatedly — `viewer-confined`'s
 //!   worker holds a rasteriser across every frame it is asked for — reduces the same samples
-//!   again for each. That is the half of `doc/todo/45` §2a `render-quorra` closed for the window
+//!   again for each. That is the half of `doc/todo/45` §2a `render-raster` closed for the window
 //!   in ADR 0297, on the same key this module uses.
 //!
 //! # Why the key is an address, and what makes that sound
@@ -30,7 +30,7 @@
 //!
 //! An address is only an identity while the allocation lives, so an entry **pins** the
 //! `Arc<[u8]>` it was keyed on. A pinned address cannot be recycled under a live entry, which is
-//! the whole of the ABA argument; `render-quorra`'s `cache` module states the same one for the
+//! the whole of the ABA argument; `render-raster`'s `cache` module states the same one for the
 //! same reason.
 //!
 //! # What is not memoised, and why that is not a gap

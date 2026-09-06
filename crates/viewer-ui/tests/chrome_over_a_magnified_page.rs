@@ -3,7 +3,7 @@
 //! # Why this gate exists
 //!
 //! Every other gate in this tree rasterises **one** display list: the corpus and the oracle a
-//! page, `render-quorra/tests/corpus.rs` a page at 1×, 2× and 4×, `viewer-ui/tests/panel.rs` the
+//! page, `render-raster/tests/corpus.rs` a page at 1×, 2× and 4×, `viewer-ui/tests/panel.rs` the
 //! panel alone. A window draws several into one scene — the page under its target transform and
 //! the overlays at identity over it — and for four sessions that combination lost the sidebar
 //! above about 2000% magnification with nothing able to see it (ADR 0198). The defect was
@@ -16,7 +16,7 @@
 //! renderer is asked what a sidebar should look like, and a frame whose chrome moved fails
 //! against a frame of this test's own.
 //!
-//! One reference per **coverage lane**, because `viewer-ui` switches quorra's lane above 10×
+//! One reference per **coverage lane**, because `viewer-ui` switches raster's lane above 10×
 //! (`GPU_COVERAGE_MAGNIFICATION`) and the two lanes are two rasterisers: a rung that switches
 //! lanes differs for a reason that is not a defect. Within a lane the frames must agree.
 //!
@@ -30,14 +30,14 @@
 )]
 
 use pdf_render::{TargetSpec, Transform};
-use render_quorra::{PresentFrame, QuorraRasterizer};
+use render_raster::{PresentFrame, QuorraRasterizer};
 use viewer_core::{Answer, Command, DocumentId, Query, Rendered, Viewer, Zoom};
 use viewer_ui::chrome::{Chrome, Content, Sidebar, Tab};
 
 /// The window this pretends to be, which is ADR 0198's own.
 const WINDOW: (u32, u32) = (900, 1100);
 
-/// The magnification `viewer-ui` switches quorra to its GPU coverage lane above.
+/// The magnification `viewer-ui` switches raster to its GPU coverage lane above.
 const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 
 /// The rungs, as multiples of the page fitted to the window.
@@ -128,9 +128,9 @@ fn the_sidebar_does_not_depend_on_the_pages_magnification() {
         };
         let lane = usize::from(rung >= GPU_COVERAGE_MAGNIFICATION);
         gpu.set_coverage(if lane == 1 {
-            quorra_gpu::Coverage::Gpu
+            raster_gpu::Coverage::Gpu
         } else {
-            quorra_gpu::Coverage::Cpu
+            raster_gpu::Coverage::Cpu
         });
         let overlays: Vec<&pdf_render::DisplayList> = vec![&panel];
         let raster = gpu

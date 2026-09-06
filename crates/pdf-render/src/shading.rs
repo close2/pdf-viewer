@@ -349,7 +349,7 @@ impl ColourGrid {
 /// worth producing. A viewer past the magnification at which a page fits its window does not
 /// rasterise the page — it rasterises the **window**, at a transform that scales the page and
 /// translates the region of interest into view (`viewer-ui`'s own surface, and
-/// `render-quorra/examples/zoom_ladder.rs`) — so a shading's domain grows with the zoom while
+/// `render-raster/examples/zoom_ladder.rs`) — so a shading's domain grows with the zoom while
 /// the target does not, and the share of the grid anybody can see falls as the square of the
 /// magnification. Measured rather than reasoned: over the four corpus documents that state a
 /// type 1 shading, `pdf-model/examples/shading_grid_census.rs` reads 55.7% of the resolved
@@ -1298,14 +1298,14 @@ impl RadialRaster {
 ///
 /// All three backends already draw exactly that shape for a mesh and for §8.7.4.5.4's cone: a
 /// straight-alpha raster at device resolution, placed at whole pixels and confined to the path
-/// being filled ([`MeshRaster`], [`RadialRaster`], and `quorra_scene::Paint::Mesh`). Sending a
+/// being filled ([`MeshRaster`], [`RadialRaster`], and `raster_scene::Paint::Mesh`). Sending a
 /// background-carrying shading of *any* kind down that same lane costs no new lane in any
 /// backend, needs nothing of a gradient library that no gradient library has, and puts the
 /// colour in one place — which is what trap 2 asks for and what the alternative, a stop or a
 /// spread mode per rasteriser, would have spread across three.
 ///
 /// The pricing this replaced went the other way round — a background-carrying stop for the two
-/// gradient kinds, a clear colour for the two raster kinds, and an upstream ask for quorra's
+/// gradient kinds, a clear colour for the two raster kinds, and an upstream ask for raster's
 /// gradient lane. Three of those four rows were wrong, and ADR 0529 has the derivation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShadingRaster {

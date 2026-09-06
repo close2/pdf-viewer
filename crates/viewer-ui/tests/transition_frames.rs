@@ -28,7 +28,7 @@ use pdf_render::{
     Image, Point, Raster, RasterFormat, Rasterizer as _, Rect, TargetSpec, Transform,
 };
 use render_cpu::CpuRasterizer;
-use render_quorra::{PresentFrame, QuorraRasterizer};
+use render_raster::{PresentFrame, QuorraRasterizer};
 
 /// The window this pretends to be.
 const WINDOW: (u32, u32) = (240, 120);

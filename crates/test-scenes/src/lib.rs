@@ -416,8 +416,8 @@ pub fn knockout_stated_shape() -> DisplayList {
 ///
 /// # What each backend does with it
 ///
-/// `render-cpu` and `render-quorra` draw it and are held to each other on it
-/// (`headless_quorra.rs`'s `cpu_and_quorra_agree_on_a_non_isolated_group`): quorra's
+/// `render-cpu` and `render-raster` draw it and are held to each other on it
+/// (`headless_quorra.rs`'s `cpu_and_quorra_agree_on_a_non_isolated_group`): raster's
 /// `GroupSpec` carries Table 145's `/I` since the four-hundred-and-thirty-eighth session, so a
 /// group's buffer can begin as a copy of what is under it. `render-gpu` still refuses — a
 /// Vello layer begins fully transparent and a scene cannot read what it has drawn so far — and
@@ -543,8 +543,8 @@ const PROCESS_INKS: [[u8; 3]; 16] = [
 ///
 /// # What each backend does with it
 ///
-/// `render-cpu` draws it, and `render-quorra` since the four-hundred-and-thirty-ninth
-/// session: two `Target::Readback` renders against one device, which quorra's own
+/// `render-cpu` draws it, and `render-raster` since the four-hundred-and-thirty-ninth
+/// session: two `Target::Readback` renders against one device, which raster's own
 /// `two_rasters.rs` holds (`doc/QUORRA_FEEDBACK.md` section 17.1). `render-gpu` refuses the
 /// list by name — a Vello scene renders one raster and the backend has no place to hold the
 /// second — and that refusal is tested against this scene so it cannot become silent.
@@ -681,7 +681,7 @@ pub fn four_component_page() -> DisplayList {
 /// # What each backend does with it
 ///
 /// `render-cpu` draws it (`group_constructions.rs` holds the pixels); `render-gpu` and
-/// `render-quorra` refuse it by name — neither can retain a backdrop beside a layer's
+/// `render-raster` refuse it by name — neither can retain a backdrop beside a layer's
 /// accumulation — and their refusals are tested against this scene so they cannot become
 /// silent.
 #[must_use]
@@ -758,7 +758,7 @@ pub fn knockout_group_on_its_own_backdrop() -> DisplayList {
 ///
 /// # What each backend does with it
 ///
-/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-quorra`
+/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-raster`
 /// refuse it by name — the pair resolves per pixel after the group composites, which a
 /// scene under composition cannot — and their refusals are tested against this scene.
 ///
@@ -849,7 +849,7 @@ pub fn group_in_its_own_blending_space() -> DisplayList {
 ///
 /// # What each backend does with it
 ///
-/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-quorra`
+/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-raster`
 /// refuse it by name, as they refuse the four-component pair.
 ///
 /// # Panics
@@ -939,7 +939,7 @@ pub fn group_in_a_one_component_blending_space() -> DisplayList {
 ///
 /// # What each backend does with it
 ///
-/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-quorra`
+/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-raster`
 /// refuse it by name, as they refuse the pair and the curve.
 ///
 /// # Panics
@@ -1434,7 +1434,7 @@ pub const SAMPLED_PAGE: f32 = 420.0;
 /// cells the waves of [`sampled_colour_at`] interpolate eleven levels wrong, and at one
 /// cell per device pixel they are exact to a level. The filled shape ends in a diagonal
 /// edge, so the comparison also covers the pixels where the two constructions the backends
-/// use — a padded pattern on the CPU, an image clipped to the path on quorra — meet
+/// use — a padded pattern on the CPU, an image clipped to the path on raster — meet
 /// fractional coverage. The path stays inside the domain's own extent because what happens
 /// *beyond* the domain is a stated divergence between those constructions, and this scene
 /// is about the resolution.

@@ -428,7 +428,7 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 0] = [];
 /// eighth of its pixel. **Third of five, not the outlier.** Page 2 reproduces it: ours to the
 /// quantised form mean 0.0022 and max 1, `hayro` to the exact form mean 0.0017 and max 2.
 ///
-/// `render-quorra/examples/edge_coverage_ladder` is the same finding without a document, and it
+/// `render-raster/examples/edge_coverage_ladder` is the same finding without a document, and it
 /// says which backend owns it: at a rectangle edge placed every twentieth of a pixel, `render-cpu`
 /// answered 0, 0.2510, 0.5020, 0.7529 and 1.0000 on both axes while the graphics device tracks the
 /// fraction to a level of 255. ADR 0474 has the price and `doc/todo/11` item 7 what a cure costs.
@@ -5634,7 +5634,7 @@ const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_sh
 /// high-DPI screen. §10.7.4 states the answer twice: a filling region "is considered to
 /// intersect every pixel through which its boundary passes, even if the interior of the filling
 /// region is empty", and its EXAMPLE says a zero-height rectangle "paints a line 1 pixel wide".
-/// `render-quorra/examples/mark_width` measures it: 1–2 rows per line before and **1 row at
+/// `render-raster/examples/mark_width` measures it: 1–2 rows per line before and **1 row at
 /// 1.00 ink on both backends at 1×, 2× and 4×** after. The page's own numbers moved with it —
 /// mean 13.31 → 13.09, differing 10.02% → 6.87%, similarity 0.5619 → 0.5835 — and the verdict
 /// did not, because the references still disagree with each other about the weight. It is also
@@ -5809,7 +5809,7 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// move.)
 ///
 /// **What moved is the placement, and the instrument that says so needs no reference at all.**
-/// `render-quorra/tests/corpus.rs` compares the two backends on this page's own display list, and
+/// `render-raster/tests/corpus.rs` compares the two backends on this page's own display list, and
 /// its mean went **6.5359 → 1.8563** with structural similarity 0.90046 → 0.97723 — the largest
 /// movement that gate has recorded. The device was already drawing the rule as its area; the
 /// processor was smearing it as a hairline. Against the *references* the same change reads the
@@ -5817,7 +5817,7 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// rather than a contradiction: the worst reference on this page is `ghostscript` at 2.13× the
 /// geometry, so approaching the geometry is receding from it. (The gate prints worst mean 42.17
 /// and similarity 0.3400 today; the pair above is the movement that session measured, and the
-/// two figures preceding it are `render-quorra`'s gate rather than this one's — ADR 0495.)
+/// two figures preceding it are `render-raster`'s gate rather than this one's — ADR 0495.)
 ///
 /// # The eight-hundred-and-second cannot reach this page, and the file says so in one line
 ///
@@ -5957,7 +5957,7 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// and the anti-aliased clip ate the difference.
 ///
 /// Ink 18.54 → **20.35** against a high-resolution limit of 20.12, and the distance 2.82 → 1.46.
-/// `issue21068.pdf` also left `render-quorra`'s differing list, because both backends draw the
+/// `issue21068.pdf` also left `render-raster`'s differing list, because both backends draw the
 /// same display list and there was nothing left to differ about.
 ///
 /// What remains is the group's own subject: ours 20.35, `poppler` 19.72, `mupdf` 19.99,

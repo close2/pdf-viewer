@@ -107,7 +107,7 @@ pub fn cropped_rectangle(path: &Path, to_device: Transform, admits: Rect) -> Opt
 /// The corners are in the path's own space; whether the *device* sees a rectangle is the
 /// caller's second question and [`Transform::preserves_axes`] is what answers it — which is
 /// why the two are apart. It is public because a census asks exactly this question of a
-/// corpus (`render-quorra/examples/rect_and_residue_census.rs`), and a census that carried its
+/// corpus (`render-raster/examples/rect_and_residue_census.rs`), and a census that carried its
 /// own copy of the predicate would be measuring a second implementation of it.
 #[must_use]
 pub fn whole_rectangle(path: &Path) -> Option<(Point, Point)> {

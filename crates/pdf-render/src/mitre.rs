@@ -45,7 +45,7 @@
 //! that angle test is a **ratio** cutoff in disguise, at `1 / sqrt(1/8192)` = 90.51: a join sharper
 //! than that is bevelled whatever the file says. The graphics device's two strokers have no such
 //! cutoff and draw the spike where `mutool` and `ghostscript` put it, which is the measurement
-//! `render-quorra/examples/mitre_ladder` prints.
+//! `render-raster/examples/mitre_ladder` prints.
 //!
 //! So the *decision* — is this mitre admitted, and where does its tip go — is stated here, once,
 //! from the clause's own formula, and a backend whose library will not draw it asks for the

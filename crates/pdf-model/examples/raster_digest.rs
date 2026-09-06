@@ -19,7 +19,7 @@
 //!
 //! **`render-cpu` and not the device**, because this is the backend every gate rasterises with
 //! and the one that is the oracle. A backend whose pixels are the device's own is compared
-//! against this one by `render-quorra/tests/corpus.rs`, which is a different question with its
+//! against this one by `render-raster/tests/corpus.rs`, which is a different question with its
 //! own gate.
 //!
 //! Both of `display_list_digest`'s cautions apply here unchanged and are not repeated: run both

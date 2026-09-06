@@ -211,7 +211,7 @@ impl App {
     /// last presented, and the page arriving, at the same size. Both are drawn by
     /// [`CpuRasterizer`] — the one rasteriser this host can ask for *pixels* rather than for a
     /// present — and each crosses to the graphics device once, because [`pdf_render::Image`]
-    /// holds its samples behind an `Arc` and quorra's caches are keyed by that pointer.
+    /// holds its samples behind an `Arc` and raster's caches are keyed by that pointer.
     ///
     /// The cost is therefore two page renders at the start of a transition and two image draws
     /// per frame after it, which is the trade this host makes deliberately: a transition frame
@@ -333,7 +333,7 @@ impl App {
     /// [`viewer_core::transition`] — so it draws at the identity transform where a page draws
     /// through its own placement.
     /// **The frame is handed over in an `Arc` because that is the identity the presenter reuses
-    /// a scene by** (ADR 0351): `render_quorra::PresentFrame::page` pins what it is given, so a
+    /// a scene by** (ADR 0351): `render_raster::PresentFrame::page` pins what it is given, so a
     /// display list drawn once and dropped cannot have its address recycled under the entry
     /// keyed on it. A transition frame is a fresh list on every frame of the animation, so each
     /// one is a fresh `Arc` and each one rebuilds — which is what a moving picture is.
