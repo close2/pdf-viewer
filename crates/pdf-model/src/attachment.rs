@@ -49,8 +49,17 @@
 //! reader that believed the "same sentence about every one" summary would state seven sites and
 //! find six.
 //!
-//! `witness_census --pdfjs AF` counts the documents that state one; each site's own share is in
-//! that subclause's ledger row.
+//! **And an associated file has two forms rather than one.** §14.13.2: "[t]he file specification
+//! for an associated file represents either a file external to the PDF file or an embedded file
+//! stream … within the PDF file", with NOTE 1 recommending the second rather than requiring it.
+//! [`associated`] answers the recommended form and [`external_associated`] the other, which was
+//! read by nothing until the nine-hundred-and-thirty-ninth session — a specification with no `/EF`
+//! was skipped as "§7.11.1's refusal", and that refusal is about *following* a file rather than
+//! about naming one. ADR 0918.
+//!
+//! `witness_census --pdfjs AF` counts the documents that state one, and
+//! `associated_file_census` splits them by form; each site's own share is in that subclause's
+//! ledger row.
 //!
 //! 10 of the 974 corpus documents carry a `/Names /EmbeddedFiles` tree, holding 23 files
 //! between them — mostly `application/mathml+xml` fragments from a LaTeX producer, one
@@ -247,6 +256,27 @@ pub enum Relationship {
 }
 
 impl Relationship {
+    /// Table 43's own name for this relationship, which is what a person is shown.
+    ///
+    /// A registered second-class name is given back as the producer spelled it, for the reason
+    /// [`Self::Other`] exists: the table's NOTE 2 says `Unspecified` "is to be used only when no
+    /// other value correctly reflects the relationship", so flattening a registered name into it
+    /// would throw away a fact the file states.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Source => "Source",
+            Self::Data => "Data",
+            Self::Alternative => "Alternative",
+            Self::Supplement => "Supplement",
+            Self::EncryptedPayload => "EncryptedPayload",
+            Self::FormData => "FormData",
+            Self::Schema => "Schema",
+            Self::Unspecified => "Unspecified",
+            Self::Other(name) => name.as_str(),
+        }
+    }
+
     /// Reads Table 43's name, defaulting as the table states.
     fn read(document: &Document, specification: &Dictionary) -> Self {
         let stated = document.get_key(specification, "AFRelationship");
@@ -267,6 +297,23 @@ impl Relationship {
     }
 }
 
+/// One §14.13 associated file whose specification names a file *outside* the document.
+///
+/// The half of §14.13.2 an attachment list cannot hold: there is no stream, so there are no bytes,
+/// no `/Params` and no media type — what a producer stated is a name and a relationship, and both
+/// are worth saying to a person deciding whether they are looking at the whole thing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalAssociatedFile {
+    /// The file's own name, as §7.11.2's file specification spells it.
+    ///
+    /// Empty where the specification states no name at all, which is a specification that names
+    /// nothing and is kept rather than dropped, because its relationship is still a fact about
+    /// the document.
+    pub name: String,
+    /// Table 43's `/AFRelationship`, the relationship the producer asserted.
+    pub relationship: Relationship,
+}
+
 /// §14.13's `/AF` array on any object that may carry one.
 ///
 /// One function for all seven places the clause lists, because it states the same sentence about
@@ -274,13 +321,37 @@ impl Relationship {
 /// dictionaries. The name each attachment gets is its own `/UF` or `/F`, since an `/AF` array —
 /// unlike §7.7.4's tree — files nothing under a key.
 ///
-/// Empty where the object states no `/AF`, and a specification with no `/EF` is skipped: §14.13.2
-/// permits an external associated file — "[b]oth types are allowed for associated files but the
-/// embedded form is recommended" — and an external one is §7.11.1's refusal, which this program
-/// has no filesystem to lift.
+/// Empty where the object states no `/AF`. A specification with no `/EF` is not an attachment and
+/// is not returned here — it is the *other* of §14.13.2's two forms, and [`external_associated`]
+/// is what reads it.
+///
+/// **That skip used to be justified as "§7.11.1's refusal, which this program has no filesystem to
+/// lift", and it was two claims in one coat.** §7.11's own row states the distinction the sentence
+/// elided: following a file this program has no filesystem for is refused by architecture, while
+/// *naming* one needs no filesystem at all — and the clause states both forms in its first
+/// sentence, "[t]he file specification for an associated file represents either a file external to
+/// the PDF file or an embedded file stream … within the PDF file". So an external associated file
+/// is read and named rather than dropped in silence, and only its bytes are refused. ADR 0918.
 #[must_use]
 pub fn associated(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
     associated_under(document, dict, "AF")
+}
+
+/// §14.13's associated files whose specification carries no `/EF` — the external form.
+///
+/// §14.13.2 gives an associated file two forms and prefers one of them: "[b]oth types are allowed
+/// for associated files but the embedded form is recommended". The recommended one is
+/// [`associated`]; this is the other, and what it can answer is what an external specification
+/// actually carries — the file's own name and the relationship the producer asserted. The bytes
+/// are not here and are not reachable: `CLAUDE.md` principle 3 gives the renderer no filesystem
+/// and no network, which is §7.11.1's refusal and is about *opening* the file.
+///
+/// Empty for the overwhelmingly common case, which is measured rather than assumed:
+/// `cargo run --release -p pdf-model --example associated_file_census -- --pdfjs` counts the
+/// forms over a corpus, and the numbers each population gives are in §14.13.2's ledger row.
+#[must_use]
+pub fn external_associated(document: &Document, dict: &Dictionary) -> Vec<ExternalAssociatedFile> {
+    external_associated_under(document, dict, "AF")
 }
 
 /// §14.13.5's `/AF` on a *marked-content section*, whose property list names the array differently.
@@ -331,6 +402,39 @@ fn associated_under(document: &Document, dict: &Dictionary, key: &str) -> Vec<At
         if let Some(attachment) = read(document, specification, name) {
             out.push(attachment);
         }
+    }
+    out
+}
+
+/// The array under one key, read as the specifications that carry no embedded stream.
+///
+/// The mirror of [`associated_under`], and deliberately the same walk with the test inverted, so
+/// that one array cannot be two populations: every item either becomes an [`Attachment`] there or
+/// an [`ExternalAssociatedFile`] here, and an item that is not a dictionary at all is neither.
+fn external_associated_under(
+    document: &Document,
+    dict: &Dictionary,
+    key: &str,
+) -> Vec<ExternalAssociatedFile> {
+    let array = document.get_key(dict, key);
+    let Some(items) = array.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in items.iter().take(MAX_ATTACHMENTS) {
+        let resolved = document.resolve(item);
+        let Some(specification) = resolved.as_dict() else {
+            continue;
+        };
+        if read(document, specification, String::new()).is_some() {
+            continue;
+        }
+        out.push(ExternalAssociatedFile {
+            name: crate::file_spec::FileSpec::from_dictionary(document, specification)
+                .display_name()
+                .unwrap_or_default(),
+            relationship: Relationship::read(document, specification),
+        });
     }
     out
 }
@@ -793,6 +897,51 @@ mod tests {
         };
         assert_eq!(ticket.relationship, super::Relationship::Data);
         assert_eq!(ticket.name, "job-ticket.jdf");
+    }
+
+    #[test]
+    fn an_associated_file_outside_the_document_is_named_rather_than_dropped() {
+        // §14.13.2 states two forms — "[t]he file specification for an associated file represents
+        // either a file external to the PDF file or an embedded file stream … within the PDF file"
+        // — and its NOTE 1 recommends one of them rather than requiring it. The external form was
+        // read by nothing: `associated` skips a specification with no `/EF`, so the relationship a
+        // producer asserted about a file this program cannot open was thrown away with the file.
+        //
+        // Both forms in one catalog, so the split is asserted rather than the count: the embedded
+        // one is an attachment and the external one is not, and neither appears in the other list.
+        //
+        // **No document in either population states one** — `associated_file_census` counts 0
+        // external specifications over the 974 and 0 over the 65 944 of `CC-MAIN-2021-31` — so
+        // this witness is built (trap 8), and the clause is what says the form is legal.
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AF [3 0 R 5 0 R] >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /Filespec /F (../figures/chart.csv) /UF (../figures/chart.csv) \
+             /AFRelationship /Data >>",
+            "<< /Unused true >>",
+            "<< /Type /Filespec /F (equation.xml) /AFRelationship /Supplement \
+             /EF << /F 6 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length 3 >>\nstream\nxyz\nendstream",
+        ]);
+        let catalog = doc.catalog().expect("a catalog");
+
+        let embedded = super::associated(&doc, &catalog);
+        let [equation] = embedded.as_slice() else {
+            panic!("one embedded associated file, got {embedded:?}");
+        };
+        assert_eq!(equation.name, "equation.xml");
+
+        let outside = super::external_associated(&doc, &catalog);
+        let [chart] = outside.as_slice() else {
+            panic!("one external associated file, got {outside:?}");
+        };
+        assert_eq!(chart.name, "../figures/chart.csv");
+        assert_eq!(chart.relationship, super::Relationship::Data);
+        assert_eq!(
+            chart.relationship.as_str(),
+            "Data",
+            "Table 43's own name, which is what a person is shown"
+        );
     }
 
     /// An `/AFRelationship` outside Table 43's eight is kept, not flattened to `Unspecified`.

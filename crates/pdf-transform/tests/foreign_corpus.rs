@@ -64,6 +64,25 @@
 //! timeout already got. `doc/todo/02` §2's rule about a gate that spawns another program is the
 //! same rule.
 //!
+//! **And a `§14.7 fault` moved between two runs of one unchanged tree**, which ADR 0852 said could
+//! not happen: it recorded that the *identical* rows move by one or two and that "only the rows
+//! that cannot move — the faults, the differences and the warnings — carry a verdict". Measured in
+//! the nine-hundred-and-thirty-ninth session, with three rounds' gates on the machine at once: the
+//! `bookmarks` lane failed on `bug1997343.pdf` because [`parent_tree_shape`] made 90 members of the
+//! source's parent-tree entry and 79 of ours, and the same command on the same bytes ninety seconds
+//! later made the lane state **no fault at all** and one more identical page. Nothing here is
+//! seeded and nothing here is timed, so the moving quantity is what `mutool show` *printed* — a
+//! short answer under load reads as a short array, and [`array_shape`] cannot tell that from a
+//! shorter tree.
+//!
+//! So the honest reading of a §14.7 fault today is **a reading list rather than a verdict**, the
+//! same as this suite's page comparisons, and a round that meets one runs the lane again before
+//! believing it. What would make it a verdict is a guard `show` does not have: the length
+//! `mutool show` states for the array against the members it prints, so a truncated answer is
+//! *no* answer rather than a small one. That is a defect in the instrument and it is written
+//! down here rather than fixed, because the round that found it was reading ledger rows and had
+//! no business rewriting this gate on the way past (trap 3, trap 11).
+//!
 //! # The population
 //!
 //! Every corpus document that states §14.7.2's `/StructTreeRoot`, because the structure lane

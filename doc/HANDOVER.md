@@ -127,6 +127,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 34 | A guard has to be made of the same stuff as the figure it guards | instruments |
 | 35 | A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident | instruments |
 | 36 | A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask | instruments |
+| 37 | A digest of the artefact cannot see a change in the *diagnosis* | instruments |
 
 ---
 

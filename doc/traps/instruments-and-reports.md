@@ -836,3 +836,29 @@ under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`
 `sched` — and it is invisible because the file exists, parses, and answers.
 
 ADR 0916.
+
+### 37. A digest of the artefact cannot see a change in the *diagnosis*
+
+`examples/display_list_digest` is what a round runs to claim it drew nothing differently, and its
+own doc comment says so: "run it on two revisions and `diff` the two files; an empty diff is the
+claim". For most of its life it hashed the display list and nothing else.
+
+The nine-hundred-and-thirty-sixth session changed how a dimension written as a real is read, and
+the whole of what moved was a **sentence**. `GHOSTSCRIPT-695872-0.pdf` states
+`/W 737.999999999715 /H 49.999999999` over a JPEG whose own frame is 738 × 50; §7.4.8 puts the
+dimensions in the encoded data, so the samples were always drawn on the codestream's grid and the
+dictionary's numbers never reached a command. What the dictionary decided was whether this reader
+*accused the file* of a disagreement — and under truncation it did, about a contradiction that was
+its own arithmetic. Before and after: 673 commands, identical bytes, identical hash, **one report
+against zero**.
+
+So the digest would have printed an empty diff for a change that fixed a false accusation, and a
+round would have read that as "nothing moved" and been right about the wrong artefact. It hashes
+`interpretation.unsupported` beside the list now.
+
+The general shape, which is worth more than the instrument: **an interpretation is two things, what
+the program drew and what it said, and an instrument that captures one of them answers "did
+anything change" with half a fact.** It is trap 11 from the other end — that trap is about a report
+firing on the wrong condition, this one is about nothing being able to *see* that it did — and it
+is trap 33's shape again, a clean number about a question nobody asked. When a change can move a
+report, the diff has to be able to hold one.

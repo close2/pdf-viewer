@@ -5989,3 +5989,61 @@ sentence after the quotation**, which is this file's own habit at one sentence's
 Rank 674 (`961615a1`, session 517): §12.3.2, §12.8.2.3, §7.6.4.3.2 and §9.8.2, of which the first
 is `--bin permitted`'s "quotes nothing the conversion holds" and the last its "recommendation"
 bucket. Then rank 680 and 681, one row each.
+
+## The *no modal verb* bucket read whole in the nine-hundred-and-thirty-ninth, and the flag was right about all twelve
+
+Session 933 named the twelve rows the twenty-fourth sweep files under *it quotes the standard and
+no quotation carries a modal verb*, and said they must be read by hand and never moved on the flag.
+All twelve were read. **Five moved to `implemented`, seven kept, two reached code, and one of the
+seven left the bucket by being corrected rather than by moving.** ADRs 0918 and 0919.
+
+| row | verdict | the sentence it turned on |
+|---|---|---|
+| §12.10.1 | **`partial` → `implemented`** | "PDF is a common delivery mechanism for map and satellite imagery data" — two sentences, no requirement, no entry; the projection is §12.10.2's and §12.10's, both `partial` |
+| §12.8.3.4.1 | **`partial` → `implemented`** | "[t]he PDF signatures using the SubFilter value ETSI.CAdES.detached are referred to as PAdES signatures" — a scope sentence; PAdES's rules are §12.8.3.4.2–.8's, and those eight rows carry them |
+| Annex O | **`partial` → `implemented`** | "selecting the first matching word in the document" — carried out, like all eleven parameters, and the children it deferred to are settled |
+| §14.9 | **`partial` → `implemented`** | "a complete (or whole) word or phrase substitution for the current element" — *implemented*, and ADR 0214's own correction |
+| §14.13.2 | **`partial` → `implemented`**, and it reached code | "[t]he file specification for an associated file represents either a file external to the PDF file or an embedded file stream" — a requirement in the indicative, and this reader read one of the two forms (ADR 0918) |
+| §12.7.8.3.1 | kept, and half its debt paid | "If the header specifies a later version, or if this entry is absent, the document conforms to the version specified in the header" — ranked now in `FormsData::conforms_to`; `/EmbeddedFDFs` is what is left |
+| §12.8.4 | kept, and it **left the bucket** | its note quoted a bulleted list of what a DSS may hold; it now quotes the `shall` it owes, §12.8.4.2's "the DSS dictionary shall be used to collect …" |
+| §8.7.4.5.8 | kept, made checkable | "identical to Type 6, except that they are based on a bicubic tensor-product patch defined by 16 control points" — true, and not the debt; the debt is `mesh::PATCH_STEPS`, the constant 10 |
+| §14.8 | kept, its stale half deleted | "a stylised use of PDF that builds on the logical structure framework described in 14.7" — true; the row also named §14.8.2.2's and §14.8.6's remainders and both rows are `implemented` |
+| §12.8 | kept | "[t]he digest … recomputed and compared with the one stored in the document" — §12.8.1's question 1, *answered*; question 3 is the debt |
+| §12.8.3 | kept | the SHAKE256 NOTE and ISO/TS 32001 section 5.1.4's list — both implemented; trust, revocation and four curves are the debt |
+| §12.8.3.4 | kept | "Table 3 defines ECDSA elliptic curves …" — an argument the row wins; §12.8.3.4.5–.8 are the debt |
+
+**The bucket holds three different things and the flag cannot separate them**: a framing subclause
+that asks nothing of anybody (four), a row whose flagged quotation is an argument it *wins* beside
+a real debt stated in unquotable prose (six), and a requirement genuinely written in the indicative
+(two, and both reached code). The sweep's **second column** separated the first from the rest with
+no reading at all — §12.10.1 and §12.8.3.4.1 each print **0** `shall` sentences outside their
+tables, and they are the only two of the twelve for which it printed zero — which is ADR 0897's
+rule holding on both.
+
+**The cheapest question in this file found two of the five, and it is not one of the sweeps.**
+*Which rows are `partial`, `reported` or `unreviewed` while every direct child is settled?* Over
+875 rows the answer is **exactly two** — Annex O and §14.9 — and both were in this bucket, both
+with notes whose every named debt had been discharged underneath them. It is four lines of Python
+over the ledger and it should be run at the head of any round that reads rows, because a parent
+behind its children is the one defect that needs no clause read to find.
+
+**A row's evidence goes stale the way its note does, and an aggregate's fastest.** Annex O — eleven
+parameters, four rows — cited one test asserting `page=3`, and the test asserting the very sentence
+its note quotes, `a_search_parameter_selects_the_first_matching_word_in_the_document`, was not
+among them. It cites six now, including `every_parameter_the_annex_defines_is_carried_out`, which
+asserts all eleven and that none is unhonoured. Fourth session in a row to find a citation that
+does not assert what its row says.
+
+**The fourth sweep paid on this round's own noun.** `--bin retired -- 'no filesystem to lift'
+'external associated'` put the retired reasoning in ADR 0077 as a *decision* rather than as the
+passing comment §14.13.2's reader carried, which is the sweep's own shape — a standing claim and a
+correction about one mechanism. The ADR is not edited (ADR 0232 §2) and ADR 0918 names it, which is
+the remedy this file's rule about `doc/adr/` asks for.
+
+### What the next round takes
+
+The bucket nothing has read: **30 rows quoting nothing the conversion holds**, which is
+`--bin permitted`'s largest and the only one whose hits say nothing about the standard — a hit
+there is a misquotation, a quotation of a document other than ISO 32000-2, or a conversion
+artefact, and those three want different answers. `--bin quotations` is the instrument that already
+separates the first from the third and nothing has crossed the two lists.

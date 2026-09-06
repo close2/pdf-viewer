@@ -7,8 +7,16 @@
 //! that, because two different lists can rasterise to the same verdict.
 //!
 //! This prints the artefact itself, reduced: one line per document giving the command count, the
-//! byte length of the list's `Debug` rendering and a hash of it. Run it on two revisions and
-//! `diff` the two files; an empty diff is the claim.
+//! byte length of the list's `Debug` rendering and a hash of it, then the number of reports the
+//! interpretation made and a hash of those. Run it on two revisions and `diff` the two files; an
+//! empty diff is the claim.
+//!
+//! **The reports are here because a change can move only them**, and for a long time this digest
+//! could not see that. The nine-hundred-and-thirty-sixth session read a dimension one unit short
+//! and made this reader accuse a file of a §7.4.8 disagreement that was its own; the image decoded
+//! on the codestream's grid either way, so every command was identical and the only thing that
+//! moved was a sentence. A digest that cannot see what the program *said* is a digest of half the
+//! artefact (ADR 0912).
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example display_list_digest -- doc/pdf.js/test/pdfs/*.pdf
@@ -63,12 +71,17 @@ fn main() {
         let rendered = format!("{:?}", interpretation.display_list);
         let mut hasher = DefaultHasher::new();
         rendered.hash(&mut hasher);
+        let reported = format!("{:?}", interpretation.unsupported);
+        let mut reports = DefaultHasher::new();
+        reported.hash(&mut reports);
         pages_read = pages_read.saturating_add(1);
         println!(
-            "{name}\t{}\t{}\t{:016x}",
+            "{name}\t{}\t{}\t{:016x}\t{}\t{:016x}",
             interpretation.display_list.commands().len(),
             rendered.len(),
-            hasher.finish()
+            hasher.finish(),
+            interpretation.unsupported.len(),
+            reports.finish()
         );
     }
     println!("# {documents} document(s) opened, {pages_read} first page(s) interpreted");

@@ -1303,6 +1303,78 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
 }
 
 #[test]
+fn a_file_the_document_associates_but_does_not_carry_is_named_when_it_opens() {
+    // §14.13.2's other form. "[T]he file specification for an associated file represents either a
+    // file external to the PDF file or an embedded file stream … within the PDF file", and until
+    // the nine-hundred-and-thirty-ninth session this reader read one of the two: a specification
+    // with no `/EF` was skipped, so the relationship a producer asserted about a file outside the
+    // document reached nobody. Following such a file stays refused — principle 3 gives the
+    // renderer no filesystem — and *naming* it never needed one.
+    //
+    // The witness is built because neither population holds one: `associated_file_census` counts
+    // 0 external specifications over the 974 and 0 over `CC-MAIN-2021-31`'s 65 944, all 89 of the
+    // specifications it found being embedded. The pair is the assertion — the same catalog with
+    // the file embedded instead says the embedded-file sentence and not this one.
+    let about = |specification: &str, extra: &str| -> Vec<String> {
+        let bytes = format!(
+            "%PDF-2.0\n\
+             1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AF [4 0 R] >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+             4 0 obj\n{specification}\nendobj\n{extra}\
+             trailer\n<< /Root 1 0 R /Size 6 >>\n"
+        )
+        .into_bytes();
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            })
+            .filter_map(|event| match event {
+                Event::Reported {
+                    page: None, notes, ..
+                } => Some(notes),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+
+    let outside = about(
+        "<< /Type /Filespec /F (../figures/chart.csv) /AFRelationship /Data >>",
+        "",
+    );
+    assert!(
+        outside.iter().any(
+            |note| note.contains("associates a file that is not inside it")
+                && note.contains("../figures/chart.csv")
+                && note.contains("Data")
+        ),
+        "the file is outside the document and the note says so: {outside:?}"
+    );
+
+    let inside = about(
+        "<< /Type /Filespec /F (chart.csv) /AFRelationship /Data /EF << /F 5 0 R >> >>",
+        "5 0 obj\n<< /Type /EmbeddedFile /Subtype /text#2Fcsv /Length 3 >>\nstream\nabc\nendstream\nendobj\n",
+    );
+    assert!(
+        inside
+            .iter()
+            .any(|note| note.contains("carries an embedded file")),
+        "the same association with the bytes inside is an attachment: {inside:?}"
+    );
+    assert!(
+        !inside
+            .iter()
+            .any(|note| note.contains("associates a file that is not inside it")),
+        "and it is not also reported as being outside: {inside:?}"
+    );
+}
+
+#[test]
 fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
     // Annex I: "[i]f a PDF processor opens a PDF file with a version number newer than the
     // version that it supports … it should warn the user that it is unlikely to be able to read

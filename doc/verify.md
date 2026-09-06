@@ -150,6 +150,20 @@ cargo run --release -p pdf-model --example content_budget_census -- doc doc/pdf.
   # (ADR 0306). Also the largest single decoded stream and the largest page /Contents total, which
   # are the two numbers `Limits::max_stream_len` is set against: 483.84 MiB over 5 047 187 streams
   # of 65 967 crawled documents. Every argument is walked recursively, so `corpus-cache` is one
+cargo run --release -p pdf-model --example integer_entry_census -- @<paths>  # --list-keys, --witnesses N
+  # where in the world a **real** stands at an entry ISO 32000-2 types as an **integer**, which is
+  # §7.3.3's writer-side error and the population `doc/questions/Q31` and `Q39` are about. The keys
+  # are derived from the Arlington model rather than listed (trap 25) — every name typed `integer`
+  # or `bitmask` in some table and `number` in none — and the fifteen names typed both ways are
+  # counted in a table of their own with witnesses instead of being judged. Two halves, because an
+  # inline image is not an object and both documents in the world that write a Table 87 dimension
+  # as a real write it inside a `BI`; the second half reads its own tokens rather than asking
+  # `pdf_model::inline_image` (trap 8). `--list-keys` prints the population itself, so a zero can
+  # be told from nothing having looked; `--witnesses N` prints every document a key's real appears
+  # in, which is what a round measuring *reach* needs. About twelve seconds per eight thousand
+  # documents; the whole disk at 24 threads crosses an 8 GiB `RLIMIT_DATA`, so it shards, and one
+  # 5.6 GiB attachment in `batch5/poppler` is not walkable inside a round's memory budget at all.
+  # ADR 0912
 cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pdf.js doc/corpora
   # what a *rebuilt* cross-reference table loses to §7.5.7's object streams: how many documents
   # reach `xref::rebuild` at all, how many of those carry object streams the scan can see, and
@@ -208,6 +222,13 @@ cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/tes
   # so a /Trans inside an object stream would have counted. `--example presentation_fixture` writes
   # the three-slide document that therefore has to stand in for one (ADR 0230)
 cargo run --release -p pdf-model --example witness_census -- --pdfjs Collection Threads IDTree
+cargo run --release -p pdf-model --example associated_file_census -- --pdfjs   # also --crawl
+  # §14.13.2's two forms of associated file, counted apart, which is the question a name census
+  # cannot ask: an `/AF` array's specifications split by whether they carry an `/EF`. Over the 974,
+  # 7 documents state 36 arrays naming 44 specifications and **all 44 are embedded**; over
+  # `CC-MAIN-2021-31`'s 65 944, 23 documents and 45 specifications, also all embedded. So the
+  # external form the clause states is a construction no document in reach uses, and the reader
+  # for it and the note that says a file is out of reach are both held by built witnesses (ADR 0918)
 cargo run --release -p pdf-model --example absence_audit
   # the pair `doc/todo/01`'s sixteenth sweep runs, and the two halves of one question: **is there
   # really no corpus document that does X?** The first asks a name three ways of each of the 1251

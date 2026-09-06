@@ -49,7 +49,10 @@ drawn frame by frame, and the rest reported by name for the quantity the clause 
 (ADR 0230), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode
 a host states because that clause conditions its whole state machine on one (ADR 0316) — and
 everything a document says *about itself*: §14.7's logical structure, §14.8's
-tagged-PDF vocabulary, §7.11.4's embedded files, §14.13's associated files, §12.2's viewer
+tagged-PDF vocabulary, §7.11.4's embedded files, §14.13's associated files in **both** of
+§14.13.2's forms — the embedded one listed, and the one that lives outside the document named
+out loud when it opens, since following it is refused and naming it never needed a filesystem
+(ADR 0918) — §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
 
 It is **used**, which is a separate claim from the one above and was owed for a long time — and
