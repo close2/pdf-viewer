@@ -6,17 +6,17 @@ what puts the binaries where a person can reach them; `doc/verify.md` is the ins
 
 `doc/HANDOVER.md`'s reading table is the pointer to this file.
 
-**One of the six binaries `doc/todo/02` §5 installs is not a viewer at all**: `target/pdf-retrieve`
+**One of the six binaries `doc/todo/02` §5 installs is not a viewer at all**: `target/quorra-retrieve`
 answers a *program*'s questions about a document as JSON on stdout — a page, a section addressed by
 its clause number, and the annotations over either — and nothing here applies to it. `doc/todo/36`
 and ADR 0257 are its two files, and `pdf-retrieve` with no arguments prints what it takes.
 
 ```sh
-cargo run --release -p viewer-ui --bin pdf-viewer -- doc/PDF20_AN001-BPC.pdf
+cargo run --release -p viewer-ui --bin quorra -- doc/PDF20_AN001-BPC.pdf
 ```
 
 `--page N` opens at a page, **and so does Annex O's fragment identifier** —
-`pdf-viewer 'doc/ISO_32000-2_sponsored_EC3.pdf#page=100&zoom=150'` opens at page 100 of 1023 and
+`quorra 'doc/ISO_32000-2_sponsored_EC3.pdf#page=100&zoom=150'` opens at page 100 of 1023 and
 asks for an 893×1263 raster, which is 150% of a 595×842 page; `#nameddest=`, `#view=`, `#viewrect=`,
 `#comment=`, `#structelem=`, `#search=` and `#ef=` are the others carried out, and the ones that are
 not are printed by name — `tools/state.sh annex-o` says which, and it reads the program rather than
@@ -71,12 +71,12 @@ document that felt slow). Four things changed:
   log is legible as a gap and the interval a person waited can be read off two lines.
 - **One line per frame, with the stages in it.** `frame p3 2822cmd presented 75.3 | host 0.0 scene
   2.3 device 73.0 settle 0.0 attend 2.9 | 793 up, 12 culled`: this host's own queries, the
-  display-list-to-scene walk, `quorra_gpu::Device::render`, the cache eviction, and — *outside* the
+  display-list-to-scene walk, `raster_gpu::Device::render`, the cache eviction, and — *outside* the
   frame's own number, which is the measurement defect that round fixed — the accessibility
   publication. `fallback` and `attend` appear only when they are not zero, so an ordinary frame is
   no longer than the two lines this replaced. A legend prints once. **None of the device's stages
   is a fabricated boundary**: quorra already measured `encode`, `upload` and `execute` and already
-  blocked on the device before returning, and `render-quorra` was discarding the whole `Frame`.
+  blocked on the device before returning, and `render-raster` was discarding the whole `Frame`.
 - **Percentiles at exit** — median, p90, max and sum for every stage, by nearest rank, plus the
   `elsewhere` inside `Device::render` that its three named phases do not cover. **That row is a
   bound rather than a duration and the summary says so since the three-hundred-and-ninety-first**:
@@ -101,22 +101,22 @@ document that felt slow). Four things changed:
   the spread of either.
 
 **Put the binaries where a person can run them, at the end of every round.** The agent builds
-into `/home/AI/cargo-target/pdf-viewer/`, which the human's shell never looks at, so the last step
+into `/home/AI/cargo-target/quorra/`, which the human's shell never looks at, so the last step
 of a round copies what a person would run into the project's own `target/`:
 
 ```sh
-cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker
+cargo build --release --bin quorra --bin pdf-sandbox-worker --bin pdf-view-worker
   # one invocation, not three: each is a whole-graph fat link and Cargo runs three of them beside
   # each other where three commands run them one after another — 109.7 s to 79.3 s (ADR 0222)
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer         target/pdf-viewer
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker target/pdf-sandbox-worker
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker    target/pdf-view-worker
+install -Dm755 /home/AI/cargo-target/quorra/release/quorra         target/quorra
+install -Dm755 /home/AI/cargo-target/quorra/release/pdf-sandbox-worker target/pdf-sandbox-worker
+install -Dm755 /home/AI/cargo-target/quorra/release/pdf-view-worker    target/pdf-view-worker
 ```
 
 All three, and all three beside each other: `pdf-sandbox-worker` is a separate executable the
 viewer spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather
 than falling back. **`pdf-view-worker` is the third and is new in the three-hundred-and-eighty-first**
-— the whole viewer confined, which `pdf-viewer` does not yet spawn and which
+— the whole viewer confined, which `quorra` does not yet spawn and which
 `viewer_confined::Confined` and the example below do. `doc/todo/02-every-round.md` is the rest of
 what a round does.
 
@@ -185,8 +185,8 @@ and hides the chrome Table 29's `FullScreen` names — "no menu bar, window cont
 window visible" — with §12.2's `/HideToolbar`, `/HideMenubar` and `/HideWindowUI` obeyed whether a
 presentation is running or not. **Escape comes back**, which no clause states and which this program
 chooses so that a file cannot keep a reader there; on the way out §12.2's `/NonFullScreenPageMode`
-says which panel opens. **All three hosts do it, on the same letter**: `pdf-viewer`, `pdf-viewer-gtk`
-and `pdf-viewer-qt`.
+says which panel opens. **All three hosts do it, on the same letter**: `quorra`, `quorra-gtk`
+and `quorra-qt`.
 
 **And all three drive the clock, since ADR 0473.** This paragraph used to end "[t]he two native
 hosts have the mode and not the clock", which made a presentation in GTK or Qt full screen and
@@ -200,13 +200,13 @@ fixture — whose fourth slide is the one with states:
 
 ```sh
 cargo run --release -p pdf-model --example presentation_fixture -- /tmp/slides.pdf
-cargo run --release -p viewer-ui --bin pdf-viewer -- /tmp/slides.pdf     # then press p
+cargo run --release -p viewer-ui --bin quorra -- /tmp/slides.pdf     # then press p
 
 # and the window, which the file itself can ask for (Table 29's /PageMode /FullScreen):
 cargo run --release -p pdf-model --example presentation_fixture -- /tmp/full.pdf --opens-full-screen
-target/pdf-viewer /tmp/full.pdf        # opens presenting; Escape opens the Files panel, which is
-target/pdf-viewer-gtk /tmp/full.pdf    # §12.2's /NonFullScreenPageMode /UseAttachments
-target/pdf-viewer-qt /tmp/full.pdf
+target/quorra /tmp/full.pdf        # opens presenting; Escape opens the Files panel, which is
+target/quorra-gtk /tmp/full.pdf    # §12.2's /NonFullScreenPageMode /UseAttachments
+target/quorra-qt /tmp/full.pdf
 ```
 
 Under `Xvfb` with `lavapipe`, starting a transition costs **8.3 ms** (two 800×1000 page rasters,
@@ -261,7 +261,7 @@ signature whose document was re-saved underneath it.
 one attaches — nothing is created until the first frame is on the screen, and nothing is published
 while `org.a11y.Status.IsEnabled` is false — with §12.4.2's page label naming the page, §14.9.3's
 `/Alt` where the document states one, and what the page could not draw in a status group beside it.
-A build with no bridge (macOS, Windows) says so in its first lines. **`pdf-viewer --licences`** prints `/NOTICE` and exits, which is what both
+A build with no bridge (macOS, Windows) says so in its first lines. **`quorra --licences`** prints `/NOTICE` and exits, which is what both
 licences covering the compiled-in standard 14 fonts oblige a binary to carry. `--no-sandbox`
 decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
 documents, and it prints what it gave up.
@@ -269,12 +269,12 @@ documents, and it prints what it gave up.
 **And since the four-hundred-and-eighth there is a second program, with a second toolkit.**
 
 ```sh
-cargo run --release -p viewer-gtk --bin pdf-viewer-gtk -- doc/PDF20_AN001-BPC.pdf
+cargo run --release -p viewer-gtk --bin quorra-gtk -- doc/PDF20_AN001-BPC.pdf
 ```
 
-`pdf-viewer-gtk` is the GTK4 host (ADR 0244, `doc/todo/30`). It takes one document, Annex O's
+`quorra-gtk` is the GTK4 host (ADR 0244, `doc/todo/30`). It takes one document, Annex O's
 `#fragment` after it, and `--trace[=launch,frames,events,panel]` in the same line format
-`pdf-viewer` uses, so the two hosts' launch timelines can be read side by side. It is deliberately a
+`quorra` uses, so the two hosts' launch timelines can be read side by side. It is deliberately a
 **separate binary** rather than a flag: the two differ in their toolkit and in nothing else, which
 is the claim `viewer-core` exists to make and which one binary linking both would stop making.
 
@@ -298,7 +298,7 @@ question nobody asked.
 **And since the four-hundred-and-tenth there is a third program, with a third toolkit.**
 
 ```sh
-cargo run --release -p viewer-qt --bin pdf-viewer-qt -- doc/PDF20_AN001-BPC.pdf
+cargo run --release -p viewer-qt --bin quorra-qt -- doc/PDF20_AN001-BPC.pdf
 ```
 
 **`w` works here too since the six-hundred-and-first** (ADR 0436): the `(asked, minimum)` pairs
@@ -306,8 +306,8 @@ cross the `cxx` bridge and `viewer_host::ControlFit` — the same arithmetic, th
 answers for both hosts. The magnifications differ (4.667 here, 3.278 in GTK on `160F-2019.pdf`)
 because a control's minimum is its *style's*, which is the point of measuring rather than assuming.
 
-`pdf-viewer-qt` is the Qt 6 Widgets host (ADR 0246, `doc/todo/30`). It takes the same arguments
-`pdf-viewer-gtk` does — one document, Annex O's `#fragment` after it, `--trace[=topics]` in the same
+`quorra-qt` is the Qt 6 Widgets host (ADR 0246, `doc/todo/30`). It takes the same arguments
+`quorra-gtk` does — one document, Annex O's `#fragment` after it, `--trace[=topics]` in the same
 line format, `--draw-widget-appearances` — and binds the same keys, so the two hosts can be run side
 by side and differ only in their toolkit. **One flag is its own**: `--quit-after=<ms>` closes the
 window by itself, because a window under `Xvfb` has nobody to close it and a test that killed the
@@ -335,10 +335,10 @@ window's process at all.**
 
 ```sh
 cargo build --release -p viewer-confined --bins    # the worker, found beside the executable
-cargo run  --release -p viewer-ui --bin pdf-viewer-confined -- doc/PDF20_AN001-BPC.pdf
+cargo run  --release -p viewer-ui --bin quorra-confined -- doc/PDF20_AN001-BPC.pdf
 ```
 
-`pdf-viewer-confined` is the first host on `viewer-confined`'s boundary (ADR 0713): the document,
+`quorra-confined` is the first host on `viewer-confined`'s boundary (ADR 0713): the document,
 the interpreter and the rasteriser run in `pdf-view-worker` under seccomp-BPF, Landlock and the
 address-space ceiling, and the window never parses a byte of the file. It takes one document and
 `--trace[=topics]` in the shared line format, binds arrows, Page Up and Down, Space, Home, End,
@@ -363,7 +363,7 @@ which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to
 
 **And since the three-hundred-and-eleventh session a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
-`pdf-viewer` and `pdf-sandbox-worker` with `LICENSE` and `NOTICE` beside them
+`quorra` and `pdf-sandbox-worker` with `LICENSE` and `NOTICE` beside them
 because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
 0188). **Both executables, because one of them alone is a quietly reduced program**: a viewer that
 cannot find the worker beside it refuses JBIG2 and JPEG 2000 rather than decoding them in process.
@@ -376,5 +376,5 @@ The **worker process** is there on all three, so a decoder panic still costs one
 the viewer, and so is the request deadline — rebuilt on Windows as a reader thread, because `poll`
 is POSIX and on a platform with no address-space ceiling that deadline is the only bound left on a
 hostile file's decode. What is missing is named by `Confinement::shortfall`, carried in the worker's
-handshake, and printed by `pdf-viewer` in its first line. `doc/todo/35` is what a real confinement
+handshake, and printed by `quorra` in its first line. `doc/todo/35` is what a real confinement
 for each would take.

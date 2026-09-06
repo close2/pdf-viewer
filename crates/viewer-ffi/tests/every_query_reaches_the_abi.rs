@@ -91,9 +91,17 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
         Query::LogicalSelection => &["quorra_selection_copy_text"],
         Query::Focus => &["quorra_focused_annotation"],
         Query::Highlight => &["quorra_highlight_quads"],
-        Query::Popups => &["quorra_popups_read", "quorra_popup_text", "quorra_popup_quad"],
+        Query::Popups => &[
+            "quorra_popups_read",
+            "quorra_popup_text",
+            "quorra_popup_quad",
+        ],
         Query::Selection => &["quorra_selection_text", "quorra_selection_quads"],
-        Query::Frame => &["quorra_frame_count", "quorra_frame_info", "quorra_frame_copy"],
+        Query::Frame => &[
+            "quorra_frame_count",
+            "quorra_frame_info",
+            "quorra_frame_copy",
+        ],
         Query::AccessibilityTree => &[
             "quorra_structure_read",
             "quorra_structure_page",
@@ -105,7 +113,11 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_structure_line",
             "quorra_structure_character",
         ],
-        Query::Reports => &["quorra_reported_pages", "quorra_reported_page", "quorra_report"],
+        Query::Reports => &[
+            "quorra_reported_pages",
+            "quorra_reported_page",
+            "quorra_report",
+        ],
         Query::Readback => &[
             "quorra_readback_pages",
             "quorra_readback_page",

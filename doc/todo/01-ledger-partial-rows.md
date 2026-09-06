@@ -641,7 +641,7 @@ panels and verbs: 89 matches, 87 of them true statements about what a *crate* de
 not own — no clock, no filesystem, no toolkit — which is the shape this sweep produces most and
 which is worth knowing it produces. The two that were false had both expired in the ten rounds
 themselves: `outline.rs` opened "[a]n outline is a *panel* in a viewer that has none", false since
-session 166, and `pdf-viewer.rs` said `/PageMode` had "[t]hree of the six it can now obey", false
+session 166, and `quorra.rs` said `/PageMode` had "[t]hree of the six it can now obey", false
 since the session before. **A comment about a sibling crate's capability decays at that crate's
 pace and not at its own.**
 
@@ -1017,7 +1017,7 @@ ledger's notes and out of every `//` comment in `crates/`, and glob for each one
   it named was deleted by the session that made the sentence false**, which is what makes this
   sweep cheaper than reading the row: the pointer and the claim died together, and only one of
   them is greppable without knowing anything about the clause.
-- **`doc/todo/12`, six times in `crates/`** — `render-quorra/src/lib.rs`, `viewer-ui`'s
+- **`doc/todo/12`, six times in `crates/`** — `render-raster/src/lib.rs`, `viewer-ui`'s
   `chrome_ladder` example and its `chrome_over_a_magnified_page` test. The todo was *done* and
   deleted; ADR 0198 is where its argument lives, and the comments now say so.
 
@@ -2347,7 +2347,7 @@ Five rounds since the last full sweep, three of which were pure motion — `cont
   does not exist.
 - **Entries (sweep 15)**: 217 rows in the population; **140 entries over 43 rows before the
   instrument correction, 106 over 42 after it** — the splits kept `content.rs` and
-  `pdf-viewer.rs` as module roots *so that citations stay valid*, and the sweep read each listed
+  `quorra.rs` as module roots *so that citations stay valid*, and the sweep read each listed
   path as one file, so 34 entries moved to "named only elsewhere" with nothing in the tree
   changed. `entries::covered_by` now applies Rust's own rule — a module root `foo.rs` owns
   `foo/` — and `unread` shares it. The remaining hits are the known populations; **the one
@@ -3645,7 +3645,7 @@ clause, which is where a standard puts the consequence after it has finished def
 | row | shape | was | is |
 |---|---|---|---|
 | **§12.6.4.9** | 1 | `Sound` is "[a]djacent to clause 13's exclusion and not covered by it, because §12.6.4.9 is in clause 12" | the clause's own first sentence hands it to §13.2, **word for word the sentence §12.6.4.10 opens with** — two neighbouring rows, one identical sentence, opposite readings |
-| **§12.6.4.6, .9, .10** | 620's new | "`viewer-ui` prints it when a click reaches one", citing `a_name_the_table_does_not_hold_is_not_an_action` | the cited test asserts a name outside Table 201 yields **no** action, the one path that never calls `action::refused`; `Sound` and `Movie` were reached by nothing at all. A click test now reaches all three, and the `code` array named `pdf-viewer.rs`, which holds none of it — the printing is `dispatch.rs` |
+| **§12.6.4.6, .9, .10** | 620's new | "`viewer-ui` prints it when a click reaches one", citing `a_name_the_table_does_not_hold_is_not_an_action` | the cited test asserts a name outside Table 201 yields **no** action, the one path that never calls `action::refused`; `Sound` and `Movie` were reached by nothing at all. A click test now reaches all three, and the `code` array named `quorra.rs`, which holds none of it — the printing is `dispatch.rs` |
 | **§14.13** | 9th sweep's | "it lists seven objects that may carry one and says the same sentence about every one" | §14.13.1 lists **eight** — the eighth is a metadata stream, about which §14.3.2 says nothing — and the sentence is *not* the same for the third, whose key is `/MCAF` in a property list. A reader who believed the row would state seven sites and find six |
 | **§14.8.2.2.1** | 9th sweep's | "the clause's other test — '[a]ny content that is not included in the structure tree is an artifact…'" | that sentence is **§14.8.2.2.2's**, and §14.8.2.2.1's own `shall` — artifacts in the structure tree go through the `Artifact` element type — had never been quoted by either row |
 | **§14.13.2** | 17th sweep's | no erratum recorded | Issue #568 states the two `/AF` forms as a `shall` each for the first time, and Issue #86 puts a UTF-8 `shall` on every name key on the same page |
@@ -5748,7 +5748,7 @@ anything there") and §8.5.3.3.2 and §8.5.3.3.3 saying "both rasterisers implem
 workspace that states three. All three were read against the code and corrected.
 
 **Two of them are the sweep's own advertised shape and cost one grep each.** `render_quorra::scene`'s
-`fill_rule` maps `FillRule::NonZero` and `FillRule::EvenOdd` onto `quorra_scene::FillRule`'s two
+`fill_rule` maps `FillRule::NonZero` and `FillRule::EvenOdd` onto `raster_scene::FillRule`'s two
 variants, so the third rasteriser implements both rules as natively as `tiny-skia` and `peniko` do,
 and the rows now say three and name it. **The answer did not change with the count**, which is what
 these hits usually look like: a sentence that stopped being true about the tree while staying true

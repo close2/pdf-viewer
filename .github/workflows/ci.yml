@@ -129,6 +129,29 @@ jobs:
 
   # Miri and the fuzz build need nightly, which is why rust-toolchain.toml pins
   # stable and these ask for nightly explicitly.
+      # ADR 0060 of `raster/`, which came in with that sub-project on 2026-09-06. `cargo
+      # test` neither builds nor runs an example, so every `assert!` under
+      # `raster/crates/raster-gpu/examples/` is a comment until something executes it —
+      # and one of them had been panicking on that project's `main` for two days when the
+      # round that added this found it. Each example takes `--check`: the smallest
+      # configuration that runs every assertion it makes.
+      #
+      # **The list below is a list, and a list drifts.** `raster-gpu`'s own
+      # `tests/example_checks.rs` reads this file and fails naming any example that no
+      # line here runs, so adding one to `examples/` and not to this step fails the build.
+      # Two of them need a window, which is why the loop runs under Xvfb.
+      - name: Every raster example's assertions execute (--check)
+        run: |
+          set -euo pipefail
+          for example in \
+              encode_threads floor function_compile function_paint lane_placement \
+              outline_upload present_thread rect_lane residue_clip retained \
+              startup surface_measure window_smoke zoom
+          do
+            echo "== $example --check =="
+            xvfb-run -a cargo run --release -p raster-gpu --example "$example" -- --check
+          done
+
   nightly:
     runs-on: ubuntu-latest
     continue-on-error: true # advisory until the parser exists and this earns its keep

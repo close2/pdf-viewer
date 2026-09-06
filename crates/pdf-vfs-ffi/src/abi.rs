@@ -371,7 +371,10 @@ pub unsafe extern "C" fn quorra_vfs_mount_pages(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn quorra_vfs_mount_shortfall_count(mount: *mut Mount, out: *mut usize) -> c_int {
+pub unsafe extern "C" fn quorra_vfs_mount_shortfall_count(
+    mount: *mut Mount,
+    out: *mut usize,
+) -> c_int {
     let (Some(mount), Some(out)) = (mount.as_ref(), out.as_mut()) else {
         return Status::NullArgument.code();
     };

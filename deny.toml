@@ -82,6 +82,16 @@ wildcards = "deny"
 
 # Crates that must never appear in the tree, with the reason recorded.
 deny = [
+    # No colour-management engine may reach the rasteriser under `raster/`, which is
+    # handed device RGB and has no profile parser to reach — its
+    # `no_colour_management.rs` asserts that structurally and reads this list to check
+    # the names are banned here too. The four came in with that sub-project on
+    # 2026-09-06; the ban lives at the workspace root because that is where
+    # `cargo deny` reads, and a ban in a nested file is a ban nothing enforces.
+    { crate = "lcms2", reason = "no colour management in the rasteriser: it is handed device RGB" },
+    { crate = "lcms2-sys", reason = "as lcms2" },
+    { crate = "moxcms", reason = "as lcms2, in pure Rust" },
+    { crate = "qcms", reason = "as lcms2" },
     # Unmaintained; its successors are `zune-*` and the `image` crate family.
     { crate = "stb_image", reason = "unmaintained C image decoder" },
     # Text shaping must not enter the render path: PDF glyphs arrive pre-positioned,

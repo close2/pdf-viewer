@@ -234,7 +234,7 @@ They were not architecture and did not wait for a decision, which is why they we
   eight-hundred-and-eighty-third session** (ADR 0812): the document crosses to the confined worker
   as its open file's descriptor beside `Command::Open` (`SCM_RIGHTS` over a socket the host makes;
   `recvmsg` and `pread64` on the interpreter's allow-list and nothing else — not `fstat`, which
-  takes a path, so the length crosses on the wire), and `pdf-viewer-confined` holds no byte of the
+  takes a path, so the length crosses on the wire), and `quorra-confined` holds no byte of the
   file; a signature's ranges are digested through 64 KiB windows, every algorithm in one pass, and
   a window the disk would not give is `Integrity::RangeNotReadable` rather than a modified document;
   and a scan the process could not hold the file for is said once on the document's report, with

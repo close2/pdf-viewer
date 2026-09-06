@@ -5,7 +5,7 @@ else's widgets sit on**: GTK4 since the four-hundred-and-eighth session (`crates
 0244), Qt 6 through a C++ bridge since the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246),
 and **a C ABI since the four-hundred-and-eleventh** (`crates/viewer-ffi`, ADR 0247). One is behind
 a confinement — and since the seven-hundred-and-seventy-fifth one sits on the *far side* of that
-confinement: `pdf-viewer-confined`, the first window whose pages arrive from the sandboxed worker
+confinement: `quorra-confined`, the first window whose pages arrive from the sandboxed worker
 rather than from a viewer it holds (ADR 0713). `doc/todo/30`'s condition — *"do not freeze a C ABI until two Rust consumers have
 shaken the API out"* — was met, the three amendments it named were taken, and **no host added a
 message, three running**. **One variant changed shape in the four-hundred-and-twelfth**, which is
@@ -15,13 +15,13 @@ selected (ADR 0248). **And the four-hundred-and-fourteenth added a `Command` *an
 first `Event` since the vocabulary was frozen**: `Command::Find` and `Event::Searched` are Annex O's
 document-wide `search`, which `Query::Find` is not — that one answers for the page showing, out of a
 readback that exists, and this one interprets pages nobody is looking at. Six consumers failed to
-compile and `PDFV_EVENT_KIND_COUNT` moved 15 → **16** for the first time, which is what a C caller's
-`pdfv_abi_check` is for (ADR 0250). **And the four-hundred-and-eighty-first added a `Command` and no
+compile and `QUORRA_EVENT_KIND_COUNT` moved 15 → **16** for the first time, which is what a C caller's
+`quorra_abi_check` is for (ADR 0250). **And the four-hundred-and-eighty-first added a `Command` and no
 `Event`**: `Command::Present(PresentationMode)` is §12.4.4.2's own condition, which that clause
 requires and no state machine over a file can deduce (ADR 0316). Two consumers failed to compile —
 `viewer-confined`'s wire protocol and `viewer-ui`'s trace line, the two that match `Command`
 exhaustively — and the C ABI did not, because commands there are *functions* and
-`PDFV_EVENT_KIND_COUNT` stayed where it was. **And the five-hundred-and-twenty-second added a
+`QUORRA_EVENT_KIND_COUNT` stayed where it was. **And the five-hundred-and-twenty-second added a
 `Query` and an `Answer`**: `Query::Highlight` is Annex O's `highlight` parameter, whose rectangle a
 host cannot place for itself because no host sees the fragment — it arrives inside `Command::Open`
 undecoded — and whose *look* the annex hands to a processor outright ("[t]he nature of the
@@ -37,8 +37,8 @@ which `viewer-core` reads out of the catalog for itself — the entry states the
 used when the document is opened", an *initial* state — and which only a host can say the reader has
 since changed; and `Answer::Frame` carries a `Vec<FrameView>`, because `OneColumn` puts several pages
 in one window and a host drawing the first of them would draw a continuous view with a hole in it.
-Four consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, and the C ABI gained two entry
-points — `pdfv_layout` and `pdfv_frame_count`, the second because a C consumer cannot fail to compile
+Four consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, and the C ABI gained two entry
+points — `quorra_layout` and `quorra_frame_count`, the second because a C consumer cannot fail to compile
 and so has to be able to *ask* how many pages the arrangement is showing (ADR 0441).
 **And the six-hundred-and-seventh added nothing at all**, which is the half of ADR 0441 that was
 still owed: the tier-2 host draws the arrangement now, and what it needed in order to follow one was
@@ -65,7 +65,7 @@ optimisation but the identity `selection_census` asserts of `Selection::All` aga
 `pdf_model::Interpretation::text` and the one `pdf-retrieve`'s default answer is held to (ADR 0257).
 The standard is why both ends of a selection carry a page: §9.4.1's text position "shall not persist
 from one text object to the next", so there is no document-wide offset and a pair composes where a
-number could not exist. Five consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, the C
+number could not exist. Five consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, the C
 ABI gained no entry point, and **no host needed a line about pages** — each asks `Query::Selection`
 per repaint and draws the quadrilaterals it is handed in the viewport's own device pixels (ADR
 0444).
@@ -84,9 +84,9 @@ page it draws where. The entries stay per page on the standard's own division: �
 identifier is unique "within its content stream" and §14.7.5.4 keys the route in from that page's
 `/StructParents`, so two pages' trees share no numbering and §14.8.2.5 states no order between them
 — joining them is the platform's question, which `viewer-accessibility` answers with one
-`Role::Document` node per page. Five consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16,
-and the C ABI gained two entry points — `pdfv_reported_pages` and `pdfv_reported_page`, for
-`pdfv_frame_count`'s reason (ADR 0445).
+`Role::Document` node per page. Five consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16,
+and the C ABI gained two entry points — `quorra_reported_pages` and `quorra_reported_page`, for
+`quorra_frame_count`'s reason (ADR 0445).
 **And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
 been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
 full-screen *window* it had never had, in all three hosts, and every channel it needed was already
@@ -96,7 +96,7 @@ Table 29's `/PageMode` and `Query::Preferences` answers Table 147 whole — incl
 had ever acted on. The decision itself is not on this boundary at all: it is `viewer_host::Presenting`,
 because *which sentence a window is obeying* is shared and `GtkWindow::fullscreen` against
 `QWidget::showFullScreen` against `winit`'s `set_fullscreen` is what a toolkit is (ADR 0470). No
-consumer failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, and the C ABI gained no entry point.
+consumer failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, and the C ABI gained no entry point.
 **And the six-hundred-and-forty-second added nothing at all either**, which is three rounds
 running and is worth the sentence because this one had the shape that usually *does* ask for a
 message: two hosts gained a capability the third already had. §12.4.4.1's **clock** now runs in all
@@ -130,7 +130,7 @@ exactly what reusing `Presented` would have cost. The three mechanisms this file
 checked first and none fits — a field on `RenderRequest` cannot say what the host did *after* the
 request, a variant changing shape would mean two different facts carried at one width, and a
 `Query` is no use for an answer that arrives unasked. One consumer failed to compile —
-`viewer-ui`, the only one that matches `Rendered` exhaustively — `PDFV_EVENT_KIND_COUNT` stayed
+`viewer-ui`, the only one that matches `Rendered` exhaustively — `QUORRA_EVENT_KIND_COUNT` stayed
 where it is, because an outcome is not an event, and the C ABI gained no entry point (ADR 0640).
 **And the seven-hundred-and-fifty-fourth added nothing at all either**, which is the sixth time and
 the one that moved the most host code: both native windows rasterised inside their
@@ -143,7 +143,7 @@ the one outstanding, which was written so that "a worker that is slow costs a wa
 a wrong frame" — and read the other way round it says a draw whose token the viewer no longer holds
 cannot change a pixel, which is precisely when a host may stop drawing. What it did *not* need was a
 question about that: `Query::PageGeometry` already answers `Answer::None` for a page the arrangement
-does not show, which is the other half of the rule. `PDFV_EVENT_KIND_COUNT` stayed 16 and the C ABI
+does not show, which is the other half of the rule. `QUORRA_EVENT_KIND_COUNT` stayed 16 and the C ABI
 gained no entry point — it is the one host of the four still without a way to raise a flag, which is
 `doc/todo/30`'s (ADR 0668).
 **And the eight-hundred-and-fifth added a `Query`, an `Answer` and a `Command`** — the first
@@ -164,10 +164,10 @@ nothing about the scroll at all; and a field on an existing message cannot carry
 travels in both directions. **A host does not compose a `Viewing`; it echoes one.** Two consumers
 failed to compile — `viewer-confined`'s wire and `viewer-ui`'s trace line for the command,
 `viewer-confined` and `viewer-ffi`'s `every_query_reaches_the_abi` for the question —
-`PDFV_EVENT_KIND_COUNT` stayed where it is because none of the three is an event, and the C ABI
-gained two entry points and its first struct passed by value since the ABI was written: `pdfv_view`,
-`pdfv_set_view` and `pdfv_viewing`, named for the reason `pdfv_frame` is — C puts a struct tag and
-a function in one namespace. `PDFV_ABI_VERSION` did not move, because a struct *added* is a shape
+`QUORRA_EVENT_KIND_COUNT` stayed where it is because none of the three is an event, and the C ABI
+gained two entry points and its first struct passed by value since the ABI was written: `quorra_view`,
+`quorra_set_view` and `quorra_viewing`, named for the reason `quorra_frame` is — C puts a struct tag and
+a function in one namespace. `QUORRA_ABI_VERSION` did not move, because a struct *added* is a shape
 an old caller never passes. ADR 0737.
 
 **And the eight-hundred-and-eighty-fifth added two `Edit`s, a `Command`, three `Event`s and two
@@ -182,9 +182,9 @@ message that makes it a level rather than a variant nothing answers** — `Event
 `Event::Warned` after the edit and after the `Dirty` it caused (`doc/todo/38`'s standing condition,
 ADR 0178's lesson). `Event::AttachmentsChanged` is the third, and it passes this file's own test for
 a message: a host sent the edit but not the *verdict* — an attach under `On` moved nothing — and an
-undo names no edit at all. **Every consumer that matches these enumerations exhaustively failed to compile**, `PDFV_EVENT_KIND_COUNT` moved
-16 → **19** for the second time in its life, and the C ABI gained three entry points (`pdfv_attach`,
-`pdfv_detach`, `pdfv_answer`) and four constants. `PDFV_ABI_VERSION` did not move, because every
+undo names no edit at all. **Every consumer that matches these enumerations exhaustively failed to compile**, `QUORRA_EVENT_KIND_COUNT` moved
+16 → **19** for the second time in its life, and the C ABI gained three entry points (`quorra_attach`,
+`quorra_detach`, `quorra_answer`) and four constants. `QUORRA_ABI_VERSION` did not move, because every
 addition is a shape an old caller never passes. **No host gained a gesture**: the owner is reviewing
 the flows as mockups first, so each window gained only the display half — the files tab rebuilt from
 `Query::Attachments` when the list moves — and each answers `Event::Asking` with
@@ -224,13 +224,13 @@ hundred-and-thirtieth session to permit the writing that implies.
 
 #### What exists
 
-Seven consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
+Seven consumers: `viewer-ui`'s `quorra.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
-(a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
-application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
+(a process with no filesystem, tier 1), **`viewer-gtk`'s `quorra-gtk` — a real GTK4
+application, tier 1** (ADR 0244) and **`viewer-qt`'s `quorra-qt` — a real Qt 6 Widgets
 application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — `tools/state.sh hosts` counts its entry points, a
 hand-written header and a C program that drives it, tier 1** (ADR 0247) — and, since the
-seven-hundred-and-seventy-fifth, **`viewer-ui`'s `pdf-viewer-confined`**, the window on the far
+seven-hundred-and-seventy-fifth, **`viewer-ui`'s `quorra-confined`**, the window on the far
 side of `pdf-view-worker`'s pipe: it sends `Command`s and reads `Event`s like any host and takes
 its pixels from `viewer-confined`'s `Reply`, so it consumes the vocabulary without ever holding a
 `Viewer` (ADR 0713). The first two could not
@@ -274,7 +274,7 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Query`: a `Query` is a question a host asks in order to **draw** something, and six consumers
   match that enum exhaustively while `viewer-confined` puts every variant on a wire — a cost worth
   paying for a panel and not for a number no interface displays. It cost no consumer a line.
-  `pdf-viewer --trace=search` is what prints it. The rule this establishes for the next such
+  `quorra --trace=search` is what prints it. The rule this establishes for the next such
   number: **if a host would draw it, it is a `Query`; if a person would read it, it is a method**
   (ADR 0256).
 - `Command`: `Open { id, bytes, password, fragment }` — the password a `viewer_core::Secret` since
@@ -328,7 +328,7 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   remaining parameters after this parameter apply to the selected embedded file" needs the rest of
   the URI's fragment to travel with the file, and a host *has* the fragment but not §O.2's grammar,
   so splitting it here and carrying it there is one channel rather than six re-derivations. The two
-  consumers that construct the event failed to compile, `PDFV_EVENT_KIND_COUNT` did not move, and a
+  consumers that construct the event failed to compile, `QUORRA_EVENT_KIND_COUNT` did not move, and a
   host that opens the bytes hands the field straight back as `Command::Open`'s (ADR 0431) —
   **`Searched { document, found, remaining, wrapped }`** — one step of a document-wide search, and
   the only event a host has to *pump*: `remaining` above zero means send `Find::Continue` again,
@@ -489,7 +489,7 @@ four-hundred-and-twelfth**, on that rule and with three hosts behind it: its val
 could not say which. GTK4, Qt and the headless harness had each asked their control for single
 selection *deliberately*, which is what a message-shaped gap looks like when three people find it
 independently. Six consumers failed to compile; the C ABI did not, because `Command::Edit` is not
-among its 39 entry points at the time, and `PDFV_EVENT_KIND_COUNT` stayed 15 (ADR 0248). **`Answer::Field` changed shape a second time in
+among its 39 entry points at the time, and `QUORRA_EVENT_KIND_COUNT` stayed 15 (ADR 0248). **`Answer::Field` changed shape a second time in
 the four-hundred-and-eleventh**, for that rule's own reason and with a bug behind it: its value is
 `Option<pdf_model::view::ShownValue>` now, the characters beside Table 231 bit 14's `obscured`, and
 what the compiler failure found was `viewer-ui` writing a password field's bullets back as its next
@@ -545,12 +545,12 @@ is set in the same Helvetica on a machine with no fonts installed.
   **Every `Query` variant reaches a symbol again since the seven-hundred-and-ninth** (ADR 0576), and
   this time the claim comes with the thing that keeps it true rather than with a sentence:
   `tests/every_query_reaches_the_abi.rs` matches exhaustively over the enum, so a question added here
-  fails to compile there. `PDFV_EVENT_KIND_COUNT` is the right protection for a message that arrives
+  fails to compile there. `QUORRA_EVENT_KIND_COUNT` is the right protection for a message that arrives
   unasked and is none at all for a question, which is how eleven queries came to reach no symbol with
   nothing saying so.
   What ADR 0346 added is the pointer and the selection, §12.7's form and the four edits,
   save and extract, the other two panels, §12.4.4's clock and the three policy values. Beside them,
-  a hand-written `include/pdf_viewer.h`, and
+  a hand-written `include/quorra.h`, and
   `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
   arrive owned so no borrow of the viewer crosses; a render request is an opaque handle a caller

@@ -14,7 +14,7 @@ The name is Tron: Legacy's Quorra, the last ISO. This library implements one.
 ## Status
 
 **All nine milestones are done, and the viewer renders through this library.**
-`render-quorra` in the PDF viewer's workspace implements their `Rasterizer` over quorra,
+`render-raster` in the PDF viewer's workspace implements their `Rasterizer` over quorra,
 and their window presents through the surface tier with no readback anywhere.
 
 Every scene command draws. Analytic rectangles with rectangular clips at zero device cost
@@ -41,8 +41,8 @@ CPU oracle on 934 of 956 comparable pages at scale 1.
 
 | | |
 |---|---|
-| `crates/quorra-scene` | What is to be drawn. No device, no `wgpu` dependency — see ADR 0001. |
-| `crates/quorra-gpu` | The device, the pipelines, the atlas, the frame. |
+| `crates/raster-scene` | What is to be drawn. No device, no `wgpu` dependency — see ADR 0001. |
+| `crates/raster-gpu` | The device, the pipelines, the atlas, the frame. |
 | `crates/quorra` | The facade a caller depends on. |
 | `doc/RENDER_LIBRARY.md` | The brief. Written by the consuming PDF viewer, with a measurement behind every requirement. |
 | `doc/PLAN.md` | Milestones, and the questions each one has to settle by measurement. |

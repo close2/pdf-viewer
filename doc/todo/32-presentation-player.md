@@ -12,7 +12,7 @@ Priority: 32
 Clauses: §12.4.4, §12.2, Table 29
 Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentation.rs`,
 `crates/viewer-host/src/presentation.rs`, `crates/viewer-host/src/clock.rs`,
-`crates/viewer-ui/src/bin/pdf-viewer/presentation.rs`,
+`crates/viewer-ui/src/bin/quorra/presentation.rs`,
 `crates/viewer-gtk/src/host.rs`, `crates/viewer-qt/src/host.rs`
 
 §12.4.4's whole presentation is read — Table 164's transition styles, `/Dur`'s auto-advance,

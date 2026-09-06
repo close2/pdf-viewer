@@ -364,7 +364,7 @@ writer produces. Split at the ellipsis it finds eight more landings, **four of t
    `standard_metrics` on §9.6.2.1's "PDF processors shall provide glyph widths and font descriptor
    data …", replaced by a cross-reference. Both now cite Table 109's permission and §6.3.2.2's
    requirement, which is the stronger warrant `pdf_font::standard` already carries.
-4. **§12.7.5.2.2, Issue #386 — `appearance.rs` and `pdf-viewer.rs`.** The same struck sentence
+4. **§12.7.5.2.2, Issue #386 — `appearance.rs` and `quorra.rs`.** The same struck sentence
    session 418 corrected in `form.rs` and in the ledger, in two more places. What survives is the
    definition — a control that responds "without retaining a permanent value".
 5. **§7.6.4.3.4, Issue #325 — `crypt.rs`'s `hash_2b`.** Step (a) is rewritten into a two-case
@@ -660,7 +660,7 @@ verdict, for the fifth round running. Both are given below.
 | §12.3.3 | §12.3.2.4 | 459 | #162 and #288 | **a finding** | A named destination's dictionary form and its `/SD`. See the findings below. |
 | §12.5.6.3 | §12.5.6.3 | 496 | #479 | cites — the erratum vindicates the code | The sentence defining a state annotation cites "Table 176 -Additional entries specific to a link annotation" for the `/IRT` entry, which is a link's table; the erratum cites Table 172, the markup annotations' one. `conformance`'s own table claims already put `/IRT` under Table 172, and `markup::group_source` cites §12.5.6.2 rather than any table. **Recorded in §12.5.6.3's note.** |
 | §12.5.6.5 | §12.5.6.3 | 497 | #479 | cites | The same correction on the bullet two paragraphs down, where the entry that "shall refer to the original annotation" cites Table 176 as well, and which the page break files under the next clause. |
-| §12.7.5.2.3 | §12.7.5.2.2 | 551 | #386 | quotes | Already read, in the four-hundred-and-eighteenth and -nineteenth: "Because this type of retains no permanent value, it shall not use the V and DV entries in the field dictionary", struck with no replacement, corrected in `form.rs`, `appearance.rs`, `pdf-viewer.rs` and §12.7.5.2.2's row. This file recorded then that #386 was **not** on the 151; it is on the 178. |
+| §12.7.5.2.3 | §12.7.5.2.2 | 551 | #386 | quotes | Already read, in the four-hundred-and-eighteenth and -nineteenth: "Because this type of retains no permanent value, it shall not use the V and DV entries in the field dictionary", struck with no replacement, corrected in `form.rs`, `appearance.rs`, `quorra.rs` and §12.7.5.2.2's row. This file recorded then that #386 was **not** on the 151; it is on the 178. |
 | §12.11.1 | §12.11.1 | 621 | #187 | cites — the erratum vindicates the code | Table 273's `/S` row says "See" Table 276 "for valid values", which is the requirement *handler* dictionary; the erratum says Table 275, the requirement types. `requirements::Kind::read` has matched Table 275's names since it was written. **Recorded in §12.11.1's note.** |
 | §12.11.2 | §12.11.1 | 622 | #187 | cites | The paragraph above Table 274 is rewritten to name Table 273 as the table its two type-specific keys are additional to, and the table is retitled "Additional entries for specific types of requirements". `/Encrypt` and `/DigSig` are unread and §12.11.1's row says why. |
 | §12.11.2 | §12.11.1 | 625 | #187 | cites | The same retitling on the table's own caption, four pages later, because Table 274 spans them. |

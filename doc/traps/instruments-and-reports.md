@@ -41,7 +41,7 @@ it. A missing worker and a stale one look nothing alike.
 **"Both gates fail loudly if the worker is missing" was this paragraph's last sentence, and it was
 true of *two* gates out of eight.** `pdf-model`'s `corpus` and `oracle` check; the accessibility
 census, the selection census, `text_extraction`, `fixed_documents`, `jpeg2000` and
-`render-quorra`'s `corpus` did not — and the census's ratchet moved by nine structure elements
+`render-raster`'s `corpus` did not — and the census's ratchet moved by nine structure elements
 because of it, deterministically, for at least a dozen rounds while four rounds diagnosed it as
 something else. That is trap 16, and it is trap 10 wearing another trap's clothes. All eight now
 check, and `tools/conformance/tests/sandbox_gates.rs` fails a gate line in `doc/todo/02` §2 that
@@ -108,7 +108,7 @@ the tree it was *built from*, whatever directory it is invoked in. The same hold
 That is harmless in a single tree and is a trap the moment rounds run in parallel, because each
 worktree has its own `target-dir` in `.cargo/config.toml` and the *main* tree's is the one whose
 path a round remembers. The six-hundred-and-seventy-sixth session ran its whole before-sweep from
-`/home/AI/cargo-target/pdf-viewer/release`, got thirteen summary lines that looked exactly right,
+`/home/AI/cargo-target/quorra/release`, got thirteen summary lines that looked exactly right,
 and had measured `/home/cl/projects/pdf-viewer` — a tree it had not edited. The tell is that
 *nothing moves* when you re-run after an edit, which reads as "my change touched no sweep" and is
 the most comfortable possible wrong answer.
@@ -120,7 +120,7 @@ Two rules:
   directly, get its directory from `cargo metadata --format-version 1 --no-deps`.
 
 **It is not only a sweep, and `doc/todo/02` §5 was the instruction that got it wrong.** That section
-told a round to `install` from `/home/AI/cargo-target/pdf-viewer/release/`, a *literal* path, and in
+told a round to `install` from `/home/AI/cargo-target/quorra/release/`, a *literal* path, and in
 a worktree round that is a **neighbour's** build directory — so the binaries a person picks up, and
 every launch measurement taken from them, are another branch's. The seven-hundred-and-twenty-sixth
 session spent three rebuild-and-run cycles on it: the GTK host was rebuilt each time, installed each
@@ -224,7 +224,7 @@ them. What separates them is holding the binary fixed, which is the table at the
 
 **The features were enumerated anyway**, because "we did not find one" is not an answer. Diffing
 the resolved unit graphs three ways — the census's subset, the whole workspace, and
-`--release --bin pdf-viewer` — the subset resolves `num-traits`, `once_cell`, `rustix`,
+`--release --bin quorra` — the subset resolves `num-traits`, `once_cell`, `rustix`,
 `linux-raw-sys`, `bytemuck`, `log`, `either`, `enumflags2`, `syn` and `proc-macro2` differently,
 **and every one of the ten was traced to its consumer and changes no value the program computes**;
 the shipped binary agrees with the whole-workspace build on all of them. `doc/verify.md` has the

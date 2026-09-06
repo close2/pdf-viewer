@@ -24,7 +24,7 @@
 //! ADR 0059's reasoning applies unchanged: this workspace has no build script, one would
 //! run on every consumer's machine including the caller's, and it buys nothing over a
 //! unit test CI already runs. What it costs is that a *local* `cargo test` reads a file
-//! under `.github/`, which is stated in `expected_workflow` rather than discovered.
+//! under the repository root's `.github/`, which is stated in `expected_workflow` rather than discovered.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 /// The workflow file this crate's examples are run from.
 fn workflow() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.github/workflows/ci.yml")
+        .join("../../../.github/workflows/ci.yml")
         .canonicalize()
         .expect("the CI workflow is part of the deliverable, not an optional file")
 }

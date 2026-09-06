@@ -6,9 +6,9 @@ Priority: 50 — blocked on a dependency, and it is the *shipped* rasteriser, so
 Corpus: no page names it, and none can — see "Why no gate here can see it" below.
 Clauses: §8.9.6.2's interpolation `shall` is where the standard states the rule; §8.9.6.3,
 §8.9.6.4, §11.6.5.2 and §7.4.9's opacity channel are the other populations it reaches.
-Code: `crates/quorra-gpu/src/shaders/image.wgsl` (`fs_main`), reached through
-`crates/render-quorra/src/scene.rs`'s `Self::image`. This side's instrument is
-`crates/render-quorra/examples/filtered_edge_colour.rs`.
+Code: `crates/raster-gpu/src/shaders/image.wgsl` (`fs_main`), reached through
+`crates/render-raster/src/scene.rs`'s `Self::image`. This side's instrument is
+`crates/render-raster/examples/filtered_edge_colour.rs`.
 
 ## The rule
 
@@ -26,7 +26,7 @@ which is carried but means nothing — into the answer."
 
 ## What it costs
 
-`cargo run --release -p render-quorra --example filtered_edge_colour`, one magnified stencil over
+`cargo run --release -p render-raster --example filtered_edge_colour`, one magnified stencil over
 `Medium::NONE`:
 
 ```text
@@ -43,7 +43,7 @@ arrive as straight-alpha RGBA whose cleared samples are stored black.
 
 ## Why no gate here can see it
 
-Every image scene in `render-gpu`'s and `render-quorra`'s cross-backend suites is **opaque**, and on
+Every image scene in `render-gpu`'s and `render-raster`'s cross-backend suites is **opaque**, and on
 an opaque raster straight and premultiplied filtering are the same arithmetic. No tolerance could
 have been tightened into finding this. The corpus cannot either: a darkened edge is a fraction of a
 pixel wide against every reference, and the oracle's four bounds are not a hue at partial coverage.
@@ -56,7 +56,7 @@ which holds the two backends that meet the clause, and the example above, which 
 Either of the two in `doc/QUORRA_FEEDBACK.md` §39.3 — premultiply on upload, which changes
 `ImageSpec`'s contract, or four `textureLoad`s and the bilinear weights by hand in `fs_main`. When
 one lands: re-run the example, expect a departure of 0 on all three lines, add the scene to
-`render-quorra/tests/headless_quorra.rs` beside the one in `headless_gpu.rs`, and take the
+`render-raster/tests/headless_quorra.rs` beside the one in `headless_gpu.rs`, and take the
 paragraph off §8.9.6 and §8.9.6.2's ledger rows.
 
 ADR 0697 has the reading and how the claim came to stand.

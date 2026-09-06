@@ -27,7 +27,7 @@ Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`, `reading.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
-`crates/viewer-ui/src/bin/pdf-viewer/access.rs`, `crates/viewer-gtk/src/access.rs`,
+`crates/viewer-ui/src/bin/quorra/access.rs`, `crates/viewer-gtk/src/access.rs`,
 `crates/viewer-qt/src/access.rs` (`attend`, `speak`, `act`, one shape in three windows)
 Code (continued): `crates/viewer-core/src/accessibility.rs`'s `places`, which is the one place the
 routes to an element's rectangle are composed and is what all three windows and the census ask.

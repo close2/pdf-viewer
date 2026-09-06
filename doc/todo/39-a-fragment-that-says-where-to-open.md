@@ -21,7 +21,7 @@ order §O.2 makes normative, naming what it could not read rather than dropping 
 `comment`, `ef`, `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf` — immediately after
 Table 29's `/OpenAction` as §O.2.2 asks, and the parameters *after* `ef` leave with the file they
 are about. `Command::Open` carries the fragment undecoded, and
-`pdf-viewer doc.pdf#page=5` is the first caller.
+`quorra doc.pdf#page=5` is the first caller.
 
 **Four parameters have come off the refused list, and not one for the reason the list gave.**
 `search` in the four-hundred-and-fourteenth, when `viewer_core::Command::Find` became a
@@ -67,7 +67,7 @@ existed (ADR 0431): `Fragment::parse` **stops** at `ef` and keeps the remainder 
 in `after_embedded_file`, because those parameters are not this document's; `Event::Extracted`
 carries that remainder beside the bytes — a variant changing shape, not a message added, since a
 host has the fragment but not §O.2's grammar; and a host hands both back as `Command::Open`. The
-window verifies it: `pdf-viewer 'issue17056.pdf#ef=destination-doc.pdf&page=3'` titles itself
+window verifies it: `quorra 'issue17056.pdf#ef=destination-doc.pdf&page=3'` titles itself
 *destination-doc.pdf — 3 — page 3 of 30*.
 
 **`viewer_host::may_open_extracted` is the second policy question**, beside `may_write_extracted`:
@@ -85,7 +85,7 @@ than guessed at.
   through `Viewer::device_quad`, which is ADR 0118's one arithmetic; a host draws it in a colour of
   its own and computes nothing.
 - **Not a URI parser.** RFC 3986 splitting is the host's; what crosses is the fragment alone. The
-  rule `pdf-viewer` uses is in ADR 0209: the filesystem decides, not the punctuation.
+  rule `quorra` uses is in ADR 0209: the filesystem decides, not the punctuation.
 - **Not a second reading of Table 149.** `View::from_keyword` is the one place, with §12.3.2.2's
   array and Annex O's `view` parameter as its two callers.
 - **Not a fourth copy of the extraction policy.** Three hosts, one `viewer_host::policy` function;
@@ -93,6 +93,6 @@ than guessed at.
 - **Not a counter on the chain.** A document may embed a document whose fragment names another
   `ef`, and nothing guards the depth because nothing has to: each open consumes at least `ef=` and
   its argument, so the remainder is strictly shorter every time.
-- **Not a second window rule.** `pdf-viewer` shows the embedded document *instead of* the one that
+- **Not a second window rule.** `quorra` shows the embedded document *instead of* the one that
   named it because it has one window, and that is written down as a host's choice. A host with tabs
   opens a second `DocumentId` and changes nothing else.

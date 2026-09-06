@@ -26,7 +26,7 @@ the first three all in one direction:
    "partly" is measured is the departure's own second half, and it went unstated for six hundred
    sessions**: `render-cpu` rounded an edge's coverage to a *quarter* — `tiny-skia` samples four
    times per axis, at 0.125, 0.375, 0.625 and 0.875 — while the graphics device tracks the
-   fraction to a level of 255. `render-quorra/examples/edge_coverage_ladder` prints both ladders
+   fraction to a level of 255. `render-raster/examples/edge_coverage_ladder` prints both ladders
    against the geometry, and ADR 0474 has what it cost: on `colors.pdf` our whole raster was the
    page's closed form with every coverage so rounded, 33 levels of 255 from the exact one at the
    worst pixel. It is the quantum this file already records for a shape *thinner* than a pixel,

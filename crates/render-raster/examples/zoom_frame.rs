@@ -4,7 +4,7 @@
 //! states and fills every cache; what a magnification costs is the *second* frame, drawn at a new
 //! transform against caches that are already warm — which is the frame ADR 0368 attributed and
 //! the one the project owner's own traces are full of. Nothing in this tree drew that frame in
-//! isolation before: `examples/encode_threads.rs` brings a cold device up per sample deliberately,
+//! isolation before: `examples/encode_threads_across_the_seam.rs` brings a cold device up per sample deliberately,
 //! and a cold device measures the population this one exists to exclude.
 //!
 //! ```sh
@@ -57,7 +57,7 @@
 //! reason.
 //!
 //! **The statistic is the minimum of `ZOOM_FRAME_ROUNDS` round-robin rounds**, for the reason
-//! `examples/encode_threads.rs` states: this machine is shared, and a phase measured under load is
+//! `examples/encode_threads_across_the_seam.rs` states: this machine is shared, and a phase measured under load is
 //! a measurement of the load. Each round builds its own device, because a device that has drawn
 //! this pair already answers frame 1 from the atlas.
 //!

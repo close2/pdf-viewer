@@ -26,7 +26,7 @@ anti-aliased one §10.7.1's NOTE permits instead, beyond "no shape ever disappea
 was failing at the very bottom of the range and now is not. **One of the two marks that were left
 there is paid** — §8.5.3.2's dot, on all three rasterisers, by stating it as the device pixel the
 clause's own flooring identifies rather than as a circle no placement lets a raster hold (ADR 0420)
-— and what remains is the body of a sub-pixel rule on `render-quorra` alone.
+— and what remains is the body of a sub-pixel rule on `render-raster` alone.
 **And a seventh arrived in the six-hundred-and-forty-third session, from the other end of the same
 sentence**: this file is about marks the coverage quantum *loses*, and item 7 is what the same
 quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `render-cpu` alone
@@ -51,14 +51,14 @@ twice, eight ways, so that a composition still taking a product is a printed row
 `crates/render-cpu/tests/group_clip_intersection.rs` (item 4's gate for the group blit, which also
 pins that a group whose alpha is *not* its shape still gets the product),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
-`crates/render-quorra/examples/sub_pixel_marks.rs` and
+`crates/render-raster/examples/sub_pixel_marks.rs` and
 `crates/pdf-model/examples/sub_pixel_width_census.rs` (the two instruments: what a backend does
 with a mark, and what a page's own marks are),
-`crates/render-quorra/tests/sub_pixel_coverage.rs` (the gate, on **both** backends since 389),
-`crates/render-quorra/tests/mitre_limit.rs` (item 6's gate, on **all three**),
-`crates/render-quorra/examples/mitre_ladder.rs` and
+`crates/render-raster/tests/sub_pixel_coverage.rs` (the gate, on **both** backends since 389),
+`crates/render-raster/tests/mitre_limit.rs` (item 6's gate, on **all three**),
+`crates/render-raster/examples/mitre_ladder.rs` and
 `crates/pdf-model/examples/long_mitre_census.rs` (item 6's two instruments),
-`crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
+`crates/render-raster/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
 (item 5's gate and its instrument — the gate's fourth scene is §11.6.2's discriminator),
 `crates/pdf-render/src/edge.rs`'s `device_rectangles` and `DeviceRectangles::share_a_device_pixel`,
 `crates/render-cpu/src/lib.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact`,
@@ -66,9 +66,9 @@ with a mark, and what a page's own marks are),
 `crates/render-cpu/tests/edge_coverage.rs` and
 `crates/pdf-model/examples/rectangular_path_census.rs` (item 7's remainder, its gate and its
 instrument),
-`crates/render-quorra/examples/edge_coverage_ladder.rs` and
+`crates/render-raster/examples/edge_coverage_ladder.rs` and
 `crates/pdf-model/examples/compare_rasters.rs` (item 7's two instruments),
-`crates/render-quorra/tests/singular_transform.rs` and
+`crates/render-raster/tests/singular_transform.rs` and
 `crates/pdf-model/examples/singular_transform_census.rs` (item 8's gate and its instrument)
 
 Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
@@ -94,7 +94,7 @@ before/after ladders, the cost, and every declined case are in ADR 0226.
 
 Two consequences worth keeping here:
 
-- **The oracle was the backend being accused.** `render-quorra/tests/corpus.rs` calls a difference
+- **The oracle was the backend being accused.** `render-raster/tests/corpus.rs` calls a difference
   between the two backends quorra's by construction, so on a page of sub-pixel line work the render
   carrying the right ink was the one on trial. That gate went 914 agree / 42 differ to **920 / 36**,
   and `issue16038.pdf` — a page whose whole subject is a 0.53-pixel rule — moved **6.5359 → 1.8563**.
@@ -236,10 +236,10 @@ level, 0.0000 and nothing at scale 1 and are byte-identical at 4×.
 
 **What is left, each with what it needs:**
 
-- **`render-quorra` still loses a sub-pixel *rule***, at 0.002 and 0.001 on an axis and at 0.001
+- **`render-raster` still loses a sub-pixel *rule***, at 0.002 and 0.001 on an axis and at 0.001
   turned. It takes no substitution for a stroke's body — it hands quorra the document's own width,
   and that rasteriser's coverage is what runs out — so the floor has nowhere to be applied. Either
-  `render-quorra` adopts the widen-and-scale-the-alpha construction `render-cpu` has, or it is
+  `render-raster` adopts the widen-and-scale-the-alpha construction `render-cpu` has, or it is
   `doc/QUORRA_FEEDBACK.md`'s ask; nothing on this disk states a width that reaches it, so it is
   unwitnessed either way. `sub_pixel_coverage.rs`'s test holds the processor only and says why.
   **This no longer covers §8.5.3.2's marks**: since ADR 0420 the dot and the zero-length dash's mark
@@ -360,7 +360,7 @@ mask only at the pixmap's own size, so a per-mark allocation is a band's worth o
 **The corpus population is not the witness's.** It is a §12.5.5 widget appearance whose border rule
 sits on the `/BBox` §8.10.1 step c) clips it by — `bug1844576.pdf`, `bug1844583.pdf`,
 `issue16473.pdf`, `issue18823.pdf`, `multiline.pdf`, `textfields.pdf` — which is the same finding
-`render-quorra`'s differing list wrote about `issue21068.pdf` in the two-hundred-and-seventh
+`render-raster`'s differing list wrote about `issue21068.pdf` in the two-hundred-and-seventh
 session, when a *redundant* clip came off its comb separators.
 
 ### What was paid after that: a clip *beside* a soft mask — **ADR 0363**
@@ -532,7 +532,7 @@ Two things bound any attempt at the rest:
 
 - **`min` is not exact for boundaries that merely share a pixel**, only for ones that coincide or
   nest. What is exact is intersecting the *paths* and rasterising once.
-- ~~**`render-quorra` still multiplies its chain**, inside the graphics library, so the two backends
+- ~~**`render-raster` still multiplies its chain**, inside the graphics library, so the two backends
   now compose clips by two different rules.~~ **Answered: quorra takes `min` there too** (its ADR
   0030, `doc/QUORRA_FEEDBACK.md` §18), reached from §8.5.4's own sentence rather than from this
   tree's reading of it — the graphics state holds *one* clipping path, so rasterising each link
@@ -548,8 +548,8 @@ Two things bound any attempt at the rest:
 
   **And they part at the group blit too since ADR 0492, at no cost to the gate at all** — 933 agree /
   22 differ before and after, the same names and the same means. Neither of the other two backends
-  *can* take it, which is where the composite is rather than a choice: `render-quorra` hands a group
-  to `quorra_scene::GroupSpec` and the library multiplies the clip into one weight in
+  *can* take it, which is where the composite is rather than a choice: `render-raster` hands a group
+  to `raster_scene::GroupSpec` and the library multiplies the clip into one weight in
   `composite.wgsl`, and `render-gpu` hands it to Vello with the clip already open as a stack of
   layers. `doc/QUORRA_FEEDBACK.md` section 36 is that ask, and it asks for the flag plus a `min`
   rather than for a shape channel.
@@ -642,13 +642,13 @@ the artefact, the numbers below or the price changes**; what changed is that the
 defines is now written down, and the gate below is still an *upper* bound so that a rasteriser
 reaching that value passes unchanged.
 
-The numbers, all from `crates/render-quorra/tests/abutting_marks.rs` and
+The numbers, all from `crates/render-raster/tests/abutting_marks.rs` and
 `crates/pdf-model/examples/uncovered_share.rs`:
 
 ```text
   two opaque rectangles abutting mid-pixel, share of the backdrop still showing
     render-cpu (tiny-skia)   0.2510      Union(0.5, 0.5) leaves   0.2500
-    render-quorra            0.2471      four quarter-covers      0.3164
+    render-raster            0.2471      four quarter-covers      0.3164
     render-gpu (vello)       0.2510        cpu 0.3137, quorra 0.3137, vello 0.3176
 
   the same fixture, the references
@@ -670,7 +670,7 @@ axis-aligned and `poppler` leaks too: 1.765 device pixels over the fixture's squ
 two, and `mupdf` — agree to a level of 255; the two that do not are the two that are not
 anti-aliasing the shape.
 
-So **nothing here is `render-quorra`'s** and no feedback section is owed: the three answer 0.2471,
+So **nothing here is `render-raster`'s** and no feedback section is owed: the three answer 0.2471,
 0.2510 and 0.2510, all inside one level of 255 of the arithmetic. (Which backend holds which of the
 first two has *exchanged* since ADR 0476 made the processor's rectangle exact, and the run is where
 that is read rather than this table.)
@@ -729,7 +729,7 @@ units above the join, where `mutool` and `gs` put it to the pixel.
 
 **What was paid, and how the diagnosis changed on measurement.** This section predicted that a fix
 was "three strokers rather than one", because Vello and quorra "have their own strokers with their
-own thresholds". `render-quorra/examples/mitre_ladder` — the instrument that did not exist when the
+own thresholds". `render-raster/examples/mitre_ladder` — the instrument that did not exist when the
 prediction was written — says otherwise: **both device backends draw the tip within a pixel of the
 clause's arithmetic at every ratio the limit admits**, and exactly one stroker was wrong.
 `tiny-skia`'s `dot_to_angle_type` classifies a join by a normals' dot product *before* the limit is
@@ -752,7 +752,7 @@ under a device pixel — the two cases the construction declines.
 
 Neither is reported, and ADR 0398 §3 argues why: the condition would be a prediction about a
 library's stroker made in the layer above it, and a report with no members costs gated pages (trap
-11). What watches them is `render-quorra/tests/corpus.rs` — the two backends agree about a long mitre
+11). What watches them is `render-raster/tests/corpus.rs` — the two backends agree about a long mitre
 now, so a page where a decline mattered becomes a differing page rather than a silence.
 
 ## 7. An edge's coverage rounded to a quarter — **paid for a rectangle (ADR 0476), open elsewhere**
@@ -763,7 +763,7 @@ to be asked because the page it is visible on was filed under the anti-aliasing 
 name.
 
 **The measurement, which is what the six-hundred-and-forty-third session left.**
-`render-quorra/examples/edge_coverage_ladder` puts a rectangle's edge at every twentieth of a pixel
+`render-raster/examples/edge_coverage_ladder` puts a rectangle's edge at every twentieth of a pixel
 and reads the boundary pixel:
 
 ```text
@@ -926,10 +926,10 @@ which is trap 2's shape exactly.
 ```text
   render-cpu     CpuRasterError::UnsupportedPaint      page_to_path inverted the command transform
   render-gpu     GpuRasterError::UnsupportedPaint      Spaces::new, the same quantity
-  render-quorra  QuorraRasterError::Scene(InvalidStroke)  path_width x max_stretch, which is zero
+  render-raster  QuorraRasterError::Scene(InvalidStroke)  path_width x max_stretch, which is zero
 ```
 
-**`render-quorra` needs no inverse at all** — it positions a paint in page space — and refused
+**`render-raster` needs no inverse at all** — it positions a paint in page space — and refused
 anyway, one step along and with a different error type, which is what says the inverse was never the
 point. The inverse is `tiny-skia`'s and Vello's requirement, since both apply a draw's transform to
 its paint as well as to its shape. Two libraries imposing a decision on two backends is precisely a
@@ -946,7 +946,7 @@ same guard because it is a marking command whose unit square collapses with ever
 `pdf_model` names what it refused on `Unsupported::NoninvertibleMatrix`, which is the answer to the
 other half of the item's question: the condition is a property of the *file*, decidable from the
 display list before any target exists, so it never needed to be a rasteriser's error at all.
-`crates/render-quorra/tests/singular_transform.rs` is the pair, on all three backends, and
+`crates/render-raster/tests/singular_transform.rs` is the pair, on all three backends, and
 `crates/pdf-model/examples/singular_transform_census` is the instrument.
 
 ### What is left of it: §10.7.4's mark for a shape its *transform* collapsed

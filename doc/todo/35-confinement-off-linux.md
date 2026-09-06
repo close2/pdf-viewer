@@ -18,7 +18,7 @@ for resource exhaustion and panic isolation, which are as true off Linux as on i
 
 `pdf-sandbox` compiles everywhere. On Linux it confines the worker with seccomp-BPF, Landlock and
 `RLIMIT_AS`; on macOS and Windows it installs **nothing** and says so — `Confinement::shortfall`
-words it, the worker's handshake carries it, and `pdf-viewer` prints it in its first line.
+words it, the worker's handshake carries it, and `quorra` prints it in its first line.
 
 What those two platforms still get, and it is not nothing:
 
@@ -60,6 +60,6 @@ program is packaged. `setrlimit(RLIMIT_AS)` exists and would be the cheap half; 
 - A `SystemCalls` variant or a wider `Confinement`, so that "confined by a job object" is not
   reported as "confined by seccomp". The vocabulary is deliberately small today because there is
   one mechanism.
-- The startup sentence in `pdf-viewer` narrows or goes away, and it is the visible half: a person
+- The startup sentence in `quorra` narrows or goes away, and it is the visible half: a person
   running the Windows build is told what this build cannot enforce, and that sentence is a promise
   to keep accurate.

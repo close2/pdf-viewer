@@ -35,7 +35,7 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle, `render-gpu` is Vello and the backend it is compared against — they agree to the channel
 over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
-they did not (ADR 0127) — and `render-quorra` is the third, over the document renderer this project
+they did not (ADR 0127) — and `render-raster` is the third, over the document renderer this project
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
 processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
@@ -99,7 +99,7 @@ the page under the point it was dropped on, which draws its icon before anything
 answers the log rather than the file; and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
 writing `CLAUDE.md` permits. **No window has a gesture for the attach yet**, by the owner's word
-that the flows are being reviewed as mockups first; the C ABI has `pdfv_attach` and `pdfv_detach`,
+that the flows are being reviewed as mockups first; the C ABI has `quorra_attach` and `quorra_detach`,
 because an ABI has no gestures.
 
 **A document is opened on disk and read where its own offsets point** — `startxref` from the
@@ -166,7 +166,7 @@ them, with no type from a windowing or graphics library anywhere in its API.
 
 **Seven consumers on that boundary, and not one of them has ever asked for a new message.**
 [`doc/ui-boundary.md`](ui-boundary.md) names all seven; the list below is grouped by crate, so the
-seventh — `viewer-ui`'s second window, `pdf-viewer-confined` — sits inside another bullet rather
+seventh — `viewer-ui`'s second window, `quorra-confined` — sits inside another bullet rather
 than having one. **Three host *crates*, four *windows***, which is what a sentence below counting
 three means: `tools/state.sh windows` excludes the fourth for the same reason, saying so in its own
 output. That is
@@ -192,7 +192,7 @@ pass.
   panel is made of and §12.7's whole form — which is the thing that lets a confined host build
   native controls rather than take a form as pixels — and a hostile document's draw is stoppable,
   because a cancel a hostile document can decline is not one. **A window uses it since the
-  seven-hundred-and-seventy-fifth** — `pdf-viewer-confined`, deliberately the smallest complete
+  seven-hundred-and-seventy-fifth** — `quorra-confined`, deliberately the smallest complete
   host on the boundary, both payload arms on its screen, Escape ending the worker and the
   in-flight draw together (ADR 0713), §7.6.4.1's prompt since the
   seven-hundred-and-eighty-first, the password crossing into the confinement as `Command::Open`'s
@@ -248,7 +248,7 @@ pass.
   than claim. ADRs 0218, 0223,
   0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657, 0870, 0880, 0888, 0889; `doc/todo/34`,
   `doc/todo/15`, `doc/todo/59`, `doc/todo/61`.
-- **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
+- **`viewer-gtk`'s `quorra-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three
   decisions a host owns — §12.7.6.4's file, §7.6.4.1's password, and, since the
@@ -261,7 +261,7 @@ pass.
   missing, the largest of them the page drawn *without* its widget appearances — §6.3.2.2's
   "unless otherwise instructed" as `Command::Delegate` — which then exposed the *scale* a form
   host draws at. ADRs 0244, 0245.
-- **`viewer-qt`'s `pdf-viewer-qt`**, a real Qt 6 Widgets application, and the one that costs a C++
+- **`viewer-qt`'s `quorra-qt`**, a real Qt 6 Widgets application, and the one that costs a C++
   bridge: **one hand-written `unsafe` token in this crate**, the `unsafe extern "C++"` header `cxx`
   requires, under `#![deny(unsafe_code)]` with one exemption on `mod bridge` and a test asserting
   its position — and asserting that the crates lifting the denial are exactly the ones the
@@ -283,7 +283,7 @@ pass.
   drew in 3.3 ms and waited 61.5 for the timer, and the launch cost 53 ms against 9.5. A host with
   nothing on the screen yet therefore *waits* for page one, out of a one-refresh budget spent once
   over the whole launch, and polls for everything after it (ADR 0678, trap 21).
-- **`viewer-ffi`**, a C ABI over the same vocabulary, with a hand-written `include/pdf_viewer.h`
+- **`viewer-ffi`**, a C ABI over the same vocabulary, with a hand-written `include/quorra.h`
   and a `c/open_a_page.c` that a test compiles with `-Wall -Wextra -Werror` and runs. Four shapes
   decide it, each because C takes something away that Rust gave: **commands are functions**,
   because a union's size is part of an ABI and a symbol is not, so a command added later costs a
@@ -291,10 +291,10 @@ pass.
   borrow of the viewer crosses and re-entrancy stops being a rule anybody keeps; **a render
   request is an opaque handle** the caller may move to its own thread, because a display list is
   clauses 8 and 9 in a data structure and a frame comes back by copy into the caller's own buffer;
-  and **a variant added later is named, described and counted** — `pdfv_abi_check` turns "fails to
+  and **a variant added later is named, described and counted** — `quorra_abi_check` turns "fails to
   compile in every consumer" into "fails to start, once, naming the number that moved", which is
   weaker and is the strongest thing C admits. **How ADR 0346 landed is the shape's own evidence**:
-  two thirds of the ABI arrived in one round and `PDFV_EVENT_KIND_COUNT` did not move, because a
+  two thirds of the ABI arrived in one round and `QUORRA_EVENT_KIND_COUNT` did not move, because a
   `Command` is a symbol and only an `Event` is a number. **What that round could then claim — that
   the entry points *are* the whole vocabulary — has decayed and is counted rather than repeated**:
   `tools/state.sh hosts` says how much of `Command` and `Query` a C caller reaches and names what
@@ -454,8 +454,8 @@ everything unchanged. What it can do that a mount cannot is show a person **why*
 deletion's §7.5.6 consequence — the bytes stay in the file — arrives as a non-modal warning
 instead of a log line nobody reads. **And it can put a *question*, since the nine-hundred-and-sixteenth
 session**: the restriction decision is taken inside the confined generator, which has no channel to
-a person by construction, so the question crosses instead — `pdfvfs_consult` says whether the verb
-would be restricted and hands back the sentence, `KIO::WorkerBase::messageBox` puts it, `pdfvfs_answer`
+a person by construction, so the question crosses instead — `quorra_vfs_consult` says whether the verb
+would be restricted and hands back the sentence, `KIO::WorkerBase::messageBox` puts it, `quorra_vfs_answer`
 carries the answer back, and the verb then runs unchanged, once, at the level a yes *is* (ADRs 0874,
 0875). Driven by a KIO client on a machine with no session; never yet by Dolphin, and the dialogue
 itself therefore by nothing. And **there is a confined worker** under all of it (ADRs 0840, 0841,
@@ -480,8 +480,8 @@ proceed, and both it and *on* leave as `EACCES` — and **the viewer supplies al
 caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.
 No window can put the question yet, so each answers it `false` out loud rather than letting *ask*
-behave like *on* (ADR 0814) — a C host of `viewer-ffi` can, through `PDFV_EVENT_KIND_ASKING` and
-`pdfv_answer`. The suite has its own gate, with
+behave like *on* (ADR 0814) — a C host of `viewer-ffi` can, through `QUORRA_EVENT_KIND_ASKING` and
+`quorra_answer`. The suite has its own gate, with
 RFC 0002 §12's perf floor and its inventories held to the document's own structure, and three
 corpus walks beside it: the writer's, `split`'s — every corpus document's first page taken
 out, re-read, and drawn against the source page bit for bit — `merge`'s, which puts every

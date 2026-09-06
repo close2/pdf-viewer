@@ -12,9 +12,9 @@ quoted against this condition names its lane**, and the instrument now has the k
 (`ZOOM_FRAME_COVERAGE=compute`) that draws the shipped gesture.
 Priority: 47 — performance, measured, and currently *not* the largest term.
 Corpus: the owner's `tmp/Entwurf.pdf`; any page is a witness, Entwurf is the worst.
-Code: `render-lib/crates/quorra-gpu/src/encode*.rs` and the record-replay seam
+Code: `render-lib/crates/raster-gpu/src/encode*.rs` and the record-replay seam
 (`EncodeSource::RecordReplayed`, their ADR 0087); the caller's side is
-`crates/render-quorra/src/scene.rs`, which since ADR 0702/0703/0705/0706 hands over
+`crates/render-raster/src/scene.rs`, which since ADR 0702/0703/0705/0706 hands over
 page-space scenes that survive every view change.
 Instrument: `examples/zoom_frame` with `ZOOM_FRAME_COVERAGE=compute`, whose frame line
 says `record-replayed` when the encode took the replay road; the frame trace's `encode`

@@ -248,7 +248,7 @@ broker hands the face across.
 **Session 920 built that, and it is `doc/todo/59` rather than this item** (ADRs 0880, 0881). The
 worker asks by *description* and the broker answers with the face it matched; the allow-list did not
 move and no host can move it; every face is off by default, so a host that says nothing is the host
-this paragraph described. `pdffs --machine-fonts`, `pdf-viewer-confined --machine-fonts` or
+this paragraph described. `pdffs --machine-fonts`, `quorra-confined --machine-fonts` or
 `PDF_VIEWER_MACHINE_FONTS=on`, and `PDF_VFS_MACHINE_FONTS=on` for the KIO face turn it on. Measured
 over `doc/pdf.js`: 40 pages differed from what this machine draws unconfined and are now
 byte-identical to it, twelve of them blank before.

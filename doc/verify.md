@@ -9,7 +9,7 @@ census example or the AT-SPI recipe. `doc/HANDOVER.md`'s reading table is the po
 
 **The gate sequence is not repeated here, deliberately.** Two documents stating the same commands
 is how they drift apart, and they had: this list said 1369 tests where the gate printed 1371, and
-omitted `render-quorra`'s corpus gate altogether. `doc/todo/02` §2 is the one copy.
+omitted `render-raster`'s corpus gate altogether. `doc/todo/02` §2 is the one copy.
 
 **Nothing here runs in a fresh clone until the specifications are unpacked**, which is one command
 and is in `doc/environment.md`.
@@ -110,17 +110,17 @@ cargo run --release -p pdf-model --example strip_spans -- [file.pdf] [page] [sca
 cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale] [out.png]
   # our own render at any resolution, which is how §3a's step 5b tells a scan-conversion
   # difference from a difference in the shapes themselves
-cargo run --release -p render-quorra --example zoom_ladder -- [file.pdf] [page] [out-dir]
+cargo run --release -p render-raster --example zoom_ladder -- [file.pdf] [page] [out-dir]
   # the two backends compared up a ladder of magnifications and back down, through one device,
   # switching coverage lanes where `viewer-ui` does. `doc/QUORRA_FEEDBACK.md` §11
 PDFVIEWER_QUORRA_COVERAGE=gpu PDFVIEWER_QUORRA_SCALE=4 \
-  cargo test --profile gates -p render-quorra --test corpus -- --ignored --nocapture
+  cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
   # §2's quorra gate pointed at the *other* coverage lane — the one `viewer-ui` switches to past
   # ten times magnification, and the one no gate had ever run over the corpus. Either knob turns
   # the ratchets off and the run says so; a value that is neither `cpu` nor `gpu` is a panic
   # rather than a silent default. `PDFVIEWER_QUORRA_SCALE=4` is the interesting pairing, because
   # the lane exists for magnification: ADR 0283 took its refusals from 36 to 12 there.
-FIRST_FRAME_COVERAGE=gpu cargo run --release -p render-quorra --example first_frame -- [page] [scale]
+FIRST_FRAME_COVERAGE=gpu cargo run --release -p render-raster --example first_frame -- [page] [scale]
   # what the first frame costs that the tenth does not, on either lane (ADRs 0179, 0283)
 cargo run --release -p viewer-gtk --example outline_census -- [file.pdf]
   # how many rows §12.3.3's outline becomes and how many the document's own `/Count` signs ask to
@@ -263,7 +263,7 @@ cargo run --release -p pdf-model --example group_blit_census -- doc/pdf.js/test/
   # rasterises**, which is what lets it be run over a population holding `poppler-978-0.pdf`, whose
   # 73 047 page-spanning groups take some 640 s to draw and 2.5 s to interpret. Run over a corpus
   # in several processes with `xargs -0 -n 40 -P 8`; the summaries add
-cargo run --release -p render-quorra --example filtered_edge_colour
+cargo run --release -p render-raster --example filtered_edge_colour
   # what each of the three backends' image filters does to the *colour* of a partly transparent
   # sample — §8.9.6.2's "smooth the edges of the mask, not … the painted colour values", which is
   # the difference between filtering premultiplied and filtering straight. One scene, because it is
@@ -271,7 +271,7 @@ cargo run --release -p render-quorra --example filtered_edge_colour
   # an opaque raster the two arithmetics agree. The CPU backend and vello depart from the painted
   # colour by 0 and quorra by 131 of 255, which is the shipped rasteriser (ADR 0697,
   # `doc/todo/55`, `doc/QUORRA_FEEDBACK.md` §39)
-cargo run --release -p render-quorra --example sampled_lane_column -- [--scale N] doc/pdf.js/test/pdfs/*.pdf
+cargo run --release -p render-raster --example sampled_lane_column -- [--scale N] doc/pdf.js/test/pdfs/*.pdf
   # the population quorra's sampled coverage lane would give back to the processor if it diverted
   # every mark whose width is not a multiple of its sample pitch. Defaults to ten times
   # magnification, because that is where `viewer-ui` takes that lane and a census at page scale
@@ -393,7 +393,7 @@ PDFVIEWER_LAUNCH_CLOCKS=1 cargo test --release -p viewer-ui --test launch_path -
 cargo run --release -p pdf-model     --example open_cost -- [file.pdf]
   # where the *launch path's* document half goes: §7.5's xref, the page tree, §12.3.3's outline,
   # §12.8's signatures, each on its own. ADR 0179, doc/todo/42
-DISPLAY=:77 target/pdf-viewer-gtk --trace=launch,frames [file.pdf]   # and where a *native* host's
+DISPLAY=:77 target/quorra-gtk --trace=launch,frames [file.pdf]   # and where a *native* host's
   # launch goes, which is a different path: `opened` -> `first frame on the screen` are two stamps
   # inside one process, so the difference is not the machine's (749's rule) and a launch A/B needs
   # only that column. Read the **frame** line beside it — `rasterised ... in 3.25ms, waited 61.53ms`
@@ -417,7 +417,7 @@ DISPLAY=:77 target/pdf-viewer-gtk --trace=launch,frames [file.pdf]   # and where
   # and nothing else is affected. **Or avoid it: give the scratch arm its own target directory,
   # which the paragraph above already requires for a different reason**, and the residue never
   # exists. One rule, two hazards.
-cargo run --release -p render-quorra --example bring_up  -- [all|vulkan|gl]
+cargo run --release -p render-raster --example bring_up  -- [all|vulkan|gl]
   # and where its device half goes: instance, adapter, device — one measurement per process,
   # because a second instance in one process is measured with the loader already warm
 cargo build --release -p hayro-compare --bins && \
@@ -500,7 +500,7 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # about an hour instead of most of a day, and `-rss_limit_mb=4096` is the *sanitiser's* ceiling
   # for a 1500-document corpus held in memory rather than any budget this program states. Expect
   # `slow-unit-` artefacts and read them in a **release** binary before believing them: the one
-  # libFuzzer called 15 s is 0.8 s in `target/pdf-retrieve`, which is ASan, the debug assertions
+  # libFuzzer called 15 s is 0.8 s in `target/quorra-retrieve`, which is ASan, the debug assertions
   # and six forks sharing 24 cores.
 cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP, the tree's
   # only XML. Its corpus is seeded with all 318 packets the pdf.js documents decode to
@@ -515,7 +515,7 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 #   dbus-run-session -- bash -c '/usr/lib/at-spi-bus-launcher --launch-immediately & sleep 3
 #     ADDR=$(busctl --user --json=short call org.a11y.Bus /org/a11y/bus org.a11y.Bus GetAddress …)
 #     DISPLAY=:99 AT_SPI_BUS_ADDRESS=$ADDR /usr/lib/at-spi2-registryd & sleep 2
-#     DISPLAY=:99 pdf-viewer doc/PDF20_AN001-BPC.pdf & sleep 6
+#     DISPLAY=:99 quorra doc/PDF20_AN001-BPC.pdf & sleep 6
 #     busctl --address=$ADDR call org.a11y.atspi.Registry /org/a11y/atspi/accessible/root \
 #       org.a11y.atspi.Accessible GetChildren'
 # **`org.a11y.Status IsEnabled` is *not* true inside a fresh `dbus-run-session`** — this line said
@@ -561,8 +561,8 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # `Link` elements opens both URIs. **Read the *viewer's* stdout beside the bus**: `--trace=access`
 # prints one line per request carried out, and a request this host cannot place is printed by name
 # instead — which is the half of trap 5 the actions did not change.
-# **And since ADR 0623 the recipe applies to all three windows** — `./target/pdf-viewer`,
-# `./target/pdf-viewer-gtk` and `./target/pdf-viewer-qt` each publish §14.7's tree, so the same walk
+# **And since ADR 0623 the recipe applies to all three windows** — `./target/quorra`,
+# `./target/quorra-gtk` and `./target/quorra-qt` each publish §14.7's tree, so the same walk
 # run three times is what says they agree. Two things a native host adds to the reading. **The
 # desktop lists two applications per process**, both named for the binary: `accesskit_unix` embeds a
 # root of its own beside the toolkit's, so a walker that took the first application it found would
@@ -573,7 +573,7 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # **And since ADR 0630 a click on §12.7's two toggling kinds is carried out in all three windows.**
 # `annotation-button-widget.pdf` is the document to walk it on: nine nodes declaring `click`, of
 # which six give a value and three are refused on Table 227 — the same six and the same three in
-# `pdf-viewer`, `pdf-viewer-gtk` and `pdf-viewer-qt`. **Read `GetState` back after *each*
+# `quorra`, `quorra-gtk` and `quorra-qt`. **Read `GetState` back after *each*
 # `DoAction` rather than after all nine**: a batch measures the net of a walk in which a radio
 # set's second click undoes its first, which is a different question and is where ADR 0623's "three
 # of nine" came from. And on a native host the tree is not the whole answer — the control a person
@@ -771,7 +771,7 @@ cancelled, so a document that never returns hangs the suite rather than failing 
 Cargo unifies features across whatever is in the build, so **the resolved feature set is a property
 of the invocation** and not of the tree. Three scopes matter here and they are genuinely different
 invocations: the census's `-p viewer-core --test accessibility_census`, `--workspace`, and
-`--release --bin pdf-viewer`. The question a round asks is whether the gate is measuring the
+`--release --bin quorra`. The question a round asks is whether the gate is measuring the
 program a user gets.
 
 It is answerable exactly, in about a minute, and the answer decays — so what is written down is the
@@ -781,12 +781,12 @@ command:
 cargo +nightly test  --profile gates -p viewer-core --test accessibility_census \
                      --unit-graph -Z unstable-options > subset.json
 cargo +nightly test  --workspace --profile gates  --unit-graph -Z unstable-options > workspace.json
-cargo +nightly build --release --bin pdf-viewer   --unit-graph -Z unstable-options > shipped.json
+cargo +nightly build --release --bin quorra   --unit-graph -Z unstable-options > shipped.json
 ```
 
 Each unit in that JSON carries `pkg_id`, `mode`, `target.kind` and `features`. Take the transitive
 closure of the root you care about — the unit whose `target.name` is `accessibility_census` and
-`kind` is `["test"]`, or `pdf-viewer`/`["bin"]` — and compare `(package, mode, kind) → features`
+`kind` is `["test"]`, or `quorra`/`["bin"]` — and compare `(package, mode, kind) → features`
 between two files. Comparing the *whole* file instead is noise: the workspace graph contains
 hundreds of crates the subset never builds, and `resolver = "3"` keeps a build-dependency's
 features separate from a normal one's, so the same package legitimately appears twice.

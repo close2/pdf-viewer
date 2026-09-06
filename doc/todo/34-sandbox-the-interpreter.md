@@ -9,7 +9,7 @@ three-hundred-and-ninety-eighth (ADR 0235) and §12.5.6.6's free text at a point
 four-hundred-and-first (ADR 0238); a hostile document has a cancel since the
 four-hundred-and-fourth (ADR 0241). **This line said twenty-eight until the
 four-hundred-and-forty-fifth counted them.** **A window uses it since the
-seven-hundred-and-seventy-fifth** — `pdf-viewer-confined`, ADR 0713, deliberately the smallest
+seven-hundred-and-seventy-fifth** — `quorra-confined`, ADR 0713, deliberately the smallest
 complete host — and what is left is that the three *established* windows do not.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
@@ -76,7 +76,7 @@ argues both and the answer is display lists**, with the raster payload kept and 
 size. What is owed now is the codec, not the decision.
 
 **The second way out — a window handle and `wgpu` inside the confinement — does not exist**, and
-that is measured rather than reasoned. `render-quorra`'s `examples/device_under_confinement`
+that is measured rather than reasoned. `render-raster`'s `examples/device_under_confinement`
 brings a real device up and confines the process holding it: a device confined *before* drawing
 dies on its first frame, and a device confined after a frame has already been drawn dies on the
 *same* frame drawn again, both with **SIGSYS**, both on `ioctl(DRM_IOCTL_AMDGPU_GEM_CREATE)` — the

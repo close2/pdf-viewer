@@ -15,7 +15,7 @@ Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name th
 proves the trigger is on `doc/PDF20_AN001-BPC.pdf`, which is.
 Instrument: the window's `--trace` frame lines and its summary, which now report a cadence.
 Clauses: none — presentation. §10.7.4 does not reach it: nothing reprojected is a rendering.
-Code: `crates/viewer-ui/src/bin/pdf-viewer/{cadence,stale,surface,window}.rs`
+Code: `crates/viewer-ui/src/bin/quorra/{cadence,stale,surface,window}.rs`
 
 ## The owner's *miss* is now what triggers a reprojection, and it was not (ADR 0384)
 
@@ -79,7 +79,7 @@ What this tree then built, and what binds here:
 - **A render thread owns the device and draws pages into two textures the host owns** — the page
   over the medium, the chrome on transparency. The event thread owns the presenter and presents on
   the clock's tick: the medium under everything, the page under the placement `stale.rs` computes,
-  the chrome at the identity over it. `crates/viewer-ui/src/bin/pdf-viewer/renderer.rs`.
+  the chrome at the identity over it. `crates/viewer-ui/src/bin/quorra/renderer.rs`.
 - **The readback is gone, and with it the refusal it produced.** A reprojection used to resample an
   `Arc<[u8]>` read back off the window — 2.7 to 6.6 ms of the owner's 8.333 ms refresh, plus an
   8 192 000-byte re-upload — and it could fail outright when the last frame had repacked its glyph
@@ -119,7 +119,7 @@ no reprojection is owed — and **not** in the pipelined sense, where a presente
 deadline whatever a renderer running beside it has finished. That second sense is what is left.
 
 It is a **larger** piece of work than this one was, and the obstacle is named rather than guessed:
-`quorra_gpu::Device::render` takes `&mut self` and owns the caches and the surface, so one device
+`raster_gpu::Device::render` takes `&mut self` and owns the caches and the surface, so one device
 cannot serve a render thread and a present thread at once. Whoever takes it owes the argument for
 what crosses the thread boundary before any code — a second device, a channel of finished frames,
 or an ask to quorra — and `doc/todo/16`'s road C is the neighbouring item, not the same one.

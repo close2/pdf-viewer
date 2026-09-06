@@ -117,11 +117,26 @@ const FORBIDDEN_SUBSTRINGS: [(&str, &str); 12] = [
     ("svg", "a second 2D scene model: resvg, usvg"),
 ];
 
-fn workspace_root() -> PathBuf {
+/// Where this sub-project's crates live: `raster/`, two levels above `raster/crates/<crate>`.
+///
+/// This was the workspace root until 2026-09-06, when the sub-project was folded into the
+/// caller's tree and its own manifest and lock went away. The two questions this file asks
+/// have different roots now and conflating them is what made the fold visible: **what a
+/// published crate of *this* library depends on** is read from manifests under here, while
+/// **what the lock says exists** is one file for the whole workspace, above.
+fn raster_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
-        .expect("crates/<crate> is two levels below the workspace root")
+        .expect("crates/<crate> is two levels below this sub-project")
+        .to_path_buf()
+}
+
+/// The tree's one `Cargo.lock`, which since the fold is the whole workspace's.
+fn workspace_root() -> PathBuf {
+    raster_root()
+        .parent()
+        .expect("the sub-project sits inside the workspace")
         .to_path_buf()
 }
 
@@ -251,7 +266,7 @@ fn lock_roots(root: &Path) -> Vec<String> {
 /// where CLAUDE.md principle 4 wants it — in a place that has to state a reason.
 #[test]
 fn a_published_crate_depends_on_four_names_and_each_has_a_reason() {
-    let direct = shipping_direct(&workspace_root());
+    let direct = shipping_direct(&raster_root());
     let allowed: BTreeSet<String> = DIRECT.iter().map(|(name, _)| (*name).to_owned()).collect();
     let added: Vec<_> = direct.difference(&allowed).cloned().collect();
     let gone: Vec<_> = allowed.difference(&direct).cloned().collect();
@@ -277,7 +292,7 @@ fn a_published_crate_depends_on_four_names_and_each_has_a_reason() {
 #[test]
 fn the_scene_crate_has_no_dependencies_at_all() {
     let manifest = std::fs::read_to_string(
-        workspace_root()
+        raster_root()
             .join("crates")
             .join("raster-scene")
             .join("Cargo.toml"),
@@ -304,7 +319,7 @@ fn the_shipping_graph_reaches_no_non_goal() {
         graph.len()
     );
 
-    let shipping = reachable(&graph, &lock_roots(&root));
+    let shipping = reachable(&graph, &lock_roots(&raster_root()));
     assert!(
         shipping.contains("wgpu") && shipping.contains("naga"),
         "the walk must reach wgpu and its shader compiler, or it is walking nothing: \
@@ -337,13 +352,22 @@ fn the_shipping_graph_reaches_no_non_goal() {
     }
 }
 
-/// The two crates that make the walk above worth doing, pinned as **dev-only**.
+/// The crate that makes the walk above worth doing, pinned as **dev-only**.
 ///
-/// `ab_glyph` and `tiny-skia` are in `Cargo.lock` today, reached through
-/// `winit → sctk-adwaita`'s Wayland decorations. A gate that scanned the flat lock would
-/// have to either fail or exempt them by name; this one records the shape of the fact
-/// instead — they are in the lock, and they are not in the shipping graph — so that a day
-/// on which either becomes reachable is a day this test says so.
+/// `tiny-skia` is in `Cargo.lock` and is not reachable from anything this library ships.
+/// A gate that scanned the flat lock would have to either fail or exempt it by name; this
+/// one records the shape of the fact instead — it is in the lock, and it is not in this
+/// library's shipping graph — so that a day on which it becomes reachable is a day this
+/// test says so.
+///
+/// **`ab_glyph` and `owned_ttf_parser` were beside it until 2026-09-06** and are named
+/// here because their going is the fact rather than an absence: they arrived through
+/// `winit → sctk-adwaita`'s Wayland decorations in this sub-project's own lock, and the
+/// workspace this project folded into resolves `winit` without that route, so they are in
+/// no lock to be dev-only in. The test's own message asked for exactly this choice — "the
+/// entry should go" — and `tiny-skia` alone keeps the control the paragraph below wants,
+/// since the caller's `render-cpu` depends on it directly and it is still not reachable
+/// from here.
 ///
 /// It is also the control for the walk: it fails if `reachable` ever starts returning
 /// everything.
@@ -352,20 +376,21 @@ fn the_font_and_raster_crates_in_the_lock_are_dev_only() {
     let root = workspace_root();
     let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("the workspace lock");
     let graph = lock_graph(&lock);
-    let shipping = reachable(&graph, &lock_roots(&root));
-    for name in ["ab_glyph", "tiny-skia", "owned_ttf_parser"] {
-        assert!(
-            graph.contains_key(name),
-            "`{name}` has left the lock, so this test's premise is stale: either the \
-             window smoke test's dependency changed or the entry should go"
-        );
-        assert!(
-            !shipping.contains(name),
-            "`{name}` is now reachable from a published crate. It arrives through \
-             `winit → sctk-adwaita` for the window smoke test; a route from the library \
-             itself is a §9 non-goal linked into the caller's process."
-        );
-    }
+    let shipping = reachable(&graph, &lock_roots(&raster_root()));
+    // One name rather than a loop: the two that stood beside it are gone, and the
+    // paragraph above says why their going is the fact.
+    let name = "tiny-skia";
+    assert!(
+        graph.contains_key(name),
+        "`{name}` has left the lock, so this test's premise is stale: either the \
+         caller's `render-cpu` stopped depending on it or the entry should go"
+    );
+    assert!(
+        !shipping.contains(name),
+        "`{name}` is now reachable from a published crate of this library. It is in the \
+         lock because the caller's `render-cpu` depends on it directly; a route from \
+         here is a second rasteriser inside the one this crate is."
+    );
 }
 
 /// `deny.toml` still names every engine [`KNOWN_ENGINES`] does.
@@ -412,7 +437,9 @@ fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// its own documentation would be deleted rather than fixed.
 #[test]
 fn no_source_file_parses_a_colour_profile() {
-    let root = workspace_root();
+    // This sub-project's own sources, not the workspace's: the caller above it reads ICC
+    // profiles on purpose (§8.6.5.5), and that is exactly the asymmetry this file records.
+    let root = raster_root();
     let crates = root.join("crates");
     let mut sources = Vec::new();
     for entry in std::fs::read_dir(&crates).expect("crates/ is readable") {

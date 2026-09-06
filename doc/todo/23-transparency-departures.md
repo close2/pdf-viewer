@@ -10,7 +10,7 @@ what it priced and found the price was for the wrong half** (ADR 0262); **the
 four-hundred-and-twenty-seventh built that other half and closed the standing item** (ADR 0263);
 **the four-hundred-and-thirty-sixth made the press the document's** and closed the largest
 condition the web has (ADR 0272). **The four-hundred-and-thirty-eighth took the first of the two
-backend rows off this file** (ADR 0274): `render-quorra` draws §11.4.4's non-isolated group, and
+backend rows off this file** (ADR 0274): `render-raster` draws §11.4.4's non-isolated group, and
 the two rows still on it — §11.4.6's stated shape and §11.4.7's two rasters — stopped being
 requests to somebody else and became work here, because quorra answered both asks at `89d7dd77`.
 **The four-hundred-and-thirty-ninth did one of the two and found the other is still not writable**
@@ -19,7 +19,7 @@ list, while §11.4.6's two marks cannot be *asked for* at `89d7dd77` — the ope
 one position this tree emits them from is one of the two the builder refuses. That row stays, with
 its reason corrected and an ask written (`doc/QUORRA_FEEDBACK.md` section 14.2). **The
 four-hundred-and-fifty-sixth took the second backend row off this file** (ADR 0291): quorra lifted
-both refusals at `2c9bdd0`, `render-quorra` states §11.4.6's two stages, and the four corpus pages
+both refusals at `2c9bdd0`, `render-raster` states §11.4.6's two stages, and the four corpus pages
 that were refused for it agree with the CPU oracle — so no backend row is left here and what
 remains is the interpreter's. **The
 four-hundred-and-fortieth asked the standing row what it contained and 77 of its 85 were a soft
@@ -48,7 +48,7 @@ this file priced. Corpus 65 → 63 incomplete: `issue18032.pdf` **agrees with th
 (its `/AIS` blocker was a page-wide flag a `Q`-restored statement two forms away had set, scoped
 to the group in the same round), and `bug1721218_reduced.pdf` is drawn in ink and joins
 `AMBIGUOUS_PAGE_DRAWN_IN_INK` with its own reading — nearer to `poppler` than any two references
-sit to each other. Both are refused by name on `render-gpu` and `render-quorra` and the frames go
+sit to each other. Both are refused by name on `render-gpu` and `render-raster` and the frames go
 to the oracle, which is a backend row again only in the sense ADR 0327 prices: a scene under
 composition cannot resolve a pair per pixel or retain a backdrop beside a layer.
 **The five-hundred-and-eightieth honoured §11.6.4.3's `/AIS`** (ADR 0415), which had been read and
@@ -139,7 +139,7 @@ the residue of `0.3 + 0.59 + 0.11` not being exactly 1 in binary floating point.
 So the round deleted a refusal and added no vocabulary. The explicit alternative was written first
 and withdrawn with its own arithmetic recorded: `B(Cb, Cs) = Cb` under §11.3.3 is Porter-Duff
 **Destination-Over** exactly, `tiny-skia` and `peniko` both have that operator and
-`quorra_scene::Compose` does not — so stating the rule rather than deriving it would have cost the
+`raster_scene::Compose` does not — so stating the rule rather than deriving it would have cost the
 quorra backend all 31 documents and bought no pixel.
 
 **What is now load-bearing is that the black raster is neutral**, which `Half::Black` guarantees by
@@ -222,7 +222,7 @@ twice with a different three loaded. `Compositing::Subtractive(Half)` is which t
 carry §11.3.4's additive complements, so the blend functions see what that clause requires without
 anything being complemented around them; `pdf_render::BlendingSpace` carries the conversion out as
 the ink cube's sixteen corners and `blending::resolve` applies it where §11.4.7 does, before the
-medium. **`render-quorra` draws it since the four-hundred-and-thirty-ninth** and `render-gpu` still refuses
+medium. **`render-raster` draws it since the four-hundred-and-thirty-ninth** and `render-gpu` still refuses
 the list. `QUORRA_FEEDBACK.md` §17 asked whether two `Target::Readback` renders against one quorra
 device were possible; they always were, they share their uploaded resources and cost the second
 pass no geometry at all, and `89d7dd77` added the test that keeps it so. So the work was here, and
@@ -477,8 +477,8 @@ formulas, and the three fixtures.
    corpus document states one.
 3. **`render-gpu` refuses the command**, because a Vello layer begins transparent and cannot be
    seeded from the surface; the frame goes to the CPU backend, which is what `CLAUDE.md` keeps
-   that backend for. **`render-quorra` draws it since the four-hundred-and-thirty-eighth** (ADR
-   0274): `quorra_scene::GroupSpec` gained Table 145's `/I` at `89d7dd77`, which is exactly what
+   that backend for. **`render-raster` draws it since the four-hundred-and-thirty-eighth** (ADR
+   0274): `raster_scene::GroupSpec` gained Table 145's `/I` at `89d7dd77`, which is exactly what
    `doc/QUORRA_FEEDBACK.md` §16 asked for, and the flag passes straight through. Three of the four
    corpus pages that had moved from `agree` to `refused` went back to `agree` — this time about
    the picture the clause states rather than about the one both backends were substituting — and
@@ -517,7 +517,7 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    refused in its place is a *scope*: a group whose content painted under **both** readings, and,
    under the shape reading, a non-isolated group used as an element — whose accumulated alpha
    carries its backdrop's beside its own, which is item 1's debt one level up.
-3. ~~**`render-quorra` refuses a `Shaped` element outright**~~ — **closed in the
+3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed in the
    four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
    three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
    Plus and **both arrived at `89d7dd77`** (quorra's ADR 0025), weighted by shape rather than by

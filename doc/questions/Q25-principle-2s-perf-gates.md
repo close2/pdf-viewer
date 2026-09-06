@@ -39,8 +39,8 @@ below already qualifies.**
 3. **"Parallelism (rayon) and GPU offload (vello/wgpu) are used wherever they genuinely help."**
    The rayon half is true. The parenthetical names the library the product no longer renders with:
    `vello` is `render-gpu`'s only, and `render-gpu` is reached by nothing that ships —
-   `render-quorra`'s manifest takes it as a **dev-dependency** and says so. `viewer-ui` presents
-   with `render-quorra` over `quorra-gpu`. `doc/stack.md` already reads "GPU first … `tiny-skia` as
+   `render-raster`'s manifest takes it as a **dev-dependency** and says so. `viewer-ui` presents
+   with `render-raster` over `raster-gpu`. `doc/stack.md` already reads "GPU first … `tiny-skia` as
    the correctness oracle", so the principles file is the one place still naming vello as the
    offload.
 
@@ -102,10 +102,10 @@ file lie to every round that reads it. Item 3 is smaller but is the same shape �
 
 - **Principle 2 is unedited.** This round changed nothing in `CLAUDE.md`.
 - Performance is measured, but by hand and off the gates: `crates/pdf-model/examples/open_cost.rs`,
-  `crates/render-quorra/examples/bring_up.rs` and `first_frame.rs`, with `doc/todo/02` §5's rule
+  `crates/render-raster/examples/bring_up.rs` and `first_frame.rs`, with `doc/todo/02` §5's rule
   that **a stale binary is a measurement of the past** and §5's rebuild owed before any
   measurement. `doc/todo/42` holds the launch path's own numbers and its open items.
-- The GPU path that ships is `render-quorra`; `render-gpu` is the cross-backend comparison, which
+- The GPU path that ships is `render-raster`; `render-gpu` is the cross-backend comparison, which
   `doc/state-of-play.md` and `doc/stack.md` both already say.
 - **All six sentences now have a number and a command that prints it**, which they did not when
   this question was written: `tools/state.sh launch` is the gate session 922 built, and

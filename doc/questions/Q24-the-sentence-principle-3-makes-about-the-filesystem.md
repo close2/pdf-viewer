@@ -49,7 +49,7 @@ describe:
 - the allow-list did not move — `git diff crates/pdf-sandbox/` for session 920 is empty, and the
   worker's traced system calls after the filter is installed are a subset of the ones it already
   made;
-- the port is off in every host: `pdffs` needs `--machine-fonts`, `pdf-viewer-confined` needs
+- the port is off in every host: `pdffs` needs `--machine-fonts`, `quorra-confined` needs
   `--machine-fonts` or `PDF_VIEWER_MACHINE_FONTS=on`, the KIO face needs `PDF_VFS_MACHINE_FONTS=on`,
   and a host that says nothing gets the worker session 914 left;
 - a worker whose host offers nothing still renders, still substitutes from the compiled-in faces,

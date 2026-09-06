@@ -8,7 +8,7 @@ experiment any more.
 Priority: 46 — performance, measured.
 Corpus: the owner's `tmp/Entwurf.pdf` (58 009 fills, the worst page by a wide margin);
 `doc/ISO_32000-2_sponsored_EC3.pdf` dense text at high magnification is the second witness.
-Code: `render-lib/crates/quorra-gpu/src/compute.rs` (the count → scan → emit → deposit
+Code: `render-lib/crates/raster-gpu/src/compute.rs` (the count → scan → emit → deposit
 chain and its WGSL); the CPU mirror it is held to is `render-lib`'s port of
 `pdf-render`'s `fill.rs` arithmetic.
 Instrument: the compute lane's own pass timestamps (quorra's `ComputeQueries`), read off

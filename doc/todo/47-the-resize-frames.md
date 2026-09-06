@@ -5,10 +5,10 @@ reading; what is left is one shape worth a decision and one term that belongs to
 Priority: 47 — performance, measured, and now priced.
 Corpus: `doc/ISO_32000-2_sponsored_EC3.pdf` (a page whose raster does not follow the window) and
 `tmp/Entwurf.pdf` (one whose raster does); `doc/PDF20_AN001-BPC.pdf` as a third.
-Code: `crates/viewer-ui/src/bin/pdf-viewer/window.rs` (`WindowEvent::Resized`),
+Code: `crates/viewer-ui/src/bin/quorra/window.rs` (`WindowEvent::Resized`),
 `crates/viewer-core/src/viewer.rs` (`Command::Resize` and `settle`),
-`crates/viewer-ui/src/bin/pdf-viewer/renderer.rs` (the render thread, `sharp_pass_affordable`),
-`crates/viewer-ui/src/bin/pdf-viewer/stale.rs` (`Refusal::Resized` and the retained-page answer).
+`crates/viewer-ui/src/bin/quorra/renderer.rs` (the render thread, `sharp_pass_affordable`),
+`crates/viewer-ui/src/bin/quorra/stale.rs` (`Refusal::Resized` and the retained-page answer).
 
 ## The attribution, and the command that reproduces it
 
@@ -20,7 +20,7 @@ scene build spend, and which arm a document is in.
 
 ```sh
 Xvfb :78 -screen 0 1600x1200x24 &
-DISPLAY=:78 target/pdf-viewer --trace=frames,events,window,panel <document> > trace.txt &
+DISPLAY=:78 target/quorra --trace=frames,events,window,panel <document> > trace.txt &
 sleep 25                                     # a large document takes its time to open
 id=$(DISPLAY=:78 xdotool search --name . | tail -1)
 for step in $(seq 0 39); do                  # one drag: forty steps, no settle between them
@@ -70,13 +70,13 @@ microseconds.
 
 ### 3. Arm 2 on the real adapter — corrected by ADR 0767: the table below is the lane the window leaves
 
-`render-quorra/examples/zoom_frame` draws one display list at a sequence of magnifications against
+`render-raster/examples/zoom_frame` draws one display list at a sequence of magnifications against
 one warm device — the same commands at a target a few per cent larger, which is an arm-2 resize
 step exactly. On **AMD Radeon 890M (RADV STRIX1)**, headless, minima of three rounds:
 
 ```sh
 ZOOM_FRAME_ROUNDS=3 ZOOM_FRAME_SEQUENCE=1,1.024,1.048,1.072 \
-  cargo run --release -p render-quorra --example zoom_frame -- <document> 1 1.0
+  cargo run --release -p render-raster --example zoom_frame -- <document> 1 1.0
 ```
 
 | page | step | total | scene | encode | transfer | execute |

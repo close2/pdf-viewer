@@ -35,9 +35,9 @@ numbers below are copied from them so this file survives their deletion, the fir
 on the owner's machine, AMD 890M/RADV).
 Clauses: none — this is a performance item; §2's launch rules in `CLAUDE.md` are the standard it
 is judged against
-Code: `crates/viewer-ui/src/bin/pdf-viewer/timing.rs` (the launch table, the two stages and the
+Code: `crates/viewer-ui/src/bin/quorra/timing.rs` (the launch table, the two stages and the
 first frame's phases), `crates/pdf-syntax/src/lexer.rs` (where the interpretation cost lives),
-`crates/render-quorra` (`scene.rs`'s `handing_over`, `cache.rs`'s `handed`; `encode`, where the
+`crates/render-raster` (`scene.rs`'s `handing_over`, `cache.rs`'s `handed`; `encode`, where the
 retained scene sits beside ADR 0297's cache)
 
 ## 1. The trace's hole is closed (session 497, ADR 0332)
@@ -139,7 +139,7 @@ display list never changed after the first frame.
   to walk the commands and drop them; reuse takes those too. A zoom step is currently
   160–310 ms of `device`; under reuse that survives a transform change it is the same ~60 ms.
 - **Where it lives, and the split matters.** The retained *page scene* is this tree's, in
-  `render-quorra`'s presenter beside ADR 0297's reduced-raster cache and keyed the same way
+  `render-raster`'s presenter beside ADR 0297's reduced-raster cache and keyed the same way
   (page display list `Arc` identity + the transform + viewport). But retaining the `Scene`
   alone saves only the `scene` phase — median 50.2 ms, 2.4 s of 17.1 here — because `encode`
   runs inside `Device::render` on every call. **The phase that pays is quorra's to reuse**, and
@@ -148,8 +148,8 @@ display list never changed after the first frame.
 - **Two design obstacles, both upstream API questions.** (a) The frame's scene also carries the
   background and the overlays, which this host rebuilds every frame with fresh `Arc`s
   (`Overlays::of`), so the retained unit must be the page's own *sub-scene* — and
-  `quorra_scene` has no way to compose a retained fragment into a frame today. (b) The target
-  transform is baked into every command by `render-quorra`'s `Encoder`, so reuse across a zoom
+  `raster_scene` has no way to compose a retained fragment into a frame today. (b) The target
+  transform is baked into every command by `render-raster`'s `Encoder`, so reuse across a zoom
   step needs the page scene built in page space under a root affine (`Viewport` already takes
   one) rather than re-encoded per scale.
 - **So the item is an upstream ask first** — a retained/reusable encoded scene, or scene-fragment
@@ -199,7 +199,7 @@ Upstream built the retained encode: `RetainedScene` is a handle the caller holds
 `Scene` and the encode of its last frame, and `Device::render_retained` replays that encode when
 nothing an encode reads has moved. `doc/QUORRA_RETAINED_FRAME.md` is the migration they wrote for
 this tree; ADR 0351 is what it cost and the four judgements inside it. The shape here:
-`render-quorra`'s `FrameSlot` keys the frame's scene on the page display list's `Arc` identity and
+`render-raster`'s `FrameSlot` keys the frame's scene on the page display list's `Arc` identity and
 placement, the window, the medium, and the chrome by value — so the *page* is reused by identity
 and the chrome, which this host rebuilds every frame, by content.
 
@@ -302,7 +302,7 @@ lever on this side at all. What session 552 took is the third: `scene`, −20.5 
 device-pixel window computed for every fill and read by none of them (ADR 0387 §3). What it
 established about the other two is that neither is what it looked like: the 40 uploads move none of
 `transfer`'s bytes (§3a of `doc/todo/45`), and `elsewhere` is host time inside `Device::render` that
-quorra measures and discards. `crates/render-quorra/examples/zoom_frame.rs` is the instrument, and it
+quorra measures and discards. `crates/render-raster/examples/zoom_frame.rs` is the instrument, and it
 runs on the real adapter without a window.
 
 The subdivision is `Options::instrument_encode`, which §3 named as available and nobody had

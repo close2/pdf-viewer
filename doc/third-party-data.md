@@ -38,7 +38,7 @@ because it is the record of what was read — off copies on this machine, not re
 `BSD-3-Clause` costs three obligations: reproduce the notice and disclaimer "in the documentation
 and/or other materials provided with the distribution", keep them in source, never use Adobe's or
 Google's name to endorse this. **The surface for that is `/NOTICE`** — at the repository root,
-`include_str!`d by `pdf-viewer --licences`, put over the page by `?` as the About panel, set in
+`include_str!`d by `quorra --licences`, put over the page by `?` as the About panel, set in
 §9.6.2.2's own Courier and deliberately *not* re-wrapped, because re-flowing text a licence
 obliges this program to reproduce would be editing it. `viewer-ui/tests/notices.rs` checks that
 every `.pfb` and `.ttf` under `data/` is named **by file name**, that the required sentences are

@@ -6,7 +6,7 @@ one of the three had moved, for a reason that was not rendering at all, and the 
 file is what the bisect found.
 Priority: 43
 
-Everything else in the `40`–`49` band is about how fast `pdf-viewer` runs. This one is about how
+Everything else in the `40`–`49` band is about how fast `quorra` runs. This one is about how
 fast a *round* runs, which is a different denominator with the same rule over it: principle 2's
 "genuinely is decided by measurement, never by assumption" binds here exactly as it does to a
 rasteriser, and every number below was printed rather than estimated.

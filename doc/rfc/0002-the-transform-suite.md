@@ -560,7 +560,7 @@ from becoming one:
    descriptors the broker opened — with the CLI as the unconfined broker doing only argv, path
    opening and pattern expansion. Proposed sequencing, honestly costed: **tranche one ships
    in-process** (the parse path is memory-safe, budgeted and fuzzed, which is the same posture
-   `pdf-viewer` itself ships with today outside `pdf-viewer-confined`), with the worker split as
+   `quorra` itself ships with today outside `quorra-confined`), with the worker split as
    its own follow-up round once the verbs settle — a transport change, not a redesign, and the
    seam's design is what makes that sentence checkable.
 

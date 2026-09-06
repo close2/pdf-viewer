@@ -19,7 +19,7 @@ Status: **open** — answered when `A05-naming.md` says so, replacing what it sa
 
 ## What the tree looks like today, so the decision is priced rather than guessed
 
-**Executables that exist**: `pdf-viewer`, `pdf-viewer-confined`, `pdf-transform`, `pdf-retrieve`,
+**Executables that exist**: `quorra`, `quorra-confined`, `pdf-transform`, `pdf-retrieve`,
 `pdffs`, `pdf-vfs-worker`, `pdf-sandbox-worker`, `pdf-view-worker`, plus the conformance and
 corpus tools under `tools/`. Twelve binaries and two libraries are installed by `doc/todo/02` §5.
 
@@ -37,16 +37,16 @@ corpus tools under `tools/`. Twelve binaries and two libraries are installed by 
   is invoked by `mount` as well as by hand.
 
 **What a rename touches**: 26 crate names and their directories, both workspaces' manifests, the C
-interface's symbol prefix (`pdfv_*`) and its header, the KIO plugin's protocol registration and its
+interface's symbol prefix (`quorra_*`) and its header, the KIO plugin's protocol registration and its
 installed filename, `pdffs`'s mount type as it appears in `/proc/mounts`, the environment variables
 (`PDF_VFS_MACHINE_FONTS`, `PDFVIEWER_LAUNCH_CLOCKS`, and eight more), every `doc/` path that names
 a crate, and the other repository, which is currently *called* quorra.
 
 **The collision is the awkward part.** The rendering library at `/home/cl/projects/render-lib` is
-`quorra` today, on crates.io-style names `quorra-gpu` and `quorra-scene`, and this tree depends on
+`quorra` today, on crates.io-style names `raster-gpu` and `raster-scene`, and this tree depends on
 it by those names. If the application takes the name, the library must give it up, and the owner's
 own instinct — a `quorra-` prefix — is the shape that *keeps* the collision rather than resolving
-it, because `quorra-gpu` would then read as a component of the application.
+it, because `raster-gpu` would then read as a component of the application.
 
 ## Our response, and a recommendation
 
@@ -68,7 +68,7 @@ and can also be `quorra mount`.
 2. **A name that says what it does** — `raster`, `vello`-shaped, e.g. `tessera`, `scanline`. This
    is what an outside reader would find clearest, and it gives up the family resemblance.
 3. **The owner's `quorra-` prefix**, which we would rather not recommend for the reason above: once
-   the application is `quorra`, `quorra-gpu` reads as the application's GPU crate rather than as an
+   the application is `quorra`, `raster-gpu` reads as the application's GPU crate rather than as an
    independent library.
 
 **Sub-questions the owner may want to answer separately**, because they can be decided apart:

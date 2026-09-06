@@ -166,7 +166,10 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
         "QUORRA_VFS_ABI_VERSION".to_owned(),
         i64::from(pdf_vfs_ffi::abi::QUORRA_VFS_ABI_VERSION),
     );
-    expected.insert("QUORRA_VFS_ERRNO_KIND_COUNT".to_owned(), i64::from(KIND_COUNT));
+    expected.insert(
+        "QUORRA_VFS_ERRNO_KIND_COUNT".to_owned(),
+        i64::from(KIND_COUNT),
+    );
     for (name, status) in [
         ("QUORRA_VFS_OK", Status::Ok),
         ("QUORRA_VFS_NULL_ARGUMENT", Status::NullArgument),
@@ -202,7 +205,10 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
         ("QUORRA_VFS_MEANS_INSERT_PAGES", MEANS_INSERT_PAGES),
         ("QUORRA_VFS_MEANS_DELETE_PAGE", MEANS_DELETE_PAGE),
         ("QUORRA_VFS_MEANS_EMBED_FILE", MEANS_EMBED_FILE),
-        ("QUORRA_VFS_MEANS_REMOVE_ATTACHMENT", MEANS_REMOVE_ATTACHMENT),
+        (
+            "QUORRA_VFS_MEANS_REMOVE_ATTACHMENT",
+            MEANS_REMOVE_ATTACHMENT,
+        ),
         ("QUORRA_VFS_MEANS_SET_INFORMATION", MEANS_SET_INFORMATION),
     ] {
         expected.insert(name.to_owned(), i64::from(value));

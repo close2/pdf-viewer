@@ -233,7 +233,7 @@ contract.
 **Their §31 — our two coverage lanes disagree about *where* a mark goes**, by up to an eighth
 of a device pixel, on four corpus pages (`bug1743245.pdf`, `issue21068.pdf`, `bug1863910.pdf`,
 `issue16500.pdf`), found at `cad50156` with a new instrument of theirs
-(`render-quorra/examples/lane_diff.rs`, one display list handed to both lanes so the document's
+(`render-raster/examples/lane_diff.rs`, one display list handed to both lanes so the document's
 interpretation is not a variable). **The population is axis-aligned rules about one device pixel
 wide, the amount of ink is right and the placement is not**, and the sentence to take seriously
 is theirs: *only one of the two lanes can be the exact one.* It is not a wrong picture and they
@@ -414,7 +414,7 @@ is its window.
 patched crate to obtain: `ScratchExhausted { limit }` names the adapter's wall and nothing
 about the frame that hit it, and **a refused frame has no `Counters` at all**; and `Counters`
 has no field for what a frame's coverage costs, so a 402× reduction moves no row of
-`tests/archetypes.rs`. `crates/quorra-gpu/tests/tiling_ceiling.rs` holds both findings in
+`tests/archetypes.rs`. `crates/raster-gpu/tests/tiling_ceiling.rs` holds both findings in
 public API, both verified able to fail.
 
 Two pages at 4× refuse with `ScratchExhausted` — `bug1703683_page2_reduced.pdf` and
@@ -522,7 +522,7 @@ their tree moved a page from *refused* to *differs* under us. Nothing regressed.
   reason — moving a caller-visible number is its own decision with its own measurement.
 - **The `Counters` → `Recorded` mapping is written three times** — `tests/archetypes.rs`,
   `examples/retained.rs`, `examples/surface_measure.rs` — because `Counters` lives in
-  `quorra-gpu` and `quorra-pages` must not depend on it. Named fields are the mitigation, not
+  `raster-gpu` and `raster-pages` must not depend on it. Named fields are the mitigation, not
   the fix. A fourth consumer is the trigger to re-open it, with the dev-dependency cycle on
   the table: it **works** (ADR 0060 verified it in a scratch workspace) and was refused on
   principle 4, not on feasibility.
@@ -619,7 +619,7 @@ names.
 - **An encode, exactly**: `perf` is not installed for this user and wall clocks here are
   worthless at the load averages this machine runs at — 4.49 ms for an encode the owner
   clocked at 1.96–2.35. Use **callgrind**: it counts instructions and load cannot touch it.
-  `encode` needs no adapter, so the harness is a `#[cfg(test)]` module inside `quorra-gpu`
+  `encode` needs no adapter, so the harness is a `#[cfg(test)]` module inside `raster-gpu`
   that builds a `ResourceStore` and an `AtlasStore` directly, copies the archetype out of
   `examples/surface_measure.rs`, encodes twice to fill the atlas and then N times from an
   `#[inline(never)]` wrapper. Build with `CARGO_PROFILE_RELEASE_DEBUG=1` into its own target
@@ -643,7 +643,7 @@ names.
   average beside them. Every sample must be a program **no process has compiled**, because
   RADV's on-disk cache keys on SPIR-V — the trap that cost the spike a round.
 - **Whether an instrument still asserts what it claims**:
-  `cargo run --release -p quorra-gpu --example <name> -- --check`. Every example takes it; it
+  `cargo run --release -p raster-gpu --example <name> -- --check`. Every example takes it; it
   is the smallest configuration that executes the example's assertions and prints no
   statistics, so it is a gate rather than a measurement. CI runs all twelve under `Xvfb`. If
   you add an example, add it to the workflow's list — `tests/example_checks.rs` fails until
@@ -709,11 +709,11 @@ rsync -a --exclude=target --exclude=corpus-cache --exclude=fuzz --exclude=tmp \
 tree's `.claude/worktrees/` holds other agents' build dirs, which reached 15 GB and was
 still growing when it was learned; `<dir>` under `/home/AI` rather than the `/tmp`
 scratchpad, because that tmpfs has run out mid-copy and the copy is about 537 MB. Then
-append a `[patch."https://github.com/close2/quorra"]` block pointing `quorra`, `quorra-gpu`
-and `quorra-scene` at `crates/*` here, and run
+append a `[patch."https://github.com/close2/quorra"]` block pointing `quorra`, `raster-gpu`
+and `raster-scene` at `crates/*` here, and run
 
 ```
-CARGO_TARGET_DIR=<scratch>/target cargo test --release -p render-quorra --test corpus \
+CARGO_TARGET_DIR=<scratch>/target cargo test --release -p render-raster --test corpus \
   -- --ignored --nocapture
 ```
 
@@ -763,8 +763,8 @@ before concluding anything.
 **One shared `target-dir` plus concurrent worktrees serves you another tree's crate.** The
 `AI` user's `~/.cargo/config.toml` pins a single `target-dir`, which is right for *sequential*
 worktree builds (sccache goes from 0 % to 100 % hits). With several agents building at once it
-is not: two worktrees' `quorra-scene` share a name and a version and differ only by path, and
-one gets served to the other's `quorra-gpu`. It surfaces as a compile error naming a symbol
+is not: two worktrees' `raster-scene` share a name and a version and differ only by path, and
+one gets served to the other's `raster-gpu`. It surfaces as a compile error naming a symbol
 **that exists nowhere in your tree** — `missing field alpha_is_shape in initializer of
 GroupSpec`, a field another agent was adding in its own worktree — so it reads as a bug in
 your own source. Two agents lost time to it in one round on 2026-08-23. When parallel work is
@@ -968,7 +968,7 @@ clear). **When a gate waits for stability, ask what is stable when it is wrong.*
 
 **`git checkout -- <path>` in a scripted forced-defect loop deletes the change under test.** A
 script that forced four defects into `examples/present_thread/` and restored with
-`git checkout -- crates/quorra-gpu/examples/present_thread/` reverted the round's own *uncommitted*
+`git checkout -- crates/raster-gpu/examples/present_thread/` reverted the round's own *uncommitted*
 work: the new untracked file survived and every edit to a tracked one did not, which reads exactly
 like a build that mysteriously lost its feature. **Commit before forcing a defect, and restore
 from a copy the script took itself, never from the index.**
@@ -1066,7 +1066,7 @@ direction is not verified.**
 nothing runs an example.** Four examples carried private copies of `tests/archetypes.rs`'s pages.
 When ADR 0057 changed what dense text draws, `examples/retained.rs` kept asserting the old row and
 **panicked at its own signature gate on `main` for two days**, because `cargo test` neither builds
-nor runs an example. **Closed by ADR 0060**: pages live in `crates/quorra-pages` (a
+nor runs an example. **Closed by ADR 0060**: pages live in `crates/raster-pages` (a
 dev-dependency, which is the only edge reaching a test *and* an example), every example takes
 `--check`, and CI runs all twelve. The general form outlives the instance: **an assertion nothing
 executes is not a gate, it is a comment that can rot into a panic** — so when you add a gate, ask
@@ -1104,7 +1104,7 @@ shape: a `Condvar` whose only notifier can leave without notifying.
 
 **Cargo can call a stale artefact fresh, and a test *count* is how you catch it.** Four merge
 verifications in the 2026-08-15 debt round reported `cargo test --workspace` green while the
-`quorra-gpu` lib binary being run was the one built at `619ef3b` — **89 unit tests where the
+`raster-gpu` lib binary being run was the one built at `619ef3b` — **89 unit tests where the
 tree had 112**, so the layout gate and the ramp tests that had just merged were never
 executed, and nothing failed because nothing ran. The tell was arithmetic: the total dropped
 by 21 across a merge that added two files. `RUSTFLAGS="-D warnings" cargo test -- --list`

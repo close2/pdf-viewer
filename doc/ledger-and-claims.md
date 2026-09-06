@@ -76,7 +76,7 @@ is eleven `shall`s on "the PDF processor"** — `page`, `nameddest`, `zoom`, `vi
 cannot contain a fragment identifier**, so the corpus and the oracle were blind to this by
 construction: coverage found what robustness cannot see. **Built nine sessions later**:
 `pdf_model::fragment` reads all eleven, `viewer_core::Open::apply_fragment` carries out seven, four
-are reported by name with a different blocker each, and `pdf-viewer doc.pdf#page=5` is the first
+are reported by name with a different blocker each, and `quorra doc.pdf#page=5` is the first
 caller. Three things in the annex's own text came out of it — it prints `(28h)` for the AMPERSAND
 its own Table D.2 gives 0x26, it never states the `=` that joins a parameter to its arguments, and
 its coordinate rule is true only when the *units* are default user space's and the *origin* is the

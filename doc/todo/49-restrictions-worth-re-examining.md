@@ -126,7 +126,7 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 2. **The readback cache.** ~~Decided by the owner's bound; needs eviction and a number.~~ **Done in
    the four-hundred-and-twentieth** (ADR 0256): `crates/viewer-core/src/readback.rs`, 4 MiB per open
    document, least-recently-used, one constant in one place, and readable through
-   `Viewer::readback_cache` and `pdf-viewer --trace=search`. A repeated document-wide sweep of ISO
+   `Viewer::readback_cache` and `quorra --trace=search`. A repeated document-wide sweep of ISO
    32000-2 fell from 5.45 s to **7.27 ms** and the window's from about five seconds to **0.021 s**;
    the *first* search did not move, which is the honest half of the result. It lives beside
    `interpret` rather than inside it, for the reason the "keep" list above gives: purity is about

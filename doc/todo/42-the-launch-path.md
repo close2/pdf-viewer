@@ -11,8 +11,8 @@ Item 5 has the table. **What is left of item 5 is a number nobody has taken**, a
 owner's: a launch on the real adapter through a real window.
 Priority: 42 — performance, measured and priced, not yet taken
 Corpus: every document; the two costs that scale do so with the *document*, not with page one
-Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
-`crates/render-quorra/examples/bring_up.rs`, `first_frame.rs`, ADRs 0179, 0180, 0181, 0182
+Code: `crates/viewer-ui/src/bin/quorra.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
+`crates/render-raster/examples/bring_up.rs`, `first_frame.rs`, ADRs 0179, 0180, 0181, 0182
 
 ## What changed in the nine-hundred-and-twenty-second session
 
@@ -356,7 +356,7 @@ reason §8.1 asked for the field split.
 ### 5. The first frame pays ~12 ms of first-use allocation, and it is **not** the shaders
 
 Measured in the two-hundred-and-eightieth session on the machine's real adapter, headless
-(`crates/render-quorra/examples/first_frame.rs`): frame 1 costs 18.2 ms and frames 2 to 10 cost
+(`crates/render-raster/examples/first_frame.rs`): frame 1 costs 18.2 ms and frames 2 to 10 cost
 3.7 to 5.1, and the difference is roughly fixed across scales — 13.3 ms at 1×, 14.3 at 2×, 18.1
 at 4×.
 
@@ -422,7 +422,7 @@ measure (ADR 0126).
 ## 6. The *native* hosts have a launch path too, and it is a different number
 
 This file's five items are `viewer-ui`'s, which drives its own event loop and presents itself.
-`pdf-viewer-gtk` and `pdf-viewer-qt` place somebody else's widgets, so their launch has a term
+`quorra-gtk` and `quorra-qt` place somebody else's widgets, so their launch has a term
 `viewer-ui`'s does not: **page one's answer comes back through a main loop that is inside the
 toolkit's own first frame.** Measured in the seven-hundred-and-fifty-ninth on a quiet machine, twenty
 alternating pairs an arm (ADR 0678): `viewer-gtk`'s `opened` → first frame went from 9.5 ms to 53.4

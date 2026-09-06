@@ -199,7 +199,10 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("QUORRA_EVENT_OPENED", EventKind::Opened),
         ("QUORRA_EVENT_OPEN_FAILED", EventKind::OpenFailed),
-        ("QUORRA_EVENT_PASSWORD_REQUIRED", EventKind::PasswordRequired),
+        (
+            "QUORRA_EVENT_PASSWORD_REQUIRED",
+            EventKind::PasswordRequired,
+        ),
         ("QUORRA_EVENT_CLOSED", EventKind::Closed),
         ("QUORRA_EVENT_PAGE_CHANGED", EventKind::PageChanged),
         ("QUORRA_EVENT_NEEDS_RENDER", EventKind::NeedsRender),
@@ -314,7 +317,10 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_LAYOUT_SINGLE_PAGE",
             viewer_ffi::LayoutKind::SinglePage,
         ),
-        ("QUORRA_LAYOUT_ONE_COLUMN", viewer_ffi::LayoutKind::OneColumn),
+        (
+            "QUORRA_LAYOUT_ONE_COLUMN",
+            viewer_ffi::LayoutKind::OneColumn,
+        ),
         (
             "QUORRA_LAYOUT_TWO_COLUMN_LEFT",
             viewer_ffi::LayoutKind::TwoColumnLeft,
@@ -393,7 +399,10 @@ fn the_answered_enumerations(expected: &mut BTreeMap<String, i64>) {
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
-    expected.insert("QUORRA_ROW_KIND_COUNT".to_owned(), i64::from(RowKind::COUNT));
+    expected.insert(
+        "QUORRA_ROW_KIND_COUNT".to_owned(),
+        i64::from(RowKind::COUNT),
+    );
     // §14.8.2.5's two content orders, and there is deliberately no `_COUNT` beside them: the
     // clause defines exactly two, so the guard the other answered enumerations carry against
     // growing under a compiled caller has nothing here to guard (ADR 0519).
@@ -425,7 +434,10 @@ fn the_field_flags(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_FIELD_NO_EXPORT", viewer_ffi::form::FLAG_NO_EXPORT),
         ("QUORRA_FIELD_MULTILINE", viewer_ffi::form::FLAG_MULTILINE),
         ("QUORRA_FIELD_PASSWORD", viewer_ffi::form::FLAG_PASSWORD),
-        ("QUORRA_FIELD_FILE_SELECT", viewer_ffi::form::FLAG_FILE_SELECT),
+        (
+            "QUORRA_FIELD_FILE_SELECT",
+            viewer_ffi::form::FLAG_FILE_SELECT,
+        ),
         (
             "QUORRA_FIELD_DO_NOT_SPELL_CHECK",
             viewer_ffi::form::FLAG_DO_NOT_SPELL_CHECK,
@@ -522,7 +534,10 @@ fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_PREF_ENFORCE_PRINT_SCALING",
             PreferenceKey::EnforcePrintScaling,
         ),
-        ("QUORRA_PREF_PRINT_PAGE_RANGE", PreferenceKey::PrintPageRange),
+        (
+            "QUORRA_PREF_PRINT_PAGE_RANGE",
+            PreferenceKey::PrintPageRange,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(key.code()));
     }
@@ -562,19 +577,31 @@ fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
         expected.insert(name.to_owned(), kind as i64);
     }
     for (name, kind) in [
-        ("QUORRA_SHORTFALL_EMPTY_MAPPING", ShortfallKind::EmptyMapping),
+        (
+            "QUORRA_SHORTFALL_EMPTY_MAPPING",
+            ShortfallKind::EmptyMapping,
+        ),
         (
             "QUORRA_SHORTFALL_INCOMPLETE_TO_UNICODE",
             ShortfallKind::IncompleteToUnicode,
         ),
-        ("QUORRA_SHORTFALL_UNLISTED_NAME", ShortfallKind::UnlistedName),
+        (
+            "QUORRA_SHORTFALL_UNLISTED_NAME",
+            ShortfallKind::UnlistedName,
+        ),
         ("QUORRA_SHORTFALL_UNNAMED_CID", ShortfallKind::UnnamedCid),
         (
             "QUORRA_SHORTFALL_UNADDRESSABLE_CID",
             ShortfallKind::UnaddressableCid,
         ),
-        ("QUORRA_SHORTFALL_UNNAMED_GLYPH", ShortfallKind::UnnamedGlyph),
-        ("QUORRA_SHORTFALL_UNNAMED_TOTAL", ShortfallKind::UnnamedTotal),
+        (
+            "QUORRA_SHORTFALL_UNNAMED_GLYPH",
+            ShortfallKind::UnnamedGlyph,
+        ),
+        (
+            "QUORRA_SHORTFALL_UNNAMED_TOTAL",
+            ShortfallKind::UnnamedTotal,
+        ),
         (
             "QUORRA_SHORTFALL_WITHOUT_A_GLYPH",
             ShortfallKind::WithoutAGlyph,
@@ -642,7 +669,10 @@ fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_COLLECTION_FIELD_DATE", ColumnKind::Date),
         ("QUORRA_COLLECTION_FIELD_NUMBER", ColumnKind::Number),
         ("QUORRA_COLLECTION_FIELD_FILE_NAME", ColumnKind::FileName),
-        ("QUORRA_COLLECTION_FIELD_DESCRIPTION", ColumnKind::Description),
+        (
+            "QUORRA_COLLECTION_FIELD_DESCRIPTION",
+            ColumnKind::Description,
+        ),
         (
             "QUORRA_COLLECTION_FIELD_MODIFICATION_DATE",
             ColumnKind::ModificationDate,

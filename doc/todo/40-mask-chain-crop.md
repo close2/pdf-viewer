@@ -127,7 +127,7 @@ those bounds, so the round that takes it owes a byte-identity run rather than an
 
 ## The other half, which is not this file's
 
-`render-quorra` is handed the same display list and encodes the same 3490 page-sized
+`render-raster` is handed the same display list and encodes the same 3490 page-sized
 rectangles. `pdf_render::cropped_rectangle` is in the shared crate so that it can call
 it; nobody has. `doc/QUORRA_FEEDBACK.md` is where that belongs.
 

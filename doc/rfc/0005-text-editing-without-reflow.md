@@ -190,7 +190,7 @@ already routes clicks through selection/annotation/field activation, and a mode 
 per-keystroke advance already exist for form fields — ADR 0211 — and are reused.)
 
     +-----------------------------------------------------------------+
-    | pdf-viewer — invoice.pdf                              [edit] e  |
+    | quorra — invoice.pdf                              [edit] e  |
     +-----------------------------------------------------------------+
     |                                                                 |
     |   Invoice date:  .-------------------------.                    |

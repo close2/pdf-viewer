@@ -9,7 +9,7 @@ was the instrument; this is what it found, and it is the successor to that file 
 restatement of it.
 Corpus: —, the witness is the project owner's own `tmp/windows/NorthAmerican.30MB.pdf` (65 pages,
 30 MB), which is outside the corpus
-Code: `crates/viewer-ui/src/bin/pdf-viewer.rs`, `crates/render-quorra/src/cache.rs`,
+Code: `crates/viewer-ui/src/bin/quorra.rs`, `crates/render-raster/src/cache.rs`,
 `crates/pdf-render/src/paint.rs`, `doc/QUORRA_FEEDBACK.md`
 
 ## The measurement everything below comes from
@@ -21,7 +21,7 @@ Re-run before acting, and take three samples rather than one:
 
 ```sh
 Xvfb :78 -screen 0 1200x1500x24 &
-DISPLAY=:78 ./target/pdf-viewer --trace=frames tmp/windows/NorthAmerican.30MB.pdf
+DISPLAY=:78 ./target/quorra --trace=frames tmp/windows/NorthAmerican.30MB.pdf
 ```
 
 Sums in milliseconds over 39 frames, three runs of each, at 800×1000 (ADR 0228 §5):
@@ -59,7 +59,7 @@ cost 12.7 to 16.8 ms of which **8.5 to 9.8 was `Image::area_averaged`** on a dis
 command — the work is per *source* sample, so it does not shrink with the window and the twenty
 steps recompute the same 1350×1725 raster from the same `Arc`.
 
-`render-quorra` keeps it now, keyed by the source's `Arc` identity and the reduction factors, which
+`render-raster` keeps it now, keyed by the source's `Arc` identity and the reduction factors, which
 `pdf_render::Image::reduction` answers without producing the raster. Median frame **15.0 → 4.8 ms**,
 uploads **23 → 2**, three runs an arm; every gate unmoved and the 4× lane byte-identical. ADR 0297.
 
@@ -139,16 +139,16 @@ back.
 **That last question is closed** (session 552, ADR 0387): it is *not* a `FrameCost` field, because
 `FrameCost` is `Copy` and `Timings::phases` is a `Vec`. It is `QuorraPresenter::last_phases` and
 `QuorraRasterizer::last_phases` beside `last_frame`, cloned into a buffer the host keeps so that a
-still window allocates nothing for it, and `crates/render-quorra/examples/zoom_frame.rs` is the
+still window allocates nothing for it, and `crates/render-raster/examples/zoom_frame.rs` is the
 caller — `ZOOM_FRAME_ENCODE_PHASES=1` turns `Options::instrument_encode` on for a run that wants the
 subdivision and pays quorra's few per cent for it. Seeing the three encode phases from a host no
 longer costs a patch.
 
 **What was ours in this row is done** (session 516, ADR 0351). It read: this host builds a fresh
-`quorra_scene::Scene` every frame, so nothing inside `encode` *can* be reused — a retained scene is
+`raster_scene::Scene` every frame, so nothing inside `encode` *can* be reused — a retained scene is
 the lever, and the number it would have to beat is 3.86 µs a command. Upstream built the retained
 encode at `580fa4ac` (their ADR 0048, priced at `87898c69` by their ADR 0045) and this tree took
-it: `render-quorra`'s `FrameSlot` keeps the frame's scene across frames, keyed on the page display
+it: `render-raster`'s `FrameSlot` keeps the frame's scene across frames, keyed on the page display
 list's `Arc` identity, its placement, the window, the medium and the chrome by value, so a frame
 that changed in none of those builds no scene and quorra replays its encode. On the owner's
 document a still window's `scene` and `encode` both go to zero and `uploads` to none, byte-

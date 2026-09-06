@@ -100,10 +100,10 @@ the correctness oracle, and the frame the device refuses.
 ### 3b. The quorra backend, and what a corpus-scale comparison found in it
 
 **A second GPU backend arrived in the hundred-and-eighty-sixth to -eighth sessions**, written
-against `doc/RENDER_LIBRARY.md`'s brief in its own tree and adapted here by `render-quorra`; the
+against `doc/RENDER_LIBRARY.md`'s brief in its own tree and adapted here by `render-raster`; the
 window presents through it. It came with eleven cross-backend scenes and four real pages, which
 is a better suite than the Vello backend ever had — and trap 12b is about exactly that gap.
-**`render-quorra/tests/corpus.rs` closes it** (ADR 0156): every one of the 974 documents' first
+**`render-raster/tests/corpus.rs` closes it** (ADR 0156): every one of the 974 documents' first
 pages, both backends handed the *same display list*, so a difference is two rasterisers
 disagreeing and a refusal is a hole in the new one. Three ratchets held by name — refused,
 differing at the edges (similarity above 0.99), differing in shape — and both renders of every
@@ -141,7 +141,7 @@ that reproduces each, and the same document now carries what closed them:
 exactly wrong for a shear. Four documents left the list.
 
 **Where it stands is what the gate prints**, and it is not written here: `tools/state.sh` runs it
-and `crates/render-quorra/tests/corpus.rs`'s `REFUSED_BEFORE_THE_SCENE` and `REFUSED_BY_THE_DEVICE`
+and `crates/render-raster/tests/corpus.rs`'s `REFUSED_BEFORE_THE_SCENE` and `REFUSED_BY_THE_DEVICE`
 hold the refusals to equality — split since the five-hundred-and-seventy-eighth along the *stage*
 the refusal happens at, so that a name leaving one of them means one thing — so the count
 in a paragraph is always the one a round did not run. **What is worth stating is the *shape* of the
@@ -228,7 +228,7 @@ ADRs' tables carry it for that reason.
 ### 3d. What a *zoom step* costs, and the two rows of it that were never what they looked like
 
 **The frame a person waits for on a large drawing is a magnification against warm caches**, and
-`crates/render-quorra/examples/zoom_frame.rs` is the instrument that draws exactly that: two frames
+`crates/render-raster/examples/zoom_frame.rs` is the instrument that draws exactly that: two frames
 on one device, the second placing the same display list at a new scale. It reports what nothing else
 here reported — quorra's `bytes_uploaded`, its `Timings::readback`, and the named spans of
 `Timings::phases` — and **it runs on the real adapter without a window**, which is the correction
@@ -375,7 +375,7 @@ against the same binary with the budget set to zero so the two differ in the cac
 The two RSS rows are worth reading together: a cache costs 2.3 MB on a single sweep and *saves* 22
 on a second, because the second sweep no longer interprets a thousand pages. The budget is 4 MiB per
 open document, `viewer_core::readback::BUDGET`, and `Viewer::readback_cache` is how a person reads
-what it holds — `pdf-viewer --trace=search` prints it when a search ends.
+what it holds — `quorra --trace=search` prints it when a search ends.
 
 **And in the window**, `Xvfb` at 1100×1200 with lavapipe, timed from the key press to the line the
 search prints, medians of three:
@@ -602,7 +602,7 @@ several into one scene.
 Answered at `2531f447`, which is what `Cargo.lock` pinned from the three-hundred-and-eighty-fourth
 session until the four-hundred-and-thirty-eighth moved it to `89d7dd77` for §11.4.4's flag (ADR 0274) — `create_instance_with(backends)` exactly as asked, plus `Device::adapter_names_on`,
 which closes the trap the parameter would otherwise have opened, and a decision *not* to read
-`WGPU_BACKEND`. `pdf-viewer --backend` is what this tree does with it (ADR 0221). The same pull
+`WGPU_BACKEND`. `quorra --backend` is what this tree does with it (ADR 0221). The same pull
 carries `7cbf6e8`: a `Device` now joins its warm-up thread in `Drop`, because a device dropped
 before it was warm could reach `exit()` with a thread still inside `vkCreateGraphicsPipelines`
 while Mesa tore the driver down under it — a crash *after* a test suite reports success, which is
@@ -1118,7 +1118,7 @@ three runs an arm:
 A scratch build of two `Instant`s attributed the 8.9 ms exactly: `area_averaged` on the page's one
 2700×3450 photograph, 8.5 to 9.8 ms, against an `upload_image` of **0.002** and a `transfer` median
 of 0.8 — the cost is one pass over the *source* samples on the host and nothing else. It is kept
-now, in `render-quorra`'s resource cache, keyed by the source's `Arc` identity **and the reduction
+now, in `render-raster`'s resource cache, keyed by the source's `Arc` identity **and the reduction
 factors**, which `pdf_render::Image::reduction` answers without producing the raster. Two uploads
 rather than twenty-three is the reduction being produced once per magnification instead of once per
 frame. Every gate is unmoved and the 4× coverage lane is byte-identical, refusal for refusal — which

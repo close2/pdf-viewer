@@ -7,7 +7,7 @@ low-resolution page by ADR 0443, the processor's window and the identity of a pa
 fire on a real one. A view change whose last frame was slow
 now shows the pixels already on the screen, moved to where the new view puts them, and the real
 frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
-was refused**, and `crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries the five rules with the
+was refused**, and `crates/viewer-ui/src/bin/quorra/stale.rs` carries the five rules with the
 thing that enforces each.
 Priority: 37 — both surfaces, one policy, and the only thing they still differ in is what a
 stand-in costs the thread that presents.
@@ -219,7 +219,7 @@ on being drawn sharp says nothing and asserts something false. The memory bound 
   0461. Six zoom steps in a column fire `Refusal::Rearranged` seven times on the device, and the
   retained pages answered **all seven** — so what it would buy is the sharp layer instead of a
   512-pixel page, rather than a picture instead of a blank window, which is what it would have
-  bought before ADR 0443. What it would cost is one texture per page where `render-quorra` draws one
+  bought before ADR 0443. What it would cost is one texture per page where `render-raster` draws one
   per *frame* — an ask to quorra, or N renders — three times the page half of a frame's memory in a
   column of three, and `stale::AGREEMENT` with 609's test and the measurement they carry. A later
   round may still take it; it starts from that price rather than from this sentence.

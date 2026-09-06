@@ -8,9 +8,9 @@ Priority: 50 — the remaining runs still need hardware only the project owner h
 Corpus: the owner's own windowed runs of `Entwurf Küchenrückwand.x.pdf` (the 58 009-command page
 `doc/todo/44` is about); `tmp/win/entwurf.2.trace.txt` is the full session, `output*.txt` the two
 `--backend gl` runs, `entwurf.3.trace.txt` a three-line fragment.
-Code: ADR 0761's gate in `crates/viewer-ui/src/bin/pdf-viewer/renderer.rs` is the one change the
+Code: ADR 0761's gate in `crates/viewer-ui/src/bin/quorra/renderer.rs` is the one change the
 first reading justified from Linux; the rest is upstream's (`doc/QUORRA_FEEDBACK.md` §41).
-Instrument: a Windows build of `pdf-viewer` with `--trace=frames` on the owner's Intel UHD /
+Instrument: a Windows build of `quorra` with `--trace=frames` on the owner's Intel UHD /
 DX12 machine.
 
 ## What the first traces answered
@@ -59,7 +59,7 @@ All with a build carrying ADR 0761, `--trace=frames`, and the same document:
    (execute 6.2 ms), so the CPU lane plausibly beats the compute lane's 2.2 s per moved view
    here — if it does, the `lane_for` moved-view rule (measured on the 890M) needs an adapter
    condition, and this run is the number it needs.
-3. **The GL panic's backtrace, once**: `RUST_BACKTRACE=1 pdf-viewer.exe --backend gl …` — the
+3. **The GL panic's backtrace, once**: `RUST_BACKTRACE=1 quorra.exe --backend gl …` — the
    backtrace names which main-thread call hit the lock, which is what an upstream wgpu report
    wants attached.
 4. **Say what `entwurf.3.trace.txt` was**: it ends three lines in, before `backend asked for` —

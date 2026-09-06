@@ -1561,7 +1561,10 @@ pub unsafe extern "C" fn quorra_focused_annotation(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn quorra_fields_read(viewer: *const Session, fields: *mut *mut Form) -> c_int {
+pub unsafe extern "C" fn quorra_fields_read(
+    viewer: *const Session,
+    fields: *mut *mut Form,
+) -> c_int {
     let (Some(viewer), Some(fields)) = (viewer.as_ref(), fields.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -2531,7 +2534,10 @@ pub unsafe extern "C" fn quorra_supply(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn quorra_layers_read(viewer: *const Session, panel: *mut *mut Panel) -> c_int {
+pub unsafe extern "C" fn quorra_layers_read(
+    viewer: *const Session,
+    panel: *mut *mut Panel,
+) -> c_int {
     let (Some(viewer), Some(panel)) = (viewer.as_ref(), panel.as_mut()) else {
         return Status::NullArgument.code();
     };

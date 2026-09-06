@@ -290,7 +290,7 @@ display-list merge in `pdf-render`: `DisplayList` carries §11.4.7's page-group 
 companion black list *per list*, so two pages stating different page groups are not one list at all;
 `Command::Group` carries no transform, so placing a page inside a merged list means rewriting the
 transform of every command, clip and soft mask, at every magnification; and the merged list is a new
-allocation, which is the identity `render-quorra`'s retained scene and `crate::cache`'s pinned
+allocation, which is the identity `render-raster`'s retained scene and `crate::cache`'s pinned
 resources are keyed on (ADR 0351). The frame carries **several placed lists** instead — which is
 what `PresentFrame::overlays` already was — and trap 2 is satisfied by there being one statement of
 the arrangement rather than by where the drawing happens: `viewer_core::layout` decides where the
@@ -364,7 +364,7 @@ change to both rasterisers.
   about the population it named. The clip is stated once on the display list —
   `DisplayList::content_clip`, carrying §12.2's `/ViewClip` boundary rather than the crop box by
   name — mapped into a target by `pdf_render::crop_area` and applied by `crop_to_page`, which every
-  rasteriser runs immediately before `impose_within`. `render-quorra`'s window path took the outer
+  rasteriser runs immediately before `impose_within`. `render-raster`'s window path took the outer
   clip chain this entry predicted, for the reason the medium already needed one: a frame drawn onto a
   swapchain has no raster afterwards to cut. `Interpreter::view_clip` and its `Option<ClipId>` are
   gone, because one rectangle says what the chain said for every document rather than for the zero
@@ -471,7 +471,7 @@ host places its own furniture — so §12.3.5's collection is what is left of th
    **And it found a licence obligation nobody had noticed.** `?` had to mean something in all three,
    and what it means in `viewer-ui` is the card of third-party notices that exists because both
    licences covering the compiled-in standard 14 font programs (§9.6.2.2) require a *binary*
-   distribution to reproduce their notices. `pdf-viewer-gtk` and `pdf-viewer-qt` ship the same font
+   distribution to reproduce their notices. `quorra-gtk` and `quorra-qt` ship the same font
    programs and reproduced them nowhere at all — no card, no dialog, not even a `--licences` flag.
    `viewer_host::NOTICE` is the one text and all three hosts now put it on the screen.
 

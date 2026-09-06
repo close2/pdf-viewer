@@ -73,7 +73,7 @@ which records what the dependency costs as well as what it buys.
 ## 2. Workspace layout
 
 ```
-pdf-viewer/
+quorra/
 ├─ crates/
 │  ├─ pdf-spec/       # Arlington codegen output + validation  [forbid(unsafe_code)]
 │  ├─ pdf-syntax/     # lexer, objects, xref, streams          [forbid(unsafe_code)]
@@ -149,7 +149,7 @@ See §4. Built before real rendering exists, validated on a hand-written trivial
 
 ### The viewer
 
-`cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf` opens a real file.
+`cargo run --release -p viewer-ui --bin quorra -- document.pdf` opens a real file.
 Arrow keys or Page Up/Down turn pages, `+`/`-`/`0` zoom, a drag selects text, `s` saves what
 was changed; the title bar names anything on the page that could not be drawn, because a
 viewer that shows an incomplete page confidently is worse than one that admits the gap.

@@ -7,8 +7,8 @@ its first host (ADR 0713), that host draws on the graphics device (ADR 0725), th
 warn-and-abort has reached the three established windows (ADR 0729), a breach is a refusal
 of the page rather than of the document (ADR 0734) — and the reader's own view survives that
 refusal (ADR 0737)**:
-`pdf-viewer-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
-arms, presented through `render-quorra` — which is what the marks cross the pipe *for* — with
+`quorra-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
+arms, presented through `render-raster` — which is what the marks cross the pipe *for* — with
 Escape ending the worker *and* taking back the drawing thread, and `--cpu` the window with no
 device. The
 machinery exists and is verified
@@ -90,7 +90,7 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
 
 ## What the seven-hundred-and-seventy-fifth session built, so the next round starts from it
 
-**A window on this boundary exists**: `pdf-viewer-confined` (in `viewer-ui`, ADR 0713 for why
+**A window on this boundary exists**: `quorra-confined` (in `viewer-ui`, ADR 0713 for why
 there), the smallest complete host — open, arrange, turn, scroll, zoom, report, abort — with
 everything outside that scope refused by name. **Since the seven-hundred-and-eighty-first
 session that scope includes §7.6.4.1's prompt** (ADR 0718): an encrypted document was the one
@@ -150,7 +150,7 @@ measurement asks for more.
   `command_extents`, which every CPU draw already computes to place its strips — correlates with
   the measured draw at **0.115** by Pearson over `doc/pdf.js`'s first pages. Two pages of the same
   size make it concrete: one painted **0.2** times over draws for **162 ms** and one painted
-  **593** times over draws in **16 ms**. `render-quorra`'s budget refusals are not the answer
+  **593** times over draws in **16 ms**. `render-raster`'s budget refusals are not the answer
   either: that budget is the *device's resources*, not the frame's cost. `examples/host_draw` is
   the instrument and carries the finding.
 
@@ -194,7 +194,7 @@ measurement asks for more.
   `Composer::declined` recorded the arrangement the person had stopped. A native window needs no
   such field, because a viewer's token never answered is never re-issued.
 - ~~**The cancel path proven from the host**, not only from a test~~ — **proven in the
-  seven-hundred-and-seventy-fifth** (ADR 0713): Escape in `pdf-viewer-confined` ends the worker
+  seven-hundred-and-seventy-fifth** (ADR 0713): Escape in `quorra-confined` ends the worker
   and takes the drawing thread back, without blocking, on the amplification fixture under `Xvfb`.
 - **The device path warns about nothing**, which ADR 0729 states rather than guards against:
   quorra has no interrupt (ADR 0725), so the flagship's render thread cannot be taken back and a
@@ -208,7 +208,7 @@ measurement asks for more.
   sentence is about a refusal the **worker** makes, which is still true and still needs the fallible
   allocation. What the *reader* needs is a refusal of the **page**, and that costs nothing inside
   the confinement: `viewer_confined::Resuming` decides which errors are worth another worker and
-  how many in a row, and `pdf-viewer-confined` starts one, opens the file again — it is on this
+  how many in a row, and `quorra-confined` starts one, opens the file again — it is on this
   side by rule 2 — and goes back to the page the reader was on without re-sending the command that
   killed the last one. The budget is **consecutive**, put back by every frame that reaches the
   screen, so what it bounds is a recovery that is not working rather than the length of a reading.

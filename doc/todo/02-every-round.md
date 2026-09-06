@@ -60,7 +60,7 @@ cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
-cargo test  --profile gates -p render-quorra  --test corpus          -- --ignored --nocapture
+cargo test  --profile gates -p render-raster  --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test fixed_documents -- --ignored --nocapture
 cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
 cargo test  --profile gates -p pdf-transform  --test writer_corpus   -- --ignored --nocapture   # RFC 0002 section 9: the writer over the corpus
@@ -90,7 +90,7 @@ reaches for the script has not linted or checked formatting at all, and owes tho
 
 **This section owns the sequence, and nothing else states it.** `doc/HANDOVER.md` used to carry a
 second copy under "Verify it" and the two drifted — one said 1369 tests where the gate printed
-1371, and it never listed `render-quorra`'s corpus gate at all (ADR 0232 §4). Two documents stating
+1371, and it never listed `render-raster`'s corpus gate at all (ADR 0232 §4). Two documents stating
 one command is how they drift, so one owns it.
 
 ### The change → gate map
@@ -114,7 +114,7 @@ what the change can reach, and *reach* is the crate graph rather than the file's
 | a change in | is under | so run, beyond the core |
 |---|---|---|
 | `pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-spec`, `pdf-sandbox`, `render-cpu` | everything | **everything** — these are what draws the page and what every gate rasterises with |
-| `render-quorra` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path |
+| `render-raster` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path |
 | `render-gpu` | no gate at all | the workspace tests are the only judge (`headless_gpu`); say so, and consider `doc/verify.md`'s cross-backend runs |
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
 | `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | the launch-path gate for the first of them | the core, which builds and tests them; §5 rebuilds what a person runs. **And `--test launch_path` where the change is in `viewer-ui`, `viewer-core` or anything the launch path crosses**, which is `CLAUDE.md` principle 2's four numbers and is the only gate in this sequence that can see them. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
@@ -516,7 +516,7 @@ a person would run has to be copied into the project's own `target/`. `tools/sta
 says what is there and how old it is; `tools/round.sh` says whether this round owes the rebuild.
 
 **Which directory that is has to be *asked for*, never written down**, and this section wrote it
-down — `/home/AI/cargo-target/pdf-viewer/` — for as long as it has existed. That is the main tree's,
+down — `/home/AI/cargo-target/quorra/` — for as long as it has existed. That is the main tree's,
 and a worktree round has its own (`.cargo/config.toml`'s `target-dir`), so the literal path installs
 a **neighbour's** binary over this round's: the seven-hundred-and-twenty-sixth session rebuilt the
 GTK host three times, installed it three times, ran a feature that was working, and saw nothing,
@@ -545,8 +545,8 @@ cargo build --release --bin quorra --bin pdf-sandbox-worker --bin pdf-view-worke
                      --bin quorra-gtk --bin quorra-qt --bin quorra-confined \
                      --bin quorra-retrieve --bin quorra-transform \
                      --bin quorrafs --bin pdf-vfs-worker
-for binary in pdf-viewer pdf-sandbox-worker pdf-view-worker pdf-viewer-gtk pdf-viewer-qt \
-              pdf-viewer-confined pdf-retrieve pdf-transform pdffs pdf-vfs-worker
+for binary in quorra pdf-sandbox-worker pdf-view-worker quorra-gtk quorra-qt \
+              quorra-confined pdf-retrieve pdf-transform pdffs pdf-vfs-worker
 do install -Dm755 "$built/$binary" "target/$binary"; done
 cargo build --release -p viewer-ffi -p pdf-vfs-ffi   # libraries, so not in the invocation above
 install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so
@@ -556,7 +556,7 @@ install -Dm755 "$built/libpdf_vfs_ffi.so" target/libpdf_vfs_ffi.so
 **`pdffs` and `pdf-vfs-worker` joined the list in the nine-hundred-and-ninth session**, and the
 second of them is the reason to say so rather than to add a name: `pdffs` is RFC 0003's mount and
 a person runs it, and it will not open a document without its confined worker *beside the running
-executable* — the same relationship `pdf-viewer-confined` has with `pdf-view-worker`, and the same
+executable* — the same relationship `quorra-confined` has with `pdf-view-worker`, and the same
 trap 10 one directory over. The worker had been built by no line of this file since the round that
 wrote it.
 
@@ -581,8 +581,8 @@ All the rest beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate exec
 spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than
 falling back (there is deliberately no in-process fallback — see "the sandbox is a flag and the
 default is the safe one"); `pdf-view-worker` is the whole viewer confined, which
-`viewer_confined::Confined` spawns — `pdf-viewer-confined` is the window that spawns it (ADR
-0713), searched for beside the executable, and `pdf-viewer` still does not (ADR 0218);
+`viewer_confined::Confined` spawns — `quorra-confined` is the window that spawns it (ADR
+0713), searched for beside the executable, and `quorra` still does not (ADR 0218);
 `pdf-retrieve` is not
 a window but a program a person runs, and the only one whose whole output is text a caller pipes
 (ADR 0257).
@@ -593,7 +593,7 @@ cadence above exists at all.
 **`viewer-confined`'s two binaries used to be built in release *before* the gates**, on a note
 saying the gates needed them. They do not: those tests run under `cargo test --workspace`, which
 builds the debug worker itself, and no release or gates binary in this tree names
-`viewer-confined` — checked by grep over `pdf-model`'s and `render-quorra`'s manifests and test
+`viewer-confined` — checked by grep over `pdf-model`'s and `render-raster`'s manifests and test
 sources. That was half a minute a round in the wrong section.
 
 ## 5a. Sweep the build directory when it passes a hundred gigabytes
@@ -612,7 +612,7 @@ whose each directory is, which the sweep below needs because **the root holds di
 project's tools did not make and cannot judge** (ADR 0752).
 
 ```sh
-rm -rf /home/AI/cargo-target/pdf-viewer/{debug,release,gates}   # never tmp/ — see below
+rm -rf /home/AI/cargo-target/quorra/{debug,release,gates}   # never tmp/ — see below
 ```
 
 `target/tmp/pdfref-cache` is the reference-render cache (ADR 0020), and deleting it costs the next

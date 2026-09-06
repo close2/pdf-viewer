@@ -71,7 +71,7 @@ document's.
 2. **One matcher** — `substitute::machine_face`, which is this module's own families-by-endings walk
    and its covering search, factored so that the broker runs the same order an unconfined process
    runs. `provider::open_a_face` is a decode, that call, and a read.
-3. **The hosts** — `pdffs --machine-fonts`, `pdf-viewer-confined --machine-fonts` (or
+3. **The hosts** — `pdffs --machine-fonts`, `quorra-confined --machine-fonts` (or
    `PDF_VIEWER_MACHINE_FONTS=on`, which is `viewer_host::MACHINE_FONTS_VARIABLE` and is what a window
    started from a desktop entry has), and `PDF_VFS_MACHINE_FONTS=on` for the KIO face, whose C
    boundary is an ABI of thirty-five functions (ADR 0868) and whose only channel is the environment

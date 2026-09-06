@@ -29,8 +29,8 @@ can and cannot open a window on, and where the build lands.
   reader of the log should not need to know that. Before pushing a pick, `git log -1 --format=%b`
   must print the body you expect.
 - **The *process table* is shared between parallel rounds, and `pkill -f` matches on the path.**
-  Every worktree lives under `…/pdf-viewer/.claude/worktrees/rNNN`, so a round running
-  `pkill -f pdf-viewer` to clean up its own windows matches **its own shell, and its neighbours'** —
+  Every worktree lives under `…/quorra/.claude/worktrees/rNNN`, so a round running
+  `pkill -f quorra` to clean up its own windows matches **its own shell, and its neighbours'** —
   every command line a sibling round is running contains the project's name because its working
   directory does. The six-hundred-and-fourth session lost four commands to this before it saw the
   pattern; the six-hundred-and-fifth saw three `cargo build --release` invocations return **exit
@@ -286,7 +286,7 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
 
   ```sh
   Xvfb :77 -screen 0 900x1100x24 &
-  DISPLAY=:77 target/pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
+  DISPLAY=:77 target/quorra --trace doc/ISO_32000-2_sponsored_EC3.pdf &
   sleep 20   # 1023 pages: the window is up long before this, but the title is not
   DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name "ISO 32000" | tail -1)
   DISPLAY=:77 xdotool key --delay 400 Right Right Right Right Right
@@ -361,7 +361,7 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   (`/home/AI` is unreadable by `cl`), and write only under `tmp/`. `xdotool` cannot reach a
   Wayland client, so force XWayland with `env -u WAYLAND_DISPLAY`.
 
-- **Build directory**: `AI` builds into `/home/AI/cargo-target/pdf-viewer` via `~/.cargo/config.toml`,
+- **Build directory**: `AI` builds into `/home/AI/cargo-target/quorra` via `~/.cargo/config.toml`,
   so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
   the same reason. A round that wants a build directory of its own — a worktree round does, so that
   parallel rounds do not queue on one build lock — asks for it with `--target-dir` and **not** with

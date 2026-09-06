@@ -2463,7 +2463,7 @@ colour spaces both ways — and the four this file already records are as their 
   one. Every dasher this tree draws through merged the first and last dash of a closed contour
   whenever both were on, so both drew the document's round join where one of them wants two end
   caps. `pdf_render::opened_where_a_dash_ends_at_the_close` is the rule and
-  `render-quorra/tests/dashed_close.rs` holds all three backends to it.
+  `render-raster/tests/dashed_close.rs` holds all three backends to it.
 - **`VerticalText.pdf` was the case left standing, and the eight-hundred-and-thirty-sixth session
   took it** (ADR 0763). `/Encoding /Identity-V` over a non-embedded `CIDFontType0` of
   `Adobe-Japan1`: the producer had already chosen the vertical-form CIDs, and a substitute reached

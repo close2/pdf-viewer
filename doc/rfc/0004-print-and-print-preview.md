@@ -163,16 +163,16 @@ first.
 `viewer_host::keys` gains print (Ctrl+P) and the hosts' menus/toolbars gain the entry;
 what happens next is per-host, because the dialog is chrome:
 
-- **GTK (`pdf-viewer-gtk`)**: `GtkPrintOperation` — settings/page-setup from the GTK
+- **GTK (`quorra-gtk`)**: `GtkPrintOperation` — settings/page-setup from the GTK
   dialog, `draw-page` paints our banded raster into the print cairo context at the
   context's reported DPI. gtk4-rs covers the whole surface. Portal routing (sandboxed
   GTK) comes free from GTK itself.
-- **Qt (`pdf-viewer-qt`)**: `QPrintDialog` + `QPainter::drawImage` onto `QPrinter`
+- **Qt (`quorra-qt`)**: `QPrintDialog` + `QPainter::drawImage` onto `QPrinter`
   (`HighResolution` mode, `setResolution` to our clamped DPI). Requires hand-written
   cxx bridge additions (QtPrintSupport is unbound in cxx-qt-lib) — the crate has paid
   exactly this kind of cost before and its `unsafe` discipline (one exempted bridge
   module, tested position) extends unchanged.
-- **winit (`pdf-viewer`)**: no toolkit, so no toolkit dialog. Recommendation: a print
+- **winit (`quorra`)**: no toolkit, so no toolkit dialog. Recommendation: a print
   panel drawn in `viewer-ui`'s own chrome (it already draws panels, forms and prompts
   with its compiled-in font) and job submission over **IPP to CUPS via the `ipp`
   crate** — pure Rust, no C linkage, options mapped from the panel (printer list via
@@ -180,7 +180,7 @@ what happens next is per-host, because the dialog is chrome:
   print portal (needs a D-Bus client and a portal frontend present — fine on desktops,
   absent on bare X11 boxes); IPP is the lower common denominator on a machine that can
   print at all.
-- **The confined window (`pdf-viewer-confined`)**: the stance the sandbox dictates,
+- **The confined window (`quorra-confined`)**: the stance the sandbox dictates,
   and it is the portal's own shape. The **worker renders, the host spools**: print
   intent crosses the wire as part of the render request; the confined worker (which
   has no filesystem, deliberately) renders banded pages at print DPI and ships pixels

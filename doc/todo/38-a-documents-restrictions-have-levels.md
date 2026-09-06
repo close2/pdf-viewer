@@ -43,7 +43,7 @@ in ADR 0212.
 
 **All three windows supply the value since the seven-hundred-and-twenty-first session, and this
 paragraph said `viewer-ui` did and stopped there** (ADR 0604). It was true and it was half the
-sentence: `pdf-viewer-gtk` and `pdf-viewer-qt` sent `Command::Restrict` nowhere and could not be in
+sentence: `quorra-gtk` and `quorra-qt` sent `Command::Restrict` nowhere and could not be in
 any level but `On` — while both answered every refusal with a sentence naming
 `--ignore-restrictions`, and both argument parsers answered that word with *"is not an option this
 program has"* and exit 1. `CLAUDE.md`'s "**it shall always be possible to turn them off**" therefore
