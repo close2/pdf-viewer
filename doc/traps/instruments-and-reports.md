@@ -769,3 +769,70 @@ can see. A clock cannot sense an allocator, and would read in band on a machine 
 and on one with sixty. So: *the same work, in the same state, and in the same units* — and the third
 of those is the one a `steady: false` classification can look like it has already handled. ADR
 0909.
+
+**One word of that paragraph is superseded by the trap below, and the correction is worth having:**
+what falls is not "the driver's allocation" but the *resident pages of the driver's shared
+objects*, which the kernel reclaims under exactly the pressure session 934 measured. The
+allocation did not move at all — session 935 evicted two named libraries and watched the anonymous
+total hold to 30 KiB while the whole-process figure fell a quarter (ADR 0910).
+
+### 35. A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident
+
+`VmHWM` — and `getrusage`'s `ru_maxrss`, and everything else that says *peak resident* — counts
+**every** resident page, and pages of a mapped file are most of them as soon as a process links
+something large. The launch gate banded that figure as "the memory high-water" for thirteen
+rounds; measured, a process that brings this machine's graphics device up and does nothing else has
+a 108 MiB high-water of which **97 MiB is file-backed** — 52 of them `libLLVM.so`, which is 163 MiB
+on disk — and 11 MiB is memory the program asked for.
+
+The half that is not the program's does not hold still, and not for any reason a program can see: a
+page fault on a mapping whose pages are already in the page cache maps a whole fault-around window,
+and a fault on one that has been evicted maps a single page. So **what a neighbouring process read
+an hour ago moves this number**. Measured by evicting two libraries and changing nothing else, the
+same binary's high-water fell 25% while its anonymous total moved by 30 KiB; over one afternoon the
+same figure was seen at 92 MiB and at 180 MiB.
+
+Five rounds met that as a regression, four of them correctly refused to widen the band, and none
+could decline the figure either — because there is no clock in it, and none of the gate's probes
+senses the page cache. ADRs 0910 and 0911.
+
+**So a memory gate bands `Rss - file-backed`**, which off `/proc/self/smaps_rollup` is `Anonymous`,
+and prints the whole-process figure beside it unbanded. Two things follow that are worth having in
+hand before the next one is written. A resident figure taken in a process with a big dependency
+graph is a **measurement of the machine's page cache** to within a factor of two, whatever it is
+called. And the anonymous figure has a granularity of its own where transparent huge pages are
+`always`: a 2 MiB huge page is 2 MiB of `Anonymous` however much of it is touched, so a band under
+about ten mebibytes needs one huge page's headroom or it will fire on a step the program did not
+take.
+
+### 36. A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask
+
+Two mistakes about the same instrument, both made in the nine-hundred-and-thirty-eighth session,
+and the second one silently.
+
+**A wall-clock figure on a shared machine is three quantities, not two.** The obvious two are the
+work and the time spent waiting for a processor somebody else had — and the second is not what
+inflates a short figure. Measured: eight spinning processes pinned to **exactly** the eight CPUs a
+gate pins its children to raised a one-millisecond figure by **43%** and the gate's fixed-work probe
+by **74%**, while the kernel's own wait counter read **exactly zero in all twenty samples**. A short,
+freshly woken task is what the scheduler runs first, so a process of a millisecond is essentially
+never preempted; what the neighbour does instead is sit *inside* the core — an SMT sibling, a shared
+cache, a boost clock four busy cores do not reach. **A figure can lose half its speed to a
+neighbour with nothing to subtract and nothing to measure but a fixed-work probe.**
+
+Where the wait *does* appear is the excursion: over fifteen consecutive samples, fourteen read 0.97
+to 1.08 ms with a wait of zero and one read 3.947 with a wait of 2.825. That is a factor of four
+explained exactly, and it is worth subtracting — `sched_info.run_delay` is accumulated in
+nanoseconds at every wakeup and is unambiguously somebody else's. **The lesson is which is which:**
+the wait explains the *tail*, the sharing explains the *level*, and a gate that treats either as
+the other will widen the wrong thing.
+
+**And ask the right thread.** `/proc/self/schedstat` is the **thread group leader**, and libtest —
+like most harnesses — runs a test on a thread of its own, so the leader sleeps in a join for the
+whole measurement and every counter reads zero however busy the machine is. The first version of
+this instrument reported `runq 0.000` on every sample under saturating load and looked like a
+finding. `/proc/thread-self/schedstat` is the calling thread. The same applies to anything else
+under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`, `wchan`,
+`sched` — and it is invisible because the file exists, parses, and answers.
+
+ADR 0916.

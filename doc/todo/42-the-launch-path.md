@@ -105,99 +105,87 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
-**And the figure that fails now is the one with no clock in it, which is new in the
-nine-hundred-and-thirty-third.** Everything above is about clocks, and a clock the gate can decline
-to judge; `peak_mib` cannot be declined by any probe, because contention does not lower a memory
-high-water. In session 933's full sequence — under `release`, calibrations 0.712 .. 0.720 ms, all
-inside the band, so the run *was* judging — all four rows failed together **below** their floors:
+**And the figure with no clock in it is settled in the nine-hundred-and-thirty-fifth, which is the
+one account of it.** Everything above is about clocks, and a clock the gate can decline to judge;
+`peak_mib` could be declined by no probe, because contention does not lower a memory high-water.
+Five rounds met it: it was derived identical over forty-four runs and fell 12% an hour later
+(session 922), would not sit for 926 and 931, fell 13% below already-widened floors in 933,
+was lowered by 932 and restored by the merge on 934's evidence. **No band was ever widened**, and
+the refusal was right.
 
-| document | `peak_mib` band | this run | again, alone |
+**What it was measuring was mostly not this program.** `VmHWM` counts every resident page, and in a
+process that has brought the graphics device up **nine tenths of them are pages of a mapped file**:
+52 MiB of `libLLVM.so` (which `libvulkan_radeon.so` links directly), 26 MiB of `libgallium.so`
+(which comes with `libEGL_mesa.so`), against 11 MiB of memory this program had asked for.
+`libLLVM.so` is 163 MiB on disk, so *how much of it is resident* is decided by the page cache and by
+fault-around — and a neighbouring round walking a corpus, or a machine under pressure, is exactly
+what evicts it. Measured: evicting those two libraries and nothing else took the figure from 108.4
+MiB to 81.2 MiB while the anonymous total moved by 30 KiB, and over one afternoon the whole-process
+figure was seen at 92 and at 180 MiB on the same binary. ADR 0910 has the tables.
+
+**934's table is the same quantity seen from the other end**, and the two rounds do not disagree:
+
+| | 934's failing run | 934's nine runs alone | 935's eviction, deliberate |
 |---|---|---|---|
-| `PDF20_AN001-BPC.pdf` | 127 .. 209 | 109.035 | 109.918 |
-| `Well-Tagged-PDF-WTPDF-1.0.pdf` | 131 .. 214 | 114.082 | 113.902 |
-| `ISO_32000-2_sponsored_EC3.pdf` | 132 .. 215 | 114.625 | 114.535 |
-| `bug1815476.pdf` | 143 .. 231 | 126.504 | 126.227 |
+| the machine | ~9 GiB free, 19 GiB of swap in use | 29 GiB free | quiet, two libraries evicted |
+| `peak_mib`, four documents | 99.1, 103.1, 104.2, 116.5 | 161–164, 168–169, 168–169, 180–182 | 108.4 → 81.2 on the bring-up child |
+| the anonymous share | not measured | not measured | 11.16 → 11.16 MiB |
+| `open_peak_mib`, no device in it | 7, 8, 18 MiB, in band | 7, 8, 18 MiB, in band | unmoved |
 
-Reproduced within a kilobyte on the second run, so it is neither noise nor a neighbour: it is the
-same *thing* `doc/checks/launch-path.toml`'s own header records — "an hour later — same tree, same
-binary, idle machine — all four rows had fallen together by about 12%. What moved is the driver's
-allocation" — happening again and landing about 13% under the floors that were widened to span it.
-**No band was moved, for the third round running**, and by a round that did not touch the launch
-path at all: the figure that would have to be re-derived is a property of the graphics driver, and
-a coverage round widening a band it did not measure is how a guard becomes a formality. What is
-owed is one derivation on an idle machine of what this driver now allocates — the same ten minutes
-`Q29`'s first option asks for, on the one figure a loaded machine could not have caused.
+ADR 0909 read that as memory *pressure* and was right about the direction; the mechanism is that
+pressure makes the kernel reclaim a mapped library's resident pages, which is what 935 did on
+purpose to two named files. The last row is the control in both rounds, and it is a control because
+that process maps no driver.
 
-## The figure that failed next is not a clock at all — the nine-hundred-and-thirty-fourth
+**So the gate bands the anonymous high-water** (`peak_anon_mib`), judged on any machine like the
+other two figures with no clock in them, and prints `VmHWM` beside it unbanded; the graphics
+device's own share is a figure of the bring-up gate (`bring_up_anon_mib`, ADR 0911), which is where
+principle 2 says a driver's regression belongs. The four documents separate at 27, 31, 32 and 44
+MiB where the old figure separated them by a tenth against a band 82 MiB wide.
 
-**No band was moved for the fourth round running either**, and the machine was quieter for none of
-it: session 934 sampled the one-minute load average every thirty seconds for seventy-five minutes —
-151 samples, **minimum 3.30, median 12.86, maximum 61.55, and 62 % of them above 10** — with three
-neighbouring rounds rather than two: 932, 933 and a 935 that appeared during the round and ran
-`launch_path` probes of its own. So the first-pass band above is still owed.
+That answers the three things the merge left open, and two of them by removing the question:
 
-What that round found instead is a **second** guard failure of a different kind, and ADR 0909 is the
-reading. Run inside `doc/todo/02` §2 on a machine with ~9 GiB free after two neighbours' corpus
-walks, the line exited **101 on all four `peak_mib` figures at once** — 99.1, 103.1, 104.2 and 116.5
-MiB against floors of 127, 131, 132 and 143 — with the calibration probe at **0.706 ms, inside its
-band**, which is what let the run judge them. Nine re-runs alone, on a binary the merge had not
-touched a line of, with 29 GiB free: **161 to 182 MiB on every document on every run**, inside every
-band, two of the runs judging with nothing outside at all.
+1. **the availability probe** 934 asked for is not owed. A figure that is a property of this program
+   needs no probe, and a figure that is a property of the page cache should not be banded for a
+   probe to rescue;
+2. **`Q32`'s question** — should the high-water carry a minimum at all — is superseded by `Q37`:
+   neither edge of the whole-process figure is a claim about this program, so a one-sided band on it
+   would be a guard that can neither cry wolf nor see one;
+3. **the first-pass band** `Q29` asks for is still owed, and is still the same idle ten minutes.
 
-| | the failing run | the nine runs alone |
+What the gate no longer claims — how much memory the *process* occupies, which is what a user's
+machine pays — is `doc/questions/Q37`.
+
+## And the clock half is settled in the nine-hundred-and-thirty-eighth, the way the memory half was
+
+Everything above is a clock that four rounds could not trust. Session 938 asked what the number is
+*made of*, and it is three quantities of which one is this program's. ADRs 0916 and 0917; the
+owner's `A29` — "combining option 1 and 2 sounds good" — is what it was built against.
+
+| what a launch clock contains | who owns it | the instrument, since this round |
 |---|---|---|
-| free memory | ~9 GiB, 19 GiB of swap in use | 29 GiB, 45 available |
-| calibration probe | 0.706 ms, in band | 0.708 .. 0.745 ms |
-| `peak_mib`, four documents | 99.1, 103.1, 104.2, 116.5 | 161–164, 168–169, 168–169, 180–182 |
-| `open_peak_mib`, no device in it | 7, 8, 18 MiB, in band | 7, 8, 18 MiB, in band |
+| the work | this program | **`open_kinstructions`**, counted under callgrind, spread 0.00007% to 0.004% over five runs; and **`read_calls`**, `syscr`, identical on every run |
+| the rate this machine executes it at today | the machine | the calibration probe, which over-reads it: +74% against the figure's +43% in a controlled arm |
+| the time the thread had no processor | a neighbour | `sched_info.run_delay`, counted exactly, **subtracted**; a figure that lost more than a tenth of itself to it is declined |
+| a cold open's round trips to the disk | the machine | **`io_latency_ms`**, a 128 KiB single-extent probe evicted beside every cold sample, where `io_ms` reads eight mebibytes and measures throughput |
 
-The last row names the mechanism: what moves is the resident set of a process that has brought the
-**graphics device** up, which this file's harness already records falling 12 % between two runs an
-hour apart while the bands were being derived. Under memory pressure it falls by 40 %.
+The experiment is eight spinning processes pinned to exactly the eight CPUs this gate pins its
+children to: the figure rose 43%, the probe 74%, and **the kernel's wait counter read exactly zero
+in all twenty samples** — a neighbour that shares a core rather than queueing for one. Where the
+wait *does* appear is the tail: of fifteen consecutive warm opens, fourteen read 0.97 to 1.08 ms
+with a wait of zero and one read 3.947 with a wait of 2.825.
 
-**So `peak_mib` is a memory figure whose only guard is a clock**, and a clock reads in band on a
-machine with a gigabyte free and on one with sixty. That is trap 34's third dimension — the same
-work, in the same *state*, and in the same **units** — and it is the one a `steady: false`
-classification looks like it has already handled.
+**What the gate does now.** Without `PDFVIEWER_LAUNCH_CLOCKS` it judges twenty-one counted and
+steady figures on any machine in three seconds — that is `doc/todo/02` §2's line. With it, the
+nine-sample clock run is `doc/verify.md`'s, for a round that has the machine. **No band was
+widened, for the sixth round running.**
 
-**What is owed here is a third probe**, beside the processor's and the disk's: what the machine had
-available when the sample was taken, banded as the disk probe is, so a pressed machine *declines*
-`peak_mib` rather than failing it. Its band needs the same idle ten minutes the first-pass band
-does, so the two are one errand. **And there is a cheaper question that is not a probe**: a minimum
-on a memory high-water exists to catch "we stopped doing the work", which the command counts,
-`open_peak_mib` and the timings already witness four other ways — whether principle 2's memory
-high-water should be a ceiling rather than a band is a real question, and it is a change to a gate
-another round built, which is the same sentence that stopped three rounds widening one.
-
-## What the merge did with the four floors, and what session 935 owns — the nine-hundred-and-thirty-seventh
-
-**Session 932 did move them, and the merge did not take the move.** That round lowered the four
-`peak_mib` floors in `doc/checks/launch-path.toml` to 95, 100, 100 and 112 on readings of 98.5 to
-116.4, and wrote `Q32` asking whether the figure should be a ceiling only. It branched before 934
-and could not have read the table above it. The two rounds' measurements of the same figure on the
-same binary disagree — 932 read 99 to 116 with the machine pressed, 934 read **161 to 182 on nine
-runs with 29 GiB free** — so lowering a floor to 95 admits the pressed machine into the claim,
-which is precisely what 931, 933 and 934 each declined to do. The merge therefore restored session
-931's floors and rewrote that file's paragraph to record both observations and the disagreement;
-932's paragraph, its numbers and `Q32` all stay, because the observation is real and only the
-conclusion drawn from it was one round's alone. **No band was moved in either direction by the
-merge**, and no new one was derived: the floors below are 931's, unchanged since it derived them.
-
-**Session 935 owns the resolution, and it is one errand rather than two.** It is deriving this
-figure properly in its own worktree; whatever it finds supersedes this section and 932's paragraph
-together. The three things that are open, in the order they answer each other:
-
-1. **the availability probe** — what the machine had free when the sample was taken, banded as the
-   disk probe is, so a pressed machine prints `NOT JUDGED` for `peak_mib` instead of failing it.
-   That is 934's ask, and it is what makes any floor believable again;
-2. **`Q32`'s question**, which the probe does not close: whether a memory high-water should carry a
-   minimum at all, given that "we stopped doing the work" is already witnessed by `open_peak_mib`,
-   by `read_kib` and by every clock in the row;
-3. **the first-pass band** `Q29` asks for, which needs the same idle ten minutes and should be
-   taken in the same sitting.
-
-A round that answers 1 and 2 should delete this section and 932's paragraph rather than adding a
-fourth account of one figure.
+**And the machine moved under this round.** On 2026-09-04 the fifty-pass probe read 0.703 to 0.724
+ms in this gate's runs; on 2026-09-06, idle, the same binary read 0.849 to 0.951 over 300 samples,
+with one busy thread on a performance core reaching 3.74 GHz against a rated 5.16 at 63 °C. The
+bands here are a claim about a processor doing 5.16 GHz. That is why `calibration_first_ms` still
+has no band — not a busy machine, a different one — and why the clock run prints `NOT JUDGED` and
+exits 0 rather than reporting a regression nobody caused.
 
 **And 2 and 3 are answered, by the owner, while this round was stopped.**
 [`A32`](../questions/A32-a-memory-band-whose-floor-nothing-controls.md) is *recommendation
@@ -217,6 +205,11 @@ as a reason to keep them. Session 935's own branch was cut before that merge and
 so whoever merges it reconciles three things at once — 932's lowered floors, this round's restored
 ones, and `A32`'s instruction to have none — and `A32` wins.
 
+**One thing is left and it now has an instrument**: `bug1815476.pdf`'s cold open, a per cent or two
+over its ceiling since session 933 on quiet machines with every probe in band. Either the program's
+open grew or this machine's small-read latency did; `open_kinstructions` settles the first exactly
+from the next round on, and the second already reads 0.125 to 0.199 ms where session 931 measured
+0.109.
 
 ## Why this is a todo and not a caveat
 

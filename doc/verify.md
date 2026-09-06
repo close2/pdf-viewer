@@ -358,6 +358,17 @@ cargo run --profile gates -p pdf-model --example parallel_sweep -- [file.pdf] [t
   # bands §8.9.5's colour conversion across `rayon::current_num_threads()` of its own. Two sweeps
   # apiece, since the two arrangements differ most on the second, and `VmHWM` from
   # `/proc/self/status` so the memory is the kernel's number rather than ours. ADR 0260
+PDFVIEWER_LAUNCH_CLOCKS=1 cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
+  # **the launch gate's other half, run when a round has the machine to itself.** `doc/todo/02`
+  # section 2 runs this same gate with the variable unset and judges the twenty-one figures no
+  # machine can move — bytes, read calls, instructions, memory — in three seconds on any machine.
+  # The figures that are wall clocks are claims about *a machine*, and this is how they are asked
+  # for: nine fresh processes a figure, pinned, each carrying its own calibration and disk probes,
+  # every duration less the time its thread spent waiting for a processor. It prints `NOT JUDGED`
+  # and exits 0 where the machine is not the one the bands describe, naming the probe that said so
+  # — which on 2026-09-06 was the machine's own boost clock, 3.74 GHz against a rated 5.16 on an
+  # idle 63 °C machine. `doc/questions/A29` (options 1 and 2), ADRs 0916 and 0917.
+
 cargo run --release -p pdf-model     --example open_cost -- [file.pdf]
   # where the *launch path's* document half goes: §7.5's xref, the page tree, §12.3.3's outline,
   # §12.8's signatures, each on its own. ADR 0179, doc/todo/42
