@@ -535,6 +535,16 @@ mod tests {
     use super::*;
 
     /// A directory of this test's own, named after the process so parallel rounds cannot share it.
+    ///
+    /// **Every test that calls this carries `#[cfg_attr(miri, ignore = …)]`**, and the reason is
+    /// the interpreter rather than the code: `cargo +nightly miri test -p pdf-syntax --lib` runs
+    /// under isolation, where `mkdir` is *unsupported* rather than failing — "unsupported
+    /// operation: `mkdir` not available when isolation is enabled" — so one such test aborts the
+    /// whole Miri run and takes the 209 tests that had passed with it. Miri is here for aliasing
+    /// and undefined behaviour in the parsers (`doc/verify.md`, ADR 0450); a test whose subject is
+    /// the *file system* has nothing for it to check, and skipping it costs that coverage nothing.
+    /// Found on `main` in the nine-hundred-and-thirty-seventh session, where it had failed CI's
+    /// nightly job since these tests were written and no local gate could see it.
     fn scratch(name: &str) -> std::path::PathBuf {
         let directory =
             std::env::temp_dir().join(format!("pdf-syntax-file-{}-{name}", std::process::id()));
@@ -655,6 +665,10 @@ mod tests {
     }
 
     /// An ordinary file reads as `std::fs::read` reads it.
+    #[cfg_attr(
+        miri,
+        ignore = "reads a real file: Miri runs under isolation and has no file system"
+    )]
     #[test]
     fn an_ordinary_file_is_read_whole() {
         let directory = scratch("whole");
@@ -668,6 +682,10 @@ mod tests {
 
     /// A file on disk reads nothing at open, answers its length, and reads ranges clipped to
     /// the file exactly as a slice would.
+    #[cfg_attr(
+        miri,
+        ignore = "reads a real file: Miri runs under isolation and has no file system"
+    )]
     #[test]
     fn a_file_on_disk_is_read_by_range_and_clipped_at_its_end() {
         let directory = scratch("ranges");
@@ -701,6 +719,10 @@ mod tests {
     /// open and a length it cannot ask the file system for. A stated length shorter than the
     /// file reads as a file of that length; one longer reads to the file's end, as
     /// [`FileBytes::on_disk`] says a file that shrank does.
+    #[cfg_attr(
+        miri,
+        ignore = "reads a real file: Miri runs under isolation and has no file system"
+    )]
     #[test]
     fn a_handed_file_is_read_to_the_length_its_opener_stated() {
         let directory = scratch("handed");
@@ -749,6 +771,10 @@ mod tests {
     /// The reader here counts how far it looked and asks for more whenever the window ended
     /// before the closing `>`, which is the shape every parser in this crate reports through
     /// [`crate::Parser::examined`].
+    #[cfg_attr(
+        miri,
+        ignore = "reads a real file: Miri runs under isolation and has no file system"
+    )]
     #[test]
     fn a_window_grows_to_what_the_reader_examined_and_stops_at_the_file() {
         let directory = scratch("windows");

@@ -60,6 +60,29 @@ RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ffi
   # the runner runs, build with a `PATH` of symlinks to `/usr/bin`'s entries *minus* `lld`,
   # `ld.lld`, `lld-link` and `wasm-ld` — `env PATH=$dir cargo build -p viewer-qt --all-targets`.
   # ADR 0463; `crates/viewer-qt/build.rs` says what makes it link under either.
+# **Three of CI's jobs are here and nowhere else, and in the nine-hundred-and-thirty-seventh
+# session all three were red on `main` while `doc/todo/02` §2 ran green twice.** That is not a
+# contradiction; it is what this file is for. The last CI run to pass on `main` was a hundred
+# sessions earlier, so three unrelated defects had accumulated where no local gate looks:
+#   * **`deny`** — `error[yanked]: detected yanked crate (try cargo update -p wnaf)`. A yanked
+#     crate is nobody's code change: the version in `Cargo.lock` is withdrawn upstream *after* it
+#     was locked, so this job goes red on a tree that has not been touched. `cargo update -p <it>`
+#     is the whole fix where a patch release exists, and it is worth running `cargo deny check`
+#     rather than assuming, because the failure names the crate and the remedy.
+#   * **The Windows check** — `error: field 'program' is never read` in `confined-transport`, a
+#     field the only reader of which is inside a `#[cfg(unix)] impl`. Third instance of ADR 0194's
+#     shape and second of ADR 0450's, and the lines above are what see it. `#[cfg(unix)]` on the
+#     field is the fix, never `#[expect(dead_code)]`: the field *is* read on Linux, so an
+#     expectation would be unfulfilled there and fail the other way (trap 7's rule has a direction).
+#   * **`cargo +nightly miri test -p pdf-render -p pdf-syntax --lib`** — `error: unsupported
+#     operation: mkdir not available when isolation is enabled`. **One unsupported operation aborts
+#     the whole run**, so four file-system tests in `pdf-syntax::file` took 209 passing ones down
+#     with them and the job reported nothing about aliasing at all. Miri is here for undefined
+#     behaviour in the parsers; a test whose subject is the file system has nothing for it to check,
+#     so it carries `#[cfg_attr(miri, ignore = …)]` — the idiom `filter.rs` already uses for
+#     zlib-rs — and `file.rs`'s `scratch()` says so once for the four that share it. **A round that
+#     adds a test which opens, creates or removes a file owes that attribute**, and nothing local
+#     will tell it so.
 # And the Windows *read path* runs here, which is the only way to test it from Linux: the two
 # implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
 # attributes compiles the thread-and-channel one on this machine. ADR 0194 has the recipe; all 19

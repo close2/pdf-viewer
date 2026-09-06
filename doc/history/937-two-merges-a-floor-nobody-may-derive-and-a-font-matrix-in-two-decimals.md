@@ -125,6 +125,28 @@ and acting on either is a later round's. `A25` and `A28` ask for changes to `CLA
 and to how an instrument's counter is switched off; `A27` and `A31` approve their recommendations,
 `A31` adding that a warning should be emitted where that is easily possible.
 
+## CI was red on `main`, and it was three things none of which was either merge
+
+`tools/round.sh` says whether CI's last run on `main` passed, and after the merges it said
+*failure*. Read, the run had **three** failing jobs and the last green run on `main` was a hundred
+sessions earlier — so this was accumulation in the three jobs `doc/todo/02` §2 does not contain,
+not something a merge brought. All three are fixed here and all three were reproduced locally
+first (trap 13):
+
+| job | what it said | what it was |
+|---|---|---|
+| `deny` | `error[yanked]: detected yanked crate (try cargo update -p wnaf)` | `wnaf 0.14.0` was withdrawn upstream after it was locked. `cargo update -p wnaf` takes 0.14.1, one transitive patch bump under `primeorder`; `cargo deny check` then reports `advisories ok, bans ok, licenses ok, sources ok` |
+| `build (Windows)` | `error: field 'program' is never read` in `confined-transport` | the only reader is inside a `#[cfg(unix)] impl Source`, so the field is dead off Linux and the workspace's lints are errors in CI. `#[cfg(unix)]` on the field, matching `not_a_socket` directly below it — **not** `#[expect(dead_code)]`, which would be unfulfilled on Linux and fail the other way. Third instance of ADR 0194's shape |
+| `nightly` (Miri) | `error: unsupported operation: mkdir not available when isolation is enabled` | four file-system tests in `pdf-syntax::file`, and **one unsupported operation aborts the whole run**, so they took 209 passing tests with them and the job said nothing about aliasing at all. `#[cfg_attr(miri, ignore = …)]`, the idiom `filter.rs` already uses; `cargo +nightly miri test -p pdf-syntax --lib` now reports 110 passed, 16 ignored, exit 0 in 674 s |
+
+`doc/verify.md` carries all three beside the instruments that see them, with the rule each leaves —
+the sharpest being that **a round adding a test which opens, creates or removes a file owes the
+Miri attribute, and nothing local will tell it so.**
+
+The six cross-target checks were then run in full, both targets and all three package sets, and are
+green. The `doc/todo/02` §2 sequence ran a **third** time for these changes, because
+`confined-transport` is under `viewer-confined` and `pdf-vfs` and `pdf-syntax` is under everything.
+
 ## What is left
 
 - Applying `A32` to `doc/checks/launch-path.toml`, which belongs to whoever merges `round-935`.
@@ -132,3 +154,7 @@ and to how an instrument's counter is switched off; `A27` and `A31` approve thei
 - §10.7.4's mark for a shape its *transform* collapses — `doc/todo/11` item 8, now with a witness
   population and with the observation that the references split three ways rather than sharing a
   gap: `pdftoppm` paints a pixel at each collapsed point, `mutool draw` and this tree paint none.
+- **CI's three jobs are fixed but not watched.** They are red the moment something upstream is
+  yanked or a test touches the file system, and nothing in `doc/todo/02` §2 can see any of it —
+  which is how a hundred sessions passed with `main` red. `tools/round.sh` does print it, and
+  reading that line is the only guard there is.

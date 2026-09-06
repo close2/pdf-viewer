@@ -82,6 +82,14 @@ pub struct Link {
     /// The process's own standard input.
     stdin: std::io::Stdin,
     /// What the worker calls itself, for the one line it may have to print.
+    ///
+    /// `#[cfg(unix)]` for the same reason `not_a_socket` below carries it, and it is a
+    /// cross-target lint rather than a style choice: the only line that reads this is the
+    /// `MSG_CTRUNC` message in this file's `#[cfg(unix)] impl Source`, so on a target with no
+    /// such `impl` the field is dead, and the workspace's lint levels are errors in CI. It
+    /// failed the Windows job on `main` (`doc/verify.md`'s cross-target checks are what see
+    /// it; `doc/todo/02` §2's own sequence cannot).
+    #[cfg(unix)]
     program: &'static str,
     /// Whether `recvmsg` has been refused on this input, after which it is a plain reader.
     #[cfg(unix)]
@@ -92,8 +100,13 @@ impl Link {
     /// This process's standard input, under the name the program answers to.
     #[must_use]
     pub fn stdin(program: &'static str) -> Self {
+        // Nothing off Unix has a `Source` to print the name from, and the parameter stays in the
+        // signature so that a caller does not have to know which target it is being built for.
+        #[cfg(not(unix))]
+        let _ = program;
         Self {
             stdin: std::io::stdin(),
+            #[cfg(unix)]
             program,
             #[cfg(unix)]
             not_a_socket: false,
