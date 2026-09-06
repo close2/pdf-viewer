@@ -105,13 +105,13 @@ their controls from left one item in its place, below. Plus the standing note ab
   `Query::Fields` and all four `Edit`s; `Command::Save` and `Command::Extract` with a **byte**
   accessor apiece, because a file is not text and the NUL idiom would cut one at its first zero
   byte; §8.11.4.3's layers and §7.11.4's files as a second flattened panel; §12.4.4's clock and its
-  transitions; and the three policy values. **`PDFV_EVENT_KIND_COUNT` is 16 before and after**,
+  transitions; and the three policy values. **`QUORRA_EVENT_KIND_COUNT` is 16 before and after**,
   which is the third demonstration in three rounds of what the shape was chosen for: a `Command` is
   a symbol, a `Query` is a symbol, and only an `Event` is a number. Two enumerations are now
   *answered with* — `ControlKind` and `RowKind` — and each has a count and a name of its own rather
-  than a place in `pdfv_abi_check`, because an event arrives unasked and a control kind is the
+  than a place in `quorra_abi_check`, because an event arrives unasked and a control kind is the
   answer to a call the caller wrote. **And a `#define` had been missing since the count last moved**:
-  `PDFV_EVENT_SEARCHED` was never added in the four-hundred-and-fourteenth, so a C caller wrote `15`
+  `QUORRA_EVENT_SEARCHED` was never added in the four-hundred-and-fourteenth, so a C caller wrote `15`
   by hand — `header_and_library_agree.rs` compares the header against a *hand-written* map, and a
   constant absent from both sides agrees with itself.
 - ~~**The scale a native form host draws the page at.**~~ **Answered in the
@@ -328,7 +328,7 @@ change to both rasterisers.
   and for all three at once: each answers with one entry per page the arrangement is showing, in
   page order, and each entry says which page it is. The notes stay borrowed, so a screen's answer
   is four slices and one allocation rather than four copies of the prose. Five consumers failed to
-  compile and the C ABI gained two entry points — `pdfv_reported_pages` and `pdfv_reported_page` —
+  compile and the C ABI gained two entry points — `quorra_reported_pages` and `quorra_reported_page` —
   because a C caller cannot fail to compile and so has to be able to *ask* how many pages have
   anything to say.
 
@@ -415,13 +415,13 @@ host places its own furniture — so §12.3.5's collection is what is left of th
    `viewer_host::copying` is the §14.8.2.5 choice all four consumers now make once —
    `Query::Selection`'s page content order, or `Query::LogicalSelection`'s where the structure tree
    reaches every byte of the selection — and each host supplies only its platform:
-   `gdk::Clipboard`, `QClipboard`, `arboard` for the tier-2 host, and `pdfv_selection_copy_text`
+   `gdk::Clipboard`, `QClipboard`, `arboard` for the tier-2 host, and `quorra_selection_copy_text`
    for a C caller. Driven under `Xvfb` and read back with `xclip`: all four put **byte-identical**
    text on the X11 `CLIPBOARD` selection for `PDF20_AN001-BPC.pdf`, in logical content order, and
-   the C caller reports `PDFV_ORDER_LOGICAL` for it.
+   the C caller reports `QUORRA_ORDER_LOGICAL` for it.
 
    **Two things this entry was wrong about, and one shape worth keeping.** *"The C ABI has
-   `pdfv_selection_text` already"* (ADR 0509 §3) was true and not sufficient: that entry point
+   `quorra_selection_text` already"* (ADR 0509 §3) was true and not sufficient: that entry point
    answers in page content order and `Query::LogicalSelection` reached no symbol at all, so the
    fourth consumer could copy and could not copy *right* — a fifth of item 5 came with item 1
    because item 1 is not finished without it. And `viewer-qt` could not call `QClipboard` from Rust,
@@ -434,7 +434,7 @@ host places its own furniture — so §12.3.5's collection is what is left of th
    inside a §12.7 *field* is the toolkit's own binding in the two native hosts, because they place a
    real `GtkEntry` and a real `QLineEdit`; `viewer-ui` draws its own field and now makes the same
    call the page's copy makes. The C ABI has no field-level copy and needs none — a caller that
-   placed its own controls owns their keyboard, and `pdfv_field_text` answers with the value.
+   placed its own controls owns their keyboard, and `quorra_field_text` answers with the value.
 2. ~~**A statement of what a key means, in `viewer-host`.**~~ **Taken in the
    six-hundred-and-eighty-seventh** (ADR 0526), and the three disagreements it named were all real:
    `f` was the find bar in GTK and a free-text drag in `viewer-ui`, the arrow keys scrolled in one
@@ -445,7 +445,7 @@ host places its own furniture — so §12.3.5's collection is what is left of th
    since the six-hundred-and-seventh.
 
    **This entry said "[f]our key tables" and there were three.** `viewer-ffi` has no keyboard and
-   never had one — `include/pdf_viewer.h` says so where it mentions the only key the standard names,
+   never had one — `include/quorra.h` says so where it mentions the only key the standard names,
    *"§12.5.1's tab key. The order is the document's (Table 31's `/Tabs`); the key is yours"* —
    because a C caller places its own toolkit and owns its own keyboard entirely. The fourth consumer
    is a different kind of thing here rather than a host that is behind, which is ADR 0509 §2's own
@@ -578,12 +578,12 @@ host places its own furniture — so §12.3.5's collection is what is left of th
    show, and a blank window looks exactly like a broken file.
 5. ~~**The C ABI's other half**~~ — **taken in the seven-hundred-and-ninth** (ADR 0576), and **it
    needed no message**, which is the eleventh time since the six-hundred-and-seventh. Every one of
-   `Query`'s variants reaches a symbol now, and `PDFV_ABI_VERSION` did **not** move for the largest
+   `Query`'s variants reaches a symbol now, and `QUORRA_ABI_VERSION` did **not** move for the largest
    addition this ABI has had: not one of the entry points takes or returns a struct by value, which
    is the one kind of change that constant exists to catch.
 
    **The deliverable is the instrument rather than the eleven**, and the round's own reasoning turns
-   on it: `PDFV_EVENT_KIND_COUNT` is the right protection for a message that *arrives* and no
+   on it: `QUORRA_EVENT_KIND_COUNT` is the right protection for a message that *arrives* and no
    protection at all for a *question*, which is exactly how eleven accumulated in silence.
    `tests/every_query_reaches_the_abi.rs` matches exhaustively over `Query`, so a question added to
    the boundary fails to compile in a test whose name says what it is for — and it has **no
@@ -601,20 +601,20 @@ host places its own furniture — so §12.3.5's collection is what is left of th
    the reason the header gives: a struct by value would put that table's *size* in the ABI.
 
    **§12.3.4 is the one that had to be designed against a defect rather than for a feature.** There
-   is deliberately no `pdfv_thumbnails_read`, and `pdfv_page_label` is a separate call, so that the
+   is deliberately no `quorra_thumbnails_read`, and `quorra_page_label` is a separate call, so that the
    seven-hundred-and-fourth session's launch-path defect has no road into a C host. Measured from a
    C program outside this tree against the installed `libviewer_ffi.so`, on a 233-page document
    carrying 231 miniatures: eight rows cost 0.81 ms and 210 KiB, every page 21.6 ms and 6.95 MiB.
 
    **What it did not carry, named rather than left silent**: `AccessibilityNode::lines` — the
    per-character byte counts and boxes AT-SPI's `Text` interface wants. An element's own text is its
-   `PDFV_ELEMENT_NAME`, so a C caller building a screen reader has the tree and the extents and not
+   `QUORRA_ELEMENT_NAME`, so a C caller building a screen reader has the tree and the extents and not
    the character offsets. Two accessors and no new decision.
 
    **And one addition item 2 declined to make here, written down so it is decided rather than
    rediscovered**: `viewer_host::keys` is a *table*, and a C host that wants the keys this program
-   binds has to re-derive all thirty of them. `pdfv_key_meaning(key, shift, presenting)` with a
-   `PDFV_KEY_*` enumeration would hand it over, and the same test shape applies — a count beside the
+   binds has to re-derive all thirty of them. `quorra_key_meaning(key, shift, presenting)` with a
+   `QUORRA_KEY_*` enumeration would hand it over, and the same test shape applies — a count beside the
    enumeration, because a C caller cannot fail to compile. It was not taken in the
    six-hundred-and-eighty-seventh because it is an addition to the ABI's *surface* and this is where
    surface is decided; nothing in item 2 is blocked on it, since a C caller owns its keyboard by
@@ -666,15 +666,15 @@ here rather than left to be re-surveyed, and none of it is architecture:
   about the first half and right about the second.** It is **three** entry points, and the reason is
   this ABI's own convention rather than an oversight: a count is asked before an indexed accessor,
   and a line has two counts — how many lines an element drew and how many character codes a line
-  holds. `pdfv_structure_lines`, `pdfv_structure_line` (the text *and* the code count in one call,
+  holds. `quorra_structure_lines`, `quorra_structure_line` (the text *and* the code count in one call,
   because the byte counts summing to the text's length is the invariant a text interface rests on and
-  a caller asking twice could see them disagree) and `pdfv_structure_character`.
+  a caller asking twice could see them disagree) and `quorra_structure_character`.
 
   **The decision the entry did not predict is which text crosses.** These are the readback and not
-  §14.9's substitutions: `PDFV_ELEMENT_NAME` applies `/Alt` and `/E`, and a caret moves over what is
+  §14.9's substitutions: `QUORRA_ELEMENT_NAME` applies `/Alt` and `/E`, and a caret moves over what is
   on the page — `GetCharacterExtents` asks where the *glyph* is, and a phrase substituted for an
   element's content has none. An element stating one has zero lines here, which is what
-  `pdfv_structure_node`'s `substituted` says from the other side. `PDFV_ABI_VERSION` did not move:
+  `quorra_structure_node`'s `substituted` says from the other side. `QUORRA_ABI_VERSION` did not move:
   no struct crosses by value.
 - ~~**`tools/state.sh windows` prints eleven queries each native host does not ask, and the list is
   uninterpreted.**~~ **Sorted in the seven-hundred-and-twenty-first** (ADR 0603), and **the list

@@ -112,7 +112,7 @@ things differ from `viewer-ffi` and each is argued in ADR 0868: a refusal is an 
 carrying `pdf_vfs::Errno` and section 5.3's sentence rather than a status or a last-error slot;
 the counted enumeration is `errno`, held complete by an exhaustive `match` that cannot be written
 incompletely; the staged four are deliberately absent, because a KIO `put` is already a
-transaction and only a kernel needs `create`/`write_at`/`flush`/`release`; and `pdfvfs_split` is
+transaction and only a kernel needs `create`/`write_at`/`flush`/`release`; and `quorra_vfs_split` is
 the one question a face has of its own — where a URL's document ends and the tree begins, which
 only `stat(2)` can answer. `kio/` is the plugin, outside the cargo workspace, built by CMake
 against ECM, Qt 6 and KF6 KIOCore, and it holds the Qt types so the core never sees one. Three
@@ -195,7 +195,7 @@ item still owes on the write side is three things, none of them blocking a face:
 - **The KIO face — done in session 913** (ADRs 0868, 0869), **and given a question channel in 916**
   (ADRs 0874, 0875). `PdfWorker::mayProceed` consults the core before `get`, `put` and `del`, puts
   the sentence through `KIO::WorkerBase::messageBox(QuestionTwoActions, …)` where the verdict is
-  *ask*, carries the answer back with `pdfvfs_answer`, and then performs the verb unchanged; a
+  *ask*, carries the answer back with `quorra_vfs_answer`, and then performs the verb unchanged; a
   person who declines gets `ERR_USER_CANCELED` rather than the boundary's "nobody was asked",
   because they were asked. The mount's level comes from `PDF_KIO_RESTRICTIONS` — off, on, ask,
   warn, `off` by default, an unknown word refused by name — which is the only channel a

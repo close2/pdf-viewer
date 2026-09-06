@@ -24,7 +24,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "pdf_viewer.h"
+#include "quorra.h"
 
 /* Microseconds. What a C host measures its own time to first page with — the viewer has no clock
  * of its own (rule 3), so every number below is the caller's.
@@ -45,8 +45,8 @@ static double now_us(void)
  * `Result`, and a program that ignored one would be exactly the silence this project forbids. */
 static int check(const char *what, int32_t status)
 {
-    if (status != PDFV_OK) {
-        fprintf(stderr, "%s: %s (%d)\n", what, pdfv_status_message(status), status);
+    if (status != QUORRA_OK) {
+        fprintf(stderr, "%s: %s (%d)\n", what, quorra_status_message(status), status);
         return 0;
     }
     return 1;
@@ -86,37 +86,37 @@ static uint8_t *read_file(const char *path, size_t *len)
 }
 
 /* Prints every event, and returns the index of the first NeedsRender, or SIZE_MAX. */
-static size_t say_and_find_render(pdfv_events *events, const char *when)
+static size_t say_and_find_render(quorra_events *events, const char *when)
 {
     size_t found = (size_t)-1;
-    size_t count = pdfv_events_len(events);
+    size_t count = quorra_events_len(events);
     printf("%s: %zu event(s)\n", when, count);
     for (size_t index = 0; index < count; ++index) {
         uint32_t kind = 0;
-        if (!check("pdfv_events_kind", pdfv_events_kind(events, index, &kind))) {
+        if (!check("quorra_events_kind", quorra_events_kind(events, index, &kind))) {
             return (size_t)-1;
         }
         /* The two-call idiom: ask for the size, then for the sentence. This is what a caller does
          * with an event kind it has never heard of, and it is why nothing is dropped in silence. */
         size_t needed = 0;
-        (void)pdfv_events_describe(events, index, NULL, 0, &needed);
+        (void)quorra_events_describe(events, index, NULL, 0, &needed);
         char *said = malloc(needed);
         if (said == NULL) {
             return (size_t)-1;
         }
-        if (!check("pdfv_events_describe", pdfv_events_describe(events, index, said, needed, &needed))) {
+        if (!check("quorra_events_describe", quorra_events_describe(events, index, said, needed, &needed))) {
             free(said);
             return (size_t)-1;
         }
-        /* A kind above PDFV_EVENT_KIND_COUNT is one this program was compiled before. It still
+        /* A kind above QUORRA_EVENT_KIND_COUNT is one this program was compiled before. It still
          * says what it is, which is the whole of what the design owes a caller here. */
-        if (kind >= PDFV_EVENT_KIND_COUNT) {
+        if (kind >= QUORRA_EVENT_KIND_COUNT) {
             printf("  [%zu] kind %u, which this program predates: %s\n", index, kind, said);
         } else {
-            printf("  [%zu] %s: %s\n", index, pdfv_event_kind_name(kind), said);
+            printf("  [%zu] %s: %s\n", index, quorra_event_kind_name(kind), said);
         }
         free(said);
-        if (kind == PDFV_EVENT_NEEDS_RENDER && found == (size_t)-1) {
+        if (kind == QUORRA_EVENT_NEEDS_RENDER && found == (size_t)-1) {
             found = index;
         }
     }
@@ -124,55 +124,55 @@ static size_t say_and_find_render(pdfv_events *events, const char *when)
 }
 
 /* Draws whatever the batch asked for and hands the pixels back. Returns 1 on success. */
-static int draw_what_was_asked(pdfv_viewer *viewer, pdfv_events *events, size_t at)
+static int draw_what_was_asked(quorra_viewer *viewer, quorra_events *events, size_t at)
 {
-    pdfv_render_request *request = NULL;
-    if (!check("pdfv_event_render_request", pdfv_event_render_request(events, at, &request))) {
+    quorra_render_request *request = NULL;
+    if (!check("quorra_event_render_request", quorra_event_render_request(events, at, &request))) {
         return 0;
     }
     size_t page = 0;
     uint32_t width = 0;
     uint32_t height = 0;
-    if (!check("pdfv_render_request_page", pdfv_render_request_page(request, &page, &width, &height))) {
-        pdfv_render_request_free(request);
+    if (!check("quorra_render_request_page", quorra_render_request_page(request, &page, &width, &height))) {
+        quorra_render_request_free(request);
         return 0;
     }
     printf("  rasterising page %zu at %ux%u\n", page + 1, width, height);
 
-    pdfv_raster *raster = NULL;
-    int32_t drawn = pdfv_render_request_rasterise(request, &raster);
-    if (drawn != PDFV_OK) {
+    quorra_raster *raster = NULL;
+    int32_t drawn = quorra_render_request_rasterise(request, &raster);
+    if (drawn != QUORRA_OK) {
         /* The refusal path, and it is a real path rather than a comment: the request goes back
          * saying why, so the viewer knows the page was not drawn instead of assuming it was. */
-        pdfv_events *told = NULL;
-        (void)pdfv_render_ready_failed(viewer, request, pdfv_status_message(drawn), &told);
-        pdfv_events_free(told);
-        fprintf(stderr, "pdfv_render_request_rasterise: %s\n", pdfv_status_message(drawn));
+        quorra_events *told = NULL;
+        (void)quorra_render_ready_failed(viewer, request, quorra_status_message(drawn), &told);
+        quorra_events_free(told);
+        fprintf(stderr, "quorra_render_request_rasterise: %s\n", quorra_status_message(drawn));
         return 0;
     }
 
-    pdfv_events *after = NULL;
-    if (!check("pdfv_render_ready_raster",
-               pdfv_render_ready_raster(viewer, request, raster, &after))) {
+    quorra_events *after = NULL;
+    if (!check("quorra_render_ready_raster",
+               quorra_render_ready_raster(viewer, request, raster, &after))) {
         return 0;
     }
-    pdfv_events_free(after);
+    quorra_events_free(after);
     return 1;
 }
 
 /* §8.11.4.3's layers and §7.11.4's files, printed. Both are the same handle. */
-static void say_panel(const char *what, pdfv_panel *panel)
+static void say_panel(const char *what, quorra_panel *panel)
 {
-    size_t rows = pdfv_panel_len(panel);
+    size_t rows = quorra_panel_len(panel);
     printf("%s: %zu row(s)\n", what, rows);
     for (size_t row = 0; row < rows && row < 4; ++row) {
         size_t needed = 0;
-        (void)pdfv_panel_text(panel, row, 0, NULL, 0, &needed);
+        (void)quorra_panel_text(panel, row, 0, NULL, 0, &needed);
         char *label = malloc(needed);
         if (label == NULL) {
             return;
         }
-        (void)pdfv_panel_text(panel, row, 0, label, needed, &needed);
+        (void)quorra_panel_text(panel, row, 0, label, needed, &needed);
         uint32_t kind = 0;
         uint32_t number = 0;
         uint16_t generation = 0;
@@ -180,10 +180,10 @@ static void say_panel(const char *what, pdfv_panel *panel)
         bool locked = false;
         uint32_t depth = 0;
         bool expanded = false;
-        (void)pdfv_panel_action(panel, row, &kind, &number, &generation, &on, &locked);
-        (void)pdfv_panel_depth(panel, row, &depth, &expanded);
+        (void)quorra_panel_action(panel, row, &kind, &number, &generation, &on, &locked);
+        (void)quorra_panel_depth(panel, row, &depth, &expanded);
         printf("  [%zu] depth %u, %s, object %u %u, on %d, locked %d: %s\n", row, depth,
-               pdfv_row_kind_name(kind), number, generation, on ? 1 : 0, locked ? 1 : 0, label);
+               quorra_row_kind_name(kind), number, generation, on ? 1 : 0, locked ? 1 : 0, label);
         free(label);
     }
 }
@@ -193,106 +193,106 @@ static void say_panel(const char *what, pdfv_panel *panel)
  * THE OTHER HALF OF THE QUERIES (ADR 0576).
  *
  * Eleven of the boundary's questions reached no symbol at all before this round. Every one of them
- * is asked here, on whatever document the first argument names — most will answer PDFV_NO_ANSWER,
+ * is asked here, on whatever document the first argument names — most will answer QUORRA_NO_ANSWER,
  * which is not a failure: a document that states no collection has none, and a page with no /Thumb
  * is most pages of most documents. What is being demonstrated is that a C caller can ASK.
  *
  * Nothing here is fatal, deliberately: this function reports and returns, because the shape of
  * these calls is what is under test and the corpus decides what they answer.
  */
-static void exercise_the_other_half(pdfv_viewer *viewer)
+static void exercise_the_other_half(quorra_viewer *viewer)
 {
     /* Table 29's two display entries. A caller that could set the arrangement could not ask what
      * the catalogue opens in. */
     uint32_t mode = 0;
     uint32_t layout = 0;
-    if (pdfv_opening(viewer, &mode, &layout) == PDFV_OK) {
-        printf("§7.7.2: /PageMode %s, /PageLayout %u\n", pdfv_page_mode_name(mode), layout);
+    if (quorra_opening(viewer, &mode, &layout) == QUORRA_OK) {
+        printf("§7.7.2: /PageMode %s, /PageLayout %u\n", quorra_page_mode_name(mode), layout);
     }
 
     /* §12.2's Table 147, key by key, including the ones the document leaves open. */
     size_t stated = 0;
-    for (uint32_t key = 0; key < pdfv_preference_key_count(); ++key) {
+    for (uint32_t key = 0; key < quorra_preference_key_count(); ++key) {
         int64_t value = 0;
-        int32_t asked = pdfv_preference(viewer, key, &value);
-        if (asked == PDFV_OK) {
+        int32_t asked = quorra_preference(viewer, key, &value);
+        if (asked == QUORRA_OK) {
             ++stated;
             if (stated <= 3) {
-                printf("  Table 147 /%s = %lld\n", pdfv_preference_key_name(key),
+                printf("  Table 147 /%s = %lld\n", quorra_preference_key_name(key),
                        (long long)value);
             }
         }
     }
     size_t ranges = 0;
-    (void)pdfv_preference_ranges(viewer, &ranges);
+    (void)quorra_preference_ranges(viewer, &ranges);
     printf("§12.2: %zu of %u entries answered, /PrintPageRange has %zu sub-range(s)\n", stated,
-           pdfv_preference_key_count(), ranges);
+           quorra_preference_key_count(), ranges);
     /* The one entry that is a list refuses the scalar accessor BY NAME rather than answering
      * something plausible, which is trap 5 in the small. */
     int64_t refused = 0;
-    if (pdfv_preference(viewer, PDFV_PREF_PRINT_PAGE_RANGE, &refused) != PDFV_WRONG_KIND) {
+    if (quorra_preference(viewer, QUORRA_PREF_PRINT_PAGE_RANGE, &refused) != QUORRA_WRONG_KIND) {
         printf("  (a list answered the scalar accessor, which it should not)\n");
     }
 
     /* §14.3.3 and §12.4.3, both as panels — the shape this ABI already had. */
-    pdfv_panel *panel = NULL;
-    if (pdfv_properties_read(viewer, &panel) == PDFV_OK) {
+    quorra_panel *panel = NULL;
+    if (quorra_properties_read(viewer, &panel) == QUORRA_OK) {
         say_panel("§14.3.3 properties", panel);
-        pdfv_panel_free(panel);
+        quorra_panel_free(panel);
     }
-    if (pdfv_articles_read(viewer, &panel) == PDFV_OK) {
+    if (quorra_articles_read(viewer, &panel) == QUORRA_OK) {
         say_panel("§12.4.3 articles", panel);
-        pdfv_panel_free(panel);
+        quorra_panel_free(panel);
     }
 
     /* §12.4.2's label and §12.3.4's miniature, asked SEPARATELY for one page — which is the whole
      * of how this ABI keeps thumbnails off a launch path. */
     size_t needed = 0;
-    int32_t labelled = pdfv_page_label(viewer, 0, NULL, 0, &needed);
-    if (labelled == PDFV_BUFFER_TOO_SMALL) {
+    int32_t labelled = quorra_page_label(viewer, 0, NULL, 0, &needed);
+    if (labelled == QUORRA_BUFFER_TOO_SMALL) {
         char *label = malloc(needed);
-        if (label != NULL && pdfv_page_label(viewer, 0, label, needed, &needed) == PDFV_OK) {
+        if (label != NULL && quorra_page_label(viewer, 0, label, needed, &needed) == QUORRA_OK) {
             printf("§12.4.2: page one is called %s\n", label);
         }
         free(label);
     } else {
         printf("§12.4.2: this document labels no page, so page one is page 1\n");
     }
-    pdfv_thumbnail *thumbnail = NULL;
-    if (pdfv_thumbnail_read(viewer, 0, &thumbnail) == PDFV_OK) {
+    quorra_thumbnail *thumbnail = NULL;
+    if (quorra_thumbnail_read(viewer, 0, &thumbnail) == QUORRA_OK) {
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t format = 0;
         size_t bytes = 0;
         uint32_t permitted = 0;
-        if (pdfv_thumbnail_info(thumbnail, &width, &height, &format, &bytes, &permitted)
-            == PDFV_OK) {
+        if (quorra_thumbnail_info(thumbnail, &width, &height, &format, &bytes, &permitted)
+            == QUORRA_OK) {
             uint8_t *samples = malloc(bytes);
             size_t written = 0;
             if (samples != NULL
-                && pdfv_thumbnail_copy(thumbnail, samples, bytes, &written) == PDFV_OK) {
+                && quorra_thumbnail_copy(thumbnail, samples, bytes, &written) == QUORRA_OK) {
                 printf("§12.3.4: page one's /Thumb is %ux%u, %zu byte(s) copied, flags %u\n",
                        width, height, written, permitted);
             }
             free(samples);
         }
-        pdfv_thumbnail_free(thumbnail);
+        quorra_thumbnail_free(thumbnail);
     } else {
         printf("§12.3.4: page one states no /Thumb, which is most pages of most documents\n");
     }
 
     /* §9.10.2's counts, per page on the screen. Not reports — the clause says outright that
      * "there is no way to determine what the character code represents". */
-    size_t readback = pdfv_readback_pages(viewer);
+    size_t readback = quorra_readback_pages(viewer);
     printf("§9.10.2: %zu page(s) answer\n", readback);
     for (size_t entry = 0; entry < readback && entry < 2; ++entry) {
         size_t page = 0;
-        (void)pdfv_readback_page(viewer, entry, &page);
+        (void)quorra_readback_page(viewer, entry, &page);
         printf("  page %zu:", page);
-        for (uint32_t which = 0; which < pdfv_shortfall_kind_count(); ++which) {
+        for (uint32_t which = 0; which < quorra_shortfall_kind_count(); ++which) {
             size_t count = 0;
-            if (pdfv_readback_count(viewer, entry, which, &count) == PDFV_OK && count > 0) {
-                printf(" %s=%zu", pdfv_shortfall_kind_name(which), count);
+            if (quorra_readback_count(viewer, entry, which, &count) == QUORRA_OK && count > 0) {
+                printf(" %s=%zu", quorra_shortfall_kind_name(which), count);
             }
         }
         printf("\n");
@@ -300,25 +300,25 @@ static void exercise_the_other_half(pdfv_viewer *viewer)
 
     /* Every occurrence of a term on the page in front of the reader — the half a caller running
      * Annex O's document-wide search did not have. */
-    pdfv_matches *matches = NULL;
-    if (pdfv_find_matches(viewer, "the", &matches) == PDFV_OK) {
-        size_t found = pdfv_matches_len(matches);
+    quorra_matches *matches = NULL;
+    if (quorra_find_matches(viewer, "the", &matches) == QUORRA_OK) {
+        size_t found = quorra_matches_len(matches);
         size_t shapes = 0;
         for (size_t index = 0; index < found; ++index) {
-            pdfv_quads *quads = NULL;
-            if (pdfv_matches_quads(matches, index, &quads) == PDFV_OK) {
-                shapes += pdfv_quads_len(quads);
-                pdfv_quads_free(quads);
+            quorra_quads *quads = NULL;
+            if (quorra_matches_quads(matches, index, &quads) == QUORRA_OK) {
+                shapes += quorra_quads_len(quads);
+                quorra_quads_free(quads);
             }
         }
         printf("find on this page: %zu occurrence(s) of \"the\" in %zu shape(s)\n", found, shapes);
-        pdfv_matches_free(matches);
+        quorra_matches_free(matches);
     }
 
     /* §12.5.6.14's popup windows, which no host but the tier-2 one could draw before. */
-    pdfv_popups *popups = NULL;
-    if (pdfv_popups_read(viewer, &popups) == PDFV_OK) {
-        size_t windows = pdfv_popups_len(popups);
+    quorra_popups *popups = NULL;
+    if (quorra_popups_read(viewer, &popups) == QUORRA_OK) {
+        size_t windows = quorra_popups_len(popups);
         printf("§12.5.6.14: %zu open popup window(s)\n", windows);
         for (size_t index = 0; index < windows && index < 2; ++index) {
             uint32_t number = 0;
@@ -327,27 +327,27 @@ static void exercise_the_other_half(pdfv_viewer *viewer)
             uint32_t parent_number = 0;
             uint16_t parent_generation = 0;
             float quad[8] = {0};
-            (void)pdfv_popup_object(popups, index, &number, &generation, &has_parent,
+            (void)quorra_popup_object(popups, index, &number, &generation, &has_parent,
                                     &parent_number, &parent_generation);
-            (void)pdfv_popup_quad(popups, index, quad);
+            (void)quorra_popup_quad(popups, index, quad);
             size_t said = 0;
-            (void)pdfv_popup_text(popups, index, PDFV_NOTE_CONTENTS, NULL, 0, &said);
+            (void)quorra_popup_text(popups, index, QUORRA_NOTE_CONTENTS, NULL, 0, &said);
             printf("  [%zu] object %u %u, parent %d (%u), at %.1f,%.1f, %zu byte(s) of text\n",
                    index, number, generation, has_parent ? 1 : 0, parent_number, (double)quad[0],
                    (double)quad[1], said);
         }
-        pdfv_popups_free(popups);
+        quorra_popups_free(popups);
     }
 
     /* §14.7's structure, one tree per page the arrangement is showing. */
-    pdfv_structure *structure = NULL;
-    if (pdfv_structure_read(viewer, &structure) == PDFV_OK) {
-        size_t pages = pdfv_structure_pages(structure);
+    quorra_structure *structure = NULL;
+    if (quorra_structure_read(viewer, &structure) == QUORRA_OK) {
+        size_t pages = quorra_structure_pages(structure);
         printf("§14.7: %zu page(s) of structure\n", pages);
         for (size_t entry = 0; entry < pages && entry < 2; ++entry) {
             size_t page = 0;
             size_t nodes = 0;
-            (void)pdfv_structure_page(structure, entry, &page, &nodes);
+            (void)quorra_structure_page(structure, entry, &page, &nodes);
             printf("  page %zu: %zu node(s)", page, nodes);
             if (nodes > 0) {
                 size_t parent = 0;
@@ -355,52 +355,52 @@ static void exercise_the_other_half(pdfv_viewer *viewer)
                 bool substituted = false;
                 uint32_t scope = 0;
                 bool has_scope = false;
-                (void)pdfv_structure_node(structure, entry, 0, &parent, &has_parent, &substituted,
+                (void)quorra_structure_node(structure, entry, 0, &parent, &has_parent, &substituted,
                                           &scope, &has_scope);
                 size_t said = 0;
                 int32_t asked =
-                    pdfv_structure_text(structure, entry, 0, PDFV_ELEMENT_ROLE, NULL, 0, &said);
+                    quorra_structure_text(structure, entry, 0, QUORRA_ELEMENT_ROLE, NULL, 0, &said);
                 char *role = NULL;
-                if (asked == PDFV_BUFFER_TOO_SMALL) {
+                if (asked == QUORRA_BUFFER_TOO_SMALL) {
                     role = malloc(said);
                     if (role != NULL) {
-                        (void)pdfv_structure_text(structure, entry, 0, PDFV_ELEMENT_ROLE, role,
+                        (void)quorra_structure_text(structure, entry, 0, QUORRA_ELEMENT_ROLE, role,
                                                   said, &said);
                     }
                 }
                 float box[4] = {0};
                 int32_t bounded =
-                    pdfv_structure_box(structure, entry, 0, PDFV_BOX_STATED, box);
+                    quorra_structure_box(structure, entry, 0, QUORRA_BOX_STATED, box);
                 size_t headers = 0;
-                (void)pdfv_structure_headers(structure, entry, 0, &headers);
+                (void)quorra_structure_headers(structure, entry, 0, &headers);
                 printf(", root is %s, root has a parent %d, /BBox %s, %zu header(s)",
                        role == NULL ? "(unnamed)" : role, has_parent ? 1 : 0,
-                       bounded == PDFV_OK ? "yes" : "no", headers);
+                       bounded == QUORRA_OK ? "yes" : "no", headers);
                 free(role);
             }
             printf("\n");
         }
-        pdfv_structure_free(structure);
+        quorra_structure_free(structure);
     } else {
         printf("§14.7: this document states no structure, which §14.7 leaves it free to do\n");
     }
 
     /* §12.3.5's collection. Almost no document has one, so what is exercised on most files is the
      * refusal — and the key grammar below, which takes no viewer at all. */
-    pdfv_collection *collection = NULL;
-    if (pdfv_collection_read(viewer, &collection) == PDFV_OK) {
+    quorra_collection *collection = NULL;
+    if (quorra_collection_read(viewer, &collection) == QUORRA_OK) {
         uint32_t view = 0;
         uint32_t initial = 0;
         size_t columns = 0;
         size_t folders = 0;
-        (void)pdfv_collection_view(collection, &view);
+        (void)quorra_collection_view(collection, &view);
         size_t said = 0;
-        (void)pdfv_collection_initial(collection, &initial, NULL, 0, &said);
-        (void)pdfv_collection_columns(collection, &columns);
-        (void)pdfv_collection_folders(collection, &folders);
+        (void)quorra_collection_initial(collection, &initial, NULL, 0, &said);
+        (void)quorra_collection_columns(collection, &columns);
+        (void)quorra_collection_folders(collection, &folders);
         printf("§12.3.5: view %u, initial %u, %zu column(s), %zu folder(s)\n", view, initial,
                columns, folders);
-        pdfv_collection_free(collection);
+        quorra_collection_free(collection);
     } else {
         printf("§12.3.5: this document states no collection\n");
     }
@@ -409,30 +409,30 @@ static void exercise_the_other_half(pdfv_viewer *viewer)
     uint32_t folder = 0;
     size_t said = 0;
     char inside[64];
-    if (pdfv_collection_folder_of("<7>report.pdf", &folder, inside, sizeof inside, &said)
-        == PDFV_OK) {
+    if (quorra_collection_folder_of("<7>report.pdf", &folder, inside, sizeof inside, &said)
+        == QUORRA_OK) {
         printf("§12.3.5.2: <7>report.pdf is %s in folder %u\n", inside, folder);
     }
-    if (pdfv_collection_folder_of("loose.pdf", &folder, inside, sizeof inside, &said)
-        != PDFV_NO_ANSWER) {
+    if (quorra_collection_folder_of("loose.pdf", &folder, inside, sizeof inside, &said)
+        != QUORRA_NO_ANSWER) {
         printf("  (a key naming no folder should say so)\n");
     }
 }
 
 /* One of a field's strings, printed inline. Returns 1 when there was one. */
-static int say_field_string(const pdfv_fields *fields, size_t field, uint32_t which,
+static int say_field_string(const quorra_fields *fields, size_t field, uint32_t which,
                             const char *label)
 {
     size_t needed = 0;
-    int32_t asked = pdfv_field_name(fields, field, which, NULL, 0, &needed);
-    if (asked != PDFV_BUFFER_TOO_SMALL && asked != PDFV_OK) {
+    int32_t asked = quorra_field_name(fields, field, which, NULL, 0, &needed);
+    if (asked != QUORRA_BUFFER_TOO_SMALL && asked != QUORRA_OK) {
         return 0;
     }
     char *text = malloc(needed);
     if (text == NULL) {
         return 0;
     }
-    if (pdfv_field_name(fields, field, which, text, needed, &needed) == PDFV_OK) {
+    if (quorra_field_name(fields, field, which, text, needed, &needed) == QUORRA_OK) {
         printf(" %s=%s", label, text);
     }
     free(text);
@@ -445,29 +445,29 @@ static int say_field_string(const pdfv_fields *fields, size_t field, uint32_t wh
  *
  * The interesting step is the last: a check box's value is the name Table 170's appearance
  * dictionary is keyed by, and those names are the file's own invention — so a caller has to be told
- * one, which is what `pdfv_field_widget_text(PDFV_TEXT_LABEL)` is for. Sending a guess would tick
+ * one, which is what `quorra_field_widget_text(QUORRA_TEXT_LABEL)` is for. Sending a guess would tick
  * nothing.
  */
-static int exercise_the_form(pdfv_viewer *viewer, const char *path)
+static int exercise_the_form(quorra_viewer *viewer, const char *path)
 {
     size_t len = 0;
     uint8_t *bytes = read_file(path, &len);
     if (bytes == NULL) {
         return 0;
     }
-    pdfv_events *events = NULL;
-    if (!check("pdfv_open (form)", pdfv_open(viewer, 2, bytes, len, NULL, NULL, &events))) {
+    quorra_events *events = NULL;
+    if (!check("quorra_open (form)", quorra_open(viewer, 2, bytes, len, NULL, NULL, &events))) {
         free(bytes);
         return 0;
     }
     free(bytes);
-    pdfv_events_free(events);
+    quorra_events_free(events);
 
-    pdfv_fields *fields = NULL;
-    if (!check("pdfv_fields_read", pdfv_fields_read(viewer, &fields))) {
+    quorra_fields *fields = NULL;
+    if (!check("quorra_fields_read", quorra_fields_read(viewer, &fields))) {
         return 0;
     }
-    size_t count = pdfv_fields_len(fields);
+    size_t count = quorra_fields_len(fields);
     printf("form: %zu field(s)\n", count);
 
     /* The check box to tick, and the name that ticks it, both learned from the library. */
@@ -476,23 +476,23 @@ static int exercise_the_form(pdfv_viewer *viewer, const char *path)
     for (size_t field = 0; field < count; ++field) {
         uint32_t kind = 0;
         uint32_t flags = 0;
-        (void)pdfv_field_control(fields, field, &kind, &flags);
-        printf("  [%zu] %s flags %u", field, pdfv_control_kind_name(kind), flags);
-        (void)say_field_string(fields, field, PDFV_TEXT_QUALIFIED, "name");
-        (void)say_field_string(fields, field, PDFV_TEXT_SHOWN, "shown");
+        (void)quorra_field_control(fields, field, &kind, &flags);
+        printf("  [%zu] %s flags %u", field, quorra_control_kind_name(kind), flags);
+        (void)say_field_string(fields, field, QUORRA_TEXT_QUALIFIED, "name");
+        (void)say_field_string(fields, field, QUORRA_TEXT_SHOWN, "shown");
         size_t widgets = 0;
-        (void)pdfv_field_widget_count(fields, field, &widgets);
+        (void)quorra_field_widget_count(fields, field, &widgets);
         size_t options = 0;
-        (void)pdfv_field_option_count(fields, field, &options);
+        (void)quorra_field_option_count(fields, field, &options);
         printf(" widgets=%zu options=%zu", widgets, options);
         size_t needed = 0;
-        int32_t has_value = pdfv_field_value(fields, field, NULL, 0, &needed);
-        if (has_value == PDFV_NO_ANSWER) {
+        int32_t has_value = quorra_field_value(fields, field, NULL, 0, &needed);
+        if (has_value == QUORRA_NO_ANSWER) {
             printf(" value=<none>");
         } else {
             char *value = malloc(needed);
             if (value != NULL) {
-                if (pdfv_field_value(fields, field, value, needed, &needed) == PDFV_OK) {
+                if (quorra_field_value(fields, field, value, needed, &needed) == QUORRA_OK) {
                     printf(" value=%s", value);
                 }
                 free(value);
@@ -504,28 +504,28 @@ static int exercise_the_form(pdfv_viewer *viewer, const char *path)
             uint16_t generation = 0;
             float quad[8] = {0};
             bool on = false;
-            (void)pdfv_field_widget(fields, field, widget, &number, &generation, quad, &on);
+            (void)quorra_field_widget(fields, field, widget, &number, &generation, quad, &on);
             printf("    widget %u %u at %.1f,%.1f on=%d\n", number, generation, (double)quad[0],
                    (double)quad[1], on ? 1 : 0);
-            if (kind != PDFV_CONTROL_CHECK || ticks != NULL || on) {
+            if (kind != QUORRA_CONTROL_CHECK || ticks != NULL || on) {
                 continue;
             }
             size_t state_needed = 0;
-            (void)pdfv_field_widget_text(fields, field, widget, PDFV_TEXT_LABEL, NULL, 0,
+            (void)quorra_field_widget_text(fields, field, widget, QUORRA_TEXT_LABEL, NULL, 0,
                                          &state_needed);
             char *state = malloc(state_needed);
             size_t name_needed = 0;
-            (void)pdfv_field_name(fields, field, PDFV_TEXT_QUALIFIED, NULL, 0, &name_needed);
+            (void)quorra_field_name(fields, field, QUORRA_TEXT_QUALIFIED, NULL, 0, &name_needed);
             char *name = malloc(name_needed);
             if (state == NULL || name == NULL) {
                 free(state);
                 free(name);
                 continue;
             }
-            if (pdfv_field_widget_text(fields, field, widget, PDFV_TEXT_LABEL, state,
-                                       state_needed, &state_needed) == PDFV_OK
-                && pdfv_field_name(fields, field, PDFV_TEXT_QUALIFIED, name, name_needed,
-                                   &name_needed) == PDFV_OK) {
+            if (quorra_field_widget_text(fields, field, widget, QUORRA_TEXT_LABEL, state,
+                                       state_needed, &state_needed) == QUORRA_OK
+                && quorra_field_name(fields, field, QUORRA_TEXT_QUALIFIED, name, name_needed,
+                                   &name_needed) == QUORRA_OK) {
                 ticks = state;
                 ticked_field = name;
             } else {
@@ -534,59 +534,59 @@ static int exercise_the_form(pdfv_viewer *viewer, const char *path)
             }
         }
     }
-    pdfv_fields_free(fields);
+    quorra_fields_free(fields);
 
     if (ticks == NULL) {
         fprintf(stderr, "the form fixture has no check box to tick\n");
         return 0;
     }
     printf("ticking %s with the state %s\n", ticked_field, ticks);
-    pdfv_events *edited = NULL;
-    int32_t sent = pdfv_set_field_text(viewer, ticked_field, ticks, &edited);
+    quorra_events *edited = NULL;
+    int32_t sent = quorra_set_field_text(viewer, ticked_field, ticks, &edited);
     free(ticks);
     free(ticked_field);
-    if (!check("pdfv_set_field_text", sent)) {
+    if (!check("quorra_set_field_text", sent)) {
         return 0;
     }
-    pdfv_events_free(edited);
+    quorra_events_free(edited);
 
     /* And read it back, which is the rule a host follows after every edit: the field's own answer
      * is the truth, never the string that was sent. */
-    if (!check("pdfv_fields_read (again)", pdfv_fields_read(viewer, &fields))) {
+    if (!check("quorra_fields_read (again)", quorra_fields_read(viewer, &fields))) {
         return 0;
     }
     size_t on_now = 0;
-    for (size_t field = 0; field < pdfv_fields_len(fields); ++field) {
+    for (size_t field = 0; field < quorra_fields_len(fields); ++field) {
         size_t widgets = 0;
-        (void)pdfv_field_widget_count(fields, field, &widgets);
+        (void)quorra_field_widget_count(fields, field, &widgets);
         for (size_t widget = 0; widget < widgets; ++widget) {
             bool on = false;
-            (void)pdfv_field_widget(fields, field, widget, NULL, NULL, NULL, &on);
+            (void)quorra_field_widget(fields, field, widget, NULL, NULL, NULL, &on);
             if (on) {
                 ++on_now;
             }
         }
     }
-    pdfv_fields_free(fields);
+    quorra_fields_free(fields);
     printf("after the edit: %zu widget(s) on\n", on_now);
 
     bool dirty = false;
-    (void)pdfv_dirty(viewer, &dirty);
+    (void)quorra_dirty(viewer, &dirty);
     printf("dirty after the edit: %d\n", dirty ? 1 : 0);
 
     /* §7.5.6's incremental update: the producer's bytes with the edit appended. */
-    pdfv_events *saved = NULL;
-    if (!check("pdfv_save", pdfv_save(viewer, &saved))) {
+    quorra_events *saved = NULL;
+    if (!check("quorra_save", quorra_save(viewer, &saved))) {
         return 0;
     }
     size_t written = 0;
-    for (size_t index = 0; index < pdfv_events_len(saved); ++index) {
+    for (size_t index = 0; index < quorra_events_len(saved); ++index) {
         size_t needed = 0;
-        if (pdfv_event_bytes(saved, index, NULL, 0, &needed) == PDFV_BUFFER_TOO_SMALL) {
+        if (quorra_event_bytes(saved, index, NULL, 0, &needed) == QUORRA_BUFFER_TOO_SMALL) {
             written = needed;
         }
     }
-    pdfv_events_free(saved);
+    quorra_events_free(saved);
     printf("saved %s than the file it came from: %zu against %zu byte(s)\n",
            written > len ? "more" : "no more", written, len);
 
@@ -594,15 +594,15 @@ static int exercise_the_form(pdfv_viewer *viewer, const char *path)
        edit is in a file now, so taking it back is itself something the file does not have. What
        is unsaved is the distance between the log's cursor and the last save, in either
        direction. */
-    pdfv_events *undone = NULL;
-    (void)pdfv_undo(viewer, &undone);
-    pdfv_events_free(undone);
-    (void)pdfv_dirty(viewer, &dirty);
+    quorra_events *undone = NULL;
+    (void)quorra_undo(viewer, &undone);
+    quorra_events_free(undone);
+    (void)quorra_dirty(viewer, &dirty);
     printf("dirty after the undo: %d\n", dirty ? 1 : 0);
 
-    pdfv_events *closed = NULL;
-    (void)pdfv_close(viewer, 2, &closed);
-    pdfv_events_free(closed);
+    quorra_events *closed = NULL;
+    (void)quorra_close(viewer, 2, &closed);
+    quorra_events_free(closed);
     return written > len;
 }
 
@@ -615,9 +615,9 @@ int main(int argc, char **argv)
 
     /* Step one, before anything else: does the library agree with this header? This is what
      * stands in for "a new message fails to compile in every consumer". */
-    printf("abi %u (header %u), %u event kind(s) (header %u)\n", pdfv_abi_version(),
-           PDFV_ABI_VERSION, pdfv_event_kind_count(), PDFV_EVENT_KIND_COUNT);
-    if (!check("pdfv_abi_check", pdfv_abi_check(PDFV_ABI_VERSION, PDFV_EVENT_KIND_COUNT))) {
+    printf("abi %u (header %u), %u event kind(s) (header %u)\n", quorra_abi_version(),
+           QUORRA_ABI_VERSION, quorra_event_kind_count(), QUORRA_EVENT_KIND_COUNT);
+    if (!check("quorra_abi_check", quorra_abi_check(QUORRA_ABI_VERSION, QUORRA_EVENT_KIND_COUNT))) {
         return 1;
     }
 
@@ -628,63 +628,63 @@ int main(int argc, char **argv)
     }
     printf("%s: %zu byte(s)\n", argv[1], len);
 
-    pdfv_viewer *viewer = pdfv_viewer_new(800, 1000, 1.0f);
+    quorra_viewer *viewer = quorra_viewer_new(800, 1000, 1.0f);
     if (viewer == NULL) {
         free(bytes);
         return 1;
     }
 
     double began = now_us();
-    pdfv_events *events = NULL;
-    if (!check("pdfv_open", pdfv_open(viewer, 1, bytes, len, NULL, NULL, &events))) {
+    quorra_events *events = NULL;
+    if (!check("quorra_open", quorra_open(viewer, 1, bytes, len, NULL, NULL, &events))) {
         free(bytes);
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
     double opened_at = now_us();
     free(bytes); /* the library copied them */
 
     size_t asked = say_and_find_render(events, "open");
-    /* An `Opened` event says how many pages there are, and so does `pdfv_page_count`; the two must
+    /* An `Opened` event says how many pages there are, and so does `quorra_page_count`; the two must
      * agree, and this program checks rather than trusting one of them. */
-    for (size_t index = 0; index < pdfv_events_len(events); ++index) {
+    for (size_t index = 0; index < quorra_events_len(events); ++index) {
         uint64_t document = 0;
         size_t pages = 0;
-        if (pdfv_event_opened(events, index, &document, &pages) == PDFV_OK) {
+        if (quorra_event_opened(events, index, &document, &pages) == QUORRA_OK) {
             printf("  Opened says document %llu has %zu page(s)\n",
                    (unsigned long long)document, pages);
         }
     }
     if (asked == (size_t)-1) {
         fprintf(stderr, "opening a document asks for its first page, and did not\n");
-        pdfv_events_free(events);
-        pdfv_viewer_free(viewer);
+        quorra_events_free(events);
+        quorra_viewer_free(viewer);
         return 1;
     }
     if (!draw_what_was_asked(viewer, events, asked)) {
-        pdfv_events_free(events);
-        pdfv_viewer_free(viewer);
+        quorra_events_free(events);
+        quorra_viewer_free(viewer);
         return 1;
     }
     double drawn_at = now_us();
-    pdfv_events_free(events);
+    quorra_events_free(events);
     printf("open %.0f us, first page drawn and handed back at %.0f us\n", opened_at - began,
            drawn_at - began);
 
     size_t pages = 0;
-    if (!check("pdfv_page_count", pdfv_page_count(viewer, &pages))) {
-        pdfv_viewer_free(viewer);
+    if (!check("quorra_page_count", quorra_page_count(viewer, &pages))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
     size_t page = 0;
     size_t of = 0;
-    (void)pdfv_current_page(viewer, &page, &of);
+    (void)quorra_current_page(viewer, &page, &of);
     printf("page %zu of %zu (%zu page(s) in the document)\n", page + 1, of, pages);
 
     /* Where the page sits and how large it is drawn — the other query a host asks per frame. */
-    pdfv_geometry geometry;
+    quorra_geometry geometry;
     memset(&geometry, 0, sizeof geometry);
-    if (check("pdfv_page_geometry", pdfv_page_geometry(viewer, page, &geometry))) {
+    if (check("quorra_page_geometry", quorra_page_geometry(viewer, page, &geometry))) {
         printf("geometry: %.1fx%.1f user units at %.3f, %ux%u px, origin %.1f,%.1f\n",
                (double)geometry.page_width, (double)geometry.page_height, (double)geometry.scale,
                geometry.width, geometry.height, (double)geometry.origin_x,
@@ -700,37 +700,37 @@ int main(int argc, char **argv)
      * default could stand in for: a page that fits the window is scrolled by nothing at all.
      * The view this program was in is read first and put back afterwards, so that what follows
      * runs in the state it would have run in — which is itself a use of the pair. */
-    pdfv_viewing opening;
+    quorra_viewing opening;
     memset(&opening, 0, sizeof opening);
-    (void)check("pdfv_view", pdfv_view(viewer, &opening));
-    pdfv_events *shifted = NULL;
-    if (check("pdfv_zoom", pdfv_zoom(viewer, PDFV_ZOOM_SCALE, 2.5f, &shifted))) {
-        pdfv_events_free(shifted);
+    (void)check("quorra_view", quorra_view(viewer, &opening));
+    quorra_events *shifted = NULL;
+    if (check("quorra_zoom", quorra_zoom(viewer, QUORRA_ZOOM_SCALE, 2.5f, &shifted))) {
+        quorra_events_free(shifted);
     }
     shifted = NULL;
-    if (check("pdfv_scroll", pdfv_scroll(viewer, 40.0f, 120.0f, &shifted))) {
-        pdfv_events_free(shifted);
+    if (check("quorra_scroll", quorra_scroll(viewer, 40.0f, 120.0f, &shifted))) {
+        quorra_events_free(shifted);
     }
-    pdfv_viewing was;
+    quorra_viewing was;
     memset(&was, 0, sizeof was);
-    if (check("pdfv_view", pdfv_view(viewer, &was))) {
+    if (check("quorra_view", quorra_view(viewer, &was))) {
         printf("view: page %zu, zoom %u at %.3f, scroll %.1f,%.1f\n", was.page, was.zoom,
                (double)was.scale, (double)was.scroll_x, (double)was.scroll_y);
         shifted = NULL;
-        if (check("pdfv_zoom", pdfv_zoom(viewer, PDFV_ZOOM_FIT_PAGE, 0.0f, &shifted))) {
-            pdfv_events_free(shifted);
+        if (check("quorra_zoom", quorra_zoom(viewer, QUORRA_ZOOM_FIT_PAGE, 0.0f, &shifted))) {
+            quorra_events_free(shifted);
         }
         shifted = NULL;
-        if (check("pdfv_go_to_page", pdfv_go_to_page(viewer, PDFV_PAGE_LAST, 0, &shifted))) {
-            pdfv_events_free(shifted);
+        if (check("quorra_go_to_page", quorra_go_to_page(viewer, QUORRA_PAGE_LAST, 0, &shifted))) {
+            quorra_events_free(shifted);
         }
         shifted = NULL;
-        if (check("pdfv_set_view", pdfv_set_view(viewer, was, &shifted))) {
-            pdfv_events_free(shifted);
+        if (check("quorra_set_view", quorra_set_view(viewer, was, &shifted))) {
+            quorra_events_free(shifted);
         }
-        pdfv_viewing again;
+        quorra_viewing again;
         memset(&again, 0, sizeof again);
-        if (check("pdfv_view", pdfv_view(viewer, &again))) {
+        if (check("quorra_view", quorra_view(viewer, &again))) {
             printf("view restored: %s\n",
                    (again.page == was.page && again.zoom == was.zoom && again.scale == was.scale
                     && again.scroll_x == was.scroll_x && again.scroll_y == was.scroll_y)
@@ -738,20 +738,20 @@ int main(int argc, char **argv)
                        : "NOT exactly");
         }
         shifted = NULL;
-        if (check("pdfv_set_view", pdfv_set_view(viewer, opening, &shifted))) {
-            pdfv_events_free(shifted);
+        if (check("quorra_set_view", quorra_set_view(viewer, opening, &shifted))) {
+            quorra_events_free(shifted);
         }
     }
 
     /* §12.3.3's outline, which is the answer ADR 0247 made owned. */
-    pdfv_outline *outline = NULL;
-    int32_t read = pdfv_outline_read(viewer, &outline);
-    if (read == PDFV_OK) {
-        size_t rows = pdfv_outline_len(outline);
+    quorra_outline *outline = NULL;
+    int32_t read = quorra_outline_read(viewer, &outline);
+    if (read == QUORRA_OK) {
+        size_t rows = quorra_outline_len(outline);
         printf("outline: %zu row(s)\n", rows);
         for (size_t row = 0; row < rows && row < 4; ++row) {
             size_t needed = 0;
-            (void)pdfv_outline_title(outline, row, NULL, 0, &needed);
+            (void)quorra_outline_title(outline, row, NULL, 0, &needed);
             char *title = malloc(needed);
             if (title == NULL) {
                 break;
@@ -760,24 +760,24 @@ int main(int argc, char **argv)
             bool expanded = false;
             uint32_t number = 0;
             uint16_t generation = 0;
-            (void)pdfv_outline_title(outline, row, title, needed, &needed);
-            (void)pdfv_outline_depth(outline, row, &depth, &expanded);
-            (void)pdfv_outline_object(outline, row, &number, &generation);
+            (void)quorra_outline_title(outline, row, title, needed, &needed);
+            (void)quorra_outline_depth(outline, row, &depth, &expanded);
+            (void)quorra_outline_object(outline, row, &number, &generation);
             printf("  [%zu] depth %u, %s, object %u %u: %s\n", row, depth,
                    expanded ? "open" : "closed", number, generation, title);
             free(title);
         }
-        pdfv_outline_free(outline);
+        quorra_outline_free(outline);
     } else {
-        printf("outline: %s\n", pdfv_status_message(read));
+        printf("outline: %s\n", quorra_status_message(read));
     }
 
     /* Annex O's `search`, driven the way a C find bar drives it: start, then pump one page at a
      * time until the library says nothing is remaining. The loop has a bound because a caller
      * that trusted `remaining` to reach zero would hang on a library that had a bug. */
-    pdfv_events *searching = NULL;
-    if (!check("pdfv_find_start", pdfv_find_start(viewer, "black point", 0, &searching))) {
-        pdfv_viewer_free(viewer);
+    quorra_events *searching = NULL;
+    if (!check("quorra_find_start", quorra_find_start(viewer, "black point", 0, &searching))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
     size_t steps = 1;
@@ -788,26 +788,26 @@ int main(int argc, char **argv)
     size_t left = 0;
     int32_t wrapped = 0;
     for (;;) {
-        int32_t status = PDFV_WRONG_KIND;
-        for (size_t index = 0; index < pdfv_events_len(searching); ++index) {
-            int32_t asked_about = pdfv_event_searched(searching, index, &hit, &at_page, &from, &to,
+        int32_t status = QUORRA_WRONG_KIND;
+        for (size_t index = 0; index < quorra_events_len(searching); ++index) {
+            int32_t asked_about = quorra_event_searched(searching, index, &hit, &at_page, &from, &to,
                                                       &left, &wrapped);
-            if (asked_about == PDFV_OK) {
-                status = PDFV_OK;
+            if (asked_about == QUORRA_OK) {
+                status = QUORRA_OK;
             }
         }
-        pdfv_events_free(searching);
+        quorra_events_free(searching);
         searching = NULL;
-        if (status != PDFV_OK) {
+        if (status != QUORRA_OK) {
             fprintf(stderr, "a find step said nothing about the search\n");
-            pdfv_viewer_free(viewer);
+            quorra_viewer_free(viewer);
             return 1;
         }
         if (hit || left == 0 || steps > 4096) {
             break;
         }
-        if (!check("pdfv_find_continue", pdfv_find_continue(viewer, &searching))) {
-            pdfv_viewer_free(viewer);
+        if (!check("quorra_find_continue", quorra_find_continue(viewer, &searching))) {
+            quorra_viewer_free(viewer);
             return 1;
         }
         ++steps;
@@ -818,72 +818,72 @@ int main(int argc, char **argv)
     } else {
         printf("search: nothing in the document, after %zu step(s)\n", steps);
     }
-    pdfv_events *stopped = NULL;
-    (void)pdfv_find_stop(viewer, &stopped);
-    pdfv_events_free(stopped);
-    (void)pdfv_current_page(viewer, &page, &of);
+    quorra_events *stopped = NULL;
+    (void)quorra_find_stop(viewer, &stopped);
+    quorra_events_free(stopped);
+    (void)quorra_current_page(viewer, &page, &of);
     printf("after the search: page %zu of %zu\n", page + 1, of);
 
     /* A page turn, and the page that comes back must be the one turned to. */
-    pdfv_events *turned = NULL;
-    if (!check("pdfv_go_to_page", pdfv_go_to_page(viewer, PDFV_PAGE_NEXT, 0, &turned))) {
-        pdfv_viewer_free(viewer);
+    quorra_events *turned = NULL;
+    if (!check("quorra_go_to_page", quorra_go_to_page(viewer, QUORRA_PAGE_NEXT, 0, &turned))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
     double turned_at = now_us();
     asked = say_and_find_render(turned, "page turn");
     if (asked != (size_t)-1 && !draw_what_was_asked(viewer, turned, asked)) {
-        pdfv_events_free(turned);
-        pdfv_viewer_free(viewer);
+        quorra_events_free(turned);
+        quorra_viewer_free(viewer);
         return 1;
     }
-    pdfv_events_free(turned);
-    (void)pdfv_current_page(viewer, &page, &of);
+    quorra_events_free(turned);
+    (void)quorra_current_page(viewer, &page, &of);
     printf("after the turn: page %zu of %zu, drawn in %.0f us\n", page + 1, of,
            now_us() - turned_at);
 
     /* And the pixels, into a buffer this program owns. Two calls: size, then copy. */
-    pdfv_frame info;
+    quorra_frame info;
     memset(&info, 0, sizeof info);
-    /* Table 29's arrangement, counted: one under PDFV_LAYOUT_SINGLE_PAGE, which is what this
+    /* Table 29's arrangement, counted: one under QUORRA_LAYOUT_SINGLE_PAGE, which is what this
      * document opens in, and the index below is into that list. */
-    size_t frames = pdfv_frame_count(viewer);
+    size_t frames = quorra_frame_count(viewer);
     printf("frames on the screen: %zu\n", frames);
     if (frames != 1) {
         fprintf(stderr, "a single-page arrangement showing %zu page(s)\n", frames);
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
-    if (!check("pdfv_frame_info", pdfv_frame_info(viewer, 0, &info))) {
-        pdfv_viewer_free(viewer);
+    if (!check("quorra_frame_info", quorra_frame_info(viewer, 0, &info))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
     printf("frame: page %zu, %ux%u, format %u, %zu byte(s)\n", info.page + 1, info.width,
            info.height, info.format, info.bytes);
-    if (info.format != PDFV_FORMAT_RGBA8) {
+    if (info.format != QUORRA_FORMAT_RGBA8) {
         fprintf(stderr, "a pixel layout this program was not compiled for: %u\n", info.format);
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
 
     /* The refusal half of the two-call idiom, checked rather than assumed. */
     uint8_t one = 0;
-    if (pdfv_frame_copy(viewer, 0, &one, 1, NULL) != PDFV_BUFFER_TOO_SMALL) {
+    if (quorra_frame_copy(viewer, 0, &one, 1, NULL) != QUORRA_BUFFER_TOO_SMALL) {
         fprintf(stderr, "a one-byte buffer took a whole page\n");
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
 
     uint8_t *pixels = malloc(info.bytes);
     if (pixels == NULL) {
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
     size_t written = 0;
     double copy_began = now_us();
-    if (!check("pdfv_frame_copy", pdfv_frame_copy(viewer, 0, pixels, info.bytes, &written))) {
+    if (!check("quorra_frame_copy", quorra_frame_copy(viewer, 0, pixels, info.bytes, &written))) {
         free(pixels);
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
     double copy_took = now_us() - copy_began;
@@ -901,7 +901,7 @@ int main(int argc, char **argv)
     free(pixels);
     if (inked == 0) {
         fprintf(stderr, "the page copied out is blank\n");
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
 
@@ -912,41 +912,41 @@ int main(int argc, char **argv)
     /* The two enumerations this library answers with but does not push, and the name it gives a
      * number it does not define — which is what a caller compiled before a variant gets. */
     printf("control kinds %u (header %u), row kinds %u (header %u), unknown is %s\n",
-           pdfv_control_kind_count(), PDFV_CONTROL_KIND_COUNT, pdfv_row_kind_count(),
-           PDFV_ROW_KIND_COUNT, pdfv_control_kind_name(PDFV_CONTROL_KIND_COUNT));
+           quorra_control_kind_count(), QUORRA_CONTROL_KIND_COUNT, quorra_row_kind_count(),
+           QUORRA_ROW_KIND_COUNT, quorra_control_kind_name(QUORRA_CONTROL_KIND_COUNT));
 
     /* §12.5.5's pointer, and the question a caller asks on every move of it. */
-    pdfv_events *moved = NULL;
-    if (!check("pdfv_pointer", pdfv_pointer(viewer, 100.0f, 100.0f, PDFV_POINTER_MOVED, &moved))) {
-        pdfv_viewer_free(viewer);
+    quorra_events *moved = NULL;
+    if (!check("quorra_pointer", quorra_pointer(viewer, 100.0f, 100.0f, QUORRA_POINTER_MOVED, &moved))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
-    pdfv_events_free(moved);
+    quorra_events_free(moved);
     bool over_a_link = false;
-    (void)pdfv_link_at(viewer, 100.0f, 100.0f, &over_a_link);
+    (void)quorra_link_at(viewer, 100.0f, 100.0f, &over_a_link);
 
     /* A selection, as text and as shapes. The shapes are what a caller draws in its own colour;
      * the whole reason they are not baked into the frame. */
-    pdfv_events *selected = NULL;
-    if (!check("pdfv_select", pdfv_select(viewer, PDFV_SELECT_ALL, &selected))) {
-        pdfv_viewer_free(viewer);
+    quorra_events *selected = NULL;
+    if (!check("quorra_select", quorra_select(viewer, QUORRA_SELECT_ALL, &selected))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
-    pdfv_events_free(selected);
+    quorra_events_free(selected);
     size_t text_needed = 0;
-    (void)pdfv_selection_text(viewer, NULL, 0, &text_needed);
-    pdfv_quads *quads = NULL;
+    (void)quorra_selection_text(viewer, NULL, 0, &text_needed);
+    quorra_quads *quads = NULL;
     size_t shapes = 0;
-    if (pdfv_selection_quads(viewer, &quads) == PDFV_OK) {
-        shapes = pdfv_quads_len(quads);
+    if (quorra_selection_quads(viewer, &quads) == QUORRA_OK) {
+        shapes = quorra_quads_len(quads);
         float one[8] = {0};
         if (shapes > 0) {
-            (void)pdfv_quads_get(quads, 0, one);
+            (void)quorra_quads_get(quads, 0, one);
         }
         printf("selection: %zu byte(s) over %zu shape(s), first at %.1f,%.1f; over a link: %d\n",
                text_needed > 0 ? text_needed - 1 : 0, shapes, (double)one[0], (double)one[1],
                over_a_link ? 1 : 0);
-        pdfv_quads_free(quads);
+        quorra_quads_free(quads);
     }
 
     /* And what a caller would actually put on its own clipboard, which is a different string from
@@ -955,59 +955,59 @@ int main(int argc, char **argv)
      * order it came back in, which is the part a caller cannot work out for itself. */
     size_t copy_needed = 0;
     uint32_t order = 0;
-    int32_t sized = pdfv_selection_copy_text(viewer, NULL, 0, &copy_needed, &order);
-    if (sized == PDFV_BUFFER_TOO_SMALL && copy_needed > 0) {
+    int32_t sized = quorra_selection_copy_text(viewer, NULL, 0, &copy_needed, &order);
+    if (sized == QUORRA_BUFFER_TOO_SMALL && copy_needed > 0) {
         char *copy = malloc(copy_needed);
         if (copy != NULL
-            && pdfv_selection_copy_text(viewer, copy, copy_needed, &copy_needed, &order)
-                   == PDFV_OK) {
+            && quorra_selection_copy_text(viewer, copy, copy_needed, &copy_needed, &order)
+                   == QUORRA_OK) {
             printf("copy: %zu byte(s) in %s content order\n", copy_needed - 1,
-                   order == PDFV_ORDER_LOGICAL ? "logical" : "page");
+                   order == QUORRA_ORDER_LOGICAL ? "logical" : "page");
         }
         free(copy);
     } else {
-        printf("copy: %s\n", pdfv_status_message(sized));
+        printf("copy: %s\n", quorra_status_message(sized));
     }
 
     /* The other two panels. A document stating neither answers an empty list rather than
-     * PDFV_NO_ANSWER — the question was answered — and PDFV_NO_ANSWER is what comes back when no
+     * QUORRA_NO_ANSWER — the question was answered — and QUORRA_NO_ANSWER is what comes back when no
      * document is focused at all. Both paths are printed, because a caller has to tell them
      * apart: one is a document with no layers and the other is no document. */
-    pdfv_panel *panel = NULL;
-    int32_t layers = pdfv_layers_read(viewer, &panel);
-    if (layers == PDFV_OK) {
+    quorra_panel *panel = NULL;
+    int32_t layers = quorra_layers_read(viewer, &panel);
+    if (layers == QUORRA_OK) {
         say_panel("layers", panel);
-        pdfv_panel_free(panel);
+        quorra_panel_free(panel);
     } else {
-        printf("layers: %s\n", pdfv_status_message(layers));
+        printf("layers: %s\n", quorra_status_message(layers));
     }
-    int32_t files = pdfv_attachments_read(viewer, &panel);
-    if (files == PDFV_OK) {
+    int32_t files = quorra_attachments_read(viewer, &panel);
+    if (files == QUORRA_OK) {
         say_panel("attachments", panel);
-        pdfv_panel_free(panel);
+        quorra_panel_free(panel);
     } else {
-        printf("attachments: %s\n", pdfv_status_message(files));
+        printf("attachments: %s\n", quorra_status_message(files));
     }
 
     /* What the pages on the screen could not draw, which every layer of this library says out
      * loud — one entry per page Table 29's arrangement is showing, because a column shows
      * several and a note about one of them is not a note about the others. */
-    size_t reported = pdfv_reported_pages(viewer);
+    size_t reported = quorra_reported_pages(viewer);
     printf("reported pages: %zu\n", reported);
     for (size_t entry = 0; entry < reported; ++entry) {
         size_t page = 0;
         size_t reports = 0;
-        (void)pdfv_reported_page(viewer, entry, &page);
-        (void)pdfv_reports_len(viewer, entry, &reports);
+        (void)quorra_reported_page(viewer, entry, &page);
+        (void)quorra_reports_len(viewer, entry, &reports);
         printf("reports on page %zu: %zu\n", page + 1, reports);
         for (size_t index = 0; index < reports && index < 3; ++index) {
             size_t needed = 0;
-            (void)pdfv_report(viewer, entry, index, NULL, 0, &needed);
+            (void)quorra_report(viewer, entry, index, NULL, 0, &needed);
             char *note = malloc(needed);
             if (note == NULL) {
                 break;
             }
-            if (pdfv_report(viewer, entry, index, note, needed, &needed) == PDFV_OK) {
+            if (quorra_report(viewer, entry, index, note, needed, &needed) == QUORRA_OK) {
                 printf("  %s\n", note);
             }
             free(note);
@@ -1017,54 +1017,54 @@ int main(int argc, char **argv)
     /* The three policy values and the clock, each of which only a host can supply. None of them
      * has to produce an event, and none of these is checked for one: what is being demonstrated is
      * that a C caller can *say* them. */
-    pdfv_events *said = NULL;
-    if (!check("pdfv_restrict", pdfv_restrict(viewer, PDFV_RESTRICT_OFF, &said))) {
-        pdfv_viewer_free(viewer);
+    quorra_events *said = NULL;
+    if (!check("quorra_restrict", quorra_restrict(viewer, QUORRA_RESTRICT_OFF, &said))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
-    pdfv_events_free(said);
-    if (!check("pdfv_delegate", pdfv_delegate(viewer, PDFV_DELEGATE_DELEGATED, &said))) {
-        pdfv_viewer_free(viewer);
+    quorra_events_free(said);
+    if (!check("quorra_delegate", quorra_delegate(viewer, QUORRA_DELEGATE_DELEGATED, &said))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
-    pdfv_events_free(said);
-    if (!check("pdfv_present", pdfv_present(viewer, PDFV_PRESENT_ON, &said))) {
-        pdfv_viewer_free(viewer);
+    quorra_events_free(said);
+    if (!check("quorra_present", quorra_present(viewer, QUORRA_PRESENT_ON, &said))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
-    pdfv_events_free(said);
-    if (!check("pdfv_tick", pdfv_tick(viewer, 1000, &said))) {
-        pdfv_viewer_free(viewer);
+    quorra_events_free(said);
+    if (!check("quorra_tick", quorra_tick(viewer, 1000, &said))) {
+        quorra_viewer_free(viewer);
         return 1;
     }
     /* A page with no /Dur swallows every tick — "[i]f no Dur entry is specified in the page
      * object, the page shall not advance automatically" — so the count printed here is the
      * clause's answer and not a defect. */
     printf("policy: restrict, delegate, present and one tick produced %zu event(s)\n",
-           pdfv_events_len(said));
-    pdfv_events_free(said);
-    (void)pdfv_present(viewer, PDFV_PRESENT_OFF, &said);
-    pdfv_events_free(said);
+           quorra_events_len(said));
+    quorra_events_free(said);
+    (void)quorra_present(viewer, QUORRA_PRESENT_OFF, &said);
+    quorra_events_free(said);
 
     /* And a number this program refuses to invent: an enumeration this ABI *takes* says so. */
-    pdfv_events *refused = NULL;
-    if (pdfv_pointer(viewer, 0.0f, 0.0f, 99u, &refused) != PDFV_WRONG_KIND) {
+    quorra_events *refused = NULL;
+    if (quorra_pointer(viewer, 0.0f, 0.0f, 99u, &refused) != QUORRA_WRONG_KIND) {
         fprintf(stderr, "a pointer action this build does not define was accepted\n");
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
-    printf("an undefined pointer action: %s\n", pdfv_status_message(PDFV_WRONG_KIND));
+    printf("an undefined pointer action: %s\n", quorra_status_message(QUORRA_WRONG_KIND));
 
     /* And the other half of the queries, every one of which reached no symbol before ADR 0576. */
     exercise_the_other_half(viewer);
 
     /* §12.7's form, on the document that has one. */
     if (argc == 3 && !exercise_the_form(viewer, argv[2])) {
-        pdfv_viewer_free(viewer);
+        quorra_viewer_free(viewer);
         return 1;
     }
 
-    pdfv_viewer_free(viewer);
+    quorra_viewer_free(viewer);
     printf("ok\n");
     return 0;
 }

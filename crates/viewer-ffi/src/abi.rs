@@ -12,7 +12,7 @@
 //! pointer back here:
 //!
 //! - every pointer is either null or valid for the type it names, aligned, and pointing at a
-//!   live object this library produced (`pdfv_viewer_new`, `pdfv_open`, …);
+//!   live object this library produced (`quorra_viewer_new`, `quorra_open`, …);
 //! - **null is always checked** and answers [`Status::NullArgument`]. It is the one bad pointer
 //!   this side can detect, and detecting it is worth doing precisely because it is the one a C
 //!   caller produces by accident rather than by arithmetic;
@@ -21,9 +21,9 @@
 //! - a `const char *` argument is NUL-terminated and is UTF-8. A password and a fragment are the
 //!   host's own strings, and one that is not UTF-8 is refused rather than repaired: an invented
 //!   replacement character in a password is a password that does not open the file, said quietly;
-//! - **no handle may be used from two threads at once.** A `pdfv_render_request *` may be *moved*
+//! - **no handle may be used from two threads at once.** A `quorra_render_request *` may be *moved*
 //!   to another thread and rasterised there, which is what the round trip is for; a
-//!   `pdfv_viewer *` may not be shared, exactly as `viewer-core` is not `Sync`.
+//!   `quorra_viewer *` may not be shared, exactly as `viewer-core` is not `Sync`.
 //!
 //! # Why `unsafe fn` and why `unsafe_op_in_unsafe_fn` is lifted here
 //!
@@ -80,11 +80,11 @@ use crate::status::Status;
 /// **A struct *added* does not move it**, which is the same argument as the one for a function: a
 /// caller compiled before [`PdfvViewing`] existed passes nothing of that shape and looks up neither
 /// of the two symbols that take one.
-pub const PDFV_ABI_VERSION: u32 = 1;
+pub const QUORRA_ABI_VERSION: u32 = 2;
 
 /// Where a page sits on the screen and how large it is drawn.
 ///
-/// Passed by value, which is why [`PDFV_ABI_VERSION`] exists.
+/// Passed by value, which is why [`QUORRA_ABI_VERSION`] exists.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct PdfvGeometry {
@@ -106,26 +106,26 @@ pub struct PdfvGeometry {
 
 /// Where the reader is looking: the page, the magnification and the scroll.
 ///
-/// Passed by value, which is why [`PDFV_ABI_VERSION`] exists. A caller reads one from
-/// `pdfv_view`, keeps it, and hands it back to `pdfv_set_view` — the two directions this value is
+/// Passed by value, which is why [`QUORRA_ABI_VERSION`] exists. A caller reads one from
+/// `quorra_view`, keeps it, and hands it back to `quorra_set_view` — the two directions this value is
 /// meant to travel in, and a C caller composing one from numbers of its own is guessing where the
 /// viewer's clamp would have left the reader.
 ///
-/// **Named `pdfv_viewing` in the header and not `pdfv_view`, for [`PdfvFrame`]'s reason**: C puts
-/// a struct tag and a function in one namespace, so a `typedef struct pdfv_view` beside an
-/// `int32_t pdfv_view(…)` is a redeclaration error. That note was written about
-/// `pdfv_frame_info`; this is the second time the same fact has decided a name here.
+/// **Named `quorra_viewing` in the header and not `quorra_view`, for [`PdfvFrame`]'s reason**: C puts
+/// a struct tag and a function in one namespace, so a `typedef struct quorra_view` beside an
+/// `int32_t quorra_view(…)` is a redeclaration error. That note was written about
+/// `quorra_frame_info`; this is the second time the same fact has decided a name here.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct PdfvViewing {
     /// Which page, zero-based.
     pub page: usize,
-    /// How large the page is drawn: one of `PDFV_ZOOM_*`.
+    /// How large the page is drawn: one of `QUORRA_ZOOM_*`.
     pub zoom: u32,
-    /// Logical pixels per user space unit for `PDFV_ZOOM_SCALE`, and zero for the others.
+    /// Logical pixels per user space unit for `QUORRA_ZOOM_SCALE`, and zero for the others.
     pub scale: f32,
     /// How far the page is scrolled under the viewport, in device pixels; positive moves the
-    /// content up and left, which is the sense `pdfv_scroll`'s delta has.
+    /// content up and left, which is the sense `quorra_scroll`'s delta has.
     pub scroll_x: f32,
     /// The same, vertically.
     pub scroll_y: f32,
@@ -133,10 +133,10 @@ pub struct PdfvViewing {
 
 /// What the viewer is holding, without the pixels.
 ///
-/// The first half of C's two-call idiom: ask this, size a buffer, then `pdfv_frame_copy`.
+/// The first half of C's two-call idiom: ask this, size a buffer, then `quorra_frame_copy`.
 ///
-/// **Named `pdfv_frame` and not `pdfv_frame_info`, because C has one namespace for both.** A
-/// `typedef struct pdfv_frame_info` beside an `int32_t pdfv_frame_info(…)` is a redeclaration
+/// **Named `quorra_frame` and not `quorra_frame_info`, because C has one namespace for both.** A
+/// `typedef struct quorra_frame_info` beside an `int32_t quorra_frame_info(…)` is a redeclaration
 /// error, which is the first thing `c/open_a_page.c` found and is a class of mistake no amount of
 /// reading the Rust would have shown.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,9 +148,9 @@ pub struct PdfvFrame {
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
-    /// The pixel layout: `PDFV_FORMAT_RGBA8`, and nothing else in this build.
+    /// The pixel layout: `QUORRA_FORMAT_RGBA8`, and nothing else in this build.
     pub format: u32,
-    /// How many bytes `pdfv_frame_copy` writes.
+    /// How many bytes `quorra_frame_copy` writes.
     pub bytes: usize,
     /// Where the raster's top-left corner sits in the viewport, in device pixels.
     pub origin_x: f32,
@@ -164,31 +164,31 @@ pub struct PdfvFrame {
 
 /// The revision this library was built at.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_abi_version() -> u32 {
-    PDFV_ABI_VERSION
+pub extern "C" fn quorra_abi_version() -> u32 {
+    QUORRA_ABI_VERSION
 }
 
 /// How many event kinds this library defines.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_event_kind_count() -> u32 {
+pub extern "C" fn quorra_event_kind_count() -> u32 {
     EventKind::COUNT
 }
 
 /// Whether a caller's header agrees with this library.
 ///
 /// **The answer to "a variant added later", and the only one C admits.** A caller passes its own
-/// `PDFV_ABI_VERSION` and `PDFV_EVENT_KIND_COUNT`; a mismatch answers [`Status::OutOfRange64`],
+/// `QUORRA_ABI_VERSION` and `QUORRA_EVENT_KIND_COUNT`; a mismatch answers [`Status::OutOfRange64`],
 /// which is this boundary saying "a number moved" in the one channel it has. A caller that runs
 /// this in `main` has turned "fails to compile in every consumer" into "fails to start, once,
 /// naming what changed" — weaker than the Rust rule, and the strongest thing available.
 ///
 /// **A larger count in the library is not an error and is deliberately not treated as one.** New
 /// kinds only ever appear at the end, so an old caller meets one exactly when it receives one,
-/// and `pdfv_events_describe` is what it does about it then. What this catches is the caller
+/// and `quorra_events_describe` is what it does about it then. What this catches is the caller
 /// built against a *newer* header than the library it found.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_abi_check(version: u32, event_kinds: u32) -> c_int {
-    if version != PDFV_ABI_VERSION || event_kinds > EventKind::COUNT {
+pub extern "C" fn quorra_abi_check(version: u32, event_kinds: u32) -> c_int {
+    if version != QUORRA_ABI_VERSION || event_kinds > EventKind::COUNT {
         return Status::OutOfRange64.code();
     }
     Status::Ok.code()
@@ -200,7 +200,7 @@ pub extern "C" fn pdfv_abi_check(version: u32, event_kinds: u32) -> c_int {
 /// null, because a caller printing the message of a status it got back should not have to check
 /// for null to do it.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_status_message(status: c_int) -> *const c_char {
+pub extern "C" fn quorra_status_message(status: c_int) -> *const c_char {
     let message = match status {
         0 => Status::Ok.message(),
         1 => Status::NullArgument.message(),
@@ -220,9 +220,9 @@ pub extern "C" fn pdfv_status_message(status: c_int) -> *const c_char {
 ///
 /// `"unknown"` for a kind this build does not define, which is what an *old* library answers a
 /// *new* caller. The other direction — a new library and an old caller — is the one that matters
-/// and is handled by `pdfv_events_describe`.
+/// and is handled by `quorra_events_describe`.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_event_kind_name(kind: u32) -> *const c_char {
+pub extern "C" fn quorra_event_kind_name(kind: u32) -> *const c_char {
     let name = EventKind::from_code(kind).map_or("unknown\0", EventKind::name);
     name.as_ptr().cast::<c_char>()
 }
@@ -234,9 +234,9 @@ pub extern "C" fn pdfv_event_kind_name(kind: u32) -> *const c_char {
 /// A viewer for a viewport of this size, or null if it could not be made.
 ///
 /// `scale` is device pixels per logical pixel: 1.0 on an ordinary display, 2.0 on a doubled one.
-/// Release it with [`pdfv_viewer_free`].
+/// Release it with [`quorra_viewer_free`].
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_viewer_new(width: u32, height: u32, scale: f32) -> *mut Session {
+pub extern "C" fn quorra_viewer_new(width: u32, height: u32, scale: f32) -> *mut Session {
     Box::into_raw(Box::new(Session::new(width, height, scale)))
 }
 
@@ -247,9 +247,9 @@ pub extern "C" fn pdfv_viewer_new(width: u32, height: u32, scale: f32) -> *mut S
 ///
 /// # Safety
 ///
-/// See the module documentation. `viewer` came from [`pdfv_viewer_new`] and is not used again.
+/// See the module documentation. `viewer` came from [`quorra_viewer_new`] and is not used again.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_viewer_free(viewer: *mut Session) {
+pub unsafe extern "C" fn quorra_viewer_free(viewer: *mut Session) {
     if !viewer.is_null() {
         drop(Box::from_raw(viewer));
     }
@@ -268,9 +268,9 @@ pub unsafe extern "C" fn pdfv_viewer_free(viewer: *mut Session) {
 ///
 /// See the module documentation. `bytes` is readable for `len`; `password` and `fragment` are
 /// null or NUL-terminated UTF-8; `events` receives an owning handle to be freed with
-/// [`pdfv_events_free`].
+/// [`quorra_events_free`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_open(
+pub unsafe extern "C" fn quorra_open(
     viewer: *mut Session,
     document: u64,
     bytes: *const u8,
@@ -300,7 +300,7 @@ pub unsafe extern "C" fn pdfv_open(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_close(
+pub unsafe extern "C" fn quorra_close(
     viewer: *mut Session,
     document: u64,
     events: *mut *mut Events,
@@ -318,7 +318,7 @@ pub unsafe extern "C" fn pdfv_close(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_focus(
+pub unsafe extern "C" fn quorra_focus(
     viewer: *mut Session,
     document: u64,
     events: *mut *mut Events,
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn pdfv_focus(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_resize(
+pub unsafe extern "C" fn quorra_resize(
     viewer: *mut Session,
     width: u32,
     height: u32,
@@ -356,14 +356,14 @@ pub unsafe extern "C" fn pdfv_resize(
 
 /// Shows another page.
 ///
-/// `target` is one of `PDFV_PAGE_*`; `argument` is the index for `PDFV_PAGE_INDEX`, the signed
-/// number of pages for `PDFV_PAGE_RELATIVE`, and ignored for the other four.
+/// `target` is one of `QUORRA_PAGE_*`; `argument` is the index for `QUORRA_PAGE_INDEX`, the signed
+/// number of pages for `QUORRA_PAGE_RELATIVE`, and ignored for the other four.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_go_to_page(
+pub unsafe extern "C" fn quorra_go_to_page(
     viewer: *mut Session,
     target: u32,
     argument: i64,
@@ -384,14 +384,14 @@ pub unsafe extern "C" fn pdfv_go_to_page(
 
 /// Changes the magnification, holding the viewport's centre still.
 ///
-/// `zoom` is one of `PDFV_ZOOM_*`; `scale` is logical pixels per user space unit for
-/// `PDFV_ZOOM_SCALE`, where 1.0 is 72 dpi, and is ignored for the other five.
+/// `zoom` is one of `QUORRA_ZOOM_*`; `scale` is logical pixels per user space unit for
+/// `QUORRA_ZOOM_SCALE`, where 1.0 is 72 dpi, and is ignored for the other five.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_zoom(
+pub unsafe extern "C" fn quorra_zoom(
     viewer: *mut Session,
     zoom: u32,
     scale: f32,
@@ -415,7 +415,7 @@ pub unsafe extern "C" fn pdfv_zoom(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_scroll(
+pub unsafe extern "C" fn quorra_scroll(
     viewer: *mut Session,
     dx: f32,
     dy: f32,
@@ -433,15 +433,15 @@ pub unsafe extern "C" fn pdfv_scroll(
 /// `needle` is NUL-terminated UTF-8. `backward` non-zero searches up the document. The search
 /// starts from what is selected, so calling this again with the same string is *next*.
 ///
-/// **A step reads one page**, and the caller pumps [`pdfv_find_continue`] until
-/// [`pdfv_event_searched`] reports `remaining` of zero. That is not a courtesy: a sweep of ISO
+/// **A step reads one page**, and the caller pumps [`quorra_find_continue`] until
+/// [`quorra_event_searched`] reports `remaining` of zero. That is not a courtesy: a sweep of ISO
 /// 32000-2's own 1023 pages is 5.84 s, and this ABI does not block a caller's event loop for it.
 ///
 /// # Safety
 ///
 /// See the module documentation. `needle` must point at a NUL-terminated string.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_find_start(
+pub unsafe extern "C" fn quorra_find_start(
     viewer: *mut Session,
     needle: *const c_char,
     backward: c_int,
@@ -467,7 +467,7 @@ pub unsafe extern "C" fn pdfv_find_start(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_find_continue(
+pub unsafe extern "C" fn quorra_find_continue(
     viewer: *mut Session,
     events: *mut *mut Events,
 ) -> c_int {
@@ -484,7 +484,7 @@ pub unsafe extern "C" fn pdfv_find_continue(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_find_stop(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+pub unsafe extern "C" fn quorra_find_stop(viewer: *mut Session, events: *mut *mut Events) -> c_int {
     let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -494,13 +494,13 @@ pub unsafe extern "C" fn pdfv_find_stop(viewer: *mut Session, events: *mut *mut 
 
 /// §12.3.3: activates an object the caller is showing outside the page — an outline row.
 ///
-/// The two numbers are §7.3.10's indirect reference, which `pdfv_outline_object` answered with.
+/// The two numbers are §7.3.10's indirect reference, which `quorra_outline_object` answered with.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_activate(
+pub unsafe extern "C" fn quorra_activate(
     viewer: *mut Session,
     number: u32,
     generation: u16,
@@ -521,10 +521,10 @@ pub unsafe extern "C" fn pdfv_activate(
 ///
 /// # Safety
 ///
-/// See the module documentation. `request` came from [`pdfv_event_render_request`] and `raster`
-/// from [`pdfv_render_request_rasterise`]; neither is used or freed after this call.
+/// See the module documentation. `request` came from [`quorra_event_render_request`] and `raster`
+/// from [`quorra_render_request_rasterise`]; neither is used or freed after this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_render_ready_raster(
+pub unsafe extern "C" fn quorra_render_ready_raster(
     viewer: *mut Session,
     request: *mut RenderRequest,
     raster: *mut Raster,
@@ -552,7 +552,7 @@ pub unsafe extern "C" fn pdfv_render_ready_raster(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_render_ready_failed(
+pub unsafe extern "C" fn quorra_render_ready_failed(
     viewer: *mut Session,
     request: *mut RenderRequest,
     why: *const c_char,
@@ -583,7 +583,7 @@ pub unsafe extern "C" fn pdfv_render_ready_failed(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_events_free(events: *mut Events) {
+pub unsafe extern "C" fn quorra_events_free(events: *mut Events) {
     if !events.is_null() {
         drop(Box::from_raw(events));
     }
@@ -595,7 +595,7 @@ pub unsafe extern "C" fn pdfv_events_free(events: *mut Events) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_events_len(events: *const Events) -> usize {
+pub unsafe extern "C" fn quorra_events_len(events: *const Events) -> usize {
     events.as_ref().map_or(0, Events::len)
 }
 
@@ -605,7 +605,7 @@ pub unsafe extern "C" fn pdfv_events_len(events: *const Events) -> usize {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_events_kind(
+pub unsafe extern "C" fn quorra_events_kind(
     events: *const Events,
     index: usize,
     kind: *mut u32,
@@ -632,7 +632,7 @@ pub unsafe extern "C" fn pdfv_events_kind(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_events_describe(
+pub unsafe extern "C" fn quorra_events_describe(
     events: *const Events,
     index: usize,
     out: *mut c_char,
@@ -656,7 +656,7 @@ pub unsafe extern "C" fn pdfv_events_describe(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_opened(
+pub unsafe extern "C" fn quorra_event_opened(
     events: *const Events,
     index: usize,
     document: *mut u64,
@@ -685,7 +685,7 @@ pub unsafe extern "C" fn pdfv_event_opened(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_page_changed(
+pub unsafe extern "C" fn quorra_event_page_changed(
     events: *const Events,
     index: usize,
     page: *mut usize,
@@ -711,13 +711,13 @@ pub unsafe extern "C" fn pdfv_event_page_changed(
 /// [`viewer_core::Event::Searched`]: what a step of a document-wide search found.
 ///
 /// Every out-parameter may be null. `found` is what says whether `page`, `from` and `to` mean
-/// anything; `remaining` is what says whether to call [`pdfv_find_continue`] again.
+/// anything; `remaining` is what says whether to call [`quorra_find_continue`] again.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_searched(
+pub unsafe extern "C" fn quorra_event_searched(
     events: *const Events,
     index: usize,
     found: *mut c_int,
@@ -759,14 +759,14 @@ pub unsafe extern "C" fn pdfv_event_searched(
 /// [`viewer_core::Event::NeedsRender`]: an owning handle to the request.
 ///
 /// The caller may move it to another thread, rasterise it there with
-/// [`pdfv_render_request_rasterise`], and hand it back with [`pdfv_render_ready_raster`]. It must
-/// be released — by handing it back, or with [`pdfv_render_request_free`].
+/// [`quorra_render_request_rasterise`], and hand it back with [`quorra_render_ready_raster`]. It must
+/// be released — by handing it back, or with [`quorra_render_request_free`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_render_request(
+pub unsafe extern "C" fn quorra_event_render_request(
     events: *const Events,
     index: usize,
     request: *mut *mut RenderRequest,
@@ -793,7 +793,7 @@ pub unsafe extern "C" fn pdfv_event_render_request(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_render_request_free(request: *mut RenderRequest) {
+pub unsafe extern "C" fn quorra_render_request_free(request: *mut RenderRequest) {
     if !request.is_null() {
         drop(Box::from_raw(request));
     }
@@ -802,14 +802,14 @@ pub unsafe extern "C" fn pdfv_render_request_free(request: *mut RenderRequest) {
 /// Which page a request is for, zero-based, and the extent it asks for.
 ///
 /// Enough for a caller to decide whether to draw it at all — a request for a page it has turned
-/// away from is one it may hand back with [`pdfv_render_ready_failed`] rather than spend a
+/// away from is one it may hand back with [`quorra_render_ready_failed`] rather than spend a
 /// rasterisation on. Any out-parameter may be null.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_render_request_page(
+pub unsafe extern "C" fn quorra_render_request_page(
     request: *const RenderRequest,
     page: *mut usize,
     width: *mut u32,
@@ -834,14 +834,14 @@ pub unsafe extern "C" fn pdfv_render_request_page(
 ///
 /// The one thing this crate does that is not a translation, and it is here because a display list
 /// is clauses 8 and 9 in a data structure rather than something to put in a header. The raster is
-/// an owning handle: hand it back with [`pdfv_render_ready_raster`], or release it with
-/// [`pdfv_raster_free`].
+/// an owning handle: hand it back with [`quorra_render_ready_raster`], or release it with
+/// [`quorra_raster_free`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_render_request_rasterise(
+pub unsafe extern "C" fn quorra_render_request_rasterise(
     request: *const RenderRequest,
     raster: *mut *mut Raster,
 ) -> c_int {
@@ -863,7 +863,7 @@ pub unsafe extern "C" fn pdfv_render_request_rasterise(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_raster_free(raster: *mut Raster) {
+pub unsafe extern "C" fn quorra_raster_free(raster: *mut Raster) {
     if !raster.is_null() {
         drop(Box::from_raw(raster));
     }
@@ -879,7 +879,7 @@ pub unsafe extern "C" fn pdfv_raster_free(raster: *mut Raster) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_page_count(viewer: *const Session, pages: *mut usize) -> c_int {
+pub unsafe extern "C" fn quorra_page_count(viewer: *const Session, pages: *mut usize) -> c_int {
     let (Some(viewer), Some(pages)) = (viewer.as_ref(), pages.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -898,7 +898,7 @@ pub unsafe extern "C" fn pdfv_page_count(viewer: *const Session, pages: *mut usi
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_current_page(
+pub unsafe extern "C" fn quorra_current_page(
     viewer: *const Session,
     page: *mut usize,
     of: *mut usize,
@@ -922,7 +922,7 @@ pub unsafe extern "C" fn pdfv_current_page(
 
 /// Where the reader is looking: the page, the magnification and the scroll.
 ///
-/// [`Status::NoAnswer`] when no document is focused. What it is for is `pdfv_set_view`: the
+/// [`Status::NoAnswer`] when no document is focused. What it is for is `quorra_set_view`: the
 /// commands that make a view are relative and clamped, so a caller that issued every one of them
 /// still cannot say where the reader ended up.
 ///
@@ -930,7 +930,7 @@ pub unsafe extern "C" fn pdfv_current_page(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_view(viewer: *const Session, view: *mut PdfvViewing) -> c_int {
+pub unsafe extern "C" fn quorra_view(viewer: *const Session, view: *mut PdfvViewing) -> c_int {
     let (Some(viewer), Some(view)) = (viewer.as_ref(), view.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -950,7 +950,7 @@ pub unsafe extern "C" fn pdfv_view(viewer: *const Session, view: *mut PdfvViewin
     }
 }
 
-/// Puts the reader back at a view `pdfv_view` answered with.
+/// Puts the reader back at a view `quorra_view` answered with.
 ///
 /// [`Status::WrongKind`] for a magnification code this build does not define, which is what every
 /// other entry point taking a kind answers.
@@ -959,7 +959,7 @@ pub unsafe extern "C" fn pdfv_view(viewer: *const Session, view: *mut PdfvViewin
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_set_view(
+pub unsafe extern "C" fn quorra_set_view(
     viewer: *mut Session,
     view: PdfvViewing,
     events: *mut *mut Events,
@@ -987,7 +987,7 @@ pub unsafe extern "C" fn pdfv_set_view(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_page_geometry(
+pub unsafe extern "C" fn quorra_page_geometry(
     viewer: *const Session,
     page: usize,
     geometry: *mut PdfvGeometry,
@@ -1015,14 +1015,14 @@ pub unsafe extern "C" fn pdfv_page_geometry(
 /// How many frames the viewer is holding — Table 29's arrangement, counted.
 ///
 /// **The one entry point `/PageLayout` cost this ABI**, and it exists because a C consumer cannot
-/// fail to compile: `pdfv_frame_info` and `pdfv_frame_copy` gained an index, and a caller has to
+/// fail to compile: `quorra_frame_info` and `quorra_frame_copy` gained an index, and a caller has to
 /// be able to learn how many there are. Zero where the viewer holds none.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_frame_count(viewer: *const Session) -> usize {
+pub unsafe extern "C" fn quorra_frame_count(viewer: *const Session) -> usize {
     viewer.as_ref().map_or(0, Session::frame_count)
 }
 
@@ -1032,7 +1032,7 @@ pub unsafe extern "C" fn pdfv_frame_count(viewer: *const Session) -> usize {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_frame_info(
+pub unsafe extern "C" fn quorra_frame_info(
     viewer: *const Session,
     frame: usize,
     info: *mut PdfvFrame,
@@ -1067,14 +1067,14 @@ pub unsafe extern "C" fn pdfv_frame_info(
 /// Copies the frame into a buffer the caller owns.
 ///
 /// One copy, which is what tier 1 costs everywhere in this project. Size the buffer from
-/// [`pdfv_frame_info`]'s `bytes`; anything shorter answers [`Status::BufferTooSmall`] and writes
+/// [`quorra_frame_info`]'s `bytes`; anything shorter answers [`Status::BufferTooSmall`] and writes
 /// nothing, rather than leaving a partial page in it.
 ///
 /// # Safety
 ///
 /// See the module documentation. `into` is writable for `cap` bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_frame_copy(
+pub unsafe extern "C" fn quorra_frame_copy(
     viewer: *const Session,
     frame: usize,
     into: *mut u8,
@@ -1105,7 +1105,7 @@ pub unsafe extern "C" fn pdfv_frame_copy(
 
 /// Reads §12.3.3's outline, depth first, as an owning handle.
 ///
-/// Release it with [`pdfv_outline_free`]. It is a snapshot and does not change under the caller:
+/// Release it with [`quorra_outline_free`]. It is a snapshot and does not change under the caller:
 /// an outline is a property of an immutable document, which is why both native hosts take one
 /// when the document opens.
 ///
@@ -1113,7 +1113,7 @@ pub unsafe extern "C" fn pdfv_frame_copy(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_outline_read(
+pub unsafe extern "C" fn quorra_outline_read(
     viewer: *const Session,
     outline: *mut *mut Outline,
 ) -> c_int {
@@ -1135,7 +1135,7 @@ pub unsafe extern "C" fn pdfv_outline_read(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_outline_free(outline: *mut Outline) {
+pub unsafe extern "C" fn quorra_outline_free(outline: *mut Outline) {
     if !outline.is_null() {
         drop(Box::from_raw(outline));
     }
@@ -1147,17 +1147,17 @@ pub unsafe extern "C" fn pdfv_outline_free(outline: *mut Outline) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_outline_len(outline: *const Outline) -> usize {
+pub unsafe extern "C" fn quorra_outline_len(outline: *const Outline) -> usize {
     outline.as_ref().map_or(0, Outline::len)
 }
 
-/// Table 151's `/Title` for one row, in the two-call idiom [`pdfv_events_describe`] uses.
+/// Table 151's `/Title` for one row, in the two-call idiom [`quorra_events_describe`] uses.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_outline_title(
+pub unsafe extern "C" fn quorra_outline_title(
     outline: *const Outline,
     row: usize,
     out: *mut c_char,
@@ -1181,7 +1181,7 @@ pub unsafe extern "C" fn pdfv_outline_title(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_outline_depth(
+pub unsafe extern "C" fn quorra_outline_depth(
     outline: *const Outline,
     row: usize,
     depth: *mut u32,
@@ -1204,13 +1204,13 @@ pub unsafe extern "C" fn pdfv_outline_depth(
     }
 }
 
-/// §7.3.10's two numbers for a row, which [`pdfv_activate`] takes.
+/// §7.3.10's two numbers for a row, which [`quorra_activate`] takes.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_outline_object(
+pub unsafe extern "C" fn quorra_outline_object(
     outline: *const Outline,
     row: usize,
     number: *mut u32,
@@ -1243,7 +1243,7 @@ pub unsafe extern "C" fn pdfv_outline_object(
 
 /// §12.5.5: the pointer moved, or a button went down or up, at a point in the viewport.
 ///
-/// Device pixels from the viewport's top-left corner. `action` is one of `PDFV_POINTER_*`; a
+/// Device pixels from the viewport's top-left corner. `action` is one of `QUORRA_POINTER_*`; a
 /// number outside them answers [`Status::WrongKind`] rather than guessing at a fifth situation the
 /// clause does not describe.
 ///
@@ -1251,7 +1251,7 @@ pub unsafe extern "C" fn pdfv_outline_object(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_pointer(
+pub unsafe extern "C" fn quorra_pointer(
     viewer: *mut Session,
     x: f32,
     y: f32,
@@ -1270,13 +1270,13 @@ pub unsafe extern "C" fn pdfv_pointer(
 
 /// Selects everything the page reads back as, or nothing.
 ///
-/// A drag is [`pdfv_pointer`]'s business; this is what a menu item or a keystroke asks for.
+/// A drag is [`quorra_pointer`]'s business; this is what a menu item or a keystroke asks for.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_select(
+pub unsafe extern "C" fn quorra_select(
     viewer: *mut Session,
     what: u32,
     events: *mut *mut Events,
@@ -1300,7 +1300,7 @@ pub unsafe extern "C" fn pdfv_select(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_focused(
+pub unsafe extern "C" fn quorra_focused(
     viewer: *mut Session,
     direction: u32,
     events: *mut *mut Events,
@@ -1324,7 +1324,7 @@ pub unsafe extern "C" fn pdfv_focused(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_link_at(
+pub unsafe extern "C" fn quorra_link_at(
     viewer: *const Session,
     x: f32,
     y: f32,
@@ -1342,13 +1342,13 @@ pub unsafe extern "C" fn pdfv_link_at(
     }
 }
 
-/// The selected text, in the two-call idiom [`pdfv_events_describe`] uses.
+/// The selected text, in the two-call idiom [`quorra_events_describe`] uses.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_selection_text(
+pub unsafe extern "C" fn quorra_selection_text(
     viewer: *const Session,
     out: *mut c_char,
     cap: usize,
@@ -1371,10 +1371,10 @@ pub unsafe extern "C" fn pdfv_selection_text(
 /// characters and the one thing a caller cannot work out for itself, which of ISO 32000-2
 /// §14.8.2.5's two content orders they are in.
 ///
-/// `order` receives `PDFV_ORDER_LOGICAL` or `PDFV_ORDER_PAGE_CONTENT`, and may be null for a
-/// caller that does not care. It is written only on `PDFV_OK`.
+/// `order` receives `QUORRA_ORDER_LOGICAL` or `QUORRA_ORDER_PAGE_CONTENT`, and may be null for a
+/// caller that does not care. It is written only on `QUORRA_OK`.
 ///
-/// [`pdfv_selection_text`] is still there and still answers in page content order: that is the
+/// [`quorra_selection_text`] is still there and still answers in page content order: that is the
 /// order the quadrilaterals are in, so it is the right answer for anything being *drawn*.
 ///
 /// # Safety
@@ -1382,7 +1382,7 @@ pub unsafe extern "C" fn pdfv_selection_text(
 /// See the module documentation. `out` is writable for `cap` bytes, or null; `order` is writable
 /// for one `uint32_t`, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_selection_copy_text(
+pub unsafe extern "C" fn quorra_selection_copy_text(
     viewer: *const Session,
     out: *mut c_char,
     cap: usize,
@@ -1396,7 +1396,7 @@ pub unsafe extern "C" fn pdfv_selection_copy_text(
         Ok((text, content_order)) => {
             let status = copy_out(&text, out, cap, needed);
             // Written only where the text actually arrived: `copy_out` answers
-            // `PDFV_BUFFER_TOO_SMALL` on the sizing call of the two-call idiom, and a caller that
+            // `QUORRA_BUFFER_TOO_SMALL` on the sizing call of the two-call idiom, and a caller that
             // read the order out of that call would be reading a value for a string it does not
             // have yet.
             if status == Status::Ok.code()
@@ -1415,13 +1415,13 @@ pub unsafe extern "C" fn pdfv_selection_copy_text(
 /// **Geometry rather than pixels**, which is `doc/ui-boundary.md`'s rule and the whole reason a
 /// selection is not baked into the frame: a native host draws it in macOS's selection colour,
 /// KDE's accent or the Windows highlight brush, and a highlight that arrived as pixels could not.
-/// Release it with [`pdfv_quads_free`].
+/// Release it with [`quorra_quads_free`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_selection_quads(
+pub unsafe extern "C" fn quorra_selection_quads(
     viewer: *const Session,
     quads: *mut *mut Quads,
 ) -> c_int {
@@ -1443,13 +1443,13 @@ pub unsafe extern "C" fn pdfv_selection_quads(
 /// the document with the specified rectangle highlighted … [t]he nature of the highlighting is
 /// implementation-dependent", which is why this hands over shapes and not a picture. A caller that
 /// passed no fragment, or one naming no rectangle for this page, gets an empty list. Release it
-/// with [`pdfv_quads_free`].
+/// with [`quorra_quads_free`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_highlight_quads(
+pub unsafe extern "C" fn quorra_highlight_quads(
     viewer: *const Session,
     quads: *mut *mut Quads,
 ) -> c_int {
@@ -1471,7 +1471,7 @@ pub unsafe extern "C" fn pdfv_highlight_quads(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_quads_free(quads: *mut Quads) {
+pub unsafe extern "C" fn quorra_quads_free(quads: *mut Quads) {
     if !quads.is_null() {
         drop(Box::from_raw(quads));
     }
@@ -1483,7 +1483,7 @@ pub unsafe extern "C" fn pdfv_quads_free(quads: *mut Quads) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_quads_len(quads: *const Quads) -> usize {
+pub unsafe extern "C" fn quorra_quads_len(quads: *const Quads) -> usize {
     quads.as_ref().map_or(0, Quads::len)
 }
 
@@ -1493,7 +1493,7 @@ pub unsafe extern "C" fn pdfv_quads_len(quads: *const Quads) -> usize {
 ///
 /// See the module documentation. `into` is writable for eight `float`s.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_quads_get(
+pub unsafe extern "C" fn quorra_quads_get(
     quads: *const Quads,
     index: usize,
     into: *mut f32,
@@ -1521,7 +1521,7 @@ pub unsafe extern "C" fn pdfv_quads_get(
 ///
 /// See the module documentation. `quad` is writable for eight `float`s, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_focused_annotation(
+pub unsafe extern "C" fn quorra_focused_annotation(
     viewer: *const Session,
     number: *mut u32,
     generation: *mut u16,
@@ -1553,15 +1553,15 @@ pub unsafe extern "C" fn pdfv_focused_annotation(
 
 /// §12.7's fields with a widget on the page being shown, as an owning handle.
 ///
-/// Release it with [`pdfv_fields_free`]. **Not at pointer speed**: this walks §12.7.4.1's field
+/// Release it with [`quorra_fields_free`]. **Not at pointer speed**: this walks §12.7.4.1's field
 /// tree, so a caller asks it when a page appears and after an edit, exactly as `viewer-gtk` and
-/// `viewer-qt` do. A click asks [`pdfv_field_at`].
+/// `viewer-qt` do. A click asks [`quorra_field_at`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_fields_read(viewer: *const Session, fields: *mut *mut Form) -> c_int {
+pub unsafe extern "C" fn quorra_fields_read(viewer: *const Session, fields: *mut *mut Form) -> c_int {
     let (Some(viewer), Some(fields)) = (viewer.as_ref(), fields.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -1580,7 +1580,7 @@ pub unsafe extern "C" fn pdfv_fields_read(viewer: *const Session, fields: *mut *
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_fields_free(fields: *mut Form) {
+pub unsafe extern "C" fn quorra_fields_free(fields: *mut Form) {
     if !fields.is_null() {
         drop(Box::from_raw(fields));
     }
@@ -1592,21 +1592,21 @@ pub unsafe extern "C" fn pdfv_fields_free(fields: *mut Form) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_fields_len(fields: *const Form) -> usize {
+pub unsafe extern "C" fn quorra_fields_len(fields: *const Form) -> usize {
     fields.as_ref().map_or(0, Form::len)
 }
 
-/// One of the three names a field carries — `PDFV_TEXT_QUALIFIED`, `_SHOWN` or `_PARTIAL`.
+/// One of the three names a field carries — `QUORRA_TEXT_QUALIFIED`, `_SHOWN` or `_PARTIAL`.
 ///
 /// §14.9.3 is why there is more than one: the shown name "shall be used in place of the actual
 /// field name when an interactive PDF processor identifies the field in a user-interface", while
-/// the qualified one is what [`pdfv_set_field_text`] addresses.
+/// the qualified one is what [`quorra_set_field_text`] addresses.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_name(
+pub unsafe extern "C" fn quorra_field_name(
     fields: *const Form,
     field: usize,
     which: u32,
@@ -1626,17 +1626,17 @@ pub unsafe extern "C" fn pdfv_field_name(
     }
 }
 
-/// Which control the field is — one of `PDFV_CONTROL_*` — and every flag that decides how to
+/// Which control the field is — one of `QUORRA_CONTROL_*` — and every flag that decides how to
 /// build it.
 ///
-/// The flags are `PDFV_FIELD_*`, one bit per boolean Tables 227, 229, 231 and 233 state. A bit
+/// The flags are `QUORRA_FIELD_*`, one bit per boolean Tables 227, 229, 231 and 233 state. A bit
 /// this build does not define is zero, and a bit added later is one an old caller does not read.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_control(
+pub unsafe extern "C" fn quorra_field_control(
     fields: *const Form,
     field: usize,
     kind: *mut u32,
@@ -1665,7 +1665,7 @@ pub unsafe extern "C" fn pdfv_field_control(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_limits(
+pub unsafe extern "C" fn quorra_field_limits(
     fields: *const Form,
     field: usize,
     max_len: *mut u32,
@@ -1694,7 +1694,7 @@ pub unsafe extern "C" fn pdfv_field_limits(
 /// a signature holds a dictionary — which is a **different answer** from the empty string. A
 /// caller deciding where to send the keyboard needs exactly that distinction.
 ///
-/// A password field answers Table 231 bit 14's bullets and sets `PDFV_FIELD_OBSCURED`. A caller
+/// A password field answers Table 231 bit 14's bullets and sets `QUORRA_FIELD_OBSCURED`. A caller
 /// obeying the read-back rule must consult that bit: writing the bullets back would send them as
 /// the next value, which is the bug ADR 0247 found in this project's own first host.
 ///
@@ -1702,7 +1702,7 @@ pub unsafe extern "C" fn pdfv_field_limits(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_value(
+pub unsafe extern "C" fn quorra_field_value(
     fields: *const Form,
     field: usize,
     out: *mut c_char,
@@ -1724,7 +1724,7 @@ pub unsafe extern "C" fn pdfv_field_value(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_option_count(
+pub unsafe extern "C" fn quorra_field_option_count(
     fields: *const Form,
     field: usize,
     count: *mut usize,
@@ -1741,7 +1741,7 @@ pub unsafe extern "C" fn pdfv_field_option_count(
     }
 }
 
-/// One option's label (`PDFV_TEXT_LABEL`) or export value (`PDFV_TEXT_EXPORT`).
+/// One option's label (`QUORRA_TEXT_LABEL`) or export value (`QUORRA_TEXT_EXPORT`).
 ///
 /// In the array's own order, which Table 233 bit 20 requires: "PDF readers shall display the
 /// options in the order in which they occur in the Opt array."
@@ -1750,7 +1750,7 @@ pub unsafe extern "C" fn pdfv_field_option_count(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_option(
+pub unsafe extern "C" fn quorra_field_option(
     fields: *const Form,
     field: usize,
     option: usize,
@@ -1777,7 +1777,7 @@ pub unsafe extern "C" fn pdfv_field_option(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_option_selected(
+pub unsafe extern "C" fn quorra_field_option_selected(
     fields: *const Form,
     field: usize,
     option: usize,
@@ -1805,7 +1805,7 @@ pub unsafe extern "C" fn pdfv_field_option_selected(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_widget_count(
+pub unsafe extern "C" fn quorra_field_widget_count(
     fields: *const Form,
     field: usize,
     count: *mut usize,
@@ -1825,14 +1825,14 @@ pub unsafe extern "C" fn pdfv_field_widget_count(
 /// One widget's object, its `/Rect` on the screen and whether it is on.
 ///
 /// `quad` is `[x0, y0, … x3, y3]` in device pixels of the viewport, y downwards — the same form
-/// [`pdfv_selection_quads`] and [`pdfv_focused_annotation`] take, because a caller places a control the same way
+/// [`quorra_selection_quads`] and [`quorra_focused_annotation`] take, because a caller places a control the same way
 /// it draws a highlight.
 ///
 /// # Safety
 ///
 /// See the module documentation. `quad` is writable for eight `float`s, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_widget(
+pub unsafe extern "C" fn quorra_field_widget(
     fields: *const Form,
     field: usize,
     widget: usize,
@@ -1865,20 +1865,20 @@ pub unsafe extern "C" fn pdfv_field_widget(
     }
 }
 
-/// A widget's `/AP /N` on-state name (`PDFV_TEXT_LABEL`) or Table 230's `/Opt` entry for it
-/// (`PDFV_TEXT_EXPORT`).
+/// A widget's `/AP /N` on-state name (`QUORRA_TEXT_LABEL`) or Table 230's `/Opt` entry for it
+/// (`QUORRA_TEXT_EXPORT`).
 ///
 /// **The two say different things and the clause is why.** §12.7.5.2.3: "the names used to
 /// represent the on state in the AP dictionary of each annotation may use numerical position …
 /// encoded as a name object (for example: /0, /1)", so `/AP` may say `0` while `/Opt` says `Rot` —
 /// and only the first selects an appearance while only the second is worth showing a person. The
-/// first is what [`pdfv_set_field_text`] sends to check the box.
+/// first is what [`quorra_set_field_text`] sends to check the box.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_widget_text(
+pub unsafe extern "C" fn quorra_field_widget_text(
     fields: *const Form,
     field: usize,
     widget: usize,
@@ -1899,7 +1899,7 @@ pub unsafe extern "C" fn pdfv_field_widget_text(
     }
 }
 
-/// What the field at a viewport point is called — `PDFV_TEXT_QUALIFIED` or `PDFV_TEXT_SHOWN`.
+/// What the field at a viewport point is called — `QUORRA_TEXT_QUALIFIED` or `QUORRA_TEXT_SHOWN`.
 ///
 /// What a caller asks on a click, before it can send an edit. [`Status::NoAnswer`] where no field
 /// is there.
@@ -1908,7 +1908,7 @@ pub unsafe extern "C" fn pdfv_field_widget_text(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_at(
+pub unsafe extern "C" fn quorra_field_at(
     viewer: *const Session,
     x: f32,
     y: f32,
@@ -1946,7 +1946,7 @@ pub unsafe extern "C" fn pdfv_field_at(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_caret(
+pub unsafe extern "C" fn quorra_caret(
     viewer: *const Session,
     x: f32,
     y: f32,
@@ -1979,9 +1979,9 @@ pub unsafe extern "C" fn pdfv_caret(
     }
 }
 
-/// How far into a field's value a point inside it is, in bytes — [`pdfv_caret`]'s inverse.
+/// How far into a field's value a point inside it is, in bytes — [`quorra_caret`]'s inverse.
 ///
-/// `x` and `y` name the field, as [`pdfv_field_at`]'s do; `point_x` and `point_y` are the place to
+/// `x` and `y` name the field, as [`quorra_field_at`]'s do; `point_x` and `point_y` are the place to
 /// measure, which is the same point on a click and a different one on every move of a drag. The
 /// answer is the *nearest* boundary between two glyphs and never a refusal for a point in the wrong
 /// place: a caller that has decided a press belongs to a field has to put the cursor somewhere.
@@ -1990,7 +1990,7 @@ pub unsafe extern "C" fn pdfv_caret(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_offset(
+pub unsafe extern "C" fn quorra_offset(
     viewer: *const Session,
     x: f32,
     y: f32,
@@ -2012,16 +2012,16 @@ pub unsafe extern "C" fn pdfv_offset(
 
 /// The shapes covering a byte range of a field's value, one per line it touches.
 ///
-/// A third question rather than [`pdfv_caret`] twice, and §12.7.5.3's Table 231 bit 13 is what
+/// A third question rather than [`quorra_caret`] twice, and §12.7.5.3's Table 231 bit 13 is what
 /// settles it: a multiline field's value is broken into lines by the layout, so a caller holding
 /// both ends of a selection cannot name the lines *between* them. Release the handle with
-/// [`pdfv_quads_free`].
+/// [`quorra_quads_free`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_field_selection(
+pub unsafe extern "C" fn quorra_field_selection(
     viewer: *const Session,
     x: f32,
     y: f32,
@@ -2043,7 +2043,7 @@ pub unsafe extern "C" fn pdfv_field_selection(
 
 /// §12.5.6.6: the free text annotation **this session added** at a point, and what it says now.
 ///
-/// How a caller aims a keyboard at one: the object goes back to [`pdfv_set_free_text`]. An
+/// How a caller aims a keyboard at one: the object goes back to [`quorra_set_free_text`]. An
 /// annotation the *file* states answers [`Status::NoAnswer`] deliberately — nothing in this
 /// vocabulary can change one, and offering it would be an interface pretending to work.
 ///
@@ -2051,7 +2051,7 @@ pub unsafe extern "C" fn pdfv_field_selection(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_free_text_at(
+pub unsafe extern "C" fn quorra_free_text_at(
     viewer: *const Session,
     x: f32,
     y: f32,
@@ -2092,13 +2092,13 @@ pub unsafe extern "C" fn pdfv_free_text_at(
 /// A name rather than a widget, because §12.7.4.1 lets one field own several widgets and a field's
 /// value is the field's: typing into one of them changes all of them. This is also how
 /// §12.7.5.2's two toggling buttons are checked — their value is the appearance-state name
-/// [`pdfv_field_widget_text`] hands over.
+/// [`quorra_field_widget_text`] hands over.
 ///
 /// # Safety
 ///
 /// See the module documentation. `field` and `text` are NUL-terminated UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_set_field_text(
+pub unsafe extern "C" fn quorra_set_field_text(
     viewer: *mut Session,
     field: *const c_char,
     text: *const c_char,
@@ -2136,7 +2136,7 @@ pub unsafe extern "C" fn pdfv_set_field_text(
 /// See the module documentation. `options` is readable for `count` elements, or null when `count`
 /// is zero.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_set_field_options(
+pub unsafe extern "C" fn quorra_set_field_options(
     viewer: *mut Session,
     field: *const c_char,
     options: *const usize,
@@ -2171,7 +2171,7 @@ pub unsafe extern "C" fn pdfv_set_field_options(
 ///
 /// See the module documentation. `field` is NUL-terminated UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_clear_field(
+pub unsafe extern "C" fn quorra_clear_field(
     viewer: *mut Session,
     field: *const c_char,
     events: *mut *mut Events,
@@ -2200,7 +2200,7 @@ pub unsafe extern "C" fn pdfv_clear_field(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_markup(
+pub unsafe extern "C" fn quorra_markup(
     viewer: *mut Session,
     kind: u32,
     red: f32,
@@ -2220,18 +2220,18 @@ pub unsafe extern "C" fn pdfv_markup(
 
 /// §12.5.6.6: puts an empty free text annotation over a rectangle a person **drew**.
 ///
-/// A drag rather than a selection, which is the whole difference from [`pdfv_markup`] and follows
+/// A drag rather than a selection, which is the whole difference from [`quorra_markup`] and follows
 /// from the clause: that subtype "displays text directly on the page", so there is nothing on the
 /// page for it to be over. The two corners are in device pixels of the viewport, in either order;
 /// a rectangle with no area is a press that never moved and adds nothing.
 ///
-/// [`pdfv_free_text_at`] is how the caller learns which annotation the drag made.
+/// [`quorra_free_text_at`] is how the caller learns which annotation the drag made.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_free_text(
+pub unsafe extern "C" fn quorra_free_text(
     viewer: *mut Session,
     from_x: f32,
     from_y: f32,
@@ -2259,7 +2259,7 @@ pub unsafe extern "C" fn pdfv_free_text(
 ///
 /// See the module documentation. `text` is NUL-terminated UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_set_free_text(
+pub unsafe extern "C" fn quorra_set_free_text(
     viewer: *mut Session,
     number: u32,
     generation: u16,
@@ -2286,7 +2286,7 @@ pub unsafe extern "C" fn pdfv_set_free_text(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_undo(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+pub unsafe extern "C" fn quorra_undo(viewer: *mut Session, events: *mut *mut Events) -> c_int {
     let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -2300,7 +2300,7 @@ pub unsafe extern "C" fn pdfv_undo(viewer: *mut Session, events: *mut *mut Event
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_redo(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+pub unsafe extern "C" fn quorra_redo(viewer: *mut Session, events: *mut *mut Events) -> c_int {
     let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -2314,7 +2314,7 @@ pub unsafe extern "C" fn pdfv_redo(viewer: *mut Session, events: *mut *mut Event
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_dirty(viewer: *const Session, dirty: *mut bool) -> c_int {
+pub unsafe extern "C" fn quorra_dirty(viewer: *const Session, dirty: *mut bool) -> c_int {
     let (Some(viewer), Some(dirty)) = (viewer.as_ref(), dirty.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -2333,7 +2333,7 @@ pub unsafe extern "C" fn pdfv_dirty(viewer: *const Session, dirty: *mut bool) ->
 
 /// Writes §7.5.6's incremental update for everything the log holds.
 ///
-/// The bytes arrive on a `PDFV_EVENT_SAVED` and are read with [`pdfv_event_bytes`]; the *caller*
+/// The bytes arrive on a `QUORRA_EVENT_SAVED` and are read with [`quorra_event_bytes`]; the *caller*
 /// writes them somewhere, because this library has no filesystem and where a file lands is a
 /// policy rather than a rendering decision. The whole file comes back rather than the update
 /// alone, because §7.5.6's update is only meaningful after the bytes it chains to.
@@ -2346,7 +2346,7 @@ pub unsafe extern "C" fn pdfv_dirty(viewer: *const Session, dirty: *mut bool) ->
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_save(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+pub unsafe extern "C" fn quorra_save(viewer: *mut Session, events: *mut *mut Events) -> c_int {
     let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -2357,7 +2357,7 @@ pub unsafe extern "C" fn pdfv_save(viewer: *mut Session, events: *mut *mut Event
 /// §7.11.4: takes an embedded file's bytes out of the document.
 ///
 /// The name is the key the `/EmbeddedFiles` tree filed the file under, which is what
-/// [`pdfv_panel_name`] answered with. The bytes arrive on a `PDFV_EVENT_EXTRACTED`, decoded:
+/// [`quorra_panel_name`] answered with. The bytes arrive on a `QUORRA_EVENT_EXTRACTED`, decoded:
 /// §7.4's filters are undone here, because a caller that had to decode them would be a second
 /// reader of the document.
 ///
@@ -2365,7 +2365,7 @@ pub unsafe extern "C" fn pdfv_save(viewer: *mut Session, events: *mut *mut Event
 ///
 /// See the module documentation. `name` is NUL-terminated UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_extract(
+pub unsafe extern "C" fn quorra_extract(
     viewer: *mut Session,
     name: *const c_char,
     events: *mut *mut Events,
@@ -2381,22 +2381,22 @@ pub unsafe extern "C" fn pdfv_extract(
     Status::Ok.code()
 }
 
-/// §7.11.4: puts a file into the document, in one of §7.11.4.1's two homes — `PDFV_ATTACH_*`.
+/// §7.11.4: puts a file into the document, in one of §7.11.4.1's two homes — `QUORRA_ATTACH_*`.
 ///
 /// The file is what `bytes` reads for `len`; the name is what it is filed under, one namespace
-/// for both homes, and a name already embedded is a `PDFV_EVENT_REPORTED` rather than a second
-/// entry. `description` and `mime` may be null. Under `PDFV_ATTACH_PAGE`, `x` and `y` are the
-/// point of the viewport the file goes under, in device pixels; under `PDFV_ATTACH_DOCUMENT`
-/// they are ignored. What comes back is the ordinary edit's events — a `PDFV_EVENT_DIRTY`, a
-/// `PDFV_EVENT_ATTACHMENTS_CHANGED` — or the reader's policy speaking: refused, asked or warned.
-/// Nothing reaches the file until `pdfv_save`.
+/// for both homes, and a name already embedded is a `QUORRA_EVENT_REPORTED` rather than a second
+/// entry. `description` and `mime` may be null. Under `QUORRA_ATTACH_PAGE`, `x` and `y` are the
+/// point of the viewport the file goes under, in device pixels; under `QUORRA_ATTACH_DOCUMENT`
+/// they are ignored. What comes back is the ordinary edit's events — a `QUORRA_EVENT_DIRTY`, a
+/// `QUORRA_EVENT_ATTACHMENTS_CHANGED` — or the reader's policy speaking: refused, asked or warned.
+/// Nothing reaches the file until `quorra_save`.
 ///
 /// # Safety
 ///
 /// See the module documentation. `bytes` is readable for `len`; `name`, `description` and
 /// `mime` are NUL-terminated UTF-8, the last two or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_attach(
+pub unsafe extern "C" fn quorra_attach(
     viewer: *mut Session,
     bytes: *const u8,
     len: usize,
@@ -2434,17 +2434,17 @@ pub unsafe extern "C" fn pdfv_attach(
 }
 
 /// §7.11.4: takes an embedded file out of the document, by the `/EmbeddedFiles` key
-/// [`pdfv_panel_name`] answered with.
+/// [`quorra_panel_name`] answered with.
 ///
 /// A file this session attached is forgotten; one the document's own tree names leaves the
-/// list now and the tree at the next `pdfv_save`, with what it alone reached marked free. A name
-/// nothing files is a `PDFV_EVENT_REPORTED`.
+/// list now and the tree at the next `quorra_save`, with what it alone reached marked free. A name
+/// nothing files is a `QUORRA_EVENT_REPORTED`.
 ///
 /// # Safety
 ///
 /// See the module documentation. `name` is NUL-terminated UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_detach(
+pub unsafe extern "C" fn quorra_detach(
     viewer: *mut Session,
     name: *const c_char,
     events: *mut *mut Events,
@@ -2460,17 +2460,17 @@ pub unsafe extern "C" fn pdfv_detach(
     Status::Ok.code()
 }
 
-/// The answer to a `PDFV_EVENT_ASKING`: whether the edit the document restricts goes ahead.
+/// The answer to a `QUORRA_EVENT_ASKING`: whether the edit the document restricts goes ahead.
 ///
-/// `document` is the one the event named ([`pdfv_events_document`]). `true` performs the held
-/// edit exactly as `PDFV_RESTRICT_OFF` would have; `false` forgets it and says nothing. An answer
+/// `document` is the one the event named ([`quorra_events_document`]). `true` performs the held
+/// edit exactly as `QUORRA_RESTRICT_OFF` would have; `false` forgets it and says nothing. An answer
 /// to a document with nothing outstanding does nothing.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_answer(
+pub unsafe extern "C" fn quorra_answer(
     viewer: *mut Session,
     document: u64,
     proceed: bool,
@@ -2483,7 +2483,7 @@ pub unsafe extern "C" fn pdfv_answer(
     Status::Ok.code()
 }
 
-/// The bytes a `PDFV_EVENT_NEEDS_FILE` asked for, or a refusal.
+/// The bytes a `QUORRA_EVENT_NEEDS_FILE` asked for, or a refusal.
 ///
 /// A null `bytes` is a caller that will not or cannot supply them, which is a **legitimate answer
 /// and not an error**: the policy about which files a document may name belongs to whoever owns
@@ -2494,7 +2494,7 @@ pub unsafe extern "C" fn pdfv_answer(
 ///
 /// See the module documentation. `bytes` is readable for `len`, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_supply(
+pub unsafe extern "C" fn quorra_supply(
     viewer: *mut Session,
     purpose: u32,
     bytes: *const u8,
@@ -2522,16 +2522,16 @@ pub unsafe extern "C" fn pdfv_supply(
 
 /// §8.11.4.3's `/Order`, depth first, as an owning handle.
 ///
-/// Release it with [`pdfv_panel_free`]. Table 99's `/Locked` comes back on
-/// [`pdfv_panel_action`]: "[t]he state of a locked group cannot be changed through the user
+/// Release it with [`quorra_panel_free`]. Table 99's `/Locked` comes back on
+/// [`quorra_panel_action`]: "[t]he state of a locked group cannot be changed through the user
 /// interface of an interactive PDF processor", so a caller builds that row's switch insensitive
-/// rather than sending [`pdfv_set_group`] for it.
+/// rather than sending [`quorra_set_group`] for it.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_layers_read(viewer: *const Session, panel: *mut *mut Panel) -> c_int {
+pub unsafe extern "C" fn quorra_layers_read(viewer: *const Session, panel: *mut *mut Panel) -> c_int {
     let (Some(viewer), Some(panel)) = (viewer.as_ref(), panel.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -2554,7 +2554,7 @@ pub unsafe extern "C" fn pdfv_layers_read(viewer: *const Session, panel: *mut *m
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_attachments_read(
+pub unsafe extern "C" fn quorra_attachments_read(
     viewer: *const Session,
     panel: *mut *mut Panel,
 ) -> c_int {
@@ -2576,7 +2576,7 @@ pub unsafe extern "C" fn pdfv_attachments_read(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_panel_free(panel: *mut Panel) {
+pub unsafe extern "C" fn quorra_panel_free(panel: *mut Panel) {
     if !panel.is_null() {
         drop(Box::from_raw(panel));
     }
@@ -2588,7 +2588,7 @@ pub unsafe extern "C" fn pdfv_panel_free(panel: *mut Panel) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_panel_len(panel: *const Panel) -> usize {
+pub unsafe extern "C" fn quorra_panel_len(panel: *const Panel) -> usize {
     panel.as_ref().map_or(0, Panel::len)
 }
 
@@ -2598,7 +2598,7 @@ pub unsafe extern "C" fn pdfv_panel_len(panel: *const Panel) -> usize {
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_panel_text(
+pub unsafe extern "C" fn quorra_panel_text(
     panel: *const Panel,
     row: usize,
     detail: c_int,
@@ -2621,7 +2621,7 @@ pub unsafe extern "C" fn pdfv_panel_text(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_panel_depth(
+pub unsafe extern "C" fn quorra_panel_depth(
     panel: *const Panel,
     row: usize,
     depth: *mut u32,
@@ -2644,19 +2644,19 @@ pub unsafe extern "C" fn pdfv_panel_depth(
     }
 }
 
-/// Which of `PDFV_ROW_*` acting on the row is, and everything the action carries.
+/// Which of `QUORRA_ROW_*` acting on the row is, and everything the action carries.
 ///
-/// `number` and `generation` are §7.3.10's two numbers for `PDFV_ROW_ACTIVATE` and
-/// `PDFV_ROW_TOGGLE`, and zero otherwise — §7.5.4 reserves object number zero for the head of the
+/// `number` and `generation` are §7.3.10's two numbers for `QUORRA_ROW_ACTIVATE` and
+/// `QUORRA_ROW_TOGGLE`, and zero otherwise — §7.5.4 reserves object number zero for the head of the
 /// free list, so it is never an object a document states. `on` and `locked` mean something for
-/// `PDFV_ROW_TOGGLE` alone; the `/EmbeddedFiles` key of a `PDFV_ROW_EXTRACT` row is
-/// [`pdfv_panel_name`].
+/// `QUORRA_ROW_TOGGLE` alone; the `/EmbeddedFiles` key of a `QUORRA_ROW_EXTRACT` row is
+/// [`quorra_panel_name`].
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_panel_action(
+pub unsafe extern "C" fn quorra_panel_action(
     panel: *const Panel,
     row: usize,
     kind: *mut u32,
@@ -2691,13 +2691,13 @@ pub unsafe extern "C" fn pdfv_panel_action(
     }
 }
 
-/// The `/EmbeddedFiles` key [`pdfv_extract`] takes for a `PDFV_ROW_EXTRACT` row, `""` for others.
+/// The `/EmbeddedFiles` key [`quorra_extract`] takes for a `QUORRA_ROW_EXTRACT` row, `""` for others.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_panel_name(
+pub unsafe extern "C" fn quorra_panel_name(
     panel: *const Panel,
     row: usize,
     out: *mut c_char,
@@ -2716,13 +2716,13 @@ pub unsafe extern "C" fn pdfv_panel_name(
 /// §8.11: switches an optional content group on or off.
 ///
 /// The group is named by object because that is what §8.11.2.2's `/OCGs` and Table 99's `/Order`
-/// hold; [`pdfv_layers_read`] is where a caller gets the identities.
+/// hold; [`quorra_layers_read`] is where a caller gets the identities.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_set_group(
+pub unsafe extern "C" fn quorra_set_group(
     viewer: *mut Session,
     number: u32,
     generation: u16,
@@ -2750,7 +2750,7 @@ pub unsafe extern "C" fn pdfv_set_group(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_tick(
+pub unsafe extern "C" fn quorra_tick(
     viewer: *mut Session,
     millis: u32,
     events: *mut *mut Events,
@@ -2767,14 +2767,14 @@ pub unsafe extern "C" fn pdfv_tick(
 /// A statement only a host can make, and §12.4.4.2 is why it exists at all: that clause conditions
 /// a *state machine* — which navigation node is current — on being in presentation mode, and a
 /// person stepping through a slide show by hand drives no clock, so it cannot be deduced from
-/// [`pdfv_tick`] (ADR 0316). Entering saves §8.11's group states and leaving restores them, which
+/// [`quorra_tick`] (ADR 0316). Entering saves §8.11's group states and leaving restores them, which
 /// is NOTE 2's own instruction.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_present(
+pub unsafe extern "C" fn quorra_present(
     viewer: *mut Session,
     mode: u32,
     events: *mut *mut Events,
@@ -2799,7 +2799,7 @@ pub unsafe extern "C" fn pdfv_present(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_layout(
+pub unsafe extern "C" fn quorra_layout(
     viewer: *mut Session,
     layout: u32,
     events: *mut *mut Events,
@@ -2819,15 +2819,15 @@ pub unsafe extern "C" fn pdfv_layout(
 /// **`CLAUDE.md` states it: "it shall always be possible to turn them off."** A document's
 /// restrictions — §7.6.4.2's Table 22, §12.8.2.2's `/DocMDP` — are the *reader's* to set, and a
 /// state machine over the file cannot know how much of somebody else's file a person's own program
-/// should obey. `PDFV_RESTRICT_ON` is the default; what is refused arrives as a
-/// `PDFV_EVENT_REFUSED`, which is deliberately not a `PDFV_EVENT_REPORTED`: one says what the
+/// should obey. `QUORRA_RESTRICT_ON` is the default; what is refused arrives as a
+/// `QUORRA_EVENT_REFUSED`, which is deliberately not a `QUORRA_EVENT_REPORTED`: one says what the
 /// *document* could not do and the other what the reader's own policy did.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_restrict(
+pub unsafe extern "C" fn quorra_restrict(
     viewer: *mut Session,
     level: u32,
     events: *mut *mut Events,
@@ -2844,7 +2844,7 @@ pub unsafe extern "C" fn pdfv_restrict(
 
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
-/// `PDFV_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`pdfv_fields_read`]
+/// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]
 /// answered for**, so a caller that has placed real controls over them draws each part of the page
 /// once. A widget §12.7.4.2 leaves "simply a Widget annotation" keeps its appearance, because no
 /// control replaced it. Changing this re-interprets the page, because §12.5.5's appearance streams
@@ -2854,7 +2854,7 @@ pub unsafe extern "C" fn pdfv_restrict(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_delegate(
+pub unsafe extern "C" fn quorra_delegate(
     viewer: *mut Session,
     appearances: u32,
     events: *mut *mut Events,
@@ -2875,14 +2875,14 @@ pub unsafe extern "C" fn pdfv_delegate(
 
 /// Which document the event at `index` is about.
 ///
-/// [`Status::WrongKind`] for a `PDFV_EVENT_DAMAGE`, which is about the *viewport* and names no
+/// [`Status::WrongKind`] for a `QUORRA_EVENT_DAMAGE`, which is about the *viewport* and names no
 /// document.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_document(
+pub unsafe extern "C" fn quorra_event_document(
     events: *const Events,
     index: usize,
     document: *mut u64,
@@ -2899,7 +2899,7 @@ pub unsafe extern "C" fn pdfv_event_document(
     }
 }
 
-/// The bytes of a `PDFV_EVENT_SAVED` or a `PDFV_EVENT_EXTRACTED`.
+/// The bytes of a `QUORRA_EVENT_SAVED` or a `QUORRA_EVENT_EXTRACTED`.
 ///
 /// **A byte buffer and not a string**, in the same two-call idiom: both carry a *file*, and a file
 /// is not text — §7.5.6's update is a PDF and an embedded file may be anything at all, so the
@@ -2910,7 +2910,7 @@ pub unsafe extern "C" fn pdfv_event_document(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_bytes(
+pub unsafe extern "C" fn quorra_event_bytes(
     events: *const Events,
     index: usize,
     out: *mut u8,
@@ -2934,7 +2934,7 @@ pub unsafe extern "C" fn pdfv_event_bytes(
     Status::Ok.code()
 }
 
-/// A `PDFV_EVENT_EXTRACTED`'s file name, and whether a person asked for it.
+/// A `QUORRA_EVENT_EXTRACTED`'s file name, and whether a person asked for it.
 ///
 /// `asked` is §O.2.1's distinction rather than decoration: a URI's `ef` parameter extracts a file
 /// nobody pressed anything for, and the annex says a processor "may choose to prompt the user or
@@ -2945,7 +2945,7 @@ pub unsafe extern "C" fn pdfv_event_bytes(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_extracted(
+pub unsafe extern "C" fn quorra_event_extracted(
     events: *const Events,
     index: usize,
     asked: *mut bool,
@@ -2967,7 +2967,7 @@ pub unsafe extern "C" fn pdfv_event_extracted(
     }
 }
 
-/// A `PDFV_EVENT_OPEN_URI`'s resolved URI.
+/// A `QUORRA_EVENT_OPEN_URI`'s resolved URI.
 ///
 /// Handed over rather than opened, and that is not squeamishness: the string is one the *document*
 /// controls, and handing it to a browser is a decision about this machine.
@@ -2976,7 +2976,7 @@ pub unsafe extern "C" fn pdfv_event_extracted(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_open_uri(
+pub unsafe extern "C" fn quorra_event_open_uri(
     events: *const Events,
     index: usize,
     out: *mut c_char,
@@ -2992,15 +2992,15 @@ pub unsafe extern "C" fn pdfv_event_open_uri(
     }
 }
 
-/// A `PDFV_EVENT_NEEDS_FILE`'s purpose and the document's own words for the file.
+/// A `QUORRA_EVENT_NEEDS_FILE`'s purpose and the document's own words for the file.
 ///
-/// Answer it with [`pdfv_supply`], including with a null buffer, which is a caller declining.
+/// Answer it with [`quorra_supply`], including with a null buffer, which is a caller declining.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_needs_file(
+pub unsafe extern "C" fn quorra_event_needs_file(
     events: *const Events,
     index: usize,
     purpose: *mut u32,
@@ -3022,7 +3022,7 @@ pub unsafe extern "C" fn pdfv_event_needs_file(
     }
 }
 
-/// A `PDFV_EVENT_DAMAGE`'s rectangle, `[x0, y0, x1, y1]` in device pixels.
+/// A `QUORRA_EVENT_DAMAGE`'s rectangle, `[x0, y0, x1, y1]` in device pixels.
 ///
 /// A bound on what changed rather than a promise that everything inside it did.
 ///
@@ -3030,7 +3030,7 @@ pub unsafe extern "C" fn pdfv_event_needs_file(
 ///
 /// See the module documentation. `into` is writable for four `float`s.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_damage(
+pub unsafe extern "C" fn quorra_event_damage(
     events: *const Events,
     index: usize,
     into: *mut f32,
@@ -3050,13 +3050,13 @@ pub unsafe extern "C" fn pdfv_event_damage(
     }
 }
 
-/// A `PDFV_EVENT_DIRTY`'s answer: whether the document now differs from the file it came from.
+/// A `QUORRA_EVENT_DIRTY`'s answer: whether the document now differs from the file it came from.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_dirty(
+pub unsafe extern "C" fn quorra_event_dirty(
     events: *const Events,
     index: usize,
     dirty: *mut bool,
@@ -3073,10 +3073,10 @@ pub unsafe extern "C" fn pdfv_event_dirty(
     }
 }
 
-/// A `PDFV_EVENT_TRANSITION`'s Table 164 numbers, without the style.
+/// A `QUORRA_EVENT_TRANSITION`'s Table 164 numbers, without the style.
 ///
 /// `seconds` is `/D`, and zero for `R`, whose row says "the D entry shall be ignored".
-/// `dimension` is `PDFV_DIMENSION_*` and `motion` is `PDFV_MOTION_*`. `directed` says whether `/Di`
+/// `dimension` is `QUORRA_DIMENSION_*` and `motion` is `QUORRA_MOTION_*`. `directed` says whether `/Di`
 /// states an angle at all, as against the name `None`; `degrees` is that angle counterclockwise
 /// from a left-to-right direction, which the table warns "differs from the page object's Rotate
 /// entry, which is measured clockwise from the top".
@@ -3085,7 +3085,7 @@ pub unsafe extern "C" fn pdfv_event_dirty(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_transition(
+pub unsafe extern "C" fn quorra_event_transition(
     events: *const Events,
     index: usize,
     seconds: *mut f32,
@@ -3128,7 +3128,7 @@ pub unsafe extern "C" fn pdfv_event_transition(
     }
 }
 
-/// A `PDFV_EVENT_TRANSITION`'s Table 164 `/S`, as the table spells it.
+/// A `QUORRA_EVENT_TRANSITION`'s Table 164 `/S`, as the table spells it.
 ///
 /// **A name rather than a number this ABI invented**, and it is the only enumeration here that
 /// crosses as text. `/S` *is* a name in the file, and the table's thirteenth case is a name it does
@@ -3140,7 +3140,7 @@ pub unsafe extern "C" fn pdfv_event_transition(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_event_transition_style(
+pub unsafe extern "C" fn quorra_event_transition_style(
     events: *const Events,
     index: usize,
     out: *mut c_char,
@@ -3163,7 +3163,7 @@ pub unsafe extern "C" fn pdfv_event_transition_style(
 /// How many pages on the screen this viewer has anything to say about.
 ///
 /// **Table 29's arrangement, counted a second time**, and it is here for the reason
-/// [`pdfv_frame_count`] is: a C consumer cannot fail to compile, so a `/PageLayout` putting four
+/// [`quorra_frame_count`] is: a C consumer cannot fail to compile, so a `/PageLayout` putting four
 /// pages on the screen has to be something a caller *asks* about rather than something it is
 /// silently given one quarter of. Zero where no document is focused or no page has been read;
 /// one under `SinglePage`.
@@ -3172,7 +3172,7 @@ pub unsafe extern "C" fn pdfv_event_transition_style(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_reported_pages(viewer: *const Session) -> usize {
+pub unsafe extern "C" fn quorra_reported_pages(viewer: *const Session) -> usize {
     viewer.as_ref().map_or(0, Session::reported_pages)
 }
 
@@ -3182,7 +3182,7 @@ pub unsafe extern "C" fn pdfv_reported_pages(viewer: *const Session) -> usize {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_reported_page(
+pub unsafe extern "C" fn quorra_reported_page(
     viewer: *const Session,
     entry: usize,
     page: *mut usize,
@@ -3201,7 +3201,7 @@ pub unsafe extern "C" fn pdfv_reported_page(
 
 /// How many sentences one of those pages has about what it could not draw.
 ///
-/// The same sentences a `PDFV_EVENT_REPORTED` carried, kept so that a caller which cleared its
+/// The same sentences a `QUORRA_EVENT_REPORTED` carried, kept so that a caller which cleared its
 /// status bar can ask again rather than remembering. Trap 5's channel: every layer of this program
 /// says what it could not handle rather than falling back to something plausible.
 ///
@@ -3209,7 +3209,7 @@ pub unsafe extern "C" fn pdfv_reported_page(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_reports_len(
+pub unsafe extern "C" fn quorra_reports_len(
     viewer: *const Session,
     entry: usize,
     count: *mut usize,
@@ -3232,7 +3232,7 @@ pub unsafe extern "C" fn pdfv_reports_len(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_report(
+pub unsafe extern "C" fn quorra_report(
     viewer: *const Session,
     entry: usize,
     index: usize,
@@ -3255,33 +3255,33 @@ pub unsafe extern "C" fn pdfv_report(
 
 /// How many control kinds this library defines, and the name of one.
 ///
-/// The pair `pdfv_event_kind_count` and `pdfv_event_kind_name` make for an event, and for the same
+/// The pair `quorra_event_kind_count` and `quorra_event_kind_name` make for an event, and for the same
 /// reason: a number a caller has no arm for should still be printable. **Not part of
-/// [`pdfv_abi_check`]**, deliberately — an event *arrives* whether or not the caller asked, so its
+/// [`quorra_abi_check`]**, deliberately — an event *arrives* whether or not the caller asked, so its
 /// count has to be checked before the first one turns up; a control kind is the answer to a call
 /// the caller wrote.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_control_kind_count() -> u32 {
+pub extern "C" fn quorra_control_kind_count() -> u32 {
     ControlKind::COUNT
 }
 
 /// The name of a control kind, NUL-terminated and never freed. `"unknown"` for one this build does
 /// not define.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_control_kind_name(kind: u32) -> *const c_char {
+pub extern "C" fn quorra_control_kind_name(kind: u32) -> *const c_char {
     let name = ControlKind::from_code(kind).map_or("unknown\0", ControlKind::name);
     name.as_ptr().cast::<c_char>()
 }
 
 /// How many panel row actions this library defines.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_row_kind_count() -> u32 {
+pub extern "C" fn quorra_row_kind_count() -> u32 {
     RowKind::COUNT
 }
 
 /// The name of a panel row action, NUL-terminated and never freed.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_row_kind_name(kind: u32) -> *const c_char {
+pub extern "C" fn quorra_row_kind_name(kind: u32) -> *const c_char {
     let name = RowKind::from_code(kind).map_or("unknown\0", RowKind::name);
     name.as_ptr().cast::<c_char>()
 }
@@ -3295,13 +3295,13 @@ pub extern "C" fn pdfv_row_kind_name(kind: u32) -> *const c_char {
 // over `Query`, so a variant added to `viewer-core` fails to compile there rather than arriving
 // with no symbol and no signal — which is exactly how eleven accumulated.
 //
-// No entry point below takes or returns a struct by value. `PDFV_ABI_VERSION` therefore does not
+// No entry point below takes or returns a struct by value. `QUORRA_ABI_VERSION` therefore does not
 // move, which is the whole reason the shapes are handles and out-parameters.
 // ---------------------------------------------------------------------------------------------
 
 /// Every occurrence of a string on the page being shown, as shapes to draw over it.
 ///
-/// `pdfv_find_start` searches the *document* one page per step; this answers for the page in front
+/// `quorra_find_start` searches the *document* one page per step; this answers for the page in front
 /// of the reader, out of a readback that already exists, so a find bar may ask it on every repaint.
 /// A caller had the first and not the second until ADR 0576.
 ///
@@ -3309,7 +3309,7 @@ pub extern "C" fn pdfv_row_kind_name(kind: u32) -> *const c_char {
 ///
 /// See the module documentation. `needle` is NUL-terminated and UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_find_matches(
+pub unsafe extern "C" fn quorra_find_matches(
     viewer: *const Session,
     needle: *const c_char,
     matches: *mut *mut Matches,
@@ -3329,13 +3329,13 @@ pub unsafe extern "C" fn pdfv_find_matches(
     }
 }
 
-/// Releases what `pdfv_find_matches` produced. Null is a no-op.
+/// Releases what `quorra_find_matches` produced. Null is a no-op.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_matches_free(matches: *mut Matches) {
+pub unsafe extern "C" fn quorra_matches_free(matches: *mut Matches) {
     if !matches.is_null() {
         drop(Box::from_raw(matches));
     }
@@ -3347,11 +3347,11 @@ pub unsafe extern "C" fn pdfv_matches_free(matches: *mut Matches) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_matches_len(matches: *const Matches) -> usize {
+pub unsafe extern "C" fn quorra_matches_len(matches: *const Matches) -> usize {
     matches.as_ref().map_or(0, Matches::len)
 }
 
-/// The shapes covering one occurrence, as a `pdfv_quads *` the caller frees.
+/// The shapes covering one occurrence, as a `quorra_quads *` the caller frees.
 ///
 /// **One occurrence is several quadrilaterals**, because a term wrapped across a line is merged
 /// per run of a line — so *next match* is this index and never the next shape.
@@ -3360,7 +3360,7 @@ pub unsafe extern "C" fn pdfv_matches_len(matches: *const Matches) -> usize {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_matches_quads(
+pub unsafe extern "C" fn quorra_matches_quads(
     matches: *const Matches,
     index: usize,
     quads: *mut *mut Quads,
@@ -3379,14 +3379,14 @@ pub unsafe extern "C" fn pdfv_matches_quads(
 
 /// Table 29's `/PageMode` and `/PageLayout`: what the catalogue asks of the window opening it.
 ///
-/// `pdfv_layout` sets the arrangement a *reader* chose; this is the one the *document* opens in,
+/// `quorra_layout` sets the arrangement a *reader* chose; this is the one the *document* opens in,
 /// and a caller had no way to ask for it. Both native hosts obey the catalogue on open.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_opening(
+pub unsafe extern "C" fn quorra_opening(
     viewer: *const Session,
     mode: *mut u32,
     layout: *mut u32,
@@ -3408,17 +3408,17 @@ pub unsafe extern "C" fn pdfv_opening(
 
 /// How many of Table 29's page modes this library defines, and the name of one.
 ///
-/// The pair `pdfv_control_kind_count` and `pdfv_control_kind_name` make, for the same reason and
-/// deliberately not in `pdfv_abi_check`: this is the answer to a call the caller wrote. Table 29
+/// The pair `quorra_control_kind_count` and `quorra_control_kind_name` make, for the same reason and
+/// deliberately not in `quorra_abi_check`: this is the answer to a call the caller wrote. Table 29
 /// gained `/UseOC` in PDF 1.5 and `/UseAttachments` in PDF 1.6, which is why it is counted at all.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_page_mode_count() -> u32 {
+pub extern "C" fn quorra_page_mode_count() -> u32 {
     PageModeKind::COUNT
 }
 
 /// The name of a page mode, NUL-terminated and never freed.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_page_mode_name(mode: u32) -> *const c_char {
+pub extern "C" fn quorra_page_mode_name(mode: u32) -> *const c_char {
     let name = PageModeKind::from_code(mode).map_or("unknown\0", PageModeKind::name);
     name.as_ptr().cast::<c_char>()
 }
@@ -3428,21 +3428,21 @@ pub extern "C" fn pdfv_page_mode_name(mode: u32) -> *const c_char {
 /// **One keyed accessor rather than nineteen symbols or a struct**, and the argument is this
 /// module's own transposed from a command to a table: a struct passed by value would put Table
 /// 147's size in the ABI, and a symbol apiece would be nineteen exports for one table. An entry
-/// added by a later part of ISO 32000 is a new `PDFV_PREF_…` constant beside a function every
+/// added by a later part of ISO 32000 is a new `QUORRA_PREF_…` constant beside a function every
 /// compiled caller already links.
 ///
-/// A boolean answers zero or one, an enumerated name answers its own `PDFV_…` number, and a count
-/// answers itself. `PDFV_NO_ANSWER` is the three entries Table 147 leaves genuinely open —
+/// A boolean answers zero or one, an enumerated name answers its own `QUORRA_…` number, and a count
+/// answers itself. `QUORRA_NO_ANSWER` is the three entries Table 147 leaves genuinely open —
 /// `/Duplex`, `/PickTrayByPDFSize` and `/NumCopies` — where the document states none, because
 /// "the document says nothing" and "the document says the default" are different facts.
-/// `PDFV_WRONG_KIND` is `PDFV_PREF_PRINT_PAGE_RANGE`, which is a list: see
-/// `pdfv_preference_ranges`.
+/// `QUORRA_WRONG_KIND` is `QUORRA_PREF_PRINT_PAGE_RANGE`, which is a list: see
+/// `quorra_preference_ranges`.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_preference(
+pub unsafe extern "C" fn quorra_preference(
     viewer: *const Session,
     key: u32,
     value: *mut i64,
@@ -3468,7 +3468,7 @@ pub unsafe extern "C" fn pdfv_preference(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_preference_ranges(
+pub unsafe extern "C" fn quorra_preference_ranges(
     viewer: *const Session,
     count: *mut usize,
 ) -> c_int {
@@ -3490,7 +3490,7 @@ pub unsafe extern "C" fn pdfv_preference_ranges(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_preference_range(
+pub unsafe extern "C" fn quorra_preference_range(
     viewer: *const Session,
     index: usize,
     first: *mut i64,
@@ -3516,28 +3516,28 @@ pub unsafe extern "C" fn pdfv_preference_range(
 
 /// How many entries of Table 147 this library answers for.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_preference_key_count() -> u32 {
+pub extern "C" fn quorra_preference_key_count() -> u32 {
     PreferenceKey::COUNT
 }
 
 /// The Table 147 key a number names, NUL-terminated and never freed.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_preference_key_name(key: u32) -> *const c_char {
+pub extern "C" fn quorra_preference_key_name(key: u32) -> *const c_char {
     let name = PreferenceKey::from_code(key).map_or("unknown\0", PreferenceKey::name);
     name.as_ptr().cast::<c_char>()
 }
 
-/// §14.3.3's Table 349 and §14.3.2's metadata stream, as a `pdfv_panel *` the caller frees.
+/// §14.3.3's Table 349 and §14.3.2's metadata stream, as a `quorra_panel *` the caller frees.
 ///
 /// Both tables, shown rather than merged: §14.3.4 leaves a disagreement between them "at the
 /// discretion of the PDF processor", and a panel that merged them would hide one rather than
-/// resolve it. Read with the `pdfv_panel_…` accessors and released with `pdfv_panel_free`.
+/// resolve it. Read with the `quorra_panel_…` accessors and released with `quorra_panel_free`.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_properties_read(
+pub unsafe extern "C" fn quorra_properties_read(
     viewer: *const Session,
     panel: *mut *mut Panel,
 ) -> c_int {
@@ -3553,9 +3553,9 @@ pub unsafe extern "C" fn pdfv_properties_read(
     }
 }
 
-/// §12.4.3's article threads, as a `pdfv_panel *` the caller frees.
+/// §12.4.3's article threads, as a `quorra_panel *` the caller frees.
 ///
-/// Every row is a `PDFV_ROW_ACTIVATE`, which is the same message an outline row sends: the
+/// Every row is a `QUORRA_ROW_ACTIVATE`, which is the same message an outline row sends: the
 /// *document* decides what activating a thread means, and following one lands on Table 163's `/R`
 /// rather than on the page its first bead sits on.
 ///
@@ -3563,7 +3563,7 @@ pub unsafe extern "C" fn pdfv_properties_read(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_articles_read(
+pub unsafe extern "C" fn quorra_articles_read(
     viewer: *const Session,
     panel: *mut *mut Panel,
 ) -> c_int {
@@ -3581,11 +3581,11 @@ pub unsafe extern "C" fn pdfv_articles_read(
 
 /// §12.4.2's label for one page, where the document states one.
 ///
-/// `PDFV_NO_ANSWER` for a page that states none, which is most pages of most documents: §12.4.2
+/// `QUORRA_NO_ANSWER` for a page that states none, which is most pages of most documents: §12.4.2
 /// makes the integer index what identifies a page and the label an addition, so a caller falls
 /// back to the number rather than to nothing.
 ///
-/// **Separate from `pdfv_thumbnail_read` on purpose.** A caller drawing a page list needs a name
+/// **Separate from `quorra_thumbnail_read` on purpose.** A caller drawing a page list needs a name
 /// per row and a picture only for the rows it is showing; one call answering both would make
 /// listing a thousand pages decode a thousand images.
 ///
@@ -3593,7 +3593,7 @@ pub unsafe extern "C" fn pdfv_articles_read(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_page_label(
+pub unsafe extern "C" fn quorra_page_label(
     viewer: *const Session,
     page: usize,
     out: *mut c_char,
@@ -3618,13 +3618,13 @@ pub unsafe extern "C" fn pdfv_page_label(
 /// `/PageMode /UseThumbs` opens that panel *as the document opens*. A caller asks for the rows it
 /// is about to draw.
 ///
-/// `PDFV_NO_ANSWER` for a page with no `/Thumb`, and for one this reader could not decode.
+/// `QUORRA_NO_ANSWER` for a page with no `/Thumb`, and for one this reader could not decode.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_thumbnail_read(
+pub unsafe extern "C" fn quorra_thumbnail_read(
     viewer: *const Session,
     page: usize,
     thumbnail: *mut *mut Miniature,
@@ -3641,22 +3641,22 @@ pub unsafe extern "C" fn pdfv_thumbnail_read(
     }
 }
 
-/// Releases what `pdfv_thumbnail_read` produced. Null is a no-op.
+/// Releases what `quorra_thumbnail_read` produced. Null is a no-op.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_thumbnail_free(thumbnail: *mut Miniature) {
+pub unsafe extern "C" fn quorra_thumbnail_free(thumbnail: *mut Miniature) {
     if !thumbnail.is_null() {
         drop(Box::from_raw(thumbnail));
     }
 }
 
-/// The miniature's size, how many bytes `pdfv_thumbnail_copy` writes, and §12.3.4's two
+/// The miniature's size, how many bytes `quorra_thumbnail_copy` writes, and §12.3.4's two
 /// producer-side constraints.
 ///
-/// The format is always `PDFV_FORMAT_RGBA8`, like every other picture this boundary hands over.
+/// The format is always `QUORRA_FORMAT_RGBA8`, like every other picture this boundary hands over.
 /// `permitted_colour_space` and `permitted_subtype` are the clause's constraints **carried rather
 /// than enforced**: a file breaking either is wrong and its picture is still what the file says,
 /// so the image is decoded either way and a caller with somewhere to put a note can say so.
@@ -3665,7 +3665,7 @@ pub unsafe extern "C" fn pdfv_thumbnail_free(thumbnail: *mut Miniature) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_thumbnail_info(
+pub unsafe extern "C" fn quorra_thumbnail_info(
     thumbnail: *const Miniature,
     width: *mut u32,
     height: *mut u32,
@@ -3703,7 +3703,7 @@ pub unsafe extern "C" fn pdfv_thumbnail_info(
 ///
 /// See the module documentation. `into` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_thumbnail_copy(
+pub unsafe extern "C" fn quorra_thumbnail_copy(
     thumbnail: *const Miniature,
     into: *mut u8,
     cap: usize,
@@ -3728,14 +3728,14 @@ pub unsafe extern "C" fn pdfv_thumbnail_copy(
 
 /// How many pages on the screen have §9.10.2's counts to report. Zero for a null pointer.
 ///
-/// `pdfv_reported_pages`'s counterpart, and one entry per page for the same reason: a column shows
+/// `quorra_reported_pages`'s counterpart, and one entry per page for the same reason: a column shows
 /// several pages, and a caller given one page's counts for four would be silent about three.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_readback_pages(viewer: *const Session) -> usize {
+pub unsafe extern "C" fn quorra_readback_pages(viewer: *const Session) -> usize {
     viewer.as_ref().map_or(0, Session::readback_pages)
 }
 
@@ -3745,7 +3745,7 @@ pub unsafe extern "C" fn pdfv_readback_pages(viewer: *const Session) -> usize {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_readback_page(
+pub unsafe extern "C" fn quorra_readback_page(
     viewer: *const Session,
     entry: usize,
     page: *mut usize,
@@ -3767,7 +3767,7 @@ pub unsafe extern "C" fn pdfv_readback_page(
 /// **Deliberately not a report.** §9.10.2's own closing sentence is "there is no way to determine
 /// what the character code represents", so a code that route ends at is an answer the standard
 /// states rather than something this program failed to do — and folding these into
-/// `pdfv_report` would say the opposite. What a caller does with them is what a person needs: say
+/// `quorra_report` would say the opposite. What a caller does with them is what a person needs: say
 /// that a search found nothing on a page whose text cannot be read, or that a copied selection is
 /// short.
 ///
@@ -3775,7 +3775,7 @@ pub unsafe extern "C" fn pdfv_readback_page(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_readback_count(
+pub unsafe extern "C" fn quorra_readback_count(
     viewer: *const Session,
     entry: usize,
     which: u32,
@@ -3798,13 +3798,13 @@ pub unsafe extern "C" fn pdfv_readback_count(
 
 /// How many of §9.10.2's counts this library distinguishes.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_shortfall_kind_count() -> u32 {
+pub extern "C" fn quorra_shortfall_kind_count() -> u32 {
     ShortfallKind::COUNT
 }
 
 /// The name of one of those counts, NUL-terminated and never freed.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdfv_shortfall_kind_name(which: u32) -> *const c_char {
+pub extern "C" fn quorra_shortfall_kind_name(which: u32) -> *const c_char {
     let name = ShortfallKind::from_code(which).map_or("unknown\0", ShortfallKind::name);
     name.as_ptr().cast::<c_char>()
 }
@@ -3814,13 +3814,13 @@ pub extern "C" fn pdfv_shortfall_kind_name(which: u32) -> *const c_char {
 /// The clause makes a popup "a window … for entry and editing" with "no appearance stream", so it
 /// is the one annotation subtype whose picture is *not* the page's: a caller draws it as chrome,
 /// in its platform's own window furniture. Only the open ones — Table 186's `/Open` says which
-/// start that way and `pdfv_activate` on the parent annotation changes it.
+/// start that way and `quorra_activate` on the parent annotation changes it.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popups_read(
+pub unsafe extern "C" fn quorra_popups_read(
     viewer: *const Session,
     popups: *mut *mut Popups,
 ) -> c_int {
@@ -3836,13 +3836,13 @@ pub unsafe extern "C" fn pdfv_popups_read(
     }
 }
 
-/// Releases what `pdfv_popups_read` produced. Null is a no-op.
+/// Releases what `quorra_popups_read` produced. Null is a no-op.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popups_free(popups: *mut Popups) {
+pub unsafe extern "C" fn quorra_popups_free(popups: *mut Popups) {
     if !popups.is_null() {
         drop(Box::from_raw(popups));
     }
@@ -3854,13 +3854,13 @@ pub unsafe extern "C" fn pdfv_popups_free(popups: *mut Popups) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popups_len(popups: *const Popups) -> usize {
+pub unsafe extern "C" fn quorra_popups_len(popups: *const Popups) -> usize {
     popups.as_ref().map_or(0, Popups::len)
 }
 
 /// The popup annotation, and Table 186's `/Parent` where it names one.
 ///
-/// Two objects because they answer two questions: the first is what `pdfv_activate` closes the
+/// Two objects because they answer two questions: the first is what `quorra_activate` closes the
 /// window with, and the second is the markup annotation the note belongs to — which is what a
 /// caller highlights when the pointer is over the window. `has_parent` is false for a popup the
 /// file left unattached, which Table 186 permits.
@@ -3869,7 +3869,7 @@ pub unsafe extern "C" fn pdfv_popups_len(popups: *const Popups) -> usize {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popup_object(
+pub unsafe extern "C" fn quorra_popup_object(
     popups: *const Popups,
     index: usize,
     number: *mut u32,
@@ -3904,14 +3904,14 @@ pub unsafe extern "C" fn pdfv_popup_object(
 
 /// The window's rectangle on the screen: `[x0, y0, … x3, y3]`, y downwards, eight floats.
 ///
-/// The same form `pdfv_quads_get`, `pdfv_focused_annotation` and `pdfv_field_widget` take, in
+/// The same form `quorra_quads_get`, `quorra_focused_annotation` and `quorra_field_widget` take, in
 /// device pixels of the viewport — one arithmetic in one place.
 ///
 /// # Safety
 ///
 /// See the module documentation. `into` is writable for eight floats.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popup_quad(
+pub unsafe extern "C" fn quorra_popup_quad(
     popups: *const Popups,
     index: usize,
     into: *mut f32,
@@ -3931,7 +3931,7 @@ pub unsafe extern "C" fn pdfv_popup_quad(
     }
 }
 
-/// One of the window's three strings: `PDFV_NOTE_TITLE`, `PDFV_NOTE_CONTENTS`, `PDFV_NOTE_MODIFIED`.
+/// One of the window's three strings: `QUORRA_NOTE_TITLE`, `QUORRA_NOTE_CONTENTS`, `QUORRA_NOTE_MODIFIED`.
 ///
 /// An empty string for one the annotation does not state, because Table 166 makes none of the
 /// three required and a note with no title is a note a caller draws with no title.
@@ -3940,7 +3940,7 @@ pub unsafe extern "C" fn pdfv_popup_quad(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popup_text(
+pub unsafe extern "C" fn quorra_popup_text(
     popups: *const Popups,
     index: usize,
     which: u32,
@@ -3963,13 +3963,13 @@ pub unsafe extern "C" fn pdfv_popup_text(
 /// Table 166's `/C`, "[t]he title bar of the annotation's popup window", as three `DeviceRGB`
 /// components.
 ///
-/// `PDFV_NO_ANSWER` where the annotation states no colour, which is a different thing from black.
+/// `QUORRA_NO_ANSWER` where the annotation states no colour, which is a different thing from black.
 ///
 /// # Safety
 ///
 /// See the module documentation. `into` is writable for three floats.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_popup_colour(
+pub unsafe extern "C" fn quorra_popup_colour(
     popups: *const Popups,
     index: usize,
     into: *mut f32,
@@ -3995,14 +3995,14 @@ pub unsafe extern "C" fn pdfv_popup_colour(
 /// **Two indices, and the standard is why.** §14.7.5.2's marked-content identifier "uniquely
 /// identifies the marked-content sequence within its content stream" and §14.7.5.4 keys the route
 /// in from that page's `/StructParents`, so two pages' trees share no numbering and there is no
-/// order between them to renumber by. A caller walks pages with `pdfv_structure_page`, then nodes;
+/// order between them to renumber by. A caller walks pages with `quorra_structure_page`, then nodes;
 /// every index a node carries is into **that page's** list.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_read(
+pub unsafe extern "C" fn quorra_structure_read(
     viewer: *const Session,
     structure: *mut *mut Structure,
 ) -> c_int {
@@ -4018,13 +4018,13 @@ pub unsafe extern "C" fn pdfv_structure_read(
     }
 }
 
-/// Releases what `pdfv_structure_read` produced. Null is a no-op.
+/// Releases what `quorra_structure_read` produced. Null is a no-op.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_free(structure: *mut Structure) {
+pub unsafe extern "C" fn quorra_structure_free(structure: *mut Structure) {
     if !structure.is_null() {
         drop(Box::from_raw(structure));
     }
@@ -4036,7 +4036,7 @@ pub unsafe extern "C" fn pdfv_structure_free(structure: *mut Structure) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_pages(structure: *const Structure) -> usize {
+pub unsafe extern "C" fn quorra_structure_pages(structure: *const Structure) -> usize {
     structure.as_ref().map_or(0, Structure::len)
 }
 
@@ -4050,7 +4050,7 @@ pub unsafe extern "C" fn pdfv_structure_pages(structure: *const Structure) -> us
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_page(
+pub unsafe extern "C" fn quorra_structure_page(
     structure: *const Structure,
     entry: usize,
     page: *mut usize,
@@ -4085,7 +4085,7 @@ pub unsafe extern "C" fn pdfv_structure_page(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_node(
+pub unsafe extern "C" fn quorra_structure_node(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4120,8 +4120,8 @@ pub unsafe extern "C" fn pdfv_structure_node(
     Status::Ok.code()
 }
 
-/// One of a node's three strings: `PDFV_ELEMENT_ROLE`, `PDFV_ELEMENT_NAME`,
-/// `PDFV_ELEMENT_LANGUAGE`.
+/// One of a node's three strings: `QUORRA_ELEMENT_ROLE`, `QUORRA_ELEMENT_NAME`,
+/// `QUORRA_ELEMENT_LANGUAGE`.
 ///
 /// The role is §14.7.4's `/S` **after §14.7.3's role map**, which is the file's own statement
 /// about its own names and a `shall`: "[a] structure type shall always be mapped to its
@@ -4133,7 +4133,7 @@ pub unsafe extern "C" fn pdfv_structure_node(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_text(
+pub unsafe extern "C" fn quorra_structure_text(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4154,17 +4154,17 @@ pub unsafe extern "C" fn pdfv_structure_text(
     }
 }
 
-/// Where the element's own text was drawn, as a `pdfv_quads *` the caller frees.
+/// Where the element's own text was drawn, as a `quorra_quads *` the caller frees.
 ///
 /// Empty for an element whose content drew no text — a figure, a table cell holding an image —
 /// which is a statement about this program's text layer rather than about the element, and is why
-/// `pdfv_structure_box` exists beside it.
+/// `quorra_structure_box` exists beside it.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_quads(
+pub unsafe extern "C" fn quorra_structure_quads(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4184,17 +4184,17 @@ pub unsafe extern "C" fn pdfv_structure_quads(
 
 /// One of a node's two rectangles: `[x0, y0, x1, y1]` in device pixels of the viewport.
 ///
-/// `PDFV_BOX_STATED` is what the **document** says the element's extent is — Table 379's `/BBox`,
+/// `QUORRA_BOX_STATED` is what the **document** says the element's extent is — Table 379's `/BBox`,
 /// which §14.8.5.4.3 makes "the rectangle that completely encloses its visible content" — and
-/// `PDFV_BOX_DRAWN` is where **this program** drew its text. Two kinds of statement, carried side
+/// `QUORRA_BOX_DRAWN` is where **this program** drew its text. Two kinds of statement, carried side
 /// by side rather than merged, because an element whose content is a picture has the first and not
-/// the second. `PDFV_NO_ANSWER` where the node has no rectangle of that kind.
+/// the second. `QUORRA_NO_ANSWER` where the node has no rectangle of that kind.
 ///
 /// # Safety
 ///
 /// See the module documentation. `into` is writable for four floats.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_box(
+pub unsafe extern "C" fn quorra_structure_box(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4225,7 +4225,7 @@ pub unsafe extern "C" fn pdfv_structure_box(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_headers(
+pub unsafe extern "C" fn quorra_structure_headers(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4249,7 +4249,7 @@ pub unsafe extern "C" fn pdfv_structure_headers(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_header(
+pub unsafe extern "C" fn quorra_structure_header(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4270,24 +4270,24 @@ pub unsafe extern "C" fn pdfv_structure_header(
 
 /// How many lines of text this element's own content items drew.
 ///
-/// **What AT-SPI's `Text` interface is built on.** `PDFV_ELEMENT_NAME` is what the element is
+/// **What AT-SPI's `Text` interface is built on.** `QUORRA_ELEMENT_NAME` is what the element is
 /// *called* and these are what it *says*: a name is one string for a whole paragraph, so a client
 /// can read the paragraph or not read it, and moving a caret through it by character, by word or by
 /// line needs to know where each character begins and which characters share a line. That is what
 /// `org.a11y.atspi.Text`'s `GetCharacterExtents`, `GetOffsetAtPoint` and `GetTextAtOffset` ask for
 /// and what no string can answer.
 ///
-/// **Not §14.9's substitutions**, deliberately, and the difference is the point: `PDFV_ELEMENT_NAME`
+/// **Not §14.9's substitutions**, deliberately, and the difference is the point: `QUORRA_ELEMENT_NAME`
 /// applies §14.9.3's `/Alt` and §14.9.5's `/E`, and this does not — a caret moves over what is on
 /// the page, and a phrase that substitutes for the content has no glyphs to report positions for.
-/// Zero lines for an element that states one, which is also what `pdfv_structure_node`'s
+/// Zero lines for an element that states one, which is also what `quorra_structure_node`'s
 /// `substituted` says, and zero for an element whose content drew no text.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_lines(
+pub unsafe extern "C" fn quorra_structure_lines(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4317,7 +4317,7 @@ pub unsafe extern "C" fn pdfv_structure_lines(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_line(
+pub unsafe extern "C" fn quorra_structure_line(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4351,7 +4351,7 @@ pub unsafe extern "C" fn pdfv_structure_line(
 ///
 /// See the module documentation. `into` is writable for four floats.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_structure_character(
+pub unsafe extern "C" fn quorra_structure_character(
     structure: *const Structure,
     entry: usize,
     node: usize,
@@ -4380,19 +4380,19 @@ pub unsafe extern "C" fn pdfv_structure_character(
 ///
 /// The clause is a `shall` on a viewer — "[i]f this dictionary is present in a PDF document, the
 /// interactive PDF processor shall present the document as a portable collection" — so what
-/// crosses is everything needed to *arrange* the files `pdfv_attachments_read` already lists:
+/// crosses is everything needed to *arrange* the files `quorra_attachments_read` already lists:
 /// Table 153's `/View`, §12.3.5.1's resolved initial document, Table 155's columns in `/O` order,
-/// and §12.3.5.2's folder tree flattened depth first. `pdfv_collection_folder_of` is the fifth
+/// and §12.3.5.2's folder tree flattened depth first. `quorra_collection_folder_of` is the fifth
 /// piece and the one a caller could not compute for itself.
 ///
-/// `PDFV_NO_ANSWER` where the catalogue states no collection, which is every document in this
+/// `QUORRA_NO_ANSWER` where the catalogue states no collection, which is every document in this
 /// project's corpora.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_read(
+pub unsafe extern "C" fn quorra_collection_read(
     viewer: *const Session,
     collection: *mut *mut Collection,
 ) -> c_int {
@@ -4408,13 +4408,13 @@ pub unsafe extern "C" fn pdfv_collection_read(
     }
 }
 
-/// Releases what `pdfv_collection_read` produced. Null is a no-op.
+/// Releases what `quorra_collection_read` produced. Null is a no-op.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_free(collection: *mut Collection) {
+pub unsafe extern "C" fn quorra_collection_free(collection: *mut Collection) {
     if !collection.is_null() {
         drop(Box::from_raw(collection));
     }
@@ -4422,7 +4422,7 @@ pub unsafe extern "C" fn pdfv_collection_free(collection: *mut Collection) {
 
 /// Table 153's `/View`: how the collection is first presented.
 ///
-/// `PDFV_COLLECTION_HIDDEN` is the one value that is load-bearing rather than a preference:
+/// `QUORRA_COLLECTION_HIDDEN` is the one value that is load-bearing rather than a preference:
 /// §7.6.7's unencrypted wrapper document requires it, because the wrapper's own page says the
 /// payload is encrypted and showing a file browser over it would hide that.
 ///
@@ -4430,7 +4430,7 @@ pub unsafe extern "C" fn pdfv_collection_free(collection: *mut Collection) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_view(
+pub unsafe extern "C" fn quorra_collection_view(
     collection: *const Collection,
     view: *mut u32,
 ) -> c_int {
@@ -4447,13 +4447,13 @@ pub unsafe extern "C" fn pdfv_collection_view(
 /// `EmbeddedFiles` name tree, determining the document that shall be initially presented in the
 /// user interface", the tree is the document's, and turning a byte string into one of four
 /// outcomes is therefore not a caller's to do. The key is empty for the three outcomes that name
-/// no file, and is what `pdfv_extract` takes for the one that does.
+/// no file, and is what `quorra_extract` takes for the one that does.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_initial(
+pub unsafe extern "C" fn quorra_collection_initial(
     collection: *const Collection,
     kind: *mut u32,
     out: *mut c_char,
@@ -4480,7 +4480,7 @@ pub unsafe extern "C" fn pdfv_collection_initial(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_columns(
+pub unsafe extern "C" fn quorra_collection_columns(
     collection: *const Collection,
     count: *mut usize,
 ) -> c_int {
@@ -4505,7 +4505,7 @@ pub unsafe extern "C" fn pdfv_collection_columns(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_column(
+pub unsafe extern "C" fn quorra_collection_column(
     collection: *const Collection,
     index: usize,
     kind: *mut u32,
@@ -4539,9 +4539,9 @@ pub unsafe extern "C" fn pdfv_collection_column(
     Status::Ok.code()
 }
 
-/// One of a column's three strings: `PDFV_COLUMN_NAME`, `PDFV_COLUMN_KEY`, `PDFV_COLUMN_SUBTYPE`.
+/// One of a column's three strings: `QUORRA_COLUMN_NAME`, `QUORRA_COLUMN_KEY`, `QUORRA_COLUMN_SUBTYPE`.
 ///
-/// The third is the whole of what `PDFV_COLLECTION_FIELD_OTHER` leaves to say: a subtype this
+/// The third is the whole of what `QUORRA_COLLECTION_FIELD_OTHER` leaves to say: a subtype this
 /// standard does not define is still a name the file wrote, and a number a caller cannot resolve
 /// beside a name it cannot read would be a silent fallback in a header.
 ///
@@ -4549,7 +4549,7 @@ pub unsafe extern "C" fn pdfv_collection_column(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_column_text(
+pub unsafe extern "C" fn quorra_collection_column_text(
     collection: *const Collection,
     index: usize,
     which: u32,
@@ -4575,7 +4575,7 @@ pub unsafe extern "C" fn pdfv_collection_column_text(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_folders(
+pub unsafe extern "C" fn quorra_collection_folders(
     collection: *const Collection,
     count: *mut usize,
 ) -> c_int {
@@ -4591,13 +4591,13 @@ pub unsafe extern "C" fn pdfv_collection_folders(
 /// Depth first with a depth on each row, exactly as §12.3.3's outline crosses and for the same
 /// reason: a tree is the one shape a C ABI cannot hand over as itself. The `/ID` is "a
 /// non-negative integer value representing the unique folder identification number", and it is
-/// what `pdfv_collection_folder_of` answers with.
+/// what `quorra_collection_folder_of` answers with.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_folder(
+pub unsafe extern "C" fn quorra_collection_folder(
     collection: *const Collection,
     index: usize,
     id: *mut u32,
@@ -4623,13 +4623,13 @@ pub unsafe extern "C" fn pdfv_collection_folder(
     Status::Ok.code()
 }
 
-/// One of a folder's two strings: `PDFV_FOLDER_NAME`, `PDFV_FOLDER_DESCRIPTION`.
+/// One of a folder's two strings: `QUORRA_FOLDER_NAME`, `QUORRA_FOLDER_DESCRIPTION`.
 ///
 /// # Safety
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_folder_text(
+pub unsafe extern "C" fn quorra_collection_folder_text(
     collection: *const Collection,
     index: usize,
     which: u32,
@@ -4655,7 +4655,7 @@ pub unsafe extern "C" fn pdfv_collection_folder_text(
 /// rather than a note in the header. §12.3.5.2 gives the key of a file in a folder as the folder's
 /// identification number in angle brackets followed by the file name; a caller holding a folder
 /// tree and a file list has no way to put one inside the other without that grammar. A key with no
-/// such prefix is a file at the root, which answers `PDFV_NO_ANSWER` and copies the key unchanged.
+/// such prefix is a file at the root, which answers `QUORRA_NO_ANSWER` and copies the key unchanged.
 ///
 /// It takes no viewer, because it is a fact about a string rather than about a document.
 ///
@@ -4664,7 +4664,7 @@ pub unsafe extern "C" fn pdfv_collection_folder_text(
 /// See the module documentation. `key` is NUL-terminated and UTF-8; `out` is writable for `cap`
 /// bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_collection_folder_of(
+pub unsafe extern "C" fn quorra_collection_folder_of(
     key: *const c_char,
     id: *mut u32,
     out: *mut c_char,

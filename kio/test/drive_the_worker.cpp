@@ -51,7 +51,7 @@ QUrl at(const QString &document, const QString &inside)
  * Every name a `listDir` produced, in the order the worker sent them.
  *
  * The "." KIO puts at the end of every listing is dropped here. It is **KIO's own** and not the
- * worker's — `pdfvfs_list` never answers it, and the worker sends exactly what the core says —
+ * worker's — `quorra_vfs_list` never answers it, and the worker sends exactly what the core says —
  * so counting it would make every number here one larger than the document's.
  */
 QStringList listing(const QUrl &url, QString &why)

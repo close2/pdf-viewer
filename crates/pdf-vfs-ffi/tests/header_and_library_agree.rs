@@ -1,4 +1,4 @@
-//! `include/pdf_vfs.h` against `src/abi.rs`, read back as text.
+//! `include/quorra_vfs.h` against `src/abi.rs`, read back as text.
 //!
 //! **This is what buys back the one thing `cbindgen` would have given.** The header is
 //! hand-written on purpose — it is the artefact a C++ plugin author reads, with the reason for
@@ -6,10 +6,10 @@
 //! instead of generated, exactly as `viewer-ffi`'s is:
 //!
 //! - every `#[unsafe(no_mangle)]` entry point is declared exactly once in the header, and every
-//!   `pdfvfs_` function the header declares exists in the Rust. A missing declaration is a symbol
+//!   `quorra_vfs_` function the header declares exists in the Rust. A missing declaration is a symbol
 //!   a caller cannot reach; an extra one is a link error in somebody else's build;
-//! - every `PDFVFS_` constant is the number the Rust gives it. **This is the one that would fail
-//!   silently**: a `#define PDFVFS_MEANS_DELETE_PAGE 3u` beside a Rust `MEANS_DELETE_PAGE = 2`
+//! - every `QUORRA_VFS_` constant is the number the Rust gives it. **This is the one that would fail
+//!   silently**: a `#define QUORRA_VFS_MEANS_DELETE_PAGE 3u` beside a Rust `MEANS_DELETE_PAGE = 2`
 //!   produces a plugin that compiles, links, runs, and quietly tells a file manager that a page
 //!   can be embedded.
 //!
@@ -36,12 +36,12 @@ use pdf_vfs_ffi::tree::{
 
 /// The header, with every comment removed.
 ///
-/// Comments name functions and constants in prose — "`pdfvfs_worker_program()` and
-/// `pdfvfs_worker_variable()` are those two names" — and a check that counted those would be
+/// Comments name functions and constants in prose — "`quorra_vfs_worker_program()` and
+/// `quorra_vfs_worker_variable()` are those two names" — and a check that counted those would be
 /// checking the documentation rather than the declarations.
 fn header_without_comments() -> String {
     let text =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/pdf_vfs.h"))
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/quorra_vfs.h"))
             .expect("this crate has a header");
     let mut out = String::with_capacity(text.len());
     let mut rest = text.as_str();
@@ -58,13 +58,13 @@ fn header_without_comments() -> String {
     out
 }
 
-/// Every `pdfvfs_…` name the argument calls as a function.
+/// Every `quorra_vfs_…` name the argument calls as a function.
 fn called_names(text: &str) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let characters: Vec<char> = text.chars().collect();
     let mut at = 0usize;
     while at < characters.len() {
-        if text[at..].starts_with("pdfvfs_") {
+        if text[at..].starts_with("quorra_vfs_") {
             let mut end = at;
             while end < characters.len()
                 && (characters[end].is_alphanumeric() || characters[end] == '_')
@@ -102,19 +102,19 @@ fn exported_names() -> BTreeSet<String> {
             .unwrap_or_default()
             .trim();
         assert!(
-            name.starts_with("pdfvfs_"),
-            "an exported function not called pdfvfs_…: {declaration}"
+            name.starts_with("quorra_vfs_"),
+            "an exported function not called quorra_vfs_…: {declaration}"
         );
         found.insert(name.to_owned());
     }
     found
 }
 
-/// Every `#define PDFVFS_NAME value` in the header.
+/// Every `#define QUORRA_VFS_NAME value` in the header.
 fn defined_constants(text: &str) -> BTreeMap<String, i64> {
     let mut found = BTreeMap::new();
     for line in text.lines() {
-        let Some(rest) = line.trim().strip_prefix("#define PDFVFS_") else {
+        let Some(rest) = line.trim().strip_prefix("#define QUORRA_VFS_") else {
             continue;
         };
         let mut parts = rest.split_whitespace();
@@ -123,7 +123,7 @@ fn defined_constants(text: &str) -> BTreeMap<String, i64> {
         };
         let value = value.trim_end_matches('u');
         if let Ok(number) = value.parse::<i64>() {
-            found.insert(format!("PDFVFS_{name}"), number);
+            found.insert(format!("QUORRA_VFS_{name}"), number);
         }
     }
     found
@@ -163,47 +163,47 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     let mut expected: BTreeMap<String, i64> = BTreeMap::new();
 
     expected.insert(
-        "PDFVFS_ABI_VERSION".to_owned(),
-        i64::from(pdf_vfs_ffi::abi::PDFVFS_ABI_VERSION),
+        "QUORRA_VFS_ABI_VERSION".to_owned(),
+        i64::from(pdf_vfs_ffi::abi::QUORRA_VFS_ABI_VERSION),
     );
-    expected.insert("PDFVFS_ERRNO_KIND_COUNT".to_owned(), i64::from(KIND_COUNT));
+    expected.insert("QUORRA_VFS_ERRNO_KIND_COUNT".to_owned(), i64::from(KIND_COUNT));
     for (name, status) in [
-        ("PDFVFS_OK", Status::Ok),
-        ("PDFVFS_NULL_ARGUMENT", Status::NullArgument),
-        ("PDFVFS_OUT_OF_RANGE", Status::OutOfRange),
-        ("PDFVFS_BUFFER_TOO_SMALL", Status::BufferTooSmall),
-        ("PDFVFS_NOT_UTF8", Status::NotUtf8),
-        ("PDFVFS_REFUSED", Status::Refused),
-        ("PDFVFS_NO_ANSWER", Status::NoAnswer),
-        ("PDFVFS_NO_DOCUMENT", Status::NoDocument),
-        ("PDFVFS_NUMBER_OUT_OF_RANGE", Status::NumberOutOfRange),
+        ("QUORRA_VFS_OK", Status::Ok),
+        ("QUORRA_VFS_NULL_ARGUMENT", Status::NullArgument),
+        ("QUORRA_VFS_OUT_OF_RANGE", Status::OutOfRange),
+        ("QUORRA_VFS_BUFFER_TOO_SMALL", Status::BufferTooSmall),
+        ("QUORRA_VFS_NOT_UTF8", Status::NotUtf8),
+        ("QUORRA_VFS_REFUSED", Status::Refused),
+        ("QUORRA_VFS_NO_ANSWER", Status::NoAnswer),
+        ("QUORRA_VFS_NO_DOCUMENT", Status::NoDocument),
+        ("QUORRA_VFS_NUMBER_OUT_OF_RANGE", Status::NumberOutOfRange),
     ] {
         expected.insert(name.to_owned(), i64::from(status.code()));
     }
     for (name, value) in [
-        ("PDFVFS_KIND_DIRECTORY", KIND_DIRECTORY),
-        ("PDFVFS_KIND_FILE", KIND_FILE),
+        ("QUORRA_VFS_KIND_DIRECTORY", KIND_DIRECTORY),
+        ("QUORRA_VFS_KIND_FILE", KIND_FILE),
         // `CLAUDE.md` principle 3's four levels, all four, and since ADR 0874 all four are
         // answerable by this face.
-        ("PDFVFS_RESTRICT_OFF", LEVEL_OFF),
-        ("PDFVFS_RESTRICT_ON", LEVEL_ON),
-        ("PDFVFS_RESTRICT_ASK", LEVEL_ASK),
-        ("PDFVFS_RESTRICT_WARN", LEVEL_WARN),
+        ("QUORRA_VFS_RESTRICT_OFF", LEVEL_OFF),
+        ("QUORRA_VFS_RESTRICT_ON", LEVEL_ON),
+        ("QUORRA_VFS_RESTRICT_ASK", LEVEL_ASK),
+        ("QUORRA_VFS_RESTRICT_WARN", LEVEL_WARN),
         // The verb a consultation is about, and the verdict it comes back with (ADR 0874).
-        ("PDFVFS_VERB_READ", VERB_READ),
-        ("PDFVFS_VERB_WRITE", VERB_WRITE),
-        ("PDFVFS_VERB_DELETE", VERB_DELETE),
-        ("PDFVFS_VERDICT_PROCEED", VERDICT_PROCEED),
-        ("PDFVFS_VERDICT_WARN", VERDICT_WARN),
-        ("PDFVFS_VERDICT_ASK", VERDICT_ASK),
-        ("PDFVFS_VERDICT_REFUSE", VERDICT_REFUSE),
+        ("QUORRA_VFS_VERB_READ", VERB_READ),
+        ("QUORRA_VFS_VERB_WRITE", VERB_WRITE),
+        ("QUORRA_VFS_VERB_DELETE", VERB_DELETE),
+        ("QUORRA_VFS_VERDICT_PROCEED", VERDICT_PROCEED),
+        ("QUORRA_VFS_VERDICT_WARN", VERDICT_WARN),
+        ("QUORRA_VFS_VERDICT_ASK", VERDICT_ASK),
+        ("QUORRA_VFS_VERDICT_REFUSE", VERDICT_REFUSE),
         // RFC 0003 section 5.2's five verbs, and the zero a refused row is.
-        ("PDFVFS_MEANS_NOTHING", MEANS_NOTHING),
-        ("PDFVFS_MEANS_INSERT_PAGES", MEANS_INSERT_PAGES),
-        ("PDFVFS_MEANS_DELETE_PAGE", MEANS_DELETE_PAGE),
-        ("PDFVFS_MEANS_EMBED_FILE", MEANS_EMBED_FILE),
-        ("PDFVFS_MEANS_REMOVE_ATTACHMENT", MEANS_REMOVE_ATTACHMENT),
-        ("PDFVFS_MEANS_SET_INFORMATION", MEANS_SET_INFORMATION),
+        ("QUORRA_VFS_MEANS_NOTHING", MEANS_NOTHING),
+        ("QUORRA_VFS_MEANS_INSERT_PAGES", MEANS_INSERT_PAGES),
+        ("QUORRA_VFS_MEANS_DELETE_PAGE", MEANS_DELETE_PAGE),
+        ("QUORRA_VFS_MEANS_EMBED_FILE", MEANS_EMBED_FILE),
+        ("QUORRA_VFS_MEANS_REMOVE_ATTACHMENT", MEANS_REMOVE_ATTACHMENT),
+        ("QUORRA_VFS_MEANS_SET_INFORMATION", MEANS_SET_INFORMATION),
     ] {
         expected.insert(name.to_owned(), i64::from(value));
     }
@@ -224,8 +224,8 @@ fn the_worker_names_this_boundary_states_are_the_cores() {
     // signature's rather than the body's; see `src/abi.rs`.
     let (program, variable) = unsafe {
         (
-            std::ffi::CStr::from_ptr(pdf_vfs_ffi::abi::pdfvfs_worker_program()),
-            std::ffi::CStr::from_ptr(pdf_vfs_ffi::abi::pdfvfs_worker_variable()),
+            std::ffi::CStr::from_ptr(pdf_vfs_ffi::abi::quorra_vfs_worker_program()),
+            std::ffi::CStr::from_ptr(pdf_vfs_ffi::abi::quorra_vfs_worker_variable()),
         )
     };
     assert_eq!(program.to_str(), Ok(pdf_vfs::WORKER_PROGRAM));

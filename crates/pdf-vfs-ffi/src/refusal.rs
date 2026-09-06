@@ -12,7 +12,7 @@
 //! and it is refused for the reason [`crate::status`] gives about the two populations: a slot is
 //! a global a caller may forget to read, it is written by calls that did not fail, and two
 //! threads sharing one mount would overwrite each other's answer. An owned object is written
-//! **only** where the status is `PDFVFS_REFUSED`, is read where the caller likes, and is freed by
+//! **only** where the status is `QUORRA_VFS_REFUSED`, is read where the caller likes, and is freed by
 //! the caller — which is `viewer-ffi`'s owned-batch discipline applied to one message.
 //!
 //! # Where the number comes from
@@ -45,12 +45,12 @@ pub const KINDS: [Errno; 13] = [
     Errno::Stale,
 ];
 
-/// How many kinds there are, which `pdfvfs_abi_check` compares against the header's.
+/// How many kinds there are, which `quorra_vfs_abi_check` compares against the header's.
 ///
 /// **This is what stands in for the Rust rule that a new refusal fails to compile in every
 /// consumer.** A C program switching on `errno` numbers cannot be made to fail its build, so it
 /// fails its *startup* instead, once, naming the number that moved — `viewer-ffi`'s
-/// `PDFV_EVENT_KIND_COUNT` and its argument, one boundary over.
+/// `QUORRA_EVENT_KIND_COUNT` and its argument, one boundary over.
 pub const KIND_COUNT: u32 = 13;
 
 /// Each kind's position in [`KINDS`], by an exhaustive `match`.

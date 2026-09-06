@@ -1,4 +1,4 @@
-//! What an entry point answers when it is not `PDFV_OK`.
+//! What an entry point answers when it is not `QUORRA_OK`.
 //!
 //! **A C caller cannot see a `Result`**, so every refusal in this crate becomes an `int32_t` it
 //! can compare and a sentence it can print. The rule the rest of the tree holds — no silent error
@@ -30,7 +30,7 @@ pub enum Status {
     OutOfRange = 2,
     /// The message at that index is not of the kind this accessor reads.
     ///
-    /// A caller that asked for `pdfv_event_opened` on a `PageChanged` gets this rather than
+    /// A caller that asked for `quorra_event_opened` on a `PageChanged` gets this rather than
     /// zeroes, because zeroes are a page count.
     WrongKind = 3,
     /// The buffer offered is too small, and `needed` says how many bytes would do.
@@ -55,8 +55,8 @@ pub enum Status {
     /// The rasteriser refused the request, or the raster it produced does not fit the target.
     ///
     /// The one status that is about drawing. What went wrong is `render-cpu`'s own words, which
-    /// `pdfv_status_message` cannot carry — so a caller that wants them hands the failure back
-    /// with `pdfv_render_ready_failed` and reads them off the event that comes out.
+    /// `quorra_status_message` cannot carry — so a caller that wants them hands the failure back
+    /// with `quorra_render_ready_failed` and reads them off the event that comes out.
     RenderRefused = 7,
     /// A number did not fit the type the boundary states for it.
     ///
@@ -67,7 +67,7 @@ pub enum Status {
 }
 
 impl Status {
-    /// One sentence, for `pdfv_status_message`.
+    /// One sentence, for `quorra_status_message`.
     ///
     /// `&'static str` with a NUL already in it, because the C side hands back a `const char *`
     /// that outlives every call and is never freed. Written as literals rather than built,
@@ -100,7 +100,7 @@ mod tests {
 
     /// Every message is NUL-terminated exactly once and is not empty.
     ///
-    /// The invariant `pdfv_status_message` rests on: it hands back the bytes as a `const char *`,
+    /// The invariant `quorra_status_message` rests on: it hands back the bytes as a `const char *`,
     /// so a message with no NUL would be a read past the end of a `&'static str` and one with two
     /// would truncate silently. Checked over the list rather than promised beside it.
     #[test]

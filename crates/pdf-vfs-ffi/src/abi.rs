@@ -14,26 +14,26 @@
 //! pointer back here:
 //!
 //! - every pointer is either null or valid for the type it names, aligned, and pointing at a live
-//!   object this library produced (`pdfvfs_mount_open`, `pdfvfs_list`, `pdfvfs_open`, …);
+//!   object this library produced (`quorra_vfs_mount_open`, `quorra_vfs_list`, `quorra_vfs_open`, …);
 //! - **null is always checked** and answers [`Status::NullArgument`]. It is the one bad pointer
 //!   this side can detect, and detecting it is worth doing precisely because it is the one a C
 //!   caller produces by accident rather than by arithmetic;
 //! - an owning handle is freed exactly once, with its own `_free`, and is not used afterwards.
-//!   There are five: `pdfvfs_mount`, `pdfvfs_listing`, `pdfvfs_file`, `pdfvfs_commit` and
-//!   `pdfvfs_refusal`;
+//!   There are five: `quorra_vfs_mount`, `quorra_vfs_listing`, `quorra_vfs_file`, `quorra_vfs_commit` and
+//!   `quorra_vfs_refusal`;
 //! - a buffer given for output is writable for the number of bytes stated beside it;
 //! - a `const char *` argument is NUL-terminated and is UTF-8. A path that is not UTF-8 is
 //!   refused rather than repaired: an invented replacement character in a name is a file the tree
 //!   does not have, named quietly;
-//! - **no handle may be used from two threads at once.** A `pdfvfs_file *` may be *moved* to
-//!   another thread and read there; a `pdfvfs_mount *` may not be shared.
+//! - **no handle may be used from two threads at once.** A `quorra_vfs_file *` may be *moved* to
+//!   another thread and read there; a `quorra_vfs_mount *` may not be shared.
 //!
 //! # A refusal is an object, not a return value and not a slot
 //!
-//! Every entry point that the *tree* can refuse takes a `pdfvfs_refusal **`, and writes it
-//! exactly when it answers `PDFVFS_REFUSED`. [`crate::refusal`] has the argument; what matters
+//! Every entry point that the *tree* can refuse takes a `quorra_vfs_refusal **`, and writes it
+//! exactly when it answers `QUORRA_VFS_REFUSED`. [`crate::refusal`] has the argument; what matters
 //! here is the discipline: the pointer is written on that status and on no other, so a caller
-//! that frees it unconditionally is freeing null, and a caller that reads it after a `PDFVFS_OK`
+//! that frees it unconditionally is freeing null, and a caller that reads it after a `QUORRA_VFS_OK`
 //! is reading whatever it initialised it to.
 //!
 //! # Why `unsafe fn` and why `unsafe_op_in_unsafe_fn` is lifted here
@@ -71,19 +71,19 @@ use crate::tree::{self, Attributes, Commit, Consultation, File, Listing, Mount};
 /// `errno` added later is a number an old caller has a `default:` arm for. A field added to that
 /// struct changes a size the caller has already compiled, and no diagnostic anywhere would catch
 /// it. This number moves when that happens and at no other time.
-pub const PDFVFS_ABI_VERSION: u32 = 1;
+pub const QUORRA_VFS_ABI_VERSION: u32 = 2;
 
 /// What a `stat` answers.
 ///
-/// Passed by pointer and copied out by value, which is why [`PDFVFS_ABI_VERSION`] exists.
+/// Passed by pointer and copied out by value, which is why [`QUORRA_VFS_ABI_VERSION`] exists.
 ///
-/// **Named `pdfvfs_attributes` in the header** rather than `pdfvfs_stat`, because C puts a struct
-/// tag and a function in one namespace and `pdfvfs_stat` is a function — the mistake
+/// **Named `quorra_vfs_attributes` in the header** rather than `quorra_vfs_stat`, because C puts a struct
+/// tag and a function in one namespace and `quorra_vfs_stat` is a function — the mistake
 /// `viewer-ffi`'s own C driver found twice, recorded here so it is not found a third time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct PdfvfsAttributes {
-    /// `PDFVFS_KIND_DIRECTORY` or `PDFVFS_KIND_FILE`.
+    /// `QUORRA_VFS_KIND_DIRECTORY` or `QUORRA_VFS_KIND_FILE`.
     pub kind: u32,
     /// Whether [`Self::size`] means anything: one for a file, zero for a directory.
     pub has_size: u32,
@@ -102,8 +102,8 @@ pub struct PdfvfsAttributes {
 ///
 /// None: it takes nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_abi_version() -> u32 {
-    PDFVFS_ABI_VERSION
+pub unsafe extern "C" fn quorra_vfs_abi_version() -> u32 {
+    QUORRA_VFS_ABI_VERSION
 }
 
 /// How many `errno` kinds the core states.
@@ -115,13 +115,13 @@ pub unsafe extern "C" fn pdfvfs_abi_version() -> u32 {
 ///
 /// None: it takes nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_errno_kind_count() -> u32 {
+pub unsafe extern "C" fn quorra_vfs_errno_kind_count() -> u32 {
     refusal::KIND_COUNT
 }
 
 /// Compares the header a caller compiled against with the library it is running against.
 ///
-/// `PDFVFS_OK` when both agree. Call it in `main`, or in the plugin's own entry point, and refuse
+/// `QUORRA_VFS_OK` when both agree. Call it in `main`, or in the plugin's own entry point, and refuse
 /// to start otherwise: a C caller cannot be made to fail its build when a number moves, so it
 /// fails its startup instead, once, saying which number moved.
 ///
@@ -129,8 +129,8 @@ pub unsafe extern "C" fn pdfvfs_errno_kind_count() -> u32 {
 ///
 /// None: it takes two numbers.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_abi_check(version: u32, errno_kinds: u32) -> c_int {
-    if version == PDFVFS_ABI_VERSION && errno_kinds == refusal::KIND_COUNT {
+pub unsafe extern "C" fn quorra_vfs_abi_check(version: u32, errno_kinds: u32) -> c_int {
+    if version == QUORRA_VFS_ABI_VERSION && errno_kinds == refusal::KIND_COUNT {
         Status::Ok.code()
     } else {
         Status::NumberOutOfRange.code()
@@ -146,7 +146,7 @@ pub unsafe extern "C" fn pdfvfs_abi_check(version: u32, errno_kinds: u32) -> c_i
 ///
 /// None: it takes a number. The pointer it answers is static and outlives every call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_status_message(status: c_int) -> *const c_char {
+pub unsafe extern "C" fn quorra_vfs_status_message(status: c_int) -> *const c_char {
     let message = match status {
         0 => Status::Ok.message(),
         1 => Status::NullArgument.message(),
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn pdfvfs_status_message(status: c_int) -> *const c_char {
 ///
 /// None: it takes a number. The pointer it answers is static and outlives every call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_errno_name(code: c_int) -> *const c_char {
+pub unsafe extern "C" fn quorra_vfs_errno_name(code: c_int) -> *const c_char {
     refusal::name_of(code).as_ptr().cast::<c_char>()
 }
 
@@ -176,14 +176,14 @@ pub unsafe extern "C" fn pdfvfs_errno_name(code: c_int) -> *const c_char {
 ///
 /// RFC 0003 section 6: the face holds no parser, and every question that needs one is answered by
 /// a separate process under seccomp-BPF and Landlock. A caller that is not installed beside that
-/// program says so with this name and [`pdfvfs_worker_variable`], rather than reporting a
+/// program says so with this name and [`quorra_vfs_worker_variable`], rather than reporting a
 /// document that will not open.
 ///
 /// # Safety
 ///
 /// None. The pointer it answers is static and outlives every call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_worker_program() -> *const c_char {
+pub unsafe extern "C" fn quorra_vfs_worker_program() -> *const c_char {
     WORKER_PROGRAM.as_ptr().cast::<c_char>()
 }
 
@@ -193,7 +193,7 @@ pub unsafe extern "C" fn pdfvfs_worker_program() -> *const c_char {
 ///
 /// None. The pointer it answers is static and outlives every call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_worker_variable() -> *const c_char {
+pub unsafe extern "C" fn quorra_vfs_worker_variable() -> *const c_char {
     WORKER_VARIABLE.as_ptr().cast::<c_char>()
 }
 
@@ -212,14 +212,14 @@ const WORKER_VARIABLE: &str = "PDF_VFS_WORKER\0";
 
 /// The length of the prefix of `url_path` that names the document.
 ///
-/// The tree inside it is the rest of the string; an empty rest is the root. `PDFVFS_NO_DOCUMENT`
+/// The tree inside it is the rest of the string; an empty rest is the root. `QUORRA_VFS_NO_DOCUMENT`
 /// where no prefix is a file. See [`crate::tree::split`] for why the file system decides this.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_split(
+pub unsafe extern "C" fn quorra_vfs_split(
     url_path: *const c_char,
     document_length: *mut usize,
 ) -> c_int {
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn pdfvfs_split(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_refusal_errno(why: *const Refusal, out: *mut c_int) -> c_int {
+pub unsafe extern "C" fn quorra_vfs_refusal_errno(why: *const Refusal, out: *mut c_int) -> c_int {
     let (Some(why), Some(out)) = (why.as_ref(), out.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -265,7 +265,7 @@ pub unsafe extern "C" fn pdfvfs_refusal_errno(why: *const Refusal, out: *mut c_i
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_refusal_message(
+pub unsafe extern "C" fn quorra_vfs_refusal_message(
     why: *const Refusal,
     out: *mut c_char,
     cap: usize,
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn pdfvfs_refusal_message(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_refusal_free(why: *mut Refusal) {
+pub unsafe extern "C" fn quorra_vfs_refusal_free(why: *mut Refusal) {
     if !why.is_null() {
         drop(Box::from_raw(why));
     }
@@ -295,7 +295,7 @@ pub unsafe extern "C" fn pdfvfs_refusal_free(why: *mut Refusal) {
 
 /// Opens a document as a tree, at one of the four restriction levels.
 ///
-/// `restrictions` is `PDFVFS_RESTRICT_OFF`, `_ON`, `_ASK` or `_WARN`; a number that is none of
+/// `restrictions` is `QUORRA_VFS_RESTRICT_OFF`, `_ON`, `_ASK` or `_WARN`; a number that is none of
 /// them is refused rather than rounded. `CLAUDE.md` principle 3 asks the policy **once, in a
 /// place a host can supply**, and this argument is that place for this face.
 ///
@@ -303,7 +303,7 @@ pub unsafe extern "C" fn pdfvfs_refusal_free(why: *mut Refusal) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_mount_open(
+pub unsafe extern "C" fn quorra_vfs_mount_open(
     document: *const c_char,
     restrictions: u32,
     out: *mut *mut Mount,
@@ -333,7 +333,7 @@ pub unsafe extern "C" fn pdfvfs_mount_open(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_mount_free(mount: *mut Mount) {
+pub unsafe extern "C" fn quorra_vfs_mount_free(mount: *mut Mount) {
     if !mount.is_null() {
         drop(Box::from_raw(mount));
     }
@@ -348,7 +348,7 @@ pub unsafe extern "C" fn pdfvfs_mount_free(mount: *mut Mount) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_mount_pages(
+pub unsafe extern "C" fn quorra_vfs_mount_pages(
     mount: *mut Mount,
     out: *mut u64,
     why: *mut *mut Refusal,
@@ -371,7 +371,7 @@ pub unsafe extern "C" fn pdfvfs_mount_pages(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_mount_shortfall_count(mount: *mut Mount, out: *mut usize) -> c_int {
+pub unsafe extern "C" fn quorra_vfs_mount_shortfall_count(mount: *mut Mount, out: *mut usize) -> c_int {
     let (Some(mount), Some(out)) = (mount.as_ref(), out.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -388,7 +388,7 @@ pub unsafe extern "C" fn pdfvfs_mount_shortfall_count(mount: *mut Mount, out: *m
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_mount_shortfall(
+pub unsafe extern "C" fn quorra_vfs_mount_shortfall(
     mount: *mut Mount,
     index: usize,
     out: *mut c_char,
@@ -415,7 +415,7 @@ pub unsafe extern "C" fn pdfvfs_mount_shortfall(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_list(
+pub unsafe extern "C" fn quorra_vfs_list(
     mount: *mut Mount,
     path: *const c_char,
     out: *mut *mut Listing,
@@ -444,7 +444,7 @@ pub unsafe extern "C" fn pdfvfs_list(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_listing_len(listing: *const Listing, out: *mut usize) -> c_int {
+pub unsafe extern "C" fn quorra_vfs_listing_len(listing: *const Listing, out: *mut usize) -> c_int {
     let (Some(listing), Some(out)) = (listing.as_ref(), out.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -458,7 +458,7 @@ pub unsafe extern "C" fn pdfvfs_listing_len(listing: *const Listing, out: *mut u
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_listing_name(
+pub unsafe extern "C" fn quorra_vfs_listing_name(
     listing: *const Listing,
     index: usize,
     out: *mut c_char,
@@ -474,13 +474,13 @@ pub unsafe extern "C" fn pdfvfs_listing_name(
     }
 }
 
-/// One entry's kind: `PDFVFS_KIND_DIRECTORY` or `PDFVFS_KIND_FILE`.
+/// One entry's kind: `QUORRA_VFS_KIND_DIRECTORY` or `QUORRA_VFS_KIND_FILE`.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_listing_kind(
+pub unsafe extern "C" fn quorra_vfs_listing_kind(
     listing: *const Listing,
     index: usize,
     out: *mut u32,
@@ -503,7 +503,7 @@ pub unsafe extern "C" fn pdfvfs_listing_kind(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_listing_free(listing: *mut Listing) {
+pub unsafe extern "C" fn quorra_vfs_listing_free(listing: *mut Listing) {
     if !listing.is_null() {
         drop(Box::from_raw(listing));
     }
@@ -519,7 +519,7 @@ pub unsafe extern "C" fn pdfvfs_listing_free(listing: *mut Listing) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_stat(
+pub unsafe extern "C" fn quorra_vfs_stat(
     mount: *mut Mount,
     path: *const c_char,
     out: *mut PdfvfsAttributes,
@@ -546,9 +546,9 @@ pub unsafe extern "C" fn pdfvfs_stat(
     }
 }
 
-/// What writing to and deleting this path would each mean, as `PDFVFS_MEANS_*`.
+/// What writing to and deleting this path would each mean, as `QUORRA_VFS_MEANS_*`.
 ///
-/// `PDFVFS_NO_ANSWER` where the layout names no row at all, which is a fair question about a path
+/// `QUORRA_VFS_NO_ANSWER` where the layout names no row at all, which is a fair question about a path
 /// this tree does not have. **The core decides this**, so the mode bits a file manager shows are
 /// the document's own shape rather than a list a face keeps.
 ///
@@ -556,7 +556,7 @@ pub unsafe extern "C" fn pdfvfs_stat(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_write_meaning(
+pub unsafe extern "C" fn quorra_vfs_write_meaning(
     mount: *mut Mount,
     path: *const c_char,
     on_write: *mut u32,
@@ -589,7 +589,7 @@ pub unsafe extern "C" fn pdfvfs_write_meaning(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_open(
+pub unsafe extern "C" fn quorra_vfs_open(
     mount: *mut Mount,
     path: *const c_char,
     out: *mut *mut File,
@@ -618,7 +618,7 @@ pub unsafe extern "C" fn pdfvfs_open(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_file_size(file: *const File, out: *mut u64) -> c_int {
+pub unsafe extern "C" fn quorra_vfs_file_size(file: *const File, out: *mut u64) -> c_int {
     let (Some(file), Some(out)) = (file.as_ref(), out.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -636,7 +636,7 @@ pub unsafe extern "C" fn pdfvfs_file_size(file: *const File, out: *mut u64) -> c
 ///
 /// See the module documentation. `buffer` is writable for `capacity` bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_file_read(
+pub unsafe extern "C" fn quorra_vfs_file_read(
     file: *const File,
     offset: u64,
     buffer: *mut u8,
@@ -665,7 +665,7 @@ pub unsafe extern "C" fn pdfvfs_file_read(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_file_free(file: *mut File) {
+pub unsafe extern "C" fn quorra_vfs_file_free(file: *mut File) {
     if !file.is_null() {
         drop(Box::from_raw(file));
     }
@@ -687,7 +687,7 @@ pub unsafe extern "C" fn pdfvfs_file_free(file: *mut File) {
 /// See the module documentation. `bytes` is readable for `length` bytes, or null when `length` is
 /// zero.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_write(
+pub unsafe extern "C" fn quorra_vfs_write(
     mount: *mut Mount,
     path: *const c_char,
     bytes: *const u8,
@@ -728,7 +728,7 @@ pub unsafe extern "C" fn pdfvfs_write(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_remove(
+pub unsafe extern "C" fn quorra_vfs_remove(
     mount: *mut Mount,
     path: *const c_char,
     out: *mut *mut Commit,
@@ -755,19 +755,19 @@ pub unsafe extern "C" fn pdfvfs_remove(
 /// to a face that has somewhere to put it.
 ///
 /// The first of ADR 0874's two round trips. A face calls this before the verb it is about to
-/// perform; where the verdict is `PDFVFS_VERDICT_ASK` it shows
-/// [`pdfvfs_consultation_question`]'s sentence, calls [`pdfvfs_answer`] with what the person
+/// perform; where the verdict is `QUORRA_VFS_VERDICT_ASK` it shows
+/// [`quorra_vfs_consultation_question`]'s sentence, calls [`quorra_vfs_answer`] with what the person
 /// said, and then performs the verb unchanged. A face that never calls it is not broken — it
 /// gets the level's honest degradation, `EACCES` with a sentence saying a question went
 /// unanswered — which is what a FUSE mount gets, because a mount has nowhere to put a question.
 ///
-/// `verb` is one of `PDFVFS_VERB_READ`, `PDFVFS_VERB_WRITE`, `PDFVFS_VERB_DELETE`.
+/// `verb` is one of `QUORRA_VFS_VERB_READ`, `QUORRA_VFS_VERB_WRITE`, `QUORRA_VFS_VERB_DELETE`.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_consult(
+pub unsafe extern "C" fn quorra_vfs_consult(
     mount: *mut Mount,
     path: *const c_char,
     verb: u32,
@@ -791,13 +791,13 @@ pub unsafe extern "C" fn pdfvfs_consult(
     }
 }
 
-/// The verdict a consultation came back with: one of the four `PDFVFS_VERDICT_*` numbers.
+/// The verdict a consultation came back with: one of the four `QUORRA_VFS_VERDICT_*` numbers.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_consultation_verdict(
+pub unsafe extern "C" fn quorra_vfs_consultation_verdict(
     consultation: *const Consultation,
     out: *mut u32,
 ) -> c_int {
@@ -810,7 +810,7 @@ pub unsafe extern "C" fn pdfvfs_consultation_verdict(
 
 /// The question to put in front of a person, in the two-call idiom.
 ///
-/// Empty for every verdict but `PDFVFS_VERDICT_ASK`: the other three are statements rather than
+/// Empty for every verdict but `QUORRA_VFS_VERDICT_ASK`: the other three are statements rather than
 /// questions, and a face that showed one as a dialogue would be asking somebody to decide
 /// something already decided.
 ///
@@ -818,7 +818,7 @@ pub unsafe extern "C" fn pdfvfs_consultation_verdict(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_consultation_question(
+pub unsafe extern "C" fn quorra_vfs_consultation_question(
     consultation: *const Consultation,
     out: *mut c_char,
     cap: usize,
@@ -836,13 +836,13 @@ pub unsafe extern "C" fn pdfvfs_consultation_question(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_consultation_free(consultation: *mut Consultation) {
+pub unsafe extern "C" fn quorra_vfs_consultation_free(consultation: *mut Consultation) {
     if !consultation.is_null() {
         drop(Box::from_raw(consultation));
     }
 }
 
-/// The person's answer to the question [`pdfvfs_consult`] last put — the second round trip.
+/// The person's answer to the question [`quorra_vfs_consult`] last put — the second round trip.
 ///
 /// A non-zero `proceed` releases the very next operation that performs the operation asked
 /// about, once, at the level `CLAUDE.md` says "shall always be possible"; a zero forgets the
@@ -856,7 +856,7 @@ pub unsafe extern "C" fn pdfvfs_consultation_free(consultation: *mut Consultatio
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_answer(
+pub unsafe extern "C" fn quorra_vfs_answer(
     mount: *mut Mount,
     proceed: u32,
     answered: *mut u32,
@@ -880,7 +880,7 @@ pub unsafe extern "C" fn pdfvfs_answer(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_commit_pages(commit: *const Commit, out: *mut u64) -> c_int {
+pub unsafe extern "C" fn quorra_vfs_commit_pages(commit: *const Commit, out: *mut u64) -> c_int {
     let (Some(commit), Some(out)) = (commit.as_ref(), out.as_mut()) else {
         return Status::NullArgument.code();
     };
@@ -898,7 +898,7 @@ pub unsafe extern "C" fn pdfvfs_commit_pages(commit: *const Commit, out: *mut u6
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_commit_warning_count(
+pub unsafe extern "C" fn quorra_vfs_commit_warning_count(
     commit: *const Commit,
     out: *mut usize,
 ) -> c_int {
@@ -915,7 +915,7 @@ pub unsafe extern "C" fn pdfvfs_commit_warning_count(
 ///
 /// See the module documentation. `out` is writable for `cap` bytes, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_commit_warning(
+pub unsafe extern "C" fn quorra_vfs_commit_warning(
     commit: *const Commit,
     index: usize,
     out: *mut c_char,
@@ -937,7 +937,7 @@ pub unsafe extern "C" fn pdfvfs_commit_warning(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_commit_free(commit: *mut Commit) {
+pub unsafe extern "C" fn quorra_vfs_commit_free(commit: *mut Commit) {
     if !commit.is_null() {
         drop(Box::from_raw(commit));
     }
@@ -945,7 +945,7 @@ pub unsafe extern "C" fn pdfvfs_commit_free(commit: *mut Commit) {
 
 /// Renaming, which RFC 0003 section 5.3 refuses in v1 whatever it names.
 ///
-/// **Always `PDFVFS_REFUSED`**, and the sentence is the core's: rename semantics under
+/// **Always `QUORRA_VFS_REFUSED`**, and the sentence is the core's: rename semantics under
 /// position-names are ambiguous, and a file manager's drag-reorder emits rename storms this tree
 /// cannot make atomic. A face that answered this itself would be a second copy of the decision.
 ///
@@ -953,7 +953,7 @@ pub unsafe extern "C" fn pdfvfs_commit_free(commit: *mut Commit) {
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_rename(
+pub unsafe extern "C" fn quorra_vfs_rename(
     mount: *mut Mount,
     from: *const c_char,
     to: *const c_char,
@@ -971,13 +971,13 @@ pub unsafe extern "C" fn pdfvfs_rename(
 /// Creating a directory, which the core refuses: every directory here is the document's own
 /// shape.
 ///
-/// **Always `PDFVFS_REFUSED`**, with the core's sentence.
+/// **Always `QUORRA_VFS_REFUSED`**, with the core's sentence.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfvfs_create_directory(
+pub unsafe extern "C" fn quorra_vfs_create_directory(
     mount: *mut Mount,
     path: *const c_char,
     why: *mut *mut Refusal,
@@ -1049,7 +1049,7 @@ unsafe fn copy_out(text: &str, out: *mut c_char, cap: usize, needed: *mut usize)
     Status::Ok.code()
 }
 
-/// Hands a refusal to the caller and answers `PDFVFS_REFUSED`.
+/// Hands a refusal to the caller and answers `QUORRA_VFS_REFUSED`.
 ///
 /// **The one place the out-parameter is written**, so that the discipline the module
 /// documentation states — written on this status and on no other — is a property of the code

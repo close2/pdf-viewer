@@ -27,8 +27,8 @@
  *    `mayProceed` below, and decision 4.
  *
  * 4. THE *ASK* LEVEL, AND THE LEVEL THIS FACE OPENS AT. Since ADR 0874 the question can be asked
- *    before the operation is committed to: `pdfvfs_consult` says whether the verb would be
- *    restricted and hands back the sentence, `messageBox` puts it to the person, `pdfvfs_answer`
+ *    before the operation is committed to: `quorra_vfs_consult` says whether the verb would be
+ *    restricted and hands back the sentence, `messageBox` puts it to the person, `quorra_vfs_answer`
  *    carries the answer back, and the verb then runs unchanged. This is the face ADR 0869 said
  *    was worth building for exactly this: a FUSE mount returns EPERM into a log nobody reads,
  *    and Dolphin shows the question in a dialogue.
@@ -74,13 +74,13 @@ bool chosenLevel(uint32_t &level)
 {
     const QByteArray word = qgetenv("PDF_KIO_RESTRICTIONS");
     if (word.isEmpty() || word == "off") {
-        level = PDFVFS_RESTRICT_OFF;
+        level = QUORRA_VFS_RESTRICT_OFF;
     } else if (word == "on") {
-        level = PDFVFS_RESTRICT_ON;
+        level = QUORRA_VFS_RESTRICT_ON;
     } else if (word == "ask") {
-        level = PDFVFS_RESTRICT_ASK;
+        level = QUORRA_VFS_RESTRICT_ASK;
     } else if (word == "warn") {
-        level = PDFVFS_RESTRICT_WARN;
+        level = QUORRA_VFS_RESTRICT_WARN;
     } else {
         return false;
     }
@@ -88,15 +88,15 @@ bool chosenLevel(uint32_t &level)
 }
 
 /*! A refusal's sentence, through the header's two-call idiom. */
-QString sentenceOf(const pdfvfs_refusal *why)
+QString sentenceOf(const quorra_vfs_refusal *why)
 {
     size_t needed = 0;
-    if (pdfvfs_refusal_message(why, nullptr, 0, &needed) != PDFVFS_BUFFER_TOO_SMALL
+    if (quorra_vfs_refusal_message(why, nullptr, 0, &needed) != QUORRA_VFS_BUFFER_TOO_SMALL
         || needed == 0) {
         return QStringLiteral("the library would not say why");
     }
     QVarLengthArray<char, 512> room(static_cast<qsizetype>(needed));
-    if (pdfvfs_refusal_message(why, room.data(), needed, &needed) != PDFVFS_OK) {
+    if (quorra_vfs_refusal_message(why, room.data(), needed, &needed) != QUORRA_VFS_OK) {
         return QStringLiteral("the library would not say why");
     }
     return QString::fromUtf8(room.data());
@@ -136,19 +136,19 @@ PdfWorker::PdfWorker(const QByteArray &pool, const QByteArray &app)
      * this was compiled against states two numbers, the library answers with two, and a mismatch
      * is refused here rather than acted on. Every operation below fails with that sentence.
      */
-    m_agreed = pdfvfs_abi_check(PDFVFS_ABI_VERSION, PDFVFS_ERRNO_KIND_COUNT) == PDFVFS_OK;
+    m_agreed = quorra_vfs_abi_check(QUORRA_VFS_ABI_VERSION, QUORRA_VFS_ERRNO_KIND_COUNT) == QUORRA_VFS_OK;
     if (!m_agreed) {
         std::fprintf(stderr,
-                     "kio_pdf: this plugin was built against pdf_vfs.h version %u with %u errno "
+                     "kio_pdf: this plugin was built against quorra_vfs.h version %u with %u errno "
                      "kind(s), and the library it loaded answers %u and %u\n",
-                     PDFVFS_ABI_VERSION, PDFVFS_ERRNO_KIND_COUNT, pdfvfs_abi_version(),
-                     pdfvfs_errno_kind_count());
+                     QUORRA_VFS_ABI_VERSION, QUORRA_VFS_ERRNO_KIND_COUNT, quorra_vfs_abi_version(),
+                     quorra_vfs_errno_kind_count());
     }
 }
 
 PdfWorker::~PdfWorker()
 {
-    pdfvfs_mount_free(m_mount);
+    quorra_vfs_mount_free(m_mount);
 }
 
 bool PdfWorker::locate(const QUrl &url, Located &located, KIO::WorkerResult &why)
@@ -158,13 +158,13 @@ bool PdfWorker::locate(const QUrl &url, Located &located, KIO::WorkerResult &why
             KIO::ERR_WORKER_DEFINED,
             QStringLiteral("kio_pdf was built against a different revision of the pdf-vfs ABI "
                            "than the library it loaded; it will not serve anything. Run "
-                           "`pdfvfs_abi_check` to see which number moved."));
+                           "`quorra_vfs_abi_check` to see which number moved."));
         return false;
     }
 
     const QByteArray path = url.path().toUtf8();
     size_t document = 0;
-    if (pdfvfs_split(path.constData(), &document) != PDFVFS_OK) {
+    if (quorra_vfs_split(path.constData(), &document) != QUORRA_VFS_OK) {
         why = KIO::WorkerResult::fail(KIO::ERR_DOES_NOT_EXIST, url.toDisplayString());
         return false;
     }
@@ -177,13 +177,13 @@ bool PdfWorker::locate(const QUrl &url, Located &located, KIO::WorkerResult &why
     if (m_mount != nullptr && m_document == located.document) {
         return true;
     }
-    pdfvfs_mount_free(m_mount);
+    quorra_vfs_mount_free(m_mount);
     m_mount = nullptr;
     m_document.clear();
 
-    pdfvfs_refusal *refusal = nullptr;
+    quorra_vfs_refusal *refusal = nullptr;
     /* Decision 4 at the top of this file: the reader's level, from the one channel this face has. */
-    uint32_t level = PDFVFS_RESTRICT_OFF;
+    uint32_t level = QUORRA_VFS_RESTRICT_OFF;
     if (!chosenLevel(level)) {
         why = KIO::WorkerResult::fail(
             KIO::ERR_WORKER_DEFINED,
@@ -191,8 +191,8 @@ bool PdfWorker::locate(const QUrl &url, Located &located, KIO::WorkerResult &why
                 .arg(QString::fromLocal8Bit(qgetenv("PDF_KIO_RESTRICTIONS"))));
         return false;
     }
-    if (pdfvfs_mount_open(located.document.constData(), level, &m_mount, &refusal)
-        != PDFVFS_OK) {
+    if (quorra_vfs_mount_open(located.document.constData(), level, &m_mount, &refusal)
+        != QUORRA_VFS_OK) {
         why = refused(refusal, url);
         return false;
     }
@@ -203,16 +203,16 @@ bool PdfWorker::locate(const QUrl &url, Located &located, KIO::WorkerResult &why
 bool PdfWorker::mayProceed(const Located &located, uint32_t verb, const QUrl &url,
                            KIO::WorkerResult &why)
 {
-    pdfvfs_consultation *consultation = nullptr;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_consult(m_mount, located.inside.constData(), verb, &consultation, &refusal)
-        != PDFVFS_OK) {
+    quorra_vfs_consultation *consultation = nullptr;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_consult(m_mount, located.inside.constData(), verb, &consultation, &refusal)
+        != QUORRA_VFS_OK) {
         why = refused(refusal, url);
         return false;
     }
-    uint32_t verdict = PDFVFS_VERDICT_PROCEED;
-    if (pdfvfs_consultation_verdict(consultation, &verdict) != PDFVFS_OK) {
-        pdfvfs_consultation_free(consultation);
+    uint32_t verdict = QUORRA_VFS_VERDICT_PROCEED;
+    if (quorra_vfs_consultation_verdict(consultation, &verdict) != QUORRA_VFS_OK) {
+        quorra_vfs_consultation_free(consultation);
         why = KIO::WorkerResult::fail(
             KIO::ERR_WORKER_DEFINED,
             QStringLiteral("a consultation that would not say its verdict"));
@@ -224,21 +224,21 @@ bool PdfWorker::mayProceed(const Located &located, uint32_t verb, const QUrl &ur
      * own refusal, in the core's words. Showing a dialogue for any of the three would be asking
      * a person to decide something already decided.
      */
-    if (verdict != PDFVFS_VERDICT_ASK) {
-        pdfvfs_consultation_free(consultation);
+    if (verdict != QUORRA_VFS_VERDICT_ASK) {
+        quorra_vfs_consultation_free(consultation);
         return true;
     }
 
     size_t needed = 0;
     QString question = QStringLiteral("This document restricts what you asked for. Do it anyway?");
-    if (pdfvfs_consultation_question(consultation, nullptr, 0, &needed) == PDFVFS_BUFFER_TOO_SMALL
+    if (quorra_vfs_consultation_question(consultation, nullptr, 0, &needed) == QUORRA_VFS_BUFFER_TOO_SMALL
         && needed > 0) {
         QVarLengthArray<char, 512> room(static_cast<qsizetype>(needed));
-        if (pdfvfs_consultation_question(consultation, room.data(), needed, &needed) == PDFVFS_OK) {
+        if (quorra_vfs_consultation_question(consultation, room.data(), needed, &needed) == QUORRA_VFS_OK) {
             question = QString::fromUtf8(room.data());
         }
     }
-    pdfvfs_consultation_free(consultation);
+    quorra_vfs_consultation_free(consultation);
 
     /* KIO's modal channel, which is what decision 3 reserved it for. */
     const int chose = messageBox(KIO::WorkerBase::QuestionTwoActions, question,
@@ -248,7 +248,7 @@ bool PdfWorker::mayProceed(const Located &located, uint32_t verb, const QUrl &ur
 
     uint32_t answered = 0;
     refusal = nullptr;
-    if (pdfvfs_answer(m_mount, proceed ? 1u : 0u, &answered, &refusal) != PDFVFS_OK) {
+    if (quorra_vfs_answer(m_mount, proceed ? 1u : 0u, &answered, &refusal) != QUORRA_VFS_OK) {
         why = refused(refusal, url);
         return false;
     }
@@ -264,7 +264,7 @@ bool PdfWorker::mayProceed(const Located &located, uint32_t verb, const QUrl &ur
     return false;
 }
 
-KIO::WorkerResult PdfWorker::refused(pdfvfs_refusal *why, const QUrl &url)
+KIO::WorkerResult PdfWorker::refused(quorra_vfs_refusal *why, const QUrl &url)
 {
     if (why == nullptr) {
         return KIO::WorkerResult::fail(KIO::ERR_WORKER_DEFINED,
@@ -272,13 +272,13 @@ KIO::WorkerResult PdfWorker::refused(pdfvfs_refusal *why, const QUrl &url)
                                                       "is a defect in pdf-vfs-ffi"));
     }
     int32_t code = 0;
-    if (pdfvfs_refusal_errno(why, &code) != PDFVFS_OK) {
-        pdfvfs_refusal_free(why);
+    if (quorra_vfs_refusal_errno(why, &code) != QUORRA_VFS_OK) {
+        quorra_vfs_refusal_free(why);
         return KIO::WorkerResult::fail(KIO::ERR_WORKER_DEFINED,
                                        QStringLiteral("a refusal that would not say its errno"));
     }
     const QString sentence = sentenceOf(why);
-    pdfvfs_refusal_free(why);
+    quorra_vfs_refusal_free(why);
 
     /* See decision 1 at the top of this file. The four below keep a canned code because KIO's own
      * words for them are true and shorter than ours; everything else carries its reason. */
@@ -294,30 +294,30 @@ KIO::WorkerResult PdfWorker::refused(pdfvfs_refusal *why, const QUrl &url)
     default:
         return KIO::WorkerResult::fail(
             KIO::ERR_WORKER_DEFINED,
-            QStringLiteral("%1 (%2)").arg(sentence, QString::fromUtf8(pdfvfs_errno_name(code))));
+            QStringLiteral("%1 (%2)").arg(sentence, QString::fromUtf8(quorra_vfs_errno_name(code))));
     }
 }
 
-void PdfWorker::speak(pdfvfs_commit *commit)
+void PdfWorker::speak(quorra_vfs_commit *commit)
 {
     size_t count = 0;
-    if (commit == nullptr || pdfvfs_commit_warning_count(commit, &count) != PDFVFS_OK) {
-        pdfvfs_commit_free(commit);
+    if (commit == nullptr || quorra_vfs_commit_warning_count(commit, &count) != QUORRA_VFS_OK) {
+        quorra_vfs_commit_free(commit);
         return;
     }
     for (size_t at = 0; at < count; ++at) {
         size_t needed = 0;
-        if (pdfvfs_commit_warning(commit, at, nullptr, 0, &needed) != PDFVFS_BUFFER_TOO_SMALL) {
+        if (quorra_vfs_commit_warning(commit, at, nullptr, 0, &needed) != QUORRA_VFS_BUFFER_TOO_SMALL) {
             continue;
         }
         QVarLengthArray<char, 512> room(static_cast<qsizetype>(needed));
-        if (pdfvfs_commit_warning(commit, at, room.data(), needed, &needed) == PDFVFS_OK) {
+        if (quorra_vfs_commit_warning(commit, at, room.data(), needed, &needed) == QUORRA_VFS_OK) {
             /* Decision 3 at the top of this file: non-modal, because §7.5.6's note fires on
              * every deletion and a dialogue per `rm` is a face nobody keeps. */
             warning(QString::fromUtf8(room.data()));
         }
     }
-    pdfvfs_commit_free(commit);
+    quorra_vfs_commit_free(commit);
 }
 
 KIO::WorkerResult PdfWorker::listDir(const QUrl &url)
@@ -328,30 +328,30 @@ KIO::WorkerResult PdfWorker::listDir(const QUrl &url)
         return why;
     }
 
-    pdfvfs_listing *listing = nullptr;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_list(m_mount, located.inside.constData(), &listing, &refusal) != PDFVFS_OK) {
+    quorra_vfs_listing *listing = nullptr;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_list(m_mount, located.inside.constData(), &listing, &refusal) != QUORRA_VFS_OK) {
         return refused(refusal, url);
     }
     size_t count = 0;
-    if (pdfvfs_listing_len(listing, &count) != PDFVFS_OK) {
-        pdfvfs_listing_free(listing);
+    if (quorra_vfs_listing_len(listing, &count) != QUORRA_VFS_OK) {
+        quorra_vfs_listing_free(listing);
         return KIO::WorkerResult::fail(KIO::ERR_WORKER_DEFINED,
                                        QStringLiteral("a listing that would not say its length"));
     }
     for (size_t at = 0; at < count; ++at) {
         size_t needed = 0;
-        uint32_t kind = PDFVFS_KIND_FILE;
-        if (pdfvfs_listing_name(listing, at, nullptr, 0, &needed) != PDFVFS_BUFFER_TOO_SMALL) {
+        uint32_t kind = QUORRA_VFS_KIND_FILE;
+        if (quorra_vfs_listing_name(listing, at, nullptr, 0, &needed) != QUORRA_VFS_BUFFER_TOO_SMALL) {
             continue;
         }
         QVarLengthArray<char, 256> room(static_cast<qsizetype>(needed));
-        if (pdfvfs_listing_name(listing, at, room.data(), needed, &needed) != PDFVFS_OK
-            || pdfvfs_listing_kind(listing, at, &kind) != PDFVFS_OK) {
+        if (quorra_vfs_listing_name(listing, at, room.data(), needed, &needed) != QUORRA_VFS_OK
+            || quorra_vfs_listing_kind(listing, at, &kind) != QUORRA_VFS_OK) {
             continue;
         }
         const QString name = QString::fromUtf8(room.data());
-        const bool directory = kind == PDFVFS_KIND_DIRECTORY;
+        const bool directory = kind == QUORRA_VFS_KIND_DIRECTORY;
 
         KIO::UDSEntry entry;
         entry.fastInsert(KIO::UDSEntry::UDS_NAME, name);
@@ -363,7 +363,7 @@ KIO::WorkerResult PdfWorker::listDir(const QUrl &url)
         }
         listEntry(entry);
     }
-    pdfvfs_listing_free(listing);
+    quorra_vfs_listing_free(listing);
     return KIO::WorkerResult::pass();
 }
 
@@ -375,22 +375,22 @@ KIO::WorkerResult PdfWorker::stat(const QUrl &url)
         return why;
     }
 
-    pdfvfs_attributes attributes;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_stat(m_mount, located.inside.constData(), &attributes, &refusal) != PDFVFS_OK) {
+    quorra_vfs_attributes attributes;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_stat(m_mount, located.inside.constData(), &attributes, &refusal) != QUORRA_VFS_OK) {
         return refused(refusal, url);
     }
-    const bool directory = attributes.kind == PDFVFS_KIND_DIRECTORY;
+    const bool directory = attributes.kind == QUORRA_VFS_KIND_DIRECTORY;
 
     /*
-     * The access bits are the CORE's answer rather than a list this file keeps: `pdfvfs_write_meaning`
+     * The access bits are the CORE's answer rather than a list this file keeps: `quorra_vfs_write_meaning`
      * is the layout table speaking, so what a file manager greys out is the document's own shape.
      */
-    uint32_t onWrite = PDFVFS_MEANS_NOTHING;
-    uint32_t onDelete = PDFVFS_MEANS_NOTHING;
+    uint32_t onWrite = QUORRA_VFS_MEANS_NOTHING;
+    uint32_t onDelete = QUORRA_VFS_MEANS_NOTHING;
     const bool writable =
-        pdfvfs_write_meaning(m_mount, located.inside.constData(), &onWrite, &onDelete) == PDFVFS_OK
-        && (onWrite != PDFVFS_MEANS_NOTHING || onDelete != PDFVFS_MEANS_NOTHING);
+        quorra_vfs_write_meaning(m_mount, located.inside.constData(), &onWrite, &onDelete) == QUORRA_VFS_OK
+        && (onWrite != QUORRA_VFS_MEANS_NOTHING || onDelete != QUORRA_VFS_MEANS_NOTHING);
 
     const QString name = QString::fromUtf8(located.inside).section(QLatin1Char('/'), -1);
     KIO::UDSEntry entry;
@@ -435,12 +435,12 @@ KIO::WorkerResult PdfWorker::mimetype(const QUrl &url)
      * free for the case it exists for; for the extension-less attachment it costs the generation
      * a `get` would have cost anyway, and the core's cache keeps it.
      */
-    pdfvfs_attributes attributes;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_stat(m_mount, located.inside.constData(), &attributes, &refusal) != PDFVFS_OK) {
+    quorra_vfs_attributes attributes;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_stat(m_mount, located.inside.constData(), &attributes, &refusal) != QUORRA_VFS_OK) {
         return refused(refusal, url);
     }
-    mimeType(attributes.kind == PDFVFS_KIND_DIRECTORY
+    mimeType(attributes.kind == QUORRA_VFS_KIND_DIRECTORY
                  ? QStringLiteral("inode/directory")
                  : QStringLiteral("application/octet-stream"));
     return KIO::WorkerResult::pass();
@@ -454,18 +454,18 @@ KIO::WorkerResult PdfWorker::get(const QUrl &url)
         return why;
     }
 
-    if (!mayProceed(located, PDFVFS_VERB_READ, url, why)) {
+    if (!mayProceed(located, QUORRA_VFS_VERB_READ, url, why)) {
         return why;
     }
 
-    pdfvfs_file *file = nullptr;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_open(m_mount, located.inside.constData(), &file, &refusal) != PDFVFS_OK) {
+    quorra_vfs_file *file = nullptr;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_open(m_mount, located.inside.constData(), &file, &refusal) != QUORRA_VFS_OK) {
         return refused(refusal, url);
     }
     uint64_t size = 0;
-    if (pdfvfs_file_size(file, &size) != PDFVFS_OK) {
-        pdfvfs_file_free(file);
+    if (quorra_vfs_file_size(file, &size) != QUORRA_VFS_OK) {
+        quorra_vfs_file_free(file);
         return KIO::WorkerResult::fail(KIO::ERR_WORKER_DEFINED,
                                        QStringLiteral("an open file that would not say its size"));
     }
@@ -479,11 +479,11 @@ KIO::WorkerResult PdfWorker::get(const QUrl &url)
         const qint64 wanted = qMin<qint64>(CHUNK, static_cast<qint64>(size - at));
         chunk.resize(wanted);
         size_t filled = 0;
-        if (pdfvfs_file_read(file, at, reinterpret_cast<uint8_t *>(chunk.data()),
+        if (quorra_vfs_file_read(file, at, reinterpret_cast<uint8_t *>(chunk.data()),
                              static_cast<size_t>(wanted), &filled)
-                != PDFVFS_OK
+                != QUORRA_VFS_OK
             || filled == 0) {
-            pdfvfs_file_free(file);
+            quorra_vfs_file_free(file);
             return KIO::WorkerResult::fail(KIO::ERR_CANNOT_READ, url.toDisplayString());
         }
         chunk.resize(static_cast<qsizetype>(filled));
@@ -491,7 +491,7 @@ KIO::WorkerResult PdfWorker::get(const QUrl &url)
         at += filled;
         processedSize(at);
     }
-    pdfvfs_file_free(file);
+    quorra_vfs_file_free(file);
     /* An empty block is how KIO is told the data has ended. */
     data(QByteArray());
     return KIO::WorkerResult::pass();
@@ -512,7 +512,7 @@ KIO::WorkerResult PdfWorker::put(const QUrl &url, int permissions, KIO::JobFlags
      * Asked before a byte is read off the socket, so that a person declining is not first made to
      * wait for a file they are about to refuse to write.
      */
-    if (!mayProceed(located, PDFVFS_VERB_WRITE, url, why)) {
+    if (!mayProceed(located, QUORRA_VFS_VERB_WRITE, url, why)) {
         return why;
     }
 
@@ -536,12 +536,12 @@ KIO::WorkerResult PdfWorker::put(const QUrl &url, int permissions, KIO::JobFlags
         return KIO::WorkerResult::fail(KIO::ERR_CANNOT_READ, url.toDisplayString());
     }
 
-    pdfvfs_commit *commit = nullptr;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_write(m_mount, located.inside.constData(),
+    quorra_vfs_commit *commit = nullptr;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_write(m_mount, located.inside.constData(),
                      reinterpret_cast<const uint8_t *>(staged.constData()),
                      static_cast<size_t>(staged.size()), &commit, &refusal)
-        != PDFVFS_OK) {
+        != QUORRA_VFS_OK) {
         return refused(refusal, url);
     }
     speak(commit);
@@ -557,12 +557,12 @@ KIO::WorkerResult PdfWorker::del(const QUrl &url, bool isfile)
     if (!locate(url, located, why)) {
         return why;
     }
-    if (!mayProceed(located, PDFVFS_VERB_DELETE, url, why)) {
+    if (!mayProceed(located, QUORRA_VFS_VERB_DELETE, url, why)) {
         return why;
     }
-    pdfvfs_commit *commit = nullptr;
-    pdfvfs_refusal *refusal = nullptr;
-    if (pdfvfs_remove(m_mount, located.inside.constData(), &commit, &refusal) != PDFVFS_OK) {
+    quorra_vfs_commit *commit = nullptr;
+    quorra_vfs_refusal *refusal = nullptr;
+    if (quorra_vfs_remove(m_mount, located.inside.constData(), &commit, &refusal) != QUORRA_VFS_OK) {
         return refused(refusal, url);
     }
     speak(commit);
@@ -578,8 +578,8 @@ KIO::WorkerResult PdfWorker::mkdir(const QUrl &url, int permissions)
     if (!locate(url, located, why)) {
         return why;
     }
-    pdfvfs_refusal *refusal = nullptr;
-    pdfvfs_create_directory(m_mount, located.inside.constData(), &refusal);
+    quorra_vfs_refusal *refusal = nullptr;
+    quorra_vfs_create_directory(m_mount, located.inside.constData(), &refusal);
     return refused(refusal, url);
 }
 
@@ -598,14 +598,14 @@ KIO::WorkerResult PdfWorker::rename(const QUrl &src, const QUrl &dest, KIO::JobF
      * names — a `mv 0007 0002` should read as the two ordinals it is. */
     QByteArray target = dest.path().toUtf8();
     size_t document = 0;
-    if (pdfvfs_split(target.constData(), &document) == PDFVFS_OK) {
+    if (quorra_vfs_split(target.constData(), &document) == QUORRA_VFS_OK) {
         target = target.mid(static_cast<int>(document));
         if (target.isEmpty()) {
             target = "/";
         }
     }
-    pdfvfs_refusal *refusal = nullptr;
-    pdfvfs_rename(m_mount, from.inside.constData(), target.constData(), &refusal);
+    quorra_vfs_refusal *refusal = nullptr;
+    quorra_vfs_rename(m_mount, from.inside.constData(), target.constData(), &refusal);
     return refused(refusal, src);
 }
 

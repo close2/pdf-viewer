@@ -21,12 +21,12 @@
 //! compiler can still say so; and each has a `from_code`, so a caller that meets a number this
 //! build does not define learns that it does not rather than switching on it by accident.
 //!
-//! **Only [`EventKind`] has a count in `pdfv_abi_check`, and that is deliberate rather than an
+//! **Only [`EventKind`] has a count in `quorra_abi_check`, and that is deliberate rather than an
 //! omission.** An event *arrives*: a caller receives one whether or not it asked, so a kind added
 //! later is met by a program that has no arm for it and the check has to happen before the first
 //! one turns up. A control kind and a row kind are answers to a question the caller asked, in a
-//! call it wrote, and `pdfv_control_kind_name` and `pdfv_row_kind_name` are there for the number it
-//! did not expect. Widening `pdfv_abi_check` would change the signature of the one function every
+//! call it wrote, and `quorra_control_kind_name` and `quorra_row_kind_name` are there for the number it
+//! did not expect. Widening `quorra_abi_check` would change the signature of the one function every
 //! compiled caller already calls in `main`, which is precisely the hazard the four shapes were
 //! chosen against.
 
@@ -41,7 +41,7 @@ use viewer_host::ControlKind as HostControl;
 /// What a C caller is told an event is.
 ///
 /// The numbers are the ABI. A kind added later takes the next one and never reuses an old one;
-/// [`EventKind::COUNT`] moves with it and is what `pdfv_abi_check` compares against the header.
+/// [`EventKind::COUNT`] moves with it and is what `quorra_abi_check` compares against the header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum EventKind {
@@ -77,11 +77,11 @@ pub enum EventKind {
     Reported = 14,
     /// [`viewer_core::Event::Searched`].
     Searched = 15,
-    /// [`viewer_core::Event::Asking`] — the *ask* level's question. Answer with `pdfv_answer`.
+    /// [`viewer_core::Event::Asking`] — the *ask* level's question. Answer with `quorra_answer`.
     Asking = 16,
     /// [`viewer_core::Event::Warned`] — the *warn* level's sentence, after the edit.
     Warned = 17,
-    /// [`viewer_core::Event::AttachmentsChanged`] — ask `pdfv_attachments_read` again.
+    /// [`viewer_core::Event::AttachmentsChanged`] — ask `quorra_attachments_read` again.
     AttachmentsChanged = 18,
 }
 
@@ -127,7 +127,7 @@ impl EventKind {
     ///
     /// What a caller prints for a kind it has no arm for. It is a *name* rather than a sentence
     /// because it is the one thing that is true of every event of the kind; the sentence is
-    /// `pdfv_events_describe`, which reads the event itself.
+    /// `quorra_events_describe`, which reads the event itself.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -191,12 +191,12 @@ impl EventKind {
     }
 }
 
-/// Which of [`viewer_core::PageTarget`]'s six a `pdfv_go_to_page` call means.
+/// Which of [`viewer_core::PageTarget`]'s six a `quorra_go_to_page` call means.
 ///
 /// Two arguments in C where Rust has one enum, because [`PageTarget::Index`] and
 /// [`PageTarget::Relative`] carry a number and the other four carry nothing. The number is
 /// ignored for those four rather than being required to be zero: a caller writing
-/// `pdfv_go_to_page(v, PDFV_PAGE_NEXT, 0, &events)` and one writing `-1` mean the same thing, and
+/// `quorra_go_to_page(v, QUORRA_PAGE_NEXT, 0, &events)` and one writing `-1` mean the same thing, and
 /// refusing one of them would be this boundary inventing a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
@@ -247,7 +247,7 @@ impl PageTargetKind {
     }
 }
 
-/// Which of [`viewer_core::Zoom`]'s six a `pdfv_zoom` call means.
+/// Which of [`viewer_core::Zoom`]'s six a `quorra_zoom` call means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum ZoomKind {
@@ -296,7 +296,7 @@ impl ZoomKind {
     /// The kind and the scale for a magnification the viewer answered with.
     ///
     /// [`Self::zoom`]'s inverse, and this enumeration's first use in the *answering* direction —
-    /// `pdfv_view` hands a caller a magnification to hand back, which is what the four shapes in
+    /// `quorra_view` hands a caller a magnification to hand back, which is what the four shapes in
     /// this module's own documentation call an enumeration this ABI answers with. Exhaustive over
     /// `viewer_core::Zoom`, so a seventh magnification stops the build here.
     ///
@@ -465,9 +465,9 @@ pub enum RestrictKind {
     On = 0,
     /// Ignore it and perform the operation.
     Off = 1,
-    /// Ask first: a `PDFV_EVENT_ASKING` the caller answers with `pdfv_answer`.
+    /// Ask first: a `QUORRA_EVENT_ASKING` the caller answers with `quorra_answer`.
     Ask = 2,
-    /// Perform the operation, then say what the document asserted: a `PDFV_EVENT_WARNED`.
+    /// Perform the operation, then say what the document asserted: a `QUORRA_EVENT_WARNED`.
     Warn = 3,
 }
 
@@ -496,7 +496,7 @@ impl RestrictKind {
     }
 }
 
-/// Where `pdfv_attach` puts the file: [`viewer_core::AttachHome`], numbered for C.
+/// Where `quorra_attach` puts the file: [`viewer_core::AttachHome`], numbered for C.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum AttachKind {
@@ -520,7 +520,7 @@ impl AttachKind {
 
 /// ISO 32000-2 Table 29's `/PageLayout`, in the order that table states its six values.
 ///
-/// A kind of its own rather than a place in `pdfv_abi_check`, for the reason `RowKind` and
+/// A kind of its own rather than a place in `quorra_abi_check`, for the reason `RowKind` and
 /// `ControlKind` are: this is the answer to a call the caller wrote, and an event is what arrives
 /// unasked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -569,10 +569,10 @@ impl LayoutKind {
         }
     }
 
-    /// The arrangement `pdf-model` read, which is what `pdfv_opening` answers with.
+    /// The arrangement `pdf-model` read, which is what `quorra_opening` answers with.
     ///
     /// The inverse of [`Self::layout`], and it arrived with the other half of the queries: a
-    /// caller could *set* Table 29's arrangement with `pdfv_layout` and could not ask what the
+    /// caller could *set* Table 29's arrangement with `quorra_layout` and could not ask what the
     /// catalogue opens in, which is the entry §7.7.2 states as an instruction to the window.
     #[must_use]
     pub const fn of(layout: pdf_model::viewer_preferences::PageLayout) -> Self {
@@ -592,7 +592,7 @@ impl LayoutKind {
 ///
 /// A kind of its own, for the reason [`LayoutKind`] is one: this is the answer to a call the
 /// caller wrote rather than something that arrives unasked, so it needs no place in
-/// [`crate::abi::pdfv_abi_check`].
+/// [`crate::abi::quorra_abi_check`].
 ///
 /// **And it has no `name` or `count` entry point, unlike [`ControlKind`] and [`RowKind`].** Those
 /// exist for an enumeration that may *grow* under a compiled caller; §14.8.2.5.1 defines exactly
@@ -819,7 +819,7 @@ pub enum ControlKind {
 impl ControlKind {
     /// How many kinds this build has.
     ///
-    /// Not part of `pdfv_abi_check`, and the module comment says why: a control kind is an answer
+    /// Not part of `quorra_abi_check`, and the module comment says why: a control kind is an answer
     /// to a question the caller asked, where an event kind arrives unbidden.
     pub const COUNT: u32 = 8;
 
@@ -883,11 +883,11 @@ impl ControlKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum RowKind {
-    /// §12.3.3: `pdfv_activate` on the row's object.
+    /// §12.3.3: `quorra_activate` on the row's object.
     Activate = 0,
-    /// §8.11.4.3: `pdfv_set_group` on the row's object.
+    /// §8.11.4.3: `quorra_set_group` on the row's object.
     Toggle = 1,
-    /// §7.11.4: `pdfv_extract` on the row's name.
+    /// §7.11.4: `quorra_extract` on the row's name.
     Extract = 2,
     /// A row that does nothing — §8.11.4.3's leading text string is a heading, not a layer.
     Inert = 3,
@@ -935,7 +935,7 @@ impl RowKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum TextKind {
-    /// §12.7.4.2's fully qualified name, which `pdfv_set_field_text` addresses.
+    /// §12.7.4.2's fully qualified name, which `quorra_set_field_text` addresses.
     Qualified = 0,
     /// The name §14.9.3 says a user interface shall show: Table 226's `/TU`, or the qualified
     /// name where the field states none.
@@ -973,7 +973,7 @@ impl TextKind {
 
 /// Table 29's `/PageMode`: "how the document shall be displayed when opened".
 ///
-/// Answered by `pdfv_opening` beside [`LayoutKind`], because §7.7.2 states the two entries
+/// Answered by `quorra_opening` beside [`LayoutKind`], because §7.7.2 states the two entries
 /// separately and a host obeys them separately — one chooses a panel and the other an arrangement.
 /// **Counted**, unlike the two-valued enumerations beside it: this table gained `/UseOC` in PDF 1.5
 /// and `/UseAttachments` in PDF 1.6, so a caller compiled today may meet a seventh.
@@ -1097,19 +1097,19 @@ pub enum DuplexKind {
     FlipLongEdge = 2,
 }
 
-/// Which entry of §12.2's Table 147 `pdfv_preference` is being asked for.
+/// Which entry of §12.2's Table 147 `quorra_preference` is being asked for.
 ///
 /// **One keyed accessor rather than nineteen symbols or one struct**, and the argument is
 /// [`crate::abi`]'s own, transposed from a command to a table. A struct passed by value would put
 /// Table 147's *size* in the ABI, so an entry added by a later part of ISO 32000 would change a
-/// type every caller has already compiled — the hazard [`crate::abi::PDFV_ABI_VERSION`] exists to
+/// type every caller has already compiled — the hazard [`crate::abi::QUORRA_ABI_VERSION`] exists to
 /// catch and the one this header has only two instances of. A symbol apiece would be nineteen
 /// exports for one table. A key is a **number**: an entry added later is a new constant beside a
 /// function every caller already links, and a caller that meets a key it does not know prints it
-/// with `pdfv_preference_key_name`.
+/// with `quorra_preference_key_name`.
 ///
 /// Every value answers as an `int64_t`, which is what makes one accessor possible: a boolean is
-/// zero or one, an enumerated name is its own `PDFV_…` number, and a count is itself. The three
+/// zero or one, an enumerated name is its own `QUORRA_…` number, and a count is itself. The three
 /// entries Table 147 leaves genuinely optional answer [`crate::Status::NoAnswer`] where the
 /// document states none, which is a different fact from a default and is why they are not given
 /// one here.
@@ -1128,21 +1128,21 @@ pub enum PreferenceKey {
     CenterWindow = 4,
     /// `/DisplayDocTitle`, a boolean.
     DisplayDocTitle = 5,
-    /// `/NonFullScreenPageMode`, a `PDFV_PAGE_MODE_…`.
+    /// `/NonFullScreenPageMode`, a `QUORRA_PAGE_MODE_…`.
     NonFullScreenPageMode = 6,
-    /// `/Direction`, a `PDFV_DIRECTION_…`.
+    /// `/Direction`, a `QUORRA_DIRECTION_…`.
     Direction = 7,
-    /// `/ViewArea`, a `PDFV_BOUNDARY_…`.
+    /// `/ViewArea`, a `QUORRA_BOUNDARY_…`.
     ViewArea = 8,
-    /// `/ViewClip`, a `PDFV_BOUNDARY_…`.
+    /// `/ViewClip`, a `QUORRA_BOUNDARY_…`.
     ViewClip = 9,
-    /// `/PrintArea`, a `PDFV_BOUNDARY_…`.
+    /// `/PrintArea`, a `QUORRA_BOUNDARY_…`.
     PrintArea = 10,
-    /// `/PrintClip`, a `PDFV_BOUNDARY_…`.
+    /// `/PrintClip`, a `QUORRA_BOUNDARY_…`.
     PrintClip = 11,
-    /// `/PrintScaling`, a `PDFV_PRINT_SCALING_…`.
+    /// `/PrintScaling`, a `QUORRA_PRINT_SCALING_…`.
     PrintScaling = 12,
-    /// `/Duplex`, a `PDFV_DUPLEX_…`. Optional: no default is stated.
+    /// `/Duplex`, a `QUORRA_DUPLEX_…`. Optional: no default is stated.
     Duplex = 13,
     /// `/PickTrayByPDFSize`, a boolean. Optional: "the value shall be … [dependent] on the
     /// interactive PDF processor" where the document states none.
@@ -1156,8 +1156,8 @@ pub enum PreferenceKey {
     ///
     /// Named rather than absent, and answering [`crate::Status::WrongKind`] rather than nothing:
     /// a key that simply did not exist would look to a caller like a table this build had not
-    /// read, and this one says *ask the other function*. `pdfv_preference_ranges` and
-    /// `pdfv_preference_range` are that function. Trap 5 in the small.
+    /// read, and this one says *ask the other function*. `quorra_preference_ranges` and
+    /// `quorra_preference_range` are that function. Trap 5 in the small.
     PrintPageRange = 17,
 }
 
@@ -1223,7 +1223,7 @@ impl PreferenceKey {
     }
 }
 
-/// Which of a page's readback shortfalls `pdfv_readback_count` is being asked for.
+/// Which of a page's readback shortfalls `quorra_readback_count` is being asked for.
 ///
 /// **Not a report**, and [`viewer_core::Query::Readback`] says why at length: a code the standard
 /// itself says "there is no way to determine what the character code represents" is an answer
@@ -1442,8 +1442,8 @@ pub enum InitialKind {
     /// the one that contains the collection dictionary."
     #[default]
     Container = 0,
-    /// The named embedded file. `pdfv_collection_initial` answers the `/EmbeddedFiles` key beside
-    /// it, which is what `pdfv_extract` takes.
+    /// The named embedded file. `quorra_collection_initial` answers the `/EmbeddedFiles` key beside
+    /// it, which is what `quorra_extract` takes.
     Embedded = 1,
     /// "[T]he first item from the list of files": `/D` named something the tree does not have.
     FirstFile = 2,
@@ -1456,7 +1456,7 @@ pub enum InitialKind {
 /// The clause's own two groups: the first three "identify the types of fields in the collection
 /// item … dictionary", and the rest "identify the types of file-related fields", whose data is
 /// already in the file specification. A caller filling a column asks this to know where to look —
-/// which is `pdfv_collection_column`'s `in_the_item` out-parameter, stated rather than left to the
+/// which is `quorra_collection_column`'s `in_the_item` out-parameter, stated rather than left to the
 /// caller to derive from the number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
@@ -1481,8 +1481,8 @@ pub enum ColumnKind {
     CompressedSize = 8,
     /// A subtype this standard does not define.
     ///
-    /// The name the file wrote is still reachable: `pdfv_collection_column_text` answers it under
-    /// `PDFV_COLUMN_SUBTYPE`. A number this build cannot name and a name a caller cannot read
+    /// The name the file wrote is still reachable: `quorra_collection_column_text` answers it under
+    /// `QUORRA_COLUMN_SUBTYPE`. A number this build cannot name and a name a caller cannot read
     /// would be trap 5's silent fallback in a header.
     Other = 9,
 }
@@ -1655,8 +1655,8 @@ mod tests {
 
     /// The count the header states is the count this enumeration has.
     ///
-    /// **The one assertion this whole design rests on.** `pdfv_abi_check` compares a caller's
-    /// `PDFV_EVENT_KIND_COUNT` against `EventKind::COUNT`, so a kind added without moving the
+    /// **The one assertion this whole design rests on.** `quorra_abi_check` compares a caller's
+    /// `QUORRA_EVENT_KIND_COUNT` against `EventKind::COUNT`, so a kind added without moving the
     /// constant would leave every C caller believing it was up to date. `from_code` walking off
     /// the end is what catches it.
     #[test]

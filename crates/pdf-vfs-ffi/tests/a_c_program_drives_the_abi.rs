@@ -3,7 +3,7 @@
 //! **The FUSE face proves the core; only a C program proves the ABI.** Everything else in this
 //! crate is Rust calling Rust — the entry points are `extern "C"` and the argument types are C's,
 //! but no C compiler has read the header and no linker has resolved the symbols. This test is
-//! what closes that: `cc` compiles `c/browse_a_document.c` against `include/pdf_vfs.h`, links it
+//! what closes that: `cc` compiles `c/browse_a_document.c` against `include/quorra_vfs.h`, links it
 //! against the `cdylib`, and runs it on a real document and a scratch copy of one.
 //!
 //! What it therefore catches that nothing else does: a declaration in the header that does not
@@ -96,7 +96,7 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
     );
 
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let program = artefacts.join("pdfvfs_browse_a_document");
+    let program = artefacts.join("quorra_vfs_browse_a_document");
     let compiled = Command::new(&cc)
         .arg("-std=c11")
         .arg("-Wall")
@@ -130,7 +130,7 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
     );
 
     let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
-    let scratch = artefacts.join("pdfvfs_scratch.pdf");
+    let scratch = artefacts.join("quorra_vfs_scratch.pdf");
     std::fs::copy(&document, &scratch).expect("a scratch copy is made beside the test binary");
 
     // `bug1815476.pdf` is encrypted with `/P -1084`, so §7.6.4.2's Table 22 bit 11 is clear and
@@ -192,7 +192,7 @@ fn what_it_asked(said: &str, restricted: &str) {
 /// application note is five pages; RFC 0003 section 4's tree has six directories at its root.
 fn what_it_printed(said: &str) {
     for expected in [
-        "abi 1 (header 1), 13 errno kind(s) (header 13)",
+        "abi 2 (header 2), 13 errno kind(s) (header 13)",
         // The split is the face's own question and the only one that asks the file system.
         "and the rest is '/pages/0001.pdf'",
         "a path with no file in it: no part of this path is a file, so there is no document here",

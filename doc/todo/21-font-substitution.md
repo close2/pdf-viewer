@@ -384,7 +384,7 @@ calibration.
   what did not stand is "exactly as ADR 0270 left its neighbours", because ADR 0270 left its
   neighbours **counted** and this was counted by nothing at all. So the field was built:
   `Interpretation::codes_without_a_vertical_form`, `Shortfall::without_a_vertical_form`, and every
-  consumer ADR 0422 gave the other three — `Query::Readback`, the confined pipe, `pdfv_readback_count`
+  consumer ADR 0422 gave the other three — `Query::Readback`, the confined pipe, `quorra_readback_count`
   and `pdf-retrieve`'s `readback` object. The two silences are disjoint by construction: this
   question is asked of a glyph the face *reached*, so a character it cannot draw at all is
   `uncovered_character`'s and never gets here.

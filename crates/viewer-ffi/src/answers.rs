@@ -26,7 +26,7 @@
 //! - a **buffer the caller copies out of**, for the one answer that is pixels — [`Miniature`].
 //!
 //! Nothing here is a struct passed by value, which is the one kind of change
-//! [`crate::abi::PDFV_ABI_VERSION`] exists to protect and which this round therefore adds none of.
+//! [`crate::abi::QUORRA_ABI_VERSION`] exists to protect and which this round therefore adds none of.
 
 use viewer_core::{AccessibilityNode, PageStructure, PopupWindow};
 
@@ -45,7 +45,7 @@ pub type ObjectRef = (u32, u16);
 /// Every occurrence of a string on the page being shown, as shapes to draw over it.
 ///
 /// **The sharpest of the eleven, and ADR 0509 said so**: a C caller could start Annex O's
-/// document-wide search with `pdfv_find_start` and could not draw one match, because
+/// document-wide search with `quorra_find_start` and could not draw one match, because
 /// [`viewer_core::Query::Find`]'s per-page geometry reached no symbol. `Event::Searched` says
 /// *which page* a match is on and this says *where on it*, and a find bar needs both.
 ///
@@ -101,7 +101,7 @@ impl Matches {
 /// `CLAUDE.md` section 2's forbidden thumbnail generation on the launch path reached by a road
 /// nobody had checked. [`viewer_core::Query::Thumbnail`] is shaped one page at a time so that a
 /// host can obey the rule, and **this ABI offers no other shape**: there is no
-/// `pdfv_thumbnails_read`, deliberately, because a list-valued entry point is a loop a caller would
+/// `quorra_thumbnails_read`, deliberately, because a list-valued entry point is a loop a caller would
 /// not have to write.
 ///
 /// The pixels are copied into a buffer the caller owns, exactly as a frame is, for
@@ -182,7 +182,7 @@ pub struct Popups {
 /// One popup window, flattened.
 #[derive(Debug, Clone, PartialEq)]
 struct Note {
-    /// The popup annotation, which `pdfv_activate` closes.
+    /// The popup annotation, which `quorra_activate` closes.
     annotation: ObjectRef,
     /// Table 186's `/Parent`, the markup annotation whose text this is.
     parent: Option<ObjectRef>,
@@ -232,7 +232,7 @@ impl Popups {
 
     /// The popup annotation and Table 186's `/Parent`, where it names one.
     ///
-    /// Both, because they answer two different questions: the first is what `pdfv_activate` closes
+    /// Both, because they answer two different questions: the first is what `quorra_activate` closes
     /// the window with, and the second is the markup annotation the note *belongs to* — which is
     /// what a host highlights when the pointer is over the window.
     ///
@@ -459,13 +459,13 @@ impl Structure {
     /// How many lines of text the element's own content items drew.
     ///
     /// **What a platform text interface is built on**, and the half of this answer that did not
-    /// cross until the seven-hundred-and-twenty-sixth session: `PDFV_ELEMENT_NAME` is what the
+    /// cross until the seven-hundred-and-twenty-sixth session: `QUORRA_ELEMENT_NAME` is what the
     /// element is *called* and this is what it *says*, with each character's place beside it, which
     /// is what `org.a11y.atspi.Text`'s `GetCharacterExtents` and `GetOffsetAtPoint` need and what
     /// no string can answer.
     ///
     /// Zero for an element stating §14.9.3's `/Alt` or §14.9.5's `/E` — the phrase substitutes for
-    /// the whole element, which is what `pdfv_structure_node`'s `substituted` also says — and for
+    /// the whole element, which is what `quorra_structure_node`'s `substituted` also says — and for
     /// one whose content drew no text, which is most of them.
     ///
     /// # Errors
@@ -528,7 +528,7 @@ impl Structure {
 /// **The clause is a `shall` on a viewer** — "[i]f this dictionary is present in a PDF document,
 /// the interactive PDF processor shall present the document as a portable collection" — so what a
 /// caller needs is everything required to *arrange* the files it already reads with
-/// `pdfv_attachments_read`, and nothing that is merely decoration.
+/// `quorra_attachments_read`, and nothing that is merely decoration.
 ///
 /// Three things cross and the third is the one a caller could not compute. The **columns** are
 /// Table 155's fields in `/O` order, which the table calls "[t]he relative order of the field name
@@ -559,7 +559,7 @@ pub struct Collection {
 ///
 /// A named alias rather than a bare tuple because five values in a row is where a reader stops
 /// counting — and deliberately not a `#[repr(C)]` struct, which is the one kind of change
-/// [`crate::abi::PDFV_ABI_VERSION`] exists to guard: `pdfv_collection_column` writes five
+/// [`crate::abi::QUORRA_ABI_VERSION`] exists to guard: `quorra_collection_column` writes five
 /// out-parameters instead.
 pub type ColumnFacts = (ColumnKind, bool, Option<i64>, bool, bool);
 

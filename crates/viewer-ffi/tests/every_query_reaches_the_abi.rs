@@ -3,7 +3,7 @@
 //! **This is the instrument ADR 0509 asked for and ADR 0576 built**, and the defect it exists
 //! against is one this crate actually had: `Query::Find`, `Query::Opening`, `Query::Preferences`
 //! and eight more reached **no symbol at all**, for as long as three hundred sessions in one case,
-//! and nothing anywhere said so. The ABI's own protection is `PDFV_EVENT_KIND_COUNT`, which is the
+//! and nothing anywhere said so. The ABI's own protection is `QUORRA_EVENT_KIND_COUNT`, which is the
 //! right shape for a message that *arrives* — a caller checks the number at startup and refuses —
 //! and no shape at all for a *question*: a `Query` added after the last sweep leaves a C caller
 //! with no symbol and no signal, which is exactly how eleven accumulated.
@@ -20,7 +20,7 @@
 //! - **the samples cover the enumeration**, counted out of `viewer-core`'s own source rather than
 //!   from a number written here — a hand-written count is the thing that went stale in
 //!   `doc/todo/02` §2 and in this crate's own event map (`header_and_library_agree.rs`'s note on
-//!   `PDFV_EVENT_SEARCHED`);
+//!   `QUORRA_EVENT_SEARCHED`);
 //! - **every variant names at least one entry point**, so an arm cannot be closed with an empty
 //!   list;
 //! - **every entry point named exists in both `abi.rs` and the header**, which is where a symbol
@@ -52,64 +52,64 @@ use viewer_core::Query;
 /// copies the text at different moments. What none of them may be is **zero**.
 fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
     match query {
-        Query::PageCount => &["pdfv_page_count"],
-        Query::CurrentPage => &["pdfv_current_page"],
+        Query::PageCount => &["quorra_page_count"],
+        Query::CurrentPage => &["quorra_current_page"],
         // Two, because this is the one question whose answer goes back the way it came: the
         // reader's place is read with one and restored with the other (ADR 0737).
-        Query::View => &["pdfv_view", "pdfv_set_view"],
-        Query::PageGeometry(_) => &["pdfv_page_geometry"],
-        Query::Outline => &["pdfv_outline_read"],
-        Query::Layers => &["pdfv_layers_read"],
-        Query::Attachments => &["pdfv_attachments_read"],
+        Query::View => &["quorra_view", "quorra_set_view"],
+        Query::PageGeometry(_) => &["quorra_page_geometry"],
+        Query::Outline => &["quorra_outline_read"],
+        Query::Layers => &["quorra_layers_read"],
+        Query::Attachments => &["quorra_attachments_read"],
         // §12.3.5.2's key grammar is the fifth piece and is a function of its own, because a
         // caller holding a folder tree and a file list cannot put one inside the other without it.
         Query::Collection => &[
-            "pdfv_collection_read",
-            "pdfv_collection_view",
-            "pdfv_collection_initial",
-            "pdfv_collection_columns",
-            "pdfv_collection_folders",
-            "pdfv_collection_folder_of",
+            "quorra_collection_read",
+            "quorra_collection_view",
+            "quorra_collection_initial",
+            "quorra_collection_columns",
+            "quorra_collection_folders",
+            "quorra_collection_folder_of",
         ],
-        Query::Articles => &["pdfv_articles_read"],
-        Query::PageLabel(_) => &["pdfv_page_label"],
-        Query::Thumbnail(_) => &["pdfv_thumbnail_read", "pdfv_thumbnail_copy"],
-        Query::LinkAt(_) => &["pdfv_link_at"],
-        Query::FieldAt(_) => &["pdfv_field_at"],
-        Query::Fields => &["pdfv_fields_read"],
-        Query::Caret { .. } => &["pdfv_caret"],
-        Query::Offset { .. } => &["pdfv_offset"],
-        Query::FieldSelection { .. } => &["pdfv_field_selection"],
-        Query::FreeTextAt { .. } => &["pdfv_free_text_at"],
-        Query::Dirty => &["pdfv_dirty"],
-        Query::Properties => &["pdfv_properties_read"],
-        Query::Opening => &["pdfv_opening"],
-        Query::Preferences => &["pdfv_preference", "pdfv_preference_ranges"],
-        Query::Find(_) => &["pdfv_find_matches", "pdfv_matches_quads"],
-        // §14.8.2.5's logical order is not a second text accessor: it is what `pdfv_selection_text`
+        Query::Articles => &["quorra_articles_read"],
+        Query::PageLabel(_) => &["quorra_page_label"],
+        Query::Thumbnail(_) => &["quorra_thumbnail_read", "quorra_thumbnail_copy"],
+        Query::LinkAt(_) => &["quorra_link_at"],
+        Query::FieldAt(_) => &["quorra_field_at"],
+        Query::Fields => &["quorra_fields_read"],
+        Query::Caret { .. } => &["quorra_caret"],
+        Query::Offset { .. } => &["quorra_offset"],
+        Query::FieldSelection { .. } => &["quorra_field_selection"],
+        Query::FreeTextAt { .. } => &["quorra_free_text_at"],
+        Query::Dirty => &["quorra_dirty"],
+        Query::Properties => &["quorra_properties_read"],
+        Query::Opening => &["quorra_opening"],
+        Query::Preferences => &["quorra_preference", "quorra_preference_ranges"],
+        Query::Find(_) => &["quorra_find_matches", "quorra_matches_quads"],
+        // §14.8.2.5's logical order is not a second text accessor: it is what `quorra_selection_text`
         // is *not*, and the entry point says which of the two orders it answered in (ADR 0519).
-        Query::LogicalSelection => &["pdfv_selection_copy_text"],
-        Query::Focus => &["pdfv_focused_annotation"],
-        Query::Highlight => &["pdfv_highlight_quads"],
-        Query::Popups => &["pdfv_popups_read", "pdfv_popup_text", "pdfv_popup_quad"],
-        Query::Selection => &["pdfv_selection_text", "pdfv_selection_quads"],
-        Query::Frame => &["pdfv_frame_count", "pdfv_frame_info", "pdfv_frame_copy"],
+        Query::LogicalSelection => &["quorra_selection_copy_text"],
+        Query::Focus => &["quorra_focused_annotation"],
+        Query::Highlight => &["quorra_highlight_quads"],
+        Query::Popups => &["quorra_popups_read", "quorra_popup_text", "quorra_popup_quad"],
+        Query::Selection => &["quorra_selection_text", "quorra_selection_quads"],
+        Query::Frame => &["quorra_frame_count", "quorra_frame_info", "quorra_frame_copy"],
         Query::AccessibilityTree => &[
-            "pdfv_structure_read",
-            "pdfv_structure_page",
-            "pdfv_structure_node",
-            "pdfv_structure_text",
+            "quorra_structure_read",
+            "quorra_structure_page",
+            "quorra_structure_node",
+            "quorra_structure_text",
             // §14.7's per-character offsets and boxes, which AT-SPI's `Text` interface is built on
             // and which this answer carried nowhere until the seven-hundred-and-twenty-sixth.
-            "pdfv_structure_lines",
-            "pdfv_structure_line",
-            "pdfv_structure_character",
+            "quorra_structure_lines",
+            "quorra_structure_line",
+            "quorra_structure_character",
         ],
-        Query::Reports => &["pdfv_reported_pages", "pdfv_reported_page", "pdfv_report"],
+        Query::Reports => &["quorra_reported_pages", "quorra_reported_page", "quorra_report"],
         Query::Readback => &[
-            "pdfv_readback_pages",
-            "pdfv_readback_page",
-            "pdfv_readback_count",
+            "quorra_readback_pages",
+            "quorra_readback_page",
+            "quorra_readback_count",
         ],
     }
 }

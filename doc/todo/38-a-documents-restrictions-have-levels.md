@@ -87,14 +87,14 @@ a reason ending "was not done" is a lie under *warn* and premature under *ask*.
 
 **All four cross every boundary this tree has**: `viewer-confined`'s wire (`ANSWER` as command 26,
 `ASKING`/`WARNED`/`ATTACHMENTS_CHANGED` as events 16–18, `RestrictionLevel` as codes 0–3), and the
-C ABI as `PDFV_RESTRICT_ASK`, `PDFV_RESTRICT_WARN`, `pdfv_answer` and three event kinds that moved
-`PDFV_EVENT_KIND_COUNT` 16 → 19.
+C ABI as `QUORRA_RESTRICT_ASK`, `QUORRA_RESTRICT_WARN`, `quorra_answer` and three event kinds that moved
+`QUORRA_EVENT_KIND_COUNT` 16 → 19.
 
 **No window has a dialogue yet**, by the owner's word that the gestures follow the HTML mockups, so
 each of the four answers *ask* with `viewer_host::unanswerable` and `proceed: false` — out loud, the
 same closed-dialogue choice `pdf-transform` made with `Refusal::Unanswered`. That is what keeps the
 level from silently behaving like *on*, and it is the one thing a window still owes. **A C host of
-`viewer-ffi` is not in that sentence and never was**: `PDFV_EVENT_KIND_ASKING` and `pdfv_answer` are
+`viewer-ffi` is not in that sentence and never was**: `QUORRA_EVENT_KIND_ASKING` and `quorra_answer` are
 a channel *and* an answer, so a host on that boundary has been able to ask since this round.
 
 **§7.11.4's attach and detach are the levels' second consumer**, and the third if `pdf-transform`
@@ -132,7 +132,7 @@ document moves underneath the mount.
 |---|---|---|---|
 | KIO | **yes** | `WorkerBase::messageBox`, `QuestionTwoActions`; a decline is `ERR_USER_CANCELED` | `PDF_KIO_RESTRICTIONS`, default `off` |
 | `pdf-transform` | **yes, on a terminal** | the question on stderr, a line read back; `--restrictions=ask` is a level rather than a usage error | `--restrictions=off\|on\|ask\|warn` |
-| a C host of `viewer-ffi` | **yes, since session 885** | `PDFV_EVENT_KIND_ASKING`, `pdfv_answer` | `pdfv_restrict` |
+| a C host of `viewer-ffi` | **yes, since session 885** | `QUORRA_EVENT_KIND_ASKING`, `quorra_answer` | `quorra_restrict` |
 | `pdf-fuse` | **no** — a mount has no dialogue | `EACCES` and the sentence, in full, in the log | `Config::policy`, default `off` |
 | the three windows | **not yet** | `viewer_host::unanswerable`, `proceed: false` | `viewer_host::IGNORE_RESTRICTIONS` |
 
@@ -156,7 +156,7 @@ were two.
   palette, no file dialog was built in the eight-hundred-and-eighty-fifth session, by the owner's
   word that the mockups are being reviewed first. What each window gained is the *display* half:
   the files tab is rebuilt from `Query::Attachments` when `Event::AttachmentsChanged` says the list
-  moved. The C ABI has `pdfv_attach` and `pdfv_detach` already, because an ABI has no gestures.
+  moved. The C ABI has `quorra_attach` and `quorra_detach` already, because an ABI has no gestures.
 - **The payload's descriptor route across the confinement, and the route now exists.**
   `Edit::Attach` ships its bytes on the wire today, as `Command::Open` shipped a document's. Round
   883 made the *document's* descriptor cross with `SCM_RIGHTS`, and that branch was not on `main`

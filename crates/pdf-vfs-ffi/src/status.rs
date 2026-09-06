@@ -1,4 +1,4 @@
-//! What an entry point answers when it is not `PDFVFS_OK`.
+//! What an entry point answers when it is not `QUORRA_VFS_OK`.
 //!
 //! **Two populations, kept apart, and that separation is the whole of this module.** A caller of
 //! this ABI can be wrong in two unrelated ways: it can pass a null pointer or an index nothing
@@ -44,17 +44,17 @@ pub enum Status {
     /// The tree refused, and the [`crate::Refusal`] beside it says which `errno` and why.
     ///
     /// **The only status that is about the document rather than about the caller.** Every
-    /// entry point that can answer it takes a `pdfvfs_refusal **`, and writes it only here.
+    /// entry point that can answer it takes a `quorra_vfs_refusal **`, and writes it only here.
     Refused = 5,
     /// There is no answer, and the question was fair.
     ///
     /// The layout names no row for that path, so there is no meaning for a write to it — not a
-    /// refusal, because a refusal is a row that says no. `viewer-ffi`'s `PDFV_NO_ANSWER` for the
+    /// refusal, because a refusal is a row that says no. `viewer-ffi`'s `QUORRA_NO_ANSWER` for the
     /// same reason: a host asking about a path the tree does not have has asked a fair question.
     NoAnswer = 6,
     /// No component of the path names a file on disk, so there is no document to serve.
     ///
-    /// What `pdfvfs_split` answers for `pdf:/home/u/nothing-here/pages`. Its own status rather
+    /// What `quorra_vfs_split` answers for `pdf:/home/u/nothing-here/pages`. Its own status rather
     /// than a refusal because nothing has been opened yet: there is no tree to refuse.
     NoDocument = 7,
     /// A number did not fit the type this boundary states for it.
@@ -65,7 +65,7 @@ pub enum Status {
 }
 
 impl Status {
-    /// One sentence, for `pdfvfs_status_message`.
+    /// One sentence, for `quorra_vfs_status_message`.
     ///
     /// `&'static str` with a NUL already in it, because the C side hands back a `const char *`
     /// that outlives every call and is never freed. Written as literals rather than built,
@@ -114,7 +114,7 @@ mod tests {
 
     /// Every message is NUL-terminated exactly once and is not empty.
     ///
-    /// The invariant `pdfvfs_status_message` rests on: it hands the bytes back as a
+    /// The invariant `quorra_vfs_status_message` rests on: it hands the bytes back as a
     /// `const char *`, so a message with no NUL would be a read past the end of a `&'static str`
     /// and one with two would truncate silently.
     #[test]

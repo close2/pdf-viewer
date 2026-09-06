@@ -250,7 +250,7 @@ pub mod ffi {
     /// A shared struct rather than four arguments, and the difference from the C ABI's rule about
     /// structs by value is worth stating: `cxx` regenerates both sides from this file in one
     /// build, so a field added here is a compile error in C++ rather than a silently different
-    /// layout — which is precisely what `PDFV_ABI_VERSION` exists to catch where a caller compiles
+    /// layout — which is precisely what `QUORRA_ABI_VERSION` exists to catch where a caller compiles
     /// separately (ADR 0576).
     #[derive(Debug, Clone, Copy)]
     struct QtPlace {

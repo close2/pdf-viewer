@@ -9,7 +9,7 @@
 //! What it therefore catches that nothing else does: a declaration in the header that does not
 //! match the Rust signature by *name* (the linker says so), a struct tag colliding with a function
 //! in C's one namespace (the compiler says so — and it did, which is why the frame struct is
-//! called `pdfv_frame`), and a caller freeing a handle the library still owns (the allocator says
+//! called `quorra_frame`), and a caller freeing a handle the library still owns (the allocator says
 //! so, loudly, on exit).
 //!
 //! **Skipped rather than failed where there is no C compiler**, in the shape the rest of this tree
@@ -37,7 +37,7 @@ use std::process::Command;
 /// The check box carries `/AP /N << /Yes … /Off … >>` because that is the whole point of the
 /// exercise: §12.7.5.2.3 makes `/V` "a name object representing the check box's appearance state",
 /// and `Yes` is the *file's* invention — a C caller has to be handed it by
-/// `pdfv_field_widget_text`, and a guess would tick nothing.
+/// `quorra_field_widget_text`, and a guess would tick nothing.
 fn form_fixture() -> Vec<u8> {
     let appearance = |colour: &str| {
         let contents = format!("{colour} 0 0 20 20 re f");
@@ -143,7 +143,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
     );
 
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let program = artefacts.join("pdfv_open_a_page");
+    let program = artefacts.join("quorra_open_a_page");
     let compiled = Command::new(&cc)
         .arg("-std=c11")
         .arg("-Wall")
@@ -177,7 +177,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
     );
 
     let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
-    let form = artefacts.join("pdfv_form_fixture.pdf");
+    let form = artefacts.join("quorra_form_fixture.pdf");
     std::fs::write(&form, form_fixture()).expect("the fixture is written beside the test binary");
     let ran = Command::new(&program)
         .arg(&document)
@@ -202,7 +202,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 /// for "black point" lands, and the page after it draws.
 fn what_it_printed(said: &str) {
     for expected in [
-        "abi 1 (header 1), 19 event kind(s) (header 19)",
+        "abi 2 (header 2), 19 event kind(s) (header 19)",
         "Opened says document 1 has 5 page(s)",
         "page 1 of 5 (5 page(s) in the document)",
         "outline: 14 row(s)",
@@ -222,7 +222,7 @@ fn what_it_printed(said: &str) {
         "an undefined pointer action: the message at that index is not of the kind this accessor \
          reads",
         // The note states no optional content and no `/EmbeddedFiles` tree. Both answer an
-        // **empty list** rather than `PDFV_NO_ANSWER`, which is `viewer-core`'s existing choice
+        // **empty list** rather than `QUORRA_NO_ANSWER`, which is `viewer-core`'s existing choice
         // and worth pinning here rather than assuming: a document with no layers has answered the
         // question, and the two would be the same picture in a panel and different sentences in a
         // status bar.

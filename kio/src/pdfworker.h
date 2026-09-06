@@ -2,7 +2,7 @@
  * pdfworker.h — RFC 0003's KIO face, declared.
  *
  * A `KIO::WorkerBase` subclass and nothing else. Every question it is asked is forwarded over
- * `pdf_vfs.h`'s C ABI into `pdf-vfs`, and every answer is that library's turned into Qt's types.
+ * `quorra_vfs.h`'s C ABI into `pdf-vfs`, and every answer is that library's turned into Qt's types.
  * There is no PDF logic here, no layout knowledge, and not one `errno` this file chooses: RFC
  * 0003 section 7 puts all of that in the core so that "adding `fonts/` one day is a core change
  * that both faces grow simultaneously".
@@ -20,7 +20,7 @@
 #include <QUrl>
 
 extern "C" {
-#include "pdf_vfs.h"
+#include "quorra_vfs.h"
 }
 
 /*!
@@ -78,20 +78,20 @@ private:
      * mount has nowhere to put a question and this has `KIO::WorkerBase::messageBox`. Answers
      * whether the verb should go ahead; on `false`, `why` holds the result to return.
      *
-     * `verb` is one of the header's `PDFVFS_VERB_*`.
+     * `verb` is one of the header's `QUORRA_VFS_VERB_*`.
      */
     bool mayProceed(const Located &located, uint32_t verb, const QUrl &url,
                     KIO::WorkerResult &why);
 
     /*! Turns a refusal into KIO's vocabulary, and frees it. See the definition for the choice. */
-    KIO::WorkerResult refused(pdfvfs_refusal *why, const QUrl &url);
+    KIO::WorkerResult refused(quorra_vfs_refusal *why, const QUrl &url);
 
     /*! Shows a commit's warnings, and frees the commit. */
-    void speak(pdfvfs_commit *commit);
+    void speak(quorra_vfs_commit *commit);
 
     /*! The document currently open, and the mount over it. */
     QByteArray m_document;
-    pdfvfs_mount *m_mount = nullptr;
+    quorra_vfs_mount *m_mount = nullptr;
     /*! Whether the header this was compiled against and the library agree. Checked once. */
     bool m_agreed = false;
 };

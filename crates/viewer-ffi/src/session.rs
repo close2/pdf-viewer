@@ -27,7 +27,7 @@ use crate::panels::{Outline, Panel};
 use crate::shapes::Quads;
 use crate::status::Status;
 
-/// One viewer, and the whole of what a `pdfv_viewer *` points at.
+/// One viewer, and the whole of what a `quorra_viewer *` points at.
 ///
 /// A plain wrapper with no interior mutability, because C owns it: every entry point takes it as
 /// `*mut` and the caller is the one holding it. That is the ownership `viewer-qt` found to be
@@ -139,7 +139,7 @@ impl Session {
     /// [`Self::find_continue`] reads one more page; [`Self::find_stop`] forgets the plan.
     ///
     /// A step reads **one page**, so a caller pumps `find_continue` until
-    /// `pdfv_event_searched` reports nothing remaining — the same loop it already runs for
+    /// `quorra_event_searched` reports nothing remaining — the same loop it already runs for
     /// [`viewer_core::Event::NeedsRender`], and for the same reason: this ABI is not allowed to
     /// block a caller's event loop for the 5.84 s a thousand-page sweep costs.
     #[must_use]
@@ -283,7 +283,7 @@ impl Session {
     /// How many frames the viewer is holding — Table 29's arrangement, counted.
     ///
     /// **The entry point a C caller could not have deduced**, and the reason it exists rather than
-    /// a changed `pdfv_frame_info` alone: a C consumer cannot fail to compile, so a `/PageLayout`
+    /// a changed `quorra_frame_info` alone: a C consumer cannot fail to compile, so a `/PageLayout`
     /// putting a second page on the screen has to be something a caller *asks* about. Zero for a
     /// tier-2 host, which hands no pixels back, and one for the `SinglePage` every document that
     /// says nothing about it opens in.
@@ -779,7 +779,7 @@ impl Session {
     // Eleven `Query` variants reached no symbol at all. Every one of them is below, and
     // `tests/every_query_reaches_the_abi.rs` is what keeps that true: a variant added to
     // `viewer-core` fails to compile in a `match` there, which is the mechanism
-    // `PDFV_EVENT_KIND_COUNT` already is for events and which nothing was for a question.
+    // `QUORRA_EVENT_KIND_COUNT` already is for events and which nothing was for a question.
     // ---------------------------------------------------------------------------------------
 
     /// Every occurrence of a string on the page being shown, as shapes to draw over it.
@@ -926,7 +926,7 @@ impl Session {
 
     /// §12.4.3's article threads, as a panel would list them.
     ///
-    /// Each row acts through `pdfv_activate` on the thread's object, which is the same message an
+    /// Each row acts through `quorra_activate` on the thread's object, which is the same message an
     /// outline row sends and for the same reason: the *document* decides what activating a thing
     /// means, and `viewer_core::interact` composes §12.6.4.7's thread action out of it so that
     /// following a thread lands on Table 163's `/R` rather than on the page the first bead sits on.
@@ -1188,7 +1188,7 @@ mod tests {
     /// §14.7's per-character offsets and boxes reach a C caller, and the invariant holds.
     ///
     /// **The half of the accessibility answer that crossed nowhere until this test existed.**
-    /// `PDFV_ELEMENT_NAME` is one string for a whole paragraph, so a client building AT-SPI's
+    /// `QUORRA_ELEMENT_NAME` is one string for a whole paragraph, so a client building AT-SPI's
     /// `org.a11y.atspi.Text` had the tree and the extents and no way to answer
     /// `GetCharacterExtents`. What is asserted here is the property that interface rests on: the
     /// character byte counts sum to the line's own length, so an offset into the text and an index

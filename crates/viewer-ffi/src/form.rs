@@ -21,7 +21,7 @@
 //!
 //! **Every boolean is one `uint32_t`, not a field apiece.** Sixteen flags across four tables would
 //! be sixteen entry points or a struct passed by value, and a struct passed by value is the one
-//! change this ABI cannot make cheaply (`PDFV_ABI_VERSION`). A bit added later is a bit an old
+//! change this ABI cannot make cheaply (`QUORRA_ABI_VERSION`). A bit added later is a bit an old
 //! caller does not read, which costs it nothing — the same property the whole shape was chosen for.
 //!
 //! **`None` and `Some("")` stay two answers.** A field with no text value at all — a button selects
@@ -51,7 +51,7 @@ pub const FLAG_FILE_SELECT: u32 = 1 << 5;
 pub const FLAG_DO_NOT_SPELL_CHECK: u32 = 1 << 6;
 /// Table 231 bit 24: "the field shall not scroll … to accommodate more text than fits".
 pub const FLAG_DO_NOT_SCROLL: u32 = 1 << 7;
-/// Table 231 bit 25: the field is divided into `pdfv_field_limits`' cells.
+/// Table 231 bit 25: the field is divided into `quorra_field_limits`' cells.
 pub const FLAG_COMB: u32 = 1 << 8;
 /// Table 231 bit 26: "the value of this field shall be a rich text string". `CLAUDE.md` excludes
 /// XFA, so the value answered is Table 226's plain `/V` and this bit is how a host may decline.
@@ -68,7 +68,7 @@ pub const FLAG_EDITABLE: u32 = 1 << 13;
 pub const FLAG_MULTI_SELECT: u32 = 1 << 14;
 /// Table 233 bit 27: "the new value shall be committed as soon as a selection is made".
 pub const FLAG_COMMIT_ON_SELECTION: u32 = 1 << 15;
-/// The value `pdfv_field_value` answers with is Table 231 bit 14's echo, not the characters.
+/// The value `quorra_field_value` answers with is Table 231 bit 14's echo, not the characters.
 ///
 /// **A host obeying ADR 0201's read-back rule must consult it**: writing the bullets back into a
 /// password control would send those bullets as the next value, which is the bug ADR 0247 found in
@@ -133,13 +133,13 @@ struct Option_ {
 /// One widget annotation, placed on the screen.
 #[derive(Debug, Clone, PartialEq)]
 struct Placed {
-    /// The annotation, which `pdfv_activate` and `pdfv_set_group` name.
+    /// The annotation, which `quorra_activate` and `quorra_set_group` name.
     object: (u32, u16),
     /// Its `/Rect` on the screen, `[x0, y0, … x3, y3]`, y downwards.
     quad: [f32; 8],
     /// Whether this widget is in its on state.
     on: bool,
-    /// The `/AP /N` entry that turns it on — what `pdfv_set_field_text` sends to check the box.
+    /// The `/AP /N` entry that turns it on — what `quorra_set_field_text` sends to check the box.
     on_state: String,
     /// Table 230's `/Opt` entry for this widget: what §12.7.6.2 would export for it.
     export: String,

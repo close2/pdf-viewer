@@ -99,10 +99,10 @@ fn kio_loads_the_plugin_browses_the_tree_and_writes_two_verbs_through_it() {
         .arg("-B")
         .arg(&build)
         .arg(format!(
-            "-DPDFVFS_INCLUDE_DIR={}",
+            "-DQUORRA_VFS_INCLUDE_DIR={}",
             crate_root.join("include").display()
         ))
-        .arg(format!("-DPDFVFS_LIBRARY={}", library.display()))
+        .arg(format!("-DQUORRA_VFS_LIBRARY={}", library.display()))
         .output()
         .expect("cmake runs");
     if !configured.status.success() {

@@ -569,13 +569,13 @@ it.
 
 **`libviewer_ffi.so` is the exception that proves what this section is for**: it is not something
 a person *runs*, and it is here because it is what a person *links against* — a C program with
-`include/pdf_viewer.h` and no `-L` pointing at `/home/AI` is the only way somebody outside this
+`include/quorra.h` and no `-L` pointing at `/home/AI` is the only way somebody outside this
 tree can try the ABI at all. It is a separate `cargo build` because it is a library and the
 invocation above names binaries. **`libpdf_vfs_ffi.so` joined it in the
 nine-hundred-and-thirteenth session** for the same reason and with one addition: it is also what
 `kio/`'s CMake build links the KIO plugin against, and that build takes the path to it as a
 *required* variable rather than searching — a `find_library` there would pick up a copy of another
-revision, which is precisely what `pdfvfs_abi_check` exists to make loud (ADR 0869).
+revision, which is precisely what `quorra_vfs_abi_check` exists to make loud (ADR 0869).
 
 All the rest beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate executable the viewer
 spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than

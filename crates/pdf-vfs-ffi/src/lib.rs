@@ -19,7 +19,7 @@
 //!
 //! ## 1. A verb is a function, not a tagged union
 //!
-//! `pdfvfs_list`, `pdfvfs_stat`, `pdfvfs_open`, `pdfvfs_write`: one entry point per operation,
+//! `quorra_vfs_list`, `quorra_vfs_stat`, `quorra_vfs_open`, `quorra_vfs_write`: one entry point per operation,
 //! taking that operation's own arguments. `viewer-ffi`'s argument applies unchanged and is worth
 //! restating because it is entirely about C — **a union's size is part of the ABI**, so a verb
 //! added later would change the size of a type every caller has already compiled, and an old
@@ -49,9 +49,9 @@
 //!
 //! The question the FUSE face never had to answer. An `errno` kind is a number a caller switches
 //! on and a kind it does not know cannot be made to fail its build — so every number answers
-//! [`abi::pdfvfs_errno_name`], *including* ones this build has never heard of, and the count is
-//! checkable at startup: the header states `PDFVFS_ERRNO_KIND_COUNT` as it was when the caller
-//! was compiled, the library answers `pdfvfs_errno_kind_count()`, and `pdfvfs_abi_check` compares
+//! [`abi::quorra_vfs_errno_name`], *including* ones this build has never heard of, and the count is
+//! checkable at startup: the header states `QUORRA_VFS_ERRNO_KIND_COUNT` as it was when the caller
+//! was compiled, the library answers `quorra_vfs_errno_kind_count()`, and `quorra_vfs_abi_check` compares
 //! them with the version. That converts "fails to compile in every consumer" into "**fails to
 //! start, once, saying which number moved**". It is weaker, and it is the strongest thing
 //! available.
@@ -60,7 +60,7 @@
 //! one, and then costs it a `default:` arm. A new verb costs it nothing. A field added to
 //! [`abi::PdfvfsAttributes`] — the one struct passed by value — costs it a recompilation it has
 //! no way of knowing it needs, which is why that struct is small, is output-only, and is what
-//! [`abi::PDFVFS_ABI_VERSION`] is about.
+//! [`abi::QUORRA_VFS_ABI_VERSION`] is about.
 //!
 //! # What this boundary deliberately does *not* state
 //!
@@ -68,7 +68,7 @@
 //! file system one call at a time, and RFC 0003 section 5.4 makes `flush` the commit point for
 //! that reason. KIO's `put` is not that shape — the section says so in the same breath: "a KIO
 //! `put` commits when the worker's `put` completes (KIO's verb is already transactional)" — so
-//! this boundary states [`abi::pdfvfs_write`], one call with the whole file, and the staged four
+//! this boundary states [`abi::quorra_vfs_write`], one call with the whole file, and the staged four
 //! stay in Rust where the FUSE face reaches them. Four entry points nobody would call would be
 //! four more shapes to keep, and a C caller that used them would be inventing a transaction the
 //! protocol above it does not have.

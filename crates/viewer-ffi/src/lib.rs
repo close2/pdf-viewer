@@ -10,8 +10,8 @@
 //!
 //! # 1. Commands are functions, not a tagged union
 //!
-//! `pdfv_open`, `pdfv_go_to_page`, `pdfv_zoom`: one entry point per [`viewer_core::Command`],
-//! taking that command's own arguments. The alternative — one `pdfv_command` struct with a tag
+//! `quorra_open`, `quorra_go_to_page`, `quorra_zoom`: one entry point per [`viewer_core::Command`],
+//! taking that command's own arguments. The alternative — one `quorra_command` struct with a tag
 //! and a union — was refused for a reason that is entirely about C: **a union's size is part of
 //! the ABI**, so a command added later changes the size of a type every caller has already
 //! compiled, and an old caller passing an old-sized struct to a new library is undefined
@@ -28,15 +28,15 @@
 //! the aliasing bug `viewer-qt` needed a `Busy` guard for (ADR 0246, section 3), and here nothing at all
 //! would say so.
 //!
-//! So a command returns a `pdfv_events *` — an owned batch, read with indexed accessors and
-//! released with `pdfv_events_free`. **The viewer's borrow ends before the caller sees anything**,
+//! So a command returns a `quorra_events *` — an owned batch, read with indexed accessors and
+//! released with `quorra_events_free`. **The viewer's borrow ends before the caller sees anything**,
 //! which is what makes re-entrancy a non-question rather than a rule. The same shape carries a
-//! structured answer: `pdfv_outline` is owned, and it is owned *cheaply* because ADR 0247's second
+//! structured answer: `quorra_outline` is owned, and it is owned *cheaply* because ADR 0247's second
 //! amendment made [`Answer::Outline`](viewer_core::Answer::Outline) owned on the Rust side too.
 //!
-//! **A callback was the other candidate and is refused.** A `void (*)(const pdfv_event *, void *)`
-//! saves an allocation and buys the caller a chance to call `pdfv_go_to_page` from inside the
-//! dispatch of the events `pdfv_open` produced — which on the Rust side is `&mut Viewer` held
+//! **A callback was the other candidate and is refused.** A `void (*)(const quorra_event *, void *)`
+//! saves an allocation and buys the caller a chance to call `quorra_go_to_page` from inside the
+//! dispatch of the events `quorra_open` produced — which on the Rust side is `&mut Viewer` held
 //! twice.
 //!
 //! # 3. A raster goes back through the request that asked for it
@@ -45,18 +45,18 @@
 //! display list is not a thing to put in a header: it is clause 8 and clause 9 in a data
 //! structure, and a C caller has no use for it that is not "draw this", which is what the request
 //! already means. So the request crosses as an **opaque handle** the caller may move to another
-//! thread, and `pdfv_render_request_rasterise` draws it with `render-cpu` — this crate holds a
+//! thread, and `quorra_render_request_rasterise` draws it with `render-cpu` — this crate holds a
 //! rasteriser for exactly that reason and for no other.
 //!
-//! The round trip is kept as a round trip rather than hidden inside `pdfv_open`, because the
+//! The round trip is kept as a round trip rather than hidden inside `quorra_open`, because the
 //! whole point of `NeedsRender`/`RenderReady` is that the *host* decides where the work runs. A C
 //! caller that wants the page drawn on a worker thread has the same lever `viewer-ui` has.
 //!
-//! `pdfv_render_ready_raster` takes the request back beside the raster, which is how the token
+//! `quorra_render_ready_raster` takes the request back beside the raster, which is how the token
 //! returns without being in the header at all: `RenderToken` is opaque in Rust and stays opaque
 //! here.
 //!
-//! Pixels reach the caller by **copy into a buffer the caller owns** (`pdfv_frame_copy`). No
+//! Pixels reach the caller by **copy into a buffer the caller owns** (`quorra_frame_copy`). No
 //! pointer into the viewer's memory is ever handed out, so there is no lifetime for a C program
 //! to get wrong, and the cost is the one copy `doc/ui-boundary.md` prices tier 1 at — the same
 //! copy `gdk::MemoryTexture` and `QImage` make, measured on both at 11.5 and 12.0 GB/s.
@@ -67,14 +67,14 @@
 //! parts.
 //!
 //! **An event kind is a `uint32_t` a caller switches on**, and a kind it does not know cannot be
-//! made to fail its build. So every event also answers `pdfv_events_describe` — one sentence,
+//! made to fail its build. So every event also answers `quorra_events_describe` — one sentence,
 //! for *every* kind including ones the caller has never heard of — so that an unknown event can
 //! be logged rather than dropped in silence. That is trap 5 translated: the loud failure this
 //! project prefers, in the only form C leaves available.
 //!
-//! **And the count is checkable at startup.** The header states `PDFV_EVENT_KIND_COUNT` as it was
-//! when the caller was compiled; the library answers `pdfv_event_kind_count()` with what it has.
-//! `pdfv_abi_check` compares them and the version, and a caller that runs it in `main` has
+//! **And the count is checkable at startup.** The header states `QUORRA_EVENT_KIND_COUNT` as it was
+//! when the caller was compiled; the library answers `quorra_event_kind_count()` with what it has.
+//! `quorra_abi_check` compares them and the version, and a caller that runs it in `main` has
 //! converted "fails to compile in every consumer" into "**fails to start, once, saying which
 //! number moved**". It is weaker — it is a runtime check rather than a build failure, and a
 //! caller may decline to make it — and it is the strongest thing available.
@@ -84,9 +84,9 @@
 //! `Command` costs it nothing. A changed *shape* — the kind of change ADR 0167 and ADR 0247 both
 //! made, where a variant gains a field — costs it a new accessor function and leaves the old one
 //! answering what it always answered. And a change to a **struct passed by value**, of which this
-//! header has exactly two (`pdfv_geometry`, `pdfv_frame`), costs it a recompilation it has no
+//! header has exactly two (`quorra_geometry`, `quorra_frame`), costs it a recompilation it has no
 //! way of knowing it needs — which is why those two are small, are output-only, and are the
-//! boundary's most expensive kind of change. `pdfv_abi_version` is what a caller checks before
+//! boundary's most expensive kind of change. `quorra_abi_version` is what a caller checks before
 //! believing either of them.
 //!
 //! **And a change to a variant's *shape* that this ABI does not expose costs it nothing at all**,
@@ -95,20 +95,20 @@
 //! [`viewer_core::Entered`], so that §12.7.5.4's list box can say which of Table 234's options are
 //! selected (ADR 0248) — and every Rust consumer failed to compile while this crate did not,
 //! because `Command::Edit` is one of the verbs `doc/todo/30` records as still absent from the 39
-//! entry points. `PDFV_EVENT_KIND_COUNT` was **15** before and after, which is the number a C
-//! caller's `pdfv_abi_check` compares and the reason it is a *number* rather than a promise: a
+//! entry points. `QUORRA_EVENT_KIND_COUNT` was **15** before and after, which is the number a C
+//! caller's `quorra_abi_check` compares and the reason it is a *number* rather than a promise: a
 //! round that had moved it would have had the caller say so at startup.
 //!
 //! **The four-hundred-and-fourteenth moved it, to 16**, which is the other half of the same
 //! demonstration: `viewer_core::Event::Searched` is a new *kind*, so an old caller's
-//! `pdfv_abi_check` refuses at startup rather than dropping a message it has no arm for. Three
-//! entry points came with it — `pdfv_find_start`, `pdfv_find_continue`, `pdfv_find_stop` — and one
-//! accessor, `pdfv_event_searched` (ADR 0250).
+//! `quorra_abi_check` refuses at startup rather than dropping a message it has no arm for. Three
+//! entry points came with it — `quorra_find_start`, `quorra_find_continue`, `quorra_find_stop` — and one
+//! accessor, `quorra_event_searched` (ADR 0250).
 //!
 //! # Errors, because a C caller cannot see a `Result`
 //!
 //! Every fallible entry point returns [`Status`] as an `int32_t`, and every out-parameter is
-//! written only on `PDFV_OK`. `pdfv_status_message` turns one into a sentence. Nothing here
+//! written only on `QUORRA_OK`. `quorra_status_message` turns one into a sentence. Nothing here
 //! returns a sentinel value that has to be told apart from data, and nothing swallows a refusal:
 //! a document that will not open is `Event::OpenFailed` carrying the reason `pdf-syntax` gave,
 //! which is a *fact about the file* and reaches the caller through the same channel every other

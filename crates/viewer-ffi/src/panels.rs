@@ -39,7 +39,7 @@ struct Row {
     depth: u32,
     /// Whether the sign of `/Count` asks for it to start open.
     expanded: bool,
-    /// The object `pdfv_activate` names, and its generation.
+    /// The object `quorra_activate` names, and its generation.
     ///
     /// Both, because §7.3.10 makes an indirect reference two numbers and a viewer that dropped
     /// the second would name a different object in a file that reused a number.
@@ -103,7 +103,7 @@ impl Outline {
             .ok_or(Status::OutOfRange)
     }
 
-    /// The object number and generation `pdfv_activate` takes for the row.
+    /// The object number and generation `quorra_activate` takes for the row.
     ///
     /// # Errors
     ///
@@ -150,7 +150,7 @@ struct PanelEntry {
     /// Table 99's `/Locked`, for [`RowKind::Toggle`]: "[t]he state of a locked group cannot be
     /// changed through the user interface of an interactive PDF processor."
     locked: bool,
-    /// The `/EmbeddedFiles` key `pdfv_extract` takes, for [`RowKind::Extract`].
+    /// The `/EmbeddedFiles` key `quorra_extract` takes, for [`RowKind::Extract`].
     name: String,
 }
 

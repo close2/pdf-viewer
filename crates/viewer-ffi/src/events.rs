@@ -18,7 +18,7 @@ use crate::status::Status;
 /// What a step of a document-wide search reported, flattened for C.
 ///
 /// The Rust event carries an `Option`, which C has not got, so `found` is what says whether
-/// `page`, `from` and `to` mean anything — the same shape `pdfv_frame_info` already uses for a
+/// `page`, `from` and `to` mean anything — the same shape `quorra_frame_info` already uses for a
 /// frame that is not there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Searched {
@@ -167,7 +167,7 @@ impl Events {
             } => restricted(*operation, notes, "was refused"),
             Event::Asking {
                 operation, notes, ..
-            } => restricted(*operation, notes, "is waiting on pdfv_answer"),
+            } => restricted(*operation, notes, "is waiting on quorra_answer"),
             Event::Warned {
                 operation, notes, ..
             } => restricted(*operation, notes, "was done and warned about"),
@@ -292,7 +292,7 @@ impl Events {
     /// named this as wanting "a byte-buffer accessor rather than a string one": both events carry a
     /// `Vec<u8>` that is a *file*, and a file is not text — §7.5.6's update is a PDF and an
     /// embedded one may be anything at all, so passing either through the NUL-terminated idiom
-    /// `pdfv_events_describe` uses would truncate it at the first zero byte.
+    /// `quorra_events_describe` uses would truncate it at the first zero byte.
     ///
     /// # Errors
     ///

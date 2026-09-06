@@ -300,9 +300,9 @@ fn chosen() -> (Vec<Chosen>, Vec<Contribution>) {
     // document is diagnosed, and there is no other way in: the population is derived, so it
     // cannot be narrowed by editing a list. The filter is named in the run's output so that a
     // figure taken under it can never be read as the whole walk's.
-    match std::env::var("PDFVFS_READ_ONLY") {
+    match std::env::var("QUORRA_VFS_READ_ONLY") {
         Ok(only) if !only.is_empty() => {
-            println!("vfs-read: PDFVFS_READ_ONLY={only} — this is not the whole walk");
+            println!("vfs-read: QUORRA_VFS_READ_ONLY={only} — this is not the whole walk");
             let kept = chosen
                 .into_iter()
                 .filter(|one| one.display.contains(&only))

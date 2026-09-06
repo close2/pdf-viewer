@@ -125,29 +125,29 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // **Sixty-eight arrived in the five-hundred-and-eleventh**, which is `doc/todo/30`'s whole
     // remaining list — the pointer and the selection, §12.7's form and the four edits, save and
     // extract with a byte accessor apiece, the layer and attachment panels, §12.4.4's clock and
-    // transitions, and the three policy values. Not one of them moved `PDFV_EVENT_KIND_COUNT`,
+    // transitions, and the three policy values. Not one of them moved `QUORRA_EVENT_KIND_COUNT`,
     // because a `Command` and a `Query` are symbols and only an `Event` is a number. **The
     // hundred-and-twelfth arrived in the five-hundred-and-twenty-second**, for Annex O's
     // `highlight`: a question the annex asks and no host can answer for itself, and a symbol
     // again rather than a number (ADR 0357). **Two more came with Table 29's `/PageLayout`**:
-    // `pdfv_layout`, which is the arrangement a reader chose, and `pdfv_frame_count`, which is
+    // `quorra_layout`, which is the arrangement a reader chose, and `quorra_frame_count`, which is
     // the one thing a C caller could not have deduced — a C consumer cannot fail to compile, so
     // an arrangement putting a second page on the screen has to be something it can *ask* about.
     // **And two in the six-hundred-and-tenth**, which is that same sentence about a *report*:
-    // `pdfv_reported_pages` counts the pages the arrangement has anything to say about and
-    // `pdfv_reported_page` says which page an entry is, because a status bar under a column that
+    // `quorra_reported_pages` counts the pages the arrangement has anything to say about and
+    // `quorra_reported_page` says which page an entry is, because a status bar under a column that
     // named no page would be attributing one page's refusals to whichever page a reader is
     // looking at. Both existing report entry points also gained the entry index, so a caller
     // written against the old shape fails to compile rather than reading page one's sentences
     // for four pages. **And one in the six-hundred-and-eighty-third**, which is the first
     // `Query` a C caller could not reach at all rather than a shape that moved:
-    // `pdfv_selection_copy_text` answers with §14.8.2.5's logical content order where the
+    // `quorra_selection_copy_text` answers with §14.8.2.5's logical content order where the
     // document's structure tree gives one, which is what a caller needs in order to put a
     // selection on a clipboard this ABI knows nothing about (ADR 0519).
     // **And fifty-two in the seven-hundred-and-ninth**, which is the rest of that same sentence:
     // eleven `Query` variants reached no symbol at all and now every one does (ADR 0576). The
     // shapes are handles, keyed accessors and out-parameters and **not one struct passed by
-    // value**, which is why `PDFV_ABI_VERSION` did not move for the largest addition this ABI has
+    // value**, which is why `QUORRA_ABI_VERSION` did not move for the largest addition this ABI has
     // had. Six of the fifty-two take no pointer and are therefore not `unsafe` — the three
     // `_count`/`_name` pairs that let a caller print a number this build does not define.
     // **And three in the seven-hundred-and-twenty-sixth**, which `doc/todo/30` had priced at "two
@@ -155,18 +155,18 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // what AT-SPI's `Text` interface is built on and the one part of the accessibility answer a C
     // caller could not reach. Three rather than two because this ABI asks a *count* before an
     // indexed accessor, and a line has two counts: how many lines an element drew, and how many
-    // character codes a line holds. No struct crossed by value, so `PDFV_ABI_VERSION` did not move.
+    // character codes a line holds. No struct crossed by value, so `QUORRA_ABI_VERSION` did not move.
     // **And two in the eight-hundred-and-fifth**, which are one question in both directions:
-    // `pdfv_view` says where the reader is looking and `pdfv_set_view` puts them back there,
+    // `quorra_view` says where the reader is looking and `quorra_set_view` puts them back there,
     // because the commands that make a view are relative and clamped and no caller can invert
-    // them (ADR 0737). A struct *did* cross by value this time — `pdfv_viewing` — and
-    // `PDFV_ABI_VERSION` still did not move, for the reason a new entry point does not move it:
+    // them (ADR 0737). A struct *did* cross by value this time — `quorra_viewing` — and
+    // `QUORRA_ABI_VERSION` still did not move, for the reason a new entry point does not move it:
     // a caller compiled before it existed passes nothing of that shape.
     // **And three in the eight-hundred-and-eighty-fifth**, which are one feature and its policy:
-    // `pdfv_attach` and `pdfv_detach` put §7.11.4's file into one of §7.11.4.1's two homes or take
-    // one out, and `pdfv_answer` is the second half of `PDFV_RESTRICT_ASK` — a level is not a
+    // `quorra_attach` and `quorra_detach` put §7.11.4's file into one of §7.11.4.1's two homes or take
+    // one out, and `quorra_answer` is the second half of `QUORRA_RESTRICT_ASK` — a level is not a
     // level until something can answer its question (ADR 0814). Three event kinds came with them,
-    // so `PDFV_EVENT_KIND_COUNT` moved 16 → 19; `PDFV_ABI_VERSION` did not, for the standing
+    // so `QUORRA_EVENT_KIND_COUNT` moved 16 → 19; `QUORRA_ABI_VERSION` did not, for the standing
     // reason that a caller compiled before an entry point existed calls nothing of that shape.
     assert_eq!(no_mangle, 177, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(signatures, 163, "161 `unsafe` entry points and two helpers");
