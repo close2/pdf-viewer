@@ -199,6 +199,13 @@ cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/tes
   # so a /Trans inside an object stream would have counted. `--example presentation_fixture` writes
   # the three-slide document that therefore has to stand in for one (ADR 0230)
 cargo run --release -p pdf-model --example witness_census -- --pdfjs Collection Threads IDTree
+cargo run --release -p pdf-model --example associated_file_census -- --pdfjs   # also --crawl
+  # §14.13.2's two forms of associated file, counted apart, which is the question a name census
+  # cannot ask: an `/AF` array's specifications split by whether they carry an `/EF`. Over the 974,
+  # 7 documents state 36 arrays naming 44 specifications and **all 44 are embedded**; over
+  # `CC-MAIN-2021-31`'s 65 944, 23 documents and 45 specifications, also all embedded. So the
+  # external form the clause states is a construction no document in reach uses, and the reader
+  # for it and the note that says a file is out of reach are both held by built witnesses (ADR 0918)
 cargo run --release -p pdf-model --example absence_audit
   # the pair `doc/todo/01`'s sixteenth sweep runs, and the two halves of one question: **is there
   # really no corpus document that does X?** The first asks a name three ways of each of the 1251

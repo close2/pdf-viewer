@@ -1,7 +1,8 @@
 //! What a document says about itself, said out loud once when it opens.
 //!
-//! Seven clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
-//! §7.11.4's embedded files, §7.5's recovered cross-reference table, Annex I's version,
+//! Eight clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
+//! §7.11.4's embedded files, §14.13.2's associated files that are *not* embedded, §7.5's
+//! recovered cross-reference table, Annex I's version,
 //! §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` are all
 //! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
 //! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
@@ -145,6 +146,32 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
                 .as_deref()
                 .map_or_else(String::new, |media| format!(" ({media})"))
         ));
+    }
+
+    // §14.13.2's *other* form, and the reason it is said here rather than listed with the files
+    // above: an associated file's specification "represents either a file external to the PDF file
+    // or an embedded file stream", and an external one has no bytes in the document at all. This
+    // program cannot follow it — principle 3 gives the renderer no filesystem — but naming it
+    // needs no filesystem, and §7.11's own reading is that refusing a file and being unable to
+    // name it are different things. A document that associates a file nobody here can reach is
+    // exactly the kind of fact this module exists for: what you are looking at is not the whole of
+    // what the producer assembled. **The catalog is the scope, which is the scope the embedded
+    // list above already has** — §14.13.4 to §14.13.9's other carriers are read by
+    // `attachment::external_associated` and reach no caller. No corpus document states one, so the
+    // witness is hand-built (trap 8); ADR 0918 has the counts.
+    if let Ok(catalog) = document.catalog() {
+        for file in pdf_model::attachment::external_associated(document, &catalog) {
+            let named = if file.name.is_empty() {
+                "a file it does not name"
+            } else {
+                file.name.as_str()
+            };
+            notes.push(format!(
+                "this document associates a file that is not inside it: {named} \
+                 ({}, §14.13.2) — it is outside this program's reach and nothing of it is shown",
+                file.relationship.as_str()
+            ));
+        }
     }
 
     tagged_structure(document, &mut notes);

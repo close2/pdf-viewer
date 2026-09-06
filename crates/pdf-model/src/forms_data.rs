@@ -126,6 +126,20 @@ pub struct FormsData {
     /// A name in the file rather than a number, which the table says in as many words: "[t]he
     /// value of this entry is a name object, not a number".
     pub version: Option<String>,
+    /// The version this file **conforms to**, which is the ranking §12.7.8.3.1's Table 245 states
+    /// and not the entry alone.
+    ///
+    /// > If the header specifies a later version, or if this entry is absent, the document
+    /// > conforms to the version specified in the header.
+    ///
+    /// So the answer is the later of the two, and [`Self::version`] alone is the entry rather
+    /// than the meaning — a distinction that cost this row a session, because the sentence
+    /// stating it carries no modal verb and a sweep reading verbs cannot see it (ADR 0919).
+    /// §7.7.2's `/Version` against §7.5.2's header is the identical construction one clause
+    /// family over, and `Document::version` is where this tree already did it.
+    ///
+    /// `None` where the file states neither, which is a file that never said.
+    pub conforms_to: Option<pdf_syntax::Version>,
     /// Table 246's `/F`: "[t]he source file or target file", as the file spells it.
     ///
     /// A name for a person, not a path this program will open — the same position `/UF` and
@@ -437,11 +451,17 @@ impl FormsData {
             owed.push("/Annots: annotations belonging to no document, read and not drawn");
         }
 
+        let stated = document.get_key(&catalog, "Version");
+        let stated = stated.as_name();
         Ok(Self {
-            version: document
-                .get_key(&catalog, "Version")
-                .as_name()
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
+            version: stated.map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
+            conforms_to: match (
+                document.header_version(),
+                stated.and_then(|name| pdf_syntax::Version::parse(name.as_bytes())),
+            ) {
+                (Some(header), Some(entry)) => Some(header.max(entry)),
+                (header, entry) => header.or(entry),
+            },
             source: document
                 .get_key(&fdf, "F")
                 .as_string()
@@ -801,6 +821,52 @@ mod tests {
         assert_eq!(
             data.fields[0].value.as_ref().and_then(Object::as_string),
             Some(b"Ada".as_slice())
+        );
+    }
+
+    /// §12.7.8.3.1's Table 245 makes `/Version` a *ranking* against the header, and the sentence
+    /// that says so carries no modal verb.
+    ///
+    /// > If the header specifies a later version, or if this entry is absent, the document
+    /// > conforms to the version specified in the header.
+    ///
+    /// Three cases, because the rule has three answers and reading the entry alone gets two of
+    /// them wrong: an entry later than the header wins, an entry *earlier* than the header loses
+    /// to it, and a file stating no entry conforms to its header. The entry is still reported as
+    /// the file spells it — the ranking is a second answer, not a replacement (ADR 0919).
+    #[test]
+    fn the_version_an_fdf_conforms_to_is_the_later_of_its_header_and_its_entry() {
+        let read = |catalog: &str| -> FormsData {
+            let document = Document::open(
+                format!("%FDF-1.2\n1 0 obj\n<< /FDF << >> {catalog} >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n")
+                    .into_bytes(),
+            )
+            .expect("an FDF file");
+            FormsData::read(&document).expect("an FDF catalog")
+        };
+
+        let later = read("/Version /1.4");
+        assert_eq!(later.version.as_deref(), Some("1.4"));
+        assert_eq!(
+            later.conforms_to,
+            Some(pdf_syntax::Version { major: 1, minor: 4 }),
+            "the entry is later than the %FDF-1.2 header, so it is what the file conforms to"
+        );
+
+        let earlier = read("/Version /1.1");
+        assert_eq!(
+            earlier.conforms_to,
+            Some(pdf_syntax::Version { major: 1, minor: 2 }),
+            "the header is later, and the clause gives it to the header"
+        );
+
+        let absent = read("");
+        assert_eq!(absent.version, None);
+        assert_eq!(
+            absent.conforms_to,
+            Some(pdf_syntax::Version { major: 1, minor: 2 }),
+            "\"or if this entry is absent, the document conforms to the version specified in the \
+             header\""
         );
     }
 

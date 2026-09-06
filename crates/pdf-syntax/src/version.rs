@@ -47,7 +47,13 @@ impl Version {
     /// single EOL marker, where ' n ' is a single digit number between 0 (30h) and 9 (39h)" —
     /// so exactly one digit either side of the point, and anything else is not a version this
     /// can name. Being liberal here would invent a number the file does not state.
-    fn from_digits(after: &[u8]) -> Option<Self> {
+    ///
+    /// Public because the same two digits are what a *name* spells where a dictionary states a
+    /// version — Table 29's `/Version` and Table 245's `/Version` are both read through this, one
+    /// crate up, so the rule for what counts as a version lives in one place rather than in each
+    /// clause that needs one.
+    #[must_use]
+    pub fn parse(after: &[u8]) -> Option<Self> {
         let [major, b'.', minor, ..] = *after else {
             return match *after {
                 [major, b'.', minor] => digits(major, minor),
@@ -90,7 +96,7 @@ impl Document {
                 .windows(marker.len())
                 .position(|candidate| candidate == marker)
                 && let Some(after) = start.get(at.saturating_add(marker.len())..)
-                && let Some(version) = Version::from_digits(after.get(..3).unwrap_or(after))
+                && let Some(version) = Version::parse(after.get(..3).unwrap_or(after))
             {
                 return Some(version);
             }
@@ -113,7 +119,7 @@ impl Document {
         // writes a number instead has not stated the entry the table defines.
         let catalog_version = stated
             .as_name()
-            .and_then(|name| Version::from_digits(name.as_bytes()));
+            .and_then(|name| Version::parse(name.as_bytes()));
         match (header, catalog_version) {
             (Some(header), Some(catalog)) => Some(header.max(catalog)),
             (header, catalog) => header.or(catalog),
