@@ -1,0 +1,104 @@
+# CI: warnings are errors, tests run on a real (software) Vulkan adapter, and the
+# perf gate runs in release with timestamp-query numbers (CLAUDE.md principle 2).
+#
+# The runner has no GPU; mesa's lavapipe provides a Vulkan adapter (llvmpipe), which
+# is exactly the arrangement the consuming project's CI relies on. The cross-adapter
+# gate degrades to a one-adapter note here and does its real work on developer
+# machines, where RADV is also present.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show # respects rust-toolchain.toml
+      # `x11-apps` is for `xwd`: the presenter smoke test reads its own window back and
+      # asserts the pixels, so without it that gate cannot report a result at all (it
+      # fails loudly rather than passing quietly).
+      - name: Install lavapipe (software Vulkan), Xvfb and xwd
+        run: |
+          sudo apt-get update
+          # libxkbcommon-x11-0 is winit's X11 keymap path: the windowed examples
+          # (present_thread, window_smoke) dlopen it, and the runner image stopped
+          # shipping it — the panic is at startup, before any assertion runs.
+          sudo apt-get install -y mesa-vulkan-drivers xvfb x11-apps libxkbcommon-x11-0
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Clippy, all targets, warnings as errors
+        run: cargo clippy --workspace --all-targets
+      # A rustdoc warning is a published page with a dead reference on it, and seven of
+      # them accumulated unnoticed because nothing here ever ran rustdoc. `missing_docs`
+      # is already a compile error; this is the other half — the links between the items
+      # it forces to exist.
+      - name: Documentation builds without a warning
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Tests (unit, golden, byte-equality and refusal gates)
+        run: cargo test --workspace
+      - name: Perf gate (release, timestamp queries)
+        run: cargo test --release -p quorra-gpu --test perf_gate -- --nocapture
+      # ADR 0095's growth road, forced: the sabotage feature starts the persistent
+      # edge capacity at one edge so the first emit overflows and the re-run must
+      # draw the steady road's bytes. A separate step because the seam must never be
+      # compiled into anything else.
+      - name: Capacity growth re-runs and matches
+        run: cargo test --release -p quorra-gpu --features sabotage-capacity --test capacity_growth
+      # ADR 0060. `cargo test` neither builds nor runs an example, so every `assert!` in
+      # `examples/` was a comment until this step existed — and one of them had been
+      # panicking on `main` for two days when the round that added this found it. Each
+      # example accepts `--check`: the smallest configuration that executes every
+      # assertion it makes, printing no statistics, because a one-round wall clock is not
+      # a measurement and must not read like one.
+      #
+      # **The list below is a list, and a list drifts** (ADR 0059). `tests/example_checks.rs`
+      # reads this file and fails if an example exists that no line here names, so adding
+      # an example to `examples/` and not to this step fails the build rather than going
+      # unnoticed. Two of them need a window, which is why the whole step runs under Xvfb;
+      # `window_smoke` and `present_thread` are assertion harnesses that CI has run since
+      # ADR 0043 and ADR 0056, and they take `--check` as a no-op so that one loop can
+      # invoke every example the same way.
+      #
+      # Release, not debug: several of these draw a page of tens of thousands of marks
+      # through a software rasteriser, and the profile is shared with the perf gate above.
+      - name: Every example's assertions execute (--check)
+        run: |
+          set -euo pipefail
+          for example in \
+              encode_threads \
+              floor \
+              function_compile \
+              function_paint \
+              lane_placement \
+              outline_upload \
+              present_thread \
+              rect_lane \
+              residue_clip \
+              retained \
+              startup \
+              surface_measure \
+              window_smoke \
+              zoom
+          do
+            echo "== $example --check =="
+            xvfb-run -a cargo run --release -p quorra-gpu --example "$example" -- --check
+          done
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo-deny (licences, bans, advisories)
+        uses: EmbarkStudios/cargo-deny-action@v2

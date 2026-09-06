@@ -1,0 +1,350 @@
+# ADR 0070 — A mark the sample grid can miss keeps the processor lane
+
+Status: accepted, 2026-08-18. Adds a **fifth** condition to ADR 0026's lane chooser and
+turns `tests/thin_marks.rs`'s recorded gap into the requirement it only recorded. Declines
+the area rule of `doc/notes-thin-mark-options.md` §3, which is the other half of this
+decision and is written down here because a decision whose alternative's cost is not
+recorded has not been made.
+
+## Context
+
+ADR 0016's device lane counts samples on an ordered `√n × √n` grid, so it answers *is this
+sample point inside the shape* and never *does this shape intersect this pixel*. ISO 32000-2
+§10.7.4 asks for the second:
+
+> A shape shall be scan-converted by painting any pixel whose half-open square region
+> intersects the shape, no matter how small the intersection is. This ensures that no shape
+> ever disappears as a result of unfavourable placement relative to the device pixel grid, as
+> might happen with other possible scan conversion rules. The area covered by painted pixels
+> shall always be at least as large as the area of the original shape.
+
+A 0.1-device-pixel bar swept across ten sub-pixel positions therefore **drew nothing at six
+of them** on the device lane and two and a half times its own ink at the other four, where
+the processor lane drew 0.10196 at all ten — byte-identical on llvmpipe and RADV, so it is
+the design and not an adapter (`doc/notes-hayro-paints.md` §2).
+
+`doc/notes-thin-mark-options.md` costed the answers on 2026-08-18 and the owner took its
+§5.4. Three of its findings are the premises of this ADR and are not re-derived here:
+
+- **Drawing 0.25 where the shape covers 0.10196 is not a violation.** The clause's second
+  requirement is a floor — "at least as large as the area of the original shape" — and an
+  overshoot satisfies it. It is a fidelity cost against ADR 0005's choice, nothing more.
+- **Drawing nothing is a violation**, and the clause names the failure mode itself:
+  "unfavourable placement relative to the device pixel grid". The last sentence's exemption
+  is for zero-width strokes and reaches nothing here.
+- **The population is small and magnification shrinks it**: 35 marks on 7 pages of the
+  caller's 954-page corpus at scale 1, 26 on 2 pages at 4×, 16 on 1 page at 8× — because a
+  stroke's width arrives already resolved in device pixels and does not follow the viewport
+  — and the caller only reaches this lane past their `GPU_COVERAGE_MAGNIFICATION` of ten.
+
+## Decision
+
+### 1. A fifth condition, a peer of ADR 0026's four
+
+`Encoder::take_gpu_lane` gains: **a mark whose thin axis is below the device lane's own
+sample-column spacing keeps the processor lane**, whatever the four cost conditions would
+have said.
+
+### 2. The threshold is derived from `Options::coverage_samples`, not chosen
+
+`crate::winding::sample_offsets` puts `n` samples on a `√n × √n` grid with the k-th column at
+`(k + ½)/√n` of a pixel. Consecutive columns are `1/√n` apart, and **so is the wrap across a
+pixel boundary**: the last column of one pixel sits `1/(2√n)` from its right edge and the
+first column of the next `1/(2√n)` past it, because the grid is symmetric about the centre.
+The columns are therefore one lattice of period `1/√n` across the whole device — a half-open
+interval of that length contains a column wherever it lands, and one shorter than it has
+placements that contain none.
+
+So the threshold is `1/√coverage_samples`, in `encode/thin.rs::sample_column_spacing`, and it
+**moves with the option**. That field is public and settable; construction rounds it down to
+a square and clamps it to `4..=64`, so the grid's side is 2 to 8 and the threshold runs from
+**0.5 device pixels at four samples** to **0.125 at sixty-four**. The condition therefore
+narrows as a caller buys quality, which is the direction it must move in: more samples is a
+grid that misses fewer marks and so fewer marks that need the other lane. A caller who sets
+four samples pays for it in CPU rasterisation of everything under half a pixel; one who sets
+sixty-four is diverted only under an eighth.
+
+The spacing is computed **once per frame** into `Encoder::sample_spacing`, so the condition
+itself is one float comparison at each of the two call sites rather than a square root per
+mark.
+
+### 3. What "thin axis" means, in one place
+
+`encode/thin.rs::ThinAxis` is the only definition, and it is a newtype so the chooser cannot
+be handed a tile side or a stroke width by accident. It is the **smaller** of the bounds that
+apply to the mark:
+
+- **the narrower side of its device box.** The mark lies inside that box, so across that axis
+  it is nowhere wider. Exact for the axis-aligned rule a document draws most of its thin
+  marks with.
+- **a stroke's own resolved device width** (§8.4.3 with §8.4.3.2 and §10.7.5; §4.5 of the
+  brief settles it upstream). A stroke is nowhere wider than that across its path *at any
+  angle*, which is the bound a box cannot supply.
+
+Every bound is an **upper** bound on the mark's thickness, and where two apply the smaller is
+taken — because the two errors are not symmetric. Over-stating thinness costs a mark the
+device lane, which is CPU rasterisation for a mark that would have been drawn correctly
+anyway: a cost. Under-stating it leaves a mark on a lane that can lose it: a §10.7.4
+violation.
+
+### 4. The residual, stated here rather than discovered later
+
+**A hairline at 45° given as a fill is not covered.** A thin parallelogram submitted as a
+`Fill` has a device box far wider than the mark and no width of its own to be read instead,
+so it reads thick and keeps the device lane. It does not *vanish* there — it crosses many
+pixels and catches a sample column in some of them — it **dots**: uneven coverage along its
+length where the processor lane's would be even. The same shape of error, quieter: a curved
+mark's box here is its *control hull's*, which over-states a thin curve's extent.
+
+A 45° **stroke** is caught, because its own width bounds it at every angle. That asymmetry is
+the whole reason the stroke width is threaded through `push_coverage` at all, and
+`a_turned_hairline_stroke_is_declined_by_its_own_width` is what holds it.
+
+The corpus says the residual is small: `issue12810.pdf`'s 29 375 sub-quarter-pixel strokes
+are the corpus's largest such population and exactly **one** of them takes the device lane,
+and after the change no page outside the processor lane's own differing set remains
+(`doc/notes-thin-mark-options.md` §2.4, and the matrix below).
+
+**The second half of that sentence is wrong**, and the matrix below is where it is corrected:
+the re-measurement of 2026-08-18 finds the two lanes' scale-1 differing *counts* converging on
+23 while their *sets* still differ by two pages each way. The first half — the population — is
+unaffected, and the correction does not disturb the decision this ADR records.
+
+## The inversion this records, and its price
+
+ADR 0026's title is that the lane is chosen by what each lane would **cost**. This condition
+is not a cost comparison, and it is deliberately allowed to overrule one: it declines a lane
+that is cheaper for a mark it cannot represent. That is an inversion of that ADR's principle
+and it is recorded as one rather than folded in quietly.
+
+Its price is that those marks are rasterised on the CPU. Stated as a measurement rather than
+an expectation:
+
+- **The count is 35 marks at scale 1, 26 at 4× and 16 at 8×**, over the caller's whole
+  corpus, measured by the probe of `doc/notes-thin-mark-options.md` §2.1.
+- **Each of them is under a quarter of a device pixel across by construction**, so its tile
+  is one or two pixels wide and among the smallest the sheet ever holds.
+- **A count is the honest statement here, because this machine cannot measure the duration**
+  (`doc/HANDOVER.md`'s wall-clock trap, and ADR 0052's seam between "how many" and "how
+  fast"). Nothing in the corpus matrix below moved a refusal or a page's coverage
+  accounting, which is the arithmetic half that *is* machine-independent.
+
+The encode side pays one float comparison per solid fill and per stroke that reaches the
+chooser, and `Coverage::Cpu` — the caller's default — pays nothing at all: the setting test
+short-circuits ahead of it, as it did before.
+
+## What it buys, measured on the caller's corpus
+
+One copy of their tree taken 2026-08-18, base and change run in the same sitting against it,
+per-page lines compared rather than only the totals (`doc/HANDOVER.md`'s corpus trap).
+
+> **Re-measured 2026-08-18, not transcribed.** This section is a fresh run of all four rows,
+> taken after the round that wrote this ADR left `<<MATRIX>>` here unreplaced. Nothing below
+> comes from that round's report; the logs, the scripts and the raw per-page diffs are
+> `doc/notes-thin-mark-condition.md`. One claim of this ADR did not survive the re-run, and
+> it is corrected at the end of this section rather than quietly dropped.
+
+Base is `b5a09d7`, the mainline commit immediately before this ADR's merge `c443bc2`; change
+is `ada5e3f`. One copy of the caller's tree at `829d7faa`, both columns in the same sitting,
+the `[patch]` path flipped between them and nothing else touched.
+
+| lane, scale | base `b5a09d7` | change `ada5e3f` |
+|---|---|---|
+| `Coverage::Gpu`, scale 1 | 930 / 25 / 2 / 17 | **932 / 23 / 2 / 17** |
+| `Coverage::Cpu`, scale 1 | 932 / 23 / 2 / 17 | 932 / 23 / 2 / 17, all 25 page lines identical |
+| `Coverage::Gpu`, scale 4 | 939 / 10 / 3 / 22 | 939 / 10 / 3 / 22, one page line closer |
+| `Coverage::Cpu`, scale 4 | 938 / 11 / 3 / 22 | 938 / 11 / 3 / 22, all 14 page lines identical |
+
+*agree / differ / refused / not comparable*, over 974 documents at page one — 957 pages
+compared at scale 1 and 952 at 4×. The scale-1 device row is the whole of what this condition
+buys; the other three are the controls that say it bought it without costing anything
+elsewhere.
+
+**Every per-page line that moved, with its cause.** Three, and no others: the four rows'
+`differs`/`refused` lines are otherwise identical to the character between the columns.
+
+- **`bug1883609.pdf`, scale 1, device lane — differs → agree.** Base
+  `mean 0.4926 worst tile 2.99 at (160, 672) differing 0.0311 ssim 0.98615`; no line at all
+  in the change column.
+- **`vertical.pdf`, scale 1, device lane — differs → agree.** Base
+  `mean 0.1526 worst tile 9.38 at (0, 320) differing 0.0092 ssim 0.98572`; no line after.
+- **`issue12295.pdf`, scale 4, device lane — differs → differs, closer to the oracle.**
+  `mean 0.9517 → 0.9201`, `differing 0.0490 → 0.0473`, `ssim 0.95585 → 0.95881`, with
+  `worst tile 16.31 at (1792, 2208)` unchanged. It does not reach agreement, so the 4× totals
+  do not move — which is why a matrix of totals alone would have reported this row as null.
+
+The cause is the same one in all three and is a deduction from the diff rather than a guess:
+the only behavioural difference between the columns is the fifth condition, so a page that
+moved moved because a mark on it whose thin axis is below `1/√16 = 0.25` device pixels stopped
+taking the device lane. Re-run in isolation, the four scale-1 device-lane pages under
+discussion read **0 agree / 4 differ** at the base and **2 agree / 2 differ** at the change.
+
+**No refusal moved, in any row.** All three 4× refusals and both scale-1 refusals are
+byte-identical strings in both columns, which is the machine-independent half of this
+comparison: the diff between the two revisions is confined to `quorra-gpu`'s lane chooser and
+`quorra-scene` is untouched, so no refusal *could* move. The caller's `REFUSED_AT_FOUR` gate
+fails at 4× in **both** columns alike, on `bug1703683_page2_reduced.pdf` — which ADR 0057
+moved from refused to **drawn**, their outstanding re-baseline, and not a change of ours.
+
+> **The claim of §4 that did not survive this run.** "[A]fter the change no page outside the
+> processor lane's own differing set remains", repeated above from
+> `doc/notes-thin-mark-options.md` §2.4, is **false as stated**, and the totals are what hide
+> it: at scale 1 after the change both lanes name **23** pages, and they are not the same 23.
+>
+> - on the device lane and not the processor lane: `bug1863910.pdf`, `issue16500.pdf`
+> - on the processor lane and not the device lane: `bug1743245.pdf`, `issue21068.pdf`
+>
+> Neither of the first two is touched by this ADR — their lines are byte-identical in both
+> columns — so they are a residual of the device lane that the thin-mark condition does not
+> reach, rather than a regression it caused. The honest sentence is that **the count converges
+> and the set does not**, and the four names above are where a later round should start if it
+> wants the set to converge too.
+
+> **Corrected 2026-08-18.** One further thing about this section, found by the round that
+> settled the refusal and left in place rather than rewritten.
+>
+> **This round's report explained its scale-4 exit 101 by saying the caller's `REFUSED_AT_FOUR`
+> "does not list `issue18032.pdf`, which ADR 0069 began refusing two commits before mine".
+> Both halves are wrong.** That ratchet does list `issue18032.pdf`, and has since the caller's
+> five-hundred-and-twelfth session (their ADR 0327, 2026-08-08, eight days before ADR 0069);
+> the page is refused by `render-quorra`'s own §11.4.6 check *before* a `quorra_scene::Scene`
+> is built, so `SceneError::KnockoutElementGroupUnsupported` cannot reach it, and its message
+> appears nowhere in either column. The one element of the failing assertion's difference is
+> `bug1703683_page2_reduced.pdf`, which ADR 0057 moved from **refused to drawn** — the
+> opposite direction, and the caller's outstanding re-baseline that the three matrices before
+> this one already record. **No corpus page moved from drawn to refused.** Evidence, both
+> revisions in one copy of their tree at `829d7faa`:
+> `doc/notes-release-matrix.md`, "A refusal that did not move".
+
+## Why the area rule was declined
+
+`doc/notes-thin-mark-options.md` §3 sketched an exact-area rule on the device lane, and §4
+priced what it does to public API. It is not built, and the reasons are recorded here because
+this ADR is where a later round will look for them.
+
+- **It costs ADR 0016 its reason for existing.** Loop and Blinn's `u² < v` answers *inside or
+  outside at a point*; it is a sample test by construction, so an area rule cannot use it.
+  The realistic form of the rule flattens to a device-space tolerance instead — and ADR 0016's
+  own sentence is "**Nothing in that depends on the device scale.** That is the whole point,
+  and the difference from `raster.rs`, whose flattening tolerance is in device pixels."
+  Flattening per frame at a device tolerance is exactly the 6.8 ms-a-frame cost ADR 0015
+  measured at 20× and exactly what a zoom gesture defeats.
+- **It trades the one fidelity advantage the device lane has for the one it lacks.** ADR 0016
+  measured the lanes differing by up to 96 of 255 on a curved edge **with the processor lane
+  wrong**, because a chord cuts inside a convex curve at `FLATTEN_TOLERANCE`'s quarter pixel.
+  An area rule that flattens inherits that error.
+- **It is a milestone, not a round**: a new pipeline pair, a new shader, a new vertex format,
+  ADR 0026's criterion re-derived for flattened edges, ADR 0006's cross-adapter identity
+  re-measured (the current promise is protected by the accumulation being *integer*; an area
+  accumulation is float), and a corpus run.
+- **It makes `Options::coverage_samples` meaningless, which is public API** (§4 of the notes):
+  under an area rule there are no samples, so the field must be deprecated, made to select
+  between two lanes, or refuse a non-default value — each of them a decision, and one of them
+  a `Report` for a field that was legal in the previous release.
+- **And the condition already reaches the whole of the visible prize.** The matrix above is
+  the processor lane's own verdict for that scale; an area rule would arrive at the same
+  place at that price.
+
+What would overturn it is in the notes' §6 and is not re-stated: a page from the caller's
+*product*, past magnification ten, where a sub-quarter-pixel mark is a material part of what
+a frame shows. The corpus's answer today is one page.
+
+ADR 0064's objection to sending rare paints to the device — that magnification would put
+shading-painted text on this grid — is **not** dissolved by this ADR: that arm never asks
+`take_gpu_lane` at all, so nothing here changes what a rare paint does. It would be dissolved
+by an area rule, and the notes price what that unlocks at 0.11 % of a frame's coverage at
+scale 1 and 0.63 % at 4×, with 82 % of rare-painted coverage still behind the residue
+multiply that neither change touches.
+
+## What holds it
+
+In `crates/quorra-gpu/tests/thin_marks.rs`, on a device, and in `encode/thin.rs`'s own unit
+tests for the arithmetic:
+
+- `a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes` — the clause on
+  **both** lanes: every sub-pixel width in the file's sweep, at ten sub-pixel positions, on
+  `Coverage::Cpu` and `Coverage::Gpu`. Below the spacing it also requires the ink to be the
+  shape's exact area to one 8-bit rounding, which is the stronger claim: not "the device lane
+  got better" but "the mark is drawn by the producer that can draw it".
+- `the_lane_is_declined_exactly_below_the_sample_spacing` — the lane itself, read from
+  `Counters::bytes_uploaded` rather than from pixels. A fixture whose subject is a lane choice
+  must assert the lane (`doc/HANDOVER.md`'s `m45.rs` trap), and one whose subject is a
+  *difference* must measure the rejected reading and require it to miss
+  (`tests/mask_shape_or_opacity.rs`'s pattern): the bar **at** the spacing must still take the
+  device lane, so a condition that declined every thin mark fails here.
+- `a_turned_hairline_stroke_is_declined_by_its_own_width` — the half of `ThinAxis` a box
+  cannot reach, with the box-only reading measured and required to miss.
+- `encode::thin::tests` — the spacing at every sample count the option admits including both
+  ends of the clamp, the boundary being *below* rather than *at*, the stroke width being read
+  where it is the narrower bound, and a non-finite thin axis declining nothing.
+
+**The instrument, and why it needs no constant.** The processor lane *uploads* its rasterised
+tile into the sheet; the device lane draws its own and uploads a winding target instead. So
+for one scene and one viewport `Coverage::Gpu` reports **exactly** the `Coverage::Cpu` figure
+when no mark took the device lane, and strictly more when one did — an equality and a strict
+inequality, rather than a threshold read off a run.
+
+### The defects those gates were forced to catch
+
+> **Re-forced 2026-08-18, not described.** The round that wrote this ADR left `<<DEFECTS>>`
+> here unreplaced. Each defect below was put back into the tree one at a time on `ada5e3f`,
+> `cargo test --workspace --release --no-fail-fast` was run with it in place, and the column
+> on the right is **what actually went red** rather than what should have. The defect was
+> reverted before the next; the tree is clean. Logs: `doc/notes-thin-mark-condition.md` §3.
+>
+> `--no-fail-fast` is not decoration. Without it cargo stops after the first failing test
+> binary, and the first attempt at defect 1 reported one red test where three are.
+
+| # | the defect, forced | what went red |
+|---|---|---|
+| 1 | `ThinAxis::can_fall_between_sample_columns` compares `<=` instead of `<`, so a mark **at** the spacing is declined too | `encode::thin::tests::a_mark_at_exactly_the_spacing_is_not_declined`, `the_lane_is_declined_exactly_below_the_sample_spacing`, `a_turned_hairline_stroke_is_declined_by_its_own_width` |
+| 2 | the fifth condition deleted from `take_gpu_lane` — the behaviour of the base revision | `a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes`, `the_lane_is_declined_exactly_below_the_sample_spacing`, `a_turned_hairline_stroke_is_declined_by_its_own_width` |
+| 3 | `ThinAxis::of` reads the device box only, dropping the stroke width | `encode::thin::tests::a_strokes_width_is_read_where_it_is_thinner_than_the_box`, `a_turned_hairline_stroke_is_declined_by_its_own_width` |
+| 4 | `sample_column_spacing` returns a written-down `0.25` instead of `1/√n` | `encode::thin::tests::the_spacing_is_one_over_the_grids_side_at_every_admitted_sample_count`, **and nothing else** |
+| 5 | the non-finite answer inverted, `!(self.0 >= spacing)` — a `NaN` thin axis now **declines** the lane | **nothing. the whole workspace stayed green** |
+| 6 | `encode_stroke` passes `None` for the width, leaving `ThinAxis` correct and the wiring wrong | `a_turned_hairline_stroke_is_declined_by_its_own_width`, **and nothing else** |
+
+Defect 2 is the one worth reading the message of, because it is the clause failing in the
+words of the clause:
+
+```
+Gpu at 20, width 0.125: the mark disappeared. §10.7.4: painting any pixel the shape
+intersects "ensures that no shape ever disappears as a result of unfavourable placement
+relative to the device pixel grid"
+```
+
+**Three things the table says that a list of gates does not.**
+
+- **The arithmetic and the wiring are held by different tests, and each is held by only
+  one kind.** Defect 2 (wiring removed) turns no unit test red; defect 6 (wiring wrong at one
+  call site) turns *only* an on-device fixture red. `doc/HANDOVER.md`'s "plumbing at zero"
+  trap is about exactly this seam, and the fixtures are what stand on it.
+- **Defect 4 has a single witness, and it is on paper.** Nothing in this tree renders with
+  `Options::coverage_samples` away from sixteen, so the claim that the threshold *follows the
+  option* rests on `encode::thin::tests` alone. That is this ADR's "Revisit when" second
+  bullet, restated as a measurement: it is not that a non-default sample count is untested,
+  it is that it is untested **on a device**.
+- **Defect 5 did not fail, and the gate it should have failed is defective.**
+  `a_non_finite_thin_axis_declines_nothing` passes for a reason that is not the one its name
+  gives. Its fixture is `ThinAxis::of((0.0, 0.0, f32::NAN, 10.0), None)`, and `f32::min` is
+  IEEE 754's `minNum`: it *discards* a `NaN` operand, so `(NaN).min(10.0)` is `10.0` and the
+  thin axis is a finite ten pixels — forty times the spacing. The test therefore asserts that
+  a mark ten pixels across is not thin, which every implementation of this condition satisfies.
+  The property it means to assert **is** true of the shipped code, since `self.0 < spacing` is
+  false for a `NaN`; what is missing is a fixture that can produce one, which needs *both*
+  extents non-finite — `(0.0, 0.0, f32::NAN, f32::NAN)`, whose `across` is a genuine `NaN`
+  and which separates `<` from `!(>=)`. Recorded here rather than fixed, because the round
+  that found it was a documentation round; it is the next round's one-line change.
+
+## Revisit when
+
+- **ADR 0026's criterion is re-derived** (its own "Revisit when": the winding-texture banding
+  changes what the device lane costs for a large tile). This condition sits ahead of that
+  comparison and is unaffected by its outcome, but the *order* of the five should be re-read
+  when the four change.
+- **A caller sets `coverage_samples` away from sixteen in earnest.** The threshold follows the
+  option by construction, but the corpus matrix above was taken at sixteen and the population
+  it measures is a function of the threshold.
+- **The 45° filled hairline stops being a residual.** The instrument is
+  `doc/notes-thin-mark-options.md` §2.1's probe with the thin axis taken from the mark's own
+  geometry rather than its box; it costs minutes, and today's answer is one corpus mark.

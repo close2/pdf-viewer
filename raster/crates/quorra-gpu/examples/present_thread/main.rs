@@ -1,0 +1,675 @@
+//! **The proof of ADR 0056**: a page rendered on one thread while the window is
+//! presented from another, and the pixels read back to show where the affine put them.
+//!
+//! This is the surface path's second smoke test and it exists for the reason §10.4 of
+//! the brief gives for the first one — "no gate we have turns a page and every defect of
+//! three consecutive sessions lived there". A `Presenter` that compiles and is `Send` is
+//! not evidence of anything; a window whose pixels are where a non-identity affine says
+//! they are, produced while a `&mut Device` was busy on another thread, is.
+//!
+//! Run headless, which is what CI does:
+//!
+//! ```text
+//! xvfb-run -a cargo run -p quorra-gpu --example present_thread
+//! ```
+//!
+//! `QUORRA_PRESENT_ADAPTER` picks the adapter. `xwd` (Debian/Ubuntu: `x11-apps`) must be
+//! present — the example reads its own window back and fails loudly without it.
+//!
+//! **It needs an X11 window, and on a Wayland session that has to be asked for.** `xwd` is
+//! an X11 client and can only see X11 windows; winit prefers Wayland whenever
+//! `WAYLAND_DISPLAY` is set, and the window it then opens is invisible to the whole X
+//! tree — not renamed, not reparented, *absent*, which is why the failure reads as a
+//! window that does not exist. Run it with `WAYLAND_DISPLAY` unset so that winit takes the
+//! X11 backend and the compositor's `XWayland` server puts the window on the same display at
+//! the same refresh:
+//!
+//! ```text
+//! env -u WAYLAND_DISPLAY cargo run --release -p quorra-gpu --example present_thread
+//! ```
+//!
+//! # What it asserts, in the order it does
+//!
+//! 1. A device built for a surface hands out **one** presenter, and a second ask gets
+//!    `None`.
+//! 2. That presenter refuses to present **by name** before it is told a size, and again
+//!    when the size it is told has no pixels in it — rather than configuring a swapchain
+//!    for a window nobody described.
+//! 3. The device — now on another thread — refuses `Target::Surface` with
+//!    `PresenterDetached`, and goes on rendering into a host texture.
+//! 4. A present **returns while that render is still in flight**, on the main thread —
+//!    an ordering the render thread publishes and the presenting one reads, rather than a
+//!    count of presents whose value a scheduler decides (ADR 0071).
+//! 5. The finished page goes on the window under a 2× placement offset by (64, 32),
+//!    with the chrome over it at the identity, and every sampled pixel is where those
+//!    two affines put it — including the strip the page does not reach, which is the
+//!    assertion that would pass at the identity and must not, and the page's own first
+//!    row and column, which is the rectangle ADR 0058 draws seen from both sides.
+//! 6. The same page presented under `ImageFilter::Linear` — the sampler branch, whose
+//!    normalised coordinates nothing else here exercises — still lands where the affine
+//!    says, and alone on the window, because a slice is what is shown and not what was.
+//! 7. The presenter is refused by a device that did not hand it out, and comes back
+//!    intact inside the refusal.
+//! 8. Attached to its own device, `Target::Surface` draws again, and the window shows a
+//!    picture the presenter could not have produced.
+//! 9. `PresentCost` says what it should: two layers, a swapchain configured once, and
+//!    **no pipeline compiled** — the presenting pass was in the warm set (ADR 0043,
+//!    ADR 0056), which is the end-to-end half of "detaching compiles nothing".
+//! 10. The caller's own four-layer arrangement costs the fragments ADR 0058 counted —
+//!     exact arithmetic, no window and no adapter in it (`arrangement`).
+//! 11. And, at a display that states its own refresh, what the split is worth: how many
+//!     presents land while a render holds the device, whether each made its refresh, and
+//!     how many copies of that arrangement one present can carry before it stops (`rate`).
+//!     Steps 10 and 11 come last because 11 resizes the window, and every pixel assertion
+//!     above is stated in the size the window was opened at.
+//!
+//! # When each of those pixels is read
+//!
+//! Every capture above goes through [`settle`], which presents until **two consecutive
+//! captures agree on something other than what the window was last proven to show**, and
+//! refuses by name when they never do. It replaces a 300 ms wall clock that stood in for a
+//! synchronisation which, at this seam, does not exist — `settle`'s module comment says
+//! what was looked for and why none of it is reachable. The wall clock failed once in five
+//! real-display runs by reading step 6 one present behind
+//! (`doc/notes-present-rate.md` §4, `doc/notes-present-settle.md`).
+
+// An example's arithmetic is window coordinates, byte offsets inside a file it just
+// read, and small counts — all bounded and all exact in the types they use, where the
+// library's own lints are stricter because its inputs are not. `expect` and `panic` are
+// the policy every example in this tree follows: a proof that cannot run must fail
+// loudly rather than report success.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
+)]
+
+mod arrangement;
+mod fixture;
+mod rate;
+mod settle;
+mod xwd;
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use quorra_gpu::{Device, Layer, Options, PresentCost, Presenter, RenderError, Target, Viewport};
+use quorra_scene::{Affine, Color, ImageFilter};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::platform::pump_events::EventLoopExtPumpEvents;
+use winit::window::{Window, WindowId};
+
+/// The window's title, which is also how `xwd` finds it.
+const TITLE: &str = "quorra presenter thread";
+
+/// The page's placement on the window: two device pixels per page texel, offset so that
+/// a strip of the window is left uncovered. Both halves matter — the scale is what a
+/// filter has to answer for, and the offset is what makes "the page is everywhere"
+/// distinguishable from "the page is where the affine says".
+const SCALE: f32 = 2.0;
+const OFFSET: (f32, f32) = (64.0, 32.0);
+
+/// ADR 0006's store-conversion bound, which is what a colour is allowed to differ by
+/// between what the scene stated and what the window shows.
+const TOLERANCE: u8 = 2;
+
+/// How long the render phase's thread goes on rendering while it waits for the presenting
+/// thread to take its proof.
+///
+/// A **stopping rule rather than a measurement** — `rate::CADENCE_SPAN` is the same shape —
+/// and it exists so that a present which *cannot* proceed while the device is held fails
+/// this phase instead of hanging it. A healthy run never reaches it: the loop stops after
+/// the render it is inside as soon as the proof is taken, so the phase costs one render,
+/// which is what it cost before ADR 0071. The value is an order of magnitude above the
+/// slowest present this machine has been observed to complete under deliberate load —
+/// 25.4 ms at load 36.9 (`doc/notes-present-settle.md` §5).
+const RENDER_HOLD_CEILING: Duration = Duration::from_millis(300);
+
+/// `--check` is accepted and changes nothing: this example is already an assertion
+/// harness that runs its whole set once, and CI has run it since ADR 0056. It is
+/// accepted so that every example takes the same invocation (ADR 0060).
+fn main() {
+    let check = std::env::args().any(|arg| arg == "--check");
+    if check {
+        eprintln!(
+            "check: the pixel proof is already its own smallest run; the rate phase runs one"
+        );
+    }
+    // Before anything opens a window, because it needs none and a gate that can run
+    // without a display must not be able to hide behind one.
+    settle::the_criterion_refuses_a_stale_window();
+    let mut display = Display::open();
+    let options = Options {
+        adapter: std::env::var("QUORRA_PRESENT_ADAPTER").ok(),
+        ..Options::default()
+    };
+    let mut device =
+        Device::for_surface(Arc::clone(&display.window), &options).expect("surface device");
+    eprintln!("present_thread on {}", device.description());
+    // Waited for on purpose: it is what makes assertion 9 mean something. The warm set
+    // of a device built for a surface includes the presenting pass, so a present that
+    // reports a compile after this line is a regression in ADR 0056's warm-set decision.
+    device.wait_until_warm();
+
+    let (window_width, window_height) = fixture::WINDOW;
+    let chrome = fixture::layer_texture(&device, fixture::WINDOW, "chrome");
+    let page = fixture::layer_texture(&device, fixture::PAGE, "page");
+    device
+        .render(
+            &fixture::chrome(),
+            &Viewport::full(window_width, window_height, Affine::IDENTITY),
+            Target::Texture(&chrome),
+        )
+        .expect("the chrome renders into a host texture");
+
+    let mut presenter = device
+        .detach_presenter()
+        .expect("a surface device hands one out");
+    assert!(
+        device.detach_presenter().is_none(),
+        "a device hands out one presenter, and the second ask gets nothing"
+    );
+    assert!(
+        presenter.last().is_none(),
+        "a presenter that has presented nothing says so"
+    );
+    match presenter.present(&[]) {
+        Err(RenderError::PresenterUnsized) => {}
+        other => panic!("a presenter with no size must refuse by name, got {other:?}"),
+    }
+    // A minimised window: a state rather than an error, and the present that meets it is
+    // refused by name rather than configuring a swapchain with no pixels in it.
+    presenter.resize(0, window_height);
+    match presenter.present(&[]) {
+        Err(RenderError::ZeroSizeTarget { target: "Surface" }) => {}
+        other => panic!("a window with no pixels must refuse by name, got {other:?}"),
+    }
+    presenter.resize(window_width, window_height);
+
+    let device = render_on_another_thread_while_presenting(device, &page, &chrome, &mut presenter);
+
+    // The chain's first link (`settle`): the window is erased to the presenter's own clear
+    // and that erase is *proven* to have landed, so every capture below has a baseline it
+    // must differ from and a stale read is a read of the clear.
+    let mut settled = settle::Settle::erased(&mut display, || {
+        present_or_retry(&mut presenter, &[]);
+    });
+
+    let placement = Affine::scale(SCALE, SCALE).then(Affine::translate(OFFSET.0, OFFSET.1));
+    let layers = [
+        Layer {
+            texture: &page,
+            placement,
+            filter: ImageFilter::Nearest,
+        },
+        Layer {
+            texture: &chrome,
+            placement: Affine::IDENTITY,
+            filter: ImageFilter::Nearest,
+        },
+    ];
+    let shot = settled
+        .converge(&mut display, "the page under the chrome", || {
+            present_or_retry(&mut presenter, &layers);
+        })
+        .unwrap_or_else(|why| panic!("{why}"));
+    check_the_affine_landed(shot);
+    check_the_cost(&presenter.last().expect("two layers were just presented"));
+    check_the_other_filter_runs(&mut display, &mut settled, &mut presenter, &page, placement);
+
+    // Steps 10 and 11, on the window this proof already owns rather than on a second one:
+    // what the split is worth at the display's own refresh. Last, because it resizes the
+    // window and every pixel assertion above is stated in the size it was opened at.
+    let device = rate::measure(&mut display, device, &mut presenter, check);
+
+    // The rate phase resized the window and left an arrangement on it, so the chain starts
+    // again at the new size rather than continuing across it: a baseline captured at
+    // 640 x 480 is one every capture differs from for the wrong reason.
+    let mut settled = settle::Settle::erased(&mut display, || {
+        present_or_retry(&mut presenter, &[]);
+    });
+    let mut device = give_it_back(device, presenter, &options);
+    draw_through_the_surface_again(&mut display, &mut settled, &mut device);
+
+    println!("present_thread: the window is where the affine says, on both paths");
+}
+
+/// The one fact the render phase's two threads share, and the two flags it is made of.
+///
+/// Both are written by one thread and read by the other, which is why they are atomics and
+/// not a mutex: neither thread ever waits on the other, and a thread that waits is a thread
+/// this phase is trying to prove it does not have to be.
+struct RenderHold {
+    /// True from just before the first render begins until just after the last one
+    /// returns — "the device is busy on the other thread, right now".
+    holding: AtomicBool,
+    /// Set by the presenting thread once it has its proof, so that a healthy run pays one
+    /// render rather than [`RENDER_HOLD_CEILING`].
+    proven: AtomicBool,
+}
+
+/// Steps 3 and 4: the device goes to another thread, refuses `Target::Surface` by name,
+/// renders the page into a host texture — and the main thread presents while it does.
+///
+/// # What proves the "while", and why it is not a count of presents
+///
+/// This gate read `presents >= 2` until ADR 0071. That means "at least one present
+/// completed while the render was still running", which is the right property measured with
+/// the wrong instrument: **the number of presents that fit a span is `span / refresh`, and
+/// the span is a wall clock on a shared machine.** It refused 3 of 18 real-display runs at
+/// load 36.9 to 55.8 — twice because the presenting thread could not be scheduled (one
+/// present in 25.4 ms, three refreshes), and once because the render itself took 6.4 ms,
+/// *less than one refresh*, so one present was the arithmetically correct answer and the
+/// assertion was wrong about its own subject (`doc/notes-present-settle.md` §5).
+///
+/// What replaces it is an **ordering**. The render thread renders back-to-back and says so
+/// in [`RenderHold::holding`]; the proof is that a present *returned* while that flag was
+/// still up. The regression this phase exists to catch is a present that cannot proceed
+/// while the device is held elsewhere, and such a present could only return after the loop
+/// had put the flag down — so the gate still fails for its own regression, and it fails by
+/// name rather than hanging, because the loop is bounded. No count of refreshes decides it,
+/// and a scheduler that starves either thread now costs latency rather than a verdict.
+fn render_on_another_thread_while_presenting(
+    mut device: Device,
+    page: &wgpu::Texture,
+    chrome: &wgpu::Texture,
+    presenter: &mut Presenter,
+) -> Device {
+    let (started, has_started) = mpsc::channel();
+    let hold = Arc::new(RenderHold {
+        holding: AtomicBool::new(false),
+        proven: AtomicBool::new(false),
+    });
+    let page_for_render = page.clone();
+    let hold_for_render = Arc::clone(&hold);
+    let render = thread::spawn(move || {
+        let viewport = Viewport::full(fixture::PAGE.0, fixture::PAGE.1, Affine::IDENTITY);
+        // Built once, and *before* the flag goes up, so that what `holding` covers is the
+        // device's work and not this thread's: `fixture::page()` is 18 000 rectangles, and
+        // a proof that a present overlapped a scene build would be a proof about nothing.
+        let scene = fixture::page();
+        match device.render(&scene, &viewport, Target::Surface) {
+            Err(RenderError::PresenterDetached) => {}
+            other => panic!("a detached device must refuse Target::Surface by name, got {other:?}"),
+        }
+        started.send(()).expect("the main thread is waiting");
+        let began = Instant::now();
+        let mut renders = 0_u32;
+        let mut first = Duration::ZERO;
+        hold_for_render.holding.store(true, Ordering::Release);
+        loop {
+            device
+                .render(&scene, &viewport, Target::Texture(&page_for_render))
+                .expect("the page renders into a host texture while the window is presented");
+            renders += 1;
+            if renders == 1 {
+                first = began.elapsed();
+            }
+            if hold_for_render.proven.load(Ordering::Acquire)
+                || began.elapsed() >= RENDER_HOLD_CEILING
+            {
+                break;
+            }
+        }
+        hold_for_render.holding.store(false, Ordering::Release);
+        (device, renders, first, began.elapsed())
+    });
+
+    has_started.recv().expect("the render thread started");
+    let chrome_only = [Layer {
+        texture: chrome,
+        placement: Affine::IDENTITY,
+        filter: ImageFilter::Nearest,
+    }];
+    presenter
+        .present(&chrome_only)
+        .expect("presenting while the device renders elsewhere");
+    // Read *after* the present returned, which is the whole ordering. A present that had
+    // waited for the device could not be here before the loop below put the flag down.
+    let held_across_a_present = hold.holding.load(Ordering::Acquire);
+    // Either way: the render thread has nothing left to prove and is told to stop, so a
+    // failing run costs one more render rather than the ceiling.
+    hold.proven.store(true, Ordering::Release);
+    let (device, renders, first, spent) = render.join().expect("the render thread finished");
+    // Printed rather than asserted, because all three are wall clocks on a machine running
+    // a test suite: what one render of the fixture costs, and how long the thread went on
+    // holding the device before the proof reached it. `rate::cadence` is where the presents
+    // *per* render are counted, at a display that states its own refresh.
+    println!(
+        "a present returned while the device was held elsewhere: {held_across_a_present} \
+         ({renders} renders in {spent:?}, the first of them {first:?})"
+    );
+    assert!(
+        held_across_a_present,
+        "the point of the split is presenting during a render: the present returned only \
+         after the render thread had stopped, having completed {renders} renders in {spent:?}"
+    );
+    device
+}
+
+/// Step 5's pixels: every sampled point, and why it is that colour.
+///
+/// The capture is handed in rather than taken here, because *when* it was taken is the
+/// whole question: [`settle`] proves it is the window as it is and not as it was, which is
+/// what the 300 ms wall clock this replaces could not (`doc/notes-present-rate.md` §4).
+fn check_the_affine_landed(shot: &xwd::Shot) {
+    assert_eq!(
+        shot.size(),
+        (fixture::WINDOW.0 as usize, fixture::WINDOW.1 as usize),
+        "the window `xwd` found is not the size this example asked for"
+    );
+    let page_pixel = |x: f32, y: f32| -> (usize, usize) {
+        // Where a page texel's centre lands on the window, which is the placement
+        // applied forwards — the assertion is that the shader's inverse agrees.
+        (
+            (x * SCALE + OFFSET.0) as usize,
+            (y * SCALE + OFFSET.1) as usize,
+        )
+    };
+    // Outside the page and outside the chrome: the clear, which is transparent (§3) and
+    // which an opaque X visual shows as black. **This is the assertion that fails at the
+    // identity**, where the page would cover the window's top-left corner.
+    same(
+        shot.at(8, 8),
+        [0, 0, 0],
+        "the strip the page does not reach",
+    );
+    // The page's field, at a page texel outside its mark.
+    let (x, y) = page_pixel(68.0, 84.0);
+    same(shot.at(x, y), rgb(fixture::FIELD), "the page's field");
+    // The page's mark, whose position on the window is the whole question.
+    let (x, y) = page_pixel(130.0, 90.0);
+    same(shot.at(x, y), rgb(fixture::MARK), "the page's mark");
+    // One pixel to the left of the mark's left edge, which at any other scale or offset
+    // would be inside it: 100 × 2 + 64 = 264, so 263 is field and 264 is mark.
+    same(
+        shot.at(263, 152),
+        rgb(fixture::FIELD),
+        "just left of the mark",
+    );
+    same(
+        shot.at(264, 152),
+        rgb(fixture::MARK),
+        "the mark's left edge",
+    );
+    // The chrome, over the page, at the identity.
+    same(shot.at(620, 460), rgb(fixture::CHROME), "the chrome's mark");
+    check_the_pages_own_edges(shot);
+}
+
+/// **ADR 0058's seam**: the page's first covered pixel and the one beside it.
+///
+/// The present pass draws each layer's own rectangle rather than the whole window, so
+/// there is now a boundary in the *geometry* where before there was only one in the
+/// fragment stage's arithmetic — and a rectangle one pixel too small is a page missing
+/// its outermost row, which no interior sample can see. These four points are that
+/// boundary from both sides: the placement puts page texel (0, 0) at device (64, 32), so
+/// column 64 and row 32 are the page's own first pixel and column 63 and row 31 are the
+/// window's clear.
+///
+/// It is the same argument the mark's left edge makes about the *affine*, made about the
+/// rectangle that is now drawn: the interior assertions above pass under a bound that is
+/// too small by a pixel, and these do not.
+fn check_the_pages_own_edges(shot: &xwd::Shot) {
+    same(shot.at(63, 100), [0, 0, 0], "one pixel left of the page");
+    same(
+        shot.at(64, 100),
+        rgb(fixture::FIELD),
+        "the page's left edge",
+    );
+    same(shot.at(200, 31), [0, 0, 0], "one pixel above the page");
+    same(shot.at(200, 32), rgb(fixture::FIELD), "the page's top edge");
+}
+
+/// The filter's other branch, run rather than only compiled.
+///
+/// `ImageFilter::Linear` goes through the hardware sampler, whose coordinates are
+/// normalised where the shader's arithmetic is in texels — a division by the layer's
+/// extent that nothing else in this example exercises, and that a wrong denominator
+/// would turn into a picture rather than an error. Sampling well inside a region is what
+/// makes the assertion about *where* rather than about interpolation: at a 2× placement
+/// the interior of the mark is the mark's colour under either filter, and reading the
+/// field there instead would mean the sampler was pointed somewhere else entirely.
+fn check_the_other_filter_runs(
+    display: &mut Display,
+    settled: &mut settle::Settle,
+    presenter: &mut Presenter,
+    page: &wgpu::Texture,
+    placement: Affine,
+) {
+    let smoothed = [Layer {
+        texture: page,
+        placement,
+        filter: ImageFilter::Linear,
+    }];
+    // **The capture that failed once in five real-display runs.** It read the previous
+    // present, which still carried the chrome — and that picture is exactly what `settled`
+    // now holds as this window's proven contents, so a capture of it is refused rather
+    // than asserted against.
+    let shot = settled
+        .converge(display, "the page under a linear filter, alone", || {
+            present_or_retry(presenter, &smoothed);
+        })
+        .unwrap_or_else(|why| panic!("{why}"));
+    same(shot.at(324, 212), rgb(fixture::MARK), "the mark, sampled");
+    same(shot.at(200, 200), rgb(fixture::FIELD), "the field, sampled");
+    // And the chrome is gone, because this present did not carry it: a slice is what is
+    // on the window, not what was on it last time.
+    same(
+        shot.at(620, 460),
+        rgb(fixture::FIELD),
+        "where the chrome was",
+    );
+}
+
+/// Step 9: what the presenter says the last present cost.
+fn check_the_cost(cost: &PresentCost) {
+    assert_eq!(cost.layers, 2, "two layers were presented");
+    assert!(
+        cost.compiled.is_none(),
+        "the presenting pass is in the warm set of a device built for a surface \
+         (ADR 0043, ADR 0056); this present compiled it inline instead, in {:?}",
+        cost.compiled
+    );
+    assert!(
+        !cost.reconfigured,
+        "the swapchain was configured by the first present and must not be replaced again \
+         while the window's size has not changed"
+    );
+}
+
+/// Step 7 and the attach: a device that did not hand this presenter out refuses it, and
+/// hands it back rather than consuming it — then its own device takes it.
+fn give_it_back(device: Device, presenter: Presenter, options: &Options) -> Device {
+    let mut stranger = Device::headless(options).expect("a second device");
+    let refused = stranger
+        .attach_presenter(presenter)
+        .expect_err("a headless device did not hand this presenter out");
+    eprintln!("a foreign attach was refused: {refused}");
+    let presenter = refused.into_presenter();
+    let mut device = device;
+    device
+        .attach_presenter(presenter)
+        .expect("the device that handed it out takes it back");
+    device
+}
+
+/// Step 8: `Target::Surface` draws again, and the window proves it.
+///
+/// The window's size is asked for rather than assumed: the rate phase resizes it, and a
+/// viewport smaller than its target would leave the rest of the window transparent
+/// (ADR 0039) — a picture that looks like a defect and is not one.
+///
+/// The same criterion as every other capture here, driven by a `Device::render` instead of
+/// a `Presenter::present` — which is the reason [`settle`] takes a closure and knows about
+/// neither.
+fn draw_through_the_surface_again(
+    display: &mut Display,
+    settled: &mut settle::Settle,
+    device: &mut Device,
+) {
+    let (width, height) = display.size();
+    let viewport = Viewport::full(width, height, Affine::IDENTITY);
+    let scene = fixture::through_the_surface((width, height));
+    let shot = settled
+        .converge(
+            display,
+            "a frame drawn through Target::Surface",
+            || match device.render(&scene, &viewport, Target::Surface) {
+                Ok(_) | Err(RenderError::SurfaceUnavailable { .. }) => {}
+                Err(other) => {
+                    panic!("Target::Surface must work once the presenter is back: {other:?}")
+                }
+            },
+        )
+        .unwrap_or_else(|why| panic!("{why}"));
+    // A full-window field the presenter never had a layer for, over a window the erase
+    // above *proved* was blank: this pixel is the one that says who drew last.
+    same(
+        shot.at(8, 8),
+        rgb(fixture::MARK),
+        "the surface frame's field",
+    );
+    same(shot.at(620, 460), rgb(fixture::CHROME), "its corner");
+}
+
+/// Present `layers`, tolerating the one error that is a retry rather than a failure.
+///
+/// `RenderError::SurfaceUnavailable` says the swapchain could not hand over an image
+/// *right now* — the window system's answer, which `rate::present_run` treats the same
+/// way. A settle presents once per round, so a retry is simply the next round, and a
+/// surface that never recovers ends as a `NotSettled` naming the bound rather than as a
+/// panic from inside a closure.
+fn present_or_retry(presenter: &mut Presenter, layers: &[Layer<'_>]) {
+    match presenter.present(layers) {
+        Ok(()) | Err(RenderError::SurfaceUnavailable { .. }) => {}
+        Err(other) => panic!("presenting {} layers: {other:?}", layers.len()),
+    }
+}
+
+/// A colour as the window should show it: straight 8-bit RGB, which for an opaque
+/// rectangle is what §3's premultiplied storage holds anyway.
+fn rgb(color: Color) -> [u8; 3] {
+    [
+        (color.r * 255.0).round() as u8,
+        (color.g * 255.0).round() as u8,
+        (color.b * 255.0).round() as u8,
+    ]
+}
+
+/// Equal within ADR 0006's bound, naming what was being checked when it is not.
+fn same(got: [u8; 3], want: [u8; 3], what: &str) {
+    let near = got
+        .iter()
+        .zip(want)
+        .all(|(a, b)| a.abs_diff(b) <= TOLERANCE);
+    assert!(
+        near,
+        "{what}: the window shows {got:?}, the scene says {want:?}"
+    );
+}
+
+/// The window, and the event loop kept alive beside it.
+///
+/// `pump_app_events` rather than `run_app` because this example is a script and not an
+/// application: the order of its steps is the thing being proved, and a state machine
+/// spread over redraw callbacks would hide it. The platform caveat is winit's own —
+/// pumping is supported on X11, which is where this runs.
+struct Display {
+    event_loop: EventLoop<()>,
+    opener: Opener,
+    window: Arc<Window>,
+}
+
+struct Opener {
+    window: Option<Arc<Window>>,
+}
+
+impl ApplicationHandler for Opener {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window = event_loop
+            .create_window(
+                Window::default_attributes()
+                    .with_title(TITLE)
+                    .with_inner_size(winit::dpi::PhysicalSize::new(
+                        fixture::WINDOW.0,
+                        fixture::WINDOW.1,
+                    )),
+            )
+            .expect("window creation on the test display");
+        self.window = Some(Arc::new(window));
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if matches!(event, WindowEvent::CloseRequested) {
+            event_loop.exit();
+        }
+    }
+}
+
+impl Display {
+    fn open() -> Self {
+        let mut event_loop = EventLoop::new().expect("an event loop needs a display; set DISPLAY");
+        let mut opener = Opener { window: None };
+        let until = Instant::now() + Duration::from_secs(10);
+        while opener.window.is_none() {
+            event_loop.pump_app_events(Some(Duration::from_millis(10)), &mut opener);
+            assert!(
+                Instant::now() < until,
+                "the display produced no window in ten seconds"
+            );
+        }
+        let window = Arc::clone(
+            opener
+                .window
+                .as_ref()
+                .expect("the loop above waited for it"),
+        );
+        Self {
+            event_loop,
+            opener,
+            window,
+        }
+    }
+
+    /// Let the window system say what it has to say. Nothing here depends on the
+    /// events; a window that is never pumped is a window the server stops believing in.
+    pub(crate) fn pump(&mut self) {
+        self.event_loop
+            .pump_app_events(Some(Duration::ZERO), &mut self.opener);
+    }
+
+    /// The window's inner size in physical pixels, which is what a presenter is sized to.
+    pub(crate) fn size(&self) -> (u32, u32) {
+        let size = self.window.inner_size();
+        (size.width, size.height)
+    }
+
+    /// Ask the window system for a size, and **report the one it gave**.
+    ///
+    /// A resize on X11 is a request the window manager answers when it feels like it, so
+    /// this pumps until the window reports the size asked for or a second passes. The
+    /// return value is what the window actually is — a manager that refused the size
+    /// should produce honest numbers for the window that exists, not pretty ones for the
+    /// window that was wanted.
+    pub(crate) fn resize(&mut self, (width, height): (u32, u32)) -> (u32, u32) {
+        let _ = self
+            .window
+            .request_inner_size(winit::dpi::PhysicalSize::new(width, height));
+        let until = Instant::now() + Duration::from_secs(1);
+        while self.size() != (width, height) && Instant::now() < until {
+            self.pump();
+        }
+        self.size()
+    }
+}
