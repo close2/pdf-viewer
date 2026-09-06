@@ -825,6 +825,23 @@ failed *quietly* would have made five findings out of nothing. So the rule is th
 head and tail are read through `open_one` before they are read as a page, and a row whose report
 names the sandbox is the round's own build rather than the file.
 
+**And a fifth, which is about the ranking's own arithmetic and which makes a defect read as
+agreement** (ADR 0915, session 937). `doc/todo/03` §47 ranks by distance *outside the interval the
+references bracket*, which is right, and its endpoints are ink figures taken from programs that
+sometimes decline. `batch5/pdfcpu/pdfcpu-131-0.zip-0.pdf` scored **0.000, inside the interval**, on
+ours 0.000 against `pdftoppm`'s 154.735 and `mutool draw`'s 0.000 — `mutool` refuses the page and
+exits 0, and its blank sheet became the floor our blank sheet sat on. The rule that breaks it is
+two paragraphs up in this same subclause — *read the stderr beside the raster, and a sheet of zero
+ink is not a page* — and what had never been said is that it binds an **endpoint** and not only the
+`no render` and `not comparable` buckets it was written for. So: a reference whose ink is zero and
+whose own log says it could not draw takes no part in the interval, exactly as `oracle.rs`'s
+consensus drops it (ADR 0769); `ghostscript` joins the ranking, because once an endpoint can be
+dropped two references is the minimum rather than the population; and a row left with fewer than
+two live references is **listed with what each program said** rather than given a distance, because
+a page one renderer draws and two refuse is not a distance. The shape generalises past the ranking:
+an interval computed from a set that can contain a non-answer has a floor that is not a
+measurement, and this is the third place in this file where that has cost something.
+
 Four things the first whole run said, and the second is what made the round:
 
 - **Most of the bucket is the standard working.** Eight pages are §7.6.4.1's password, which this

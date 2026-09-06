@@ -111,9 +111,11 @@ impl CharProcsDamage {
 
 /// Why a Type 3 font could not be drawn.
 ///
-/// Each variant is an entry Table 110 marks *required* and the file does not have. There is
-/// deliberately no variant for a code that reaches no glyph: §9.6.4 defines that case as
-/// painting nothing, so it is correct behaviour rather than a failure.
+/// Each variant is an entry Table 110 marks *required* which the file does not have — in form,
+/// or, for [`Type3Error::UninvertibleFontMatrix`], in substance: an entry that is present and
+/// states none of what the table requires of it is not the entry. There is deliberately no
+/// variant for a code that reaches no glyph: §9.6.4 defines that case as painting nothing, so
+/// it is correct behaviour rather than a failure.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Type3Error {
@@ -135,6 +137,50 @@ pub enum Type3Error {
     NoFontMatrix {
         /// The resource name.
         name: String,
+    },
+    /// A `/FontMatrix` that is present and states no transformation, because it has no inverse.
+    ///
+    /// ISO 32000-2 §9.2.4 says what the entry is *for*, and it says it with a `shall`:
+    ///
+    /// > for a Type 3 font, the transformation from glyph space to text space shall be defined
+    /// > by a font matrix specified in an explicit FontMatrix entry in the font
+    ///
+    /// A matrix with no inverse defines no such transformation. It carries the whole of glyph
+    /// space onto a line or onto a single point, so not one glyph the font describes has a size
+    /// or a shape in text space, and §9.6.4's "the current transformation matrix (CTM) shall be
+    /// the concatenation of the font matrix … and the text space" makes that the CTM every glyph
+    /// description then runs under. Table 110 requires the entry "mapping glyph space to text
+    /// space"; an entry present in form that maps glyph space to a point has not done that, so
+    /// this is the same refusal as [`Type3Error::NoFontMatrix`] rather than a different one, and
+    /// the argument written there carries over word for word: the common `[0.001 0 0 0.001 0 0]`
+    /// is available and is not taken, because a font drawing on a 1-unit grid would then be a
+    /// thousand times too small in silence.
+    ///
+    /// **Refusing the font is what makes the page's own report true.** Running the glyph
+    /// descriptions under such a matrix builds one collapsed mark per glyph — 966 of one
+    /// corpus page's 1358 commands — which no backend can draw, because a mark with no area
+    /// covers no device pixel. The reader was then told that some matrix on the page had no
+    /// inverse (`Unsupported::NoninvertibleMatrix`) and *not* that the page's text is missing.
+    /// The font is what is broken, the text is what is lost, and both are now said.
+    ///
+    /// **The witness is a producer writing the matrix to two decimal places**, which is how a
+    /// 2048-unit glyph space becomes `/FontMatrix [0.00 0 0 -0.00 0 0]` — §8.3.4 NOTE 3's own
+    /// example ("a matrix contains a, b, c, and d elements that are all zero") arrived at by
+    /// rounding rather than by scaling by zero. `doc/todo/03` has the population.
+    ///
+    /// The condition is *no inverse* rather than *six zeros*, which is wider than the witness
+    /// on purpose: a matrix that flattens glyph space onto a line states no glyph shape either,
+    /// and `Transform::invert` is the same predicate the rest of this tree asks of a transform.
+    #[error(
+        "font /{name} is a Type 3 font whose /FontMatrix [{matrix}] has no inverse, so it \
+         states no transformation from glyph space to text space"
+    )]
+    UninvertibleFontMatrix {
+        /// The resource name.
+        name: String,
+        /// The six numbers the file states, in order, so that a report names the file's own
+        /// matrix rather than only the fact that it was refused.
+        matrix: String,
     },
     /// No `/Encoding` that names any glyph, so no code reaches a glyph description.
     #[error("font /{name} is a Type 3 font whose /Encoding names no glyph")]
@@ -197,6 +243,24 @@ impl Type3Font {
         let font_matrix = matrix(document, dict).ok_or_else(|| Type3Error::NoFontMatrix {
             name: name.to_owned(),
         })?;
+        // ISO 32000-2 §9.2.4 makes this entry the transformation from glyph space to text
+        // space; a matrix with no inverse is not one. See
+        // [`Type3Error::UninvertibleFontMatrix`] for why that is the *font's* refusal rather
+        // than a per-mark report downstream.
+        if font_matrix.invert().is_none() {
+            return Err(Type3Error::UninvertibleFontMatrix {
+                name: name.to_owned(),
+                matrix: format!(
+                    "{} {} {} {} {} {}",
+                    font_matrix.a,
+                    font_matrix.b,
+                    font_matrix.c,
+                    font_matrix.d,
+                    font_matrix.e,
+                    font_matrix.f
+                ),
+            });
+        }
 
         let (char_procs, damaged) =
             char_procs(document, dict).ok_or_else(|| Type3Error::NoCharProcs {

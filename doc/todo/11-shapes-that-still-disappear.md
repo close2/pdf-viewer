@@ -967,11 +967,30 @@ Three things a round taking it owes, and they are why it was not taken with the 
   image of a rotated or sheared path is a staircase, which is the case `collapsed.rs` already
   declines to snap. A rank-**zero** transform is worse still — the whole path is one point, and
   §8.5.3.3.1's device pixel is the only shape left.
-- **A witness, which there is not.** Most matching pages state *one* such mark among thousands, and
-  the two whose count is large are a garbage stream and a page whose 280 are images. Not one
-  document anywhere — crawl or curated corpus — states one under a **shading**, which is the paint
-  the refusal was argued for. The measurement is in `doc/history/653-*.md`;
+- **A witness. This bullet said "which there is not" and it was wrong** — corrected in the
+  nine-hundred-and-thirty-seventh session by running `examples/singular_transform_census` over
+  **every corpus on this disk** rather than over the population the sentence was written against.
+  Page one alone, 35 documents state such a mark and there are 465 985 of them, four documents
+  carrying 333 327, 49 715, 39 895 and 39 895 apiece. The old sentence — "[m]ost matching pages
+  state *one* such mark among thousands, and the two whose count is large are a garbage stream and
+  a page whose 280 are images" — was true of the pages that had been looked at and false of the
+  disk, which is `doc/habits.md`'s own subject: a claim about this tree decays, and a claim whose
+  denominator was never named decays quietly. `doc/todo/03` §50 has the run.
+
+  **What is still true is the part that decides the item**, and it is the second sentence rather
+  than the first: not one document anywhere — crawl or curated corpus — states such a mark under a
+  **shading**, which is the paint the refusal was argued for, so every one of the 465 985 carries a
+  paint no space positions. The measurement the bullet used to rest on is in `doc/history/653-*.md`;
   `examples/singular_transform_census` prints today's.
+
+  **Three of the 35 left the population in the same session, and none of them was one of the
+  four large ones**: `batch5/pdfcpu`'s 1737 marks were fifty-seven Type 3 fonts stating
+  `/FontMatrix [0.00 0 0 -0.00 0 0]`, and ADR 0914 refuses such a font on §9.2.4's `shall` before
+  any glyph description runs, so those three pages state no collapsed mark at all now — 464 248 on
+  32 documents afterwards, every other count unchanged to the mark. That is a different clause
+  answering first rather than this item being avoided: §9.2.4 is about an entry that fails to state
+  a glyph space and fires before a shape exists, §10.7.4 is about a shape that exists and lands
+  between pixels, and the 32 that remain are the second kind.
 
 And one thing the witness taught that no amount of reading would have: **`4605705.pdf`'s matrix is
 of full rank.** Its `a·d` and `b·c` are `2.8e22 × 1.4e18` and `-4.3e18 × -9.2e21`, which agree to

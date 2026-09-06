@@ -199,6 +199,24 @@ together. The three things that are open, in the order they answer each other:
 A round that answers 1 and 2 should delete this section and 932's paragraph rather than adding a
 fourth account of one figure.
 
+**And 2 and 3 are answered, by the owner, while this round was stopped.**
+[`A32`](../questions/A32-a-memory-band-whose-floor-nothing-controls.md) is *recommendation
+approved*, and `Q32`'s recommendation is: **take the floor off `peak_mib` and put a floor on
+`open_peak_mib` instead** — the figure in the same row that has no graphics device in it and no
+spread at all across the forty-four runs the bands were derived from. That keeps a two-sided claim
+about the *program's* memory, which is what would catch a harness measuring nothing, and stops
+making one about the *driver's*, which is what has failed a gate three times for a reason no code
+can explain. [`A29`](../questions/A29-a-clock-gate-on-a-machine-three-rounds-share.md) is
+*combining option 1 and 2 sounds good*.
+
+So the three floors this section argues about are not a question any more, and the round that
+lands 935's branch owns applying the answer: with `A32` taken, the four `peak_mib` floors go away
+rather than being restored *or* lowered, and this round's restoration of session 931's figures is
+superseded by an owner's decision rather than by another measurement. Nothing here should be read
+as a reason to keep them. Session 935's own branch was cut before that merge and before the answer,
+so whoever merges it reconciles three things at once — 932's lowered floors, this round's restored
+ones, and `A32`'s instruction to have none — and `A32` wins.
+
 
 ## Why this is a todo and not a caveat
 

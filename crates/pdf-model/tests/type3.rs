@@ -367,6 +367,66 @@ fn a_code_with_no_glyph_description_paints_nothing_and_still_advances() {
     );
 }
 
+/// A `/FontMatrix` with no inverse refuses the font and says the text is not drawn.
+///
+/// ISO 32000-2 §9.2.4 makes the entry the transformation from glyph space to text space, and
+/// a matrix with no inverse is not one: it carries every glyph onto a single point. §9.6.4
+/// then makes that matrix the CTM each glyph description runs under, so the descriptions
+/// produce marks with no area — which no device can paint and which said nothing about the
+/// text they were supposed to be.
+///
+/// The witness is a producer that wrote a 2048-unit glyph space to two decimal places, which
+/// is `[0.00 0 0 -0.00 0 0]` — §8.3.4 NOTE 3's own all-zero example, reached by rounding.
+/// `doc/todo/03` has the corpus population; this is the fixture the rule is stated on.
+#[test]
+fn a_font_matrix_with_no_inverse_refuses_the_font_rather_than_collapsing_its_glyphs() {
+    let interpretation = Fixture {
+        font_matrix: "[0.00 0 0 -0.00 0 0]",
+        ..Fixture::default()
+    }
+    .interpret();
+
+    assert!(
+        fill_origins(&interpretation).is_empty(),
+        "no glyph description runs under a matrix that states no glyph space: {:?}",
+        fill_origins(&interpretation)
+    );
+
+    let detail = interpretation
+        .unsupported
+        .iter()
+        .find_map(|report| match report {
+            pdf_model::content::Unsupported::Font { detail } => Some(detail.clone()),
+            _ => None,
+        })
+        .expect("the font is refused and the refusal names it");
+    assert!(
+        detail.contains("/FT3") && detail.contains("/FontMatrix") && detail.contains("no inverse"),
+        "the refusal names the resource, the entry and what is wrong with it: {detail}"
+    );
+    assert!(
+        detail.contains("0 0 0 -0 0 0") || detail.contains("0 0 0 0 0 0"),
+        "and it names the six numbers the file states: {detail}"
+    );
+
+    assert!(
+        interpretation.unsupported.iter().any(|report| matches!(
+            report,
+            pdf_model::content::Unsupported::Text { operations: 1 }
+        )),
+        "and the show operation is counted as text the reader does not get: {:?}",
+        interpretation.unsupported
+    );
+    assert!(
+        !interpretation.unsupported.iter().any(|report| matches!(
+            report,
+            pdf_model::content::Unsupported::NoninvertibleMatrix { .. }
+        )),
+        "and nothing is left to report a bare matrix about: {:?}",
+        interpretation.unsupported
+    );
+}
+
 /// A Type 3 glyph showing itself is bounded rather than recursing forever.
 ///
 /// `ContentStreamCycleType3insideType3.pdf` in the corpus is a file built to do this. A

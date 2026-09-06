@@ -672,3 +672,11 @@ session = 932
 reports = []
 ink = 176.313 .. 178.313
 why = "doc/todo/03 section 49's head, by a factor of two hundred: a full-page book cover whose whole content stream is one inline image stating `/W 1062.00 /H 1425.00`, drawn as a blank white sheet — ink 0.000 and one report (`<inline>: malformed image: missing or invalid /Width`) before, 177.313 and none after. §7.3.3 makes a real where an integer is expected the file's error and states nothing about what a reader does with it, and ADR 0371 had already answered that sentence for §7.10.5's calculator with a rule rather than a refusal: a real is truncated where an integer is wanted. `pdf_model::image::dimension_entry` is that one rule applied to Table 87's /Width and /Height. The band is the file's usual ±1.0 and excludes the blank page by 176 levels; measured at scale 1.0 it is pixel-identical to `mutool draw -b CropBox` and 0.66 below `pdftoppm -cropbox`. ADR 0904"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/pdfcpu/pdfcpu-52-2.pdf"
+page = 1
+session = 937
+reports = ["is a Type 3 font whose /FontMatrix [0 0 0 -0 0 0] has no inverse", "Text { operations: 1030 }"]
+ink = 3.513 .. 5.513
+why = "doc/todo/03 section 50's finding, and the one row in this file whose ink is pinned to stay exactly where it was. Thirty-six Type 3 fonts each state /FontMatrix [0.00 0 0 -0.00 0 0] — a 2048-unit glyph space written to two decimal places — so §9.6.4's CTM for every glyph description is rank zero and all 966 of the page's 1358 marking commands landed on a point. Before, the page said `NoninvertibleMatrix { commands: 966 }` and nothing about its text; after, it names each font against §9.2.4's `shall` and counts the 1030 show operations the reader does not get. No backend could paint a mark with no area, so the raster is unchanged and ink 4.513 is the same figure before and after — which is what this row exists to hold: a report fix that ever starts moving pixels has stopped being one. ADR 0914"

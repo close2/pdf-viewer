@@ -2274,6 +2274,115 @@ trackers by batch and `batch5` by tracker, the crawl by its 145 buckets. A walk 
 nothing to say, and the cost of splitting it is a few seconds of process startup.
 
 
+### 50. What the nine-hundred-and-thirty-seventh took: `batch5/pdfcpu`, and a font matrix written to two decimal places
+
+**The directory, surveyed whole under the four rules** — `tools/bounded.sh --data 8 --tree 12`,
+twenty-four rayon threads, 1.2 s, 0.02 GiB peak. The line, a baseline for this directory and never
+a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/pdfcpu` | 100 | 0 unopenable, 2 locked, 0 encrypted beyond us, 0 pageless, 7 incomplete, 0 slow |
+
+**7 of 100 is 7.00% incomplete**, just above the pdf.js gate's 6.98% and `qpdf`'s 6.31%, and this
+is the first tracker walked whose *unopenable* count is zero. pdfcpu is a library tracker like
+qpdf, so its attachments are files that broke a transformation; the seven are five populations —
+3 `NoninvertibleMatrix`, 1 `Content::NotAStream`, 1 `Content::Undecodable` over a whole
+`FlateDecode` stream, 1 `Font` (a program with no outline for any of the 893 codes its page
+shows, [`21`](21-font-substitution.md)'s), and 1 document carrying four at once (161 text
+operations lost to three `/Font` entries that resolve to §7.3.10's null, a `/Cs6` shading and a
+`/GS2` that is not a dictionary).
+
+**Ranked by ink**, ours flattened on white against `pdftoppm -cropbox`, `mutool draw -b CropBox`
+and `gs -dUseCropBox` at 72 dpi, by distance *outside the interval the live references bracket*
+(§47's measure, corrected by ADR 0915 — see below). Read through `examples/open_one` first, which
+is `doc/oracle-and-corpus.md` §3d's fourth rule.
+
+- **59 of the 96 comparable rows sit inside the interval**, and the dark end is nothing at all:
+  the largest departure above every reference is `pdfcpu-11-0.pdf` at **+0.023**. Nothing in this
+  directory draws more ink than the references anywhere.
+- **The head is `pdfcpu-90-0.pdf` at −1.259** on a page of 22 levels, and it is a held population
+  before it is opened: `pdffonts` says nine of its faces are `Arial`, `Arial,Bold` and
+  `Arial,Italic`, **not embedded** and not one of §9.6.2.2's standard 14 — [`21`](21-font-substitution.md)'s
+  standing population, for the third directory running. `pdfcpu-2-0.pdf` at −0.715 is the same.
+- **So the head was read by a second ranking**, distance outside the interval divided by the
+  references' own spread, which is what finds a page three renderers agree about and we do not:
+  `pdfcpu-138-1.pdf` at **3.48×** (three references within 0.081 of each other at 29.899–29.979,
+  ours 29.617). That one is the rasteriser's: every face is embedded, the page reports nothing,
+  the ladder does not converge but the difference map is edge noise over every glyph and image
+  boundary — 2912 pixels of 484 704, 0.6%, no structure anywhere.
+
+**The finding is four documents down the list, and the measure had hidden it.**
+`pdfcpu-131-0.zip-0.pdf` scored **0.000, inside the interval**, on ours 0.000 against `pdftoppm`'s
+**154.735** and `mutool draw`'s 0.000: `mutool` refuses the page (`format error: non-page object
+in page tree`, `Page tree load failed`) and its zero-ink sheet formed the interval's floor, so a
+154-level departure read as agreement. `doc/oracle-and-corpus.md` §3d already says "a sheet of
+zero ink is not a page"; what nobody had said is that the rule binds the ranking's **endpoints**.
+ADR 0915 is the correction, and it is why `gs` is in the ranking above: once an endpoint can be
+dropped, two references is the minimum rather than the population. Opened, that page is
+**poppler's** — it cannot read the file's `/Cs6` colour space and fills the frame with its own
+default black — but a round that scores it 0.000 never opens it at all.
+
+**What the corrected list left is the three `NoninvertibleMatrix` rows, and they are one producer
+bug.** `pdfcpu-39-1.pdf`, `pdfcpu-39-6.pdf` and `pdfcpu-52-2.pdf` state 17, 754 and 966 marking
+commands under a matrix with no inverse — 754 of that page's 812 commands and 966 of that one's
+1358 — and `examples/singular_transform_census` says every one of them is a fill or a stroke and
+not one carries a shading. The matrices are §8.3.4 NOTE 3's own example, `a`, `b`, `c` and `d`
+all exactly zero, so each mark is a single *point*; and they are not a `cm` in a damaged stream
+but **fifty-seven Type 3 fonts** whose bytes, read out of the object streams, say
+
+```
+/FontMatrix [0.00 0 0 -0.00 0 0]
+```
+
+The `/Widths` beside them run to 2048 and the `/FontBBox` to −1951, so the glyph space is a
+2048-unit em and its matrix is 0.00048828…: **the producer wrote the font matrix to two decimal
+places.** §9.6.4 makes that matrix the CTM every glyph description executes under, so every glyph
+of every string collapsed to a point, no backend painted one, and the page told its reader
+`NoninvertibleMatrix { commands: 966 }` — true, and about a matrix, where what a reader needed to
+know is that the page's **text is not drawn**. ADR 0914 refuses the font instead, on §9.2.4's
+`shall` that the transformation from glyph space to text space "shall be defined by a font matrix
+specified in an explicit FontMatrix entry": a matrix with no inverse defines none, so this is
+`Type3Error::NoFontMatrix`'s case with the entry present, and that variant's refusal to guess
+`[0.001 0 0 0.001 0 0]` carries over word for word. `pdfcpu-52-2.pdf` now names each of its
+thirty-six fonts and counts 1030 show operations the reader does not get, and its 966 dead
+commands are not built.
+
+**The *cause* was counted as well as the effect, and the two agree.** A byte scan of every PDF on
+this disk — the raw file and every `FlateDecode` stream, decompressed under a 16 MiB cap because
+this corpus holds bombs and an uncapped first attempt reached `tools/bounded.sh`'s tree ceiling —
+finds `/FontMatrix` arrays whose `a·d − b·c` is zero in **five** documents of 89 286, and two of
+the five are the scan's own false positives rather than the reader's: `GHOSTSCRIPT-688203-0.pdf`
+is a *manual about PDF* that prints the words `/FontMatrix [0.001 0 0 0.001 0 0]` as page text, so
+the match is inside a content stream between `Tj` operators, and `GHOSTSCRIPT-699666-0.pdf` states
+`.00100000005 0 0 -.0°100000005 0 0`, where a corrupt byte truncates the fourth number for the
+*regex* and for nothing else — that page has no content stream at all (`Content { issue:
+NotAStream }`) and loads no font. So the population of the cause is **three documents of 89 286**,
+all in this directory, all one producer, which is the same three the census names.
+
+**The pixels do not move, and that is the row in `doc/checks/fixed-documents.toml`.** Ink 1.58783,
+1.36211 and 4.5126 before; 1.58783, 1.36211 and 4.5126 after, to every digit the instrument
+prints — which is what a mark with no area was always worth. A report fix that ever starts moving
+that page has stopped being one.
+
+**And one thing this chunk found about a claim in another todo.** [`11`](11-shapes-that-still-disappear.md)
+item 8 holds §10.7.4's mark for a shape its *transform* collapsed, and says one of the three
+things a round taking it owes is "**a witness, which there is not** … [m]ost matching pages state
+*one* such mark among thousands, and the two whose count is large are a garbage stream and a page
+whose 280 are images". That sentence is false, and it was false before this round: over the
+89 286 documents on this disk, page one alone, `singular_transform_census` counts **465 985 such
+marks on 35 documents**, four of them at 333 327, 49 715, 39 895 and 39 895. Item 8 now says so.
+
+**And the population this round's fix reaches is three of those 35 and 1737 of those 465 985**,
+measured by re-running the census over exactly the 35 documents afterwards: 32 documents and
+464 248 marks, with `pdfcpu-39-1`, `pdfcpu-39-6` and `pdfcpu-52-2` gone and every other count
+unchanged to the mark. None of the four large ones is a font matrix, so item 8 keeps its witness
+and this is not a question being closed by removing what asks it.
+
+It is also worth knowing that the references split three ways rather than sharing a gap: on
+`pdfcpu-39-6.pdf` `pdftoppm` paints a pixel at 218–234 of 255 at each collapsed point, and
+`mutool draw` and this tree paint none.
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own
