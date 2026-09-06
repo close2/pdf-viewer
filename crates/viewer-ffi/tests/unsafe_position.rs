@@ -119,7 +119,7 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     assert_eq!(lift, 1, "the module lifts `unsafe_op_in_unsafe_fn` once");
     // 114 exported entry points, of which 104 take a pointer and are therefore `unsafe fn`, plus
     // the two `unsafe fn` helpers they share. The numbers are here so that a function added
-    // without a line in `include/pdf_viewer.h` fails a test rather than becoming a symbol nobody
+    // without a line in `include/quorra.h` fails a test rather than becoming a symbol nobody
     // has declared — `header_and_library_agree.rs` is the other half of that. Four arrived in the
     // four-hundred-and-fourteenth session, for Annex O's `search`: three verbs and one accessor.
     // **Sixty-eight arrived in the five-hundred-and-eleventh**, which is `doc/todo/30`'s whole

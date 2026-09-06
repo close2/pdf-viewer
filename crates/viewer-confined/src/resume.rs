@@ -282,7 +282,7 @@ mod tests {
     fn only_a_dead_worker_is_worth_another_one() {
         let others = [
             ConfinedError::WorkerMissing {
-                executable: std::path::PathBuf::from("pdf-viewer-confined"),
+                executable: std::path::PathBuf::from("quorra-confined"),
             },
             ConfinedError::Spawn(std::io::Error::other("no")),
             ConfinedError::Connection(std::io::Error::other("no")),

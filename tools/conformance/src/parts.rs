@@ -112,7 +112,7 @@ impl fmt::Display for Part {
 pub const RENDER: &str = "render-";
 
 /// The prefix a host program's name carries under a member's `src/bin/`.
-pub const HOST_PROGRAM: &str = "pdf-viewer";
+pub const HOST_PROGRAM: &str = "quorra";
 
 /// The suffix a spawned worker program's name carries under a member's `src/bin/`.
 pub const WORKER_PROGRAM: &str = "-worker";

@@ -33,7 +33,7 @@
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example presentation_fixture -- /tmp/slides.pdf
-//! cargo run --release -p viewer-ui --bin pdf-viewer -- /tmp/slides.pdf   # then press p
+//! cargo run --release -p viewer-ui --bin quorra -- /tmp/slides.pdf   # then press p
 //!
 //! cargo run --release -p pdf-model --example presentation_fixture -- /tmp/full.pdf \
 //!     --opens-full-screen                          # opens presenting; Escape comes back

@@ -541,10 +541,10 @@ moved a document.
 
 ```sh
 built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
-cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
-                     --bin pdf-viewer-gtk --bin pdf-viewer-qt --bin pdf-viewer-confined \
-                     --bin pdf-retrieve --bin pdf-transform \
-                     --bin pdffs --bin pdf-vfs-worker
+cargo build --release --bin quorra --bin pdf-sandbox-worker --bin pdf-view-worker \
+                     --bin quorra-gtk --bin quorra-qt --bin quorra-confined \
+                     --bin quorra-retrieve --bin quorra-transform \
+                     --bin quorrafs --bin pdf-vfs-worker
 for binary in pdf-viewer pdf-sandbox-worker pdf-view-worker pdf-viewer-gtk pdf-viewer-qt \
               pdf-viewer-confined pdf-retrieve pdf-transform pdffs pdf-vfs-worker
 do install -Dm755 "$built/$binary" "target/$binary"; done

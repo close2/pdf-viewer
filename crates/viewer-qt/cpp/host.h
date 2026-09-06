@@ -12,7 +12,7 @@
 
 #include "rust/cxx.h"
 
-namespace pdf_viewer_qt {
+namespace quorra_qt {
 
 struct Host;
 struct QtRow;
@@ -28,4 +28,4 @@ struct QtUpdate;
 /// makes a run under `Xvfb` terminate; zero means never. Returns what `exec` returned.
 std::int32_t run_qt_host(rust::Box<Host> host, std::int32_t quit_after);
 
-} // namespace pdf_viewer_qt
+} // namespace quorra_qt

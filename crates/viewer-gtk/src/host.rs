@@ -2178,7 +2178,7 @@ impl Host {
     /// **A licence obligation with a surface, and this host had neither half of it until the
     /// six-hundred-and-eighty-seventh session**: `pdf-font` compiles the standard 14 font programs
     /// into every binary in this tree, both of their licences require a binary distribution to
-    /// reproduce their notices, and `pdf-viewer-gtk` reproduced them nowhere at all. The text is
+    /// reproduce their notices, and `quorra-gtk` reproduced them nowhere at all. The text is
     /// [`viewer_host::NOTICE`], shared with the other two hosts because a notice that differs
     /// between two binaries of one program is two claims about one obligation.
     ///

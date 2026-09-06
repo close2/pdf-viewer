@@ -232,8 +232,8 @@ fi
 # 3. What a person can run, against what HEAD is. `doc/todo/02` §5 owns the fix; a stale binary
 #    is a measurement of the past, which is the whole reason that section exists.
 head_time=$(git log -1 --format=%ct 2>/dev/null)
-oldest=$(ls -t target/pdf-viewer target/pdf-viewer-gtk target/pdf-viewer-qt target/pdf-retrieve \
-             target/pdf-transform target/pdf-sandbox-worker target/pdf-view-worker \
+oldest=$(ls -t target/quorra target/quorra-gtk target/quorra-qt target/quorra-retrieve \
+             target/quorra-transform target/pdf-sandbox-worker target/pdf-view-worker \
              target/libviewer_ffi.so 2>/dev/null | tail -1)
 if [ -z "$oldest" ]; then
     fail "target/ holds none of §5's binaries — nothing a person can run"

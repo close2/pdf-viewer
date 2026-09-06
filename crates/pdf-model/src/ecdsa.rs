@@ -419,7 +419,7 @@ fn scalar_octets(contents: &[u8], width: usize) -> Result<Vec<u8>, EcdsaError> {
 ///
 /// ```sh
 /// openssl ecparam -name prime256v1 -genkey -noout -out key.pem   # secp384r1, secp521r1
-/// openssl req -x509 -key key.pem -sha256 -days 3650 -subj /CN=pdf-viewer -outform der -out cert.der
+/// openssl req -x509 -key key.pem -sha256 -days 3650 -subj /CN=quorra -outform der -out cert.der
 /// printf 'the signed bytes' | openssl dgst -sha256 -sign key.pem -out sig.der
 /// ```
 #[cfg(test)]

@@ -208,7 +208,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build both executables
-        run: cargo build --bin pdf-viewer --bin pdf-sandbox-worker
+        run: cargo build --bin quorra --bin pdf-sandbox-worker
 
       # `pdf-sandbox` itself, whose tests off Linux are the protocol, the worker handshake
       # and the decoders — the kernel questions are `cfg`-gated out, because a platform with
@@ -269,12 +269,12 @@ jobs:
       # in process -- there is deliberately no in-process fallback -- so an archive
       # carrying only the viewer would ship a quietly reduced program.
       - name: Build both executables
-        run: cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker
+        run: cargo build --release --bin quorra --bin pdf-sandbox-worker
 
       # LICENSE and NOTICE travel with the binaries because they have to: this program is
       # Apache-2.0 and contains BSD-3-Clause font programs and SIL OFL 1.1 Liberation Sans,
       # and all three licences oblige a binary distribution to carry their notices --
-      # Apache-2.0 section 4 asks for the licence and for the NOTICE file itself. `pdf-viewer
+      # Apache-2.0 section 4 asks for the licence and for the NOTICE file itself. `quorra
       # --licences` prints the same text, and a file beside the executable is what someone
       # unpacking a tarball can actually find.
       #
@@ -288,13 +288,13 @@ jobs:
           set -eu
           target=${{ matrix.target }}
           exe=${{ matrix.exe }}
-          stage="pdf-viewer-snapshot-$target"
+          stage="quorra-snapshot-$target"
           mkdir "$stage"
-          cp "target/release/pdf-viewer$exe" "target/release/pdf-sandbox-worker$exe" "$stage"/
+          cp "target/release/quorra$exe" "target/release/pdf-sandbox-worker$exe" "$stage"/
           # Stripping is Linux's here. macOS signs what it strips and Windows keeps its
           # symbols in a separate file, so a portable `strip` step would be three steps.
           if [ "$target" = x86_64-unknown-linux-gnu ]; then
-            strip "$stage/pdf-viewer" "$stage/pdf-sandbox-worker"
+            strip "$stage/quorra" "$stage/pdf-sandbox-worker"
           fi
           cp LICENSE NOTICE "$stage"/
           confinement="seccomp-BPF and Landlock confine the decoder on this platform."
@@ -305,7 +305,7 @@ jobs:
           address-space ceiling on that process. The viewer says so in its first line."
           fi
           cat > "$stage"/README <<TXT
-          pdf-viewer -- a snapshot build. Not a release; built from whatever was on main.
+          quorra -- a snapshot build. Not a release; built from whatever was on main.
 
           Two executables, and they must stay in the same directory. pdf-sandbox-worker is
           the process that decodes JBIG2 and JPEG 2000 images; the viewer looks for it beside
@@ -314,7 +314,7 @@ jobs:
 
           $confinement
 
-              ./pdf-viewer$exe [file.pdf]
+              ./quorra$exe [file.pdf]
 
           Needs a Vulkan, Metal or DirectX device. Page one goes to the graphics device by
           design, so a machine with no working driver will not draw one.
@@ -337,9 +337,9 @@ jobs:
         with:
           name: snapshot-${{ matrix.target }}
           path: |
-            pdf-viewer-snapshot-*.tar.gz
-            pdf-viewer-snapshot-*.zip
-            pdf-viewer-snapshot-*.sha256
+            quorra-snapshot-*.tar.gz
+            quorra-snapshot-*.zip
+            quorra-snapshot-*.sha256
           if-no-files-found: error
 
   # One job publishes, and that is the point of it being separate: three build jobs racing
@@ -383,7 +383,7 @@ jobs:
 
           **This is not a release.** It is whatever was on \`main\`, retagged at every push.
 
-          \`pdf-viewer\` and \`pdf-sandbox-worker\` for x86_64 Linux, aarch64 macOS and x86_64 Windows. Unpack both into one directory and keep them there: the viewer spawns the worker for JBIG2 and JPEG 2000 and refuses those images without it.
+          \`quorra\` and \`pdf-sandbox-worker\` for x86_64 Linux, aarch64 macOS and x86_64 Windows. Unpack both into one directory and keep them there: the viewer spawns the worker for JBIG2 and JPEG 2000 and refuses those images without it.
 
           **The confinement is Linux's.** seccomp-BPF and Landlock restrict the image decoder's system calls and filesystem there; macOS and Windows have neither, so on those two the decoder runs in a separate process with no kernel confinement and no address-space ceiling — which the viewer prints in its first line rather than leaving to a release note. What a real confinement for each would take is in \`doc/todo/35\`." \
-            pdf-viewer-snapshot-*.tar.gz pdf-viewer-snapshot-*.zip pdf-viewer-snapshot-*.sha256
+            quorra-snapshot-*.tar.gz quorra-snapshot-*.zip quorra-snapshot-*.sha256

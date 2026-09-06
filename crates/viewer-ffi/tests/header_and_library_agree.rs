@@ -1,4 +1,4 @@
-//! `include/pdf_viewer.h` against `src/abi.rs`, read back as text.
+//! `include/quorra.h` against `src/abi.rs`, read back as text.
 //!
 //! **This is what buys back the one thing `cbindgen` would have given.** The header is
 //! hand-written on purpose — it is the artefact a C programmer reads, with the reason for each
@@ -38,7 +38,7 @@ use viewer_ffi::{
 /// that counted those would be checking the documentation rather than the declarations.
 fn header_without_comments() -> String {
     let text =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/pdf_viewer.h"))
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/quorra.h"))
             .expect("this crate has a header");
     let mut out = String::with_capacity(text.len());
     let mut rest = text.as_str();

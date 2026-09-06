@@ -13,14 +13,14 @@
 //! about a gate that did not exist (round 921's `Q24`).
 //!
 //! This is the gate. It is deliberately **not** a benchmark suite: it measures the launch path of
-//! the program this crate contains, in the shape `pdf-viewer.rs`'s `main` runs it, and holds each
+//! the program this crate contains, in the shape `quorra.rs`'s `main` runs it, and holds each
 //! figure to a band in [`doc/checks/launch-path.toml`](../../../doc/checks/launch-path.toml).
 //!
 //! # What each number is
 //!
 //! | number | what is inside it | what is not |
 //! |---|---|---|
-//! | **cold open** | `FileBytes::on_disk`, `Viewer::new`, `Command::Restrict`, `Command::Open` — `pdf-viewer.rs`'s `open_document` exactly, on a file whose page cache has just been dropped | the process's own creation, the window, the device |
+//! | **cold open** | `FileBytes::on_disk`, `Viewer::new`, `Command::Restrict`, `Command::Open` — `quorra.rs`'s `open_document` exactly, on a file whose page cache has just been dropped | the process's own creation, the window, the device |
 //! | **warm open** | the same, second time, with the file in the page cache | — |
 //! | **time to first page** | the document opening on one thread while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device | winit's `EventLoop::new`, the window, the surface and the present |
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
@@ -38,7 +38,7 @@
 //! `EventLoop::new` and the first present need a display server; a gate that skipped silently
 //! without one would be worse than no gate (`doc/environment.md` says the same about `Xvfb`), and
 //! one that failed without one would be a coin toss. So the figure here is the launch path minus
-//! winit, which is the half this project's own code owns — and `pdf-viewer --trace` under `Xvfb`
+//! winit, which is the half this project's own code owns — and `quorra --trace` under `Xvfb`
 //! remains the instrument for the whole of it, recorded in `doc/performance.md`.
 //!
 //! # Why it may be believed on a machine running three other rounds
@@ -156,7 +156,7 @@ const SAMPLE_OVERRIDE: &str = "PDFVIEWER_LAUNCH_SAMPLES";
 /// `doc/questions/A28` about a different switch in this tree and taken as the house style here.
 const CLOCK_FIGURES: &str = "PDFVIEWER_LAUNCH_CLOCKS";
 
-/// The identity a host gives the one document it opens — `pdf-viewer.rs`'s own.
+/// The identity a host gives the one document it opens — `quorra.rs`'s own.
 const DOCUMENT: DocumentId = DocumentId(0);
 
 /// The viewport every figure here is measured at, in device pixels at scale 1.0.
@@ -384,7 +384,7 @@ fn ms(began: Instant) -> f64 {
     began.elapsed().as_secs_f64() * 1e3
 }
 
-/// What `pdf-viewer.rs`'s `open_document` does, with nothing added and nothing left out.
+/// What `quorra.rs`'s `open_document` does, with nothing added and nothing left out.
 ///
 /// Kept as one function because that is what makes this gate a measurement of the launch path
 /// rather than of a sequence somebody wrote down beside it: the steps, their order and the
@@ -575,7 +575,7 @@ fn phase_bring_up() {
 /// **Phase `first-page`**: process start to page one's pixels, the device on the critical path.
 ///
 /// The two threads are `main`'s: the document opens on one while the graphics stack comes up on
-/// the other, because "[r]eading a document depends on none of it" (`pdf-viewer.rs`). What stands
+/// the other, because "[r]eading a document depends on none of it" (`quorra.rs`). What stands
 /// in for the window is nothing at all — see the module comment.
 fn phase_first_page() {
     let path = document_of_the_child();

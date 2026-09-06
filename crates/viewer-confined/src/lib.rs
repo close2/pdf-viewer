@@ -96,11 +96,11 @@
 //!
 //! # What this is not, yet
 //!
-//! It is not on the flagship's launch path: `pdf-viewer`, `pdf-viewer-gtk` and `pdf-viewer-qt`
+//! It is not on the flagship's launch path: `quorra`, `quorra-gtk` and `quorra-qt`
 //! still hold their viewer in process, so a transport cannot cost their first frame anything
 //! before the decision to spend it has been argued. **What uses it since the
 //! seven-hundred-and-seventy-fifth session is a window of its own** — `viewer-ui`'s
-//! `pdf-viewer-confined`, deliberately the smallest complete host on this boundary (ADR 0713).
+//! `quorra-confined`, deliberately the smallest complete host on this boundary (ADR 0713).
 //! `doc/todo/34` holds what is left; ADR 0218 holds the argument.
 
 #![forbid(unsafe_code)]

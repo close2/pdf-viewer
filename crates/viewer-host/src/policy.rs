@@ -39,8 +39,8 @@ use viewer_core::Extraction;
 ///
 /// **One constant rather than three string literals, and a defect this tree shipped is why.**
 /// `viewer_core::Event::Refused` was answered in all three windows with a sentence naming
-/// `--ignore-restrictions`, and only `pdf-viewer` took the word: `pdf-viewer-gtk` and
-/// `pdf-viewer-qt` answered *"--ignore-restrictions is not an option this program has"* and left,
+/// `--ignore-restrictions`, and only `quorra` took the word: `quorra-gtk` and
+/// `quorra-qt` answered *"--ignore-restrictions is not an option this program has"* and left,
 /// so each of them told a person the way out of a refusal and then refused the way out. That is
 /// `CLAUDE.md`'s one non-negotiable sentence about restrictions — "it shall always be possible to
 /// turn them off" — true in one host of three, and the sentence saying otherwise was the copy

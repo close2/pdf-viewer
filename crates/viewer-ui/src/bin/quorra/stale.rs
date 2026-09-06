@@ -113,7 +113,7 @@
 //! # Rule 2 is structural, and this is the whole of the argument
 //!
 //! Everything that makes an approximate picture is in this file, and this file is a module of
-//! `pdf-viewer`'s binary. A binary crate is not a dependency: `pdf-model`'s corpus and oracle
+//! `quorra`'s binary. A binary crate is not a dependency: `pdf-model`'s corpus and oracle
 //! gates, `viewer-core`'s headless harness, `Query::Frame`, `render_at`, `viewer-confined`'s
 //! worker and every diagnostic artefact in this tree are compiled without a line of it. **Nothing
 //! crosses into a library at all any more**: `render-raster` draws a window's frame into two

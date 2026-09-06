@@ -99,11 +99,11 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 /// encrypted document is that this string is *absent* from the appended bytes (it was
 /// encrypted), and present in every reader's answer — and only a string no PDF contains can
 /// make both statements.
-const FREE_TEXT_WITNESS: &str = "pdf-viewer save round-trip free text witness 499";
+const FREE_TEXT_WITNESS: &str = "quorra save round-trip free text witness 499";
 
 /// The value the field edit types, distinct from the annotation's so that a reference
 /// answering one question cannot pass as answering the other.
-const FIELD_WITNESS: &str = "pdf-viewer field witness 499";
+const FIELD_WITNESS: &str = "quorra field witness 499";
 
 /// The corpus documents that refuse §7.6.4.1's default user password, with the password each
 /// one's own pdf.js issue records.

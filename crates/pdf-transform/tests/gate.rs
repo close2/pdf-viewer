@@ -4,7 +4,7 @@
 //! Three things, over ISO 32000-2's own PDF, which every checkout has:
 //!
 //! 1. **Throughput, with a floor.** `render` of pages 1–200 at 150 dpi to PNG **through the
-//!    program the build produced** (`CARGO_BIN_EXE_pdf-transform`, so a stale binary in another
+//!    program the build produced** (`CARGO_BIN_EXE_quorra-transform`, so a stale binary in another
 //!    directory cannot be what is measured — trap 16), timed by the wall clock and held above
 //!    [`PAGES_PER_SECOND_FLOOR`]. The number measured is printed, because a floor is only a
 //!    floor: the eight-hundred-and-sixty-eighth session's baseline is in ADR 0801 and the
@@ -98,7 +98,7 @@ fn the_transform_gate() {
 /// 1. Throughput, through the program, against the floor.
 fn throughput(path: &Path, dir: &Path) {
     let started = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_pdf-transform"))
+    let output = Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
         .args([
             "render",
             path.to_str().expect("utf-8"),

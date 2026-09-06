@@ -222,7 +222,7 @@ fn every_entry_point_named_exists_in_the_library_and_in_the_header() {
     let abi = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/abi.rs"))
         .expect("this crate has an abi module");
     let header =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/pdf_viewer.h"))
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/quorra.h"))
             .expect("this crate has a header");
     for query in every_query() {
         for symbol in entry_points(&query) {

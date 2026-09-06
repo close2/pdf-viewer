@@ -707,7 +707,7 @@ fn the_program_attaches_and_lists_it_back() {
     std::fs::create_dir_all(&dir).expect("writable");
     std::fs::write(dir.join("report.csv"), "a,b\n1,2\n").expect("written");
     let source = committed("PDF20_AN001-BPC.pdf");
-    let output = Command::new(env!("CARGO_BIN_EXE_pdf-transform"))
+    let output = Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
         .args([
             "attachments",
             source.to_str().expect("utf-8"),
@@ -730,7 +730,7 @@ fn the_program_attaches_and_lists_it_back() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let listing = Command::new(env!("CARGO_BIN_EXE_pdf-transform"))
+    let listing = Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
         .args(["attachments", "out.pdf", "--list"])
         .current_dir(&dir)
         .output()
@@ -742,7 +742,7 @@ fn the_program_attaches_and_lists_it_back() {
     );
 
     // Attaching it a second time under the same name is exit 2: the file defeated the request.
-    let again = Command::new(env!("CARGO_BIN_EXE_pdf-transform"))
+    let again = Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
         .args([
             "attachments",
             "out.pdf",

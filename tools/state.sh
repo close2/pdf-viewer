@@ -302,7 +302,7 @@ section_counts() {
 # applied, sixty lines apart in one file. A match arm that formats a name is a name printed, not a
 # question asked.
 #
-# **And `pdf-viewer-confined` is excluded because it is a different window in the same crate**
+# **And `quorra-confined` is excluded because it is a different window in the same crate**
 # (ADR 0713): it sits on `viewer-confined`'s boundary, where `Query::Frame` is the payload and the
 # render events never cross, so counting its sources under `viewer-ui` made this section report
 # the tier-2 window asking a question that host's own reading row correctly says it never asks —
@@ -313,7 +313,7 @@ section_counts() {
 names_in_code() {
     local kind=$1
     shift
-    find "$@" -name '*.rs' ! -name trace.rs ! -path '*pdf-viewer-confined*' -exec cat {} + \
+    find "$@" -name '*.rs' ! -name trace.rs ! -path '*quorra-confined*' -exec cat {} + \
         | sed 's|//.*||' \
         | grep -oE "\b$kind::[A-Za-z]+" \
         | sed "s/$kind:://" \
@@ -393,8 +393,8 @@ Query:Caret|not a debt|a delegation. Both native hosts place a real GtkEntry or 
 Query:Offset|not a debt|the same delegation: a click placing the cursor inside a toolkit's own entry is the toolkit's arithmetic.
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
-Command:View|not a debt, and the reason is this section's own exclusion|a window that keeps the viewer in its own process never loses the view, so it has nothing to put back. The pair exists for a host whose worker can die under it: pdf-viewer-confined asks Query::View per frame and echoes the answer back as this, so that a restarted worker resumes where the reader was rather than at page one (ADRs 0734, 0737). That window is deliberately not in this section's population — it is a second window in viewer-ui's crate — which is why a variant one real window does reach reads here as reached by nobody. Closing this line means a *counted* window gaining a worker it can lose.
-Query:View|not a debt, and the same exclusion|the question half of the pair above, and not answerable from Query::PageGeometry: recovering a magnification from that answer's scale needs a division this crate refuses to round-trip in `f32`, and inverting its origin would be a host holding a second opinion about the layout arithmetic. Asked per frame by pdf-viewer-confined, which this section does not count.
+Command:View|not a debt, and the reason is this section's own exclusion|a window that keeps the viewer in its own process never loses the view, so it has nothing to put back. The pair exists for a host whose worker can die under it: quorra-confined asks Query::View per frame and echoes the answer back as this, so that a restarted worker resumes where the reader was rather than at page one (ADRs 0734, 0737). That window is deliberately not in this section's population — it is a second window in viewer-ui's crate — which is why a variant one real window does reach reads here as reached by nobody. Closing this line means a *counted* window gaining a worker it can lose.
+Query:View|not a debt, and the same exclusion|the question half of the pair above, and not answerable from Query::PageGeometry: recovering a magnification from that answer's scale needs a division this crate refuses to round-trip in `f32`, and inverting its origin would be a host holding a second opinion about the layout arithmetic. Asked per frame by quorra-confined, which this section does not count.
 READING
 }
 

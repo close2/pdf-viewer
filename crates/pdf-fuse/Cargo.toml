@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "pdffs"
+name = "quorrafs"
 path = "src/main.rs"
 
 # `fuser`, **pinned to an exact version**, which RFC 0003 section 7 asks for by name: "fuser's

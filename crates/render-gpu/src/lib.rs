@@ -580,7 +580,7 @@ impl GpuContext {
         let adapter_info = adapter.get_info();
 
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("pdf-viewer render-gpu"),
+            label: Some("quorra render-gpu"),
             // Vello needs generous limits for its compute pipeline; taking the
             // adapter's own limits avoids failing on a device that is in fact capable.
             required_limits: adapter.limits(),

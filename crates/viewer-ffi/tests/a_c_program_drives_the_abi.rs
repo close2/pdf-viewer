@@ -3,7 +3,7 @@
 //! **The two Rust hosts prove the vocabulary; only a C program proves the ABI.** Everything else
 //! in this crate is Rust calling Rust — the entry points are `extern "C"` and the argument types
 //! are C's, but no C compiler has read the header and no linker has resolved the symbols. This
-//! test is what closes that: `cc` compiles `c/open_a_page.c` against `include/pdf_viewer.h`, links
+//! test is what closes that: `cc` compiles `c/open_a_page.c` against `include/quorra.h`, links
 //! it against the `cdylib`, and runs it on a real document.
 //!
 //! What it therefore catches that nothing else does: a declaration in the header that does not

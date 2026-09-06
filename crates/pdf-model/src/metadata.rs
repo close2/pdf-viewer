@@ -23,7 +23,7 @@
 //! §14.3.4 is the clause about the disagreement and it hands the question back: "it is at the
 //! discretion of the PDF processor how to use this data". So nothing here reconciles anything.
 //! What this answers with is the dictionary, said to be the dictionary; §12.2 is the one place
-//! the standard *ranks* the two, for the title alone, and `pdf-viewer.rs` obeys it there.
+//! the standard *ranks* the two, for the title alone, and `quorra.rs` obeys it there.
 //!
 //! **This paragraph said "reading it is an XML parser and therefore a dependency decision this
 //! tree has not taken" until the two-hundred-and-ninety-fourth session**, which took it. The

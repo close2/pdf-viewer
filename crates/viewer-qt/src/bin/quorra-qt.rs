@@ -1,25 +1,23 @@
-//! The GTK4 viewer: `pdf-viewer-gtk [--trace[=topics]] <file.pdf[#fragment]>`.
+//! The Qt 6 viewer: `quorra-qt [--trace[=topics]] <file.pdf[#fragment]>`.
 //!
-//! A second program beside `pdf-viewer`, and deliberately not a flag on it: the two differ in
-//! their *toolkit* and in nothing else, which is the claim `viewer-core` exists to make and which
-//! a single binary linking both would stop making.
+//! A third program beside `quorra` and `quorra-gtk`, and deliberately not a flag on
+//! either: the three differ in their *toolkit* and in nothing else, which is the claim
+//! `viewer-core` exists to make and which a single binary linking all three would stop making.
 //!
 //! `CLAUDE.md` makes the launch path a measured thing, so `--trace=launch` prints the same shape
-//! of timeline `pdf-viewer` does: arguments read, window built, first allocation, document
-//! opened, first frame on the screen.
+//! of timeline the other two do: arguments read, window built, first resize, document opened,
+//! first frame on the screen — in `viewer-host`'s one format, so that the two native hosts'
+//! timelines can be read side by side.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use pdf_model::view::WidgetAppearances;
-
-use gtk4::prelude::*;
-use gtk4::{gio, glib};
 use viewer_core::RestrictionLevel;
-use viewer_gtk::Host;
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
+use viewer_qt::Host;
 
 /// What the command line asked for.
 #[derive(Debug)]
@@ -38,10 +36,16 @@ struct Arguments {
     ///
     /// **Not a user interface for them**, which `doc/todo/38` says is not to be built yet: it is
     /// the one policy value `viewer-core` asks for, supplied the way this host supplies the other
-    /// one it has (§6.3.2.2's widget appearances, one field up). `CLAUDE.md` is why it is here at
-    /// all — "it shall always be possible to turn them off" — and until ADR 0604 this program
-    /// printed the word and then refused it.
+    /// one it has. `CLAUDE.md` is why it is here at all — "it shall always be possible to turn them
+    /// off" — and until ADR 0604 this program printed the word and then refused it.
     restrictions: RestrictionLevel,
+    /// How many milliseconds to run for before quitting, or zero to run until closed.
+    ///
+    /// A window under `Xvfb` has nobody to close it, and a test that killed the process could not
+    /// tell a clean exit from a crash. `viewer-gtk` has no equivalent and is stopped with a
+    /// signal; this is the better of the two and is the one thing this host has that the other
+    /// does not.
+    quit_after: i32,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -50,6 +54,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut fragment = None;
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
+    let mut quit_after = 0;
     let mut restrictions = RestrictionLevel::On;
     for word in words {
         if word == "--draw-widget-appearances" {
@@ -61,6 +66,10 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else if let Some(list) = word.strip_prefix("--trace=") {
             topics = parse_topics(list)
                 .map_err(|unknown| format!("--trace: {unknown} names no topic"))?;
+        } else if let Some(millis) = word.strip_prefix("--quit-after=") {
+            quit_after = millis
+                .parse::<i32>()
+                .map_err(|_| format!("--quit-after: {millis} is not a millisecond count"))?;
         } else if word.starts_with("--") {
             return Err(format!("{word} is not an option this program has"));
         } else if path.is_some() {
@@ -68,7 +77,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else {
             // Annex O: the fragment is the text after `#` in the URI the bytes came from. A path
             // is not a URI, but a path with a `#` in it is how a person types one on a command
-            // line, and `pdf-viewer` reads it the same way.
+            // line, and the other two hosts read it the same way.
             match word.split_once('#') {
                 Some((before, after)) => {
                     path = Some(PathBuf::from(before));
@@ -80,8 +89,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     }
     let path = path.ok_or_else(|| {
         format!(
-            "usage: pdf-viewer-gtk [--trace[=topics]] [--draw-widget-appearances] \
-             [{IGNORE_RESTRICTIONS}] <file.pdf>"
+            "usage: quorra-qt [--trace[=topics]] [--draw-widget-appearances] \
+             [{IGNORE_RESTRICTIONS}] [--quit-after=<ms>] <file.pdf>"
         )
     })?;
     Ok(Arguments {
@@ -90,16 +99,17 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         topics,
         widget_appearances,
         restrictions,
+        quit_after,
     })
 }
 
-fn main() -> glib::ExitCode {
+fn main() -> std::process::ExitCode {
     let began = Instant::now();
     let arguments = match arguments(std::env::args().skip(1)) {
         Ok(arguments) => arguments,
         Err(complaint) => {
             eprintln!("{complaint}");
-            return glib::ExitCode::FAILURE;
+            return std::process::ExitCode::FAILURE;
         }
     };
     let trace = if arguments.topics == 0 {
@@ -109,41 +119,29 @@ fn main() -> glib::ExitCode {
     };
     trace.say(Topic::Launch, format_args!("arguments read"));
 
-    // `NON_UNIQUE` because this is a document viewer and two documents are two windows; without
-    // it a second invocation would hand its file to the first process and exit, which is a
-    // decision about how a desktop works rather than about how a PDF is read.
-    let app = gtk4::Application::new(Some("org.pdfviewer.gtk"), gio::ApplicationFlags::NON_UNIQUE);
-    let failed = std::rc::Rc::new(std::cell::Cell::new(false));
-    let watched = std::rc::Rc::clone(&failed);
-    // Every callback in the host holds itself *weakly*, so something has to hold it strongly for
-    // as long as the application runs; this is that something.
-    let held: std::cell::RefCell<Vec<std::rc::Rc<std::cell::RefCell<Host>>>> =
-        std::cell::RefCell::new(Vec::new());
-    app.connect_activate(move |app| {
-        trace.say(Topic::Launch, format_args!("GTK ready"));
-        match Host::open(
-            app,
-            &arguments.path,
-            arguments.fragment.clone(),
-            arguments.widget_appearances,
-            arguments.restrictions,
-            trace,
-        ) {
-            Ok(host) => held.borrow_mut().push(host),
-            Err(error) => {
-                eprintln!("{error}");
-                watched.set(true);
-                app.quit();
-            }
+    let host = match Host::open(
+        &arguments.path,
+        arguments.fragment,
+        arguments.widget_appearances,
+        arguments.restrictions,
+        trace,
+    ) {
+        Ok(host) => host,
+        Err(error) => {
+            eprintln!("{error}");
+            return std::process::ExitCode::FAILURE;
         }
-    });
-    // GTK's own argument parsing is deliberately not given ours: `--trace` is this program's and
-    // a document is a path rather than a GTK option.
-    let code = app.run_with_args::<&str>(&[]);
-    if failed.get() {
-        return glib::ExitCode::FAILURE;
+    };
+    trace.say(
+        Topic::Launch,
+        format_args!("host ready, handing Qt the loop"),
+    );
+    let code = viewer_qt::run(host, arguments.quit_after);
+    if code == 0 {
+        std::process::ExitCode::SUCCESS
+    } else {
+        std::process::ExitCode::FAILURE
     }
-    code
 }
 
 #[cfg(test)]
@@ -170,9 +168,9 @@ mod tests {
 
     /// §6.3.2.2's default is the standard's, and this host's default is the other one.
     ///
-    /// Worth a test rather than a comment because it is the one place `pdf-viewer-gtk` and
-    /// `pdf-viewer` disagree about what a page is, and the flag that undoes it is what ADR 0245's
-    /// two photographs were taken with.
+    /// The same test `quorra-gtk` carries, because the two hosts must agree about it: a native
+    /// form host places a control over every widget, so leaving the appearance underneath would
+    /// be the duplication ADR 0244 photographed and ADR 0245 removed.
     #[test]
     fn the_widgets_are_delegated_unless_the_flag_asks_for_them() {
         use pdf_model::view::WidgetAppearances;
@@ -185,6 +183,13 @@ mod tests {
     }
 
     #[test]
+    fn a_quit_after_that_is_not_a_number_is_refused() {
+        let complaint = arguments(["--quit-after=soon".to_owned(), "x.pdf".to_owned()].into_iter())
+            .expect_err("a millisecond count is a number");
+        assert!(complaint.contains("soon"), "{complaint}");
+    }
+
+    #[test]
     fn a_run_with_no_document_says_how_to_run_it() {
         let complaint = arguments(std::iter::empty()).expect_err("a document is required");
         assert!(complaint.starts_with("usage:"), "{complaint}");
@@ -192,14 +197,11 @@ mod tests {
 
     /// The word this window's refusal names has to be a word this program takes.
     ///
-    /// **Written against the defect rather than for the feature.** `Host::react` answered
-    /// `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions` from this
-    /// host's first session, and `arguments` answered that same word with *"is not an option this
-    /// program has"* and exit 1 — so `CLAUDE.md`'s "it shall always be possible to turn them off"
-    /// was true in one host of three while all three said it was true. The constant is what ties
-    /// the sentence and the parser together; this asserts the parser's end of it and
-    /// `viewer-host`'s `the_refusal_names_the_word_that_turns_the_restrictions_off` the other.
-    /// ADR 0604.
+    /// The same test `quorra-gtk` carries, and the same defect behind it: `Host::react`
+    /// answered `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions` while
+    /// `arguments` answered that word with *"is not an option this program has"* and exit 1. Two
+    /// hosts wrote the sentence independently and both got it wrong the same way, which is what a
+    /// copied sentence does. ADR 0604.
     #[test]
     fn the_word_the_refusal_names_turns_the_restrictions_off() {
         use viewer_core::RestrictionLevel;

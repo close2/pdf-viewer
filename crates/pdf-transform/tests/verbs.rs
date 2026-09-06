@@ -57,7 +57,7 @@ fn scratch() -> PathBuf {
 
 /// Runs the program with these arguments in `dir`, answering (exit code, stdout, stderr).
 fn run(dir: &Path, arguments: &[&str]) -> (i32, Vec<u8>, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_pdf-transform"))
+    let output = Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
         .args(arguments)
         .current_dir(dir)
         .output()

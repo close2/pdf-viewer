@@ -1,7 +1,7 @@
 //! The viewer confined, with a window on it: pages arrive from `pdf-view-worker` over a pipe.
 //!
 //! ```text
-//! cargo run --release -p viewer-ui --bin pdf-viewer-confined -- document.pdf
+//! cargo run --release -p viewer-ui --bin quorra-confined -- document.pdf
 //! ```
 //!
 //! **This is the first host on `viewer-confined`'s boundary** (ADR 0713), which is the boundary
@@ -81,9 +81,9 @@
               that cannot create a window or an event loop should stop loudly"
 )]
 
-#[path = "pdf-viewer-confined/device.rs"]
+#[path = "quorra-confined/device.rs"]
 mod device;
-#[path = "pdf-viewer-confined/screen.rs"]
+#[path = "quorra-confined/screen.rs"]
 mod screen;
 
 use std::path::PathBuf;
@@ -179,7 +179,7 @@ fn arguments() -> Arguments {
             path = Some(PathBuf::from(argument));
         } else {
             eprintln!(
-                "usage: pdf-viewer-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
+                "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
                 viewer_host::MACHINE_FONTS
             );
             std::process::exit(2);
@@ -187,7 +187,7 @@ fn arguments() -> Arguments {
     }
     let Some(path) = path else {
         eprintln!(
-            "usage: pdf-viewer-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
+            "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] document.pdf",
             viewer_host::MACHINE_FONTS
         );
         std::process::exit(2);
@@ -499,7 +499,7 @@ impl Host {
                     // refusing by name is what is left (trap 5).
                     self.stop(format!(
                         "{} is encrypted and this build cannot draw the prompt ({said}); open \
-                         it in pdf-viewer, pdf-viewer-gtk or pdf-viewer-qt",
+                         it in quorra, quorra-gtk or quorra-qt",
                         self.path.display()
                     ));
                     return;

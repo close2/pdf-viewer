@@ -434,7 +434,7 @@ fn the_import_policy_admits_a_neighbour_and_refuses_everything_else() {
 /// hosts has a dialogue to prompt with — so the rule that has to hold is that the *provenance*
 /// decides and nothing else does. A click still writes the file; a URI's fragment does not, and
 /// says so. Without this the four-hundred-and-seventy-fifth session's `ef` would have made
-/// `pdf-viewer report.pdf#ef=x` write a file to disk with nobody having pressed anything.
+/// `quorra report.pdf#ef=x` write a file to disk with nobody having pressed anything.
 #[test]
 fn a_uris_embedded_file_is_not_written_and_a_persons_is() {
     assert_eq!(may_write_extracted(Extraction::Asked), Ok(()));

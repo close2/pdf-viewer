@@ -12,7 +12,7 @@ use pdf_syntax::Document;
 
 fn main() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pdf-viewer/test/pdfs/issue10572.pdf");
+        .join("../../../quorra/test/pdfs/issue10572.pdf");
     let path = if path.exists() {
         path
     } else {

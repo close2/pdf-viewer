@@ -6,7 +6,7 @@
 //! ```
 //!
 //! **Each document is opened on disk and crosses as its descriptor** (ADR 0812), which is the
-//! route `pdf-viewer-confined` takes; `CONFINED_PEAK_ROUTE=whole` reads it whole in this process
+//! route `quorra-confined` takes; `CONFINED_PEAK_ROUTE=whole` reads it whole in this process
 //! and sends the bytes, which is the route every confined host took before that ADR and the
 //! column to measure against. Beside the worker's peak this prints **this process's own**
 //! (`VmHWM`, the resident high-water mark), because on the whole route the host is where the

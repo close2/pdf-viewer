@@ -321,7 +321,7 @@ fn corpus(name: &str) -> Option<Vec<u8>> {
 /// encrypted — until you look at the file.
 #[test]
 fn a_string_written_into_an_encrypted_document_comes_back_out_of_it() {
-    const SENTINEL: &str = "written-by-pdf-viewer-7f3a";
+    const SENTINEL: &str = "written-by-quorra-7f3a";
 
     let cases = [
         "bug900822.pdf",

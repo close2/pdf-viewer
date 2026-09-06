@@ -150,7 +150,7 @@ pub fn verify(key: PublicKey<'_>, signature: &[u8], message: &[&[u8]]) -> Result
 ///
 /// ```sh
 /// openssl genpkey -algorithm ed25519 -out key.pem
-/// openssl req -x509 -key key.pem -days 3650 -subj /CN=pdf-viewer -outform der -out cert.der
+/// openssl req -x509 -key key.pem -days 3650 -subj /CN=quorra -outform der -out cert.der
 /// printf 'the signed bytes' | openssl pkeyutl -sign -inkey key.pem -rawin -out sig.bin
 /// ```
 #[cfg(test)]

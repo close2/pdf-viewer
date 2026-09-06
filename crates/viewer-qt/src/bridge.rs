@@ -50,7 +50,7 @@ use crate::host::Host;
 /// shared enum in `cxx` is `#[non_exhaustive]` in C++ by construction — it compiles a `switch`
 /// with no exhaustiveness guarantee — and `viewer-core`'s rule is that a message added later must
 /// fail to compile in every consumer. A `u8` with a documented table does not pretend otherwise.
-#[cxx::bridge(namespace = "pdf_viewer_qt")]
+#[cxx::bridge(namespace = "quorra_qt")]
 pub mod ffi {
     /// One row of a platform tree, in depth-first order with its depth beside it.
     ///

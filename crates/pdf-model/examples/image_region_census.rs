@@ -71,7 +71,7 @@ use pdf_model::{Pages, interpret};
 use pdf_render::{Command, Grid, ImageSource, Transform};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-/// The window `pdf-viewer` opens at, in device pixels.
+/// The window `quorra` opens at, in device pixels.
 ///
 /// `viewer-ui`'s `window.rs` asks winit for 800×1000 logical pixels. A larger window shows
 /// proportionally more of a magnified image and moves every ratio below by that factor; it does

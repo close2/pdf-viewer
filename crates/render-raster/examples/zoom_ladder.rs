@@ -46,7 +46,7 @@ fn main() {
     let size = list.page_size;
 
     let mut cpu = CpuRasterizer::new();
-    // **The lane the viewer would use for this rung**, which is the whole point: `pdf-viewer.rs`
+    // **The lane the viewer would use for this rung**, which is the whole point: `quorra.rs`
     // switches raster to the GPU coverage lane above 10× magnification, so a ladder drawn with
     // the default lane never exercises what a person sees past 1000%.
     let lane = |zoom: f32| {

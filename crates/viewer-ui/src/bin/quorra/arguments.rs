@@ -418,8 +418,8 @@ fn split_fragment(argument: &std::ffi::OsStr) -> (PathBuf, Option<String>) {
 
 /// What the program does when it is given nothing to open.
 fn usage() {
-    eprintln!("usage: pdf-viewer [--no-sandbox] <document.pdf>");
-    eprintln!("       pdf-viewer --licences");
+    eprintln!("usage: quorra [--no-sandbox] <document.pdf>");
+    eprintln!("       quorra --licences");
     eprintln!();
     // The bindings are `viewer_host::keys`', shared with the two native hosts since ADR 0526,
     // and this is the one place they are worded for a person.

@@ -542,7 +542,7 @@ fn mentions(note: &str, key: &str) -> bool {
 /// Equality, plus one rule Rust's own module system states: a module root `…/foo.rs` owns
 /// everything under `…/foo/`. The four-hundred-and-eighties split three of this tree's largest
 /// files into exactly that shape — `content.rs` kept as the root over `content/`,
-/// `pdf-viewer.rs` over `pdf-viewer/` — *so that every citation of the path stays valid*, and on
+/// `quorra.rs` over `quorra/` — *so that every citation of the path stays valid*, and on
 /// this sweep's first run after the splits 34 entries moved from "named by the row's own code"
 /// to "named only elsewhere" without one line of the ledger or the readers changing. A row
 /// naming a module root is naming the module, and an instrument that read it as one file was

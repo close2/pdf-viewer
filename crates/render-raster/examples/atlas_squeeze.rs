@@ -55,7 +55,7 @@ fn main() {
     );
 
     // **The lane comes first**, because the viewer switches to the GPU one above 10x
-    // magnification (`pdf-viewer.rs`'s `GPU_COVERAGE_MAGNIFICATION`) and that is where the
+    // magnification (`quorra.rs`'s `GPU_COVERAGE_MAGNIFICATION`) and that is where the
     // owner's report begins.
     for (name, coverage) in [
         ("cpu lane", raster_gpu::Coverage::Cpu),

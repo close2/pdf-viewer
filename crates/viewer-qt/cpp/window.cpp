@@ -45,7 +45,7 @@
 #include <QVBoxLayout>
 #include <QtGlobal>
 
-namespace pdf_viewer_qt {
+namespace quorra_qt {
 namespace {
 
 /// A `rust::String` as Qt spells one. Both are UTF-8, so this is a length and a pointer.
@@ -1775,4 +1775,4 @@ std::int32_t run_qt_host(rust::Box<Host> host, std::int32_t quit_after)
     return QApplication::exec();
 }
 
-} // namespace pdf_viewer_qt
+} // namespace quorra_qt

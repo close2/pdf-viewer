@@ -43,7 +43,7 @@ const WINDOW: (u32, u32) = (900, 1100);
 
 /// The magnification `viewer-ui` switches raster to its GPU coverage lane above.
 ///
-/// The same constant `pdf-viewer.rs` uses, restated rather than shared because a binary's
+/// The same constant `quorra.rs` uses, restated rather than shared because a binary's
 /// constant is not an API — and a ladder that does not switch lanes is not measuring what a
 /// person sees past 1000% (`doc/QUORRA_FEEDBACK.md` section 11).
 const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;

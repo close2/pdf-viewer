@@ -1146,7 +1146,7 @@ impl Host {
     /// **A licence obligation with a surface, and this host had neither half of it until ADR
     /// 0526**: `pdf-font` compiles the standard 14 font programs (§9.6.2.2) into every binary in
     /// this tree, both of their licences require a binary distribution to reproduce their notices,
-    /// and `pdf-viewer-qt` reproduced them nowhere at all. The text is `viewer_host::NOTICE`,
+    /// and `quorra-qt` reproduced them nowhere at all. The text is `viewer_host::NOTICE`,
     /// shared with the other two hosts.
     #[expect(
         clippy::unused_self,

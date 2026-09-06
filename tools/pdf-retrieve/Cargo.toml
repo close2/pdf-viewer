@@ -12,6 +12,11 @@ repository.workspace = true
 # dependency: the output is a fixed shape this tool writes, `json.rs` is 120 lines, and a
 # dependency taken to print six kinds of value would be a dependency on the report's *format*
 # rather than on anything hard. See doc/third-party-data.md for the rule that decides these.
+# The crate keeps its responsibility name; the executable carries the product's.
+[[bin]]
+name = "quorra-retrieve"
+path = "src/main.rs"
+
 [dependencies]
 pdf-model.workspace = true
 pdf-syntax.workspace = true

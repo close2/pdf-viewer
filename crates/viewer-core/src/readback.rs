@@ -203,7 +203,7 @@ impl Readbacks {
 /// What one open document's readback cache is holding, and how it has been used.
 ///
 /// The bound this project asks of a memory budget is that it be *legible*, not that it be small,
-/// so the number is readable rather than merely enforced. `pdf-viewer --trace=search` prints this
+/// so the number is readable rather than merely enforced. `quorra --trace=search` prints this
 /// after every search step and `viewer-core/examples/find_cost` prints it after a sweep.
 ///
 /// Not a [`crate::Query`], deliberately. This is an instrument rather than something a host draws

@@ -1,7 +1,7 @@
 //! The viewer: opens a PDF and shows it.
 //!
 //! ``text
-//! cargo run --release -p viewer-ui --bin pdf-viewer -- document.pdf
+//! cargo run --release -p viewer-ui --bin quorra -- document.pdf
 //! ``
 //!
 //! `--page N` opens at a page, and so does ISO 32000-2 Annex O's fragment identifier —
@@ -80,41 +80,41 @@
 // against its *own* directory, which here is `src/bin` — where cargo also discovers one binary
 // target per file. So the modules of this program would each become a program, and naming the
 // directory explicitly is what keeps fourteen modules from becoming fourteen binaries.
-#[path = "pdf-viewer/access.rs"]
+#[path = "quorra/access.rs"]
 mod access;
-#[path = "pdf-viewer/app.rs"]
+#[path = "quorra/app.rs"]
 mod app;
-#[path = "pdf-viewer/arguments.rs"]
+#[path = "quorra/arguments.rs"]
 mod arguments;
-#[path = "pdf-viewer/cadence.rs"]
+#[path = "quorra/cadence.rs"]
 mod cadence;
-#[path = "pdf-viewer/composer.rs"]
+#[path = "quorra/composer.rs"]
 mod composer;
-#[path = "pdf-viewer/dispatch.rs"]
+#[path = "quorra/dispatch.rs"]
 mod dispatch;
-#[path = "pdf-viewer/files.rs"]
+#[path = "quorra/files.rs"]
 mod files;
-#[path = "pdf-viewer/find.rs"]
+#[path = "quorra/find.rs"]
 mod find;
-#[path = "pdf-viewer/overlays.rs"]
+#[path = "quorra/overlays.rs"]
 mod overlays;
-#[path = "pdf-viewer/presentation.rs"]
+#[path = "quorra/presentation.rs"]
 mod presentation;
-#[path = "pdf-viewer/renderer.rs"]
+#[path = "quorra/renderer.rs"]
 mod renderer;
-#[path = "pdf-viewer/sidebar.rs"]
+#[path = "quorra/sidebar.rs"]
 mod sidebar;
-#[path = "pdf-viewer/stale.rs"]
+#[path = "quorra/stale.rs"]
 mod stale;
-#[path = "pdf-viewer/surface.rs"]
+#[path = "quorra/surface.rs"]
 mod surface;
-#[path = "pdf-viewer/timing.rs"]
+#[path = "quorra/timing.rs"]
 mod timing;
-#[path = "pdf-viewer/trace.rs"]
+#[path = "quorra/trace.rs"]
 mod trace;
-#[path = "pdf-viewer/typing.rs"]
+#[path = "quorra/typing.rs"]
 mod typing;
-#[path = "pdf-viewer/window.rs"]
+#[path = "quorra/window.rs"]
 mod window;
 
 use std::path::PathBuf;

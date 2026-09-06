@@ -33,7 +33,7 @@ class QTimer;
 class QToolBar;
 class QTreeView;
 
-namespace pdf_viewer_qt {
+namespace quorra_qt {
 
 /// One of `viewer-core`'s three panel answers, as a Qt item model.
 ///
@@ -390,4 +390,4 @@ private:
     bool busy_ = false;
 };
 
-} // namespace pdf_viewer_qt
+} // namespace quorra_qt

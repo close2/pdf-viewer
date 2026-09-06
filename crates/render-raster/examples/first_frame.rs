@@ -42,7 +42,7 @@ fn main() {
     // **Which coverage lane**, because the two are opposite curves and the first frame is where
     // they differ most: the CPU lane's atlas pays for a tile once per *page* and the GPU lane
     // has no atlas at all, so a measurement of "the first frame" taken on the default lane says
-    // nothing about the one `pdf-viewer.rs` switches to past `GPU_COVERAGE_MAGNIFICATION`. A
+    // nothing about the one `quorra.rs` switches to past `GPU_COVERAGE_MAGNIFICATION`. A
     // value that is neither is a panic rather than a fallback, for `tests/corpus.rs`'s reason.
     let coverage = match std::env::var("FIRST_FRAME_COVERAGE")
         .unwrap_or_default()
