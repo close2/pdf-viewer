@@ -99,3 +99,46 @@ it had no idle ten minutes either, with two neighbours running throughout.
 Whether to widen a band. Two rounds in a row have declined to, on the same argument, and this one
 has the measurement behind it: a band widened to admit a loaded machine has put the loaded machine
 into the claim.
+
+## Answered, and what session 938 built on the answer
+
+`A29` is the owner's: *"combining option 1 and 2 sounds good"*. Both are built, and the
+measurement changed the shape of the first one — so what follows is what the gate does now and
+what it found while getting there. ADRs 0916 and 0917; `doc/todo/42` carries the tables.
+
+**Option 2, as asked.** `doc/todo/02` §2 runs this gate with no `PDFVIEWER_LAUNCH_CLOCKS` in the
+environment and judges **twenty-one figures no machine can move** — the bytes an open reads, the
+read calls it makes, the instructions it executes, what it costs in memory, what page one
+allocates, what the device allocates — in **three seconds at a load average of 6**, green.
+`doc/verify.md` says to set the variable and run the nine-sample clock figures when a round has the
+machine. An environment variable rather than a flag, following `A28`.
+
+**Option 1's purpose, delivered as a count.** The busy probe this question asked for needed ten
+minutes of an idle machine that four rounds could not get. The kernel had been counting the same
+thing exactly all along: `sched_info.run_delay`, per thread, in nanoseconds, at every wakeup. Every
+duration is now elapsed time less that wait, and a figure whose thread waited more than a tenth of
+its own elapsed time is declined. On a quiet machine the correction is zero, so **no band moved,
+for the sixth round running**.
+
+**Why the band this question asked for is still not derived, and it is a third reason.** Round 938
+was given an idle machine and went to take it. On 2026-09-06 the fifty-pass probe read **0.849 to
+0.951 ms over 300 consecutive idle samples** where the *same binary* read 0.703 to 0.724 in this
+gate's own runs on 2026-09-04 — and a single busy thread pinned to a performance core reached
+**3.74 GHz against a rated 5.16**, at 63 °C, on the `performance` platform profile. The machine was
+not busy. It was **a different machine**, and a band taken that day would have put it into the
+claim. The gate says so out loud: the clock run prints `NOT JUDGED`, names the probe, prints all
+thirty-seven figures and exits 0.
+
+**And the first-pass probe does not discriminate**, which is worth recording because this question
+recommended banding it. Its ratio to the fifty-pass reading, per child, has a median of 1.64 on an
+idle machine, 1.50 at load 9, 1.40 with eight spinners on the SMT siblings of the pinned cores and
+3.23 with eight on the pinned cores themselves — the quiet machine sitting *in the middle* of the
+contended ones. It stays printed and unbanded, now with a measurement saying why rather than a
+promise that a quiet afternoon would fix it.
+
+**What is left for a later round**, and it now has an instrument: `bug1815476.pdf`'s cold open has
+been a per cent or two over its ceiling since session 933 on quiet machines with every probe in
+band. Its two candidate explanations — the program's open grew, or this machine's small-read
+latency grew — were not separable backwards. `open_kinstructions` makes the first exact from now
+on, and the second already has a number beside it: the cold read session 931 measured at 0.109 ms
+reads 0.125 to 0.199 today.

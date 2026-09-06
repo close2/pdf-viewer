@@ -12,14 +12,44 @@
 # figure contains. Every paragraph below is worth reading before a band is moved; ADR 0884 is the
 # argument in full, and ADRs 0910 and 0911 are why the memory figures are the ones they are.
 #
-# **Three of each row's figures cannot be moved by the machine, and those are judged on any
-# machine.** How many bytes an open reads (`read_kib`), what the open costs in memory
-# (`open_peak_mib`) and how much this program has allocated when page one is drawn
-# (`peak_anon_mib`) are properties of the reader rather than of the afternoon: the first two came
-# back identical in every one of the forty-four runs the bands were derived from, and the third
-# held to 30 KiB across a page-cache eviction that moved the process's whole resident high-water
-# by 25%. They are what gates principle 2's own claims about *what* the launch path does, and no
-# amount of neighbouring load excuses them.
+# **Five of each row's figures cannot be moved by the machine, and those are judged on any
+# machine.** How many bytes an open reads (`read_kib`), how many read calls it makes
+# (`read_calls`), how many instructions it executes (`open_kinstructions`), what the open costs
+# in memory (`open_peak_mib`) and how much this
+# program has allocated when page one is drawn (`peak_anon_mib`) are properties of the reader
+# rather than of the afternoon: the first three came back identical, or within a hundredth of a
+# per cent, in every run the bands were derived from, and the fourth held to 30 KiB across a
+# page-cache eviction that moved the process's whole resident high-water by 25%. They are what
+# gates principle 2's own claims about *what* the launch path does, and no amount of neighbouring
+# load excuses them.
+#
+# **`open_kinstructions` is the fourth and is round 938's**, and the reason it exists is the same
+# reason `peak_anon_mib` exists: a gate should band a quantity that does not contain the mechanism
+# that moves it. Principle 2 asks a cold-open gate one question — *did opening a document become
+# more expensive* — and until this round the only instrument for it was a stopwatch on a machine
+# three rounds share. An instruction count answers it without one. It is counted under callgrind,
+# which this tree has used for exactly this reason since ADR 0180, on a child that opens the
+# document and stops; five consecutive runs of each document at load averages between 3 and 12
+# moved by at most 0.011% and the 1023-page one by 0.00017%. The bands are the observed range
+# widened by one per cent on each side, rounded outwards — ninety times the measured spread, so
+# that this program's own hash seeds cannot fire it, and forty times tighter than the clock bands
+# beside it. About 976 thousand instructions of each figure are the process's own start, which is
+# 26% of the smallest row and 0.5% of the largest.
+#
+# **`read_calls` is the fifth**, and it is the other half of what a cold open is made of. A cold
+# open's elapsed time is the program's work plus one round trip to the disk for each read that
+# misses the page cache, and the *duration* of a round trip is the machine's — measured on a quiet
+# machine, this gate's own copies answer a cold read in 0.125 ms (one extent, 134 KB) and 0.199
+# (two extents, 173 KB), against a `cold_open_ms` band a fifth of a millisecond wide. What belongs
+# to the program is **how many trips it makes**, and `/proc/self/io`'s `syscr` counts them: 25, 31,
+# 89 and 1077 for the four rows, identical on every one of five consecutive runs. A change that
+# read the same bytes in ten times as many calls would cost ten round trips and would show here as
+# a number rather than as an afternoon's impression.
+#
+# **A round that changes the open path moves these five numbers and says why**, exactly as it
+# would for `read_kib`. That is not a cost of the figure, it is the figure working: a change to
+# `Document::open`, to `Pages`, or to what `Command::Open` reads shows up here as a number rather
+# than as an afternoon's impression.
 #
 # **The memory figure was the whole process's `VmHWM` for thirteen rounds and is not, and it took
 # four recurrences to change it.** The history is the reason it is written here rather than in one
@@ -119,6 +149,22 @@
 # mebibyte**, which is one huge page's headroom on the smallest of them and a little more on the
 # rest. Eleven samples at one-minute load averages between 4.0 and 11.2.
 #
+# **The figures with a clock in them are asked for rather than assumed, since round 938, and that
+# is `doc/questions/Q29`'s option 2 as the owner answered it.** `doc/todo/02` section 2 runs this
+# gate with no `PDFVIEWER_LAUNCH_CLOCKS` in the environment: it then measures one sample of each
+# phase, counts the instructions, and judges the figures above — every one of which is a property
+# of this program — in about two seconds, on any machine, under any load. `doc/verify.md` says to
+# set the variable and run the whole thing when a round has the machine to itself, which is when a
+# claim about a machine can be made at all.
+#
+# **And every duration below is elapsed time less the time its thread spent waiting for a
+# processor**, which the kernel counts exactly per thread in `/proc/thread-self/schedstat` and
+# which is somebody else's rather than this program's — round 938's subtraction, and round 935's
+# in another unit. On a quiet machine it is zero and these bands mean exactly what they meant when
+# they were derived. A figure whose thread waited for more than a tenth of its own elapsed time is
+# **declined** rather than corrected, because a thread preempted that heavily also came back to
+# caches somebody else had used, and that part cannot be subtracted.
+#
 # A round that legitimately changes one of these moves the number here and says why in its own
 # history file, exactly as `fixed-documents.toml` asks. A figure that falls out of the *bottom* of
 # its band is either that win or an instrument that stopped measuring, and the witnesses the run
@@ -154,12 +200,30 @@ calibration_ms = 0.62 .. 0.78
 # nine of them and 1.01 in another, with the probe at 0.705 in both.
 #
 # So every child now reports its **first** pass as `calibration_first_ms` beside the fifty-pass
-# minimum, and the run prints the smallest of them. It has **no band here**, which is
-# `doc/todo/05`'s rule for a figure whose band has not been derived: deriving one needs a quiet
-# machine and session 931 had none — one-minute load averages of 3.5 to 35.7, with two other
-# rounds building and walking a corpus throughout. Adding a `calibration_first_ms = low .. high`
-# line to this section is what makes the gate decline a loaded run instead of failing it, and it
-# is the first of `doc/questions/Q29`'s three options. ADRs 0902 and 0903.
+# minimum, and the run prints the smallest of them. It still has **no band here**, and round 938
+# went to derive one on the idle machine it was given. What it found is why there is still none,
+# and both halves are measurements rather than an excuse:
+#
+# - **The first pass carries no information the fifty-pass minimum lacks.** Its ratio to the
+#   fifty-pass reading, taken per child, has a median of 1.64 on an idle machine, 1.50 at a load
+#   average of 9, 1.40 with eight spinning processes on the SMT siblings of the pinned cores and
+#   3.23 with eight on the pinned cores themselves — the quiet machine sitting *in the middle* of
+#   the contended ones. A probe whose reading does not order the conditions it is meant to
+#   separate cannot decline on them. 300 samples idle, 15 to 20 an arm otherwise.
+# - **What the first-pass probe was invented for is now counted instead.** Session 931's evidence
+#   was that the probe moved 1.3% while the figures moved by factors of two; round 938 measured
+#   what those factors were — one warm open in fifteen at 3.947 ms of which **2.825 was its thread
+#   waiting for a processor**, the other fourteen at 0.97 to 1.08 with a wait of exactly zero.
+#   That is subtracted at the source now, and a sample too full of it is declined.
+#
+# **And the machine itself moved while this round measured, which is the third reason.** On
+# 2026-09-04 the fifty-pass probe read 0.703 to 0.724 ms in this gate's own runs; on 2026-09-06,
+# on an idle machine, the *same binary* read 0.849 to 0.951 over 300 consecutive samples — and a
+# single busy thread pinned to a performance core reached 3.74 GHz where `cpuinfo_max_freq` and
+# `scaling_max_freq` both say 5.16, at 63 °C, on the `performance` platform profile with
+# `amd_pstate` active. The bands in this file are a claim about a processor doing 5.16 GHz. A band
+# derived on the machine as it was that day would have been a claim about a different one, and
+# five rounds have refused to put the machine into the claim. ADRs 0902, 0903, 0916, 0917.
 
 # Principle 2's separate gate: a graphics device brought up in a process that has done nothing
 # else. One per process, which is `examples/bring_up`'s rule — a second device in one process is
@@ -180,6 +244,18 @@ bring_up_ms = 23.3 .. 41.9
 # which is a transparent huge page's worth of headroom on the smallest of them.
 bring_up_anon_mib = 9.5 .. 12.5
 
+# The disk's *latency*, where `io_ms` below is its throughput, timed beside every cold sample.
+#
+# **A small document's cold open is round trips rather than bytes**, and until round 938 nothing
+# here could see one: the probe below reads eight mebibytes at about 2.6 GB/s, a rate at which a
+# hundred kibibytes would cost 0.04 ms, while this gate's own copies answer a cold read in 0.125
+# to 0.199 ms — almost all of it the trip. Trap 34 in one more unit: a guard has to be made of the
+# same stuff as the figure it guards. The probe is 128 KiB written in one piece, so it is one
+# extent and answers with one trip. The band is the observed minimum less a sixth and the observed
+# median times two and a half, which is the shape `io_ms` already has (it reads 2.8 against a
+# ceiling of 7.0); forty samples on an idle machine read 0.086 min, 0.098 median, 0.401 max.
+io_latency_ms = 0.073 .. 0.25
+
 # The disk's own state, and the other half of the guard: a cold read of a fixed eight-mebibyte
 # file of this gate's own, evicted the same way a document is, timed beside every *cold* sample.
 # The calibration probe above is deliberately CPU-bound and in memory, so it cannot see a
@@ -198,6 +274,8 @@ turn_ms = 3.4 .. 5.6
 peak_anon_mib = 24.0 .. 30.5
 open_peak_mib = 5 .. 9
 read_kib = 106 .. 112
+read_calls = 29 .. 33
+open_kinstructions = 4996 .. 5098
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
@@ -210,6 +288,8 @@ turn_ms = 3.99 .. 6.6
 peak_anon_mib = 28.0 .. 35.0
 open_peak_mib = 6 .. 11
 read_kib = 343 .. 359
+read_calls = 87 .. 91
+open_kinstructions = 26230 .. 26760
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
 
 [[document]]
@@ -233,6 +313,8 @@ turn_ms = 3.8 .. 7.2
 peak_anon_mib = 28.0 .. 35.5
 open_peak_mib = 16 .. 20
 read_kib = 4238 .. 4412
+read_calls = 1055 .. 1099
+open_kinstructions = 181751 .. 185424
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]
@@ -245,4 +327,6 @@ turn_ms = none
 peak_anon_mib = 39.0 .. 50.0
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
+read_calls = 23 .. 27
+open_kinstructions = 3390 .. 3459
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and time to first page about twice theirs. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"

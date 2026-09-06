@@ -56,7 +56,7 @@ cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignore
 cargo test  --profile gates -p viewer-core    --test selection_census -- --ignored --nocapture
 cargo test  --profile gates -p viewer-core    --test accessibility_census -- --ignored --nocapture
 cargo build --release       -p pdf-sandbox --bins   # trap 10 again, and `--release` on purpose: see below
-cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's four numbers
+cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks)
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
@@ -288,9 +288,19 @@ list it had read rather than the list it left:
   every clock figure is the minimum of nine fresh processes pinned to the machine's fastest cores,
   and a calibration probe decides whether the clock is judged, so a loaded machine prints
   `NOT JUDGED` where it would otherwise have produced a fourth entry in this file's list of false
-  failures. **Two of its figures — how many bytes an open reads and what it costs in memory — have
-  no clock in them and are judged on any machine**, which is what keeps the line from being a gate
-  that only ever declines to judge. Six seconds after its build.
+  failures.
+
+  **Since the nine-hundred-and-thirty-eighth session this line runs the half of the gate that has
+  no clock in it, and that is the owner's answer to `doc/questions/Q29`** (`A29`: options 1 and 2
+  together). Without `PDFVIEWER_LAUNCH_CLOCKS` in the environment the gate measures one sample of
+  each phase and judges the figures a machine cannot move — the bytes an open reads, **the read
+  calls it makes, the instructions it executes**, what it costs in memory, and what page one has
+  allocated — twenty-one of them, on any machine at any load, in **three seconds**. The figures
+  that are wall clocks are claims about a machine, and `doc/verify.md` says to set the variable and
+  run the whole thing when a round has the machine to itself. What made that split affordable is
+  the counted open: `open_kinstructions` answers principle 2's own question about a cold open —
+  *did opening a document become more expensive* — exactly, under callgrind, with no stopwatch in
+  it (ADR 0917).
 
   The profile is not a slip. `[profile.gates]` costs `Document::open` 4.06% to 12.30% against
   `[profile.release]` (`Cargo.toml`'s table, ADR 0666), which is wider than the bands, and a launch

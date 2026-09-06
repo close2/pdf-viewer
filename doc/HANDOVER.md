@@ -126,6 +126,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 33 | A counter of what was *produced* cannot see a cost paid in *validation* | instruments |
 | 34 | A guard has to be made of the same stuff as the figure it guards | instruments |
 | 35 | A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident | instruments |
+| 36 | A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask | instruments |
 
 ---
 

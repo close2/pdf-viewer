@@ -804,3 +804,35 @@ called. And the anonymous figure has a granularity of its own where transparent 
 `always`: a 2 MiB huge page is 2 MiB of `Anonymous` however much of it is touched, so a band under
 about ten mebibytes needs one huge page's headroom or it will fire on a step the program did not
 take.
+
+### 36. A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask
+
+Two mistakes about the same instrument, both made in the nine-hundred-and-thirty-eighth session,
+and the second one silently.
+
+**A wall-clock figure on a shared machine is three quantities, not two.** The obvious two are the
+work and the time spent waiting for a processor somebody else had — and the second is not what
+inflates a short figure. Measured: eight spinning processes pinned to **exactly** the eight CPUs a
+gate pins its children to raised a one-millisecond figure by **43%** and the gate's fixed-work probe
+by **74%**, while the kernel's own wait counter read **exactly zero in all twenty samples**. A short,
+freshly woken task is what the scheduler runs first, so a process of a millisecond is essentially
+never preempted; what the neighbour does instead is sit *inside* the core — an SMT sibling, a shared
+cache, a boost clock four busy cores do not reach. **A figure can lose half its speed to a
+neighbour with nothing to subtract and nothing to measure but a fixed-work probe.**
+
+Where the wait *does* appear is the excursion: over fifteen consecutive samples, fourteen read 0.97
+to 1.08 ms with a wait of zero and one read 3.947 with a wait of 2.825. That is a factor of four
+explained exactly, and it is worth subtracting — `sched_info.run_delay` is accumulated in
+nanoseconds at every wakeup and is unambiguously somebody else's. **The lesson is which is which:**
+the wait explains the *tail*, the sharing explains the *level*, and a gate that treats either as
+the other will widen the wrong thing.
+
+**And ask the right thread.** `/proc/self/schedstat` is the **thread group leader**, and libtest —
+like most harnesses — runs a test on a thread of its own, so the leader sleeps in a join for the
+whole measurement and every counter reads zero however busy the machine is. The first version of
+this instrument reported `runq 0.000` on every sample under saturating load and looked like a
+finding. `/proc/thread-self/schedstat` is the calling thread. The same applies to anything else
+under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`, `wchan`,
+`sched` — and it is invisible because the file exists, parses, and answers.
+
+ADR 0916.

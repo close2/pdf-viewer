@@ -27,6 +27,12 @@
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
 //! | **memory high-water** | `VmHWM` of the process that did all of the above for one document, less the resident pages of the files it has mapped — what the allocator asked the kernel for | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
+//! | **instructions an open executes** | the whole of a process that opens the document and stops, counted under callgrind — what principle 2's "cold open" asks about, with no clock in it (see [`open_kinstructions`]) | the disk, and how fast this machine happens to be executing today |
+//!
+//! **Every duration above is elapsed time less the time the thread spent waiting for a
+//! processor**, which the kernel counts exactly and which is not this program's (see
+//! [`corrected`]). On a quiet machine that is zero and the figure is unchanged; under a
+//! neighbour it is the whole of an excursion.
 //!
 //! **What the first-page figure leaves out is the window, and it is left out on purpose.**
 //! `EventLoop::new` and the first present need a display server; a gate that skipped silently
@@ -41,6 +47,16 @@
 //! three recorded false failures of exactly that kind (`doc/todo/02` section 2). Five things
 //! answer it, and none of them is a wider band:
 //!
+//! - **One figure has no clock in it at all, and it is the one principle 2's cold-open gate is
+//!   really asking about.** `open_kinstructions` counts the instructions a process executes to
+//!   open the document; it does not move with the processor's clock, with a neighbour inside the
+//!   same core, with the page cache or with the disk, so it is judged on every machine under
+//!   every load. Round 938 added it after measuring that the clock figures' contention has a
+//!   component nothing beside them can subtract — see below.
+//! - **Every duration is elapsed time less the wait for a processor.** The kernel counts that
+//!   wait exactly, per thread, in nanoseconds (`sched_info.run_delay`), and it is time somebody
+//!   else took rather than time this program spent, so it comes off — the same subtraction round
+//!   935 made on the memory high-water, in another unit. [`corrected`] has the measurement.
 //! - **Every figure is the *minimum* of [`SAMPLES`] fresh processes.** Contention adds time and
 //!   never removes it, so the fastest of nine is the closest estimate of a quiet machine that a
 //!   loaded one can produce. A run fails only if *every* sample was slow.
@@ -64,6 +80,14 @@
 //!   seconds between it and the figures; and with the probe moved into the children, a cold open
 //!   still failed at 0.841 ms against 0.49 .. 0.80 while its child's calibration sat dead centre,
 //!   because no amount of CPU probing can see a neighbour queueing the disk.
+//!
+//!   **And they answer only what a probe can answer, which round 938 measured.** With eight
+//!   spinning processes on exactly the eight CPUs these children are pinned to, a warm open rose
+//!   43% and the calibration probe rose 74% — while the kernel's wait counter read *exactly zero*
+//!   in all twenty samples. The neighbour was not taking a turn on the processor, it was sitting
+//!   inside the core: an SMT sibling, a shared cache, a boost clock that four busy cores do not
+//!   reach. Nothing in a wall-clock figure can be subtracted for that, and the probe over-reads
+//!   it — which is why a *count* was added rather than a wider band. ADR 0916.
 //! - **Three of each row's figures cannot be moved by the machine, and are judged always.** How
 //!   many bytes an open reads, what an open costs in memory, and how much this program has
 //!   allocated when page one is drawn are the same under any load, so the claims principle 2
@@ -118,6 +142,20 @@ const CALIBRATION_PATH: &str = "PDFVIEWER_LAUNCH_CALIBRATION";
 /// Overrides [`SAMPLES`], and turns judging off.
 const SAMPLE_OVERRIDE: &str = "PDFVIEWER_LAUNCH_SAMPLES";
 
+/// Asks for the figures that are wall clocks, which are otherwise measured and not judged.
+///
+/// **`doc/questions/Q29`'s option 2, which the owner asked for together with option 1.** The
+/// figures with no clock in them are properties of this program and are judged on any machine at
+/// any load; the ones with a clock in them are claims about a machine, and this tree has had four
+/// consecutive rounds in which the machine was not available to make such a claim about. So they
+/// are asked for rather than assumed: `doc/todo/02` section 2 runs this gate without the variable
+/// and gets the counted figures on every round in about two seconds, and `doc/verify.md` says to
+/// run it *with* the variable when a round has the machine to itself.
+///
+/// **An environment variable rather than a flag** — the owner's own preference, stated in
+/// `doc/questions/A28` about a different switch in this tree and taken as the house style here.
+const CLOCK_FIGURES: &str = "PDFVIEWER_LAUNCH_CLOCKS";
+
 /// The identity a host gives the one document it opens — `pdf-viewer.rs`'s own.
 const DOCUMENT: DocumentId = DocumentId(0);
 
@@ -150,6 +188,24 @@ const TURNS: usize = 5;
 /// the whole gate still costs about six seconds, which is not a number worth tuning against
 /// (ADR 0884).
 const SAMPLES: usize = 9;
+
+/// How much of a figure may be time its thread spent waiting for a processor before the figure
+/// is declined rather than corrected.
+///
+/// **`doc/questions/Q29`'s option 1, answered with a count instead of an afternoon.** That option
+/// asked for a band on a busy probe so that a loaded run declines instead of failing, and said
+/// the derivation needed ten minutes of an idle machine — which four rounds in a row did not get.
+/// The kernel counts the contention exactly, per thread, so no band is needed: [`corrected`]
+/// takes the wait off the figure, and where the wait was more than this share of the elapsed time
+/// the sample is declined outright, because a thread preempted that heavily also came back to
+/// caches and a branch predictor somebody else had used, and *that* part cannot be subtracted.
+///
+/// A tenth, which is a dimensionless choice rather than a measured one and says so. What decided
+/// the order of magnitude: over fifteen consecutive warm opens on a loaded machine, fourteen
+/// waited for nothing at all and one waited for 72% of its own elapsed time (ADR 0916). There is
+/// no observed population between those two, so anything from a few per cent to a half would
+/// separate the same samples.
+const WAITED_SHARE: f64 = 0.10;
 
 /// How many times the calibration probe repeats inside its child.
 ///
@@ -218,6 +274,85 @@ fn mapped_resident_kib() -> Option<u64> {
     Some(field("Rss:")?.saturating_sub(field("Anonymous:")?))
 }
 
+/// How long this thread has been on a processor and how long it has waited for one, in
+/// nanoseconds — the first two fields of `/proc/thread-self/schedstat`.
+///
+/// **The second is the part of a wall clock that belongs to somebody else, and the kernel counts
+/// it exactly.** Elapsed time is three things: the thread running, the thread blocked on
+/// something it asked for, and the thread *ready to run with a processor somebody else had*.
+/// `sched_info.run_delay` is the third, accumulated in nanoseconds at every wakeup — a count of
+/// what happened to this figure rather than an estimate taken beside it.
+///
+/// `/proc/thread-self/` rather than `/proc/self/`, and the difference is the whole measurement:
+/// `/proc/self/` is the thread *group leader*, libtest runs a test on a thread of its own, and
+/// the leader is asleep in a join for the whole of every phase — so it reads zero however busy
+/// the machine is. Measured both ways before this was written.
+///
+/// `None` where there is no `/proc`, which is every platform but Linux, and on a kernel built
+/// without `CONFIG_SCHED_INFO`, where the fields are absent.
+fn scheduling() -> Option<(u64, u64)> {
+    let line = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+    let mut fields = line.split_whitespace();
+    let on_cpu = fields.next()?.parse().ok()?;
+    let waiting = fields.next()?.parse().ok()?;
+    Some((on_cpu, waiting))
+}
+
+/// One phase's elapsed time less the time it spent waiting for a processor, then the elapsed time
+/// and the wait themselves — the three numbers every clock figure here is printed as.
+///
+/// **The subtraction is round 938's, and it is round 935's subtraction in another unit.** That
+/// round found nine tenths of a memory high-water was resident pages of somebody else's shared
+/// libraries and banded `VmHWM - mapped` in its place; this takes the same step on a clock, on
+/// the same argument — a gate should band a quantity that does not contain the mechanism that
+/// moves it.
+///
+/// On a machine with nothing else on it the wait is zero and the figure is exactly what it was,
+/// which is why the bands derived before this change still hold. Under a neighbour it is the
+/// whole of an excursion: over fifteen consecutive warm opens of the five-page document,
+/// fourteen read 0.97 to 1.08 ms with a wait of zero and one read 3.947 ms with a wait of 2.825
+/// (ADR 0916).
+///
+/// **What it cannot remove is the other half, and no clock can.** A neighbour that shares a core
+/// rather than queueing for one makes the same instructions take longer and leaves nothing here
+/// to subtract: under eight spinning processes on exactly the eight CPUs these children are
+/// pinned to, a warm open rose 43% with this wait at exactly zero in all twenty samples. That is
+/// what the calibration probes decline on, and what `open_instructions` counts around.
+fn corrected(
+    elapsed: f64,
+    before: Option<(u64, u64)>,
+    after: Option<(u64, u64)>,
+) -> (String, String, String) {
+    let waited = match (before, after) {
+        (Some((_, before)), Some((_, after))) => {
+            // Integer nanoseconds to milliseconds: `u64` is exact in `f64` far above any wait a
+            // process of this length can accumulate.
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a nanosecond count of a phase measured in milliseconds; f64 is exact                           to 2^53 and this is bounded by the phase"
+            )]
+            Some(after.saturating_sub(before) as f64 / 1e6)
+        }
+        _ => None,
+    };
+    let judged = elapsed - waited.unwrap_or(0.0);
+    (
+        format!("{judged:.3}"),
+        format!("{elapsed:.3}"),
+        waited.map_or_else(|| "-".to_owned(), |value| format!("{value:.3}")),
+    )
+}
+
+/// One counter of `/proc/self/io`.
+fn io_counter(key: &str) -> Option<u64> {
+    let io = std::fs::read_to_string("/proc/self/io").ok()?;
+    io.lines()
+        .find_map(|line| line.strip_prefix(key))?
+        .trim()
+        .parse()
+        .ok()
+}
+
 /// How many bytes this process has had returned by a read, off `/proc/self/io`.
 ///
 /// `rchar` rather than `read_bytes`: the second counts what actually reached the block layer,
@@ -225,12 +360,23 @@ fn mapped_resident_kib() -> Option<u64> {
 /// than of the reader. What principle 2's "not the whole file" claims is about how much the
 /// reader *asked for*, and that is this.
 fn read_chars() -> Option<u64> {
-    let io = std::fs::read_to_string("/proc/self/io").ok()?;
-    io.lines()
-        .find_map(|line| line.strip_prefix("rchar:"))?
-        .trim()
-        .parse()
-        .ok()
+    io_counter("rchar:")
+}
+
+/// How many read calls the process has made, off `/proc/self/io`.
+///
+/// **The other counted half of a cold open, and round 938's second.** A cold open's elapsed time
+/// is the program's work plus one round trip to the disk *for each read that misses the page
+/// cache*, and the second term is the machine's rather than this program's — it is what moved
+/// this gate's smallest rows out of band on afternoons when nothing else had. What belongs to
+/// the program is **how many trips it makes**, and `syscr` counts them exactly: a change that
+/// read the same bytes in ten times as many calls would cost a cold open ten round trips and
+/// would show here as a number, on any machine, with no disk in the claim.
+///
+/// Beside [`read_chars`], which is the bytes: §7.5's "reads the trailer and the objects page one
+/// needs" is a claim about both.
+fn read_calls() -> Option<u64> {
+    io_counter("syscr:")
 }
 
 /// Milliseconds since `began`.
@@ -340,6 +486,22 @@ fn measured(fields: &[(&str, String)]) {
     println!("{line}");
 }
 
+/// What a figure's own wait for a processor reads, where there was one, as a phrase to append.
+///
+/// **Nothing at all where the wait was zero**, which is the ordinary case even under heavy load:
+/// a figure of a millisecond or two is rarely preempted, because a freshly woken short task is
+/// what this scheduler runs first. Printing `+0.000 ms waiting` on every line would bury the
+/// samples where it is the whole story — round 938 measured one warm open in fifteen at 3.947 ms
+/// of which 2.825 was this.
+fn waiting(fields: &Fields, key: &str) -> String {
+    match field(fields, key) {
+        Some(waited) if waited > 0.0 => {
+            format!(" ({waited:.3} ms of waiting for a processor already taken off)")
+        }
+        _ => String::new(),
+    }
+}
+
 /// A number a child measured, or `-` where this platform does not offer it.
 fn or_absent(value: Option<u64>) -> String {
     value.map_or_else(|| "-".to_owned(), |number| number.to_string())
@@ -349,16 +511,27 @@ fn or_absent(value: Option<u64>) -> String {
 fn phase_open() {
     let path = document_of_the_child();
     let before = read_chars();
+    let before_calls = read_calls();
+    let scheduled = scheduling();
     let began = Instant::now();
     let (viewer, pages) = open_document(&path);
     let elapsed = ms(began);
+    let waited = scheduling();
     drop(viewer);
     let read = match (read_chars(), before) {
         (Some(after), Some(before)) => Some(after.saturating_sub(before)),
         _ => None,
     };
+    let calls = match (read_calls(), before_calls) {
+        (Some(after), Some(before)) => Some(after.saturating_sub(before)),
+        _ => None,
+    };
+    let (judged, wall, runq) = corrected(elapsed, scheduled, waited);
     measured_beside_the_machine(&[
-        ("open_ms", format!("{elapsed:.3}")),
+        ("open_ms", judged),
+        ("read_calls", or_absent(calls)),
+        ("open_wall_ms", wall),
+        ("open_runq_ms", runq),
         ("pages", pages.to_string()),
         ("read_bytes", or_absent(read)),
         ("mapped_kib", or_absent(mapped_resident_kib())),
@@ -372,9 +545,11 @@ fn phase_open() {
 /// here loads drivers, and a second device in the same process is measured with the loader
 /// already warm.
 fn phase_bring_up() {
+    let scheduled = scheduling();
     let began = Instant::now();
     let backend = QuorraRasterizer::new_headless();
     let elapsed = ms(began);
+    let waited = scheduling();
     let adapter = match backend {
         // **Named rather than counted**, because the number above is a claim about *this*
         // adapter: a machine that quietly fell back to a software rasteriser reports a bring-up
@@ -386,8 +561,11 @@ fn phase_bring_up() {
             std::process::exit(1);
         }
     };
+    let (judged, wall, runq) = corrected(elapsed, scheduled, waited);
     measured_beside_the_machine(&[
-        ("bring_up_ms", format!("{elapsed:.3}")),
+        ("bring_up_ms", judged),
+        ("bring_up_wall_ms", wall),
+        ("bring_up_runq_ms", runq),
         ("adapter", adapter),
         ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
@@ -402,6 +580,10 @@ fn phase_bring_up() {
 fn phase_first_page() {
     let path = document_of_the_child();
     let before = read_chars();
+    // This thread's wait alone, and the document thread's is not in it — which under-corrects
+    // rather than over-corrects, so a figure this leaves too large is never one that passes when
+    // it should have failed.
+    let scheduled = scheduling();
     let began = Instant::now();
     let opening = std::thread::spawn(move || open_document(&path));
     let mut backend = match QuorraRasterizer::new_headless() {
@@ -427,6 +609,7 @@ fn phase_first_page() {
         },
     );
     let elapsed = ms(began);
+    let waited = scheduling();
     let Some((commands, pixels)) = drawn else {
         println!("failed page one was not drawn");
         std::process::exit(1);
@@ -435,8 +618,11 @@ fn phase_first_page() {
         (Some(after), Some(before)) => Some(after.saturating_sub(before)),
         _ => None,
     };
+    let (judged, wall, runq) = corrected(elapsed, scheduled, waited);
     measured_beside_the_machine(&[
-        ("first_page_ms", format!("{elapsed:.3}")),
+        ("first_page_ms", judged),
+        ("first_page_wall_ms", wall),
+        ("first_page_runq_ms", runq),
         ("device_ms", format!("{device:.3}")),
         ("joined_ms", format!("{joined:.3}")),
         ("pages", pages.to_string()),
@@ -483,21 +669,32 @@ fn phase_page_turn() {
     }
     let mut turns = Vec::new();
     let mut commands = 0;
+    // The scheduling of the *quickest* turn, which is the one the figure is: a run of five in
+    // which one waited for a processor says nothing about the one that did not.
+    let mut quickest_scheduling = (None, None);
     for _ in 0..wanted {
+        let scheduled = scheduling();
         let began = Instant::now();
         let drawn = draw_one(&mut viewer, &mut backend, Command::GoTo(PageTarget::Next));
         let elapsed = ms(began);
+        let after_turn = scheduling();
         let Some((drew, _)) = drawn else {
             println!("failed a page turn drew nothing");
             std::process::exit(1);
         };
         commands = commands.max(drew);
+        if turns.iter().copied().fold(f64::INFINITY, f64::min) > elapsed {
+            quickest_scheduling = (scheduled, after_turn);
+        }
         turns.push(elapsed);
     }
     let slowest = turns.iter().copied().fold(0.0_f64, f64::max);
     let quickest = turns.iter().copied().fold(f64::INFINITY, f64::min);
+    let (judged, wall, runq) = corrected(quickest, quickest_scheduling.0, quickest_scheduling.1);
     measured_beside_the_machine(&[
-        ("turn_ms", format!("{quickest:.3}")),
+        ("turn_ms", judged),
+        ("turn_wall_ms", wall),
+        ("turn_runq_ms", runq),
         ("slowest_turn_ms", format!("{slowest:.3}")),
         ("turns", turns.len().to_string()),
         ("pages", pages.to_string()),
@@ -505,6 +702,24 @@ fn phase_page_turn() {
         ("mapped_kib", or_absent(mapped_resident_kib())),
         ("peak_kib", or_absent(peak_resident_kib())),
     ]);
+}
+
+/// **Phase `count-open`**: the same open as [`phase_open`], with nothing beside it, for counting.
+///
+/// **This phase's figure is not the one it prints.** What is measured is the whole process, from
+/// outside, by callgrind: [`open_kinstructions`] runs this and reads the instruction count off
+/// the profile. So the phase does the open and stops — no calibration probe, no `/proc`, no
+/// memory reading — because every instruction it executes beside the open is an instruction in
+/// the figure.
+///
+/// It prints its page count all the same, and the parent checks it, because a count is a number
+/// whatever the process did: a run that failed to open the document would otherwise report a
+/// smaller figure and read as a win (trap 16).
+fn phase_count_open() {
+    let path = document_of_the_child();
+    let (viewer, pages) = open_document(&path);
+    drop(viewer);
+    measured(&[("pages", pages.to_string())]);
 }
 
 /// **Phase `calibrate`**: is this machine the machine the bands were taken on, and is it busy?
@@ -616,6 +831,7 @@ fn launch_probe() {
             ]);
         }
         "open" => phase_open(),
+        "count-open" => phase_count_open(),
         "bring-up" => phase_bring_up(),
         "first-page" => phase_first_page(),
         "page-turn" => phase_page_turn(),
@@ -712,6 +928,27 @@ struct Row {
     open_peak_mib: Pin,
     /// The band on how many bytes of the file an open reads, in kibibytes.
     read_kib: Pin,
+    /// The band on how many read calls an open makes.
+    ///
+    /// **What a cold open's disk time is proportional to, counted.** Each read that misses the
+    /// page cache is one round trip, and on this machine a round trip to a small file costs 0.125
+    /// to 0.199 ms against a whole-figure band a fifth of a millisecond wide. The duration is the
+    /// machine's; the number of trips is the program's, and this is it (see [`read_calls`]).
+    read_calls: Pin,
+    /// The band on how many thousands of instructions an open *executes*.
+    ///
+    /// **The figure with no machine in it at all, and the one this gate was missing.** Every
+    /// other duration here is a claim about an afternoon: round 938 measured a warm open rising
+    /// 43% under eight spinning neighbours with the kernel's own wait counter at exactly zero,
+    /// which is a machine executing the same instructions more slowly and is not something any
+    /// clock beside the figure can subtract. An instruction count cannot move that way. It is
+    /// the same number on a loaded machine, on a quiet one, on a slower processor and on a
+    /// faster one, so it is judged always — and what principle 2 asks a cold-open gate for,
+    /// *did opening a document become more expensive*, is exactly what it answers.
+    ///
+    /// Counted under callgrind, which this tree has used for the same reason since ADR 0180.
+    /// Thousands of instructions, the way [`Row::read_kib`] is kibibytes.
+    open_kinstructions: Pin,
     /// What this row is here to say, in one line.
     why: String,
 }
@@ -747,6 +984,13 @@ struct Check {
     bring_up_anon_mib: Option<Band>,
     /// The band a cold read of [`IO_PROBE_BYTES`] must land in for a *cold* figure to be judged.
     io_ms: Option<Band>,
+    /// The band a cold read of [`IO_LATENCY_BYTES`] must land in for a *cold* figure to be judged.
+    ///
+    /// **The disk's latency where [`Check::io_ms`] is its throughput**, and the two are not the
+    /// same machine's state: this gate's smallest documents fetch a hundred kibibytes in a
+    /// handful of seeks, so what decides their cold opens is a round trip rather than a rate.
+    /// See [`cold_latency_ms`].
+    io_latency_ms: Option<Band>,
     /// The documents.
     documents: Vec<Row>,
 }
@@ -796,6 +1040,10 @@ struct Partial {
     open_peak_mib: Option<Pin>,
     /// See [`Row::read_kib`]. `None` here is "the key was not stated at all".
     read_kib: Option<Pin>,
+    /// See [`Row::read_calls`]. `None` here is "the key was not stated at all".
+    read_calls: Option<Pin>,
+    /// See [`Row::open_kinstructions`]. `None` here is "the key was not stated at all".
+    open_kinstructions: Option<Pin>,
     /// See [`Row::why`].
     why: Option<String>,
 }
@@ -812,12 +1060,15 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         peak_anon_mib: Some(peak_anon_mib),
         open_peak_mib: Some(open_peak_mib),
         read_kib: Some(read_kib),
+        read_calls: Some(read_calls),
+        open_kinstructions: Some(open_kinstructions),
         why: Some(why),
     } = partial
     else {
         return Err(format!(
             "the row ending at line {at} is missing one of path, pages, cold_open_ms, \
-             warm_open_ms, first_page_ms, turn_ms, peak_anon_mib, open_peak_mib, read_kib, why"
+             warm_open_ms, first_page_ms, turn_ms, peak_anon_mib, open_peak_mib, read_kib, \
+             read_calls, open_kinstructions, why"
         ));
     };
     into.push(Row {
@@ -830,6 +1081,8 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         peak_anon_mib,
         open_peak_mib,
         read_kib,
+        read_calls,
+        open_kinstructions,
         why,
     });
     Ok(())
@@ -886,6 +1139,8 @@ fn parse(text: &str) -> Result<Check, String> {
                 "peak_anon_mib" => row.peak_anon_mib = Some(band(value, at)?),
                 "open_peak_mib" => row.open_peak_mib = Some(band(value, at)?),
                 "read_kib" => row.read_kib = Some(band(value, at)?),
+                "read_calls" => row.read_calls = Some(band(value, at)?),
+                "open_kinstructions" => row.open_kinstructions = Some(band(value, at)?),
                 other => return Err(format!("line {at} states an unknown row key `{other}`")),
             }
             continue;
@@ -899,6 +1154,7 @@ fn parse(text: &str) -> Result<Check, String> {
             "bring_up_ms" => check.bring_up_ms = band(value, at)?.band(),
             "bring_up_anon_mib" => check.bring_up_anon_mib = band(value, at)?.band(),
             "io_ms" => check.io_ms = band(value, at)?.band(),
+            "io_latency_ms" => check.io_latency_ms = band(value, at)?.band(),
             other => return Err(format!("line {at} states an unknown key `{other}`")),
         }
     }
@@ -973,6 +1229,15 @@ fn the_performance_cores() -> Option<String> {
         .map(|&(cpu, _)| cpu.to_string())
         .collect();
     Some(list.join(","))
+}
+
+/// Whether this run was asked for the figures that are wall clocks.
+///
+/// Asked once, because a run that measured half its figures under one answer and half under the
+/// other would print a table nobody could read. See [`CLOCK_FIGURES`].
+fn clocks_are_wanted() -> bool {
+    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| std::env::var(CLOCK_FIGURES).is_ok())
 }
 
 /// The calibration document every child is handed, set once by the gate.
@@ -1067,6 +1332,99 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
         .filter_map(|piece| piece.split_once('='))
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
         .collect())
+}
+
+/// How many thousands of instructions a process that opens `document` and does nothing else
+/// executes, and how many pages it found — counted by callgrind.
+///
+/// **The one figure here with no machine in it**, and the reason round 938 added it. Every other
+/// duration this gate judges is a claim about an afternoon, and the check file's own header now
+/// says what such a claim is worth on a machine three rounds share. An instruction count is not
+/// that kind of claim: it does not move with a processor's clock, with a neighbour inside the
+/// same core, with the page cache or with the disk, so it can be judged on any machine under any
+/// load — and *did opening a document become more expensive* is the question principle 2 asks a
+/// cold-open gate, answered without a stopwatch.
+///
+/// Measured over five consecutive runs of each document at one-minute load averages between 6
+/// and 12, the four figures moved by at most 0.03% and two of them not at all. The residue is
+/// this program's hash seeds, which are the process's own and differ from run to run; the bands
+/// are the observed range widened by half a percent on each side, which is forty times tighter
+/// than the clock bands beside them.
+///
+/// The child is [`phase_count_open`], which does the open and stops: no calibration probe and no
+/// `/proc`, because every instruction beside the open is an instruction in the figure. It is not
+/// pinned — a count does not care which core runs it — and it costs a fifth of a second for
+/// three of the documents and two fifths for the 1023-page one.
+fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64), String> {
+    let exe = std::env::current_exe().map_err(|error| format!("no current exe: {error}"))?;
+    let profile = into.join("callgrind.out");
+    // Removed rather than overwritten, so that a run in which valgrind produced nothing reads
+    // the *previous* run's total and reports it as this one's (trap 10a — a stale artefact is a
+    // measurement of the past wearing today's date).
+    let _ = std::fs::remove_file(&profile);
+    let output = Child::new("valgrind")
+        .arg("--tool=callgrind")
+        .arg(format!("--callgrind-out-file={}", profile.display()))
+        .arg(exe)
+        .args(["--exact", "launch_probe", "--nocapture", "--test-threads=1"])
+        // **A cleared environment, and it is not tidiness.** Every byte of a process's
+        // environment is copied and walked at start-up, so the same binary counted under `cargo
+        // test` and counted from a shell differed by 22 thousand instructions — a figure that
+        // moved with *how the gate was invoked* would not be the property of the program this
+        // row claims it is. Two variables in, and nothing else.
+        .env_clear()
+        .env(PHASE, "count-open")
+        .env(DOCUMENT_PATH, document)
+        .output()
+        .map_err(|error| format!("valgrind did not run: {error}"))?;
+    let said = String::from_utf8_lossy(&output.stdout);
+    // **The count is a number whatever the child did**, so the child has to say it opened
+    // something: a process that failed to find the document executes fewer instructions and
+    // would read as a win (trap 16).
+    let pages = said
+        .lines()
+        .find_map(|line| line.find(MARKER).map(|at| &line[at..]))
+        .and_then(|line| {
+            line.split_whitespace()
+                .filter_map(|piece| piece.split_once('='))
+                .find(|&(key, _)| key == "pages")
+                .and_then(|(_, value)| value.parse::<f64>().ok())
+        })
+        .ok_or_else(|| {
+            format!(
+                "the counted open said nothing: {} / {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+                    .lines()
+                    .next_back()
+                    .unwrap_or("no stderr")
+            )
+        })?;
+    let text = std::fs::read_to_string(&profile)
+        .map_err(|error| format!("callgrind wrote no profile: {error}"))?;
+    let total: f64 = text
+        .lines()
+        .find_map(|line| line.strip_prefix("totals:"))
+        .ok_or_else(|| "callgrind's profile states no totals".to_owned())?
+        .trim()
+        .parse()
+        .map_err(|_| "callgrind's total is not a number".to_owned())?;
+    Ok((total / 1e3, pages))
+}
+
+/// Whether callgrind is on this machine, asked once.
+///
+/// **Absence is printed rather than passed over.** A gate that skips a figure in silence is worse
+/// than one that never had it, so the run says the figure was not measured and the summary counts
+/// it; it is not a failure, because a machine without valgrind is a machine, not a regression.
+fn callgrind_is_here() -> bool {
+    static HERE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HERE.get_or_init(|| {
+        Child::new("valgrind")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    })
 }
 
 /// Drops one file's pages from the page cache, and says whether it could.
@@ -1175,6 +1533,44 @@ fn quickest(
     best.ok_or_else(|| format!("{phase} was not sampled at all"))
 }
 
+/// How large the file [`cold_latency_ms`] reads is.
+///
+/// A hundred and twenty-eight kibibytes, which is the order of the two smallest documents here
+/// (85 and 106 KiB read), and written in one piece so that it is one extent: what this probe is
+/// asked is how long *one* trip to the disk costs, and a fragmented file would answer with
+/// several.
+const IO_LATENCY_BYTES: usize = 128 << 10;
+
+/// How long a cold read of a *small* fixed file takes right now, in milliseconds.
+///
+/// **The disk probe made of the same stuff as the figure it guards, which round 938 added and
+/// trap 34 asks for.** [`cold_read_ms`] reads eight mebibytes, so what it measures is the disk's
+/// *throughput*; a five-page document's cold open is a hundred kibibytes fetched in a handful of
+/// seeks, so what decides it is the disk's *latency*, and the two move independently. Measured on
+/// a quiet machine, this gate's own copies read cold in 0.125 ms (one extent, 134 KB) and 0.199
+/// (two extents, 173 KB) at best over sixty samples, while the eight-mebibyte probe sat at 2.8 ms
+/// throughout — 2.6 GB/s, at which rate a hundred kibibytes would be 0.04 ms. Almost all of a
+/// small document's cold read is the round trip, and nothing in this gate could see it.
+///
+/// Session 931 recorded the same measurement at **0.109 min, 0.127 median** on
+/// `PDF20_AN001-BPC.pdf`'s copy where this round reads 0.199 and 0.239 on sixty samples of a
+/// quiet machine, which is the size of the term that has been putting the smallest rows over
+/// their ceilings. ADR 0916.
+fn cold_latency_ms(probe: &Path) -> Result<f64, String> {
+    drop_the_page_cache(probe)?;
+    let began = Instant::now();
+    let bytes = std::fs::read(probe)
+        .map_err(|error| format!("the latency probe does not read: {error}"))?;
+    let elapsed = ms(began);
+    if bytes.len() < IO_LATENCY_BYTES {
+        return Err(format!(
+            "the latency probe is {} bytes and should be {IO_LATENCY_BYTES}",
+            bytes.len()
+        ));
+    }
+    Ok(elapsed)
+}
+
 /// How long a cold read of a fixed file takes right now, in milliseconds.
 ///
 /// **The guard's other half, and the cold open is why it exists.** The calibration probe is
@@ -1208,6 +1604,18 @@ fn cold_read_ms(probe: &Path) -> Result<f64, String> {
 /// else. The four documents this gate opens read between 85 KiB and 4.3 MiB, so the probe is of
 /// the same order as the largest of them.
 const IO_PROBE_BYTES: usize = 8 << 20;
+
+/// Makes the file [`cold_latency_ms`] reads, once per run.
+fn io_latency_probe(directory: &Path) -> Result<PathBuf, String> {
+    let probe = directory.join("io-latency.bin");
+    let wanted = vec![0x5A_u8; IO_LATENCY_BYTES];
+    // `u64` against a `usize` constant rather than a cast: exact on every target this builds for.
+    if std::fs::metadata(&probe).is_ok_and(|found| found.len() == IO_LATENCY_BYTES as u64) {
+        return Ok(probe);
+    }
+    std::fs::write(&probe, &wanted).map_err(|error| format!("the latency probe: {error}"))?;
+    Ok(probe)
+}
 
 /// Makes the file [`cold_read_ms`] reads, once per run.
 fn io_probe(directory: &Path) -> Result<PathBuf, String> {
@@ -1253,11 +1661,21 @@ struct Judged {
     /// `None` for a figure no child reported one for, which is judged as though the machine were
     /// unknown — that is, not at all.
     calibration: Option<f64>,
+    /// What a cold read of a *small* fixed file cost at the moment this figure's sample was
+    /// prepared — the disk's latency, where [`Self::io`] is its throughput.
+    ///
+    /// `None` for every figure but the cold open, as [`Self::io`].
+    io_latency: Option<f64>,
     /// What a cold read of a fixed file cost at the moment this figure's sample was prepared.
     ///
     /// `None` for every figure but the cold open, which is the only one with a disk in it; a
     /// figure with no `io_ms` is not held to the disk's band. See [`cold_read_ms`].
     io: Option<f64>,
+    /// What share of this figure was its thread waiting for a processor, before [`corrected`]
+    /// took it off.
+    ///
+    /// `None` where the child did not report one, which is every platform but Linux.
+    waited_share: Option<f64>,
     /// What one *first* pass of the calibration work cost in that same child.
     ///
     /// **Printed and not judged**, which is `doc/todo/05`'s rule for a figure whose band has not
@@ -1282,6 +1700,10 @@ enum Declined {
     ItsFirstPass,
     /// The disk was outside its band when this figure's sample was prepared.
     TheDisk,
+    /// The disk answered a *small* read too slowly when this figure's sample was prepared.
+    TheDiskLatency,
+    /// The thread that produced it spent too much of its own time waiting for a processor.
+    ItWaited,
     /// Nothing declined it — the figure was judged, and these are the readings beside it.
     Nothing,
 }
@@ -1299,11 +1721,21 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
         None => format!("{what} not reported"),
     };
     let machine = format!(
-        "{}, {}, {}",
+        "{}, {}, {}, {}",
         reading("this child's calibration", figure.calibration),
         reading("its first pass", figure.calibration_first),
-        reading("the disk", figure.io)
+        reading("the disk's rate", figure.io),
+        reading("its latency", figure.io_latency)
     );
+    let machine = match figure.waited_share {
+        Some(share) if share > 0.0 => {
+            format!(
+                "{machine}, {:.1}% of it waiting for a processor",
+                share * 100.0
+            )
+        }
+        _ => machine,
+    };
     let said = match declined {
         Declined::TheRun => "the run is not judging at all",
         Declined::ItsProbe => "the child that produced it was not on the machine's own clock",
@@ -1312,9 +1744,31 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
              busy in the way a figure feels and the fifty-pass minimum cannot see"
         }
         Declined::TheDisk => "the disk was outside its band when this sample was prepared",
+        Declined::TheDiskLatency => {
+            "the disk answered a small cold read outside its band when this sample was prepared, \
+             and a small document's cold open is round trips rather than bytes"
+        }
+        Declined::ItWaited => {
+            "the thread that produced it spent more than a tenth of its own time waiting for a \
+             processor, so what it came back to was not this machine's caches either"
+        }
         Declined::Nothing => return machine,
     };
     format!("{said} — {machine}")
+}
+
+/// What one child said, and which of its fields carry the elapsed time and the wait.
+///
+/// A named pair rather than two arguments, because two `&str`s and a `&Fields` in a row is a
+/// place to pass the wrong one — and because "this figure has no clock in it" is then the
+/// absence of a `waited`, stated once at the call site.
+#[derive(Clone, Copy)]
+struct Sample<'a> {
+    /// Every `key=value` the child printed.
+    fields: &'a Fields,
+    /// The two field names holding this figure's elapsed time and its wait for a processor, or
+    /// `None` for a figure with no clock in it.
+    waited: Option<(&'a str, &'a str)>,
 }
 
 /// Remembers a figure against the band its row states, and nothing where the row states `none`.
@@ -1325,8 +1779,13 @@ fn band_it(
     value: f64,
     pin: Pin,
     steady: bool,
-    fields: &Fields,
+    sample: Sample<'_>,
 ) {
+    let Sample { fields, waited } = sample;
+    // A figure with a clock in it is a claim about a machine, and this run was not asked for one.
+    if !steady && !clocks_are_wanted() {
+        return;
+    }
     if let Some(band) = pin.band() {
         into.push((
             what,
@@ -1337,6 +1796,12 @@ fn band_it(
                 steady,
                 calibration: field(fields, "calibration_ms"),
                 io: field(fields, "io_ms"),
+                io_latency: field(fields, "io_latency_ms"),
+                waited_share: waited.and_then(|(elapsed, runq)| {
+                    let elapsed = field(fields, elapsed)?;
+                    let runq = field(fields, runq)?;
+                    (elapsed > 0.0).then(|| runq / elapsed)
+                }),
                 calibration_first: field(fields, "calibration_first_ms"),
             },
         ));
@@ -1368,6 +1833,7 @@ fn the_launch_path_stays_inside_its_bands() {
         Err(complaint) => panic!("{}: {complaint}", file.display()),
     };
 
+    let clocks = clocks_are_wanted();
     let (samples, sampling_is_the_file_s) = match std::env::var(SAMPLE_OVERRIDE) {
         Ok(said) => match said.trim().parse::<usize>() {
             Ok(count) if count > 0 => (count, false),
@@ -1375,6 +1841,9 @@ fn the_launch_path_stays_inside_its_bands() {
         },
         Err(_) => (SAMPLES, true),
     };
+    // One sample is enough for a figure a machine cannot move, and nine is what a claim about a
+    // machine costs.
+    let samples = if clocks { samples } else { 1 };
     let profile = profile_of_this_binary();
     println!(
         "launch-path: bands taken on {} under `{}`",
@@ -1398,44 +1867,54 @@ fn the_launch_path_stays_inside_its_bands() {
     let calibration_document = root.join(&check.calibration_document);
     // Every child gets it, because every child measures the machine after its own phase.
     let _ = CALIBRATION_DOCUMENT.set(calibration_document.clone());
-    let calibration = match quickest(
-        "calibrate",
-        "calibration_ms",
-        Some(&calibration_document),
-        samples,
-        &mut || Ok(Vec::new()),
-    ) {
-        Ok((value, _)) => value,
-        Err(complaint) => panic!("the calibration probe: {complaint}"),
-    };
     let calibration_band = check.calibration_ms;
-    let machine_is_the_machine = calibration_band.is_some_and(|band| band.holds(calibration));
-    println!(
-        "launch-path: calibration {calibration:.3} ms, band {}",
-        calibration_band.map_or_else(
-            || "none stated".to_owned(),
-            |band| format!("{:.3} .. {:.3}", band.low, band.high)
-        )
-    );
-    // The same fixed work measured the way every figure below is measured — once, in a process
-    // that has not done it before. Printed and not judged; `doc/todo/42` says what deriving a
-    // band for it needs and why this round could not.
-    match quickest(
-        "calibrate",
-        "calibration_first_ms",
-        Some(&calibration_document),
-        samples,
-        &mut || Ok(Vec::new()),
-    ) {
-        Ok((first, _)) => println!(
-            "launch-path: the same work as one first pass {first:.3} ms, no band — the quantity \
-             every figure below is made of"
-        ),
-        Err(complaint) => println!("launch-path: no first-pass calibration: {complaint}"),
-    }
+    let machine_is_the_machine = if clocks {
+        let calibration = match quickest(
+            "calibrate",
+            "calibration_ms",
+            Some(&calibration_document),
+            samples,
+            &mut || Ok(Vec::new()),
+        ) {
+            Ok((value, _)) => value,
+            Err(complaint) => panic!("the calibration probe: {complaint}"),
+        };
+        println!(
+            "launch-path: calibration {calibration:.3} ms, band {}",
+            calibration_band.map_or_else(
+                || "none stated".to_owned(),
+                |band| format!("{:.3} .. {:.3}", band.low, band.high)
+            )
+        );
+        // The same fixed work measured the way every figure below is measured — once, in a
+        // process that has not done it before. Printed and not judged; the check file says what
+        // round 938 measured when it went to derive a band for it.
+        match quickest(
+            "calibrate",
+            "calibration_first_ms",
+            Some(&calibration_document),
+            samples,
+            &mut || Ok(Vec::new()),
+        ) {
+            Ok((first, _)) => println!(
+                "launch-path: the same work as one first pass {first:.3} ms, no band — the \
+                 quantity every figure below is made of"
+            ),
+            Err(complaint) => println!("launch-path: no first-pass calibration: {complaint}"),
+        }
+        calibration_band.is_some_and(|band| band.holds(calibration))
+    } else {
+        println!(
+            "launch-path: the figures with a clock in them are not measured — set \
+             {CLOCK_FIGURES} and run this when the machine is yours (doc/verify.md). What \
+             follows is what this program does, which no machine can move."
+        );
+        false
+    };
 
-    let judging = machine_is_the_machine && sampling_is_the_file_s && profile == check.profile;
-    if !judging {
+    let judging =
+        clocks && machine_is_the_machine && sampling_is_the_file_s && profile == check.profile;
+    if clocks && !judging {
         println!(
             "launch-path: NOT JUDGED — {}",
             if !sampling_is_the_file_s {
@@ -1467,7 +1946,8 @@ fn the_launch_path_stays_inside_its_bands() {
             println!(
                 "launch-path: cold graphics bring-up {value:.1} ms on {adapter}, \
                  {peak:.0} MiB resident of which {allocated:.1} MiB is allocated \
-                 and the rest is mapped libraries"
+                 and the rest is mapped libraries{}",
+                waiting(&fields, "bring_up_runq_ms")
             );
             band_it(
                 &mut judged,
@@ -1476,7 +1956,10 @@ fn the_launch_path_stays_inside_its_bands() {
                 value,
                 check.bring_up_ms.map_or(Pin::Nothing, Pin::Within),
                 false,
-                &fields,
+                Sample {
+                    fields: &fields,
+                    waited: Some(("bring_up_wall_ms", "bring_up_runq_ms")),
+                },
             );
             band_it(
                 &mut judged,
@@ -1485,7 +1968,10 @@ fn the_launch_path_stays_inside_its_bands() {
                 allocated,
                 check.bring_up_anon_mib.map_or(Pin::Nothing, Pin::Within),
                 true,
-                &fields,
+                Sample {
+                    fields: &fields,
+                    waited: None,
+                },
             );
         }
         Err(complaint) => complaints.push(format!("cold bring-up: {complaint}")),
@@ -1501,8 +1987,25 @@ fn the_launch_path_stays_inside_its_bands() {
                 None
             }
         });
+    let latency_probe = cache
+        .as_deref()
+        .and_then(|directory| match io_latency_probe(directory) {
+            Ok(probe) => Some(probe),
+            Err(complaint) => {
+                println!("launch-path: no io latency probe: {complaint}");
+                None
+            }
+        });
     let mut absent = 0_usize;
     let mut measured_documents = 0_usize;
+    let mut uncounted = 0_usize;
+    if !callgrind_is_here() {
+        println!(
+            "launch-path: NOT COUNTED — valgrind is not on this machine, so no row's \
+             open_kinstructions is measured; every clock figure below is a claim about this \
+             afternoon and nothing here is a claim about the program"
+        );
+    }
     for row in &check.documents {
         let path = root.join(&row.path);
         if !path.exists() {
@@ -1523,17 +2026,36 @@ fn the_launch_path_stays_inside_its_bands() {
         });
         let cold_source = copy.as_deref().unwrap_or(path.as_path());
         let mut eviction: Option<String> = None;
-        let cold = quickest("open", "open_ms", Some(cold_source), samples, &mut || {
-            let Some(copy) = copy.as_deref() else {
-                return Err("there is no writable copy to drop the cache of".to_owned());
-            };
-            drop_the_page_cache(copy)?;
-            let Some(probe) = probe.as_deref() else {
-                return Err("there is no io probe to time the disk with".to_owned());
-            };
-            let io = cold_read_ms(probe)?;
-            Ok(vec![("io_ms".to_owned(), format!("{io:.3}"))])
-        });
+        // **The cold arm is a clock and nothing else.** Its child reports the bytes, the read
+        // calls and the memory too, but so does the warm arm's, and dropping a page cache nine
+        // times over is most of what this gate costs — so a run that was not asked for clocks
+        // reads those three from the warm arm instead.
+        let cold = if clocks {
+            quickest("open", "open_ms", Some(cold_source), samples, &mut || {
+                let Some(copy) = copy.as_deref() else {
+                    return Err("there is no writable copy to drop the cache of".to_owned());
+                };
+                drop_the_page_cache(copy)?;
+                let Some(probe) = probe.as_deref() else {
+                    return Err("there is no io probe to time the disk with".to_owned());
+                };
+                let Some(latency) = latency_probe.as_deref() else {
+                    return Err("there is no io latency probe to time the disk with".to_owned());
+                };
+                let io = cold_read_ms(probe)?;
+                // Latency after throughput, because the eight-mebibyte read leaves the disk in the
+                // state a document's open finds it in, which is what this sample is about.
+                let seek = cold_latency_ms(latency)?;
+                Ok(vec![
+                    ("io_ms".to_owned(), format!("{io:.3}")),
+                    ("io_latency_ms".to_owned(), format!("{seek:.3}")),
+                ])
+            })
+        } else {
+            quickest("open", "open_ms", Some(cold_source), samples, &mut || {
+                Ok(Vec::new())
+            })
+        };
         let cold = match cold {
             Ok((value, fields)) => Some((value, fields)),
             Err(complaint) => {
@@ -1541,9 +2063,13 @@ fn the_launch_path_stays_inside_its_bands() {
                 None
             }
         };
-        let warm = quickest("open", "open_ms", Some(cold_source), samples, &mut || {
-            Ok(Vec::new())
-        });
+        let warm = if clocks {
+            quickest("open", "open_ms", Some(cold_source), samples, &mut || {
+                Ok(Vec::new())
+            })
+        } else {
+            Err("not asked for".to_owned())
+        };
         let first = quickest(
             "first-page",
             "first_page_ms",
@@ -1553,7 +2079,7 @@ fn the_launch_path_stays_inside_its_bands() {
         );
         // A one-page document has no page to turn to, and asking for one is not a defect to
         // report. Its row states `turn_ms = none` and this is the other half of that.
-        let turn = if row.pages > 1 {
+        let turn = if row.pages > 1 && clocks {
             Some(quickest(
                 "page-turn",
                 "turn_ms",
@@ -1561,8 +2087,10 @@ fn the_launch_path_stays_inside_its_bands() {
                 samples,
                 &mut || Ok(Vec::new()),
             ))
-        } else {
+        } else if clocks {
             println!("launch-path:   no page turn: the document has one page");
+            None
+        } else {
             None
         };
 
@@ -1587,14 +2115,23 @@ fn the_launch_path_stays_inside_its_bands() {
                 ));
             }
             let read = field(fields, "read_bytes").unwrap_or(0.0) / 1024.0;
+            let calls = field(fields, "read_calls").unwrap_or(0.0);
             let peak = field(fields, "peak_kib").unwrap_or(0.0) / 1024.0;
             let allocated = anonymous_high_water_mib(fields);
             println!(
-                "launch-path:   cold open {value:.2} ms, {pages:.0} pages, \
+                "launch-path:   {} open {value:.2} ms{}, {pages:.0} pages, \
                  {read:.0} KiB read, {peak:.0} MiB resident of which {allocated:.1} MiB is \
-                 allocated, the disk at {} ms for {} MiB",
-                field(fields, "io_ms").map_or_else(|| "?".to_owned(), |io| format!("{io:.1}")),
-                IO_PROBE_BYTES >> 20
+                 allocated, {calls:.0} read calls{}",
+                if clocks { "cold" } else { "warm" },
+                waiting(fields, "open_runq_ms"),
+                match (field(fields, "io_ms"), field(fields, "io_latency_ms")) {
+                    (Some(rate), Some(seek)) => format!(
+                        ", the disk at {rate:.1} ms for {} MiB and {seek:.3} ms for one small \
+                         file",
+                        IO_PROBE_BYTES >> 20
+                    ),
+                    _ => String::new(),
+                }
             );
             band_it(
                 &mut judged,
@@ -1603,7 +2140,10 @@ fn the_launch_path_stays_inside_its_bands() {
                 *value,
                 row.cold_open_ms,
                 false,
-                fields,
+                Sample {
+                    fields,
+                    waited: Some(("open_wall_ms", "open_runq_ms")),
+                },
             );
             band_it(
                 &mut judged,
@@ -1612,7 +2152,22 @@ fn the_launch_path_stays_inside_its_bands() {
                 read,
                 row.read_kib,
                 true,
-                fields,
+                Sample {
+                    fields,
+                    waited: None,
+                },
+            );
+            band_it(
+                &mut judged,
+                format!("{}: the read calls an open makes", row.path),
+                "read_calls",
+                calls,
+                row.read_calls,
+                true,
+                Sample {
+                    fields,
+                    waited: None,
+                },
             );
             band_it(
                 &mut judged,
@@ -1621,12 +2176,51 @@ fn the_launch_path_stays_inside_its_bands() {
                 peak,
                 row.open_peak_mib,
                 true,
-                fields,
+                Sample {
+                    fields,
+                    waited: None,
+                },
             );
         }
+        // The counted open, and the one figure a loaded machine cannot touch. After the cold
+        // arm, because it runs the document through callgrind and would leave its pages hot.
+        match (callgrind_is_here(), cache.as_deref()) {
+            (true, Some(directory)) => match open_kinstructions(cold_source, directory) {
+                Ok((value, counted_pages)) => {
+                    println!(
+                        "launch-path:   the open executes {value:.1} thousand instructions \
+                         for {counted_pages:.0} pages"
+                    );
+                    band_it(
+                        &mut judged,
+                        format!("{}: the instructions an open executes", row.path),
+                        "open_kinstructions",
+                        value,
+                        row.open_kinstructions,
+                        true,
+                        Sample {
+                            fields: &Vec::new(),
+                            waited: None,
+                        },
+                    );
+                }
+                Err(complaint) => {
+                    complaints.push(format!("{}: the counted open: {complaint}", row.path));
+                }
+            },
+            (true, None) => complaints.push(format!(
+                "{}: the counted open has nowhere to write a profile",
+                row.path
+            )),
+            (false, _) => uncounted = uncounted.saturating_add(1),
+        }
+
         match warm {
             Ok((value, fields)) => {
-                println!("launch-path:   warm open {value:.2} ms");
+                println!(
+                    "launch-path:   warm open {value:.2} ms{}",
+                    waiting(&fields, "open_runq_ms")
+                );
                 band_it(
                     &mut judged,
                     format!("{}: the warm open", row.path),
@@ -1634,9 +2228,13 @@ fn the_launch_path_stays_inside_its_bands() {
                     value,
                     row.warm_open_ms,
                     false,
-                    &fields,
+                    Sample {
+                        fields: &fields,
+                        waited: Some(("open_wall_ms", "open_runq_ms")),
+                    },
                 );
             }
+            Err(complaint) if complaint == "not asked for" => {}
             Err(complaint) => complaints.push(format!("{}: warm open: {complaint}", row.path)),
         }
         match first {
@@ -1647,9 +2245,10 @@ fn the_launch_path_stays_inside_its_bands() {
                 let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
                 let allocated = anonymous_high_water_mib(&fields);
                 println!(
-                    "launch-path:   first page {value:.1} ms (device up at {device:.1}, \
+                    "launch-path:   first page {value:.1} ms{} (device up at {device:.1}, \
                      document joined at {joined:.1}, {commands:.0} commands), \
-                     {peak:.0} MiB resident, {allocated:.1} MiB of it allocated"
+                     {peak:.0} MiB resident, {allocated:.1} MiB of it allocated",
+                    waiting(&fields, "first_page_runq_ms")
                 );
                 band_it(
                     &mut judged,
@@ -1658,7 +2257,10 @@ fn the_launch_path_stays_inside_its_bands() {
                     value,
                     row.first_page_ms,
                     false,
-                    &fields,
+                    Sample {
+                        fields: &fields,
+                        waited: Some(("first_page_wall_ms", "first_page_runq_ms")),
+                    },
                 );
                 band_it(
                     &mut judged,
@@ -1667,7 +2269,10 @@ fn the_launch_path_stays_inside_its_bands() {
                     allocated,
                     row.peak_anon_mib,
                     true,
-                    &fields,
+                    Sample {
+                        fields: &fields,
+                        waited: None,
+                    },
                 );
             }
             Err(complaint) => complaints.push(format!("{}: first page: {complaint}", row.path)),
@@ -1676,7 +2281,8 @@ fn the_launch_path_stays_inside_its_bands() {
             Ok((value, fields)) => {
                 let slowest = field(&fields, "slowest_turn_ms").unwrap_or(0.0);
                 println!(
-                    "launch-path:   page turn {value:.1} ms (slowest of {TURNS}: {slowest:.1})"
+                    "launch-path:   page turn {value:.1} ms{} (slowest of {TURNS}: {slowest:.1})",
+                    waiting(&fields, "turn_runq_ms")
                 );
                 band_it(
                     &mut judged,
@@ -1685,7 +2291,10 @@ fn the_launch_path_stays_inside_its_bands() {
                     value,
                     row.turn_ms,
                     false,
-                    &fields,
+                    Sample {
+                        fields: &fields,
+                        waited: Some(("turn_wall_ms", "turn_runq_ms")),
+                    },
                 );
             }
             Err(complaint) if complaint == "not asked for" => {}
@@ -1708,18 +2317,28 @@ fn the_launch_path_stays_inside_its_bands() {
         let disk_held = check
             .io_ms
             .is_none_or(|band| figure.io.is_none_or(|its| band.holds(its)));
-        let machine_was_right = probe_held && first_held && disk_held;
+        let latency_held = check
+            .io_latency_ms
+            .is_none_or(|band| figure.io_latency.is_none_or(|its| band.holds(its)));
+        // The counted guard, and the one that needs no band: see [`WAITED_SHARE`].
+        let waited_little = figure
+            .waited_share
+            .is_none_or(|share| share <= WAITED_SHARE);
+        let machine_was_right =
+            probe_held && first_held && disk_held && latency_held && waited_little;
         if !(figure.steady || (judging && machine_was_right)) {
             unjudged = unjudged.saturating_add(1);
             let declined = if judging {
-                if probe_held {
-                    if first_held {
-                        Declined::TheDisk
-                    } else {
-                        Declined::ItsFirstPass
-                    }
-                } else {
+                if !waited_little {
+                    Declined::ItWaited
+                } else if !probe_held {
                     Declined::ItsProbe
+                } else if !first_held {
+                    Declined::ItsFirstPass
+                } else if !disk_held {
+                    Declined::TheDisk
+                } else {
+                    Declined::TheDiskLatency
                 }
             } else {
                 Declined::TheRun
@@ -1759,7 +2378,7 @@ fn the_launch_path_stays_inside_its_bands() {
 
     println!(
         "launch-path: {measured_documents} documents measured, {absent} absent, \
-         {} figures banded, {unjudged} not judged, {} outside",
+         {uncounted} not counted, {} figures banded, {unjudged} not judged, {} outside",
         judged.len(),
         judged
             .iter()

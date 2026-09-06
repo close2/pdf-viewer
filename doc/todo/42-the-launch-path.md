@@ -156,6 +156,43 @@ That answers the three things the merge left open, and two of them by removing t
 What the gate no longer claims — how much memory the *process* occupies, which is what a user's
 machine pays — is `doc/questions/Q37`.
 
+## And the clock half is settled in the nine-hundred-and-thirty-eighth, the way the memory half was
+
+Everything above is a clock that four rounds could not trust. Session 938 asked what the number is
+*made of*, and it is three quantities of which one is this program's. ADRs 0916 and 0917; the
+owner's `A29` — "combining option 1 and 2 sounds good" — is what it was built against.
+
+| what a launch clock contains | who owns it | the instrument, since this round |
+|---|---|---|
+| the work | this program | **`open_kinstructions`**, counted under callgrind, spread 0.00007% to 0.004% over five runs; and **`read_calls`**, `syscr`, identical on every run |
+| the rate this machine executes it at today | the machine | the calibration probe, which over-reads it: +74% against the figure's +43% in a controlled arm |
+| the time the thread had no processor | a neighbour | `sched_info.run_delay`, counted exactly, **subtracted**; a figure that lost more than a tenth of itself to it is declined |
+| a cold open's round trips to the disk | the machine | **`io_latency_ms`**, a 128 KiB single-extent probe evicted beside every cold sample, where `io_ms` reads eight mebibytes and measures throughput |
+
+The experiment is eight spinning processes pinned to exactly the eight CPUs this gate pins its
+children to: the figure rose 43%, the probe 74%, and **the kernel's wait counter read exactly zero
+in all twenty samples** — a neighbour that shares a core rather than queueing for one. Where the
+wait *does* appear is the tail: of fifteen consecutive warm opens, fourteen read 0.97 to 1.08 ms
+with a wait of zero and one read 3.947 with a wait of 2.825.
+
+**What the gate does now.** Without `PDFVIEWER_LAUNCH_CLOCKS` it judges twenty-one counted and
+steady figures on any machine in three seconds — that is `doc/todo/02` §2's line. With it, the
+nine-sample clock run is `doc/verify.md`'s, for a round that has the machine. **No band was
+widened, for the sixth round running.**
+
+**And the machine moved under this round.** On 2026-09-04 the fifty-pass probe read 0.703 to 0.724
+ms in this gate's runs; on 2026-09-06, idle, the same binary read 0.849 to 0.951 over 300 samples,
+with one busy thread on a performance core reaching 3.74 GHz against a rated 5.16 at 63 °C. The
+bands here are a claim about a processor doing 5.16 GHz. That is why `calibration_first_ms` still
+has no band — not a busy machine, a different one — and why the clock run prints `NOT JUDGED` and
+exits 0 rather than reporting a regression nobody caused.
+
+**One thing is left and it now has an instrument**: `bug1815476.pdf`'s cold open, a per cent or two
+over its ceiling since session 933 on quiet machines with every probe in band. Either the program's
+open grew or this machine's small-read latency did; `open_kinstructions` settles the first exactly
+from the next round on, and the second already reads 0.125 to 0.199 ms where session 931 measured
+0.109.
+
 ## Why this is a todo and not a caveat
 
 `CLAUDE.md`'s startup section states two rules this path breaks:
