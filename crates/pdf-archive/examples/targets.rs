@@ -17,22 +17,31 @@
 use pdf_archive::{Check, Flavour, Target, table};
 
 fn main() {
+    // Three numbers, and the third used to be wrong: it counted every row that is not a
+    // predicate, which since `Check::Processor` existed folded a conforming processor's
+    // obligations into this crate's debts. They are different things — see `Check::Processor` —
+    // so they are different columns.
     println!(
-        "{:<10} {:>6} {:>8} {:>10}",
-        "target", "binds", "checked", "unchecked"
+        "{:<10} {:>6} {:>8} {:>10} {:>11}",
+        "target", "binds", "checked", "unchecked", "processor"
     );
     for target in Target::ALL {
         let bound: Vec<_> = table::binding(target).collect();
-        let checked = bound
-            .iter()
-            .filter(|requirement| matches!(requirement.check, Check::Implemented(_)))
-            .count();
+        let count = |wanted: fn(&Check) -> bool| {
+            bound
+                .iter()
+                .filter(|requirement| wanted(&requirement.check))
+                .count()
+        };
+        let checked = count(|check| matches!(check, Check::Implemented(_)));
+        let processor = count(|check| matches!(check, Check::Processor(_)));
         println!(
-            "{:<10} {:>6} {:>8} {:>10}",
+            "{:<10} {:>6} {:>8} {:>10} {:>11}",
             target.to_string(),
             bound.len(),
             checked,
-            bound.len().saturating_sub(checked)
+            count(|check| matches!(check, Check::Unchecked(_))),
+            processor
         );
     }
     println!("\nrequirements that bind some PDF/A-4 flavours and not others:");

@@ -33,6 +33,10 @@ pub enum Outcome {
     },
     /// Not checked, with the reason. `doc/questions/Q20`.
     Unchecked(&'static str),
+    /// Binds a conforming processor rather than a conforming file, with the reason.
+    ///
+    /// Kept out of both `Met` and `Unchecked`: see [`crate::Check::Processor`].
+    Processor(&'static str),
 }
 
 /// One requirement's row in a report.
@@ -105,12 +109,26 @@ impl Report {
             .filter(|judgement| matches!(judgement.outcome, Outcome::Unchecked(_)))
     }
 
+    /// The requirements that bind a processor rather than the document.
+    ///
+    /// Reported separately because they are neither met nor owed: no document can fail them.
+    pub fn processor_obligations(&self) -> impl Iterator<Item = &Judgement> {
+        self.judgements
+            .iter()
+            .filter(|judgement| matches!(judgement.outcome, Outcome::Processor(_)))
+    }
+
     /// How many of the binding requirements were actually checked.
     #[must_use]
     pub fn checked(&self) -> usize {
         self.judgements
             .iter()
-            .filter(|judgement| !matches!(judgement.outcome, Outcome::Unchecked(_)))
+            .filter(|judgement| {
+                !matches!(
+                    judgement.outcome,
+                    Outcome::Unchecked(_) | Outcome::Processor(_)
+                )
+            })
             .count()
     }
 
@@ -128,11 +146,16 @@ impl Report {
             Verdict::Fails => "does not conform",
         };
         let _ = writeln!(out, "{}: {verdict}", self.target);
+        // The denominator excludes what no document could fail, because a coverage figure that
+        // counted a processor's obligations against a file would understate itself.
+        let about_the_file = self
+            .judgements
+            .len()
+            .saturating_sub(self.processor_obligations().count());
         let _ = writeln!(
             out,
-            "  {} of {} requirements checked",
-            self.checked(),
-            self.judgements.len()
+            "  {} of {about_the_file} requirements about this file checked",
+            self.checked()
         );
         let failures: Vec<&Judgement> = self.failures().collect();
         if !failures.is_empty() {
@@ -164,6 +187,14 @@ impl Report {
                     );
                 }
             }
+        }
+        let obligations = self.processor_obligations().count();
+        if obligations > 0 {
+            let _ = writeln!(
+                out,
+                "  {obligations} further requirements bind a conforming processor rather than \
+                 this file"
+            );
         }
         let unchecked: Vec<&Judgement> = self.unchecked().collect();
         let _ = writeln!(out, "\nnot checked ({}):", unchecked.len());

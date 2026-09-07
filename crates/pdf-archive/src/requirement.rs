@@ -120,6 +120,23 @@ pub enum Check {
     /// verdict that said only "failed" would send the reader back to the document to find out
     /// where.
     Implemented(fn(&crate::Examination<'_>, &mut Findings)),
+    /// The requirement binds a **conforming processor**, not a conforming file.
+    ///
+    /// ISO 19005 states both kinds in the same clauses: "[t]he Encrypt key shall not be present
+    /// in the trailer dictionary" is about a document, and "[c]onforming readers shall ignore
+    /// the BG, BG2, UCR and UCR2 functions" is about a program. **No document can fail the
+    /// second kind**, so reporting it beside a file's failures — "your processor must ignore
+    /// `/Dur`" — tells a reader nothing about the file in front of them.
+    ///
+    /// It is not `Unchecked` either, and the difference matters: `Unchecked` is a debt this
+    /// crate owes, and these are not owed by a validator at all. They are owed by *this
+    /// project*, if it claims to be a conforming processor, and `doc/PLAN.md` §5a's conformance
+    /// ledger is where a claim about this program's own behaviour belongs. Counting them among
+    /// a document's unchecked requirements overstated the gap by thirteen rows on PDF/A-4.
+    ///
+    /// So they are carried, named and reported in their own section — visible, and not mistaken
+    /// for either a pass or a debt.
+    Processor(&'static str),
     /// Not checked, and the reason — `doc/questions/Q20`'s discipline.
     ///
     /// The reason is prose for a person, and it is a promise about *why*: that the requirement
@@ -134,6 +151,7 @@ impl core::fmt::Debug for Check {
     fn fmt(&self, out: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Implemented(_) => out.write_str("Implemented(..)"),
+            Self::Processor(why) => out.debug_tuple("Processor").field(why).finish(),
             Self::Unchecked(why) => out.debug_tuple("Unchecked").field(why).finish(),
         }
     }

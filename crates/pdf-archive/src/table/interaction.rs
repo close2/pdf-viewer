@@ -29,6 +29,24 @@
 //!   §6.3.3 states only the `/N`-only rule and attributes the other to ISO 32000-2 §12.5.2,
 //!   whose exempt list is one subtype longer.
 //!
+//! # The rows no document can fail
+//!
+//! This is the tranche where a processor's obligations are thickest, because part 4's whole change
+//! of posture is to permit a construct and constrain what a reader *does* with it. Seven rows here
+//! are [`Check::Processor`] — displaying an annotation's `/Contents`, rendering a form field from
+//! its appearance rather than its value, running ECMAScript only on an explicit user action,
+//! showing the target of a `GoToR`, `GoToE`, `URI` or `SubmitForm` action, performing the four
+//! permitted named actions, and Annex B's two sentences about displaying 3D artwork. They are
+//! carried and named rather than left out, and they sit outside the coverage denominator: counting
+//! them as debts this crate owes overstated the gap, and counting them as met would claim
+//! something about a *program* in a verdict about a file.
+//!
+//! One row that looks like they do is not one, and the line is worth stating. ISO 19005-4 §6.4.1's
+//! rule about a stripped form's XFDF binds a processor **writing** a file, and a clause that tells
+//! a writer what to do constrains the file it produces. It stays `Unchecked`, for a different
+//! reason: a document with no XFDF attachment may simply be one nobody stripped, so this crate
+//! cannot tell a conforming file from a violating one.
+//!
 //! # What the walks are bounded by
 //!
 //! Annotations are those the page tree reaches through `/Annots`, and fields those the
@@ -80,6 +98,25 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_four("6.3.1"),
         applies: Applies::Flavours(&[Flavour::Plain, Flavour::E]),
         check: Check::Implemented(no_file_attachment_annotation),
+    },
+    Requirement {
+        id: "annotations/three-dimensional-stream-format",
+        asks: "A 3D stream dictionary's Subtype shall be U3D or PRC.",
+        clauses: Clauses::only_four("B.2.2"),
+        applies: Applies::Flavours(&[Flavour::E]),
+        check: Check::Implemented(three_dimensional_stream_format),
+    },
+    Requirement {
+        id: "annotations/three-dimensional-artwork-displayed",
+        asks: "A processor that can render 3D artwork shall display it as the base standard \
+               defines, and one that cannot shall display the annotation's normal appearance.",
+        clauses: Clauses::only_four("B.2.1"),
+        applies: Applies::Flavours(&[Flavour::E]),
+        check: Check::Processor(
+            "Annex B's one sentence about a file here is the format rule above; this pair is what \
+             the two kinds of processor do with the artwork, and the appearance a file has to \
+             carry for the second of them is the §6.3.3 rows'",
+        ),
     },
     Requirement {
         id: "annotations/flags-entry-present",
@@ -147,7 +184,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                every annotation except a signature widget.",
         clauses: Clauses::both("6.3.4", "6.3.4"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "a requirement on the interactive processor rather than on the file: no property of \
              a document can satisfy or break it",
         ),
@@ -158,7 +195,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                rather than from the field's value.",
         clauses: Clauses::both("6.4.1", "6.4.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "a requirement on the processor's rendering rather than on the file; what the file \
              must carry for it to be satisfiable is the appearance-dictionary rows above",
         ),
@@ -238,12 +275,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                called set-state and no-op.",
         clauses: Clauses::both("6.5.1", "6.6.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "both parts name these two in prose and neither gives the /S value to look for; \
-             ISO 32000-2 Table 201 no longer lists them, and the edition that defined them is \
-             not held here, so the name to match cannot be derived from anything this project \
-             has read",
-        ),
+        check: Check::Implemented(no_deprecated_set_state_or_no_op_actions),
     },
     Requirement {
         id: "actions/no-javascript-action",
@@ -274,6 +306,17 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(named_action_is_page_navigation),
     },
     Requirement {
+        id: "actions/named-actions-performed",
+        asks: "A conforming interactive processor shall perform the base standard's action for \
+               each of the four named actions the parts leave permitted.",
+        clauses: Clauses::both("6.5.1", "6.6.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the sentence beside the prohibition above, and it faces the other way: what the file \
+             may name is the row above, and this is what a reader does when the user invokes one",
+        ),
+    },
+    Requirement {
         id: "actions/no-additional-actions-dictionary",
         asks: "The document catalog, a page, a widget annotation and a field shall not state an \
                AA entry.",
@@ -295,7 +338,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                it explicitly, and a non-interactive one shall never run it.",
         clauses: Clauses::only_four("6.6.2"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "a requirement on when a processor executes a script, which no property of a \
              document can satisfy or break",
         ),
@@ -306,7 +349,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                URI a GoToR, GoToE, URI or SubmitForm action names.",
         clauses: Clauses::both("6.5.3", "6.6.4"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "a requirement on what the interactive processor shows the reader rather than on \
              the file",
         ),
@@ -784,6 +827,74 @@ fn no_three_dimensional_annotation(exam: &Examination<'_>, findings: &mut Findin
     });
 }
 
+/// The two 3D formats ISO 19005-4 §B.2.2 admits, which are also the only two ISO 32000-2's
+/// Table 311 recognises.
+static THREE_DIMENSIONAL_FORMATS: &[&str] = &["U3D", "PRC"];
+
+/// ISO 19005-4 §B.2.2, the one sentence of Annex B's 3D subclauses that is about a file.
+///
+/// The rest of §B.2 is addressed to a processor — which artwork it displays, how it colour-manages
+/// it — and `CLAUDE.md`'s clause-13 exclusion is about building that. Reading a name out of a
+/// dictionary is neither, so this row is implemented while its neighbours are
+/// [`Check::Processor`]: the exclusion is on the media engine, not on the validator.
+///
+/// **The population is where the sentence puts it and no wider.** §B.2.2 names the 3D stream
+/// dictionary of ISO 32000-2 §13.6.3, and its own NOTE says that a stream reached from a
+/// `RichMedia` assets tree *may* use another format — so a 3D stream is one a 3D annotation names
+/// through `/3DD`, or one that declares itself with `/Type /3D`. An embedded file stream carrying
+/// 3D data for a `RichMedia` annotation is neither, and is left alone.
+///
+/// Table 311 makes `/Type` optional and `/Subtype` required, which is why both routes are walked:
+/// the `/3DD` route reaches a stream that states no `/Type`, and the `/Type` route reaches one no
+/// annotation points at.
+fn three_dimensional_stream_format(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    // Gathered before anything is reported, because the two routes overlap: one stream a 3D
+    // annotation names and that also declares `/Type /3D` is one stream, and reporting it twice
+    // would count two faults against a document that has one.
+    let mut judged: BTreeSet<ObjectId> = BTreeSet::new();
+    let mut streams: Vec<(Where, Dictionary)> = Vec::new();
+
+    for_each_annotation(exam, |place, annotation| {
+        if name_at(document, annotation, "Subtype").as_deref() != Some(THREE_DIMENSIONAL) {
+            return;
+        }
+        if let Some(id) = annotation.get("3DD").and_then(Object::as_reference)
+            && !judged.insert(id)
+        {
+            return;
+        }
+        if let Some(stream) = document.get_key(annotation, "3DD").as_stream() {
+            streams.push((place.clone().named("3DD"), stream.dict.clone()));
+        }
+    });
+
+    for (id, object) in exam.objects() {
+        if let Object::Stream(stream) = object
+            && name_at(document, &stream.dict, "Type").as_deref() == Some(THREE_DIMENSIONAL)
+            && judged.insert(*id)
+        {
+            streams.push((Where::object(*id), stream.dict.clone()));
+        }
+    }
+
+    for (place, stream) in streams {
+        match name_at(document, &stream, "Subtype") {
+            Some(format) if THREE_DIMENSIONAL_FORMATS.contains(&format.as_str()) => {}
+            Some(format) => findings.record(
+                place.named(format),
+                "a 3D stream states a format other than U3D or PRC",
+            ),
+            // Table 311 makes the entry required and §B.2.2 requires it to be one of two values,
+            // so a stream stating none has satisfied neither.
+            None => findings.record(
+                place.named("Subtype"),
+                "a 3D stream states no Subtype naming its format",
+            ),
+        }
+    }
+}
+
 /// ISO 19005-4 §6.3.1's fifth paragraph, which Annex A relaxes for PDF/A-4f alone.
 fn no_file_attachment_annotation(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
@@ -1138,6 +1249,34 @@ fn no_javascript_action(exam: &Examination<'_>, findings: &mut Findings) {
     );
 }
 
+/// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1, the sentence after the list of eight.
+///
+/// **The names come from a specification, not from another validator, and the route is worth
+/// recording** because both parts describe these two actions without naming their `/S` values: part
+/// 2 calls them "the deprecated set-state and no- op actions" and part 4 "the obsoleted set-state
+/// and no-op actions, that were defined in earlier PDF specifications". ISO 32000-2 dropped both
+/// from Table 201, and ISO 32000-1:2008 — which this tree now holds — dropped them from Table 198
+/// too, keeping only a NOTE that the set-state action is obsolete. So the earlier specification the
+/// sentence points at is Adobe's PDF 1.2, and what this project holds of it is the Arlington PDF
+/// Model (`doc/arlington-pdf-model`, the same pinned data `pdf-spec` is generated from):
+/// `tsv/1.2/ActionSetState.tsv` and `tsv/1.2/ActionNOP.tsv` each give the `/S` value as a closed
+/// choice, and each records that it is documented only in Adobe PDF 1.2 and deprecated there.
+///
+/// The names are `SetState` and `NOP`. Nothing else in either standard admits an action of either
+/// type, so a document naming one has broken this sentence whichever way it is read.
+static DEPRECATED_ACTIONS: &[&str] = &["SetState", "NOP"];
+
+/// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1: the two actions earlier specifications withdrew.
+fn no_deprecated_set_state_or_no_op_actions(exam: &Examination<'_>, findings: &mut Findings) {
+    actions_of_type(
+        exam,
+        findings,
+        DEPRECATED_ACTIONS,
+        "the document contains a set-state or no-op action, which earlier PDF specifications \
+         withdrew and both parts forbid by name",
+    );
+}
+
 /// ISO 19005-2 §6.5.1 and ISO 19005-4 §6.6.1's second paragraph, which differ only in reach.
 ///
 /// One predicate, two rows: part 2 forbids these two types in every file, and part 4 forbids
@@ -1253,6 +1392,7 @@ mod tests {
         no_three_dimensional_annotation, normal_appearance_shape, printable_and_visible,
         subtype_permitted_by_part_four, subtype_permitted_by_part_two,
     };
+    use super::{no_deprecated_set_state_or_no_op_actions, three_dimensional_stream_format};
 
     /// A file built from its objects, numbered from 1, with `/Root 1 0 R`.
     fn document(objects: &[&str]) -> Document {
@@ -1321,6 +1461,77 @@ mod tests {
             faults(&file, subtype_permitted_by_part_two),
             1,
             "ISO 32000-1 does not, and PDF/A-2 admits only what it defines"
+        );
+    }
+
+    /// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1: the two actions earlier specifications withdrew.
+    ///
+    /// The `/S` values are the ones the Arlington PDF Model's Adobe PDF 1.2 tables give — see
+    /// [`DEPRECATED_ACTIONS`] — and they are what the corpus's own witnesses for both clauses use.
+    #[test]
+    fn a_set_state_or_no_op_action_is_found_wherever_a_reader_could_reach_it() {
+        for kind in ["SetState", "NOP"] {
+            let file = with_annotations(&[&format!(
+                "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] /F 4 /A << /S /{kind} >> >>"
+            )]);
+            assert_eq!(
+                faults(&file, no_deprecated_set_state_or_no_op_actions),
+                1,
+                "/S /{kind} is one of the two"
+            );
+        }
+        let permitted = with_annotations(&[
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] /F 4 /A << /S /GoTo >> >>",
+        ]);
+        assert_eq!(
+            faults(&permitted, no_deprecated_set_state_or_no_op_actions),
+            0
+        );
+    }
+
+    /// ISO 19005-4 §B.2.2, and the boundary its own NOTE draws.
+    ///
+    /// A 3D stream is one a 3D annotation names through `/3DD` or one that declares `/Type /3D`;
+    /// an embedded file stream carrying 3D data for a `RichMedia` annotation is neither, which is
+    /// what the clause's NOTE says in as many words.
+    #[test]
+    fn a_three_dimensional_stream_states_one_of_the_two_formats_annex_b_admits() {
+        let with_format = |subtype: &str| {
+            document(&[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Annots [4 0 R] >>",
+                "<< /Type /Annot /Subtype /3D /Rect [0 0 1 1] /F 4 /3DD 5 0 R \
+                 /AP << /N 6 0 R >> >>",
+                &format!("<< /Type /3D /Subtype /{subtype} /Length 0 >>\nstream\n\nendstream"),
+                "<< /Length 0 >>\nstream\n\nendstream",
+            ])
+        };
+        for admitted in ["U3D", "PRC"] {
+            assert_eq!(
+                faults(&with_format(admitted), three_dimensional_stream_format),
+                0
+            );
+        }
+        assert_eq!(
+            faults(&with_format("u3d"), three_dimensional_stream_format),
+            1,
+            "a PDF name is case-sensitive, so u3d is not U3D"
+        );
+
+        let rich_media = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /RichMedia /Rect [0 0 1 1] /F 4 /AP << /N 5 0 R >> \
+             /RichMediaContent << /Subtype /3D /Assets << /Names [(a.prc) 6 0 R] >> >> >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /Filespec /F (a.prc) /UF (a.prc) /EF << /F 5 0 R >> >>",
+        ]);
+        assert_eq!(
+            faults(&rich_media, three_dimensional_stream_format),
+            0,
+            "the clause's NOTE puts a RichMedia asset outside the rule"
         );
     }
 

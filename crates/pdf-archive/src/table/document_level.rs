@@ -21,10 +21,15 @@
 //!   part 4**, which is the one rule in this tranche a file can fail under one part and pass under
 //!   the other with no other change.
 //!
-//! # What has no row here, and why that is not an omission
+//! # The clauses that bind a processor, and why they are rows after all
 //!
-//! **A clause whose only requirement is addressed to a processor gets no row**, because this crate
-//! judges a file and no file can fail such a rule. Naming them is what keeps the absence visible:
+//! **A clause whose only requirement is addressed to a processor used to get no row here**, on the
+//! reasoning that this crate judges a file and no file can fail such a rule. The reasoning was
+//! right and the conclusion was wrong: a requirement named only in a module header is invisible to
+//! every reader of a verdict, which is the silent-omission failure `doc/questions/Q20` exists to
+//! prevent, and it is indistinguishable from a rule nobody noticed. [`Check::Processor`] is the
+//! answer — carried, named, reported in its own section, and outside the coverage denominator
+//! because it is neither met nor owed by a document:
 //!
 //! - the rendering of optional content in the default configuration, the display of the `/Order`
 //!   array and of the list of configurations, and the instruction not to use `/Intent` — ISO
@@ -38,12 +43,14 @@
 //! a conforming file to carry the base standard's geospatial information (§6.14) or measurement
 //! properties (§6.15) by any of the mechanisms ISO 32000-2 describes. A permission is not a
 //! requirement, and inventing a row for one would put a rule in this table that the standard does
-//! not state.
+//! not state — so those two, and only those two, are still absent.
 
+use std::cell::Cell;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use pdf_model::Pages;
-use pdf_model::structure::{Child, MarkInfo, Tree};
+use pdf_model::structure::{Child, MarkInfo, Tree, document_language};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::Examination;
@@ -99,17 +106,21 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(role_map_terminates_at_a_standard_type),
     },
     Requirement {
-        id: "logical-structure/language-identifiers",
-        asks: "Where a Lang entry is stated — in the catalog, in a structure element or in a \
-               property list — its value shall be a language identifier the base standard \
-               defines.",
+        id: "logical-structure/catalog-language-identifier",
+        asks: "Where the document catalog states a Lang entry, its value shall be a language \
+               identifier the base standard defines.",
         clauses: Clauses::only_two("6.7.4"),
         applies: Applies::FromLevel(Level::A),
-        check: Check::Unchecked(
-            "two halves are missing: a property list's Lang lives in a content stream this crate \
-             does not walk, and deciding whether a string is a language identifier is IETF BCP \
-             47's grammar, which no reader in this tree implements",
-        ),
+        check: Check::Implemented(catalog_language_identifier),
+    },
+    Requirement {
+        id: "logical-structure/element-and-property-list-language-identifiers",
+        asks: "Where a structure element or a marked-content property list states a Lang entry, \
+               its value shall be a language identifier the base standard defines. A property \
+               list's Lang is not yet judged; a structure element's is.",
+        clauses: Clauses::only_two("6.7.4"),
+        applies: Applies::FromLevel(Level::A),
+        check: Check::Implemented(element_language_identifiers),
     },
     Requirement {
         id: "embedded-files/file-and-unicode-names",
@@ -132,7 +143,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         asks: "Every embedded file shall itself conform to a part of ISO 19005.",
         clauses: Clauses::only_two("6.8"),
         applies: Applies::Always,
-        check: Check::Unchecked(EMBEDDED_FILE_IS_ITSELF_PDFA),
+        check: Check::Implemented(embedded_file_is_itself_pdfa),
     },
     Requirement {
         id: "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
@@ -141,7 +152,18 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                any type.",
         clauses: Clauses::only_four("6.9"),
         applies: Applies::Flavours(&[Flavour::Plain]),
-        check: Check::Unchecked(EMBEDDED_FILE_IS_ITSELF_PDFA),
+        check: Check::Implemented(embedded_file_is_itself_pdfa),
+    },
+    Requirement {
+        id: "embedded-files/names-displayable",
+        asks: "A conforming interactive processor shall offer a way to display the name strings \
+               the EmbeddedFiles name tree states.",
+        clauses: Clauses::both("6.8", "6.9"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the sentence is addressed to the processor showing the file, not to the file: a \
+             document carrying an EmbeddedFiles tree has done everything it can towards it",
+        ),
     },
     Requirement {
         id: "embedded-files/pdfa-4f-carries-embedded-files",
@@ -176,6 +198,50 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(no_automatic_states),
     },
     Requirement {
+        id: "optional-content/automatic-states-ignored",
+        asks: "A conforming processor shall ignore an AS key in an optional content \
+               configuration dictionary — part 4's replacement for part 2's prohibition of it.",
+        clauses: Clauses::only_four("6.10"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "part 4 permits the entry outright and puts the restriction on what a processor does \
+             with it, so a file that states one has broken nothing",
+        ),
+    },
+    Requirement {
+        id: "optional-content/default-configuration-rendered",
+        asks: "Absent instructions to the contrary, a conforming processor shall render the file \
+               in the default state the OCProperties dictionary's D key sets.",
+        clauses: Clauses::both("6.9", "6.10"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "a rule about which variant a processor shows, and no property of a document decides \
+             it; the state the file has to offer is the D key the rows above judge",
+        ),
+    },
+    Requirement {
+        id: "optional-content/order-and-configurations-displayable",
+        asks: "A conforming interactive processor shall offer a way to display the Order key of \
+               every configuration, and the list of configurations to choose among.",
+        clauses: Clauses::both("6.9", "6.10"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "an obligation on the interactive processor's user interface; the file's half of it \
+               is the Order array the row above judges",
+        ),
+    },
+    Requirement {
+        id: "optional-content/intent-not-used",
+        asks: "A conforming processor shall not use the value of an optional content group's \
+               Intent key.",
+        clauses: Clauses::both("6.9", "6.10"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "both parts leave the entry permitted and forbid the processor to act on it, so no \
+             document can fail the sentence",
+        ),
+    },
+    Requirement {
         id: "alternate-presentations/none-in-the-name-dictionary",
         asks: "The document's name dictionary shall state no AlternatePresentations key.",
         clauses: Clauses::both("6.10", "6.11"),
@@ -190,21 +256,35 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(no_presentation_steps),
     },
     Requirement {
+        id: "alternate-presentations/transitions-ignored",
+        asks: "A conforming interactive processor shall ignore the Trans and Dur keys a page \
+               dictionary states.",
+        clauses: Clauses::both("6.10", "6.11"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "both parts leave the two entries permitted and tell the processor to disregard \
+             them, which is the opposite of a rule a file could break",
+        ),
+    },
+    Requirement {
         id: "document-requirements/no-requirements-dictionary",
         asks: "The document catalog shall state no Requirements key.",
         clauses: Clauses::both("6.11", "6.12"),
         applies: Applies::Always,
         check: Check::Implemented(no_requirements_dictionary),
     },
+    Requirement {
+        id: "print-scaling/print-scaling-obeyed",
+        asks: "A conforming processor shall obey the viewer preferences dictionary's PrintScaling \
+               key, and an Enforce array naming PrintScaling shall make it binding on every page.",
+        clauses: Clauses::only_four("6.13"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the whole subclause is about what a processor does when it prints; it places nothing \
+             on the file, which is free to state either key or neither",
+        ),
+    },
 ];
-
-/// Why neither part's embedded-file rule is checked, shared by the two rows that state it.
-///
-/// One string rather than two, because it is one reason: the parts differ in which flavours the
-/// rule still binds, not in what asking it would take.
-const EMBEDDED_FILE_IS_ITSELF_PDFA: &str = "answering it means holding the embedded bytes to ISO 19005 as a document in their own right, \
-     and nothing here opens an embedded stream as a `pdf_syntax::Document` to run this crate over \
-     it again";
 
 /// ISO 19005-2 §6.7.2.2.
 fn mark_info_marked(exam: &Examination<'_>, findings: &mut Findings) {
@@ -261,6 +341,94 @@ fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut
                 "a structure type is mapped to no standard structure type",
             );
         }
+    }
+}
+
+/// ISO 19005-2 §6.7.4, which is one `shall` inside a subclause of recommendations.
+///
+/// Everything a reader would call the accessibility of language is `should` there — the default
+/// `/Lang` on the catalog, a `/Lang` wherever the text departs from it, the escape sequence inside
+/// a Unicode string — and a row for any of those would be this table asserting a rule the standard
+/// does not state. What the subclause *requires* is that a `/Lang` which is present be a language
+/// identifier as the base standard defines one, and §14.9.2.2 defines that:
+///
+/// > A language identifier shall either be the empty text string, to indicate that the
+/// > language is unknown, or a Language-Tag as defined in BCP 47.
+///
+/// So three things pass and everything else fails. `pdf_model::structure::document_language`
+/// already applies exactly that test to the catalog's entry — it answers `None` for an absent, an
+/// empty, or an ill-formed tag — which makes "the entry is there and not empty, and that reader
+/// still answers `None`" the failure the sentence describes, without a second BCP 47 grammar in
+/// this crate.
+///
+/// An entry that is not a text string at all is reported too: §14.9.2.2 makes a language
+/// identifier a text string, so a name or a number there is not one.
+/// ISO 19005-2 §6.7.4's `shall`, at every structure element that states a `/Lang`.
+///
+/// The same sentence as `catalog_language_identifier`, applied where §14.9.2's inheritance
+/// actually begins: the clause makes the requirement about a `/Lang` *wherever* it is present,
+/// and a document whose catalog is silent may still state a malformed one on an element.
+///
+/// **Judged with `pdf-model`'s own grammar rather than a second one.** `well_formed_language_tag`
+/// was made public for this: RFC 5646's ABNF and its grandfathered list are ninety lines that
+/// this project should not have two of, and `pdf-archive` states that it adds no reader of its
+/// own.
+///
+/// A property list's `/Lang` is the half still missing, and it is missing for a different
+/// reason — it lives in a content stream, and `Examination::survey()` does not record marked
+/// content's property lists. The row's `asks` says so rather than implying both are covered.
+fn element_language_identifiers(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let Some(tree) = Tree::of(document) else {
+        return;
+    };
+    for (_, child) in tree.walk(document).items {
+        let Child::Element(element) = child else {
+            continue;
+        };
+        let stated = document.get_key(&element, "Lang");
+        if stated.is_null() {
+            continue;
+        }
+        let Some(text) = stated.as_string().map(pdf_syntax::text_string) else {
+            findings.record(
+                Where::file().named(stated.type_name().to_owned()),
+                "a structure element's Lang is not a text string",
+            );
+            continue;
+        };
+        // The empty text string is §14.9.2.2's identifier for an unknown language, and is not a
+        // malformed tag — the same carve-out the catalog rule makes.
+        if text.is_empty() || pdf_model::structure::well_formed_language_tag(&text) {
+            continue;
+        }
+        findings.record(
+            Where::file().named(text),
+            "a structure element's Lang is not a language identifier the base standard defines",
+        );
+    }
+}
+
+fn catalog_language_identifier(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let Ok(catalog) = document.catalog() else {
+        return;
+    };
+    let stated = document.get_key(&catalog, "Lang");
+    // Absent is not a failure: the subclause only *recommends* that a file state a default.
+    if stated.is_null() {
+        return;
+    }
+    let text = stated.as_string().map(pdf_syntax::text_string);
+    // The empty text string is the identifier §14.9.2.2 gives to an unknown language.
+    if text.as_ref().is_some_and(String::is_empty) {
+        return;
+    }
+    if document_language(document).is_none() {
+        findings.record(
+            Where::file().named(text.unwrap_or_else(|| stated.type_name().to_owned())),
+            "the catalog's Lang is not a language identifier the base standard defines",
+        );
     }
 }
 
@@ -357,6 +525,137 @@ fn relationship_stated(exam: &Examination<'_>, findings: &mut Findings) {
             );
         }
     });
+}
+
+/// ISO 32000-2 Table 43's keys in an `/EF` dictionary, each of which is an embedded file stream.
+///
+/// All five rather than the usual two, because the rule is about the *file* that is embedded and a
+/// producer filing it under `/DOS` has embedded it just as much as one filing it under `/F`.
+static EMBEDDED_FILE_STREAM_KEYS: &[&str] = &["F", "UF", "DOS", "Mac", "Unix"];
+
+/// How deep a chain of embedded documents this rule follows.
+///
+/// Judging an embedded file means running this crate's whole table over it, and that table
+/// contains this rule — so a document embedding a document embedding a document is a recursion,
+/// and a hostile one is unbounded. `CLAUDE.md` principle 3 asks for an explicit budget rather than
+/// a stack that runs out: two levels is past every document anybody has written on purpose and
+/// short of anything a bomb could exploit.
+const MAX_EMBEDDING_DEPTH: usize = 2;
+
+thread_local! {
+    /// How many embedded documents deep the report now running is.
+    ///
+    /// Not a field on [`Examination`], because it is a property of the *chain* of reports rather
+    /// than of any one of them: each embedded document is examined in its own right, and what has
+    /// to be bounded is how many of those examinations are stacked on top of each other.
+    static EMBEDDING_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Raises [`EMBEDDING_DEPTH`] for as long as it is held.
+///
+/// A guard rather than a pair of statements so that the count comes back down by whichever route
+/// the recursive report leaves — a counter that could be left raised would silently switch this
+/// rule off for the rest of the thread, which is worse than the recursion it guards against.
+struct Descent;
+
+impl Descent {
+    /// Descends one level, or answers `None` at the budget.
+    fn one_level() -> Option<Self> {
+        let depth = EMBEDDING_DEPTH.get();
+        (depth < MAX_EMBEDDING_DEPTH).then(|| {
+            EMBEDDING_DEPTH.set(depth.saturating_add(1));
+            Self
+        })
+    }
+}
+
+impl Drop for Descent {
+    fn drop(&mut self) {
+        EMBEDDING_DEPTH.set(EMBEDDING_DEPTH.get().saturating_sub(1));
+    }
+}
+
+/// ISO 19005-2 §6.8, ISO 19005-4 §6.9: an embedded file has to be a conforming file itself.
+///
+/// **Two of the three answers a file can give are decidable here, and the third is not.** The
+/// bytes either open as a PDF document or they do not, and a thing that is not a PDF conforms to
+/// no part of ISO 19005 — that is the whole of the first half, and it needs nothing but
+/// `pdf_syntax`. Beyond it, an embedded *document* is held to the part **it declares**: both parts
+/// this crate owns require a conforming file to state its part number (ISO 19005-2 §6.6.4,
+/// ISO 19005-4 §6.7.3), so a file's own identification schema says which target it is asking to be
+/// judged against, and `metadata::declared_target` reads it.
+///
+/// What is left undecided is written down rather than hidden, and it is the part-1 case: an
+/// embedded file declaring ISO 19005-1 is passed over, because part 1 is not a target
+/// (`doc/questions/A17`) and refusing it would be refusing a document over a text this project
+/// does not hold. A file declaring nothing is passed over for the weaker version of the same
+/// reason — it may be a part 1 or part 3 file, and this crate cannot tell.
+///
+/// The rule is also **wider than part 2's sentence in one direction and narrower in another**, and
+/// deliberately: §6.8 admits only ISO 19005-1 and part 2 where §6.9 admits parts 1, 2 and 4, so an
+/// embedded PDF/A-4 file inside a PDF/A-2 document is held to part 4 here and passes, where the
+/// clause would refuse it for its part number alone. That is a rule left unimplemented rather than
+/// implemented wrongly; the row above states the requirement in full.
+///
+/// A stream this reader cannot decode is passed over in silence rather than reported. A filter
+/// `pdf_syntax` does not decode is a fact about this program, and recording it as a fault would be
+/// failing a document over the reader in front of it.
+fn embedded_file_is_itself_pdfa(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_embedded_file_specification(exam, |place, specification| {
+        let files = document.get_key(specification, "EF");
+        let Some(files) = files.as_dict() else {
+            return;
+        };
+        let mut seen = BTreeSet::new();
+        for key in EMBEDDED_FILE_STREAM_KEYS {
+            let entry = files.get(key);
+            // One stream filed under two keys is one embedded file, and reporting it twice would
+            // count two faults against a document that has one.
+            if let Some(entry) = entry
+                && let Some(id) = entry.as_reference()
+                && !seen.insert(id)
+            {
+                continue;
+            }
+            let object = document.get_key(files, key);
+            let Some(stream) = object.as_stream() else {
+                continue;
+            };
+            let Some(bytes) = document.decoded_stream_data(stream) else {
+                continue;
+            };
+            judge_embedded(&place.clone().named((*key).to_owned()), bytes, findings);
+        }
+    });
+}
+
+/// One embedded file's bytes, held to whatever part of ISO 19005 they claim.
+fn judge_embedded(place: &Where, bytes: Arc<[u8]>, findings: &mut Findings) {
+    let Ok(embedded) = Document::open(bytes) else {
+        findings.record(
+            place.clone(),
+            "an embedded file does not open as a PDF document, so it conforms to no part of \
+             ISO 19005",
+        );
+        return;
+    };
+    let Some(target) = super::metadata::declared_target(&embedded) else {
+        return;
+    };
+    let Some(_descent) = Descent::one_level() else {
+        return;
+    };
+    let report = crate::check(&embedded, target);
+    if let Some(failure) = report.failures().next() {
+        findings.record(
+            place.clone(),
+            format!(
+                "an embedded file declares {target} and does not conform to it: {}",
+                failure.id
+            ),
+        );
+    }
 }
 
 /// ISO 19005-4 §A.2, which is the one requirement Annex A adds rather than relaxes.
@@ -580,6 +879,7 @@ mod tests {
         no_requirements_dictionary, order_lists_every_group, pdfa_4f_carries_embedded_files,
         relationship_stated, role_map_terminates_at_a_standard_type, structure_tree_root,
     };
+    use super::{catalog_language_identifier, embedded_file_is_itself_pdfa};
     use crate::target::{Flavour, Level, Target};
 
     /// A one-page document with whatever the fixture adds to its catalog and to its object body.
@@ -644,7 +944,8 @@ mod tests {
             "logical-structure/word-boundaries",
             "logical-structure/structure-tree-root",
             "logical-structure/role-map-terminates-at-a-standard-type",
-            "logical-structure/language-identifiers",
+            "logical-structure/catalog-language-identifier",
+            "logical-structure/element-and-property-list-language-identifiers",
         ] {
             for target in Target::ALL {
                 assert_eq!(
@@ -811,5 +1112,71 @@ mod tests {
              5 0 obj\n<< /Type /StructElem /S /Chapter /P 4 0 R >>\nendobj\n",
         );
         assert_eq!(found(role_map_terminates_at_a_standard_type, &unmapped), 1);
+    }
+
+    /// ISO 19005-2 §6.7.4, over the four shapes §14.9.2.2's sentence distinguishes.
+    ///
+    /// The tags are the corpus's own witnesses for the clause, which is why they are these rather
+    /// than invented ones: `zh-Hant-HK` and `ru-petr1708` exercise the script, region and variant
+    /// subtags, and each refusal names a different way of not being a `Language-Tag` — a digit
+    /// where the primary subtag goes, a separator that is not a hyphen, and an empty subtag.
+    #[test]
+    fn a_catalog_language_is_a_bcp_47_tag_or_the_empty_string() {
+        for accepted in ["zh-Hant-HK", "lv", "ru-petr1708", "hr-ba", ""] {
+            let file = document(&format!(" /Lang ({accepted})"), "");
+            assert_eq!(
+                found(catalog_language_identifier, &file),
+                0,
+                "{accepted:?} is a language identifier"
+            );
+        }
+        assert_eq!(
+            found(catalog_language_identifier, &document("", "")),
+            0,
+            "the subclause only recommends that a file state a default language"
+        );
+        for refused in ["12-BE", "de/AT", "-BG"] {
+            let file = document(&format!(" /Lang ({refused})"), "");
+            assert_eq!(
+                found(catalog_language_identifier, &file),
+                1,
+                "{refused:?} is not"
+            );
+        }
+        assert_eq!(
+            found(catalog_language_identifier, &document(" /Lang /en", "")),
+            1,
+            "a language identifier is a text string, so a name is not one"
+        );
+    }
+
+    /// ISO 19005-2 §6.8, ISO 19005-4 §6.9: the half of the rule that needs no recursion.
+    ///
+    /// A stream that is not a PDF at all conforms to no part of ISO 19005, and a stream that
+    /// declares no part is passed over — it may be the part 1 or part 3 file this crate cannot
+    /// judge, and refusing it would be refusing a document over a text the project does not hold.
+    #[test]
+    fn an_embedded_file_that_is_not_a_pdf_conforms_to_no_part_of_iso_19005() {
+        let embedding = |data: &str| {
+            let length = data.len();
+            document(
+                " /Names << /EmbeddedFiles << /Names [(data) 4 0 R] >> >>",
+                &format!(
+                    "4 0 obj\n<< /Type /Filespec /F (data) /UF (data) /AFRelationship /Source \
+                     /EF << /F 5 0 R >> >>\nendobj\n\
+                     5 0 obj\n<< /Length {length} >>\nstream\n{data}\nendstream\nendobj\n"
+                ),
+            )
+        };
+        assert_eq!(
+            found(embedded_file_is_itself_pdfa, &embedding("Test text")),
+            1,
+            "nine bytes of text are not a PDF document"
+        );
+        assert_eq!(
+            found(embedded_file_is_itself_pdfa, &document("", "")),
+            0,
+            "a document that embeds nothing has nothing to be judged"
+        );
     }
 }

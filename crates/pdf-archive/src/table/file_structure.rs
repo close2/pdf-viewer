@@ -25,10 +25,13 @@
 //! The clause is a list of independent limits — on integers, on real numbers, on the length of a
 //! string and of a name, on how many indirect objects a file may have, on how deep `q` and `Q`
 //! may nest, on a `DeviceN`'s colourants, on a CID, on the size of a page boundary — and this
-//! tree can answer most of them from the objects and the page tree while three need readers it
-//! does not have. One row per limit is what makes that difference legible: a single row would
-//! either claim the checks it does not make or throw away the ones it does.
+//! tree answers all but one of them, from the objects, the page tree and [`crate::survey`]'s
+//! walk of the content. One row per limit is what makes that difference legible: a single row
+//! would either claim the checks it does not make or throw away the ones it does.
 //! `doc/questions/Q20`'s discipline applied at the granularity the clause itself uses.
+//!
+//! The one left is the CID, and it is not left for want of a field: a CID is stated by a `CMap`
+//! program, and reading one is a parser this crate does not reach.
 //!
 //! The two rows that fold two of the clause's sentences together do so because the sentences are
 //! two halves of one bound — an integer's ceiling and its floor, a real number's largest
@@ -181,11 +184,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         // external data. The row is `only_two` for that reason and not for want of looking.
         clauses: Clauses::only_two("6.1.7.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "`pdf_syntax` hands this crate a stream's decoded dictionary and its data, not the \
-             bytes that delimited them, and the end-of-line before `endstream` is by §7.3.8 not \
-             part of the data — so the fact is gone before a requirement can ask",
-        ),
+        check: Check::Implemented(stream_keyword_line_endings),
     },
     Requirement {
         id: "file-structure/permissions-dictionary-keys",
@@ -319,12 +318,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         asks: "A file shall not nest q and Q pairs more than 28 levels deep.",
         clauses: Clauses::only_two("6.1.13"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the depth is a property of a content stream's operators, and `crate::survey` walks \
-             the content but keeps only what the colour, font and transparency rules ask of it — \
-             it carries a `q` stack of its own and does not report how deep the stack got, so \
-             this is a field the survey could add rather than a reader the tree is missing",
-        ),
+        check: Check::Implemented(graphics_state_nesting),
     },
     Requirement {
         id: "implementation-limits/values-written-in-content-streams",
@@ -332,13 +326,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                written inside content streams as well as for the file's objects.",
         clauses: Clauses::only_two("6.1.13"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the sibling rows answer for every object a cross-reference section names, which is \
-             where all but two of these values live; a number or a string written as an operand \
-             inside a content stream is reached only by `crate::survey`, which reports what the \
-             content *did* rather than the literals it was written with. Named separately rather \
-             than folded into those rows, so that a reader can see exactly which half is answered",
-        ),
+        check: Check::Implemented(values_written_in_content_streams),
     },
 ];
 
@@ -724,6 +712,135 @@ fn stream_length_matches_the_data(exam: &Examination<'_>, findings: &mut Finding
     });
 }
 
+/// How many bytes are read at a stream object's header, looking for its `stream` keyword.
+///
+/// A stream dictionary is a few dozen bytes in almost every file, so the narrow window is what
+/// is paid for nearly all of them; [`WIDE_STREAM_HEADER_WINDOW`] is tried only where the narrow
+/// one did not reach the keyword, which keeps the common case one small read.
+const STREAM_HEADER_WINDOW: usize = 512;
+
+/// The same, for the stream dictionary the narrow window did not get to the end of.
+///
+/// A dictionary longer than this — a cross-reference stream with a long `/Index`, say — is left
+/// unjudged rather than judged on bytes that are not its keyword's.
+const WIDE_STREAM_HEADER_WINDOW: usize = 8192;
+
+/// How many bytes are read at the end of a stream's data, looking for `endstream`.
+///
+/// §7.3.8 puts an end-of-line marker between the data and the keyword and nothing else, so the
+/// keyword stands within two bytes of the data's end in a well-formed file and within a handful
+/// in the malformed ones this rule exists to catch.
+const ENDSTREAM_WINDOW: usize = 64;
+
+/// ISO 19005-2 §6.1.7.1.
+///
+/// **A bytes rule, like [`indirect_object_syntax`], and for the same reason**: the same document
+/// written with a space where §7.3.8 requires an end-of-line marker parses to exactly the same
+/// objects, so nothing in the object model can answer it. What makes it answerable is that
+/// `pdf_syntax` keeps the file's bytes and the cross-reference table says where each object
+/// begins — the two keywords are then found by lexing the dictionary through to `stream`, and by
+/// stepping over the data `pdf_syntax` took to reach `endstream`.
+///
+/// Part 4 dropped both sentences, which is why the row that names this is [`Clauses::only_two`].
+///
+/// # Why an encrypted file is skipped
+///
+/// Its streams are decrypted before this crate sees them and are not the length their bytes
+/// were, so stepping over the data would land in the wrong place. Such a file has already failed
+/// §6.1.3, and the same reasoning skips [`stream_length_matches_the_data`].
+///
+/// # Where it stays silent
+///
+/// An object the cross-reference table places somewhere its header is not; a dictionary longer
+/// than [`WIDE_STREAM_HEADER_WINDOW`]; a stream whose `endstream` is not within
+/// [`ENDSTREAM_WINDOW`] of where the data ended. Each of those is a fact this rule could not read
+/// rather than one it read as passing — the direction of error this crate keeps everywhere.
+fn stream_keyword_line_endings(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    if document.trailer().get("Encrypt").is_some() {
+        return;
+    }
+    for (id, object) in exam.objects() {
+        let Object::Stream(stream) = object else {
+            continue;
+        };
+        let Some(Location::Offset(start)) = document.xref().location(id.number) else {
+            continue;
+        };
+        let Some(opens) = stream_keyword_end(document, start, *id) else {
+            continue;
+        };
+        let follows = document.bytes().read(opens..opens.saturating_add(2));
+        let opened = match (follows.first(), follows.get(1)) {
+            (Some(b'\n'), _) | (Some(b'\r'), Some(b'\n')) => true,
+            // No bytes at all is the file ending at the keyword, which says nothing this rule
+            // can report: there is no data and no `endstream` either.
+            (None, _) => continue,
+            _ => false,
+        };
+        if !opened {
+            findings.record(
+                Where::object(*id),
+                "a stream keyword is followed by neither a carriage return and line feed nor a \
+                 single line feed",
+            );
+        }
+        let ends = opens.saturating_add(stream.data.len());
+        // One byte earlier, so that the byte before a keyword standing exactly at the data's end
+        // is in the window; the search then starts one in, which is why no match can be the
+        // data's own last bytes rather than the keyword.
+        let tail = document
+            .bytes()
+            .read(ends.saturating_sub(1)..ends.saturating_add(ENDSTREAM_WINDOW));
+        let Some(after) = tail.get(1..) else {
+            continue;
+        };
+        let Some(at) = after.windows(9).position(|word| word == b"endstream") else {
+            continue;
+        };
+        if !tail.get(at).copied().is_some_and(is_end_of_line) {
+            findings.record(
+                Where::object(*id),
+                "an endstream keyword is not preceded by an end-of-line marker",
+            );
+        }
+    }
+}
+
+/// Where one stream object's `stream` keyword ends, found by lexing from the object's header.
+///
+/// `None` where the offset does not lead to this object's header, or where the dictionary did
+/// not finish inside the widest window — the same discipline as [`object_header`], which returns
+/// false rather than report on bytes that are not the object's.
+fn stream_keyword_end(document: &Document, start: usize, id: ObjectId) -> Option<usize> {
+    for window in [STREAM_HEADER_WINDOW, WIDE_STREAM_HEADER_WINDOW] {
+        let head = document.bytes().read(start..start.saturating_add(window));
+        let mut lexer = Lexer::new(&head);
+        let Some(Token::Integer(stated)) = lexer.next_token() else {
+            return None;
+        };
+        if stated != i64::from(id.number) {
+            return None;
+        }
+        let Some(Token::Integer(_)) = lexer.next_token() else {
+            return None;
+        };
+        let Some(Token::Keyword(b"obj")) = lexer.next_token() else {
+            return None;
+        };
+        // Every token of the dictionary is stepped over rather than skipped by scanning for the
+        // word, because a literal string may spell `stream` and a name may be `/stream`.
+        // `true`, `false` and `null` arrive here as keywords too, so only the one keyword ends
+        // the search.
+        while let Some(token) = lexer.next_token() {
+            if token == Token::Keyword(b"stream") {
+                return Some(start.saturating_add(lexer.position()));
+            }
+        }
+    }
+    None
+}
+
 /// ISO 19005-2 §6.1.12, ISO 19005-4 §6.1.11.
 fn permissions_dictionary_keys(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
@@ -1010,6 +1127,106 @@ fn indirect_object_count(exam: &Examination<'_>, findings: &mut Findings) {
         findings.record(
             Where::file().named(counted.to_string()),
             "the file states more indirect objects than this part allows",
+        );
+    }
+}
+
+/// The deepest nesting of `q` and `Q` pairs ISO 19005-2 §6.1.13 admits.
+const DEEPEST_NESTING: usize = 28;
+
+/// ISO 19005-2 §6.1.13.
+///
+/// The depth is a property of the content stream's operators rather than of any object, so it
+/// comes from [`crate::survey`], which carries the `q` stack the walk needs anyway.
+/// [`crate::survey::Survey::deepest_graphics_state_nesting`] says what is and is not summed
+/// across a form `XObject`'s invocation, and why.
+fn graphics_state_nesting(exam: &Examination<'_>, findings: &mut Findings) {
+    let Some(deepest) = exam.survey().deepest_graphics_state_nesting() else {
+        return;
+    };
+    if deepest.value > DEEPEST_NESTING {
+        findings.record(
+            Where::page(deepest.page).named(deepest.value.to_string()),
+            "a content stream nests q and Q pairs deeper than this part allows",
+        );
+    }
+}
+
+/// ISO 19005-2 §6.1.13, for the values written inside a content stream.
+///
+/// # Why this is a row of its own rather than four lines in the four sibling rows
+///
+/// The sibling rows read every object a cross-reference section names, which is where all but
+/// two of a file's values live; a number, string or name written as an *operand* is inside a
+/// stream's data and no object walk reaches it. Both halves are the same sentence of §6.1.13, so
+/// a reader has to be able to see which half a verdict covers — and a single row would say the
+/// clause was checked while half of it was not.
+///
+/// # One finding per kind, from the extreme
+///
+/// [`crate::survey::ContentLiterals`] keeps how far the operands reached in each direction rather
+/// than every operand that broke a bound, and the reason is written there. What it costs a
+/// report is that a document stating a thousand out-of-range integers is told about the largest
+/// one, with the page it is on.
+fn values_written_in_content_streams(exam: &Examination<'_>, findings: &mut Findings) {
+    let literals = exam.survey().content_literals();
+    let mut report = |page: usize, value: String, what: &'static str| {
+        findings.record(Where::page(page).named(value), what);
+    };
+    if let Some(held) = literals.largest_integer
+        && held.value > LARGEST_INTEGER
+    {
+        report(
+            held.page,
+            held.value.to_string(),
+            "a content stream states an integer larger than this part allows",
+        );
+    }
+    if let Some(held) = literals.smallest_integer
+        && held.value < SMALLEST_INTEGER
+    {
+        report(
+            held.page,
+            held.value.to_string(),
+            "a content stream states an integer smaller than this part allows",
+        );
+    }
+    if let Some(held) = literals.largest_real_magnitude
+        && held.value > LARGEST_REAL
+    {
+        report(
+            held.page,
+            held.value.to_string(),
+            "a content stream states a real number larger in magnitude than this part allows",
+        );
+    }
+    // The survey keeps only non-zero magnitudes here, which is what makes this the bound the
+    // clause states rather than a rule against writing `0`; see [`real_values`].
+    if let Some(held) = literals.smallest_real_magnitude
+        && held.value < SMALLEST_REAL
+    {
+        report(
+            held.page,
+            held.value.to_string(),
+            "a content stream states a non-zero real number nearer to zero than this part allows",
+        );
+    }
+    if let Some(held) = literals.longest_string
+        && held.value > LONGEST_STRING
+    {
+        report(
+            held.page,
+            format!("{} bytes", held.value),
+            "a content stream states a string longer than this part allows",
+        );
+    }
+    if let Some(held) = literals.longest_name
+        && held.value > LONGEST_NAME
+    {
+        report(
+            held.page,
+            format!("{} bytes", held.value),
+            "a content stream states a name longer than this part allows",
         );
     }
 }
@@ -1568,10 +1785,15 @@ fn inline_image_filters(exam: &Examination<'_>, findings: &mut Findings) {
 
 #[cfg(test)]
 mod tests {
-    use pdf_syntax::{Dictionary, Name, Object};
+    use pdf_syntax::{Dictionary, Document, Name, Object};
+
+    use crate::Examination;
+    use crate::finding::Findings;
+    use crate::target::Target;
 
     use super::{
         LARGEST_INTEGER, LONGEST_NAME, LONGEST_STRING, SMALLEST_INTEGER, for_each_value, shortened,
+        stream_keyword_line_endings,
     };
 
     /// Builds a dictionary from pairs, for the small hand-made objects the tests walk.
@@ -1615,6 +1837,95 @@ mod tests {
         assert_eq!(SMALLEST_INTEGER, -2_147_483_648);
         assert_eq!(LONGEST_STRING, 32_767);
         assert_eq!(LONGEST_NAME, 127);
+    }
+
+    /// A file assembled from object bodies, with a cross-reference table over them.
+    ///
+    /// The rule under test is about the file's *bytes*, so the fixture has to be a file the
+    /// real parser opens at the real offsets rather than a hand-built object.
+    fn document_of(objects: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let number = index.saturating_add(1);
+            let _ = writeln!(out, "{number} 0 obj\n{body}\nendobj");
+        }
+        let start = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer << /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).unwrap_or_else(|_| Document::empty())
+    }
+
+    /// What one predicate said about one document held to PDF/A-2b.
+    fn judged(document: &Document, rule: fn(&Examination<'_>, &mut Findings)) -> Findings {
+        let mut findings = Findings::default();
+        rule(
+            &Examination::new(document, Target::Two(crate::target::Level::B)),
+            &mut findings,
+        );
+        findings
+    }
+
+    /// §7.3.8 admits `stream` followed by CRLF or by LF, and nothing else — so a lone carriage
+    /// return fails, and so does a space before the marker.
+    #[test]
+    fn a_stream_keyword_is_followed_by_one_of_two_markers_and_no_other() {
+        let good = document_of(&[
+            "<< /Type /Catalog >>",
+            "<< /Length 4 >>\nstream\r\nabcd\r\nendstream",
+            "<< /Length 4 >>\nstream\nabcd\nendstream",
+        ]);
+        assert!(judged(&good, stream_keyword_line_endings).met());
+
+        let carriage_return = document_of(&[
+            "<< /Type /Catalog >>",
+            "<< /Length 4 >>\nstream\rabcd\r\nendstream",
+        ]);
+        let findings = judged(&carriage_return, stream_keyword_line_endings);
+        assert_eq!(findings.seen(), 1);
+        assert!(
+            findings.kept()[0]
+                .what
+                .contains("stream keyword is followed")
+        );
+
+        let extra_space = document_of(&[
+            "<< /Type /Catalog >>",
+            "<< /Length 4 >>\nstream \nabcd\r\nendstream",
+        ]);
+        assert_eq!(judged(&extra_space, stream_keyword_line_endings).seen(), 1);
+    }
+
+    /// The second sentence: an `endstream` that follows the data with nothing between them.
+    #[test]
+    fn an_endstream_keyword_wants_an_end_of_line_marker_before_it() {
+        let touching = document_of(&[
+            "<< /Type /Catalog >>",
+            "<< /Length 4 >>\nstream\r\nabcdendstream",
+        ]);
+        let findings = judged(&touching, stream_keyword_line_endings);
+        assert_eq!(findings.seen(), 1);
+        assert!(findings.kept()[0].what.contains("endstream keyword"));
+    }
+
+    /// A stream whose data spells the keyword is still measured from where its data ends,
+    /// which is why the search starts at the length rather than at the `stream` keyword.
+    #[test]
+    fn data_that_spells_the_keyword_does_not_move_where_the_keyword_is_looked_for() {
+        let awkward = document_of(&[
+            "<< /Type /Catalog >>",
+            "<< /Length 15 >>\nstream\r\nendstream x\r\n\r\nendstream",
+        ]);
+        assert!(judged(&awkward, stream_keyword_line_endings).met());
     }
 
     #[test]

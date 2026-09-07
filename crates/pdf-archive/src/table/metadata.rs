@@ -42,16 +42,21 @@
 //! - **§6.6.2.3.3** judges the description itself: every field of its four tables present, each
 //!   spelled with the prefix its table requires.
 //!
-//! # What has no row here, and why that is not an omission
+//! # The clause that binds a reader, and the one that binds nobody
 //!
-//! **A clause whose only requirement is addressed to a processor gets no row**, because this
-//! crate judges a file and no file can fail such a rule. Two clauses in this area are of that
-//! kind and are named here so the absence is visible rather than silent: ISO 19005-2 §6.6.3,
-//! whose one requirement is that a conforming reader ignore the document information dictionary
-//! (its consistency with the metadata stream is a recommendation, and part 4 states the whole
-//! subject in §6.1.3 instead, which is the file-structure tranche's row); and ISO 19005-2 §6.6.2.2
-//! together with ISO 19005-4 §6.7.2.2, whose namespace-prefix table is recommended rather than
-//! required.
+//! **A clause whose only requirement is addressed to a processor used to get no row here**, on the
+//! reasoning that this crate judges a file. The reasoning was right and the conclusion was wrong —
+//! a requirement named only in a module header is invisible in a verdict — so ISO 19005-2 §6.6.3
+//! is now a [`Check::Processor`] row: its one requirement is that a conforming reader ignore the
+//! document information dictionary, the file is expressly permitted to carry one, and the
+//! consistency of its values with the metadata stream is a recommendation. Part 4 states the whole
+//! subject in §6.1.3 instead, which is the file-structure tranche's row.
+//!
+//! **ISO 19005-2 §6.6.2.2 and ISO 19005-4 §6.7.2.2 still have no row, and that is different**:
+//! their namespace-prefix table is recommended rather than required, so there is no requirement to
+//! carry. What those subclauses *do* state is the sentence that makes a prefix binding wherever
+//! one is identified as required — which is what
+//! `metadata/identification-schema-prefix` rests on.
 
 use pdf_model::xmp::{Detail, Property as XmpProperty, Value, Xmp};
 use pdf_syntax::{Document, Object, ObjectId, Stream};
@@ -59,7 +64,7 @@ use pdf_syntax::{Document, Object, ObjectId, Stream};
 use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
-use crate::target::{Flavour, Level};
+use crate::target::{Flavour, Level, Target};
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
 pub(super) static REQUIREMENTS: &[Requirement] = &[
@@ -77,6 +82,21 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
         applies: Applies::Always,
         check: Check::Implemented(xmp_packets_well_formed),
+    },
+    Requirement {
+        id: "metadata/xmp-packets-meet-the-xmp-serialisation",
+        asks: "Every XMP packet shall meet the XMP standard's own serialisation rules, which are \
+               more than being well-formed XML — its encoding among them.",
+        clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "the other half of the sentence the row above answers, and the half that needs ISO \
+             16684-1, which this project does not hold: what `well-formed as XMP defines it` adds \
+             to well-formed XML cannot be read from anything here. The visible consequence is an \
+             encoding — `pdf_model::xmp` decodes a UTF-16 or UTF-32 packet on purpose, which is a \
+             reader being lenient with a real file and not a finding that the packet is one XMP \
+             admits",
+        ),
     },
     Requirement {
         id: "metadata/xmp-packet-header-attributes",
@@ -123,6 +143,25 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         ),
     },
     Requirement {
+        id: "metadata/identification-schema-prefix",
+        asks: "Every property of the identification schema shall be spelled with the prefix the \
+               subclause makes required for it, pdfaid.",
+        clauses: Clauses::both("6.6.4", "6.7.3"),
+        applies: Applies::Always,
+        check: Check::Implemented(identification_schema_prefix),
+    },
+    Requirement {
+        id: "metadata/document-information-dictionary-ignored",
+        asks: "A conforming reader shall ignore a document information dictionary the file states.",
+        clauses: Clauses::only_two("6.6.3"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the subclause's one requirement is what a reader does with the dictionary, and the \
+             file is expressly permitted to carry it; the consistency of its values with the \
+             metadata stream is the same subclause's recommendation, not a rule",
+        ),
+    },
+    Requirement {
         id: "metadata/identification-part-number",
         asks: "The identification schema shall state a part number of 2.",
         clauses: Clauses::only_two("6.6.4"),
@@ -163,7 +202,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
     Requirement {
         id: "metadata/identification-revision-year",
-        asks: "The identification schema shall state a revision year of four digits.",
+        asks: "The identification schema shall state, as its revision, the four-digit publication \
+               year of the revision of the part the file conforms to — 2020 for this one.",
         clauses: Clauses::only_four("6.7.3"),
         applies: Applies::Always,
         check: Check::Implemented(identification_revision_year),
@@ -496,6 +536,83 @@ fn identification_part(document: &Document, findings: &mut Findings, part: &str)
     }
 }
 
+/// The prefix ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3 each identify as required for the
+/// identification schema.
+const IDENTIFICATION_PREFIX: &str = "pdfaid";
+
+/// ISO 19005-2 §6.6.4, ISO 19005-4 §6.7.3.
+///
+/// **A prefix is usually meaningless and here it is not**, which is the whole of this row. Both
+/// parts say in their namespaces-and-prefixes subclause (§6.6.2.2, §6.7.2.2) that no significance
+/// attaches to a prefix *except where a specific prefix is identified as required*, and both then
+/// identify one for this schema in as many words. So a packet that binds the identification
+/// namespace to any other prefix has broken a sentence the standard went out of its way to make
+/// binding.
+///
+/// The population is every property in the identification namespace, under either spelling of its
+/// URI: [`IDENTIFICATION_URIS`] takes the `http` scheme part 2 prints and the `https` scheme part 4
+/// does, and a producer writing either has named the schema its part defines.
+///
+/// **Part 4's own Table 2 breaks this rule**, spelling the conformance property `pdfa:conformance`
+/// in a schema whose required prefix the same table gives as `pdfaid`. Erratum #123 settles it as
+/// an error the working group agreed requires fixing, so the corrected table is what this row
+/// judges and a file copying the printed one is reported.
+fn identification_schema_prefix(exam: &Examination<'_>, findings: &mut Findings) {
+    let Some(properties) = catalog_detail(exam.document) else {
+        return;
+    };
+    for property in properties {
+        if !IDENTIFICATION_URIS.contains(&property.name.namespace.as_str())
+            || property.prefix == IDENTIFICATION_PREFIX
+        {
+            continue;
+        }
+        findings.record(
+            Where::file().named(format!("{}:{}", property.prefix, property.name.local)),
+            format!(
+                "an identification schema property is spelled with the prefix {} where the \
+                 subclause requires {IDENTIFICATION_PREFIX}",
+                short(&property.prefix)
+            ),
+        );
+    }
+}
+
+/// The target a document's own identification schema claims, where it claims one this crate owns.
+///
+/// Both parts require a conforming file to say which part it conforms to — ISO 19005-2 §6.6.4,
+/// ISO 19005-4 §6.7.3 — and to say the level or the flavour beside it, so a file's own packet
+/// names one of this crate's six targets. That is what lets `document_level.rs` hold an *embedded*
+/// file to ISO 19005 without guessing which part to hold it to.
+///
+/// `None` is every case where the file does not name one this crate can judge: no packet, no part
+/// number, or a part that is not 2 or 4 (`doc/questions/A17`: part 1 never, part 3 not bought).
+///
+/// Where the part is named and the conformance property is not, the *weakest* reading of it is
+/// taken — Level B for part 2, the plain profile for part 4 — because those are what each part
+/// says an unqualified claim means: §6.6.4 gives A, B and U and §6.7.3 reserves E and F for the
+/// two annexes, so a part 4 file stating nothing is claiming the plain profile exactly.
+pub(super) fn declared_target(document: &Document) -> Option<Target> {
+    let packet = document_packet(document)?;
+    let part = as_text(identification(&packet, "part")?)?.trim();
+    let conformance = identification(&packet, "conformance")
+        .and_then(as_text)
+        .map(str::trim);
+    match part {
+        "2" => Some(Target::Two(match conformance {
+            Some("A") => Level::A,
+            Some("U") => Level::U,
+            _ => Level::B,
+        })),
+        "4" => Some(Target::Four(match conformance {
+            Some("E") => Flavour::E,
+            Some("F") => Flavour::F,
+            _ => Flavour::Plain,
+        })),
+        _ => None,
+    }
+}
+
 /// ISO 19005-2 §6.6.4.
 fn identification_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
@@ -548,17 +665,30 @@ fn identification_declares_level_a(exam: &Examination<'_>, findings: &mut Findin
     }
 }
 
-/// ISO 19005-4 §6.7.3.
+/// The publication year of the only revision of ISO 19005-4 there is.
+///
+/// §6.7.3 asks for "the four digit year of that revision" and Table 2 for the year of publication
+/// or revision, neither of which names a number on its own — the number comes from the part's own
+/// date, ISO 19005-4:2020. Erratum #253 is what makes it exact rather than inferred: the working
+/// group reworded the requirement to the four-digit publication year of that specific revision and
+/// reconfirmed that it is 2020 for the current one. A later dated revision moves this constant,
+/// which is why it is a constant.
+const REVISION_YEAR: &str = "2020";
+
+/// ISO 19005-4 §6.7.3, as erratum #253 rewords it.
 fn identification_revision_year(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let packet = document_packet(document);
     let place = || Where::file().named("pdfaid:rev");
     match stated(packet.as_ref(), "rev") {
-        Stated::Text(text)
-            if text.trim().len() == 4 && text.trim().bytes().all(|byte| byte.is_ascii_digit()) => {}
+        Stated::Text(text) if text.trim() == REVISION_YEAR => {}
         Stated::Text(text) => findings.record(
             place(),
-            format!("the revision {} is not a four-digit year", short(text)),
+            format!(
+                "the revision {} is not {REVISION_YEAR}, the publication year of the only \
+                 revision of this part",
+                short(text)
+            ),
         ),
         Stated::NotSimple => findings.record(
             place(),
@@ -1662,6 +1792,7 @@ mod tests {
         properties_use_known_schemas, states_attribute, xmp_packet_header_attributes,
         xmp_packets_well_formed,
     };
+    use super::{declared_target, identification_schema_prefix};
     use crate::target::{Flavour, Level, Target};
 
     /// A one-page document whose catalog names object 4 as its metadata stream, carrying `packet`.
@@ -2034,6 +2165,93 @@ mod tests {
             "<pdfaid:part>4</pdfaid:part>\n<pdfaid:rev>20</pdfaid:rev>",
         ));
         assert_eq!(found(identification_revision_year, &file), 1);
+    }
+
+    /// ISO 19005-4 §6.7.3 as erratum #253 rewords it: the year of the revision, not any year.
+    ///
+    /// Part 4 has one revision and it was published in 2020, so a four-digit year that is not
+    /// that one names no edition of the part that exists — which is why 2018 is refused here and
+    /// was accepted before the erratum was read.
+    #[test]
+    fn a_revision_year_names_the_revision_the_part_actually_has() {
+        let year = |stated: &str| {
+            document(&packet(
+                "http://www.aiim.org/pdfa/ns/id/",
+                &format!("<pdfaid:part>4</pdfaid:part>\n<pdfaid:rev>{stated}</pdfaid:rev>"),
+            ))
+        };
+        assert_eq!(found(identification_revision_year, &year("2020")), 0);
+        assert_eq!(
+            found(identification_revision_year, &year("2018")),
+            1,
+            "no revision of ISO 19005-4 is dated 2018"
+        );
+    }
+
+    /// ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3: the one prefix both parts make binding.
+    ///
+    /// The failing spelling is part 4's own Table 2, which erratum #123 records as an error: the
+    /// table gives the conformance property a `pdfa` prefix in a schema whose required prefix the
+    /// same table gives as `pdfaid`.
+    #[test]
+    fn the_identification_schema_is_spelled_with_the_prefix_its_subclause_requires() {
+        let correct = document(&packet(
+            "http://www.aiim.org/pdfa/ns/id/",
+            "<pdfaid:part>4</pdfaid:part>\n<pdfaid:rev>2020</pdfaid:rev>",
+        ));
+        assert_eq!(found(identification_schema_prefix, &correct), 0);
+
+        let wrong = document(
+            "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             <rdf:Description rdf:about=\"\" \
+             xmlns:pdfa=\"http://www.aiim.org/pdfa/ns/id/\" \
+             pdfa:part=\"4\" pdfa:rev=\"2020\"/>\n\
+             </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>",
+        );
+        assert_eq!(
+            found(identification_schema_prefix, &wrong),
+            2,
+            "both properties are in the identification namespace under the wrong prefix"
+        );
+    }
+
+    /// The target an embedded file's own packet claims, which is how `document_level.rs` knows
+    /// which of the six to hold it to.
+    #[test]
+    fn a_file_names_the_target_it_asks_to_be_judged_against() {
+        let claiming =
+            |properties: &str| document(&packet("http://www.aiim.org/pdfa/ns/id/", properties));
+        assert_eq!(
+            declared_target(&claiming("<pdfaid:part>4</pdfaid:part>")),
+            Some(Target::Four(Flavour::Plain)),
+            "§6.7.3 reserves the conformance property for the two annexes, so stating none is \
+             the plain profile exactly"
+        );
+        assert_eq!(
+            declared_target(&claiming(
+                "<pdfaid:part>4</pdfaid:part>\n<pdfaid:conformance>F</pdfaid:conformance>"
+            )),
+            Some(Target::Four(Flavour::F))
+        );
+        assert_eq!(
+            declared_target(&claiming(
+                "<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>A</pdfaid:conformance>"
+            )),
+            Some(Target::Two(Level::A))
+        );
+        assert_eq!(
+            declared_target(&claiming("<pdfaid:part>2</pdfaid:part>")),
+            Some(Target::Two(Level::B)),
+            "an unqualified part 2 claim is read at the weakest level it could mean"
+        );
+        assert_eq!(
+            declared_target(&claiming("<pdfaid:part>1</pdfaid:part>")),
+            None,
+            "part 1 is not a target, so a file claiming it is not judged here"
+        );
+        assert_eq!(declared_target(&document("")), None);
     }
 
     /// A file with no metadata stream fails the stream row and every claim that would rest on it.

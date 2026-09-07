@@ -28,7 +28,11 @@
 //! A third kind is here for completeness and can never be otherwise: a clause addressed to the
 //! *conforming processor* — ignore flatness, never substitute a thumbnail, respect overprint —
 //! states nothing a document can be held to, and a row that quietly passed one would be claiming
-//! to have judged the file.
+//! to have judged the file. Nine rows are of that kind and they carry [`Check::Processor`],
+//! which is neither a pass nor a debt: they are obligations on *this program*, and
+//! `doc/PLAN.md` §5a's conformance ledger is where a claim about its own rendering belongs.
+//! Reading them as unchecked requirements overstated this crate's gap by nine rows on clause
+//! 6.2 alone.
 //!
 //! # Where the two parts differ, and it is more than renumbering
 //!
@@ -44,7 +48,9 @@
 //!   license a device colour space, where part 2 admits only a default space or the output
 //!   intent. Part 2 in turn admits a **DeviceN-based `DefaultCMYK`**, which part 4 dropped.
 //! - Part 4 forbids an `ICCBased` space whose profile duplicates the output intent's CMYK
-//!   profile; part 2 states no such rule.
+//!   profile; part 2 states no such rule. It is **two** rows in part 4, because §6.2.4.4 sends a
+//!   `Separation`'s or `DeviceN`'s alternate space to §6.2.4.2 as well, and a verdict has to cite
+//!   the sentence that put the restriction where it found the fault.
 //! - Both parts require an `ICCBased` space's profile to conform to something, and the
 //!   somethings are different documents: part 2 names four ICC editions, part 4 defers to
 //!   ISO 32000-2 §8.6.5.5. Only the second is a text this tree holds, so they are two rows
@@ -55,8 +61,11 @@
 //! - Part 2 forbids PostScript `XObject`s and the `Subtype2`/`PS` passthrough in a form `XObject`;
 //!   part 4 dropped both, keeping only `OPI`.
 //!
-//! Neither part's annexes touch clause 6.2 — ISO 19005-4 Annexes A and B modify only the
-//! embedded-file and 3D subclauses — so every row here is [`Applies::Always`].
+//! ISO 19005-4's Annex A does not touch clause 6.2. **Annex B does**, which this file said it
+//! did not: §B.2.3 states how a PDF/A-4e processor colour manages 3D artwork, and sends it to
+//! §6.2.4.2. So one row here is an [`Applies::Flavours`] row citing `B.2.3`, and every other is
+//! [`Applies::Always`]. Nothing in Annex B binds a *file's* colour, which is why that row is a
+//! processor obligation rather than a check.
 //!
 //! # Recommendations are not rows
 //!
@@ -74,6 +83,7 @@ use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 use crate::survey::{DeviceColour, DeviceFamily, IccProfile, Route, SpaceKind};
+use crate::target::Flavour;
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
 pub(super) static REQUIREMENTS: &[Requirement] = &[
@@ -83,7 +93,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                standard requires, as modified by ISO 19005.",
         clauses: Clauses::both("6.2.1", "6.2.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "the clause binds a conforming processor's rendering rather than the file, so no \
              document can be judged against it; the rendering it asks for is this project's \
              own subject and `doc/conformance` is where that is tracked",
@@ -95,12 +105,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                inside the BX and EX compatibility brackets.",
         clauses: Clauses::both("6.2.2", "6.2.2"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "`pdf_model::Unsupported::Operator` names the operators this project's interpreter \
-             does not implement, which is a different set from the ones ISO 32000 does not \
-             define — judging the rule on it would report conforming files. It needs the base \
-             standard's operator table, which no crate here exposes as data",
-        ),
+        check: Check::Implemented(only_operators_the_base_standard_defines),
     },
     Requirement {
         id: "graphics/content-streams-have-an-explicit-resources-dictionary",
@@ -218,7 +223,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                and not through the Alternate space the profile's stream dictionary names.",
         clauses: Clauses::both("6.2.4.2", "6.2.4.2"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -299,7 +304,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                replaces through the profile in the PDF/A output intent then in effect.",
         clauses: Clauses::both("6.2.4.3", "6.2.4.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -310,7 +315,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                process colourants as components of the output intent's CMYK profile.",
         clauses: Clauses::both("6.2.4.4", "6.2.4.4"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -323,6 +328,31 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("6.2.4.4"),
         applies: Applies::Always,
         check: Check::Implemented(separation_alternate_spaces_under_part_two),
+    },
+    Requirement {
+        id: "graphics/3d-artwork-colour-management",
+        asks: "A processor that colour manages 3D artwork shall handle it as an ICCBased colour \
+               built from the 3D stream's ColorSpace key, or from sRGB where it states none, \
+               and shall do so after the artwork is rendered.",
+        clauses: Clauses::only_four("B.2.3"),
+        applies: Applies::Flavours(&[Flavour::E]),
+        check: Check::Processor(
+            "every sentence of the subclause is addressed to a conforming processor, and the \
+             first of them relieves one of colour managing 3D artwork at all — so no property of \
+             a document satisfies or breaks it. The rules it points at are §6.2.4.2's, applied \
+             to a profile the processor builds rather than to a colour space the file selects; \
+             this project's own answer to it belongs in `doc/PLAN.md` §5a's ledger beside the \
+             clause 13 exclusion that keeps 3D artwork unrendered here",
+        ),
+    },
+    Requirement {
+        id: "graphics/separation-alternate-space-does-not-duplicate-a-current-profile",
+        asks: "The alternate space of a Separation or DeviceN colour space shall not be an \
+               ICCBased space carrying a CMYK destination profile identical to the one in the \
+               output intent or the blending space in force.",
+        clauses: Clauses::only_four("6.2.4.4"),
+        applies: Applies::Always,
+        check: Check::Implemented(separation_alternates_duplicating_a_current_profile),
     },
     Requirement {
         id: "graphics/separation-alternate-spaces-obey-the-colour-rules-of-part-four",
@@ -426,7 +456,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                renders.",
         clauses: Clauses::both("6.2.5", "6.2.5"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -437,7 +467,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                device that does not support every colourant natively.",
         clauses: Clauses::both("6.2.5", "6.2.5"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -464,7 +494,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                own value instead.",
         clauses: Clauses::both("6.2.7", "6.2.6"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -496,7 +526,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                whatever part of the file that thumbnail came.",
         clauses: Clauses::both("6.2.8.2", "6.2.7.2"),
         applies: Applies::Always,
-        check: Check::Unchecked(
+        check: Check::Processor(
             "binds a conforming processor's rendering rather than the file, so no document can \
              be judged against it",
         ),
@@ -2338,6 +2368,46 @@ fn named_resources_are_defined(exam: &Examination<'_>, findings: &mut Findings) 
     }
 }
 
+/// ISO 19005-2 §6.2.2, ISO 19005-4 §6.2.2, the first sentence.
+///
+/// # What "defined in the base standard" is decided against
+///
+/// Each part points at its own base standard's operator summary — part 2 at ISO 32000-1:2008
+/// Annex A, part 4 at ISO 32000-2 Annex A — and **the two tables hold the same 73 operators**,
+/// compared entry by entry, differing only in how they annotate `F`. So the two parts state one
+/// rule with one answer, and this row is a single predicate rather than one per part. The table
+/// itself lives in `crate::survey`'s `keyword`, beside the walk that reads the operators, with
+/// the measurement that put it there; were a later edition to add or drop an operator, that is
+/// where the split would have to be made.
+///
+/// # Two things the sentence says that a narrower reading would miss
+///
+/// **`BX` and `EX` exempt nothing.** Both parts say so in as many words, and ISO 32000-2 §7.8.2's
+/// compatibility operators are the reason they had to: the base standard lets a processor ignore
+/// an unrecognised operator between them, and ISO 19005 withdraws that. So the walk reports what
+/// it finds without regard to the brackets, and the corpus's `6-2-2-t01-fail-c` is exactly that
+/// case.
+///
+/// **A resource nothing invokes is exempt.** The same clause's last paragraph says a named
+/// resource the content stream does not reference is not used for rendering and is exempt from
+/// the part's requirements; `crate::survey` reaches a form `XObject` only through the `Do` that
+/// names it, so an unreferenced one is never read. That is the corpus's `6-2-2-t01-pass-a`, and
+/// it passes because of how the walk is built rather than by an exception written here.
+fn only_operators_the_base_standard_defines(exam: &Examination<'_>, findings: &mut Findings) {
+    for unlisted in exam.survey().unlisted_operators() {
+        findings.record(
+            unlisted
+                .place
+                .clone()
+                .named(String::from_utf8_lossy(&unlisted.spelling).into_owned()),
+            format!(
+                "{} uses an operator the base standard's operator summary does not list",
+                unlisted.what
+            ),
+        );
+    }
+}
+
 /// ISO 19005-2 §6.2.2, ISO 19005-4 §6.2.2, the paragraph about associated resources.
 ///
 /// Both parts require a content stream that references other objects to have a resource
@@ -2524,6 +2594,30 @@ fn pdfa_destination_profile(
 ///
 /// ISO 19005-2 states no such sentence, which is why this row cites part 4 alone.
 fn no_icc_space_duplicating_a_current_profile(exam: &Examination<'_>, findings: &mut Findings) {
+    duplicating_a_current_profile(exam, findings, |via| via != Route::Alternate);
+}
+
+/// ISO 19005-4 §6.2.4.2's last requirement, reached through §6.2.4.4's third paragraph.
+///
+/// Split from the row above rather than folded into it, because the two cite different clauses:
+/// an `ICCBased` space the content selects is §6.2.4.2's own business, and the alternate space of
+/// a `Separation` or `DeviceN` is subject to §6.2.4.2 only because §6.2.4.4 says so. A reader
+/// checking a verdict against their own copy has to be sent to the sentence that put the
+/// restriction where this found it — the same reason the device colour rules are three rows over
+/// one walk rather than one row.
+fn separation_alternates_duplicating_a_current_profile(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+) {
+    duplicating_a_current_profile(exam, findings, |via| via == Route::Alternate);
+}
+
+/// The shared body of the two rows above, over the routes each of them owns.
+fn duplicating_a_current_profile(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+    wanted: impl Fn(Route) -> bool,
+) {
     let document = exam.document;
     let selections = exam.survey().icc_selections();
     if selections.is_empty() {
@@ -2542,6 +2636,9 @@ fn no_icc_space_duplicating_a_current_profile(exam: &Examination<'_>, findings: 
         .collect();
     let mut read = Profiles::default();
     for selection in selections {
+        if !wanted(selection.via) {
+            continue;
+        }
         // The clause binds a CMYK destination profile, which `N` is what tells: §8.6.5.5's
         // Table 66 makes the component count the profile's own, so a three-component profile
         // duplicating an RGB output intent is not what this forbids.
@@ -2561,9 +2658,10 @@ fn no_icc_space_duplicating_a_current_profile(exam: &Examination<'_>, findings: 
             findings.record(
                 selection.place.clone(),
                 format!(
-                    "{} selects an ICCBased CMYK colour space whose profile is the profile in \
-                     the PDF/A output intent then current",
+                    "{} uses {} whose profile is the profile in the PDF/A output intent then \
+                     current",
                     selection.what,
+                    icc_space_reached(selection.via),
                 ),
             );
         }
@@ -2573,11 +2671,24 @@ fn no_icc_space_duplicating_a_current_profile(exam: &Examination<'_>, findings: 
             findings.record(
                 selection.place.clone(),
                 format!(
-                    "{} selects an ICCBased CMYK colour space whose profile is the profile of \
-                     the transparency blending colour space then in force",
+                    "{} uses {} whose profile is the profile of the transparency blending \
+                     colour space then in force",
                     selection.what,
+                    icc_space_reached(selection.via),
                 ),
             );
+        }
+    }
+}
+
+/// How a report names the `ICCBased` space a finding is about, given how it was reached.
+fn icc_space_reached(via: Route) -> &'static str {
+    match via {
+        Route::Direct => "an ICCBased CMYK colour space",
+        Route::Underlying => "an ICCBased CMYK colour space underlying the one it selected",
+        Route::Alternate => {
+            "a Separation or DeviceN colour space whose alternate is an \
+                             ICCBased CMYK space"
         }
     }
 }
@@ -2781,7 +2892,9 @@ mod tests {
                 .flatten()
             {
                 assert!(
-                    clause.starts_with("6.2."),
+                    // Annex B modifies clause 6.2 for PDF/A-4e rather than restating it
+                    // elsewhere, so a row of this tranche may cite it — and only it.
+                    clause.starts_with("6.2.") || clause.starts_with("B.2."),
                     "{} cites {clause}, which is not in this tranche's range",
                     requirement.id
                 );
@@ -3453,6 +3566,31 @@ mod tests {
                 super::no_icc_space_duplicating_a_current_profile
             ),
             1
+        );
+        // §6.2.4.4 sends the alternate space to §6.2.4.2, and it is the §6.2.4.4 row that
+        // reports it — cited where the sentence that put the restriction there stands.
+        let alternate = duplicating_page(
+            "/CS0 cs 1 scn",
+            "[/Separation /Spot [/ICCBased 6 0 R] 7 0 R]",
+            &[
+                "<< /N 4 /Length 4 >> stream\nabcd\nendstream",
+                "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 1 1 1] /N 1 >>",
+            ],
+        );
+        assert_eq!(
+            found(
+                &alternate,
+                super::separation_alternates_duplicating_a_current_profile
+            ),
+            1
+        );
+        assert_eq!(
+            found(
+                &alternate,
+                super::no_icc_space_duplicating_a_current_profile
+            ),
+            0,
+            "the §6.2.4.2 row keeps the spaces the content names directly"
         );
         let unused = duplicating_page("0 0 0 0 k", "[/ICCBased 6 0 R]", &one_profile);
         assert_eq!(

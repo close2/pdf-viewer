@@ -73,6 +73,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
     let target = examination.target;
     let outcome = match requirement.check {
         Check::Unchecked(why) => Outcome::Unchecked(why),
+        Check::Processor(why) => Outcome::Processor(why),
         Check::Implemented(predicate) => {
             let mut findings = Findings::default();
             predicate(examination, &mut findings);

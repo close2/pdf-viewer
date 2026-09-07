@@ -160,6 +160,31 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
          sentence to be about, so the rule is part 4's alone — which is where this crate \
          implements it.",
     ),
+    (
+        "veraPDF test suite 6-2-11-7-2-t01-fail-f.pdf",
+        Ruling::SpecAgainstTheCorpus,
+        "a Type 0 font whose descendant CIDFont uses the Adobe-Japan1 character collection and \
+         states no `ToUnicode`, expected to fail ISO 19005-2 §6.2.11.7.2. That subclause's third \
+         exemption names the collection in as many words — Type 0 fonts whose descendant CIDFont \
+         uses Adobe-GB1, Adobe-CNS1, Adobe-Japan1 or Adobe-Korea1 — so the font is exempt and \
+         the file conforms. The witness's own outline states the exempt condition as its reason \
+         for failing. Its siblings `-pass-h`, `-pass-i` and `-pass-j` are the same construction \
+         over Korea1, GB1 and CNS1 and are expected to pass; there is no `-pass-g`, which is \
+         what a file moved from the pass set to the fail set leaves behind.",
+    ),
+    (
+        "veraPDF test suite 6-2-4-3-t02-fail-a.pdf",
+        Ruling::SpecAgainstTheCorpus,
+        "a `DeviceRGB` on a 3D stream's `ColorSpace` with no output intent, expected to fail \
+         ISO 19005-4 §6.2.4.3 under the engineering annex. **Annex B sends 3D artwork colour \
+         somewhere else.** §B.2.3 makes the `ColorSpace` key the space the artwork is specified \
+         in, defaults it to sRGB when absent, then says a conforming processor is not required \
+         to colour manage 3D artwork at all — and that one which does shall follow §6.2.4.2's \
+         rules for ICCBased colours, with the profile based on that key or on sRGB. So the key \
+         is the basis of a profile rather than a device-colour use on a page, §6.2.4.2 governs \
+         rather than §6.2.4.3, and the only `shall` in the subclause binds a processor. This \
+         crate reports §B.2.3 as a `Check::Processor` row, which is what it is.",
+    ),
 ];
 
 /// Whether a file's disagreement with this crate has already been read against the clause.

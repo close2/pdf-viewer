@@ -3658,7 +3658,19 @@ pub fn document_language(document: &Document) -> Option<String> {
 /// or 4 beginning with a digit), any number of singleton-introduced extensions, and a private
 /// `x-` tail; a private tail may also stand alone, and a closed list of grandfathered tags
 /// predates the grammar.
-fn well_formed_language_tag(tag: &str) -> bool {
+///
+/// **Public because a second reader needs the same test and may not have a second grammar.**
+/// ISO 19005-2 §6.7.4's only `shall` is that a `/Lang` which is present be a language identifier
+/// as §14.9.2 defines, and `crates/pdf-archive` judges that for a *structure element* and a
+/// marked-content property list where [`Tree::document_language`] answers only for the catalog.
+/// Duplicating ninety lines of RFC 5646 ABNF and the grandfathered list into that crate would
+/// give this project two grammars to keep in step, and would contradict `pdf-archive`'s own
+/// design, which is to add no reader of its own.
+///
+/// Widening it costs the viewer nothing: the function is pure, allocates one `Vec` of borrowed
+/// subtags, and is on no path the viewer walks more than once per document.
+#[must_use]
+pub fn well_formed_language_tag(tag: &str) -> bool {
     if GRANDFATHERED
         .iter()
         .any(|kept| kept.eq_ignore_ascii_case(tag))

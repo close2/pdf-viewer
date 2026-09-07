@@ -21,13 +21,20 @@ use core::fmt;
 pub enum Part {
     /// ISO 19005-2:2011, PDF/A-2, defined on ISO 32000-1.
     ///
-    /// **Its base document is one this tree does not carry**, which is a limitation of every
-    /// PDF/A-2 verdict rather than of any one requirement: §5.1 makes a conforming file one
-    /// that adheres to all of ISO 32000-1 as modified by part 2, and `doc/md/` holds
-    /// ISO 32000-2. Where the two editions agree — most of the file format — reading the
-    /// requirement in the later edition gives the same answer; where they differ, a
-    /// requirement that leaned on the difference is reported as read from the wrong edition
-    /// rather than as checked. `doc/questions/Q49` is the purchase that would close it.
+    /// **Its base document is a different edition from the one this tree is written against**,
+    /// which is a fact about every PDF/A-2 verdict rather than about any one requirement: §5.1
+    /// makes a conforming file one that adheres to all of ISO 32000-1 as modified by part 2,
+    /// while `doc/md/`, the conformance ledger and every doc comment in `crates/` are
+    /// ISO 32000-2's.
+    ///
+    /// **The edition itself is now readable.** The owner obtained ISO 32000-1:2008 on
+    /// 2026-09-07 — Adobe publishes it without charge — and it is `doc/PDF32000_2008.pdf`,
+    /// which this tree's own reader opens. So a rule that turns on a difference between the
+    /// editions can now be *written* against the right one; what remains is the work of going
+    /// through the part 2 rows and saying which have been. Until a row says so, reading its
+    /// requirement in the later edition is what this crate did, and where the editions agree —
+    /// most of the file format — that gives the same answer. `doc/questions/Q49` tracks what is
+    /// left of it, which is no longer a purchase.
     Two,
     /// ISO 19005-4:2020, PDF/A-4, defined on ISO 32000-2.
     ///

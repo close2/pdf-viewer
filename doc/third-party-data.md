@@ -258,6 +258,30 @@ tables, built by `build.rs` from a pinned submodule. Vendored data arrives the s
 checked-in tool, a pinned upstream revision recorded beside the bytes, the licence file verbatim
 next to what it covers.
 
+## ISO 32000-1:2008, PDF/A-2's base document
+
+The owner downloaded it on 2026-09-07 to `doc/PDF32000_2008.pdf`. Adobe publishes it without
+charge — it is the edition ISO approved as ISO 32000-1:2008 — and the root `.gitignore`'s
+`/doc/*.pdf` line already excludes it, which is the same treatment every other specification PDF
+in this tree gets: **free to obtain is not free to redistribute**, and ADR 0187's discipline
+applies unchanged.
+
+**Why it matters here.** ISO 19005-2 §5.1 makes a conforming PDF/A-2 file one that adheres to all
+of ISO 32000-1 as modified by that part, and every "ISO 32000-1:2008, 9.x" citation part 2 makes
+points into it. Until now this tree carried only ISO 32000-2, so `crates/pdf-archive`'s `Part::Two`
+records that a PDF/A-2 verdict leaning on a difference between the editions would be citing the
+wrong one — `doc/questions/Q49` is the purchase that closes it, and this is that purchase, made for
+nothing. Two things it immediately unparks are named where they act: Annex A's operator summary,
+which three agents had recorded as a table nobody holds, and §9.7.5.2's predefined CMap table,
+which ISO 32000-2 dropped and which PDF Association issue #77 is parked on.
+
+**Its own permissions forbid extraction, and that is the reader's to set.** `pdfinfo` reports
+`copy:no` on the file. `CLAUDE.md` principle 3's second half is explicit that a document's
+restrictions are the reader's to switch off — "a restriction a reader cannot switch off is a
+restriction imposed on the reader by somebody else's file, and this program is the reader's" — so
+this tree's own reader opens it and answers questions about it, as it does for the SRPS reprints in
+`doc/pdfa/`. That is a stance the project already took, not a new one taken here.
+
 ## The XMP Specification, read for a table of facts
 
 ISO 19005-2 §6.6.2.3.1 requires every XMP property to come from a predefined schema, and deciding

@@ -47,6 +47,24 @@
 //! §8.6.5.6's defaults are resolved once per content stream rather than once per colour operator,
 //! since the resource dictionary in force cannot change within one.
 //!
+//! # What the three per-token measurements cost, and what they bought
+//!
+//! [`ContentLiterals`], [`Survey::deepest_graphics_state_nesting`] and
+//! [`Survey::unlisted_operators`] are the only things here that touch *every* token rather than
+//! every observation, so they were measured before and after with `examples/cost` on ISO 32000-2's
+//! own specification — 1 023 pages and 8 029 592 content-stream tokens, the largest document this
+//! tree holds. **The fastest of ten runs was 640 ms before and 633 ms after**, so what they add —
+//! four comparisons on each operand and thirty-nine more arms on a `match` the walk already ran —
+//! is below what this instrument can resolve on this machine. It is not free; it is smaller than
+//! the run-to-run spread, which is the honest thing to record rather than a figure the noise
+//! would have invented either way.
+//!
+//! What it bought: ISO 19005-2 §6.1.13's limits on the values written *inside* a content stream,
+//! its `q`/`Q` nesting limit, and §6.2.2's ban on an operator the base standard does not define —
+//! three rows that were `Unchecked` and eleven corpus documents this crate had been missing. The
+//! three predicates that read them cost 40 ns, 360 ns and 500 ns on that same document, because
+//! all the work is here and none of it is repeated.
+//!
 //! # The bounds, and why they are here
 //!
 //! A content stream is untrusted input. Three bounds keep a hostile document from turning this
@@ -103,6 +121,20 @@ const MAX_SPACE_DEPTH: usize = 16;
 /// two rules that need every code stay silent about them — which is the bound doing its job
 /// rather than failing at it.
 const SHOWN_BUDGET: usize = 4 << 20;
+
+/// How many bytes of distinct `/ActualText` strings one survey keeps.
+///
+/// ISO 32000-2 §14.9.4's entry is a text string a producer writes, so it is the second thing
+/// here a document can make large honestly rather than only maliciously. An entry that does not
+/// fit is **dropped whole rather than truncated**, and that is the point of the bound rather
+/// than an implementation detail: a text string is UTF-16BE, and half of one can split a
+/// surrogate pair into a character the file never states — which the rule that reads these would
+/// then report as a private-use character. Under-reporting is this crate's direction of error;
+/// inventing a code point is not.
+///
+/// A quarter of [`SHOWN_BUDGET`], because these are entries a producer writes by hand where
+/// those are every string a page draws.
+const ACTUAL_TEXT_BUDGET: usize = 1 << 20;
 
 /// How many *distinct* observations of one kind a survey keeps.
 ///
@@ -332,6 +364,12 @@ pub struct IccSelection {
     pub place: Where,
     /// What kind of site selected it, for the sentence a finding prints.
     pub what: &'static str,
+    /// How the space carrying the profile was reached from the space the content named.
+    ///
+    /// The same reason [`DeviceColour::via`] carries one: §6.2.4.2's restrictions reach a
+    /// `Separation`'s alternate space only because §6.2.4.4 sends them there, so a report has to
+    /// be able to cite the clause that actually put the restriction where it found it.
+    pub via: Route,
     /// The profile the selected space is formed from.
     pub profile: IccProfile,
     /// The profile of ISO 32000-2 §11.3.4's current blending colour space, where that space is
@@ -365,6 +403,65 @@ pub struct IccCmykPaint {
     pub overprinting: bool,
     /// Table 51's overprint mode, as `OPM` last set it. Its initial value is 0.
     pub mode: i64,
+}
+
+/// An extreme one document's content streams reached, with the page that reached it.
+///
+/// Every field of [`ContentLiterals`] is one of these, and so is the deepest `q` nesting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Extreme<T> {
+    /// The value itself.
+    pub value: T,
+    /// The zero-based index of the page whose content reached it.
+    pub page: usize,
+}
+
+/// How far a document's content-stream operands reach in each direction.
+///
+/// # Why extremes rather than every operand that breaks a limit
+///
+/// The rule that reads this — ISO 19005-2 §6.1.13, applied to the values written *inside* a
+/// content stream — is a set of bounds, and a bound is broken by the operand furthest out.
+/// Keeping the extreme of each kind answers it in six words of state, where keeping every
+/// breach would need the walk to know the standard's numbers and would let a hostile document
+/// choose how much memory a survey costs.
+///
+/// It costs a report one finding per kind rather than one per operand. That is what a reader
+/// can act on anyway: the page and the value are what send them to the right place, and a file
+/// whose content states one out-of-range integer usually states thousands.
+///
+/// A real number is kept as its **magnitude**, because both of §6.1.13's real-number bounds are
+/// stated as magnitudes and a signed extreme would answer neither.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ContentLiterals {
+    /// The largest integer any operand stated.
+    pub largest_integer: Option<Extreme<i64>>,
+    /// The smallest integer any operand stated.
+    pub smallest_integer: Option<Extreme<i64>>,
+    /// The largest magnitude any real operand stated.
+    pub largest_real_magnitude: Option<Extreme<f64>>,
+    /// The smallest non-zero magnitude any real operand stated.
+    pub smallest_real_magnitude: Option<Extreme<f64>>,
+    /// The length in bytes of the longest string operand.
+    pub longest_string: Option<Extreme<usize>>,
+    /// The length in bytes of the longest name operand, its escapes already expanded.
+    pub longest_name: Option<Extreme<usize>>,
+}
+
+/// One content-stream keyword that ISO 32000's operator summary does not list.
+///
+/// See [`keyword`] for what "does not list" is decided against, and why the walk filters here
+/// rather than reporting every operator it read.
+#[derive(Debug, Clone)]
+pub struct UnlistedOperator {
+    /// The zero-based index of the page whose content read it.
+    pub page: usize,
+    /// Where a report points a reader.
+    pub place: Where,
+    /// What kind of content stream it stood in, for the sentence a finding prints.
+    pub what: &'static str,
+    /// The keyword itself, as it was written.
+    pub spelling: Vec<u8>,
 }
 
 /// A font a content stream selected, and whether anything was drawn with it.
@@ -436,6 +533,16 @@ pub struct Survey {
     icc: Vec<IccSelection>,
     /// Every painting operator that marked the page in an `ICCBased` CMYK colour space.
     icc_paints: Vec<IccCmykPaint>,
+    /// How far the operands of the content streams reached, in each direction.
+    literals: ContentLiterals,
+    /// The deepest `q` nesting any one content stream reached.
+    nesting: Option<Extreme<usize>>,
+    /// Every keyword the content used that ISO 32000's operator summary does not list.
+    unlisted: Vec<UnlistedOperator>,
+    /// Every `/ActualText` string a content stream wrote into a marked-content operator.
+    actual_texts: Vec<(usize, Vec<u8>)>,
+    /// Whether any content stream named `/ActualText` at all, whatever it gave the name.
+    names_actual_text: bool,
     /// How many pages the walk covered, so a caller can iterate them.
     pages: usize,
 }
@@ -450,6 +557,7 @@ impl Survey {
             opened: 0,
             budget: TOKEN_BUDGET,
             shown_budget: SHOWN_BUDGET,
+            actual_text_budget: ACTUAL_TEXT_BUDGET,
             seen: BTreeSet::new(),
             survey: Self::default(),
         };
@@ -524,6 +632,66 @@ impl Survey {
     #[must_use]
     pub fn page_is_transparent(&self, page: usize) -> bool {
         self.transparent.contains(&page)
+    }
+
+    /// How far the operands written inside the content streams reach, in each direction.
+    #[must_use]
+    pub const fn content_literals(&self) -> &ContentLiterals {
+        &self.literals
+    }
+
+    /// The deepest `q` nesting any single content stream reached, and the page it was on.
+    ///
+    /// **Within one stream, deliberately.** ISO 32000-2 §8.10.1 makes a form `XObject`'s content
+    /// run inside the graphics state the `Do` operator saved, so a `q` inside a form is nested
+    /// inside whatever the invoking stream had open, and a depth summed across the invocation
+    /// would be the graphics state stack's true depth. This does not sum it, for the reason
+    /// every bound in this file is set the way it is: the walk follows a form once per page and
+    /// a stream reached from two places has two depths, so a summed figure would depend on which
+    /// invocation the walk happened to take — and a rule that failed a conforming file on that
+    /// would be worse than one that missed a nesting split across two streams.
+    ///
+    /// Capped at [`MAX_NESTING`], which is an order of magnitude above the limit any rule reads
+    /// it against.
+    #[must_use]
+    pub const fn deepest_graphics_state_nesting(&self) -> Option<Extreme<usize>> {
+        self.nesting
+    }
+
+    /// Every keyword the content streams used that ISO 32000's operator summary does not list.
+    #[must_use]
+    pub fn unlisted_operators(&self) -> &[UnlistedOperator] {
+        &self.unlisted
+    }
+
+    /// Every `/ActualText` string a content stream wrote inline, with the page that drew it.
+    ///
+    /// ISO 32000-2 §14.6.2 lets a marked-content property list be written straight into the
+    /// `BDC` operator's operands rather than named as a resource, and such an entry is no object:
+    /// nothing that walks the cross-reference table can see it. This is where it is seen, because
+    /// the walk is reading those operands anyway.
+    ///
+    /// **The pairing is deliberately shallow** — a `/ActualText` name operand and the string
+    /// operand that follows it — and it is sound because nothing else in a content stream spells
+    /// that name. Whatever dictionary nesting stands around the pair is irrelevant to it.
+    ///
+    /// Bounded by [`ACTUAL_TEXT_BUDGET`], and an entry that did not fit is absent rather than
+    /// short. A caller that needs to know whether the document states one *at all* asks
+    /// [`Self::names_actual_text`], which no bound can make wrong.
+    #[must_use]
+    pub fn inline_actual_texts(&self) -> &[(usize, Vec<u8>)] {
+        &self.actual_texts
+    }
+
+    /// Whether any content stream named `/ActualText`, whatever it gave the name.
+    ///
+    /// Wider than [`Self::inline_actual_texts`] on purpose, and a `bool` so that no budget can
+    /// narrow it: the rule that reads this stays *silent* where a document states an
+    /// `ActualText` anywhere, so an answer that missed one would turn a silence into a finding
+    /// against a file that has what the clause asks for.
+    #[must_use]
+    pub const fn names_actual_text(&self) -> bool {
+        self.names_actual_text
     }
 
     /// How many pages the walk covered.
@@ -654,10 +822,14 @@ enum Step {
     Name(Vec<u8>),
     /// An integer operand.
     Integer(i64),
+    /// A real operand, kept for its magnitude alone; see [`ContentLiterals`].
+    Real(f64),
     /// A string operand, which only a text-showing operator takes.
     Text(Vec<u8>),
     /// An operator, which consumes the operands before it.
     Operator(Operator),
+    /// A keyword ISO 32000's operator summary does not list, which consumes them too.
+    Unlisted(Vec<u8>),
     /// An operand of a kind no rule here reads.
     Other,
     /// The content stream ended.
@@ -670,15 +842,51 @@ fn next_step(reader: &mut ContentReader<'_>) -> Step {
         None => Step::End,
         Some(Token::Name(name)) => Step::Name(name),
         Some(Token::Integer(value)) => Step::Integer(value),
+        Some(Token::Real(value)) => Step::Real(value),
         Some(Token::String(text)) => Step::Text(text),
-        Some(Token::Keyword(word)) => Step::Operator(keyword(word)),
+        Some(Token::Keyword(word)) => keyword_step(word),
         Some(_) => Step::Other,
     })
 }
 
-/// Which operator a content-stream keyword is.
-fn keyword(word: &[u8]) -> Operator {
-    match word {
+/// One bare keyword, as an operator, an operand, or a word no operator summary lists.
+fn keyword_step(word: &[u8]) -> Step {
+    if let Some(operator) = keyword(word) {
+        return Step::Operator(operator);
+    }
+    // §7.3.2's booleans and §7.3.9's null are *objects*, and the lexer hands every keyword over
+    // the same way — so they arrive here looking like operators and are not. A `BDC` property
+    // list written inline is where a content stream states one.
+    if matches!(word, b"true" | b"false" | b"null") {
+        return Step::Other;
+    }
+    Step::Unlisted(word.to_vec())
+}
+
+/// Which operator a content-stream keyword is, or `None` where no operator summary lists it.
+///
+/// # Why every operator is named here, including the ones this walk ignores
+///
+/// The arms below fall into two halves. The first is the operators the survey *acts* on. The
+/// second names every remaining operator of the base standard's operator summary and does
+/// nothing with it — and it is there because the `None` case is itself an answer somebody asks
+/// for: ISO 19005-2 §6.2.2 and ISO 19005-4 §6.2.2 forbid a content stream to use an operator the
+/// base standard does not define, and [`Survey::unlisted_operators`] is how that is reported.
+///
+/// **The two editions' summaries hold the same operators**, checked entry by entry: ISO 32000-2
+/// Annex A's Table A.1 and ISO 32000-1:2008 Annex A's Table A.1 each list the same 73, differing
+/// only in how they annotate `F` — obsolete in the first edition, deprecated in the second. So
+/// one table serves both parts of ISO 19005, and a caller does not have to ask which edition its
+/// target points at. Were a later edition to add or drop one, this would become two tables and
+/// the reporting would have to carry which.
+///
+/// Deciding it *here* rather than in the requirement is a measured choice. A rule that judged the
+/// operators would need the walk to report every one it read, and deduplicating a set of
+/// operators per page over ISO 32000-2's own eight million content tokens costs more than the
+/// whole survey does; filtering in the one `match` the walk already runs costs the arms below and
+/// an allocation per word that no summary lists, which an ordinary document never pays at all.
+fn keyword(word: &[u8]) -> Option<Operator> {
+    let operator = match word {
         b"q" => Operator::Save,
         b"Q" => Operator::Restore,
         b"Tf" => Operator::SetFont,
@@ -711,8 +919,15 @@ fn keyword(word: &[u8]) -> Operator {
             stroke: true,
         },
         b"BI" => Operator::InlineImage,
-        _ => Operator::Other,
-    }
+        // The rest of Table A.1, in the order the table prints them. Nothing here changes the
+        // state this walk carries; they are listed so that the fall-through means what it says.
+        b"BDC" | b"BMC" | b"BT" | b"BX" | b"c" | b"cm" | b"d" | b"d0" | b"d1" | b"DP" | b"EI"
+        | b"EMC" | b"ET" | b"EX" | b"h" | b"i" | b"ID" | b"j" | b"J" | b"l" | b"m" | b"M"
+        | b"MP" | b"n" | b"re" | b"T*" | b"Tc" | b"Td" | b"TD" | b"TL" | b"Tm" | b"Ts" | b"Tw"
+        | b"Tz" | b"v" | b"w" | b"W" | b"W*" | b"y" => Operator::Other,
+        _ => return None,
+    };
+    Some(operator)
 }
 
 /// One of the six operators that names a device colour space and sets a colour in it.
@@ -736,6 +951,8 @@ struct Walk<'a> {
     budget: u64,
     /// How many more bytes of distinct shown strings may be kept; see [`SHOWN_BUDGET`].
     shown_budget: usize,
+    /// How many more bytes of `/ActualText` may be kept; see [`ACTUAL_TEXT_BUDGET`].
+    actual_text_budget: usize,
     /// Which observations have already been recorded, so that a repeat costs nothing.
     ///
     /// A page that paints ten thousand red rectangles selects `DeviceRGB` ten thousand times
@@ -770,10 +987,29 @@ enum Observation {
     Missing(usize, &'static str, String),
     /// A rendering intent operator's operand.
     Intent(usize, Vec<u8>),
-    /// An `ICCBased` colour space selection, by the profile and the blending profile in force.
-    Icc(usize, &'static str, Option<ObjectId>, Option<ObjectId>),
+    /// An `ICCBased` colour space selection, by the route, the profile and the blending profile.
+    Icc(
+        usize,
+        &'static str,
+        Route,
+        Option<ObjectId>,
+        Option<ObjectId>,
+    ),
     /// A painting operator marking in an `ICCBased` CMYK space, with the overprint parameters.
     Overprint(usize, &'static str, bool, bool, i64),
+    /// A keyword no operator summary lists, by the page and kind of stream that used it.
+    Operator(usize, &'static str, Vec<u8>),
+    /// An `/ActualText` value written inline, by the page that drew it.
+    ActualText(usize, Vec<u8>),
+}
+
+/// Which of [`ContentLiterals`]' two length extremes an operand widens.
+#[derive(Debug, Clone, Copy)]
+enum Extent {
+    /// A string operand's length in bytes.
+    String,
+    /// A name operand's length in bytes, its escapes already expanded.
+    Name,
 }
 
 /// The content stream [`Walk::run`] is reading.
@@ -966,15 +1202,24 @@ impl Walk<'_> {
         // the operator decide is what makes those three the same case here.
         let mut strings: Vec<Vec<u8>> = Vec::new();
         let mut integer: Option<i64> = None;
+        // Whether the operand just read was the name `/ActualText`, so that the string operand
+        // after it is that entry's value: ISO 32000-2 §14.9.4's entry, written inline into a
+        // `BDC` property list. One `bool` because the pair is adjacent and nothing else in a
+        // content stream spells the name.
+        let mut naming_actual_text = false;
         loop {
             if self.budget == 0 {
                 return;
             }
             self.budget = self.budget.saturating_sub(1);
-            match next_step(reader) {
+            let step = next_step(reader);
+            let names_it = matches!(&step, Step::Name(name) if name == b"ActualText");
+            match step {
                 Step::End => return,
                 Step::Other => {}
                 Step::Name(name) => {
+                    self.note_length(name.len(), page, Extent::Name);
+                    self.survey.names_actual_text |= names_it;
                     // At most two are ever wanted: `Tf` and `Do` take the first, and `scn`
                     // takes the last. Keeping two rather than every operand is what stops a
                     // stream of names from growing this vector without bound.
@@ -985,13 +1230,27 @@ impl Walk<'_> {
                     }
                 }
                 // The last integer, because `Tr` takes exactly one and it comes last.
-                Step::Integer(value) => integer = Some(value),
+                Step::Integer(value) => {
+                    self.note_integer(value, page);
+                    integer = Some(value);
+                }
+                Step::Real(value) => self.note_real(value, page),
                 Step::Text(text) => {
+                    self.note_length(text.len(), page, Extent::String);
+                    if naming_actual_text {
+                        self.note_actual_text(&text, page);
+                    }
                     // Bounded by the same budget the kept strings are, so a stream of literals
                     // between two operators cannot grow this vector without one.
                     if text.len() <= self.shown_budget {
                         strings.push(text);
                     }
+                }
+                Step::Unlisted(word) => {
+                    self.note_unlisted_operator(&word, page, origin);
+                    names.clear();
+                    strings.clear();
+                    integer = None;
                 }
                 Step::Operator(operator) => {
                     let context = Context {
@@ -1019,6 +1278,7 @@ impl Walk<'_> {
                     integer = None;
                 }
             }
+            naming_actual_text = names_it;
         }
     }
 
@@ -1037,6 +1297,8 @@ impl Walk<'_> {
                 if stack.len() < MAX_NESTING {
                     stack.push(state.clone());
                 }
+                // After the push, so that the first `q` of a stream counts as one level deep.
+                self.note_nesting(stack.len(), context.page);
             }
             Operator::Restore => {
                 if let Some(previous) = stack.pop() {
@@ -1603,8 +1865,8 @@ impl Walk<'_> {
         blending: Option<SpaceKind>,
         blending_profile: Option<&IccProfile>,
     ) {
-        if let Some(profile) = icc_profile(self.document, space, context.resources, 0) {
-            self.push_icc(profile, place.clone(), context, what, blending_profile);
+        for (profile, via) in icc_uses(self.document, space, context.resources) {
+            self.push_icc(profile, via, place.clone(), context, what, blending_profile);
         }
         for used in device_uses(self.document, space, context.resources) {
             self.push_colour(used, place.clone(), context, what, blending);
@@ -1615,6 +1877,7 @@ impl Walk<'_> {
     fn push_icc(
         &mut self,
         profile: IccProfile,
+        via: Route,
         place: Where,
         context: &Context<'_>,
         what: &'static str,
@@ -1624,6 +1887,7 @@ impl Walk<'_> {
         if !self.first_time(Observation::Icc(
             context.page,
             what,
+            via,
             profile.id,
             blending_id,
         )) {
@@ -1635,6 +1899,7 @@ impl Walk<'_> {
             page: context.page,
             place,
             what,
+            via,
             profile,
             blending: blending.cloned(),
         });
@@ -1719,6 +1984,102 @@ impl Walk<'_> {
     /// Whether an observation is new, and worth the entry it would cost.
     fn first_time(&mut self, observation: Observation) -> bool {
         self.seen.len() < MAX_OBSERVATIONS && self.seen.insert(observation)
+    }
+
+    /// Widens [`ContentLiterals`]' two integer extremes by one operand.
+    ///
+    /// Two comparisons per integer token, which is what putting this on the walk's hottest path
+    /// costs; `examples/cost` is where that was checked rather than assumed.
+    fn note_integer(&mut self, value: i64, page: usize) {
+        let literals = &mut self.survey.literals;
+        if literals
+            .largest_integer
+            .is_none_or(|held| value > held.value)
+        {
+            literals.largest_integer = Some(Extreme { value, page });
+        }
+        if literals
+            .smallest_integer
+            .is_none_or(|held| value < held.value)
+        {
+            literals.smallest_integer = Some(Extreme { value, page });
+        }
+    }
+
+    /// Widens [`ContentLiterals`]' two real extremes by one operand, as magnitudes.
+    ///
+    /// A magnitude that is not finite is left out: no PDF real *literal* spells one, so an
+    /// infinity here is what the lexer did with a run of digits too long for a `f64` rather
+    /// than what the file said, and reading a bound off it would report the reader's arithmetic.
+    fn note_real(&mut self, value: f64, page: usize) {
+        let value = value.abs();
+        if !value.is_finite() {
+            return;
+        }
+        let literals = &mut self.survey.literals;
+        if literals
+            .largest_real_magnitude
+            .is_none_or(|held| value > held.value)
+        {
+            literals.largest_real_magnitude = Some(Extreme { value, page });
+        }
+        if value > 0.0
+            && literals
+                .smallest_real_magnitude
+                .is_none_or(|held| value < held.value)
+        {
+            literals.smallest_real_magnitude = Some(Extreme { value, page });
+        }
+    }
+
+    /// Widens the string or name extreme of [`ContentLiterals`] by one operand's length.
+    fn note_length(&mut self, value: usize, page: usize, of: Extent) {
+        let literals = &mut self.survey.literals;
+        let held = match of {
+            Extent::String => &mut literals.longest_string,
+            Extent::Name => &mut literals.longest_name,
+        };
+        if held.is_none_or(|held| value > held.value) {
+            *held = Some(Extreme { value, page });
+        }
+    }
+
+    /// Records how deep a `q` stack stood, where it is deeper than anything seen before.
+    fn note_nesting(&mut self, depth: usize, page: usize) {
+        if self.survey.nesting.is_none_or(|held| depth > held.value) {
+            self.survey.nesting = Some(Extreme { value: depth, page });
+        }
+    }
+
+    /// Keeps one `/ActualText` value, once per page and string, within its byte budget.
+    ///
+    /// The budget is spent rather than compared, so a document cannot make this vector large by
+    /// stating many distinct entries any more than by stating one enormous one.
+    fn note_actual_text(&mut self, text: &[u8], page: usize) {
+        if text.len() > self.actual_text_budget
+            || !self.first_time(Observation::ActualText(page, text.to_vec()))
+        {
+            return;
+        }
+        self.actual_text_budget = self.actual_text_budget.saturating_sub(text.len());
+        self.survey.actual_texts.push((page, text.to_vec()));
+    }
+
+    /// Records a keyword no operator summary lists, once per page, stream kind and spelling.
+    fn note_unlisted_operator(&mut self, word: &[u8], page: usize, origin: Origin) {
+        if !self.first_time(Observation::Operator(page, origin.what, word.to_vec())) {
+            return;
+        }
+        let place = origin
+            .record
+            .and_then(|at| self.survey.streams.get(at))
+            .map_or_else(|| Where::page(page), |stream| stream.place.clone());
+        self.survey.unlisted.push(UnlistedOperator {
+            page,
+            place,
+            what: origin.what,
+            spelling: word.to_vec(),
+        });
     }
 
     /// §8.6.5.6's default colour space for one family, as the resources in force state it.
@@ -2045,14 +2406,100 @@ fn icc_family(document: &Document, dict: &Dictionary) -> Option<DeviceFamily> {
     }
 }
 
+/// Every `ICCBased` profile one colour space object reaches, and by which route.
+///
+/// The `ICCBased` twin of [`device_uses`], and deliberately the same shape: the three subclauses
+/// that restrict a colour space restrict it wherever it stands, and each of the three routes is a
+/// different clause's business. §6.2.4.5 sends the base of an `Indexed` and the underlying space
+/// of a `Pattern` to the rest of §6.2.4; §6.2.4.4 sends a `Separation`'s or `DeviceN`'s alternate
+/// space there in the same words.
+///
+/// **The alternate used to be left out, and that was a misreading.** The argument for leaving it
+/// out was that a colourant space paints through its tint transform rather than in the alternate
+/// directly, so an alternate profile is a use that never happened. But ISO 32000-2 §8.6.6.4 is
+/// explicit that the tint transform's output *is* interpreted in the alternate space, which is
+/// why the sibling rule over device colours has always counted an alternate `DeviceCMYK` as a use
+/// of `DeviceCMYK` — and ISO 19005-4 §6.2.4.4 says in one sentence that the alternate space shall
+/// obey all the restrictions of §6.2.4.2 and §6.2.4.3, without distinguishing them. The corpus's
+/// `6-2-4-4-t01-fail-i` and `-fail-j` are exactly this case, and were missed for as long as the
+/// two halves of §6.2.4.4 were read differently.
+fn icc_uses(
+    document: &Document,
+    space: &Object,
+    resources: &Dictionary,
+) -> Vec<(IccProfile, Route)> {
+    let mut found = Vec::new();
+    collect_icc(document, space, resources, Route::Direct, 0, &mut found);
+    found
+}
+
+/// One colour space object's contribution to [`icc_uses`].
+fn collect_icc(
+    document: &Document,
+    space: &Object,
+    resources: &Dictionary,
+    route: Route,
+    depth: usize,
+    found: &mut Vec<(IccProfile, Route)>,
+) {
+    if depth > MAX_SPACE_DEPTH {
+        return;
+    }
+    let space = resolve_space(document, space, resources, 0);
+    let Object::Array(items) = &space else {
+        return;
+    };
+    let Some(family) = items.first().map(|first| document.resolve(first)) else {
+        return;
+    };
+    let Some(family) = family.as_name().map(|name| name.as_bytes().to_vec()) else {
+        return;
+    };
+    let deeper = depth.saturating_add(1);
+    match family.as_slice() {
+        b"ICCBased" => {
+            if let Some(profile) = icc_entry(document, items.get(1)) {
+                found.push((profile, route));
+            }
+        }
+        b"Indexed" | b"I" | b"Pattern" => {
+            if let Some(base) = items.get(1) {
+                collect_icc(document, base, resources, route.under(), deeper, found);
+            }
+        }
+        // §8.6.6.4, Table 74: the alternate space is the third element of both arrays.
+        b"Separation" | b"DeviceN" => {
+            if let Some(alternate) = items.get(2) {
+                collect_icc(
+                    document,
+                    alternate,
+                    resources,
+                    Route::Alternate,
+                    deeper,
+                    found,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The second element of an `ICCBased` array, as the profile it names.
+fn icc_entry(document: &Document, entry: Option<&Object>) -> Option<IccProfile> {
+    let entry = entry?;
+    let id = entry.as_reference();
+    let Object::Stream(stream) = document.resolve(entry) else {
+        return None;
+    };
+    let family = icc_family(document, &stream.dict);
+    Some(IccProfile { id, stream, family })
+}
+
 /// The profile an `ICCBased` colour space is formed from, where the space is one.
 ///
-/// The base of an `Indexed` space and the underlying space of a `Pattern` are descended into,
-/// because ISO 19005 §6.2.4.5 subjects exactly those to the rest of §6.2.4 — which is the same
-/// reason [`classify`] descends into them. A `Separation` or `DeviceN` alternate is *not*: what
-/// §6.2.4.4 sends to §6.2.4.2 is the alternate space's own conformance, and a colourant space
-/// paints through its tint transform rather than in the alternate directly, so treating the
-/// alternate as a profile the page paints with would report a use that never happened.
+/// The single-answer form [`record_group_space`](Walk::record_group_space) needs for §11.3.4's
+/// blending colour space, which is a device or CIE-based space and never a colourant one — so
+/// unlike [`icc_uses`] it does not follow an alternate, and the two are not the same question.
 fn icc_profile(
     document: &Document,
     space: &Object,
@@ -2472,5 +2919,106 @@ mod tests {
         assert!(super::names_a_family(b"Pattern"));
         assert!(!super::names_a_family(b"CS0"));
         let _ = Name::new(b"CS0".to_vec());
+    }
+
+    /// The three cases the operator table has to tell apart, and the one that is neither.
+    #[test]
+    fn a_keyword_is_an_operator_the_walk_acts_on_an_operator_it_ignores_or_neither() {
+        let listed = page_with("q 1 0 0 1 0 0 cm 0 0 5 5 re f BX EX Q", "", &[]);
+        assert!(
+            Survey::of(&listed).unlisted_operators().is_empty(),
+            "every one of these is in ISO 32000's operator summary, whether or not this walk \
+             acts on it"
+        );
+        let unlisted = page_with("q BX UnknownOperator EX Q", "", &[]);
+        let survey = Survey::of(&unlisted);
+        assert_eq!(
+            survey
+                .unlisted_operators()
+                .iter()
+                .map(|found| found.spelling.clone())
+                .collect::<Vec<_>>(),
+            vec![b"UnknownOperator".to_vec()],
+            "the compatibility brackets exempt nothing, which is what §6.2.2 says in as many \
+             words"
+        );
+        // §7.3.2's booleans and §7.3.9's null reach the walk as keywords and are operands.
+        let objects = page_with("/OC << /Off true /On false /Nul null >> BDC EMC", "", &[]);
+        assert!(Survey::of(&objects).unlisted_operators().is_empty());
+    }
+
+    /// One unlisted operator on one page in one kind of stream is one observation, however
+    /// often it is written.
+    #[test]
+    fn an_unlisted_operator_is_reported_once_however_often_a_page_uses_it() {
+        let repeated = page_with("Xyzzy Xyzzy Xyzzy Plugh", "", &[]);
+        let survey = Survey::of(&repeated);
+        assert_eq!(survey.unlisted_operators().len(), 2);
+    }
+
+    /// The extremes §6.1.13's limits are read against, taken from the operands themselves.
+    #[test]
+    fn the_operands_extremes_are_kept_in_each_direction() {
+        let document = page_with("7 -3 0.5 0 -12.25 /LongEnough (text) Tj", "", &[]);
+        let survey = Survey::of(&document);
+        let literals = survey.content_literals();
+        assert_eq!(literals.largest_integer.map(|held| held.value), Some(7));
+        assert_eq!(literals.smallest_integer.map(|held| held.value), Some(-3));
+        assert_eq!(
+            literals.largest_real_magnitude.map(|held| held.value),
+            Some(12.25),
+            "the largest magnitude, so that a bound stated as a magnitude can read it"
+        );
+        assert_eq!(
+            literals.smallest_real_magnitude.map(|held| held.value),
+            Some(0.5),
+            "and the smallest non-zero one: a literal 0 is exactly representable and breaks no \
+             limit, so it is not the extreme this keeps"
+        );
+        assert_eq!(literals.longest_string.map(|held| held.value), Some(4));
+        assert_eq!(
+            literals.longest_name.map(|held| held.value),
+            Some(10),
+            "measured on the decoded name, as the sibling rule over the objects measures it"
+        );
+    }
+
+    /// §14.9.4's entry written into a `BDC` operator's operands, which is no object at all.
+    #[test]
+    fn an_actual_text_written_inline_is_kept_with_the_page_that_drew_it() {
+        let inline = page_with("/Span << /ActualText (ffi) >> BDC EMC", "", &[]);
+        let survey = Survey::of(&inline);
+        assert!(survey.names_actual_text());
+        assert_eq!(
+            survey.inline_actual_texts(),
+            [(0usize, b"ffi".to_vec())],
+            "the string after the name is the entry, whatever dictionary stands around it"
+        );
+
+        // The name alone is the wider fact, and the rule that reads it needs the wider one:
+        // a property list naming a resource states an `ActualText` this walk cannot value.
+        let named_only = page_with("/Span /P0 BDC EMC /ActualText", "", &[]);
+        let survey = Survey::of(&named_only);
+        assert!(survey.names_actual_text());
+        assert!(survey.inline_actual_texts().is_empty());
+
+        let neither = page_with("/Span << /Lang (en) >> BDC EMC", "", &[]);
+        let survey = Survey::of(&neither);
+        assert!(!survey.names_actual_text());
+        assert!(survey.inline_actual_texts().is_empty());
+    }
+
+    /// The depth is the stack's after the push, so one `q` is one level.
+    #[test]
+    fn the_deepest_q_nesting_is_the_stack_at_its_deepest() {
+        let document = page_with("q q q Q Q q Q Q", "", &[]);
+        assert_eq!(
+            Survey::of(&document)
+                .deepest_graphics_state_nesting()
+                .map(|held| held.value),
+            Some(3)
+        );
+        let flat = page_with("0 0 5 5 re f", "", &[]);
+        assert_eq!(Survey::of(&flat).deepest_graphics_state_nesting(), None);
     }
 }

@@ -60,21 +60,35 @@
 //! crate's design rather than bending it), so the rules that were unanswerable for want of it
 //! are answered here.
 //!
-//! **Two of the three this paragraph used to list are answered, and by the same move: the fact
-//! was inside `pdf-font` rather than on its surface, so `pdf-font` publishes it.** A glyph's
-//! advance as the *program* states it is [`pdf_font::LoadedFont::program_advance`] — where
-//! [`pdf_font::LoadedFont::advance`] is the *dictionary's*, which is the very number
+//! **All of the ones this paragraph used to list are answered, and by the same move each time:
+//! the fact was inside `pdf-font` rather than on its surface, so `pdf-font` publishes it.** A
+//! glyph's advance as the *program* states it is [`pdf_font::LoadedFont::program_advance`] —
+//! where [`pdf_font::LoadedFont::advance`] is the *dictionary's*, which is the very number
 //! §6.2.11.5 / §6.2.10.5 compare it against — and an sfnt's `cmap` subtables, which
 //! §6.2.11.6 / §6.2.10.6 name by platform and encoding ID, are
-//! [`pdf_font::LoadedFont::program_cmap_subtables`]. Neither is a second font reader here, which
-//! is the condition this crate's dependency on `pdf-font` was taken under.
+//! [`pdf_font::LoadedFont::program_cmap_subtables`]. None of them is a second font reader here,
+//! which is the condition this crate's dependency on `pdf-font` was taken under.
 //!
-//! **One is still not**, and the reason is the sentence this paragraph was written for:
+//! The last four arrived together, because §6.2.11.7's and §6.2.11.4.2's rules turn on them
+//! (ADR 0924):
 //!
-//! - **A `ToUnicode` `CMap`'s value set.** [`pdf_font::tounicode::ToUnicode`] answers per code
-//!   and enumerates nothing, so [`to_unicode_values_are_usable`] asks it about every code the
-//!   font's own code space holds rather than reading its values off. That covers the rule and
-//!   costs a bounded walk; an enumerator would cover it exactly.
+//! - **A `ToUnicode` `CMap`'s value set** is [`pdf_font::tounicode::ToUnicode::mappings`], which
+//!   hands back what the file *said* rather than answering per code.
+//!   [`to_unicode_values_are_usable`] used to ask the map about every code a font's code space
+//!   holds, which was exact for no font: ISO 32000-2 §9.7.6.2 lets a code be one to four bytes
+//!   and the walk stopped at two.
+//! - **Which glyph name a simple font's encoding selected** is
+//!   [`pdf_font::LoadedFont::selected_glyph_name`]. §6.2.11.7.2's second exemption is about the
+//!   *name*, and every reading of a code — `text`, `naming_gap` — has by then taken §9.10.2's
+//!   closing permission to choose a character where its methods fail, which hides exactly the
+//!   fonts the exemption does not cover.
+//!
+//! §6.2.11.4.2's two rules came off `Unchecked` the same way and in the same ADR: what a
+//! *program* contains, rather than what a code reaches, is
+//! [`pdf_font::LoadedFont::program_glyph_names`] and
+//! [`pdf_font::LoadedFont::program_character_identifiers`]. A `/CharSet` or `/CIDSet` claims to
+//! list the program's whole set including the glyphs nothing draws, so a reader that answers per
+//! code cannot check the claim at all.
 //!
 //! Where such a fact decides *whether the rule applies at all*, the requirement is
 //! [`Check::Unchecked`] with the reason; where it decides only *some* of the cases, the
@@ -87,8 +101,8 @@ use std::collections::BTreeSet;
 use pdf_font::cmap::CMap;
 use pdf_font::encoding;
 use pdf_font::encoding::SymbolicEncoding;
-use pdf_font::tounicode::ToUnicode;
-use pdf_font::{LoadedFont, NOTDEF_GLYPH, NamingGap};
+use pdf_font::tounicode::{Mapping, ToUnicode};
+use pdf_font::{LoadedFont, NOTDEF_GLYPH};
 use pdf_syntax::{Dictionary, Document, Lexer, Name, Object, ObjectId, Token, text_string};
 
 use crate::Examination;
@@ -188,11 +202,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                uses.",
         clauses: Clauses::only_two("6.2.11.4.2"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the comparison is against the Type 1 program's own charstring dictionary, and \
-             `pdf_font::type1` parses that to draw from it without publishing the set of names \
-             it found; a font's glyph set has no public accessor",
-        ),
+        check: Check::Implemented(charset_lists_every_glyph_in_the_program),
     },
     Requirement {
         id: "fonts/cidset-lists-every-cid-in-the-program",
@@ -200,11 +210,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                every CID the font program contains and not only the CIDs the file uses.",
         clauses: Clauses::only_two("6.2.11.4.2"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the comparison is against the embedded program's glyph set, and `pdf-font` \
-             reads that to select from it without publishing how many glyphs it holds; \
-             `LoadedFont` answers per code and not over the program",
-        ),
+        check: Check::Implemented(cidset_lists_every_cid_in_the_program),
     },
     Requirement {
         id: "fonts/widths-agree-with-the-program",
@@ -314,13 +320,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                ActualText entry, alone or as part of a sequence.",
         clauses: Clauses::only_two("6.2.11.7.3"),
         applies: Applies::FromLevel(Level::A),
-        check: Check::Unchecked(
-            "the Unicode mapping is now reachable — `LoadedFont::text` answers it per code \
-             — but the other half is not: deciding whether an ActualText covers a character \
-             needs a content walk that tracks `BDC`/`EMC` spans against the codes inside \
-             them, and `crate::survey` records neither the spans nor which string was drawn \
-             inside which",
-        ),
+        check: Check::Implemented(actual_text_covers_private_use_characters),
     },
     Requirement {
         id: "fonts/actual-text-states-no-private-use",
@@ -528,9 +528,20 @@ static PREDEFINED_CMAPS: &[&str] = &[
 /// on top of which the PDF/A clause adds that the `CIDFont`'s supplement is at least the `CMap`'s,
 /// so that every CID the `CMap` can produce exists in the font.
 ///
-/// **Only an embedded `CMap` can be compared.** A predefined `CMap`'s `CIDSystemInfo` is stated by
-/// the `CMap` program, which lives in the reader rather than in the file, so a font naming one is
-/// passed over rather than guessed at from the name.
+/// **Only an embedded `CMap` is compared, and the reason is no longer that the answer is out of
+/// reach.** A predefined `CMap`'s `CIDSystemInfo` is stated by the `CMap` program rather than by
+/// the file — and this tree carries those programs: `data/cmaps` holds Adobe's 239 files, every
+/// one of which states its own `/Registry`, `/Ordering` and `/Supplement`, and `pdf_font::predefined`
+/// already reads them for their mappings. So the fact is here, in the strongest form there is:
+/// a predefined `CMap` *is* its program, which is why this answer does not depend on which
+/// edition of the base standard happens to print a table of them.
+///
+/// What is not settled is whether the clause should be *applied* to it. PDF Association issue
+/// #77 — determining the supplement of a predefined `CMap` — is open and parked, and a great many
+/// conforming files state a descendant supplement below the `CMap`'s. Reporting them all is a
+/// decision about a contested reading rather than a gap in this tree's data, so it is the project
+/// owner's to take. Until then a font naming a predefined `CMap` is passed over, and this
+/// paragraph records that the material for the other choice is already on disk.
 fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_font(exam, |id, font| {
@@ -793,6 +804,177 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
             Some(_) => {}
         }
     }
+}
+
+// --------------------------------------------------------------------------------------------
+// 6.2.11.4.2 — subset embedding, which part 4 dropped and part 2 alone still states.
+// --------------------------------------------------------------------------------------------
+
+/// The glyph name the base standard requires a `/CharSet` string to leave out.
+///
+/// §9.8.1's Table 122, on `/CharSet`:
+///
+/// > The name .notdef shall be omitted; it shall exist in the font subset.
+///
+/// So a program's set and a conforming `/CharSet`'s set differ by this one name by the base
+/// standard's own instruction, and subtracting it is not a licence taken here.
+const OMITTED_FROM_CHARSET: &str = ".notdef";
+
+/// The names a `/CharSet` string lists, read as the PDF name syntax §9.8.1 requires it to be.
+///
+/// > The names in this string shall be in PDF syntax - that is, each name preceded by a slash
+/// > (/).
+///
+/// So the string's *contents* are lexed rather than split on a byte: a name may carry `#`
+/// escapes, and the lexer is what resolves them. An empty result is `None` rather than an empty
+/// set — a string this crate could read nothing out of is not a claim that the font has no
+/// glyphs, and treating it as one would report every font whose `/CharSet` is written in a form
+/// not read here.
+fn charset_names(bytes: &[u8]) -> Option<BTreeSet<String>> {
+    let mut lexer = Lexer::new(bytes);
+    let mut names = BTreeSet::new();
+    while let Some(token) = lexer.next_token() {
+        if let Token::Name(name) = token {
+            names.insert(String::from_utf8_lossy(&name).into_owned());
+        }
+    }
+    (!names.is_empty()).then_some(names)
+}
+
+/// ISO 19005-2 §6.2.11.4.2, second requirement, and part 2 only: ISO 19005-4 §6.2.10.4.2 dropped
+/// both of this subclause's rules and states none.
+///
+/// The clause makes normative what §9.8.1's Table 122 describes: a `/CharSet` present in an
+/// embedded Type 1 font's descriptor names every glyph **in the program**, not merely the glyphs
+/// the file uses. So the comparison is against
+/// [`LoadedFont::program_glyph_names`], which answers for the program's own charset, less
+/// [`OMITTED_FROM_CHARSET`].
+///
+/// # What is passed over, and why each would otherwise accuse a sound file
+///
+/// - **A font with no `/CharSet`.** The rule is conditional on the entry being present.
+/// - **A substituted font, or one `pdf-font` refuses.** The names would be this machine's.
+/// - **A font whose program is an sfnt.** It keys glyphs by index and has no charset to compare;
+///   `/CharSet` is "meaningful only in Type 1 fonts" by Table 122's own words.
+/// - **A `/CharSet` this crate read no name out of.** See [`charset_names`].
+///
+/// The direction of the comparison is one way on purpose: a name the program has and the string
+/// omits is the fault the clause names. A name the string has and the program does not is a
+/// different fault, which this clause does not state.
+fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_font(exam, |id, font| {
+        if !matches!(
+            subtype(document, font).as_deref(),
+            Some("Type1" | "MMType1")
+        ) {
+            return;
+        }
+        let Some(descriptor) = descriptor(document, font) else {
+            return;
+        };
+        let Some(stated) = document
+            .get_key(&descriptor, "CharSet")
+            .as_string()
+            .and_then(charset_names)
+        else {
+            return;
+        };
+        let Ok(loaded) = LoadedFont::load(document, font, "CharSet") else {
+            return;
+        };
+        let Some(present) = loaded.program_glyph_names() else {
+            return;
+        };
+        let missing: Vec<String> = present
+            .into_iter()
+            .filter(|name| name != OMITTED_FROM_CHARSET && !stated.contains(name))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        findings.record(
+            Where::object(id).named("CharSet"),
+            format!(
+                "the CharSet string omits {} of the font program's glyph names, including /{}",
+                missing.len(),
+                missing.first().map_or("", String::as_str)
+            ),
+        );
+    });
+}
+
+/// ISO 19005-2 §6.2.11.4.2, third requirement, and part 2 only.
+///
+/// The `CIDFont` counterpart of [`charset_lists_every_glyph_in_the_program`]: a `/CIDSet` present
+/// in an embedded `CIDFont`'s descriptor marks every CID the program defines rather than only the
+/// ones the file uses. §9.8.3.1's Table 124 gives the stream's shape, and it is read here as the
+/// table states it:
+///
+/// > The stream's data shall be organised as a table of bits indexed by CID. The bits shall be
+/// > stored in bytes with the high-order bit first.
+///
+/// # The one assumption, and where it is refused
+///
+/// A `CIDFontType2`'s program has glyph indices rather than CIDs, and §9.7.4.2's `/CIDToGIDMap`
+/// is what relates the two. [`LoadedFont::program_character_identifiers`] answers for the
+/// identity map, which is that entry's default, so a `CIDFont` stating a *stream* map is passed
+/// over here rather than judged against an assumption its file contradicts.
+///
+/// Also passed over: a descendant with no `/CIDSet`, a substituted or unreadable font, and a
+/// `CIDFontType0` whose CFF is name-keyed rather than CID-keyed — the last because its glyphs
+/// carry names and not CIDs, so there is no set of the clause's kind to compare.
+fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_font(exam, |id, font| {
+        if subtype(document, font).as_deref() != Some("Type0") {
+            return;
+        }
+        let Some((_, cid_font)) = descendant(document, font) else {
+            return;
+        };
+        // The identity map is Table 117's default, so an absent entry is it; anything else is a
+        // stream this crate would have to invert before the comparison meant anything.
+        match document.get_key(&cid_font, "CIDToGIDMap") {
+            Object::Null => {}
+            Object::Name(name) if name.as_bytes() == b"Identity" => {}
+            _ => return,
+        }
+        let Some(descriptor) = descriptor(document, &cid_font) else {
+            return;
+        };
+        let Object::Stream(stream) = document.get_key(&descriptor, "CIDSet") else {
+            return;
+        };
+        let Some(bits) = document.decoded_stream_data(&stream) else {
+            return;
+        };
+        let Ok(loaded) = LoadedFont::load(document, font, "CIDSet") else {
+            return;
+        };
+        let Some(present) = loaded.program_character_identifiers() else {
+            return;
+        };
+        // Table 124: bits indexed by CID, high-order bit of the first byte being CID 0.
+        let marked = |cid: u16| {
+            let at = usize::from(cid) / 8;
+            let bit = 7u32.saturating_sub(u32::from(cid) % 8);
+            bits.get(at).is_some_and(|byte| byte & (1u8 << bit) != 0)
+        };
+        let missing: Vec<u16> = present.into_iter().filter(|cid| !marked(*cid)).collect();
+        if missing.is_empty() {
+            return;
+        }
+        findings.record(
+            Where::object(id).named("CIDSet"),
+            format!(
+                "the CIDSet stream leaves {} of the font program's CIDs unmarked, including \
+                 CID {}",
+                missing.len(),
+                missing.first().copied().unwrap_or_default()
+            ),
+        );
+    });
 }
 
 // --------------------------------------------------------------------------------------------
@@ -1574,10 +1756,24 @@ fn name_is_in_either_list(name: &str) -> bool {
 /// - **A Type 3 font's names are in the file.** ISO 32000-2 §9.6.4 requires its `/Encoding` to
 ///   state the whole encoding in a `/Differences` array, so the array *is* the code-to-name table.
 /// - **A Type 1 font's may not be.** With no `/Encoding` the names are the font program's own
-///   built-in encoding, which is `pdf-font`'s to read. [`LoadedFont::naming_gap`] is where it
-///   surfaces: [`NamingGap::UnlistedName`] is ISO 32000-2 §9.10.2's second method having used a
-///   name and neither Adobe list holding it, which is the first half of this clause's condition
-///   exactly. The Symbol set is then asked separately, because §9.10.2 does not consult it.
+///   built-in encoding, which is `pdf-font`'s to read.
+///   [`LoadedFont::selected_glyph_name`] is that table, and it is the *name* rather than a
+///   reading of it — which is the distinction this predicate turns on.
+///
+/// **It used to ask [`LoadedFont::naming_gap`] instead, and that was wrong for a reason worth
+/// keeping.** `naming_gap` answers what §9.10.2 made of a code, and the clause ends by
+/// permitting a processor to choose a character where its three methods fail. `pdf-font` takes
+/// that permission — a Type 1 code whose name is `integraldisplay` comes back as the character
+/// the *code* would be in ASCII — so the gap is `None` and the unlisted name has been hidden by
+/// the very sentence that says nothing could name it. ISO 19005-2 §6.2.11.7.2's exemption is
+/// about the name, not about whether a reader found something to say, so the name is what is
+/// asked for. The Symbol set is consulted beside the Adobe Glyph List because the clause names
+/// both and §9.10.2 names only the first.
+///
+/// `.notdef` is passed over: it is §9.6.5.2's substitute for a glyph the font does not have
+/// rather than a glyph the content referenced, and drawing it is ISO 19005-2 §6.2.11.8's
+/// subject — [`no_notdef_glyph_shown`] reports it there, and reporting it here as well would
+/// state one fault twice under two clauses.
 ///
 /// A substituted font answers for the substitute's names rather than the file's, so it is passed
 /// over — the same guard [`font_with_its_own_program`] applies, for the same reason.
@@ -1610,8 +1806,8 @@ fn references_an_unlisted_glyph_name(exam: &Examination<'_>, id: ObjectId, subty
     }
     used.shown.iter().any(|text| {
         font.decode(text).into_iter().any(|code| {
-            matches!(font.naming_gap(code), Some(NamingGap::UnlistedName(name))
-                if SymbolicEncoding::Symbol.character_for(&name).is_none())
+            font.selected_glyph_name(code)
+                .is_some_and(|name| name != ".notdef" && !name_is_in_either_list(name))
         })
     })
 }
@@ -1704,44 +1900,31 @@ fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
 /// character belonged.
 static UNUSABLE_VALUES: [char; 3] = ['\u{0}', '\u{FEFF}', '\u{FFFE}'];
 
-/// How many codes one document's `/ToUnicode` maps are asked about in total.
-///
-/// The rule is about the values a map *states* and [`ToUnicode`] enumerates none, so the map is
-/// asked instead — once per code the font's own code space holds. This bounds that across the
-/// whole document, so a file carrying a thousand composite fonts costs a bounded walk rather
-/// than a thousand full sweeps of the two-byte space.
-const MAX_UNICODE_PROBES: u64 = 1 << 20;
-
-/// How many codes a simple font's code space holds: ISO 32000-2 §9.7.1 gives it single bytes.
-const SIMPLE_CODES: u32 = 0x100;
-
-/// How many codes a composite font's are asked about.
-///
-/// §9.7.6.2 lets a code be one to four bytes, and this stops at two. A `/ToUnicode` for a
-/// composite font addresses the two-byte space in every file this project has seen, and a value
-/// stated for a longer code goes unreported rather than guessed at — the module's standing
-/// direction of error.
-const COMPOSITE_CODES: u32 = 0x1_0000;
-
 /// ISO 19005-2 §6.2.11.7.2's last sentence, ISO 19005-4 §6.2.10.7's last sentence.
 ///
 /// Both parts state this one as a `shall` — part 4 conditions it on a `/ToUnicode` being present
 /// at all, which is the same population, since a font without one states no values. It is the
 /// one rule of §6.2.10.7 that binds a part 4 file, the rest of that subclause being `should`.
 ///
-/// # Asking rather than reading, and what it costs
+/// # Reading the values off, which is what the clause asks
 ///
-/// The rule is about every value the `CMap` states, and [`ToUnicode`] answers per code and
-/// enumerates nothing. So each map is asked about every code its font's code space holds:
-/// [`SIMPLE_CODES`] for a simple font, [`COMPOSITE_CODES`] for a composite one, under a
-/// document-wide bound of [`MAX_UNICODE_PROBES`]. That covers the rule exactly for the code
-/// lengths a producer writes, and an enumerator on `ToUnicode` would cover it for all of them.
+/// The rule is about every value the `CMap` **states**, so the map is read rather than
+/// interrogated: [`ToUnicode::mappings`] hands back each statement in the form the producer
+/// wrote it, and a `beginbfrange` span is one statement rather than up to sixty-five thousand.
+/// A span is judged by arithmetic — a forbidden value falls in it exactly when it lies between
+/// the span's first scalar and that scalar plus the span's width — so a `<0000> <FFFF>` line
+/// costs three comparisons and the code that maps to the offending value is still named.
+///
+/// **This used to ask the map about every code a font's code space holds**, 256 or 65 536 of
+/// them under a document-wide bound, which was exact for no font: §9.7.6.2 lets a code be one
+/// to four bytes, so the space is four billion wide and the walk stopped at two bytes. Reading
+/// the statements covers three- and four-byte codes as well, and needs no budget, because the
+/// number of statements is what `ToUnicode`'s own parse limits already bound.
 ///
 /// A descendant `CIDFont` is passed over with the rest: §9.10.3 puts `/ToUnicode` on the Type 0
 /// dictionary, so a `/ToUnicode` on a descendant is not a map any code reaches.
 fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    let mut budget = MAX_UNICODE_PROBES;
     for_each_font(exam, |id, font| {
         let Object::Stream(stream) = document.get_key(font, "ToUnicode") else {
             return;
@@ -1751,52 +1934,250 @@ fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings)
             return;
         };
         let map = ToUnicode::parse(&bytes);
-        let codes = if subtype(document, font).as_deref() == Some("Type0") {
-            COMPOSITE_CODES
-        } else {
-            SIMPLE_CODES
-        };
         // One finding per offending value rather than per code, because a `bfrange` spanning a
         // hundred codes onto U+0000 is one thing the producer did wrong and not a hundred.
         let mut reported = [false; UNUSABLE_VALUES.len()];
-        let mut text = String::new();
-        for code in 0..codes {
-            if budget == 0 {
-                return;
-            }
-            budget = budget.saturating_sub(1);
-            text.clear();
-            if !map.append(code, &mut text) {
-                continue;
-            }
-            for character in text.chars() {
-                let Some(at) = UNUSABLE_VALUES.iter().position(|it| *it == character) else {
-                    continue;
-                };
-                let Some(seen) = reported.get_mut(at) else {
-                    continue;
-                };
-                if *seen {
-                    continue;
+        for mapping in map.mappings() {
+            match mapping {
+                Mapping::Single { code, text } => {
+                    for character in text.chars() {
+                        report_unusable_value(id, code, character, &mut reported, findings);
+                    }
                 }
-                *seen = true;
-                findings.record(
-                    Where::object(id).named("ToUnicode"),
-                    format!(
-                        "a ToUnicode CMap maps code {code} to U+{:04X}, which the clause names \
-                         as a placeholder rather than a usable value",
-                        u32::from(character)
-                    ),
-                );
+                Mapping::Span { low, high, first } => {
+                    // The span runs `first` upwards, one scalar per code, so a forbidden value
+                    // is stated exactly when it lies within that many steps of the first.
+                    let last = first.saturating_add(high.saturating_sub(low));
+                    for &character in &UNUSABLE_VALUES {
+                        let value = u32::from(character);
+                        if value < first || value > last {
+                            continue;
+                        }
+                        let code = low.saturating_add(value.saturating_sub(first));
+                        report_unusable_value(id, code, character, &mut reported, findings);
+                    }
+                }
             }
         }
     });
 }
 
+/// Records one forbidden value the once, whichever code and statement reached it.
+///
+/// `reported` is per font rather than per document, so two fonts stating U+FEFF are two faults;
+/// the same font stating it for a hundred codes is one.
+fn report_unusable_value(
+    id: ObjectId,
+    code: u32,
+    character: char,
+    reported: &mut [bool; UNUSABLE_VALUES.len()],
+    findings: &mut Findings,
+) {
+    let Some(at) = UNUSABLE_VALUES.iter().position(|it| *it == character) else {
+        return;
+    };
+    let Some(seen) = reported.get_mut(at) else {
+        return;
+    };
+    if *seen {
+        return;
+    }
+    *seen = true;
+    findings.record(
+        Where::object(id).named("ToUnicode"),
+        format!(
+            "a ToUnicode CMap maps code {code} to U+{:04X}, which the clause names as a \
+             placeholder rather than a usable value",
+            u32::from(character)
+        ),
+    );
+}
+
+/// Unicode's three Private Use Areas, as inclusive scalar-value bounds.
+///
+/// The same three ranges [`is_private_use`] matches, in the form a `beginbfrange` span has to be
+/// intersected with: a span states its values arithmetically, so the question "does this span
+/// reach the area" is answered by arithmetic rather than by visiting each code.
+static PRIVATE_USE_AREAS: [(u32, u32); 3] = [
+    (0xE000, 0xF8FF),
+    (0xF_0000, 0xF_FFFD),
+    (0x10_0000, 0x10_FFFD),
+];
+
 /// Whether a character is in one of Unicode's three Private Use Areas.
 const fn is_private_use(character: char) -> bool {
     matches!(character,
         '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}' | '\u{100000}'..='\u{10FFFD}')
+}
+
+/// The Private Use Area codes one font's `/ToUnicode` states, and where the first of each is.
+///
+/// Returns the character code and the private-use scalar it stands for, one pair per statement
+/// the `CMap` makes that reaches the area — a `beginbfrange` span contributes the first of its
+/// codes that does, rather than every one, because a span onto the area is one thing the
+/// producer wrote.
+fn private_use_codes(map: &ToUnicode) -> Vec<(u32, u32)> {
+    /// Bounds what one font contributes, so a `CMap` mapping the whole area cannot fill a report.
+    const MAX_PER_FONT: usize = 64;
+
+    let mut out = Vec::new();
+    for mapping in map.mappings() {
+        if out.len() >= MAX_PER_FONT {
+            break;
+        }
+        match mapping {
+            Mapping::Single { code, text } => {
+                if let Some(character) = text.chars().find(|it| is_private_use(*it)) {
+                    out.push((code, u32::from(character)));
+                }
+            }
+            Mapping::Span { low, high, first } => {
+                let last = first.saturating_add(high.saturating_sub(low));
+                if let Some(value) = PRIVATE_USE_AREAS
+                    .iter()
+                    .filter_map(|(area_low, area_high)| {
+                        let start = first.max(*area_low);
+                        (start <= last.min(*area_high)).then_some(start)
+                    })
+                    .min()
+                {
+                    out.push((low.saturating_add(value.saturating_sub(first)), value));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether the document states an `ActualText` entry anywhere this crate can reach one.
+///
+/// ISO 32000-2 §14.9.4 puts the entry in two places, and both are read: a structure element's
+/// dictionary or a marked-content property list, the latter either an object of its own or
+/// written straight into a `BDC` operator's operands. So this asks the objects a cross-reference
+/// section names *and* [`crate::survey::Survey::names_actual_text`] — the second is the only
+/// route to an inline property list, and the corpus's passing witnesses are mostly of that shape.
+///
+/// # The measurement that moved the second half onto the survey
+///
+/// This used to decode every content stream again and lex it, and `examples/cost.rs` said what
+/// that was worth: [`actual_text_states_no_private_use`] cost about 180 ms of object walk plus
+/// 118 ms of content on ISO 32000-2's 1023-page specification, which made it the dearest single
+/// requirement in a 2.5 s part 4 report — for a second decode of streams the survey had already
+/// decoded. The survey now records the two facts as it goes and this reads them, which takes the
+/// content half to nothing.
+///
+/// **Deliberately an over-approximation.** It answers "does the file say `ActualText` at all",
+/// not "does it say it about the right character", and it exists so that
+/// [`actual_text_covers_private_use_characters`] can report the case where the answer is *no* —
+/// the one case in which no span analysis is needed to be certain.
+fn states_any_actual_text(exam: &Examination<'_>) -> bool {
+    /// How deep a direct dictionary is followed. An indirect one is an object of its own and is
+    /// reached by the outer walk, so this only has to cover what a producer writes inline.
+    const MAX_DEPTH: u32 = 8;
+
+    fn in_object(object: &Object, depth: u32) -> bool {
+        if depth >= MAX_DEPTH {
+            return false;
+        }
+        match object {
+            Object::Dictionary(dict) => in_dictionary(dict, depth),
+            Object::Stream(stream) => in_dictionary(&stream.dict, depth),
+            Object::Array(items) => items
+                .iter()
+                .any(|item| in_object(item, depth.saturating_add(1))),
+            _ => false,
+        }
+    }
+
+    fn in_dictionary(dict: &Dictionary, depth: u32) -> bool {
+        dict.get("ActualText").is_some()
+            || dict
+                .iter()
+                .any(|(_, value)| in_object(value, depth.saturating_add(1)))
+    }
+
+    if exam
+        .objects()
+        .iter()
+        .any(|(_, object)| in_object(object, 0))
+    {
+        return true;
+    }
+    exam.survey().names_actual_text()
+}
+
+/// ISO 19005-2 §6.2.11.7.3, and part 2 Level A only: part 4 states no counterpart to it.
+///
+/// A character a font maps into the Private Use Area means nothing on its own — the area is by
+/// definition unassigned — so the clause requires an `ActualText` entry saying what it stands
+/// for, either for that character or for a sequence containing it.
+///
+/// # What this reports, and the half it declines
+///
+/// Two facts make the clause decidable, and this crate has one of them:
+///
+/// - **Which shown codes map into the area** is read off the font's own `/ToUnicode` with
+///   [`ToUnicode::mappings`], against the codes [`crate::survey::SelectedFont::shown`] recorded —
+///   every rendering mode included, which is what the clause says in as many words.
+/// - **Whether a given `ActualText` covers a given character** needs the `BDC`/`EMC` spans and
+///   which string was drawn inside which, and `crate::survey` records neither.
+///
+/// So the predicate reports the case the second fact is not needed for: a private-use character
+/// is shown and the file states **no** `ActualText` at all, where no span analysis can make one
+/// cover it. Where the file does state one somewhere, this stays silent — including where the
+/// entry covers some other character, which is a real failure this cannot yet tell from a real
+/// pass. The corpus has a witness of each, and the silent one is named here rather than counted
+/// as met.
+///
+/// A font whose `shown` set overran the survey's budget is still read: the question is whether
+/// *any* private-use character was shown, so a prefix can establish it and can only under-report.
+fn actual_text_covers_private_use_characters(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let mut offences: Vec<(ObjectId, u32, u32)> = Vec::new();
+    for used in exam.survey().fonts() {
+        let Some(id) = used.id else {
+            continue;
+        };
+        let Object::Stream(stream) = document.get_key(&used.dict, "ToUnicode") else {
+            continue;
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            continue;
+        };
+        let private = private_use_codes(&ToUnicode::parse(&bytes));
+        if private.is_empty() {
+            continue;
+        }
+        let Ok(font) = LoadedFont::load(document, &used.dict, &used.name) else {
+            continue;
+        };
+        let shown: BTreeSet<u32> = used
+            .shown
+            .iter()
+            .flat_map(|text| font.decode(text))
+            .map(pdf_font::Code::value)
+            .collect();
+        offences.extend(
+            private
+                .into_iter()
+                .filter(|(code, _)| shown.contains(code))
+                .map(|(code, value)| (id, code, value)),
+        );
+    }
+    // Asked only once something was found, because it decodes every content stream the document
+    // has and a document with no private-use character owes nothing for the answer.
+    if offences.is_empty() || states_any_actual_text(exam) {
+        return;
+    }
+    for (id, code, value) in offences {
+        findings.record(
+            Where::object(id).named("ToUnicode"),
+            format!(
+                "code {code} is shown and maps to U+{value:04X}, which is in the Unicode Private \
+                 Use Area, and the file states no ActualText entry anywhere"
+            ),
+        );
+    }
 }
 
 /// ISO 19005-4 §6.2.10.8, last sentence — the one font rule part 4 states and part 2 does not.
@@ -1805,10 +2186,11 @@ const fn is_private_use(character: char) -> bool {
 /// `should`, so it binds nothing; this sentence is a `shall` and says the replacement text may
 /// not itself be private-use, which would make the substitution circular.
 ///
-/// Read over every indirect dictionary and stream dictionary that states the entry, which is
-/// where a structure element's and a marked-content property list's `ActualText` live. A
-/// property list written directly into a `BDC` operator's operands is not an object and is not
-/// reached.
+/// ISO 32000-2 §14.9.4 puts the entry in two places and both are read: a structure element's
+/// dictionary, and a marked-content property list — which may be an object of its own or written
+/// straight into the `BDC` operator's operands. The second form is why
+/// [`crate::survey::Survey::inline_actual_texts`] is read as well as the objects; a corpus
+/// witness of each shape exists, and reading only the objects passed the inline one.
 fn actual_text_states_no_private_use(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for number in document.xref().object_numbers() {
@@ -1839,6 +2221,18 @@ fn actual_text_states_no_private_use(exam: &Examination<'_>, findings: &mut Find
             );
         }
     }
+    for (page, bytes) in exam.survey().inline_actual_texts() {
+        if let Some(character) = text_string(bytes).chars().find(|it| is_private_use(*it)) {
+            findings.record(
+                Where::page(*page).named("ActualText"),
+                format!(
+                    "an ActualText entry written into a marked-content operator contains \
+                     U+{:04X}, which is in the Unicode Private Use Area",
+                    u32::from(character)
+                ),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1847,15 +2241,17 @@ mod tests {
     use crate::{Flavour, Target};
     use std::fmt::Write as _;
 
+    use pdf_font::tounicode::ToUnicode;
     use pdf_syntax::Document;
 
     use super::{
-        Findings, actual_text_states_no_private_use, cid_system_info_agrees_with_the_cmap,
-        cid_to_gid_map_present, cmap_embedded_or_predefined,
+        Findings, actual_text_states_no_private_use, charset_names,
+        cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present, cmap_embedded_or_predefined,
         embedded_cmap_states_its_own_write_mode, font_programs_embedded, glyph_procedure_width,
         is_private_use, non_symbolic_truetype_differences_are_listed_names,
-        non_symbolic_truetype_uses_a_standard_encoding, symbolic_truetype_states_no_encoding,
-        to_unicode_present, to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
+        non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
+        symbolic_truetype_states_no_encoding, to_unicode_present, to_unicode_values_are_usable,
+        type3_glyph_procedures_state_their_width,
     };
 
     /// Wraps numbered objects in a header, a cross-reference table and a trailer.
@@ -2304,6 +2700,87 @@ mod tests {
             );
         }
         assert!(findings(&mapping("0041"), to_unicode_values_are_usable).is_empty());
+    }
+
+    /// A `bfrange` states its values by arithmetic, so the rule is judged by arithmetic: the
+    /// span below runs U+FEFD, U+FEFE, U+FEFF, and only the third is one the clause forbids.
+    #[test]
+    fn a_span_that_runs_over_a_forbidden_value_is_reported_at_the_code_that_reaches_it() {
+        let program = "1 beginbfrange\n<10> <20> <fefd>\nendbfrange\n";
+        let length = program.len();
+        let subject = document(&format!(
+            "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+             2 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Test /ToUnicode 3 0 R >>\nendobj\n\
+             3 0 obj\n<< /Length {length} >>\nstream\n{program}\nendstream\nendobj\n"
+        ));
+        let found = findings(&subject, to_unicode_values_are_usable);
+        assert_eq!(found.len(), 1, "one statement, one fault");
+        assert!(
+            found[0].contains("code 18"),
+            "and it names the code that reaches U+FEFF, which is 0x10 plus two: {}",
+            found[0]
+        );
+    }
+
+    /// ISO 32000-2 §9.7.6.2 lets a character code be up to four bytes. Reading the statements
+    /// covers those; sweeping a guessed code space, which is what this rule used to do, did not.
+    #[test]
+    fn a_forbidden_value_stated_for_a_four_byte_code_is_reported() {
+        let program = "1 beginbfchar\n<00A10001> <0000>\nendbfchar\n";
+        let length = program.len();
+        let subject = document(&format!(
+            "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+             2 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Test /ToUnicode 3 0 R >>\nendobj\n\
+             3 0 obj\n<< /Length {length} >>\nstream\n{program}\nendstream\nendobj\n"
+        ));
+        assert_eq!(findings(&subject, to_unicode_values_are_usable).len(), 1);
+    }
+
+    /// §9.8.1's Table 122 makes a `/CharSet` string PDF name syntax rather than a delimited
+    /// list, so it is lexed: `#` escapes resolve, and a string nothing could be read out of is
+    /// no claim at all rather than a claim that the font has no glyphs.
+    #[test]
+    fn a_charset_string_is_read_as_names_and_an_unreadable_one_is_not_an_empty_set() {
+        let names = charset_names(b"/slash/C/S/e").expect("four names");
+        assert_eq!(names.len(), 4);
+        assert!(names.contains("slash") && names.contains("C"));
+        assert_eq!(
+            charset_names(b"/a#20b").map(|it| it.into_iter().collect::<Vec<_>>()),
+            Some(vec!["a b".to_owned()]),
+            "the lexer resolves the escape the table's syntax allows"
+        );
+        assert!(charset_names(b"").is_none());
+        assert!(
+            charset_names(b"slash C S").is_none(),
+            "no slashes, no names"
+        );
+    }
+
+    /// The codes a `CMap` sends into the Private Use Area, which is what ISO 19005-2
+    /// §6.2.11.7.3 is about. A span is answered by its first offending code rather than all of
+    /// them, because one `bfrange` line is one thing the producer wrote.
+    #[test]
+    fn the_private_use_codes_are_read_off_the_statements() {
+        let plain = ToUnicode::parse(b"1 beginbfchar\n<41> <0041>\nendbfchar\n");
+        assert!(private_use_codes(&plain).is_empty());
+
+        let single = ToUnicode::parse(b"1 beginbfchar\n<01> <e020>\nendbfchar\n");
+        assert_eq!(private_use_codes(&single), vec![(1, 0xE020)]);
+
+        // A surrogate pair, which is how a `CMap` states a value outside the basic plane:
+        // U+10016D is in Supplementary Private Use Area-B.
+        let supplementary = ToUnicode::parse(b"1 beginbfchar\n<03> <DBC0DD6D>\nendbfchar\n");
+        assert_eq!(private_use_codes(&supplementary), vec![(3, 0x10_016D)]);
+
+        // A span running U+EFFF8 upwards, which crosses into Supplementary Private Use Area-A
+        // at U+F0000: the first code that reaches it is eight past the span's low code, and it
+        // is the only one reported, because one `bfrange` line is one statement.
+        let span = ToUnicode::parse(b"1 beginbfrange\n<10> <20> <DB7FDFF8>\nendbfrange\n");
+        assert_eq!(span.mappings().count(), 1);
+        assert_eq!(private_use_codes(&span), vec![(0x18, 0xF_0000)]);
+
+        let missing = ToUnicode::parse(b"1 beginbfrange\n<10> <20> <0041>\nendbfrange\n");
+        assert!(private_use_codes(&missing).is_empty());
     }
 
     #[test]

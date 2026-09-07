@@ -575,10 +575,21 @@ fn a_conformance_answer_carries_its_own_extent() {
         report.judgements.len() > report.checked(),
         "this crate does not yet check every requirement, and the report has to say so"
     );
+    // **There are three states, and this test asserted two until the third was built.** A
+    // requirement is checked, or named as a debt this crate owes, or named as binding a
+    // conforming *processor* rather than a file — "conforming readers shall ignore the BG, BG2,
+    // UCR and UCR2 functions", which no document can fail. Folding the third into the second
+    // told a reader that a validator owed work it does not owe, and made every coverage figure
+    // understate itself by about twenty rows.
     assert_eq!(
-        report.checked(),
-        report.judgements.len() - report.unchecked().count(),
-        "every requirement is checked or named as unchecked; there is no third state"
+        report.checked() + report.unchecked().count() + report.processor_obligations().count(),
+        report.judgements.len(),
+        "every requirement is checked, owed, or a processor's — and is exactly one of them"
+    );
+    assert!(
+        report.processor_obligations().count() > 0,
+        "both parts state requirements about a reader's behaviour, and this file's target binds \
+         several; a report that showed none would have lost them rather than classified them"
     );
 }
 

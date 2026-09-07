@@ -153,11 +153,17 @@ fn every_report_says_how_much_of_the_target_it_covers() {
             rendered.contains("not checked"),
             "the rendered report names the section even when a reader might not look for it"
         );
+        // The denominator is the requirements a *document* can be held to, so the ones that
+        // bind a conforming processor come out of it: counting "your processor must ignore the
+        // BG function" against a file would make every report understate its own coverage.
+        let about_the_file = report
+            .judgements
+            .len()
+            .saturating_sub(report.processor_obligations().count());
         assert!(
             rendered.contains(&format!(
-                "{} of {} requirements checked",
+                "{} of {about_the_file} requirements about this file checked",
                 report.checked(),
-                report.judgements.len()
             )),
             "and says how much of the target the verdict covers, next to the verdict"
         );
