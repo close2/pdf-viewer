@@ -49,21 +49,33 @@
 //!
 //! # What the three per-token measurements cost, and what they bought
 //!
-//! [`ContentLiterals`], [`Survey::deepest_graphics_state_nesting`] and
-//! [`Survey::unlisted_operators`] are the only things here that touch *every* token rather than
-//! every observation, so they were measured before and after with `examples/cost` on ISO 32000-2's
-//! own specification — 1 023 pages and 8 029 592 content-stream tokens, the largest document this
-//! tree holds. **The fastest of ten runs was 640 ms before and 633 ms after**, so what they add —
-//! four comparisons on each operand and thirty-nine more arms on a `match` the walk already ran —
-//! is below what this instrument can resolve on this machine. It is not free; it is smaller than
-//! the run-to-run spread, which is the honest thing to record rather than a figure the noise
-//! would have invented either way.
+//! [`ContentLiterals`], [`Survey::deepest_graphics_state_nesting`],
+//! [`Survey::unlisted_operators`] and [`Survey::inline_actual_texts`] are the only things here
+//! that touch *every* token rather than every observation, so they were measured before and after
+//! with `examples/cost` on ISO 32000-2's own specification — 1 023 pages and 8 029 592
+//! content-stream tokens, the largest document this tree holds. **The fastest of ten runs was
+//! 640 ms before and 643 ms after**, so what they add — five comparisons on each operand and
+//! thirty-nine more arms on a `match` the walk already ran — is below what this instrument can
+//! resolve on this machine. It is not free; it is smaller than the run-to-run spread, which is
+//! the honest thing to record rather than a figure the noise would have invented either way.
 //!
-//! What it bought: ISO 19005-2 §6.1.13's limits on the values written *inside* a content stream,
-//! its `q`/`Q` nesting limit, and §6.2.2's ban on an operator the base standard does not define —
-//! three rows that were `Unchecked` and eleven corpus documents this crate had been missing. The
-//! three predicates that read them cost 40 ns, 360 ns and 500 ns on that same document, because
-//! all the work is here and none of it is repeated.
+//! What it bought, and this is the part worth reading twice:
+//!
+//! - Three rows that were `Unchecked` — ISO 19005-2 §6.1.13's limits on the values written
+//!   *inside* a content stream, its `q`/`Q` nesting limit, and §6.2.2's ban on an operator the
+//!   base standard does not define — and eleven corpus documents this crate had been missing.
+//!   The three predicates that read them cost 40 ns, 360 ns and 500 ns on that same document,
+//!   because all the work is here and none of it is repeated.
+//! - **A requirement that had been decoding these streams a second time stopped.**
+//!   `fonts/actual-text-states-no-private-use` needs ISO 32000-2 §14.9.4's entry where a producer
+//!   wrote it into a `BDC` operator's operands, which is no object; it was decoding and lexing
+//!   every content stream again to find one, at 118 ms on top of its object walk, and was the
+//!   dearest single requirement in a whole part 4 report. Reading the two fields here instead
+//!   took it to 44 ms and out of the ten dearest altogether.
+//!
+//! That second one is the pattern to reach for. **A rule that decodes a content stream is a rule
+//! that should be reading this file**, and the arithmetic is one-sided: a field costs one pass a
+//! few nanoseconds a token, and a second walk costs a whole pass per requirement that wants one.
 //!
 //! # The bounds, and why they are here
 //!
