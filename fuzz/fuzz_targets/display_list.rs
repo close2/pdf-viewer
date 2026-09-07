@@ -22,7 +22,7 @@
 //! **Every identifier a decoded list holds points at something.** A `ClipId`, a `SoftMaskId`, a
 //! path index and a shading index are all indices into tables, and a host rasterises what it is
 //! given: a message naming clip 4000 of a table of two must be a refusal in the decoder rather
-//! than an assumption in `render-quorra`. Asserted here rather than trusted, so that deleting
+//! than an assumption in `render-raster`. Asserted here rather than trusted, so that deleting
 //! the check fails this target.
 //!
 //! **Anything this decoder accepts, this encoder can write, and writing it reads back the same.**

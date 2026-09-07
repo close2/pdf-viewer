@@ -691,9 +691,23 @@ impl QuorraWindowRenderer {
     /// It must be *this* function rather than a `wgpu::Instance::new` of the host's own: the
     /// descriptor has to match the one raster's own constructors use, and a host that guessed it
     /// would find out at `create_surface`.
+    /// **`WGPU_BACKEND` is honoured here and nowhere below.** The rasteriser consults no
+    /// environment at all, deliberately (raster's ADR 0017), and says in the same breath that a
+    /// host wanting the variable can say so in one line. This is that line, and this is the
+    /// right place for it: a driver stack to avoid is a fact about the machine a *host* runs on.
+    ///
+    /// The reason it exists is a machine with exactly one working backend and `wgpu` reaching
+    /// past it. On a headless runner with Mesa's software Vulkan driver installed, building a
+    /// second device makes `wgpu-hal` try its GLES backend, whose EGL call answers `BadDisplay`
+    /// and **panics** rather than reporting a backend it cannot use — under a virtual display
+    /// too, so a display is not what is missing. `WGPU_BACKEND=vulkan` is then the only way to
+    /// say "use the one that works", and CI says it.
     #[must_use]
     pub fn instance() -> raster_gpu::wgpu::Instance {
-        raster_gpu::create_instance()
+        raster_gpu::wgpu::Backends::from_env().map_or_else(
+            raster_gpu::create_instance,
+            raster_gpu::create_instance_with,
+        )
     }
 
     /// [`Self::instance`], restricted to the driver stacks the host names.

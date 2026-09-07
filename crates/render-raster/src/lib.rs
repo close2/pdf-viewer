@@ -172,8 +172,15 @@ impl QuorraRasterizer {
     ///
     /// As [`QuorraRasterizer::new_headless`].
     pub fn with_options(options: &raster_gpu::Options) -> Result<Self, QuorraRasterError> {
+        // The instance is this host's to make, so that `WGPU_BACKEND` is honoured on the one
+        // path every headless caller takes — see `Present::instance`, which explains why a
+        // machine may have exactly one usable backend and why `wgpu` panics rather than saying
+        // so. `Device::headless` would make its own over every backend there is.
         Ok(Self {
-            device: raster_gpu::Device::headless(options)?,
+            device: raster_gpu::Device::headless_with_instance(
+                &QuorraWindowRenderer::instance(),
+                options,
+            )?,
             medium: Medium::PAGE_ONLY,
             caches: cache::ResourceCaches::new(),
             slot: present::FrameSlot::default(),

@@ -129,7 +129,16 @@ jobs:
       # tool install to the job that gates the snapshot release is not worth that, and the
       # `--ignored` corpus gates -- the ones that moved to `--profile gates` -- do not run here at
       # all, so no job on this file uses that profile.
-      - run: xvfb-run -a cargo test --workspace
+      # `WGPU_BACKEND=vulkan` because the runner has exactly one usable backend — Mesa's
+      # software Vulkan driver, installed above — and `wgpu` reaches past it. Building a
+      # second device makes `wgpu-hal` try its GLES backend, whose EGL call answers
+      # `BadDisplay` and **panics** rather than reporting a backend it cannot use; a
+      # virtual display does not help, which is how we learned that a display was not what
+      # was missing. `render-raster` honours the variable on the one path every headless
+      # caller takes, which is where a fact about *this machine* belongs.
+      - run: cargo test --workspace
+        env:
+          WGPU_BACKEND: vulkan
 
   # Supply chain. Separated so that an advisory published upstream does not mask a
   # genuine test failure, and vice versa.
