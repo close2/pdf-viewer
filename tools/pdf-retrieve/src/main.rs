@@ -4,6 +4,8 @@
 //! pdf-retrieve document doc/ISO_32000-2_sponsored_EC3.pdf
 //! pdf-retrieve outline  doc/ISO_32000-2_sponsored_EC3.pdf
 //! pdf-retrieve sections doc/ISO_32000-2_sponsored_EC3.pdf
+//! pdf-retrieve structure doc/ISO_32000-2_sponsored_EC3.pdf
+//! pdf-retrieve archive-check somefile.pdf 4
 //! pdf-retrieve page     doc/ISO_32000-2_sponsored_EC3.pdf 339 --annotations
 //! pdf-retrieve section  doc/ISO_32000-2_sponsored_EC3.pdf 9.6.5.4 --annotations --no-artifacts
 //! ```
@@ -28,7 +30,7 @@
 use std::path::PathBuf;
 
 use pdf_retrieve::json::Value;
-use pdf_retrieve::{Note, PageText, Retrieval, SectionText, Wanted};
+use pdf_retrieve::{Item, Note, PageText, Retrieval, SectionText, Wanted};
 
 /// What went wrong, which is either the document's fault or the caller's.
 #[derive(Debug, thiserror::Error)]
@@ -39,6 +41,9 @@ enum Refused {
     /// A word in the first position that names no question.
     #[error("no such question: {0:?}")]
     Question(String),
+    /// A word that names no PDF/A target.
+    #[error("no such PDF/A target: {0:?} — try 2b, 2u, 2a, 4, 4f or 4e")]
+    Target(String),
 }
 
 /// What the tool was asked for.
@@ -49,10 +54,14 @@ enum Question {
     Outline,
     /// Every addressable section, flat, with the pages each occupies.
     Sections,
+    /// §14.7's structure tree, flat, with the text each element marked.
+    Structure,
     /// One page's text.
     Page(usize),
     /// One section's text.
     Section(String),
+    /// Whether the document conforms to a stated part and level of ISO 19005.
+    Archive(String),
 }
 
 fn main() -> std::process::ExitCode {
@@ -110,6 +119,8 @@ fn run() -> Result<Value, Refused> {
         "document" => Question::Document,
         "outline" => Question::Outline,
         "sections" => Question::Sections,
+        "structure" => Question::Structure,
+        "archive-check" => Question::Archive(subject.clone()),
         "page" => Question::Page(subject.parse().unwrap_or_default()),
         "section" => Question::Section(subject),
         _ => {
@@ -132,6 +143,8 @@ fn run() -> Result<Value, Refused> {
         Question::Document => Ok(document(&retrieval)),
         Question::Outline => Ok(outline(&retrieval)),
         Question::Sections => Ok(sections(&retrieval)),
+        Question::Structure => Ok(structure(&retrieval)),
+        Question::Archive(target) => archive(&retrieval, &target),
         Question::Page(index) => Ok(page(&retrieval.page(index, &wanted)?)),
         Question::Section(address) => Ok(section(&retrieval.section(&address, &wanted)?)),
     }
@@ -143,7 +156,9 @@ const VALUED: &str = "--subtype";
 /// What the tool takes, printed where a caller got it wrong.
 fn usage() {
     eprintln!(
-        "usage: pdf-retrieve <document|outline|sections|page|section> <file.pdf> [<n>|<address>] \
+        "usage: pdf-retrieve <document|outline|sections|structure|archive-check|page|section> \
+         <file.pdf> \
+         [<n>|<address>] \
          [--annotations] [--subtype <Name,Name>] [--no-artifacts] [--logical]"
     );
 }
@@ -217,6 +232,146 @@ fn sections(retrieval: &Retrieval) -> Value {
             })
             .collect(),
     )
+}
+
+/// §14.7's structure tree, with the text under each element.
+///
+/// A document that states no tree answers with `null` rather than with an empty array: §14.7.1
+/// makes tagging optional, and "this document says nothing about its own structure" and "this
+/// document's structure is empty" are different facts about a file.
+fn structure(retrieval: &Retrieval) -> Value {
+    let Some(structure) = retrieval.structure() else {
+        return Value::Null;
+    };
+    Value::Object(vec![
+        ("truncated".to_owned(), Value::Bool(structure.truncated)),
+        (
+            "items".to_owned(),
+            Value::Array(
+                structure
+                    .items
+                    .iter()
+                    .map(|item| match item {
+                        Item::Element {
+                            depth,
+                            kind,
+                            stated,
+                            page,
+                        } => Value::Object(vec![
+                            ("depth".to_owned(), Value::count(*depth)),
+                            ("type".to_owned(), Value::optional(kind.clone())),
+                            ("stated".to_owned(), Value::optional(stated.clone())),
+                            ("page".to_owned(), page.map_or(Value::Null, Value::count)),
+                        ]),
+                        Item::Text { depth, page, text } => Value::Object(vec![
+                            ("depth".to_owned(), Value::count(*depth)),
+                            ("page".to_owned(), Value::count(*page)),
+                            ("text".to_owned(), Value::text(text.clone())),
+                        ]),
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+/// Whether a document conforms to a part and level of ISO 19005, and what the answer covers.
+///
+/// # Why the answer is not a boolean
+///
+/// ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3 both close by saying that the `pdfaid` properties
+/// do not themselves determine conformance — the determination is made against clause 5. So this
+/// reports what was *checked*, what failed and where, and **which requirements were not checked
+/// at all**, which `doc/questions/Q20` makes the discipline this crate lives by: a clean verdict
+/// that did not say what it was clean over would be indistinguishable from a complete one.
+///
+/// A non-conforming document is an answer rather than an error, so the exit status stays zero
+/// and the verdict is in the JSON. A caller wanting a shell test reads `conforms`.
+fn archive(retrieval: &Retrieval, target: &str) -> Result<Value, Refused> {
+    let target = if target.is_empty() {
+        pdf_archive::Target::Four(pdf_archive::Flavour::Plain)
+    } else {
+        pdf_archive::Target::parse(target).ok_or_else(|| Refused::Target(target.to_owned()))?
+    };
+    let report = pdf_archive::check(retrieval.document(), target);
+    let places = |judgement: &pdf_archive::Judgement| match &judgement.outcome {
+        pdf_archive::Outcome::Failed { places, total } => Value::Object(vec![
+            ("total".to_owned(), Value::count(*total)),
+            (
+                "places".to_owned(),
+                Value::Array(
+                    places
+                        .iter()
+                        .map(|finding| {
+                            Value::Object(vec![
+                                (
+                                    "page".to_owned(),
+                                    finding.place.page.map_or(Value::Null, Value::count),
+                                ),
+                                (
+                                    "object".to_owned(),
+                                    finding
+                                        .place
+                                        .object
+                                        .map_or(Value::Null, |id| Value::count(id.number as usize)),
+                                ),
+                                (
+                                    "name".to_owned(),
+                                    Value::optional(finding.place.name.clone()),
+                                ),
+                                ("what".to_owned(), Value::text(finding.what.clone())),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+        ]),
+        _ => Value::Null,
+    };
+    let row = |judgement: &pdf_archive::Judgement| {
+        let mut fields = vec![
+            ("id".to_owned(), Value::text(judgement.id)),
+            ("clause".to_owned(), Value::text(judgement.citation.clone())),
+            ("asks".to_owned(), Value::text(judgement.asks)),
+        ];
+        if let Some(erratum) = judgement.amended_by {
+            fields.push((
+                "corrected_by".to_owned(),
+                Value::Object(vec![
+                    ("standard".to_owned(), Value::text(erratum.standard)),
+                    ("issue".to_owned(), Value::count(erratum.issue as usize)),
+                    ("change".to_owned(), Value::text(erratum.change)),
+                ]),
+            ));
+        }
+        match judgement.outcome {
+            pdf_archive::Outcome::Unchecked(why) => {
+                fields.push(("not_checked_because".to_owned(), Value::text(why)));
+            }
+            _ => fields.push(("found".to_owned(), places(judgement))),
+        }
+        Value::Object(fields)
+    };
+    Ok(Value::Object(vec![
+        ("target".to_owned(), Value::text(target.to_string())),
+        (
+            "conforms".to_owned(),
+            Value::Bool(report.verdict() == pdf_archive::Verdict::Conforms),
+        ),
+        (
+            "requirements".to_owned(),
+            Value::count(report.judgements.len()),
+        ),
+        ("checked".to_owned(), Value::count(report.checked())),
+        (
+            "failed".to_owned(),
+            Value::Array(report.failures().map(row).collect()),
+        ),
+        (
+            "not_checked".to_owned(),
+            Value::Array(report.unchecked().map(row).collect()),
+        ),
+    ]))
 }
 
 /// One page.

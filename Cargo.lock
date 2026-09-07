@@ -3131,6 +3131,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-archive"
+version = "0.1.0"
+dependencies = [
+ "pdf-font",
+ "pdf-model",
+ "pdf-syntax",
+]
+
+[[package]]
 name = "pdf-font"
 version = "0.1.0"
 dependencies = [
@@ -3201,6 +3210,7 @@ name = "pdf-retrieve"
 version = "0.1.0"
 dependencies = [
  "conformance",
+ "pdf-archive",
  "pdf-model",
  "pdf-syntax",
  "thiserror 2.0.19",

@@ -1,0 +1,2476 @@
+//! One walk of a document's content, answering the questions several requirements share.
+//!
+//! # Why one walk rather than several
+//!
+//! A handful of ISO 19005 requirements are not about a dictionary at all. They are about what a
+//! page's content *does*: which font a text-showing operator ran with, which colour space was in
+//! force when a colour was set, whether anything on the page was involved in a transparency
+//! operation. Every one of those needs the same traversal — every page's `/Contents`, the form
+//! `XObject`s it invokes, the patterns it paints with, the glyph procedures of the Type 3 fonts
+//! it selects, and the appearance streams of its annotations — carrying the same two pieces of
+//! context: the resource dictionary in force, and the graphics state.
+//!
+//! So the traversal is written once, here, and the requirements read its product. The
+//! alternative — a walk per rule — would have each rule re-deriving the resource dictionary in
+//! force, and the rules would drift apart in exactly the place they must agree.
+//!
+//! # What is walked, and what is deliberately not
+//!
+//! Walked: each page's content streams; the form `XObject`s reached through `Do`; the tiling
+//! patterns selected through `scn`/`SCN`; the glyph procedures of a Type 3 font a show operator
+//! ran with; the appearance streams under a page annotation's `/AP`.
+//!
+//! Not walked: the group of a soft mask, and the content of a shading's function. A colour
+//! reached only through one of those is not reported, which is this crate's standing direction of
+//! error — **under-report rather than mis-report**, because a requirement that invents a failure
+//! tells a user their conforming file does not conform.
+//!
+//! # What it costs, and the one thing that would fix it
+//!
+//! **A survey is one pass over the document's content, and every requirement that reads one
+//! walks again.** `examples/survey_cost` measures it: ISO 32000-2's own specification — 1 023
+//! pages, 8 029 592 content-stream tokens — costs 574 ms to read the tokens of and 1.0 s to
+//! survey, and a whole PDF/A-4 report over it takes 19 s because thirteen of its requirements
+//! each ask for a survey of their own.
+//!
+//! That is a deliberate cost with a named fix, and the fix is not in this file. A requirement's
+//! predicate is a `fn(&Document, &mut Findings)` (`crate::requirement::Check`), so there is
+//! nowhere for one report's requirements to share a survey; giving [`crate::check`] a survey it
+//! computes once and lends to each predicate would turn thirteen passes into one. Caching on the
+//! document instead was considered and rejected: a `&Document` has no identity a cache can key on
+//! that a later document cannot reuse, and a validator that answers about the wrong file is worse
+//! than a slow one.
+//!
+//! What *is* done here is to keep the pass itself honest. Observations are deduplicated as they
+//! are made — the same specification selects a device colour space 317 127 times and says 2 565
+//! distinct things by doing so, because [`Where`] names a page rather than an operator — and
+//! §8.6.5.6's defaults are resolved once per content stream rather than once per colour operator,
+//! since the resource dictionary in force cannot change within one.
+//!
+//! # The bounds, and why they are here
+//!
+//! A content stream is untrusted input. Three bounds keep a hostile document from turning this
+//! walk into an unbounded one: a token budget, a form nesting depth, and a cap on how many
+//! streams one walk opens. Reaching any of them stops the walk, which under-reports in the same
+//! direction as everything else.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+use pdf_model::Pages;
+use pdf_model::content::reader::{ContentReader, LOOKAHEAD, NestedContent, WINDOW};
+use pdf_model::page::Page;
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream, Token};
+
+use crate::finding::Where;
+
+/// How many content-stream tokens one document's walk may read.
+///
+/// `examples/token_window_census` counted 225 775 555 content-stream tokens across 39 976
+/// documents, so this is four orders of magnitude above what an ordinary document costs and is
+/// here to stop a hostile one, not a large one.
+const TOKEN_BUDGET: u64 = 20_000_000;
+
+/// How deep a chain of form `XObject`s, patterns and glyph procedures is followed.
+const MAX_FORM_DEPTH: u32 = 8;
+
+/// How many nested content streams one document's walk may open.
+const MAX_STREAMS: usize = 4096;
+
+/// How deep a `q` stack is kept. ISO 19005-2 §6.1.13 limits a conforming file to 28.
+const MAX_NESTING: usize = 512;
+
+/// How deep a colour space array may nest before [`classify`] gives up.
+const MAX_SPACE_DEPTH: usize = 16;
+
+/// How many bytes of distinct shown strings one survey keeps, across every font in it.
+///
+/// [`SelectedFont::shown`] is what the two rules about a *code* rest on — ISO 19005-2 §6.2.11.8
+/// and §6.2.11.4.1, and their part 4 numbers — and it is the one thing this walk keeps that a
+/// document can make large honestly rather than only maliciously. So it is bounded in bytes,
+/// and a font whose strings did not fit says so ([`SelectedFont::shown_complete`]) instead of
+/// being reported on a prefix: a rule that asked "does any code reach `.notdef`" of half a
+/// page's text would answer *no* about a page it had not finished reading.
+///
+/// Four mebibytes is two orders of magnitude above what an ordinary document's *distinct*
+/// strings come to — they are deduplicated, and a page of prose repeats itself heavily — and it
+/// is a fixed ceiling rather than a per-font one so that no count of fonts can multiply it.
+///
+/// **What keeping them costs**, measured with `examples/cost` on ISO 32000-2's own specification
+/// — 1 023 pages, 8 029 592 content-stream tokens, and the largest document this tree holds: the
+/// survey goes from about 480 ms to about 660 ms, which is 5% of that document's whole PDF/A-4
+/// report. It is a ceiling that file reaches, so its later fonts are marked incomplete and the
+/// two rules that need every code stay silent about them — which is the bound doing its job
+/// rather than failing at it.
+const SHOWN_BUDGET: usize = 4 << 20;
+
+/// How many *distinct* observations of one kind a survey keeps.
+///
+/// The lists below are deduplicated, so a page that sets `DeviceRGB` ten thousand times under
+/// one resource dictionary contributes one entry — which is all a report can point at, since
+/// [`Where`] names a page and not an operator. This cap is the second bound, for a document
+/// that manufactures distinct observations rather than repeated ones. ISO 32000-2 has 1 023
+/// pages and 1 018 transparency groups, so it is two orders of magnitude above a large
+/// document's honest need.
+const MAX_OBSERVATIONS: usize = 100_000;
+
+/// One of ISO 32000-2 §8.6.4's three device colour spaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DeviceFamily {
+    /// `DeviceGray`, one component.
+    Gray,
+    /// `DeviceRGB`, three components.
+    Rgb,
+    /// `DeviceCMYK`, four components.
+    Cmyk,
+}
+
+impl DeviceFamily {
+    /// The name a report prints for this family.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Gray => "DeviceGray",
+            Self::Rgb => "DeviceRGB",
+            Self::Cmyk => "DeviceCMYK",
+        }
+    }
+
+    /// The `/DefaultGray`, `/DefaultRGB` or `/DefaultCMYK` key §8.6.5.6 pairs with this family.
+    #[must_use]
+    pub const fn default_key(self) -> &'static str {
+        match self {
+            Self::Gray => "DefaultGray",
+            Self::Rgb => "DefaultRGB",
+            Self::Cmyk => "DefaultCMYK",
+        }
+    }
+
+    /// Where this family sits in a fixed array of three, for the defaults a context carries.
+    const fn index(self) -> usize {
+        match self {
+            Self::Gray => 0,
+            Self::Rgb => 1,
+            Self::Cmyk => 2,
+        }
+    }
+
+    /// The four-character ICC colour space signature a destination profile of this family has.
+    #[must_use]
+    pub const fn profile_signature(self) -> &'static [u8] {
+        match self {
+            Self::Gray => b"GRAY",
+            Self::Rgb => b"RGB ",
+            Self::Cmyk => b"CMYK",
+        }
+    }
+}
+
+/// What a colour space is, as far as ISO 19005's colour subclauses need to tell them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SpaceKind {
+    /// One of the three device colour spaces, which ISO 19005 §6.2.4.3 restricts.
+    Device(DeviceFamily),
+    /// A CIE-based space — `CalGray`, `CalRGB`, `Lab` or `ICCBased` — with the device family
+    /// its component count corresponds to, where it has one.
+    ///
+    /// `Lab` carries `None`: it has three components and is not an RGB-based space, and
+    /// ISO 32000-2 §11.3.4 excludes it from being a blending colour space at all.
+    Independent(Option<DeviceFamily>),
+    /// A `Separation`, `DeviceN` or `NChannel` space, whose components are colourants.
+    Colourant,
+    /// A `Pattern` space with no underlying space, or bytes this crate could not read as one.
+    Unknown,
+}
+
+impl SpaceKind {
+    /// Whether this space is device-independent, which is what every licence in §6.2.4.3 turns
+    /// on.
+    #[must_use]
+    pub const fn is_independent(self) -> bool {
+        matches!(self, Self::Independent(_))
+    }
+
+    /// Whether this space is a device-independent one whose components are of `family`.
+    #[must_use]
+    pub fn is_independent_family(self, family: DeviceFamily) -> bool {
+        self == Self::Independent(Some(family))
+    }
+}
+
+/// How a device colour space was reached from the space a content stream actually named.
+///
+/// The three ISO 19005 subclauses that restrict colour do not restrict the same population.
+/// §6.2.4.3 is about the device space itself, wherever it turns up; §6.2.4.4 is about the
+/// alternate space of a `Separation` or `DeviceN`; §6.2.4.5 is about the space underlying an
+/// `Indexed` or a `Pattern`. One walk finds all three, so each use carries the route that says
+/// which subclauses it answers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Route {
+    /// The content named the device colour space itself.
+    Direct,
+    /// It is the base of an `Indexed` space or the underlying space of a `Pattern`: §6.2.4.5.
+    Underlying,
+    /// It is the alternate space of a `Separation` or `DeviceN` space: §6.2.4.4.
+    Alternate,
+}
+
+impl Route {
+    /// The route reached by descending into an `Indexed` base or a `Pattern`'s underlying space.
+    ///
+    /// An alternate space stays an alternate space: descending further does not stop §6.2.4.4
+    /// from being the clause that put the restriction there.
+    const fn under(self) -> Self {
+        match self {
+            Self::Alternate => Self::Alternate,
+            Self::Direct | Self::Underlying => Self::Underlying,
+        }
+    }
+}
+
+/// One place a content stream selected a device colour space, with what licensed it there.
+///
+/// The licences are recorded rather than judged, because the two owned parts license the same
+/// use differently: ISO 19005-2 §6.2.4.3 admits a default space or the output intent, and
+/// ISO 19005-4 §6.2.4.3 admits the current transparency blending space as well.
+#[derive(Debug, Clone)]
+pub struct DeviceColour {
+    /// Which device colour space was selected.
+    pub family: DeviceFamily,
+    /// The zero-based index of the page whose content selected it.
+    pub page: usize,
+    /// Where a report points a reader.
+    pub place: Where,
+    /// What kind of site selected it, for the sentence a finding prints.
+    pub what: &'static str,
+    /// How it was reached from the space the content named.
+    pub via: Route,
+    /// §8.6.5.6's matching default colour space, as the resources in force stated it.
+    pub default: Option<SpaceKind>,
+    /// ISO 32000-2 §11.3.4's current transparency blending colour space, where there is one.
+    pub blending: Option<SpaceKind>,
+}
+
+/// One transparency group's `CS` entry, which ISO 19005 makes subject to the colour subclauses.
+#[derive(Debug, Clone)]
+pub struct GroupSpace {
+    /// What the `CS` entry names.
+    pub kind: SpaceKind,
+    /// The zero-based index of the page the group is on or is painted onto.
+    pub page: usize,
+    /// Where a report points a reader.
+    pub place: Where,
+    /// §8.6.5.6's matching default colour space, where the entry names a device space.
+    pub default: Option<SpaceKind>,
+}
+
+/// A resource a content stream named that the resource dictionary in force does not define.
+///
+/// ISO 19005-4 §6.2.2 requires the associated resource dictionary to define every named resource
+/// its content stream references; ISO 19005-2 states no such sentence, which is why only the
+/// part 4 row reads this.
+#[derive(Debug, Clone)]
+pub struct MissingResource {
+    /// The zero-based index of the page whose content named it.
+    pub page: usize,
+    /// The subdictionary of the resources it should have been in — `Font`, `XObject`, and so on.
+    pub category: &'static str,
+    /// The name the content stream used.
+    pub name: String,
+    /// What kind of stream named it, for the sentence a finding prints.
+    pub what: &'static str,
+}
+
+/// One content stream the walk opened, and the two facts ISO 19005 §6.2.2 turns on.
+///
+/// The clause requires a content stream that references other objects to have a resource
+/// dictionary *explicitly* associated with it, and ISO 32000-2 §7.8.3 is where "associated"
+/// is defined: a page's content stream is associated with the dictionary the page dictionary's
+/// `Resources` entry designates **or one it inherits**, while a form `XObject`, a pattern, an
+/// annotation appearance and a Type 3 font's glyph procedures are each required to carry the
+/// entry themselves. So the two facts are: did this stream name a resource at all, and was the
+/// dictionary it was read against stated on it rather than inherited.
+#[derive(Debug, Clone)]
+pub struct OpenedStream {
+    /// The zero-based index of the page whose rendering reached it.
+    pub page: usize,
+    /// Where a report points a reader.
+    pub place: Where,
+    /// What kind of content stream it is, for the sentence a finding prints.
+    pub what: &'static str,
+    /// Whether it named at least one resource, whether or not the resources defined it.
+    pub referenced: bool,
+    /// Whether the resource dictionary it was read against was its own rather than inherited.
+    pub own_resources: bool,
+}
+
+/// The profile stream of an `ICCBased` colour space: ISO 32000-2 §8.6.5.5, Table 66.
+#[derive(Debug, Clone)]
+pub struct IccProfile {
+    /// The object the profile stream is, where the colour space array reaches it by reference.
+    ///
+    /// ISO 19005-4 §6.2.4.2 makes two profiles identical when the colour space and the output
+    /// intent reach the same embedded stream by indirect reference, so the reference itself —
+    /// not what it resolves to — is one of the two things this carries.
+    pub id: Option<ObjectId>,
+    /// The stream, so a profile written directly into the array is comparable too.
+    pub stream: Arc<Stream>,
+    /// Which device family the stream dictionary's `N` corresponds to: §8.6.5.5, Table 66.
+    pub family: Option<DeviceFamily>,
+}
+
+/// One place a content stream selected an `ICCBased` colour space.
+///
+/// ISO 19005-4 §6.2.4.2's last requirement binds a profile that is *used*, which is the whole
+/// difference between the corpus's `6-2-4-2-t03-fail-a` and its `t03-pass-b`: the same profile
+/// sits in the same resource dictionary in both, and only one of them names it from content.
+#[derive(Debug, Clone)]
+pub struct IccSelection {
+    /// The zero-based index of the page whose content selected it.
+    pub page: usize,
+    /// Where a report points a reader.
+    pub place: Where,
+    /// What kind of site selected it, for the sentence a finding prints.
+    pub what: &'static str,
+    /// The profile the selected space is formed from.
+    pub profile: IccProfile,
+    /// The profile of ISO 32000-2 §11.3.4's current blending colour space, where that space is
+    /// itself an `ICCBased` one.
+    pub blending: Option<IccProfile>,
+}
+
+/// One painting operator that marked the page in an `ICCBased` CMYK colour space.
+///
+/// ISO 32000-2 §8.6.7 is why the record is made at the operator rather than at the selection:
+///
+/// > Non-zero overprint mode shall apply only to painting operations that use the current colour
+/// > in the graphics state when the current colour space is DeviceCMYK (or is implicitly
+/// > converted to DeviceCMYK ; see (8.6.5.7, "Implicit conversion of CIE-Based colour spaces").
+/// > It shall not, however, apply to the painting of images or shadings (8.7.4, "Shading
+/// > patterns").
+///
+/// So each side of a painting operator is its own record: a stream may have an `ICCBased` CMYK
+/// space in force for stroking and never stroke with it.
+#[derive(Debug, Clone)]
+pub struct IccCmykPaint {
+    /// The zero-based index of the page the mark was made on.
+    pub page: usize,
+    /// Where a report points a reader.
+    pub place: Where,
+    /// What kind of content stream painted, for the sentence a finding prints.
+    pub what: &'static str,
+    /// Whether the space in force was the stroking one rather than the non-stroking one.
+    pub stroking: bool,
+    /// Whether Table 58's `OP` — or `op`, for the non-stroking side — was then true.
+    pub overprinting: bool,
+    /// Table 51's overprint mode, as `OPM` last set it. Its initial value is 0.
+    pub mode: i64,
+}
+
+/// A font a content stream selected, and whether anything was drawn with it.
+#[derive(Debug, Clone)]
+pub struct SelectedFont {
+    /// The font dictionary itself.
+    pub dict: Dictionary,
+    /// The object it is, where it is an indirect one.
+    pub id: Option<ObjectId>,
+    /// The zero-based index of the page whose content reached it first.
+    pub page: usize,
+    /// The resource name it was selected by, for the report.
+    pub name: String,
+    /// Whether a text-showing operator ran with it in a rendering mode other than 3.
+    pub rendered: bool,
+    /// The distinct byte strings text-showing operators drew with it, in any rendering mode.
+    ///
+    /// **Any mode, deliberately**, because the clause that most needs this says so: ISO 19005-2
+    /// §6.2.11.8 and ISO 19005-4 §6.2.10.9 forbid a reference to `.notdef` from a text-showing
+    /// operator *regardless of text rendering mode*. A caller that wants only the rendered ones
+    /// has [`Self::rendered`] beside it; one that filtered these by it would miss the case the
+    /// corpus tests.
+    ///
+    /// Bytes rather than codes, because a code's length is the font's own `CMap`'s answer
+    /// (ISO 32000-2 §9.7.6.2) and this walk holds no fonts — `pdf_font::LoadedFont::decode` is
+    /// what turns these into codes, in the crate that already loads the font to ask about it.
+    pub shown: BTreeSet<Vec<u8>>,
+    /// Whether [`Self::shown`] is all of what was drawn, or a prefix cut off by [`SHOWN_BUDGET`].
+    ///
+    /// A rule that asks whether *any* shown code is faulty may read a prefix; a rule that asks
+    /// whether *every* shown code is sound may not. This is the flag that tells the second kind
+    /// to stay silent.
+    pub shown_complete: bool,
+}
+
+/// How one selected font is told from another.
+///
+/// By object where the resources name one, because two pages sharing a font share its object.
+/// A font dictionary written directly into a resource dictionary has no object, so it is told
+/// apart by the page and resource name that reached it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FontKey {
+    /// A font that is an indirect object.
+    Indirect(ObjectId),
+    /// A font written directly into a resource dictionary, on this page under this name.
+    Direct(usize, Vec<u8>),
+}
+
+/// What one document's content streams do, as the requirements that read content need it.
+#[derive(Debug, Default)]
+pub struct Survey {
+    /// The fonts the content selected, keyed so that a shared font is one entry.
+    fonts: BTreeMap<FontKey, SelectedFont>,
+    /// Every device colour space selection the walk reached.
+    colours: Vec<DeviceColour>,
+    /// Every transparency group `CS` entry the walk reached.
+    groups: Vec<GroupSpace>,
+    /// The pages ISO 32000-2 Annex Q's method finds transparency on.
+    transparent: BTreeSet<usize>,
+    /// Every named resource a content stream referenced and its resources did not define.
+    missing: Vec<MissingResource>,
+    /// Every inline image the walk read, with the page that draws it.
+    inline_images: Vec<(usize, Dictionary)>,
+    /// Every operand the rendering intent operator was given, with the page it ran on.
+    rendering_intents: Vec<(usize, Vec<u8>)>,
+    /// Every content stream the walk opened, in the order it opened them.
+    streams: Vec<OpenedStream>,
+    /// Every `ICCBased` colour space selection the walk reached.
+    icc: Vec<IccSelection>,
+    /// Every painting operator that marked the page in an `ICCBased` CMYK colour space.
+    icc_paints: Vec<IccCmykPaint>,
+    /// How many pages the walk covered, so a caller can iterate them.
+    pages: usize,
+}
+
+impl Survey {
+    /// Walks one document's content and reports what it found.
+    #[must_use]
+    pub fn of(document: &Document) -> Self {
+        let mut walk = Walk {
+            document,
+            visited: BTreeSet::new(),
+            opened: 0,
+            budget: TOKEN_BUDGET,
+            shown_budget: SHOWN_BUDGET,
+            seen: BTreeSet::new(),
+            survey: Self::default(),
+        };
+        let pages = Pages::new(document);
+        walk.survey.pages = pages.len();
+        for index in 0..pages.len() {
+            let Some(page) = pages.get(index) else {
+                continue;
+            };
+            walk.page(&page, index);
+        }
+        walk.survey
+    }
+
+    /// The fonts the content streams selected.
+    pub fn fonts(&self) -> impl Iterator<Item = &SelectedFont> {
+        self.fonts.values()
+    }
+
+    /// Every device colour space selection, in the order the walk reached them.
+    #[must_use]
+    pub fn device_colours(&self) -> &[DeviceColour] {
+        &self.colours
+    }
+
+    /// Every transparency group colour space the walk reached.
+    #[must_use]
+    pub fn group_spaces(&self) -> &[GroupSpace] {
+        &self.groups
+    }
+
+    /// Every named resource a content stream referenced that its resources did not define.
+    #[must_use]
+    pub fn missing_resources(&self) -> &[MissingResource] {
+        &self.missing
+    }
+
+    /// Every inline image the walk read, as the image dictionary an `XObject` would have had.
+    ///
+    /// `pdf_model::inline_image` expands §8.9.7's abbreviations on the way, so `/I` arrives as
+    /// `Interpolate` and `/CS` as `ColorSpace` — the rules read one spelling rather than two.
+    #[must_use]
+    pub fn inline_images(&self) -> &[(usize, Dictionary)] {
+        &self.inline_images
+    }
+
+    /// Every operand ISO 32000-2 §8.6.5.8's rendering intent operator was given.
+    #[must_use]
+    pub fn rendering_intents(&self) -> &[(usize, Vec<u8>)] {
+        &self.rendering_intents
+    }
+
+    /// Every content stream the walk opened, with what ISO 19005 §6.2.2 asks about each.
+    #[must_use]
+    pub fn opened_streams(&self) -> &[OpenedStream] {
+        &self.streams
+    }
+
+    /// Every `ICCBased` colour space a content stream selected.
+    #[must_use]
+    pub fn icc_selections(&self) -> &[IccSelection] {
+        &self.icc
+    }
+
+    /// Every painting operator that marked a page in an `ICCBased` CMYK colour space.
+    #[must_use]
+    pub fn icc_cmyk_paints(&self) -> &[IccCmykPaint] {
+        &self.icc_paints
+    }
+
+    /// Whether ISO 32000-2 Annex Q's method finds transparency on this page.
+    #[must_use]
+    pub fn page_is_transparent(&self, page: usize) -> bool {
+        self.transparent.contains(&page)
+    }
+
+    /// How many pages the walk covered.
+    #[must_use]
+    pub const fn pages(&self) -> usize {
+        self.pages
+    }
+}
+
+/// The part of the graphics state this walk needs.
+#[derive(Clone, Default)]
+struct State {
+    /// The resource name of the current font, from `Tf`.
+    font: Option<Vec<u8>>,
+    /// ISO 32000-2 §9.3.6's text rendering mode, from `Tr`.
+    mode: i64,
+    /// What the fill colour space is, as far as this walk tells them apart.
+    fill: Selected,
+    /// The same for the stroke colour space.
+    stroke: Selected,
+    /// Whether the fill colour space is an `ICCBased` one whose profile has four components.
+    fill_icc_cmyk: bool,
+    /// The same for the stroke colour space.
+    stroke_icc_cmyk: bool,
+    /// ISO 32000-2 §8.6.7's overprint parameters, which decide what a mark does to the
+    /// colourants it does not name.
+    overprint: Overprint,
+    /// ISO 32000-2 §11.3.4's current blending colour space, where a group established one.
+    blending: Blending,
+}
+
+/// ISO 32000-2 §8.6.7's overprint parameters, as §8.4.5's Table 58 sets them.
+///
+/// [`Default`] is §8.4.1's Table 51: the overprint parameters start false and the overprint mode
+/// starts at 0, so a stream that never runs `gs` paints with all three at their initial values.
+#[derive(Clone, Copy, Default)]
+struct Overprint {
+    /// Table 58's `OP`, the overprint parameter for stroking.
+    stroke: bool,
+    /// Table 58's `op`, the overprint parameter for every other painting operation.
+    fill: bool,
+    /// Table 51's overprint mode, as `OPM` last set it.
+    mode: i64,
+}
+
+/// ISO 32000-2 §11.3.4's current blending colour space, as much of it as the rules need.
+///
+/// Two fields rather than one because the colour subclauses ask two different questions of the
+/// same space: §6.2.4.3 asks which family it is device independent in, and §6.2.4.2 asks which
+/// profile it is, so that a colour space using the same profile can be told from one that does
+/// not.
+#[derive(Clone, Default)]
+struct Blending {
+    /// What kind of space it is.
+    kind: Option<SpaceKind>,
+    /// Its profile, where the space is an `ICCBased` one.
+    profile: Option<IccProfile>,
+}
+
+/// What kind of colour space a `cs` or `CS` operator left in force.
+///
+/// Three cases rather than the space itself, because only three things are asked of it: whether
+/// a `scn` operand names a pattern, whether a painting operator is painting in ISO 32000-2
+/// §8.6.8's initial `DeviceGray`, and — recorded at selection time — which device space it was.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Selected {
+    /// The initial colour space of §8.4.1's graphics state, which no operator has replaced.
+    ///
+    /// Table 51 gives the colour space parameter an initial value of `DeviceGray`, so a
+    /// painting operator that runs before any `cs`, `g`, `rg` or `k` is painting in a device
+    /// colour space the file never named — and ISO 19005 §6.2.4.3 restricts a use, not a
+    /// mention.
+    #[default]
+    Initial,
+    /// A `Pattern` space, so the last name operand of `scn` names a pattern resource.
+    Pattern,
+    /// Any other space an operator selected.
+    Plain,
+}
+
+/// The operators this walk acts on. Everything else is a boundary that clears the operands.
+enum Operator {
+    /// `q`
+    Save,
+    /// `Q`
+    Restore,
+    /// `Tf`
+    SetFont,
+    /// `Tr`
+    SetRenderMode,
+    /// `Tj`, `TJ`, `'` or `"`.
+    Show,
+    /// `Do`
+    Invoke,
+    /// `gs`
+    SetGraphicsState,
+    /// `cs` or `CS`, with which of the two.
+    SetSpace { stroking: bool },
+    /// `sc`, `scn`, `SC` or `SCN`, with which of the two.
+    SetColour { stroking: bool },
+    /// `g`, `G`, `rg`, `RG`, `k` or `K`.
+    SetDeviceColour {
+        /// Which device space the operator names.
+        family: DeviceFamily,
+        /// Whether it is the upper-case, stroking form.
+        stroking: bool,
+    },
+    /// `sh`
+    Shade,
+    /// `ri`
+    SetRenderingIntent,
+    /// A path-painting operator, and which of fill and stroke it marks with.
+    Paint {
+        /// Whether it fills.
+        fill: bool,
+        /// Whether it strokes.
+        stroke: bool,
+    },
+    /// `BI`, whose data is not a token stream.
+    InlineImage,
+    /// Any other operator.
+    Other,
+}
+
+/// One step of the walk: an operand worth keeping, an operator, or the end.
+enum Step {
+    /// A name operand.
+    Name(Vec<u8>),
+    /// An integer operand.
+    Integer(i64),
+    /// A string operand, which only a text-showing operator takes.
+    Text(Vec<u8>),
+    /// An operator, which consumes the operands before it.
+    Operator(Operator),
+    /// An operand of a kind no rule here reads.
+    Other,
+    /// The content stream ended.
+    End,
+}
+
+/// Reads one token and reduces it to what the walk needs.
+fn next_step(reader: &mut ContentReader<'_>) -> Step {
+    reader.with_token(|token| match token {
+        None => Step::End,
+        Some(Token::Name(name)) => Step::Name(name),
+        Some(Token::Integer(value)) => Step::Integer(value),
+        Some(Token::String(text)) => Step::Text(text),
+        Some(Token::Keyword(word)) => Step::Operator(keyword(word)),
+        Some(_) => Step::Other,
+    })
+}
+
+/// Which operator a content-stream keyword is.
+fn keyword(word: &[u8]) -> Operator {
+    match word {
+        b"q" => Operator::Save,
+        b"Q" => Operator::Restore,
+        b"Tf" => Operator::SetFont,
+        b"Tr" => Operator::SetRenderMode,
+        b"Tj" | b"TJ" | b"'" | b"\"" => Operator::Show,
+        b"Do" => Operator::Invoke,
+        b"gs" => Operator::SetGraphicsState,
+        b"cs" => Operator::SetSpace { stroking: false },
+        b"CS" => Operator::SetSpace { stroking: true },
+        b"sc" | b"scn" => Operator::SetColour { stroking: false },
+        b"SC" | b"SCN" => Operator::SetColour { stroking: true },
+        b"g" => device_colour(DeviceFamily::Gray, false),
+        b"G" => device_colour(DeviceFamily::Gray, true),
+        b"rg" => device_colour(DeviceFamily::Rgb, false),
+        b"RG" => device_colour(DeviceFamily::Rgb, true),
+        b"k" => device_colour(DeviceFamily::Cmyk, false),
+        b"K" => device_colour(DeviceFamily::Cmyk, true),
+        b"sh" => Operator::Shade,
+        b"ri" => Operator::SetRenderingIntent,
+        b"f" | b"F" | b"f*" => Operator::Paint {
+            fill: true,
+            stroke: false,
+        },
+        b"S" | b"s" => Operator::Paint {
+            fill: false,
+            stroke: true,
+        },
+        b"B" | b"B*" | b"b" | b"b*" => Operator::Paint {
+            fill: true,
+            stroke: true,
+        },
+        b"BI" => Operator::InlineImage,
+        _ => Operator::Other,
+    }
+}
+
+/// One of the six operators that names a device colour space and sets a colour in it.
+const fn device_colour(family: DeviceFamily, stroking: bool) -> Operator {
+    Operator::SetDeviceColour { family, stroking }
+}
+
+/// The state one document's walk carries across its content streams.
+struct Walk<'a> {
+    /// The document being walked.
+    document: &'a Document,
+    /// Which nested streams have been opened on which page, so one reached twice is read once.
+    ///
+    /// Keyed by page as well as by object, because a form placed on two pages puts its
+    /// transparency and its colours on *both* of them, and a set keyed by object alone would
+    /// report the second page as if the form were not there.
+    visited: BTreeSet<(usize, ObjectId)>,
+    /// How many nested streams have been opened.
+    opened: usize,
+    /// How many more tokens may be read.
+    budget: u64,
+    /// How many more bytes of distinct shown strings may be kept; see [`SHOWN_BUDGET`].
+    shown_budget: usize,
+    /// Which observations have already been recorded, so that a repeat costs nothing.
+    ///
+    /// A page that paints ten thousand red rectangles selects `DeviceRGB` ten thousand times
+    /// under one resource dictionary, and every one of those observations carries the same
+    /// answer to every question a requirement asks. Keeping them all cost ISO 32000-2's own
+    /// specification 317 127 colour records where 25 distinct ones say the same thing; the set
+    /// is what turns that into an allocation nobody pays for.
+    seen: BTreeSet<Observation>,
+    /// What has been found so far.
+    survey: Survey,
+}
+
+/// What makes one observation different from another, for the set above.
+///
+/// Deliberately *not* the witness: two `DeviceRGB` selections on one page differ in where they
+/// stand in the content stream and in nothing a requirement or a report can read, because
+/// [`Where`] names a page rather than an operator.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Observation {
+    /// A device colour space selection.
+    Colour(
+        usize,
+        DeviceFamily,
+        Route,
+        &'static str,
+        Option<SpaceKind>,
+        Option<SpaceKind>,
+    ),
+    /// A transparency group's colour space.
+    Group(usize, SpaceKind, Option<SpaceKind>),
+    /// A named resource the resources in force did not define.
+    Missing(usize, &'static str, String),
+    /// A rendering intent operator's operand.
+    Intent(usize, Vec<u8>),
+    /// An `ICCBased` colour space selection, by the profile and the blending profile in force.
+    Icc(usize, &'static str, Option<ObjectId>, Option<ObjectId>),
+    /// A painting operator marking in an `ICCBased` CMYK space, with the overprint parameters.
+    Overprint(usize, &'static str, bool, bool, i64),
+}
+
+/// The content stream [`Walk::run`] is reading.
+///
+/// Two fields travel together because [`Walk::look_up`] needs both: the description a finding
+/// prints, and the entry in [`Survey::streams`] to mark when the stream names a resource.
+#[derive(Clone, Copy)]
+struct Origin {
+    /// What kind of content stream it is, for the sentence a finding prints.
+    what: &'static str,
+    /// Its entry in [`Survey::streams`], where one fitted within [`MAX_OBSERVATIONS`].
+    record: Option<usize>,
+}
+
+impl Walk<'_> {
+    /// One page: its group, its content, and its annotations' appearances.
+    fn page(&mut self, page: &Page, index: usize) {
+        let blending = self.page_group(page, index);
+        let state = State {
+            blending: blending.clone(),
+            ..State::default()
+        };
+        // §7.8.3: a page's content is associated with the dictionary its own `Resources` entry
+        // designates *or* one it inherits, and only the first of those is explicit. Read the
+        // same way a form XObject's entry is, so that an entry reaching no dictionary counts
+        // as no association rather than as a broken one.
+        let own = self
+            .document
+            .get_key(&page.dict, "Resources")
+            .as_dict()
+            .is_some();
+        let origin = self.open_record(index, Where::page(index), "the page content", own);
+        let mut reader = ContentReader::for_page(self.document, page);
+        self.run(&mut reader, &page.resources, index, 0, &state, origin);
+        self.annotations(page, index, &blending);
+    }
+
+    /// Notes that a content stream has been opened, and answers with what [`Walk::run`] needs.
+    fn open_record(
+        &mut self,
+        page: usize,
+        place: Where,
+        what: &'static str,
+        own_resources: bool,
+    ) -> Origin {
+        let record = (self.survey.streams.len() < MAX_OBSERVATIONS).then(|| {
+            self.survey.streams.push(OpenedStream {
+                page,
+                place,
+                what,
+                referenced: false,
+                own_resources,
+            });
+            self.survey.streams.len().saturating_sub(1)
+        });
+        Origin { what, record }
+    }
+
+    /// A page's `/Group`, which ISO 32000-2 §11.4.7 makes the page's blending colour space.
+    ///
+    /// The clause is explicit that a page group's `CS` is honoured whatever its `I` entry says,
+    /// because a page imposed on the output medium is effectively isolated — so, unlike a form
+    /// `XObject`'s group below, no isolation test guards this one.
+    fn page_group(&mut self, page: &Page, index: usize) -> Blending {
+        let group = self.document.get_key(&page.dict, "Group");
+        let Some(group) = group.as_dict() else {
+            return Blending::default();
+        };
+        if !self.is_transparency_group(group) {
+            return Blending::default();
+        }
+        self.record_group_space(group, &page.resources, index, Where::page(index))
+    }
+
+    /// Whether a group attributes dictionary is a transparency group: §11.6.6, Table 147.
+    fn is_transparency_group(&self, group: &Dictionary) -> bool {
+        self.document
+            .get_key(group, "S")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Transparency")
+    }
+
+    /// Records one group's `CS` entry and answers with the blending space it establishes.
+    fn record_group_space(
+        &mut self,
+        group: &Dictionary,
+        resources: &Dictionary,
+        page: usize,
+        place: Where,
+    ) -> Blending {
+        let Some(stated) = group.get("CS") else {
+            return Blending::default();
+        };
+        let stated = self.document.resolve(stated);
+        let kind = classify(self.document, &stated, resources, 0);
+        let default = match kind {
+            SpaceKind::Device(family) => self.default_space(resources, family),
+            _ => None,
+        };
+        if self.first_time(Observation::Group(page, kind, default)) {
+            self.survey.groups.push(GroupSpace {
+                kind,
+                page,
+                place: place.named("CS"),
+                default,
+            });
+        }
+        Blending {
+            kind: Some(kind),
+            profile: icc_profile(self.document, &stated, resources, 0),
+        }
+    }
+
+    /// Walks every appearance stream a page's annotations carry.
+    ///
+    /// ISO 32000-2 §12.5.5 makes an `/AP` entry either a stream or a dictionary of states, and
+    /// each of the three entries is drawn under some condition, so all of them are content the
+    /// document renders. §12.5.2's own `BM` entry is part of the graphics state the appearance
+    /// is drawn in, so Annex Q's blend-mode test applies to it as it does to a `gs`.
+    fn annotations(&mut self, page: &Page, index: usize, blending: &Blending) {
+        let Object::Array(annotations) = self.document.get_key(&page.dict, "Annots") else {
+            return;
+        };
+        let state = State {
+            blending: blending.clone(),
+            ..State::default()
+        };
+        for annotation in &annotations {
+            let Object::Dictionary(annotation) = self.document.resolve(annotation) else {
+                continue;
+            };
+            if self.annotation_is_transparent(&annotation) {
+                self.survey.transparent.insert(index);
+            }
+            let appearances = self.document.get_key(&annotation, "AP");
+            let Some(appearances) = appearances.as_dict() else {
+                continue;
+            };
+            for (_, entry) in appearances.iter() {
+                self.appearance(entry, page, index, &state);
+            }
+        }
+    }
+
+    /// Whether an annotation's own dictionary puts transparency in the graphics state.
+    fn annotation_is_transparent(&self, annotation: &Dictionary) -> bool {
+        blends(self.document, annotation) || below_one(&self.document.get_key(annotation, "CA"))
+    }
+
+    /// One `/AP` entry, which is either the stream itself or a dictionary of appearance states.
+    fn appearance(&mut self, entry: &Object, page: &Page, index: usize, state: &State) {
+        let id = entry.as_reference();
+        match self.document.resolve(entry) {
+            Object::Stream(stream) => self.form(&stream, id, &page.resources, index, 0, state),
+            Object::Dictionary(states) => {
+                for (_, one) in states.iter() {
+                    let id = one.as_reference();
+                    if let Object::Stream(stream) = self.document.resolve(one) {
+                        self.form(&stream, id, &page.resources, index, 0, state);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Runs one content stream, in the state it inherits.
+    ///
+    /// ISO 32000-2 §8.10.1 starts a form `XObject` in the graphics state in force at `Do`, so
+    /// the inherited state is a copy and what the form does to it does not return.
+    fn run(
+        &mut self,
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+        page: usize,
+        depth: u32,
+        initial: &State,
+        origin: Origin,
+    ) {
+        let mut state = initial.clone();
+        let defaults = [
+            self.default_space(resources, DeviceFamily::Gray),
+            self.default_space(resources, DeviceFamily::Rgb),
+            self.default_space(resources, DeviceFamily::Cmyk),
+        ];
+        let mut stack: Vec<State> = Vec::new();
+        let mut names: Vec<Vec<u8>> = Vec::new();
+        // Every string operand since the last operator: `Tj` takes one, `TJ` takes the strings
+        // of its array, and `\"` takes one after two numbers. Keeping all of them and letting
+        // the operator decide is what makes those three the same case here.
+        let mut strings: Vec<Vec<u8>> = Vec::new();
+        let mut integer: Option<i64> = None;
+        loop {
+            if self.budget == 0 {
+                return;
+            }
+            self.budget = self.budget.saturating_sub(1);
+            match next_step(reader) {
+                Step::End => return,
+                Step::Other => {}
+                Step::Name(name) => {
+                    // At most two are ever wanted: `Tf` and `Do` take the first, and `scn`
+                    // takes the last. Keeping two rather than every operand is what stops a
+                    // stream of names from growing this vector without bound.
+                    if names.len() < 2 {
+                        names.push(name);
+                    } else {
+                        names[1] = name;
+                    }
+                }
+                // The last integer, because `Tr` takes exactly one and it comes last.
+                Step::Integer(value) => integer = Some(value),
+                Step::Text(text) => {
+                    // Bounded by the same budget the kept strings are, so a stream of literals
+                    // between two operators cannot grow this vector without one.
+                    if text.len() <= self.shown_budget {
+                        strings.push(text);
+                    }
+                }
+                Step::Operator(operator) => {
+                    let context = Context {
+                        resources,
+                        defaults,
+                        page,
+                        depth,
+                        what: origin.what,
+                        record: origin.record,
+                    };
+                    self.apply(
+                        &operator,
+                        &mut state,
+                        &mut stack,
+                        &Operands {
+                            names: &names,
+                            strings: &strings,
+                            integer,
+                        },
+                        &context,
+                        reader,
+                    );
+                    names.clear();
+                    strings.clear();
+                    integer = None;
+                }
+            }
+        }
+    }
+
+    /// One operator, against the state it changes.
+    fn apply(
+        &mut self,
+        operator: &Operator,
+        state: &mut State,
+        stack: &mut Vec<State>,
+        operands: &Operands<'_>,
+        context: &Context<'_>,
+        reader: &mut ContentReader<'_>,
+    ) {
+        match *operator {
+            Operator::Save => {
+                if stack.len() < MAX_NESTING {
+                    stack.push(state.clone());
+                }
+            }
+            Operator::Restore => {
+                if let Some(previous) = stack.pop() {
+                    *state = previous;
+                }
+            }
+            Operator::SetFont => {
+                if let Some(name) = operands.first() {
+                    state.font = Some(name.clone());
+                }
+            }
+            Operator::SetRenderMode => {
+                if let Some(mode) = operands.integer {
+                    state.mode = mode;
+                }
+            }
+            Operator::Show => self.show(state, operands, context),
+            Operator::Invoke => {
+                if let Some(name) = operands.first().cloned() {
+                    self.invoke(&name, state, context);
+                }
+            }
+            Operator::SetGraphicsState => {
+                if let Some(name) = operands.first() {
+                    self.graphics_state(name, state, context);
+                }
+            }
+            Operator::SetSpace { stroking } => {
+                if let Some(name) = operands.first().cloned() {
+                    self.set_space(&name, stroking, state, context);
+                }
+            }
+            Operator::SetColour { stroking } => {
+                let selected = if stroking { state.stroke } else { state.fill };
+                if selected == Selected::Pattern
+                    && let Some(name) = operands.last()
+                {
+                    self.pattern(name, state, context);
+                }
+            }
+            Operator::SetDeviceColour { family, stroking } => {
+                self.record_colour(
+                    (family, Route::Direct),
+                    context,
+                    "a colour operator",
+                    state.blending.kind,
+                );
+                if stroking {
+                    state.stroke = Selected::Plain;
+                    state.stroke_icc_cmyk = false;
+                } else {
+                    state.fill = Selected::Plain;
+                    state.fill_icc_cmyk = false;
+                }
+            }
+            Operator::Shade => {
+                if let Some(name) = operands.first() {
+                    self.shading_resource(name, state, context);
+                }
+            }
+            Operator::SetRenderingIntent => {
+                if let Some(name) = operands.first()
+                    && self.first_time(Observation::Intent(context.page, name.clone()))
+                {
+                    self.survey
+                        .rendering_intents
+                        .push((context.page, name.clone()));
+                }
+            }
+            Operator::Paint { fill, stroke } => self.paint(fill, stroke, state, context),
+            Operator::InlineImage => self.inline_image(reader, context),
+            Operator::Other => {}
+        }
+    }
+
+    /// A text-showing operator: the font it ran with, and the marks it made.
+    fn show(&mut self, state: &State, operands: &Operands<'_>, context: &Context<'_>) {
+        let Some(name) = state.font.clone() else {
+            return;
+        };
+        // Mode 3 alone is exempt: mode 7 adds the glyphs to the clipping path, which is a mark
+        // on the page by way of everything drawn afterwards.
+        let font = self.select(&name, context, state.mode != 3, operands.strings);
+        // ISO 32000-2 §9.3.6: modes 0, 2, 4 and 6 fill and modes 1, 2, 5 and 6 stroke, so the
+        // colour space in force is used exactly as a path-painting operator would use it.
+        let fills = matches!(state.mode, 0 | 2 | 4 | 6);
+        let strokes = matches!(state.mode, 1 | 2 | 5 | 6);
+        self.paint(fills, strokes, state, context);
+        if let Some(font) = font {
+            self.type3(&font, state, context);
+        }
+    }
+
+    /// Records that a content stream selected the font a resource name stands for.
+    fn select(
+        &mut self,
+        name: &[u8],
+        context: &Context<'_>,
+        rendered: bool,
+        strings: &[Vec<u8>],
+    ) -> Option<Dictionary> {
+        let entry = self.look_up("Font", name, context, context.what)?;
+        let id = entry.as_reference();
+        let Object::Dictionary(dict) = self.document.resolve(&entry) else {
+            return None;
+        };
+        let key = id.map_or_else(
+            || FontKey::Direct(context.page, name.to_vec()),
+            FontKey::Indirect,
+        );
+        let entry = self
+            .survey
+            .fonts
+            .entry(key)
+            .or_insert_with(|| SelectedFont {
+                dict: dict.clone(),
+                id,
+                page: context.page,
+                name: String::from_utf8_lossy(name).into_owned(),
+                rendered: false,
+                shown: BTreeSet::new(),
+                shown_complete: true,
+            });
+        entry.rendered |= rendered;
+        for text in strings {
+            if entry.shown.contains(text) {
+                continue;
+            }
+            if text.len() > self.shown_budget {
+                // The font is not reported on a prefix of its text; see `SHOWN_BUDGET`.
+                entry.shown_complete = false;
+                continue;
+            }
+            self.shown_budget = self.shown_budget.saturating_sub(text.len());
+            entry.shown.insert(text.clone());
+        }
+        Some(dict)
+    }
+
+    /// ISO 32000-2 §9.6.5: a Type 3 font's glyphs are content streams of their own.
+    ///
+    /// Annex Q.5 says the same thing for transparency, and §6.2.4.3's corpus says it for colour:
+    /// what a glyph procedure paints is painted on the page that showed the glyph.
+    fn type3(&mut self, font: &Dictionary, state: &State, context: &Context<'_>) {
+        let subtype = self.document.get_key(font, "Subtype");
+        if subtype
+            .as_name()
+            .is_none_or(|name| name.as_bytes() != b"Type3")
+        {
+            return;
+        }
+        // §9.6.5.4: a Type 3 font's own `/Resources` are what its glyph procedures are read
+        // against, and a font that states none falls back on the invoking stream's.
+        let own = self.document.get_key(font, "Resources");
+        let stated = own.as_dict().is_some();
+        let resources = own
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| context.resources.clone());
+        let procedures = self.document.get_key(font, "CharProcs");
+        let Some(procedures) = procedures.as_dict() else {
+            return;
+        };
+        for (_, procedure) in procedures.iter() {
+            let id = procedure.as_reference();
+            let Object::Stream(stream) = self.document.resolve(procedure) else {
+                continue;
+            };
+            self.nested(
+                &stream,
+                id,
+                &resources,
+                context.page,
+                context.depth,
+                state,
+                "a Type 3 glyph procedure",
+                stated,
+            );
+        }
+    }
+
+    /// Follows `Do` into a form or image `XObject`.
+    fn invoke(&mut self, name: &[u8], state: &State, context: &Context<'_>) {
+        let Some(entry) = self.look_up("XObject", name, context, context.what) else {
+            return;
+        };
+        let id = entry.as_reference();
+        let Object::Stream(stream) = self.document.resolve(&entry) else {
+            return;
+        };
+        let subtype = self.document.get_key(&stream.dict, "Subtype");
+        let subtype = subtype.as_name().map(|name| name.as_bytes().to_vec());
+        match subtype.as_deref() {
+            Some(b"Form") => self.form(
+                &stream,
+                id,
+                context.resources,
+                context.page,
+                context.depth,
+                state,
+            ),
+            Some(b"Image") => self.image(&stream, id, context),
+            _ => {}
+        }
+    }
+
+    /// One form `XObject`: its transparency group, and then its content.
+    ///
+    /// ISO 32000-2 §11.6.6 makes an isolated group's own `CS` the blending colour space for
+    /// what it contains; a non-isolated group, or one that states no `CS`, inherits the space of
+    /// the page or group it is painted into.
+    fn form(
+        &mut self,
+        stream: &Stream,
+        id: Option<ObjectId>,
+        fallback: &Dictionary,
+        page: usize,
+        depth: u32,
+        state: &State,
+    ) {
+        let mut state = state.clone();
+        let own = self.document.get_key(&stream.dict, "Resources");
+        let stated_resources = own.as_dict().is_some();
+        let resources = own.as_dict().cloned().unwrap_or_else(|| fallback.clone());
+        let group = self.document.get_key(&stream.dict, "Group");
+        if let Some(group) = group.as_dict()
+            && self.is_transparency_group(group)
+        {
+            self.survey.transparent.insert(page);
+            let place = id.map_or_else(|| Where::page(page), Where::object);
+            let stated = self.record_group_space(group, &resources, page, place);
+            if self.document.get_key(group, "I") == Object::Boolean(true) && stated.kind.is_some() {
+                state.blending = stated;
+            }
+        }
+        self.nested(
+            stream,
+            id,
+            &resources,
+            page,
+            depth,
+            &state,
+            "a form XObject",
+            stated_resources,
+        );
+    }
+
+    /// An image `XObject`: its colour space, and Annex Q.4's two transparency conditions.
+    fn image(&mut self, stream: &Stream, id: Option<ObjectId>, context: &Context<'_>) {
+        let place = id.map_or_else(|| Where::page(context.page), Where::object);
+        if matches!(
+            self.document.get_key(&stream.dict, "SMask"),
+            Object::Stream(_)
+        ) || self
+            .document
+            .get_key(&stream.dict, "SMaskInData")
+            .as_integer()
+            .is_some_and(|value| value > 0)
+        {
+            self.survey.transparent.insert(context.page);
+        }
+        self.image_space(&stream.dict, &place, context, "an image XObject");
+    }
+
+    /// One image dictionary's `/ColorSpace`, recorded where it names a device space.
+    ///
+    /// §8.6.5.6's remapping reaches an image's colour space through the resource dictionary the
+    /// image was *drawn* from, which is the one in force here rather than any the image carries.
+    fn image_space(
+        &mut self,
+        dict: &Dictionary,
+        place: &Where,
+        context: &Context<'_>,
+        what: &'static str,
+    ) {
+        let Some(stated) = dict.get("ColorSpace") else {
+            return;
+        };
+        let stated = self.document.resolve(stated);
+        self.record_space(&stated, place, context, what, None, None);
+    }
+
+    /// ISO 32000-2 §8.9.7's inline image: its colour space, and then the bytes stepped over.
+    fn inline_image(&mut self, reader: &mut ContentReader<'_>, context: &Context<'_>) {
+        let bound = LOOKAHEAD.min(self.document.limits().max_stream_len);
+        let mut want = WINDOW;
+        loop {
+            let settled = {
+                let (ahead, complete) = reader.lookahead(want);
+                let scanned = pdf_model::inline_image::scan(
+                    self.document,
+                    ahead,
+                    0,
+                    context.resources,
+                    complete,
+                );
+                if complete || scanned.image.is_ok() || want >= bound {
+                    Some((scanned.resume, scanned.image.ok()))
+                } else {
+                    None
+                }
+            };
+            if let Some((resume, image)) = settled {
+                reader.skip(resume);
+                if let Some(image) = image {
+                    let place = Where::page(context.page);
+                    self.image_space(&image.dict, &place, context, "an inline image");
+                    if self.survey.inline_images.len() < MAX_OBSERVATIONS {
+                        self.survey
+                            .inline_images
+                            .push((context.page, image.dict.clone()));
+                    }
+                }
+                return;
+            }
+            want = want.saturating_mul(2).min(bound);
+        }
+    }
+
+    /// A `gs` operator: Annex Q.2's four conditions on the graphics state it sets.
+    fn graphics_state(&mut self, name: &[u8], state: &mut State, context: &Context<'_>) {
+        let Some(entry) = self.look_up("ExtGState", name, context, context.what) else {
+            return;
+        };
+        let Object::Dictionary(dict) = self.document.resolve(&entry) else {
+            return;
+        };
+        if self.is_transparent_state(&dict) {
+            self.survey.transparent.insert(context.page);
+        }
+        self.overprint(&dict, state);
+    }
+
+    /// ISO 32000-2 §8.4.5, Table 58's `OP`, `op` and `OPM`, as a `gs` operator sets them.
+    ///
+    /// `OP` sets both parameters or only the stroking one, and which of the two it does is
+    /// decided by the same dictionary rather than by what any earlier one said:
+    ///
+    /// > Specifying an OP entry shall set both parameters unless there is also an op entry in
+    /// > the same graphics state parameter dictionary, in which case the OP entry shall set only
+    /// > the overprint parameter for stroking.
+    fn overprint(&self, dict: &Dictionary, state: &mut State) {
+        let stated = |key: &str| dict.get(key).is_some();
+        let on = |object: &Object| *object == Object::Boolean(true);
+        if stated("OP") {
+            let stroking = on(&self.document.get_key(dict, "OP"));
+            state.overprint.stroke = stroking;
+            if !stated("op") {
+                state.overprint.fill = stroking;
+            }
+        }
+        if stated("op") {
+            state.overprint.fill = on(&self.document.get_key(dict, "op"));
+        }
+        if let Some(mode) = self.document.get_key(dict, "OPM").as_integer() {
+            state.overprint.mode = mode;
+        }
+    }
+
+    /// ISO 32000-2 Annex Q.2's four tests on one graphics state parameter dictionary.
+    ///
+    /// > - SMask key is present and its value is of type dictionary;
+    /// > - ca key is present and its value is less than one (1);
+    /// > - CA key is present and its value is less than one (1);
+    /// > - BM key is present and its value is not Normal.
+    fn is_transparent_state(&self, dict: &Dictionary) -> bool {
+        if dict.get("SMask").is_some() && self.document.get_key(dict, "SMask").as_dict().is_some() {
+            return true;
+        }
+        if below_one(&self.document.get_key(dict, "ca"))
+            || below_one(&self.document.get_key(dict, "CA"))
+        {
+            return true;
+        }
+        blends(self.document, dict)
+    }
+
+    /// A `cs` or `CS` operator, which selects a colour space by name.
+    ///
+    /// §8.6.8 lets the operand be one of the four family names outright; anything else is a key
+    /// into the `/ColorSpace` subdictionary of the resources in force, and a key that reaches
+    /// nothing is a resource the stream referenced and its resources did not define.
+    fn set_space(&mut self, name: &[u8], stroking: bool, state: &mut State, context: &Context<'_>) {
+        let object = Object::Name(Name::new(name.to_vec()));
+        let resolved = if names_a_family(name) {
+            object
+        } else {
+            match self.look_up("ColorSpace", name, context, context.what) {
+                Some(entry) => resolve_space(self.document, &entry, context.resources, 0),
+                None => return,
+            }
+        };
+        let selected = if is_pattern(self.document, &resolved) {
+            Selected::Pattern
+        } else {
+            Selected::Plain
+        };
+        let profile = icc_profile(self.document, &resolved, context.resources, 0);
+        let cmyk = profile
+            .as_ref()
+            .is_some_and(|profile| profile.family == Some(DeviceFamily::Cmyk));
+        if stroking {
+            state.stroke = selected;
+            state.stroke_icc_cmyk = cmyk;
+        } else {
+            state.fill = selected;
+            state.fill_icc_cmyk = cmyk;
+        }
+        let place = Where::page(context.page);
+        self.record_space(
+            &resolved,
+            &place,
+            context,
+            "a colour space operator",
+            state.blending.kind,
+            state.blending.profile.as_ref(),
+        );
+    }
+
+    /// A painting operator, which marks the page in whatever space is in force.
+    ///
+    /// The only case this adds to what selection already recorded is §8.6.8's initial space: a
+    /// stream that paints without ever naming a colour space is painting in `DeviceGray`, and
+    /// the file never wrote the operator that would have said so.
+    fn paint(&mut self, fill: bool, stroke: bool, state: &State, context: &Context<'_>) {
+        let implicit = (fill && state.fill == Selected::Initial)
+            || (stroke && state.stroke == Selected::Initial);
+        if implicit {
+            self.record_colour(
+                (DeviceFamily::Gray, Route::Direct),
+                context,
+                "the initial colour space, which no operator replaced",
+                state.blending.kind,
+            );
+        }
+        if fill && state.fill_icc_cmyk {
+            self.record_icc_paint(false, state.overprint.fill, state, context);
+        }
+        if stroke && state.stroke_icc_cmyk {
+            self.record_icc_paint(true, state.overprint.stroke, state, context);
+        }
+    }
+
+    /// One side of a painting operator that marked the page in an `ICCBased` CMYK space.
+    fn record_icc_paint(
+        &mut self,
+        stroking: bool,
+        overprinting: bool,
+        state: &State,
+        context: &Context<'_>,
+    ) {
+        let mode = state.overprint.mode;
+        if !self.first_time(Observation::Overprint(
+            context.page,
+            context.what,
+            stroking,
+            overprinting,
+            mode,
+        )) {
+            return;
+        }
+        self.survey.icc_paints.push(IccCmykPaint {
+            page: context.page,
+            place: Where::page(context.page),
+            what: context.what,
+            stroking,
+            overprinting,
+            mode,
+        });
+    }
+
+    /// A `scn` or `SCN` operand naming a pattern, which is content or a shading of its own.
+    fn pattern(&mut self, name: &[u8], state: &State, context: &Context<'_>) {
+        let Some(entry) = self.look_up("Pattern", name, context, context.what) else {
+            return;
+        };
+        let id = entry.as_reference();
+        match self.document.resolve(&entry) {
+            // A tiling pattern is a content stream, read against its own resources where it
+            // states them — which is why a `/DefaultCMYK` on the page does not reach into one.
+            Object::Stream(stream) => {
+                let own = self.document.get_key(&stream.dict, "Resources");
+                let stated = own.as_dict().is_some();
+                let resources = own
+                    .as_dict()
+                    .cloned()
+                    .unwrap_or_else(|| context.resources.clone());
+                self.nested(
+                    &stream,
+                    id,
+                    &resources,
+                    context.page,
+                    context.depth,
+                    state,
+                    "a tiling pattern",
+                    stated,
+                );
+            }
+            Object::Dictionary(dict) => self.shading(&dict, state, context),
+            _ => {}
+        }
+    }
+
+    /// A `sh` operator's operand, which names a shading in the resources.
+    fn shading_resource(&mut self, name: &[u8], state: &State, context: &Context<'_>) {
+        let Some(entry) = self.look_up("Shading", name, context, context.what) else {
+            return;
+        };
+        let dict = match self.document.resolve(&entry) {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => stream.dict.clone(),
+            _ => return,
+        };
+        self.record_shading_space(&dict, state, context);
+    }
+
+    /// A shading pattern's `/Shading`, which is where its colour space is stated.
+    fn shading(&mut self, pattern: &Dictionary, state: &State, context: &Context<'_>) {
+        let shading = self.document.get_key(pattern, "Shading");
+        let dict = match shading {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => stream.dict.clone(),
+            _ => return,
+        };
+        self.record_shading_space(&dict, state, context);
+    }
+
+    /// One shading dictionary's `/ColorSpace`: §8.7.4.3, Table 77.
+    fn record_shading_space(&mut self, shading: &Dictionary, state: &State, context: &Context<'_>) {
+        let Some(stated) = shading.get("ColorSpace") else {
+            return;
+        };
+        let stated = self.document.resolve(stated);
+        let place = Where::page(context.page);
+        self.record_space(
+            &stated,
+            &place,
+            context,
+            "a shading",
+            state.blending.kind,
+            state.blending.profile.as_ref(),
+        );
+    }
+
+    /// Records one device colour space selection at the site the walk is standing on.
+    fn record_colour(
+        &mut self,
+        used: (DeviceFamily, Route),
+        context: &Context<'_>,
+        what: &'static str,
+        blending: Option<SpaceKind>,
+    ) {
+        let place = Where::page(context.page);
+        self.push_colour(used, place, context, what, blending);
+    }
+
+    /// Every device colour space one named space reaches, recorded at this site.
+    fn record_space(
+        &mut self,
+        space: &Object,
+        place: &Where,
+        context: &Context<'_>,
+        what: &'static str,
+        blending: Option<SpaceKind>,
+        blending_profile: Option<&IccProfile>,
+    ) {
+        if let Some(profile) = icc_profile(self.document, space, context.resources, 0) {
+            self.push_icc(profile, place.clone(), context, what, blending_profile);
+        }
+        for used in device_uses(self.document, space, context.resources) {
+            self.push_colour(used, place.clone(), context, what, blending);
+        }
+    }
+
+    /// Records one `ICCBased` colour space selection, with the blending profile then in force.
+    fn push_icc(
+        &mut self,
+        profile: IccProfile,
+        place: Where,
+        context: &Context<'_>,
+        what: &'static str,
+        blending: Option<&IccProfile>,
+    ) {
+        let blending_id = blending.and_then(|blending| blending.id);
+        if !self.first_time(Observation::Icc(
+            context.page,
+            what,
+            profile.id,
+            blending_id,
+        )) {
+            return;
+        }
+        let mut place = place.named("ICCBased");
+        place.page = Some(context.page);
+        self.survey.icc.push(IccSelection {
+            page: context.page,
+            place,
+            what,
+            profile,
+            blending: blending.cloned(),
+        });
+    }
+
+    /// The same, where the caller has a better witness than the page index.
+    fn push_colour(
+        &mut self,
+        used: (DeviceFamily, Route),
+        place: Where,
+        context: &Context<'_>,
+        what: &'static str,
+        blending: Option<SpaceKind>,
+    ) {
+        let (family, via) = used;
+        let default = context.defaults[family.index()];
+        if !self.first_time(Observation::Colour(
+            context.page,
+            family,
+            via,
+            what,
+            default,
+            blending,
+        )) {
+            return;
+        }
+        let mut place = place.named(family.name());
+        place.page = Some(context.page);
+        self.survey.colours.push(DeviceColour {
+            family,
+            page: context.page,
+            place,
+            what,
+            via,
+            default,
+            blending,
+        });
+    }
+
+    /// Looks one named resource up in the resources in force, recording a miss.
+    ///
+    /// ISO 32000-2 §7.8.3 makes a resource dictionary a table of subdictionaries keyed by
+    /// category, so a name that reaches no entry is a name the content stream referenced and its
+    /// resources did not define — which is the whole of ISO 19005-4 §6.2.2's third sentence.
+    fn look_up(
+        &mut self,
+        category: &'static str,
+        name: &[u8],
+        context: &Context<'_>,
+        what: &'static str,
+    ) -> Option<Object> {
+        // The name was referenced whether or not the resources define it, which is the fact
+        // ISO 19005 §6.2.2's second requirement turns on.
+        if let Some(record) = context.record
+            && let Some(opened) = self.survey.streams.get_mut(record)
+        {
+            opened.referenced = true;
+        }
+        let table = self.document.get_key(context.resources, category);
+        let found = table
+            .as_dict()
+            .and_then(|table| table.get_by_name(&Name::new(name.to_vec())))
+            .cloned();
+        if found.is_none() {
+            let printed = String::from_utf8_lossy(name).into_owned();
+            if self.first_time(Observation::Missing(
+                context.page,
+                category,
+                printed.clone(),
+            )) {
+                self.survey.missing.push(MissingResource {
+                    page: context.page,
+                    category,
+                    name: printed,
+                    what,
+                });
+            }
+        }
+        found
+    }
+
+    /// Whether an observation is new, and worth the entry it would cost.
+    fn first_time(&mut self, observation: Observation) -> bool {
+        self.seen.len() < MAX_OBSERVATIONS && self.seen.insert(observation)
+    }
+
+    /// §8.6.5.6's default colour space for one family, as the resources in force state it.
+    fn default_space(&self, resources: &Dictionary, family: DeviceFamily) -> Option<SpaceKind> {
+        let table = self.document.get_key(resources, "ColorSpace");
+        let stated = table.as_dict()?.get(family.default_key())?.clone();
+        let stated = self.document.resolve(&stated);
+        Some(classify(self.document, &stated, resources, 0))
+    }
+
+    /// Opens one nested content stream and runs it against the resources given.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the walk's whole context travels together, and naming a struct for one call \
+                  site would hide which of the seven a caller changed"
+    )]
+    fn nested(
+        &mut self,
+        stream: &Stream,
+        id: Option<ObjectId>,
+        resources: &Dictionary,
+        page: usize,
+        depth: u32,
+        state: &State,
+        description: &'static str,
+        own_resources: bool,
+    ) {
+        if depth >= MAX_FORM_DEPTH || self.opened >= MAX_STREAMS {
+            return;
+        }
+        // A stream reached twice on one page draws the same marks twice, and following it once
+        // is what stops a `/Resources` cycle from becoming an unbounded walk.
+        if let Some(id) = id
+            && !self.visited.insert((page, id))
+        {
+            return;
+        }
+        let Ok(content) = NestedContent::of(self.document, stream, description.to_owned()) else {
+            return;
+        };
+        self.opened = self.opened.saturating_add(1);
+        let place = id.map_or_else(|| Where::page(page), Where::object);
+        let origin = self.open_record(page, place, description, own_resources);
+        let mut reader = content.reader();
+        self.run(
+            &mut reader,
+            resources,
+            page,
+            depth.saturating_add(1),
+            state,
+            origin,
+        );
+    }
+}
+
+/// The operands standing before an operator that this walk keeps.
+struct Operands<'a> {
+    /// The names, at most the first two.
+    names: &'a [Vec<u8>],
+    /// Every string operand, which is what a text-showing operator draws.
+    strings: &'a [Vec<u8>],
+    /// The last integer.
+    integer: Option<i64>,
+}
+
+impl Operands<'_> {
+    /// The first name operand, which `Tf`, `Do`, `gs`, `cs` and `sh` each take.
+    fn first(&self) -> Option<&Vec<u8>> {
+        self.names.first()
+    }
+
+    /// The last name operand, which is where `scn` states a pattern.
+    fn last(&self) -> Option<&Vec<u8>> {
+        self.names.last()
+    }
+}
+
+/// Where in the document the walk is standing.
+struct Context<'a> {
+    /// The resource dictionary in force.
+    resources: &'a Dictionary,
+    /// §8.6.5.6's three default colour spaces, as the resources in force state them.
+    ///
+    /// Read once when the stream is opened rather than once per colour operator, and that is a
+    /// measured decision: ISO 32000-2's own specification selects a device colour space 317 127
+    /// times over its 1 023 pages, and resolving `/ColorSpace` out of the resources at each of
+    /// them clones a dictionary that cannot have changed — the resource dictionary in force is
+    /// fixed for the length of one content stream. Indexed by [`DeviceFamily::index`].
+    defaults: [Option<SpaceKind>; 3],
+    /// The zero-based index of the page the content is drawn on.
+    page: usize,
+    /// How many nested streams deep the walk is.
+    depth: u32,
+    /// What kind of content stream is being read, for the sentence a finding prints.
+    what: &'static str,
+    /// The stream's entry in [`Survey::streams`], for [`Walk::look_up`] to mark.
+    record: Option<usize>,
+}
+
+/// Whether a dictionary's `BM` entry sets a blend mode other than `Normal`.
+///
+/// ISO 32000-2 Annex Q.2's fourth condition, applied to the two dictionaries that carry the
+/// entry: a graphics state parameter dictionary (§8.4.5) and, since PDF 2.0, an annotation
+/// (§12.5.2). `Compatible` is treated as `Normal` because §11.3.5 defines it as that mode under
+/// its older name, so a file that states it has not asked for a blend at all. The array form is
+/// the older one, whose entries a processor picks the first recognised mode from.
+fn blends(document: &Document, dict: &Dictionary) -> bool {
+    let other_than_normal = |object: &Object| {
+        object
+            .as_name()
+            .is_some_and(|mode| mode.as_bytes() != b"Normal" && mode.as_bytes() != b"Compatible")
+    };
+    match &document.get_key(dict, "BM") {
+        Object::Array(modes) => modes
+            .iter()
+            .any(|mode| other_than_normal(&document.resolve(mode))),
+        stated => other_than_normal(stated),
+    }
+}
+
+/// Whether a number-valued entry is present and less than one, for Annex Q.2's `ca` and `CA`.
+fn below_one(object: &Object) -> bool {
+    object.as_number().is_some_and(|value| value < 1.0)
+}
+
+/// Resolves a colour space operand to the object that defines it.
+///
+/// A `cs` operand is either one of §8.6.8's four family names — which name the space directly —
+/// or a key into the `/ColorSpace` subdictionary of the resources (§7.8.3).
+fn resolve_space(
+    document: &Document,
+    object: &Object,
+    resources: &Dictionary,
+    depth: usize,
+) -> Object {
+    if depth > MAX_SPACE_DEPTH {
+        return Object::Null;
+    }
+    let resolved = document.resolve(object);
+    let Some(name) = resolved.as_name() else {
+        return resolved;
+    };
+    if names_a_family(name.as_bytes()) {
+        return resolved;
+    }
+    let table = document.get_key(resources, "ColorSpace");
+    let Some(entry) = table.as_dict().and_then(|table| table.get_by_name(name)) else {
+        return resolved;
+    };
+    resolve_space(document, entry, resources, depth.saturating_add(1))
+}
+
+/// Whether a `cs` operand is one of the family names §8.6.8 lets a content stream use directly.
+fn names_a_family(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"DeviceGray" | b"DeviceRGB" | b"DeviceCMYK" | b"Pattern" | b"G" | b"RGB" | b"CMYK"
+    )
+}
+
+/// Whether a resolved colour space is a `Pattern` space: §8.7.3.
+fn is_pattern(document: &Document, space: &Object) -> bool {
+    match space {
+        Object::Name(name) => name.as_bytes() == b"Pattern",
+        Object::Array(items) => items
+            .first()
+            .map(|first| document.resolve(first))
+            .and_then(|first| first.as_name().map(|name| name.as_bytes() == b"Pattern"))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// What a colour space object is, for the requirements that tell device spaces from CIE-based
+/// ones.
+///
+/// Names are looked up in the resources' `/ColorSpace` subdictionary, an `Indexed` space answers
+/// with its base and a `Pattern` space with its underlying space, because ISO 19005 §6.2.4.5
+/// makes the requirements of §6.2.4 apply to exactly those.
+pub(crate) fn classify(
+    document: &Document,
+    space: &Object,
+    resources: &Dictionary,
+    depth: usize,
+) -> SpaceKind {
+    if depth > MAX_SPACE_DEPTH {
+        return SpaceKind::Unknown;
+    }
+    let space = resolve_space(document, space, resources, 0);
+    match &space {
+        Object::Name(name) => match name.as_bytes() {
+            b"DeviceGray" | b"G" => SpaceKind::Device(DeviceFamily::Gray),
+            b"DeviceRGB" | b"RGB" => SpaceKind::Device(DeviceFamily::Rgb),
+            b"DeviceCMYK" | b"CMYK" => SpaceKind::Device(DeviceFamily::Cmyk),
+            _ => SpaceKind::Unknown,
+        },
+        Object::Array(items) => classify_array(document, items, resources, depth),
+        _ => SpaceKind::Unknown,
+    }
+}
+
+/// Every device colour space one colour space object reaches, and by which route.
+///
+/// A device space names itself; an `Indexed` or `Pattern` space is asked for the space beneath
+/// it, which ISO 19005 §6.2.4.5 makes subject to the same restrictions; a `Separation` or
+/// `DeviceN` space is asked for its alternate, which §6.2.4.4 makes subject to §6.2.4.3.
+pub(crate) fn device_uses(
+    document: &Document,
+    space: &Object,
+    resources: &Dictionary,
+) -> Vec<(DeviceFamily, Route)> {
+    let mut found = Vec::new();
+    collect_uses(document, space, resources, Route::Direct, 0, &mut found);
+    found
+}
+
+/// One colour space object's contribution to [`device_uses`].
+fn collect_uses(
+    document: &Document,
+    space: &Object,
+    resources: &Dictionary,
+    route: Route,
+    depth: usize,
+    found: &mut Vec<(DeviceFamily, Route)>,
+) {
+    if depth > MAX_SPACE_DEPTH {
+        return;
+    }
+    let space = resolve_space(document, space, resources, 0);
+    let deeper = depth.saturating_add(1);
+    let items = match &space {
+        Object::Name(_) => {
+            if let SpaceKind::Device(family) = classify(document, &space, resources, depth) {
+                found.push((family, route));
+            }
+            return;
+        }
+        Object::Array(items) => items,
+        _ => return,
+    };
+    let Some(family) = items.first().map(|first| document.resolve(first)) else {
+        return;
+    };
+    let Some(family) = family.as_name().map(|name| name.as_bytes().to_vec()) else {
+        return;
+    };
+    match family.as_slice() {
+        b"DeviceGray" | b"G" => found.push((DeviceFamily::Gray, route)),
+        b"DeviceRGB" | b"RGB" => found.push((DeviceFamily::Rgb, route)),
+        b"DeviceCMYK" | b"CMYK" => found.push((DeviceFamily::Cmyk, route)),
+        b"Indexed" | b"I" | b"Pattern" => {
+            if let Some(base) = items.get(1) {
+                collect_uses(document, base, resources, route.under(), deeper, found);
+            }
+        }
+        // §8.6.6.4, Table 74: the alternate space is the third element of both arrays.
+        b"Separation" | b"DeviceN" => {
+            if let Some(alternate) = items.get(2) {
+                collect_uses(
+                    document,
+                    alternate,
+                    resources,
+                    Route::Alternate,
+                    deeper,
+                    found,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The array form of a colour space: §8.6, Table 61.
+fn classify_array(
+    document: &Document,
+    items: &[Object],
+    resources: &Dictionary,
+    depth: usize,
+) -> SpaceKind {
+    let Some(family) = items.first().map(|first| document.resolve(first)) else {
+        return SpaceKind::Unknown;
+    };
+    let Some(family) = family.as_name().map(|name| name.as_bytes().to_vec()) else {
+        return SpaceKind::Unknown;
+    };
+    let deeper = depth.saturating_add(1);
+    match family.as_slice() {
+        b"DeviceGray" | b"G" => SpaceKind::Device(DeviceFamily::Gray),
+        b"DeviceRGB" | b"RGB" => SpaceKind::Device(DeviceFamily::Rgb),
+        b"DeviceCMYK" | b"CMYK" => SpaceKind::Device(DeviceFamily::Cmyk),
+        b"CalGray" => SpaceKind::Independent(Some(DeviceFamily::Gray)),
+        b"CalRGB" => SpaceKind::Independent(Some(DeviceFamily::Rgb)),
+        // §8.6.5.4's Lab has three components and is not an RGB-based space, and §11.3.4 bars
+        // it from being a blending space at all — so it is independent of no family.
+        b"Lab" => SpaceKind::Independent(None),
+        b"ICCBased" => SpaceKind::Independent(icc_components(document, items.get(1))),
+        b"Indexed" | b"I" => items.get(1).map_or(SpaceKind::Unknown, |base| {
+            classify(document, base, resources, deeper)
+        }),
+        b"Pattern" => items.get(1).map_or(SpaceKind::Unknown, |base| {
+            classify(document, base, resources, deeper)
+        }),
+        b"Separation" | b"DeviceN" => SpaceKind::Colourant,
+        _ => SpaceKind::Unknown,
+    }
+}
+
+/// Which family an `ICCBased` space's component count corresponds to: §8.6.5.5, Table 66's `N`.
+fn icc_components(document: &Document, stream: Option<&Object>) -> Option<DeviceFamily> {
+    let stream = document.resolve(stream?);
+    let Object::Stream(stream) = stream else {
+        return None;
+    };
+    icc_family(document, &stream.dict)
+}
+
+/// The same, from the profile stream's dictionary.
+fn icc_family(document: &Document, dict: &Dictionary) -> Option<DeviceFamily> {
+    match document.get_key(dict, "N").as_integer() {
+        Some(1) => Some(DeviceFamily::Gray),
+        Some(3) => Some(DeviceFamily::Rgb),
+        Some(4) => Some(DeviceFamily::Cmyk),
+        _ => None,
+    }
+}
+
+/// The profile an `ICCBased` colour space is formed from, where the space is one.
+///
+/// The base of an `Indexed` space and the underlying space of a `Pattern` are descended into,
+/// because ISO 19005 §6.2.4.5 subjects exactly those to the rest of §6.2.4 — which is the same
+/// reason [`classify`] descends into them. A `Separation` or `DeviceN` alternate is *not*: what
+/// §6.2.4.4 sends to §6.2.4.2 is the alternate space's own conformance, and a colourant space
+/// paints through its tint transform rather than in the alternate directly, so treating the
+/// alternate as a profile the page paints with would report a use that never happened.
+fn icc_profile(
+    document: &Document,
+    space: &Object,
+    resources: &Dictionary,
+    depth: usize,
+) -> Option<IccProfile> {
+    if depth > MAX_SPACE_DEPTH {
+        return None;
+    }
+    let space = resolve_space(document, space, resources, 0);
+    let Object::Array(items) = &space else {
+        return None;
+    };
+    let family = items.first().map(|first| document.resolve(first))?;
+    let family = family.as_name()?.as_bytes().to_vec();
+    match family.as_slice() {
+        b"ICCBased" => {
+            let entry = items.get(1)?;
+            let id = entry.as_reference();
+            let Object::Stream(stream) = document.resolve(entry) else {
+                return None;
+            };
+            let family = icc_family(document, &stream.dict);
+            Some(IccProfile { id, stream, family })
+        }
+        b"Indexed" | b"I" | b"Pattern" => {
+            icc_profile(document, items.get(1)?, resources, depth.saturating_add(1))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_syntax::{Dictionary, Document, Name, Object};
+
+    use super::{DeviceFamily, Route, SpaceKind, Survey, classify, device_uses};
+
+    /// A file assembled from object bodies, with a cross-reference table over them.
+    ///
+    /// The walk's whole subject is what a real content stream does, so the shortest honest
+    /// fixture is a real file the real parser opens.
+    fn document_of(objects: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let number = index.saturating_add(1);
+            let _ = writeln!(out, "{number} 0 obj {body} endobj");
+        }
+        let start = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer << /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).unwrap_or_else(|_| Document::empty())
+    }
+
+    /// One page whose content and resources are the test's, with a stream of the right length.
+    fn page_with(content: &str, page_extra: &str, more: &[&str]) -> Document {
+        let stream = format!(
+            "<< /Length {} >> stream\n{content}\nendstream",
+            content.len()
+        );
+        let page = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R {page_extra} >>"
+        );
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            page,
+            stream,
+        ];
+        objects.extend(more.iter().map(|body| (*body).to_owned()));
+        let borrowed: Vec<&str> = objects.iter().map(String::as_str).collect();
+        document_of(&borrowed)
+    }
+
+    /// An array object written as source, for the classifier's tests.
+    fn parsed(document: &Document, index: usize) -> Object {
+        document.get(pdf_syntax::ObjectId::new(
+            u32::try_from(index).unwrap_or(1),
+            0,
+        ))
+    }
+
+    /// §6.2.4.4's alternate space and §6.2.4.5's base are found, and each says how it was
+    /// reached — which is what makes the three subclauses three rows over one walk.
+    #[test]
+    fn a_device_space_carries_the_route_that_reached_it() {
+        let document = document_of(&[
+            "<< /Type /Catalog >>",
+            "[/Indexed /DeviceRGB 1 <00>]",
+            "[/Separation /Spot /DeviceCMYK 5 0 R]",
+            "[/ICCBased 6 0 R]",
+            "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>",
+            "<< /N 3 /Length 0 >> stream\n\nendstream",
+        ]);
+        let resources = Dictionary::new();
+        assert_eq!(
+            device_uses(&document, &parsed(&document, 2), &resources),
+            vec![(DeviceFamily::Rgb, Route::Underlying)],
+            "an Indexed base is §6.2.4.5's underlying space"
+        );
+        assert_eq!(
+            device_uses(&document, &parsed(&document, 3), &resources),
+            vec![(DeviceFamily::Cmyk, Route::Alternate)],
+            "a Separation's third element is §6.2.4.4's alternate space"
+        );
+        assert!(
+            device_uses(&document, &parsed(&document, 4), &resources).is_empty(),
+            "an ICCBased space is not a device space at all"
+        );
+        assert_eq!(
+            classify(&document, &parsed(&document, 4), &resources, 0),
+            SpaceKind::Independent(Some(DeviceFamily::Rgb)),
+            "three components make it the RGB-based space §6.2.4.3's second licence names"
+        );
+    }
+
+    /// A name is a key into the resources' `/ColorSpace`, and one that reaches nothing is a
+    /// resource ISO 19005-4 §6.2.2 says the dictionary should have defined.
+    #[test]
+    fn a_colour_space_name_is_resolved_through_the_resources_and_a_miss_is_reported() {
+        let document = page_with(
+            "/CS0 cs 0 0 0 sc /Missing cs",
+            "/Resources << /ColorSpace << /CS0 /DeviceRGB >> >>",
+            &[],
+        );
+        let survey = Survey::of(&document);
+        assert_eq!(
+            survey
+                .device_colours()
+                .iter()
+                .filter(|colour| colour.family == DeviceFamily::Rgb)
+                .count(),
+            1,
+            "the named space is DeviceRGB"
+        );
+        let missing: Vec<&str> = survey
+            .missing_resources()
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(missing, vec!["Missing"]);
+    }
+
+    /// §8.6.5.6's default is read from the resources in force, and only its own family's key.
+    #[test]
+    fn the_default_in_force_is_reported_beside_the_colour_it_would_license() {
+        let document = page_with(
+            "1 0 0 rg 0 0 1 1 re B",
+            "/Resources << /ColorSpace << /DefaultRGB [/CalRGB << /WhitePoint [1 1 1] >>] >> >>",
+            &[],
+        );
+        let survey = Survey::of(&document);
+        let rgb = survey
+            .device_colours()
+            .iter()
+            .find(|colour| colour.family == DeviceFamily::Rgb)
+            .expect("the rg operator selects DeviceRGB");
+        assert_eq!(
+            rgb.default,
+            Some(SpaceKind::Independent(Some(DeviceFamily::Rgb)))
+        );
+        let gray = survey
+            .device_colours()
+            .iter()
+            .find(|colour| colour.family == DeviceFamily::Gray)
+            .expect("B strokes as well as fills, in §8.6.8's initial DeviceGray");
+        assert_eq!(gray.default, None, "no DefaultGray is in force");
+    }
+
+    /// ISO 32000-2 Annex Q.2's conditions, and the one that is not a condition.
+    #[test]
+    fn annex_q_finds_transparency_in_a_graphics_state_and_not_in_a_normal_blend() {
+        let transparent = page_with(
+            "/GS0 gs 0 0 1 1 re f",
+            "/Resources << /ExtGState << /GS0 << /ca 0.5 >> >> >>",
+            &[],
+        );
+        assert!(Survey::of(&transparent).page_is_transparent(0));
+
+        let opaque = page_with(
+            "/GS0 gs 0 0 1 1 re f",
+            "/Resources << /ExtGState << /GS0 << /ca 1 /BM /Normal >> >> >>",
+            &[],
+        );
+        assert!(!Survey::of(&opaque).page_is_transparent(0));
+    }
+
+    /// Annex Q.3: a form `XObject` that is a transparency group puts transparency on the page
+    /// it is placed on, whatever its own content does.
+    #[test]
+    fn a_transparency_group_xobject_makes_its_page_transparent() {
+        let document = page_with(
+            "/Fm0 Do",
+            "/Resources << /XObject << /Fm0 5 0 R >> >>",
+            &["<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] \
+               /Group << /S /Transparency /CS /DeviceRGB >> /Length 0 >> stream\n\nendstream"],
+        );
+        let survey = Survey::of(&document);
+        assert!(survey.page_is_transparent(0));
+        assert_eq!(
+            survey.group_spaces().len(),
+            1,
+            "the group's CS is recorded so §6.2.9's third paragraph can judge it"
+        );
+        assert_eq!(
+            survey.group_spaces()[0].kind,
+            SpaceKind::Device(DeviceFamily::Rgb)
+        );
+    }
+
+    /// ISO 32000-2 §11.6.6: an isolated group's own `CS` becomes the blending space, and a
+    /// non-isolated one inherits the page's instead.
+    #[test]
+    fn only_an_isolated_group_replaces_the_blending_colour_space() {
+        let page_group = "/Group << /S /Transparency /CS [/CalRGB << /WhitePoint [1 1 1] >>] >>";
+        let form = |isolated: &str| {
+            format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] \
+                 /Group << /S /Transparency /CS /DeviceCMYK {isolated} >> \
+                 /Length 9 >> stream\n1 0 0 rg\nendstream"
+            )
+        };
+        for (isolated, expected) in [
+            ("/I true", SpaceKind::Device(DeviceFamily::Cmyk)),
+            ("", SpaceKind::Independent(Some(DeviceFamily::Rgb))),
+        ] {
+            let body = form(isolated);
+            let document = page_with(
+                "/Fm0 Do",
+                &format!("/Resources << /XObject << /Fm0 5 0 R >> >> {page_group}"),
+                &[body.as_str()],
+            );
+            let survey = Survey::of(&document);
+            let inside = survey
+                .device_colours()
+                .iter()
+                .find(|colour| colour.family == DeviceFamily::Rgb)
+                .expect("the form's rg operator");
+            assert_eq!(inside.blending, Some(expected), "with {isolated:?}");
+        }
+    }
+
+    /// §8.6.8's initial colour space is a `DeviceGray` the file never named, and a page that
+    /// paints without selecting one is painting in it.
+    #[test]
+    fn painting_without_selecting_a_space_is_a_use_of_the_initial_one() {
+        let document = page_with("0 0 1 1 re f", "", &[]);
+        let survey = Survey::of(&document);
+        assert!(
+            survey
+                .device_colours()
+                .iter()
+                .any(|colour| colour.family == DeviceFamily::Gray && colour.via == Route::Direct),
+            "the initial DeviceGray is what the fill was painted in"
+        );
+    }
+
+    /// A font is recorded only where a show operator ran with it, which is the population
+    /// `super::super::table::fonts`' embedding rule needs.
+    #[test]
+    fn a_font_is_rendered_only_when_a_show_operator_ran_with_it() {
+        let document = page_with(
+            "BT /F0 12 Tf (a) Tj 3 Tr /F1 12 Tf (b) Tj ET",
+            "/Resources << /Font << /F0 5 0 R /F1 6 0 R >> >>",
+            &[
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            ],
+        );
+        let survey = Survey::of(&document);
+        let rendered: Vec<(&str, bool)> = survey
+            .fonts()
+            .map(|font| (font.name.as_str(), font.rendered))
+            .collect();
+        assert!(rendered.contains(&("F0", true)));
+        assert!(
+            rendered.contains(&("F1", false)),
+            "rendering mode 3 marks nothing"
+        );
+    }
+
+    /// A name that is not a colour space family is looked up, and `Name` is compared by bytes.
+    /// ISO 19005 §6.2.2 turns on two facts per stream, and ISO 32000-2 §7.8.3 is where the
+    /// second of them is defined: only a page dictionary may reach its resources by
+    /// inheritance, and even there the entry is not explicit.
+    #[test]
+    fn a_stream_is_reported_with_whether_it_named_a_resource_and_owned_its_dictionary() {
+        // The page states its own resources; the form does not, and names a colour space
+        // through them; the second form states none and names nothing.
+        let document = page_with(
+            "/X0 Do /X1 Do",
+            "/Resources << /XObject << /X0 5 0 R /X1 6 0 R >> \
+             /ColorSpace << /CS0 /DeviceRGB >> >>",
+            &[
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length 12 >> stream\n\
+                 /CS0 cs 0 sc\nendstream",
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length 8 >> stream\n\
+                 0 0 1 rg\nendstream",
+            ],
+        );
+        let survey = Survey::of(&document);
+        let opened: Vec<(&str, bool, bool)> = survey
+            .opened_streams()
+            .iter()
+            .map(|stream| (stream.what, stream.referenced, stream.own_resources))
+            .collect();
+        assert_eq!(
+            opened,
+            vec![
+                ("the page content", true, true),
+                ("a form XObject", true, false),
+                ("a form XObject", false, false),
+            ]
+        );
+    }
+
+    /// A page that inherits its resources from an ancestor of the page tree has no `Resources`
+    /// entry of its own, which is what ISO 32000-2 §7.8.3's first bullet permits and ISO 19005
+    /// §6.2.2 withdraws.
+    #[test]
+    fn a_page_that_inherits_its_resources_does_not_own_them() {
+        let document = document_of(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 \
+             /Resources << /ColorSpace << /CS0 /DeviceRGB >> >> >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>",
+            "<< /Length 12 >> stream\n/CS0 cs 0 sc\nendstream",
+        ]);
+        let survey = Survey::of(&document);
+        let opened = survey.opened_streams();
+        assert_eq!(opened.len(), 1);
+        assert!(opened[0].referenced, "the content names /CS0");
+        assert!(
+            !opened[0].own_resources,
+            "the entry is on the page tree node rather than on the page"
+        );
+    }
+
+    /// ISO 32000-2 §8.6.7 makes overprint mode act on a mark rather than on a selection, and
+    /// Table 58 pairs `OP` with stroking and `op` with everything else.
+    #[test]
+    fn an_icc_cmyk_mark_carries_the_overprint_parameters_of_the_side_that_painted() {
+        // Both spaces are the four-component ICCBased one; only the fill is painted.
+        let document = page_with(
+            "/GS0 gs /CS0 CS /CS0 cs 0 0 0 0 scn 0 0 1 1 re f",
+            "/Resources << /ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+             /ExtGState << /GS0 << /OP true /op false /OPM 1 >> >> >>",
+            &["<< /N 4 /Length 4 >> stream\nabcd\nendstream"],
+        );
+        let survey = Survey::of(&document);
+        let marks: Vec<(bool, bool, i64)> = survey
+            .icc_cmyk_paints()
+            .iter()
+            .map(|paint| (paint.stroking, paint.overprinting, paint.mode))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![(false, false, 1)],
+            "the stroking space was never stroked with, and `op` governs the fill"
+        );
+    }
+
+    /// Table 58: an `OP` entry with no `op` beside it sets both overprint parameters.
+    #[test]
+    fn an_overprint_entry_without_its_lower_case_twin_sets_both_parameters() {
+        let document = page_with(
+            "/GS0 gs /CS0 cs 0 0 0 0 scn 0 0 1 1 re f",
+            "/Resources << /ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+             /ExtGState << /GS0 << /OP true /OPM 1 >> >> >>",
+            &["<< /N 4 /Length 4 >> stream\nabcd\nendstream"],
+        );
+        let survey = Survey::of(&document);
+        let marks: Vec<(bool, bool, i64)> = survey
+            .icc_cmyk_paints()
+            .iter()
+            .map(|paint| (paint.stroking, paint.overprinting, paint.mode))
+            .collect();
+        assert_eq!(marks, vec![(false, true, 1)]);
+    }
+
+    /// The selection is what ISO 19005-4 §6.2.4.2's last requirement binds, so a profile that
+    /// only sits in a resource dictionary is not one.
+    #[test]
+    fn an_icc_space_is_recorded_where_the_content_selects_it_and_not_where_it_only_sits() {
+        let selected = page_with(
+            "/CS0 cs 0 0 0 0 scn",
+            "/Resources << /ColorSpace << /CS0 [/ICCBased 5 0 R] >> >>",
+            &["<< /N 4 /Length 4 >> stream\nabcd\nendstream"],
+        );
+        let survey = Survey::of(&selected);
+        assert_eq!(survey.icc_selections().len(), 1);
+        assert_eq!(
+            survey.icc_selections()[0].profile.family,
+            Some(DeviceFamily::Cmyk)
+        );
+        let unused = page_with(
+            "0 0 0 0 k",
+            "/Resources << /ColorSpace << /CS0 [/ICCBased 5 0 R] >> >>",
+            &["<< /N 4 /Length 4 >> stream\nabcd\nendstream"],
+        );
+        assert!(Survey::of(&unused).icc_selections().is_empty());
+    }
+
+    #[test]
+    fn the_family_names_are_the_ones_the_base_standard_lets_a_stream_use_directly() {
+        assert!(super::names_a_family(b"DeviceCMYK"));
+        assert!(super::names_a_family(b"Pattern"));
+        assert!(!super::names_a_family(b"CS0"));
+        let _ = Name::new(b"CS0".to_vec());
+    }
+}

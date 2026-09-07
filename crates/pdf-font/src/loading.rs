@@ -33,6 +33,7 @@ use crate::composite::{
 };
 use crate::encoding;
 use crate::glyph_names::GlyphNames;
+use crate::metrics;
 use crate::metrics::{
     NO_STRETCH, SimpleMetrics, Vertical, composite_widths, missing_width, narrow, simple_advances,
     vertical_extent,
@@ -46,6 +47,7 @@ use crate::substituted::{
     wound_counter_clockwise,
 };
 use crate::tounicode;
+use crate::truetype;
 use crate::truetype::{invert_charmap, truetype_code_table};
 use crate::type1;
 use crate::vertical::{Downward, Form, VerticalForms};
@@ -1305,6 +1307,124 @@ impl LoadedFont {
     #[must_use]
     pub fn program_bytes(&self) -> usize {
         self.data.len()
+    }
+
+    /// The advance the *embedded font program* states for a code, in the units
+    /// [`Self::advance`] answers in: one em is 1.0.
+    ///
+    /// The two are the two halves of ISO 32000-2 §9.6.2.1's Table 109 —
+    ///
+    /// > These widths shall be consistent with the actual widths given in the font program.
+    ///
+    /// — and [`Self::advance`] is the *document's* half: it resolves `/Widths` or `/W`, because
+    /// that is what a page is laid out by and what a renderer must obey. This is the other
+    /// half, read out of the program's `hmtx` record or its charstring's leading width operand,
+    /// so that a caller comparing the two is comparing two statements rather than one with
+    /// itself.
+    ///
+    /// It exists for the callers that have to make exactly that comparison: ISO 19005-2
+    /// §6.2.11.5 and ISO 19005-4 §6.2.10.5 require the two to agree to within a thousandth of a
+    /// text-space unit, and `pdf-model/tests/composite_fonts.rs` asks the same question of the
+    /// corpus by reading `hmtx` by hand. A conformance check reading it a second time would
+    /// have been a second font reader in a crate whose whole design says it has none.
+    ///
+    /// # `None` is an answer about this reader, never about the file
+    ///
+    /// Every refusal below exists so that a caller reporting a disagreement is reporting the
+    /// producer's, and each one is a way this could otherwise accuse a sound file:
+    ///
+    /// - **A substituted font.** The advances would be the stand-in face's, which is a fact
+    ///   about this machine ([`Self::is_substituted`]).
+    /// - **A repaired CID-keyed CFF.** [`Self::repair_shortfall`] says what was done: the Font
+    ///   DICTs that could not be read were replaced by empty ones, and a Type 2 charstring's
+    ///   advance is decided by its Private DICT's `defaultWidthX` and `nominalWidthX` — so the
+    ///   number that came back would be this crate's rather than the program's.
+    /// - **A bare Type 1 program**, whose `hsbw` width this crate does not read.
+    /// - **A code that reaches no glyph, or reaches `.notdef`.** §9.7.6.3's CID-0 fallback and
+    ///   §9.6.5.2's `.notdef` substitution are what happens when the font is *drawn*; here they
+    ///   are not applied, and a code the tables send to glyph 0 outright is declined for the
+    ///   same reason [`crate::metrics`]'s substitute scale declines it — that glyph is what a
+    ///   character the program does not have resolves to, so its advance is a statement about
+    ///   absence rather than about this code.
+    ///
+    /// A Type 3 font never reaches this method at all — [`Self::load`] refuses one with
+    /// [`FontError::Type3`], its glyphs being content streams rather than a program.
+    #[must_use]
+    pub fn program_advance(&self, code: Code) -> Option<f32> {
+        let glyph = self.program_glyph(code)?;
+        let advance = metrics::program_advance(self.program, &self.data, glyph)?;
+        self.in_ems(advance)
+    }
+
+    /// The vertical displacement the *embedded font program* states for a code, in the units
+    /// [`Self::vertical_metrics`] answers in and with its sign convention: downward is negative.
+    ///
+    /// The program-side counterpart of the first number [`Self::vertical_metrics`] returns.
+    /// That method resolves §9.7.4.3's `/DW2` and `/W2`, which are the *`CIDFont` dictionary's*
+    /// statement of `w1`; this reads OpenType's `vmtx`, which is the program's. ISO 19005-4
+    /// §6.2.10.5 requires the two to agree where the program states them at all, and there is
+    /// no way to ask that question of one number.
+    ///
+    /// `None` where the program states nothing — which is the common case, since a face never
+    /// meant to be set vertically carries no `vmtx` — and for every refusal
+    /// [`Self::program_advance`] lists, for the same reasons. It is deliberately *not* gated on
+    /// [`Self::is_vertical`]: whether the file shows the font in writing mode 1 is the caller's
+    /// question, and this answers only what the program says.
+    #[must_use]
+    pub fn program_vertical_advance(&self, code: Code) -> Option<f32> {
+        let glyph = self.program_glyph(code)?;
+        let height = metrics::program_advance_height(self.program, &self.data, glyph)?;
+        // `vmtx` states a distance and §9.7.4.3 states a displacement, which for writing mode 1
+        // runs down the page; the sign is PDF's convention rather than the table's.
+        self.in_ems(-height)
+    }
+
+    /// The `cmap` subtables the embedded program carries, as platform and encoding ID pairs.
+    ///
+    /// ISO 32000-2 §9.6.5.4 names the subtables it uses by exactly those two numbers, and so
+    /// do the requirements written on top of it — ISO 19005-2 §6.2.11.6 and ISO 19005-4
+    /// §6.2.10.6 among them. This crate's own reader keeps only the three the subclause's
+    /// algorithm needs; a caller asking what a font *contains* rather than what it can draw
+    /// needs the whole list, in the table's order.
+    ///
+    /// `None` for a font whose program is not an sfnt — a bare CFF or Type 1 program has
+    /// nowhere to put a `cmap` — and for a substituted one, whose tables are this machine's.
+    /// An sfnt carrying no `cmap` at all is an empty list, which is a statement about the file.
+    #[must_use]
+    pub fn program_cmap_subtables(&self) -> Option<Vec<(u16, u16)>> {
+        if self.substituted {
+            return None;
+        }
+        truetype::cmap_subtables(&self.data)
+    }
+
+    /// The glyph a code selects **in the producer's own program**, or nothing.
+    ///
+    /// Deliberately stricter than [`Self::glyph_for`], which answers what gets *drawn* and
+    /// therefore applies §9.7.6.3's fallbacks to CID 0. The two advance methods above compare a
+    /// number the program states against a number the document states, and a fallback glyph's
+    /// metrics are a statement about a code the font does not have. See
+    /// [`Self::program_advance`] for the whole list of what this declines and why.
+    fn program_glyph(&self, code: Code) -> Option<u16> {
+        if self.substituted || self.font_dicts.is_some() {
+            return None;
+        }
+        let glyph = match &self.mapping {
+            CodeMapping::Named(table) => *table.get(usize::try_from(code.value()).ok()?)?,
+            CodeMapping::Composite { cmap, glyphs } => {
+                cmap.cid(code).and_then(|cid| glyphs.glyph(cid))
+            }
+            CodeMapping::Substituted { .. } => None,
+        }?;
+        (glyph != NOTDEF_GLYPH).then_some(glyph)
+    }
+
+    /// One of the program's own units as a fraction of the em, for the two advance methods above.
+    ///
+    /// `None` for a program stating no em square, which no reader here produces and which would
+    /// otherwise divide by zero.
+    fn in_ems(&self, units: f32) -> Option<f32> {
+        (self.units_per_em > 0.0).then(|| units / self.units_per_em)
     }
 
     /// What was done to read the program at all, where its own Font DICTs could not be.
@@ -2742,6 +2862,73 @@ mod simple_font_subtype_tests {
         assert!(
             (top - 0.4).abs() < 1e-3,
             "the skeleton is drawn when the program cannot run: {top}"
+        );
+    }
+
+    /// The program's own advance is a second number, and it is not the dictionary's.
+    ///
+    /// The whole reason [`LoadedFont::program_advance`] exists: ISO 32000-2 §9.6.2.1's Table 109
+    /// requires a file's stated widths to be "consistent with the actual widths given in the
+    /// font program", and a check of that needs both statements. The fixture states no
+    /// `/Widths` at all, so Table 120's `/MissingWidth` default of 0 is the dictionary's answer
+    /// while the program's `hmtx` says 500 of its 1000 units per em — half an em apart, which
+    /// is what a caller comparing them has to be able to see.
+    #[test]
+    fn the_program_states_an_advance_of_its_own() {
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("Ordinary", &[]),
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture font loads");
+        let code = crate::Code::single_byte(0x41);
+        assert!(
+            (font.advance(code) - 0.0).abs() < 1e-6,
+            "the dictionary states none"
+        );
+        let program = font
+            .program_advance(code)
+            .expect("the hmtx record is there");
+        assert!(
+            (program - 0.5).abs() < 1e-6,
+            "half an em, from hmtx: {program}"
+        );
+    }
+
+    /// A code the program's own tables do not reach has no advance to compare against.
+    ///
+    /// The fixture's `cmap` is a format 0 table listing code 0x41 and sending every other code
+    /// to glyph 0, which is where §9.6.5.2 puts a character the program does not have.
+    /// Answering with that glyph's advance would be a statement about `.notdef` dressed up as
+    /// one about this character, and the fixture makes the mistake invisible on purpose: its
+    /// `hmtx` gives glyph 0 the same 500 units as the glyph that is really there.
+    #[test]
+    fn a_code_the_program_does_not_reach_has_no_program_advance() {
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("Ordinary", &[]),
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture font loads");
+        assert_eq!(font.program_advance(crate::Code::single_byte(0x42)), None);
+    }
+
+    /// The `cmap` inventory is the pairs the table states, in its own order.
+    ///
+    /// ISO 32000-2 §9.6.5.4 names its subtables by platform and encoding ID, and so do the
+    /// requirements written on top of it; the fixture carries exactly one, Macintosh Roman.
+    /// A program with no `vmtx` states no vertical advance, which is a different answer from a
+    /// disagreement and is what the third assertion pins.
+    #[test]
+    fn the_program_reports_the_cmap_subtables_it_carries() {
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("Ordinary", &[]),
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture font loads");
+        assert_eq!(font.program_cmap_subtables(), Some(vec![(1, 0)]));
+        assert_eq!(
+            font.program_vertical_advance(crate::Code::single_byte(0x41)),
+            None,
+            "the fixture has no vmtx"
         );
     }
 }

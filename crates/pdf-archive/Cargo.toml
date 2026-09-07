@@ -1,0 +1,29 @@
+[package]
+name = "pdf-archive"
+description = "Decides whether a document conforms to a stated part and level of ISO 19005 (PDF/A), and reports which requirement it fails and where."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The readers a conformance verdict is made of, and nothing else. `pdf-syntax` answers the
+# clauses about the file's own shape — the trailer, the filters, the object numbering — and
+# `pdf-model` answers everything above it: colour spaces, fonts, annotations, metadata, the
+# structure tree. This crate adds no reader of its own, which is the whole design: a PDF/A
+# requirement is a *question asked of readers this tree already has*, and one that needed a new
+# reader would be a gap in `pdf-model` rather than a feature here.
+#
+# `pdf-font` is the third, and it is here because ISO 19005's font subclause asks questions no
+# dictionary can answer: which glyph a character code reaches (6.2.11.8 / 6.2.10.9), what write
+# mode a CMap program states (6.2.11.3.3 / 6.2.10.3.3), and whether a glyph name is one the
+# Adobe Glyph List holds (6.2.11.6 / 6.2.10.6). Every one of those is a reader this tree already
+# has, reached directly rather than through `pdf-model`, which re-exports none of it — so the
+# rule above is kept rather than bent: nothing new is written here to answer them.
+[dependencies]
+pdf-font.workspace = true
+pdf-model.workspace = true
+pdf-syntax.workspace = true
+
+[lints]
+workspace = true

@@ -84,6 +84,44 @@ impl<'a> Subtables<'a> {
     }
 }
 
+/// Every `cmap` subtable an sfnt carries, as the platform and encoding ID pair each states.
+///
+/// ISO 32000-2 §9.6.5.4 names its subtables that way — "(3, 0) (Windows, Symbol)", "(3, 1)
+/// (Windows, Unicode)", "(1, 0) (Macintosh, Roman)" — and so does every requirement written on
+/// top of it, so this reports the pairs rather than a verdict about them. [`Subtables`] above
+/// keeps the three the subclause's *algorithm* needs and discards the rest; a caller asking
+/// what the font contains needs the rest.
+///
+/// The pairs are in the table's own order, and a record whose platform ID is none of the five
+/// the format defines is left out: `read-fonts` maps an unrecognised one to a single `Unknown`
+/// variant, so its number cannot be reported and inventing one would be worse than omitting it.
+///
+/// `None` means the bytes are not an sfnt at all — a bare CFF or Type 1 program has nowhere to
+/// put a `cmap`, and that is a different answer from an sfnt that carries none, which is an
+/// empty list.
+pub(crate) fn cmap_subtables(data: &[u8]) -> Option<Vec<(u16, u16)>> {
+    let font = FontRef::new(data).ok()?;
+    let Ok(cmap) = font.cmap() else {
+        return Some(Vec::new());
+    };
+    Some(
+        cmap.encoding_records()
+            .iter()
+            .filter_map(|record| {
+                let platform = match record.platform_id() {
+                    PlatformId::Unicode => 0,
+                    PlatformId::Macintosh => 1,
+                    PlatformId::ISO => 2,
+                    PlatformId::Windows => 3,
+                    PlatformId::Custom => 4,
+                    PlatformId::Unknown => return None,
+                };
+                Some((platform, record.encoding_id()))
+            })
+            .collect(),
+    )
+}
+
 /// Resolves a simple font's character codes to glyphs in a `TrueType` or `OpenType` program.
 ///
 /// This is ISO 32000-2 §9.6.5.4, whose shape is easy to lose: a `cmap` is *not* indexed by

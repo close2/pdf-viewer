@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 
 use pdf_syntax::{Dictionary, Document, Object};
 use skrifa::prelude::{LocationRef, Size};
+use skrifa::raw::TableProvider;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::cff;
@@ -334,6 +335,71 @@ fn program_widths(
         widths.insert(*code, advance / font.units_per_em * 1000.0);
     }
     widths
+}
+
+/// One glyph's advance as the *embedded font program* states it, in the program's own units.
+///
+/// The second of the two numbers ISO 32000-2 §9.6.2.1's Table 109 requires to agree:
+///
+/// > These widths shall be consistent with the actual widths given in the font program.
+///
+/// Everything else in this module resolves the *document's* statement, because that is what a
+/// page is laid out by; this reads the program's, which is what makes the two comparable. It
+/// is the same quantity [`program_widths`] collects and deliberately not the same function:
+/// that one fills a whole table for a substituted font at load time and opens the program once
+/// for the batch, while this answers about one glyph and is asked by a caller — a conformance
+/// check — that has a handful of codes rather than 256.
+///
+/// `None` where this crate's reader for the format states no advance: a `TrueType` glyph
+/// outside `hmtx`, a Type 2 charstring that omits the leading width operand where the Private
+/// DICT supplies no `defaultWidthX`, or a bare Type 1 program, whose `hsbw` width this crate
+/// does not read (`read_fonts::ps::type1` gives it no accessor and [`crate::type1`] adds
+/// none). An absence here is a fact about this reader, never about the file.
+pub(crate) fn program_advance(program: Program, data: &[u8], glyph: u16) -> Option<f32> {
+    match program {
+        Program::Sfnt => {
+            let font = FontRef::new(data).ok()?;
+            // `hmtx` states one record per glyph only up to `numberOfHMetrics` and then bare
+            // side bearings, so a reader asked about a glyph past the end is handed the last
+            // record — the monospaced tail the format is defined with. That is the right answer
+            // for a glyph the font *has* and a wrong one for a glyph index past `maxp`, which is
+            // where a code resolved by something other than the font's own tables lands.
+            if u32::from(glyph) >= font.maxp().ok()?.num_glyphs().into() {
+                return None;
+            }
+            font.glyph_metrics(Size::unscaled(), LocationRef::default())
+                .advance_width(GlyphId::from(glyph))
+        }
+        Program::BareCff => cff::advances(data, &[glyph])
+            .ok()?
+            .first()
+            .copied()
+            .flatten(),
+        Program::Type1 => None,
+    }
+}
+
+/// One glyph's advance *height* as the embedded program states it, in the program's own units.
+///
+/// OpenType's `vmtx` is the program-side counterpart of §9.7.4.3's `w1` for a font shown in
+/// writing mode 1, and it is stated as a positive distance downward where `w1`'s vertical
+/// component is negative — the caller negates, because the sign is PDF's convention rather
+/// than the table's.
+///
+/// `None` for a program that carries no `vmtx`, which is most of them: a face that was never
+/// meant to be set vertically states nothing here, and that is an absence of a *statement*
+/// rather than a disagreement with one. `None` too for a bare CFF or Type 1 program, neither
+/// of which has anywhere to put the table.
+pub(crate) fn program_advance_height(program: Program, data: &[u8], glyph: u16) -> Option<f32> {
+    if program != Program::Sfnt {
+        return None;
+    }
+    let advance = FontRef::new(data)
+        .ok()?
+        .vmtx()
+        .ok()?
+        .advance(GlyphId::from(glyph))?;
+    Some(f32::from(advance))
 }
 
 /// Collects `/W` widths for a composite font.

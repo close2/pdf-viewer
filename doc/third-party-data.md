@@ -257,3 +257,116 @@ move.
 tables, built by `build.rs` from a pinned submodule. Vendored data arrives the same way: a
 checked-in tool, a pinned upstream revision recorded beside the bytes, the licence file verbatim
 next to what it covers.
+
+## The XMP Specification, read for a table of facts
+
+ISO 19005-2 §6.6.2.3.1 requires every XMP property to come from a predefined schema, and deciding
+that needs to know what those schemas *contain* — the corpus's 273 witnesses for the clause are
+almost all a predefined property carrying the wrong value type, not an unknown property. The
+standard names its source in its own bibliography, entry [20]: *XMP: Extensible Metadata Platform,
+September 2005, Adobe Systems*. The AIIM address it gives is dead; the document was read from the
+Internet Archive, and the current edition (XMP Specification Part 2, *Additional Properties*, 2017)
+beside it.
+
+**What was taken is a table of facts, not text.** `crates/pdf-archive/src/table/metadata.rs`'s
+`PREDEFINED` carries 274 property names across 14 schemas, each reduced to the two things a reader
+can check — a shape (simple, language alternative, alternative, seq, bag, structure) and a lexical
+form (Boolean, Integer, Real, Rational, Date, GPS coordinate, or none). That is the same kind of
+taking as the standard-14 metrics in `crates/pdf-font/src/standard_metrics.rs`: a list of values a
+specification states, not a passage of its prose. **Nothing is quoted**, and the tables are treated
+with the caution `doc/pdfa/`'s two files get.
+
+Two readings came out of it and both are recorded where they act:
+
+- **`xmp:Rating` is a Real.** The 2005 edition types it *Closed Choice of Integer* and the 2017
+  edition *Closed Choice of Real*. §6.6.2.3.1 cites "the XMP Specification" **undated**, and
+  clause 2's own rule for an undated reference is that the latest edition applies — so the later
+  typing governs. This is a fact about the specification, arrived at from its own citation rule.
+- **A property whose local name the table does not carry is not judged.** Later editions add
+  properties — `photoshop` 14 to 20, `xmpDM` 57 to 66 between 2005 and 2017 — so refusing an
+  unknown name would fail conforming files over nothing but the age of the transcription.
+
+## veraPDF, and the difference between running a program and reading it
+
+The owner put a checkout of veraPDF in `doc/veraPDF-library` on 2026-09-07 and asked whether its
+licence lets this project look at the code. It is dual-licensed **GPLv3+ or MPLv2+** — both
+licence texts are in the checkout, as `LICENSE.GPL` and `LICENSE.MPL`, and `LICENSE-HEADERS.md`
+says the dual licensing is deliberate and applies to all veraPDF software. `doc/.gitignore` line 2
+excludes the directory, which is the same treatment `/doc/rasterrocket` gets and for the same
+reason: a checkout kept beside the tree for comparison, never vendored into it.
+
+**Three uses, and they are not alike.**
+
+1. **Running it is unrestricted.** Neither licence limits *use*; both are about distribution. So
+   running veraPDF over a corpus and comparing its verdicts with `pdf-archive`'s costs nothing and
+   risks nothing. **This is the use worth having**, and `CLAUDE.md` principle 5 already says
+   exactly what it is worth: agreement raises confidence that we read ISO 19005 correctly, and
+   disagreement is a question to take back to the standard. It is the same relationship this tree
+   has with poppler, mupdf and pdf.js in `tools/pdfref`.
+
+2. **Taking code is out**, and not marginally. This project is Apache-2.0; `deny.toml`'s allow-list
+   carries no GPL and no MPL, and the sentence at the top of this file — that nothing in this tree
+   is under either — is checked by `cargo deny check licenses`. Copying a method, or writing one
+   from an open editor, would make that sentence false.
+
+3. **Reading it is the interesting case, and the answer is that we have no reason to.** Copyright
+   restricts copying expression, not learning facts, so reading is not itself a licence problem;
+   what it creates is a *question* about whether what you write afterwards is derived, and that
+   question is worth nothing to us because **veraPDF's rule set is not a source of truth here**.
+   RFC 0006 §10 question 2 put it before the owner in those terms — a conformance verdict derived
+   from veraPDF's profiles is somebody else's reading of a text — and the situation has since
+   improved rather than changed: `doc/pdfa/` now holds ISO 19005-2 and -4 themselves, which is a
+   better source than any implementation of them. So the rule for this tree is the one principle 5
+   already implies:
+
+   > **Run veraPDF; do not read it.** Where it disagrees with `pdf-archive`, read the clause it
+   > cites in `doc/pdfa/`, not the code that cites it.
+
+   That rule is cheap to keep and it removes the derivation question entirely, which is the
+   pleasant part: the licence-safe path and the principled path are the same path.
+
+**Its test files are a separate question, and the answer about this checkout is that it has
+none.** Counted rather than assumed: `find doc/veraPDF-library -iname '*.pdf'` returns **zero**.
+What `core/src/test/resources` holds is 122 XML fragments (XMP packets and policy reports), four
+text files and a handful of schemas — the inputs to unit tests of the XMP and policy readers, not
+documents. The validation profiles are not here either; the checkout carries
+`validationProfile.xsd`, the schema they are written against, and nothing written in it. veraPDF
+splits those across repositories, so a corpus and a profile set are each a separate fetch with a
+separate licence to read.
+
+**The corpus was fetched the same day, and its licence is the good outcome.** It is a *separate
+repository* from the library and carries a *different* licence: `doc/veraPDF-corpus/README.md`
+states **Creative Commons Attribution 4.0 International (CC BY 4.0)** — permissive, no copyleft,
+redistribution allowed with attribution. So none of the GPL/MPL question above touches it, and it
+is a **submodule** under `doc/veraPDF-corpus` rather than an ignored directory: the four corpora
+under `doc/corpora/` are tracked the same way, and a submodule carries no bytes into this history.
+
+What it holds, counted rather than assumed: **2 908 documents**, in directories named by clause
+(`PDF_A-4/6.9 Embedded files`) with the intended verdict in each file name
+(`…6-9-t02-fail-a.pdf`, `…6-9-t03-pass-a.pdf`). Its README says that pattern is deliberate — the
+files are atomic, self-documented through their outlines, and named for the clause they exercise.
+`crates/pdf-archive/tests/corpus.rs` reads both facts off the path rather than maintaining a table
+beside them.
+
+**Principle 5 still governs what it is worth.** A corpus file's intended verdict is its author's
+reading of ISO 19005, not the standard's text — so the harness *reports* where the two readings
+differ and does not gate on them, and each disagreement is a question for `doc/pdfa/` with three
+possible answers: this crate is wrong, the corpus is wrong, or the clause is ambiguous. It is a
+**robustness** population and a second opinion. The **coverage** population is still ours to write,
+one fixture per requirement row, because only there is the expected value derivable from a clause
+we have read.
+
+**One obligation to remember if anything is ever redistributed.** CC BY 4.0 requires attribution.
+A submodule distributes nothing, so nothing is owed today; a round that copies a corpus file into
+this tree as a fixture, or ships verdict data derived from it, owes the attribution and adds it to
+`/NOTICE` beside the font rows.
+
+**The population principle 5 actually wants, we can write.** A requirement table is a list of
+rules, so a fixture per row, built to break exactly that row, has an expected verdict derivable
+from a clause in `doc/pdfa/` — which is what `CLAUDE.md` asks of every test's expected value and
+what `crates/pdf-archive/tests/verdict.rs` already does for the first tranche. Our own fixtures are
+the better *evidence*; somebody else's corpus is the better *coverage*. The two answer the two
+questions `CLAUDE.md` keeps apart, and neither substitutes for the other.
+
+**Nothing was taken and nothing was read.** This entry is the record that the question was asked
+and answered, in the same form as the `cidToUnicode` row above: examined, and not taken.

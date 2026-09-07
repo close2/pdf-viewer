@@ -27,14 +27,16 @@
 
 pub mod json;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use pdf_model::content::named_sequences;
 use pdf_model::outline::Outline;
 use pdf_model::page_label::PageLabels;
 use pdf_model::retrieval::{Section, annotations, sections, spans_under, text_under};
-use pdf_model::structure::Tree;
+use pdf_model::structure::{Child, Tree};
 use pdf_model::{Interpretation, Page, Pages};
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 /// What went wrong.
 #[derive(Debug, thiserror::Error)]
@@ -215,6 +217,66 @@ pub struct SectionText {
     pub annotations: Vec<Note>,
 }
 
+/// One item of §14.7's structure tree, in the order the tree states it.
+///
+/// §14.7.5.1 makes an element's children "zero or more items of the following kinds" — other
+/// structure elements, and references to content items — and this is that pair:
+/// the tree flattened into the sequence a reader walks. Nesting is carried by the depth rather
+/// than by a tree of children — the reason `viewer_core::accessibility` gives for the same
+/// choice, that a flat list has no recursion for a consumer to bound — and **the interleaving
+/// is the point**: a paragraph whose middle holds a `Link` is three items, and a shape that
+/// gathered each element's text into one string would put that link's words at the end of the
+/// sentence instead of inside it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    /// A structure element, opening whatever follows it at a greater depth.
+    Element {
+        /// How deep in §14.7.2's tree it sits, the root's own children being zero.
+        depth: usize,
+        /// §14.7.4's `/S`, **after §14.7.3's role map**, which is the name a consumer acts on.
+        ///
+        /// ISO 32000-2 §14.7.3:
+        ///
+        /// > A structure type shall always be mapped to its corresponding name in the role map,
+        /// > if there is one, even if the original name is one of the standard types.
+        ///
+        /// So a document whose paragraphs are called `Normal` — which is what Microsoft Word
+        /// writes, and what both copies of ISO 19005 in `doc/pdfa/` are full of — reports the
+        /// `P` its own `/RoleMap` says it is. `None` for an element stating no `/S`.
+        kind: Option<String>,
+        /// `/S` as the file writes it, before the role map.
+        ///
+        /// Kept beside [`Self::Element::kind`] rather than thrown away, because the two
+        /// differing is a fact about the *document* — its producer's own vocabulary — that a
+        /// consumer may want to see.
+        stated: Option<String>,
+        /// Table 355's `/Pg`, as a zero-based page index, where the element states one.
+        page: Option<usize>,
+    },
+    /// The text one marked-content sequence produced, under the element above it.
+    Text {
+        /// The depth of the content item itself, one below the element it belongs to.
+        depth: usize,
+        /// The zero-based index of the page it is on.
+        page: usize,
+        /// What `pdf_model::Interpretation::text` read back over the sequence's range.
+        text: String,
+    },
+}
+
+/// §14.7's structure tree, flat, in §14.8.2.5.1's order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Structure {
+    /// Every item the walk reached, depth first.
+    pub items: Vec<Item>,
+    /// Whether `pdf_model::structure`'s bound cut the walk short.
+    ///
+    /// Reported for the same reason `pdf_model::structure::Reading` reports it: a prefix of the
+    /// tree is not the tree, and a consumer that cannot tell has been handed a partial reading
+    /// as a complete one.
+    pub truncated: bool,
+}
+
 impl Retrieval {
     /// Opens a document and reads what addressing it needs.
     ///
@@ -282,6 +344,111 @@ impl Retrieval {
             .get(index)
             .ok_or_else(|| Error::NoSuchPage(index, pages.len()))?;
         Ok(self.read_page(index, &page, wanted).shown)
+    }
+
+    /// §14.7's structure tree, with the text each element marked.
+    ///
+    /// # Why a program wants this and not a page
+    ///
+    /// [`Self::page`] answers "what does this sheet say", and a sheet is a unit of *paper*: its
+    /// text runs together because a content stream has no paragraphs in it, only positioned
+    /// glyphs. A tagged document has already said where its paragraphs, headings, lists and
+    /// tables are — §14.8.4's standard structure types are exactly that statement — and this is
+    /// that statement, read back with the text under each part of it. A consumer turning a
+    /// document into Markdown, or a screen reader, or a program looking for one clause's table,
+    /// is asking this question rather than the page's.
+    ///
+    /// # What is left out, and by whose rule
+    ///
+    /// A marked-content sequence the tree does not reach is not here, which is
+    /// §14.8.2.5.1 NOTE 3's own position — "[a]rtifacts not contained within an Artifact
+    /// structure element are not considered part of the logical content order" — and is why a
+    /// running head, a folio and a licence stamp do not appear in the answer without anything
+    /// having filtered them.
+    ///
+    /// `None` for a document with no structure tree, which is a real answer and not a failure:
+    /// §14.7.1 makes tagging optional, and a consumer told `None` knows to fall back to
+    /// [`Self::page`] rather than to conclude the document is empty.
+    ///
+    /// # Cost
+    ///
+    /// One walk of the tree, and one interpretation of each page the tree's content items name —
+    /// each page once, however many elements sit on it, which is what the cache below is for.
+    #[must_use]
+    pub fn structure(&self) -> Option<Structure> {
+        let tree = Tree::of(&self.document)?;
+        let walk = tree.walk(&self.document);
+        let pages = Pages::new(&self.document);
+        // Which index each page object is, so that a content item's `/Pg` can name a page number
+        // rather than an object. Built once: `Pages::get` walks the page tree, and asking it per
+        // item would be quadratic in a document the size of the standard.
+        let mut index_of: BTreeMap<ObjectId, usize> = BTreeMap::new();
+        for index in 0..pages.len() {
+            if let Some(id) = pages.get(index).and_then(|page| page.id) {
+                index_of.insert(id, index);
+            }
+        }
+        // Each page interpreted once however many of its sequences the tree reaches.
+        let mut interpreted: BTreeMap<usize, Interpretation> = BTreeMap::new();
+        let mut items = Vec::new();
+        for (depth, child) in walk.items {
+            match child {
+                Child::Element(dict) => items.push(Item::Element {
+                    depth,
+                    kind: tree.role(&self.document, &dict),
+                    stated: dict
+                        .get("S")
+                        .and_then(Object::as_name)
+                        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
+                    page: dict
+                        .get("Pg")
+                        .and_then(Object::as_reference)
+                        .and_then(|id| index_of.get(&id).copied()),
+                }),
+                Child::MarkedContent {
+                    mcid,
+                    stream,
+                    page,
+                    owner: _,
+                } => {
+                    let Some(index) = page.and_then(|id| index_of.get(&id).copied()) else {
+                        continue;
+                    };
+                    let interpretation = match interpreted.entry(index) {
+                        std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            let Some(page) = pages.get(index) else {
+                                continue;
+                            };
+                            entry.insert(pdf_model::interpret(&self.document, &page))
+                        }
+                    };
+                    // Both halves of §14.7.5.2's key, for the reason
+                    // `pdf_model::structure::Tree::logical_text` states: an identifier is unique
+                    // only within its content stream.
+                    let mut text = String::new();
+                    for span in named_sequences(&interpretation.marked, mcid, stream) {
+                        if let Some(read) = interpretation.text.get(span.range.clone()) {
+                            text.push_str(read);
+                        }
+                    }
+                    items.push(Item::Text {
+                        depth,
+                        page: index,
+                        text,
+                    });
+                }
+                // §14.7.5.3's `/OBJR`: the content is a whole object rather than a range of the
+                // page's marks, so there is no text of the page to attribute to it. What such an
+                // element *is* — an annotation, a widget — is `pdf_model::annotation`'s answer
+                // and not this walk's, so nothing is emitted for it here.
+                Child::Object { .. } => {}
+            }
+        }
+        Some(Structure {
+            items,
+            truncated: walk.truncated,
+        })
     }
 
     /// One section's text, addressed by clause number or by the start of its title.
@@ -396,7 +563,23 @@ impl Retrieval {
         let shown = PageText {
             index,
             label: self.labels.label(index),
-            text: if wanted.drop_artifacts {
+            // **Only in content order**, and the reason is the one stated above `section`:
+            // `interpretation.artifacts` are ranges of the *raw* readback, so subtracting them
+            // from a string that has been rearranged cuts it in places that mean nothing there.
+            // It did exactly that until the eight-hundred-and-ninety-sixth session — one page of
+            // ISO 19005-2 came back with the first 62 characters of its first paragraph missing,
+            // which is the width of the running head this flag had removed from a different
+            // string — and the loss was silent, which is what makes it worth a comment as long
+            // as this one.
+            //
+            // Nothing is owed in the other direction: §14.8.2.5.1 NOTE 3 says "[a]rtifacts not
+            // contained within an Artifact structure element are not considered part of the
+            // logical content order", so the order this caller asked for has already left every
+            // running head and folio out. What it does *not* leave out is an artifact that is
+            // inside an `/Artifact` structure element, which the same NOTE puts in the logical
+            // order deliberately — so that one stays, and a caller asking for both gets the
+            // clause's answer rather than this flag's.
+            text: if wanted.drop_artifacts && order == Order::Content {
                 without_artifacts(&text, &interpretation)
             } else {
                 text

@@ -26,19 +26,30 @@ saying so is the first requirement principle 5 puts on it.
 
 ## 0. Provenance — what this RFC read, and what it did not
 
-**ISO 19005 is paywalled in all four parts, and this round had only the free previews.** That is
-not an incidental limitation; it is the central fact about this proposal, and §10 question 2 is
-the consequence. The previews are genuinely ISO's text and they reach further than expected —
-every part's scope and conformance clause and the opening subclauses of clause 6 — so a handful of
-the load-bearing statements below *are* first-hand. Every other statement is not, and the table
-says which is which.
+**ISO 19005 is paywalled in all four parts, and this round had only the free previews.** That was
+not an incidental limitation; it was the central fact about this proposal, and §10 question 2 was
+the consequence.
+
+> **Since written: two of the four parts are now readable.** The owner bought parts 2 and 4 and
+> put them in `doc/pdfa/` (`doc/questions/A16`, 2026-09-06), which answers question 2 for those
+> two and settles nothing else. **The statements this document marks as second-hand are still
+> second-hand**: what changed is that they can now be checked, not that anyone has checked them.
+> Reading each of §3's and §5's requirements against the text and marking it first-hand or wrong
+> is the next round's work on this file, and until it is done nothing here has become a
+> specification. The table below says which part is in which state.
+
+The previews are genuinely ISO's text and they reach further than expected — every part's scope
+and conformance clause and the opening subclauses of clause 6 — so a handful of the load-bearing
+statements below *are* first-hand. Every other statement is not, and the table says which is
+which.
 
 | source | status here |
 |---|---|
 | **ISO 32000-2** (with Errata Collection 3) | **read in full**, in `doc/md/`. Every §-numbered clause quoted below is from it, verbatim, and checkable by `tools/conformance`. |
 | **ISO 14289-1 (PDF/UA-1)** and **14289-2 (PDF/UA-2)** | **read in full**, in `doc/md/`. ISO 14289-2 states that its §8.4.5 "includes requirements matching those of the corresponding clause in ISO 19005-4 (PDF/A-4)", which makes it the one **normative** text in this tree that states a PDF/A-4 requirement in its own words. §5.1 uses it, and says what the caveat is. |
 | **WTPDF 1.0** and the **Tagged PDF Best Practice Guide** | in `doc/md/`; industry documents, not ISO standards. |
-| **ISO 19005-1, -2, -3, -4** | **partly read, and the boundary is exact.** ISO publishes a free preview of each part — cover, foreword, introduction, scope, conformance clause, and the opening subclauses of clause 6 — and this round read all four. The cut-offs are §6.1.7 (part 1), §6.1.11 (part 2), §6.2.4.1 (part 3, which therefore includes the *whole* of §6.2.3 *Output intent*) and §6.1.4 (part 4). Anything past a cut-off is second-hand. |
+| **ISO 19005-2 and -4** | **bought, and readable in full** — the owner answered question 2 on 2026-09-06 (`doc/questions/A16`). They are in `doc/pdfa/` as the Institute for Standardization of Serbia's identical reprints, `SRPS ISO 19005-2:2020` carrying ISO 19005-2:2011 and `SRPS ISO 19005-4:2023` carrying ISO 19005-4:2020. **Licensed to one reader**, so `doc/.gitignore` excludes the directory and nothing derived from them may be committed — the same discipline ADR 0187 puts on `doc/md/`. `tools/pdfa-text.py` writes the Markdown beside them, reading them with this project's own `quorra-retrieve structure`. |
+| **ISO 19005-1 and -3** | **not bought, and part 1 never will be** (`doc/questions/A17`). What this round could read of them stands: ISO publishes a free preview of each part — cover, foreword, introduction, scope, conformance clause, and the opening subclauses of clause 6 — with the cut-offs at §6.1.7 (part 1) and §6.2.4.1 (part 3, which therefore includes the *whole* of §6.2.3 *Output intent*). Anything past a cut-off is second-hand. |
 | **ISO/DIS 19005-4 edition 2** | not read. ISO 19005-4:2020 is at stage 90.92, *to be revised*; a second edition has been in DIS ballot since 2025 and the PDF Association announced its public review on 2025-12-08. §10 question 2 turns on this. |
 | the **PDF/A-4 errata** (<https://pdf-issues.pdfa.org/19005-4-2020/>) and **PDF Association TN 0010** (clarifications of parts 1–3, CC-BY-4.0) | free, and the second is the most useful public document a converter could have. Neither is the standard. |
 | veraPDF's validation profiles, the PDF Association's technical notes, Ghostscript's and qpdf's documentation, ISO's own abstracts | evidence about the requirements and about how others read them — cited as such below, and never as the requirement. |
@@ -312,6 +323,15 @@ unconstrained design proposed afterwards.
 
 ## 5. The hard cases, each argued
 
+> **Companion, written later and from the normative text**:
+> `doc/pdf-a-conversion-limits.md` is the same subject arranged for the person who will *run* the
+> converter rather than the person deciding whether to build it — every limitation, classified as
+> refuse / ask / default / mechanical, with the sensible default named. It was written after parts
+> 2 and 4 were bought, so its clause citations are first-hand where this section's are not, and
+> where the two disagree **that file is the later reading**. It also records the three cases this
+> section could not have known: PDF/A-4 states no implementation limits, PDF/A-4 permits
+> JavaScript, and §5.2's flattening problem does not arise at all once PDF/A-1 is not a target.
+
 Seven of them. Each says what the requirement is and where that statement came from, what a
 conversion would have to do, what this tree already has, and what the honest verb is.
 
@@ -368,6 +388,30 @@ none of them is conversion:
 used to create a conforming file might substitute fonts, reflow text, downsample images or use
 lossy compression". The standard is telling a reader of a PDF/A file not to assume it looks like
 what it was made from. This project's stated target is that it *does*.
+
+> **Overturned by the owner on 2026-09-07, and the argument is theirs.** A non-embedded font is
+> *already* substituted — by every viewer, differently, at display time — so the file has no
+> appearance of its own to protect, and freezing one is what an archival format is for. Refusing
+> conserves nothing: it leaves the document unarchived while the pool of faces a future system
+> would substitute from drifts further from the producer's.
+>
+> Three things settle it against option 4 as a default. **ISO 19005-2 §6.6.6 NOTE 1 and
+> ISO 19005-4 §6.7.5's NOTE name font substitution outright**, as an example of a converter action
+> that changes appearance and should therefore be recorded in `xmpMM:History` — a standard that
+> names the act and says where to write it down has not forbidden it. **The introduction sentence
+> quoted three paragraphs above says the same thing** and was read here as a warning; it is
+> equally a description of what conforming writers do, and this document's own §3.4 had it from
+> the free preview all along. And **the "inventing marks" objection does not reach this case**:
+> the content stream shows the glyph either way, and what a substitution decides is whose outline
+> draws it — not what marks the page contains, which is what ADR 0816's fence is about.
+>
+> **What survives of this section is objection 3, entire**: most installed fonts are not licensed
+> for unlimited universal embedding and this program cannot tell which are, so the substitute has
+> to come from a family the project may ship. That is now an open question of its own.
+> `doc/pdf-a-conversion-limits.md` §4.9 has the corrected default, the §6.2.11.5 metric constraint
+> that makes it real work rather than a one-liner — an embedded program's advances must match the
+> `/Widths` already in the file to within 1/1000 unit — and the narrow refusal that remains, which
+> is a font whose codes §9.10.2 cannot name.
 
 **The proposal is 4, and it is not a limitation to apologise for.** A file that cannot be made
 conformant should be *said* to be non-conformable, with the reason and the witness pages, because
@@ -650,7 +694,18 @@ rather than defaulting it, which is a small, honest interface consequence of a r
 **The requirement.** Level a (parts 1, 2 and 3) adds to level b everything level u adds — Unicode
 mapping for all text — plus tagged PDF: a logical structure tree, a `/MarkInfo` dictionary with
 `/Marked true`, declared natural language, alternate descriptions for non-text content, and a
-reading order that reflects the document. It is the level that makes an archived document
+reading order that reflects the document.
+
+> **Corrected once the text was readable (2026-09-07).** That sentence is second-hand and is
+> **wrong about half of its own list**. ISO 19005-2 §6.7 states six `shall` requirements — §14.8's
+> tagged-PDF requirements, `/MarkInfo /Marked true`, a `/StructTreeRoot` hierarchy, a role map
+> terminating at standard types, word boundaries inside show strings, and a valid `/Lang` value
+> *where one is present* — and everything else in the subclause is a `should`, **alternate
+> descriptions, replacement text, expansions and the default natural language included**. Level a
+> is therefore a *tagged and Unicode-mapped* level rather than an *accessible* one. The
+> consequence for this section's conclusion is larger than the correction: a document that is
+> already tagged can be converted to PDF/A-2a by *declaring* it, and only auto-tagging is
+> refused. `doc/pdf-a-conversion-limits.md` §5.1 has the corrected reading and the four cases. It is the level that makes an archived document
 *accessible*, and it is why PDF/A level a and PDF/UA (ISO 14289) are usually discussed together —
 ISO 14289-1's own introduction says PDF/UA "is intended as a companion standard, to be used in
 conjunction with ISO 32000, ISO 19005, ISO 15930 and other standards".
@@ -952,7 +1007,17 @@ in the middle.
    with teeth: is a program that *tells you your file cannot be made conformant, and why*, an
    acceptable answer to "convert to PDF/A" — because on the evidence of §5.1 it is the answer a
    large share of real documents will get.
-2. **Buying ISO 19005, and which edition.** §0 says exactly what this round could and could not
+2. **Buying ISO 19005, and which edition.** **Answered on 2026-09-06** (`doc/questions/A16`,
+   `A17`): the owner bought **parts 2 and 4**, declined part 1 outright — "part 1 never" — and
+   put both in `doc/pdfa/` under a single-reader licence that keeps them and everything derived
+   from them out of the repository. Part 3 was not bought and the ordering recommendation below
+   was accepted with the whole feature **on hold for now**. Two things the answer leaves
+   standing: the copy of part 4 in hand is the **2020 first edition**, which is the text this
+   question warned has a successor in ballot, so a part-4 implementation still inherits that
+   timing risk; and part 3's four rules' difference from part 2 remains readable only in preview.
+   The question as it was put, kept because the reasoning is what the answer was given against:
+
+   §0 says exactly what this round could and could not
    read. Principle 5 does not permit shipping a conformance verdict derived from veraPDF's rule
    set — that is somebody's reading of a text we would not have — so **a validator cannot be
    built to this project's standards without the normative text**, and this is the one dependency

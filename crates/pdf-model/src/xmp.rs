@@ -46,6 +46,13 @@
 //! clause 12 or 14 asks for one; `xmpMM:DerivedFrom` and `xmpTPg:MaxPageSize` are the common
 //! ones and neither reaches a pixel.
 //!
+//! **A caller that needs the fields asks for them.** [`Xmp::parse_detail`] walks the same grammar
+//! and keeps everything, as [`Detail`] rather than [`Value`]: ISO 19005-2's extension schema
+//! container is a bag of structures whose fields are sequences of structures, so a validator
+//! cannot work from a value that says only *structure*. It is a second entry point rather than a
+//! richer [`Value`] because the two readings have different callers — nothing that draws a page
+//! wants the larger one, and the packet is untrusted bytes whose parsed size this module bounds.
+//!
 //! Qualifiers other than `xml:lang` (ISO 16684-1 section 7.7) are dropped, which is the same statement:
 //! the property keeps its value and loses an annotation on it.
 
@@ -152,6 +159,94 @@ pub enum Value {
     Structure,
 }
 
+/// A property's value with everything the packet states about it, [`Value::Structure`] included.
+///
+/// [`Value`] is what a *viewer* needs: one string to show, or a list of them. This is what a
+/// *validator* needs, and it exists because ISO 19005-2 §6.6.2.3.3's extension schema container
+/// schema is a bag of structures whose fields are themselves sequences of structures — a reader
+/// that reported only that a structure was *present* could not check one field of it. Read with
+/// [`Xmp::parse_detail`], which a caller asks for deliberately: building this costs a second
+/// representation of the packet, and nothing that draws a page wants one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Detail {
+    /// A simple property: one string, as [`Value::Text`].
+    Text(String),
+    /// `rdf:Alt`, each item with its `xml:lang` where it states one.
+    Alt(Vec<(Option<String>, Detail)>),
+    /// `rdf:Seq`, an ordered array.
+    Seq(Vec<Detail>),
+    /// `rdf:Bag`, an unordered array.
+    Bag(Vec<Detail>),
+    /// ISO 16684-1 section 7.6's structured value, with its fields in the order stated.
+    Structure(Vec<Property>),
+}
+
+impl Detail {
+    /// The text of a simple value, and nothing for any other shape.
+    #[must_use]
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
+    /// A structure's fields, in the order the packet states them.
+    #[must_use]
+    pub fn fields(&self) -> Option<&[Property]> {
+        match self {
+            Self::Structure(fields) => Some(fields.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// One field of a structure, by namespace URI and local name.
+    #[must_use]
+    pub fn field(&self, namespace: &str, local: &str) -> Option<&Property> {
+        self.fields()?
+            .iter()
+            .find(|field| field.name.namespace == namespace && field.name.local == local)
+    }
+
+    /// The items of an `rdf:Seq` or an `rdf:Bag`, and nothing for any other shape.
+    ///
+    /// An `rdf:Alt`'s items are [`Self::alternatives`] instead, because dropping their languages
+    /// here would make the two arrays look interchangeable when they are not.
+    #[must_use]
+    pub fn array(&self) -> Option<&[Detail]> {
+        match self {
+            Self::Seq(items) | Self::Bag(items) => Some(items.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// An `rdf:Alt`'s items, each with the `xml:lang` it states.
+    #[must_use]
+    pub fn alternatives(&self) -> Option<&[(Option<String>, Detail)]> {
+        match self {
+            Self::Alt(items) => Some(items.as_slice()),
+            _ => None,
+        }
+    }
+}
+
+/// One property or field as a packet states it, for [`Xmp::parse_detail`].
+///
+/// The prefix is here because a prefix is *usually* not a name — see the module comment — and
+/// twice in ISO 19005 it is: ISO 19005-2 §6.6.2.3.3 requires the fields of its four value types
+/// to be spelled with the prefixes its tables name, and §6.6.2.2 says a prefix means nothing
+/// *except* where one is identified as required. A reader that resolved the prefix away could
+/// not answer that requirement, so it is kept beside the resolved name rather than instead of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Property {
+    /// The resolved name: a namespace URI and a local name.
+    pub name: Name,
+    /// The prefix the packet spelled it with, empty where it used none.
+    pub prefix: String,
+    /// The value.
+    pub value: Detail,
+}
+
 /// A resolved property name: a namespace URI and a local name, never a prefix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Name {
@@ -211,11 +306,25 @@ impl Xmp {
     /// [`XmpError`] for a packet that is too large, is not text, is not well-formed XML, or
     /// exceeds one of this module's four budgets.
     pub fn parse(bytes: &[u8]) -> Result<Self, XmpError> {
-        if bytes.len() > MAX_BYTES {
-            return Err(XmpError::TooLarge { bytes: bytes.len() });
-        }
-        let text = decode(bytes)?;
-        Reader::new().run(&text)
+        let text = text_of(bytes)?;
+        Ok(Self {
+            properties: Reader::new(false).run(&text)?.properties,
+        })
+    }
+
+    /// Parses a packet's bytes, keeping the structure fields [`Value`] drops.
+    ///
+    /// Every property in the order the packet states them, as [`Detail`] rather than [`Value`].
+    /// The two readings are the same walk over the same grammar and differ only in what they
+    /// keep, so a caller that wants both parses twice deliberately rather than paying for the
+    /// larger one everywhere.
+    ///
+    /// # Errors
+    ///
+    /// As [`Xmp::parse`].
+    pub fn parse_detail(bytes: &[u8]) -> Result<Vec<Property>, XmpError> {
+        let text = text_of(bytes)?;
+        Ok(Reader::new(true).run(&text)?.details)
     }
 
     /// Every property, in the order the packet states them.
@@ -370,6 +479,14 @@ impl Xmp {
 /// `begin` attribute signals by carrying U+FEFF in the packet's own encoding. The other two are
 /// decoded here rather than refused, because refusing a spelling the clause permits is a gap
 /// dressed as a limit — and both are twenty lines.
+/// A packet's bytes as text, refusing one past [`MAX_BYTES`] before decoding it.
+fn text_of(bytes: &[u8]) -> Result<String, XmpError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(XmpError::TooLarge { bytes: bytes.len() });
+    }
+    decode(bytes)
+}
+
 fn decode(bytes: &[u8]) -> Result<String, XmpError> {
     // A byte-order mark decides between them; the clause's own signalling is exactly this.
     match bytes {
@@ -433,10 +550,24 @@ enum Kind {
     /// structure *before* any child arrives — and saying so up front is the only way a
     /// self-closing structured property is distinguishable from an empty simple one.
     Property { name: Name, structured: bool },
-    /// `rdf:Alt`, `rdf:Seq` or `rdf:Bag` under a property.
+    /// A field of a structured value: the same element shape as [`Kind::Property`], belonging to
+    /// the structure that contains it rather than to the packet.
+    ///
+    /// Kept apart from a property for exactly that reason — a field recorded at the top level
+    /// would make `xmpMM:History`'s `stEvt:action` look like a property of the document.
+    Field { name: Name, structured: bool },
+    /// `rdf:Alt`, `rdf:Seq` or `rdf:Bag` under a property, a field or an item.
     Container { ordered: Container },
     /// `rdf:li` under a container.
-    Item { language: Option<String> },
+    Item {
+        language: Option<String>,
+        structured: bool,
+    },
+    /// An `rdf:Description` nested inside a property, a field or an item.
+    ///
+    /// ISO 16684-1 section 7.6's other spelling of a structured value: the fields are the
+    /// description's children and its attributes rather than the property element's.
+    Nested,
     /// An element whose content is not interpreted, and what to record for it.
     Uninterpreted,
 }
@@ -462,8 +593,17 @@ struct Frame {
     text: String,
     /// A property's value, where a child element has already decided it.
     value: Option<Value>,
+    /// The same, in the shape [`Detail`] keeps. `None` throughout unless detail is wanted.
+    detail: Option<Detail>,
     /// A container's items so far.
     items: Vec<(Option<String>, String)>,
+    /// The same items as [`Detail`], empty unless detail is wanted.
+    item_details: Vec<(Option<String>, Detail)>,
+    /// The fields of a structured value, empty unless detail is wanted.
+    fields: Vec<Property>,
+    /// Whether a child this reader does not interpret has closed inside this element, which
+    /// makes the value a structure whatever else it holds.
+    opaque: bool,
 }
 
 /// The walk over one packet.
@@ -473,18 +613,30 @@ struct Reader {
     /// which is why this is a stack searched backwards rather than a map.
     bindings: Vec<(String, String)>,
     properties: Vec<(Name, Value)>,
+    /// Whether to build [`Reader::details`] as well, which is [`Xmp::parse_detail`]'s reading.
+    detailed: bool,
+    details: Vec<Property>,
+    /// How many fields of structured values have been kept, against [`MAX_PROPERTIES`].
+    ///
+    /// A separate count from the properties': a packet's fields are unbounded in a way its
+    /// properties are not, and bounding them together would make [`Xmp::parse`] refuse packets
+    /// it accepts today.
+    fields: usize,
 }
 
 impl Reader {
-    fn new() -> Self {
+    fn new(detailed: bool) -> Self {
         Self {
             stack: Vec::new(),
             bindings: Vec::new(),
             properties: Vec::new(),
+            detailed,
+            details: Vec::new(),
+            fields: 0,
         }
     }
 
-    fn run(mut self, text: &str) -> Result<Xmp, XmpError> {
+    fn run(mut self, text: &str) -> Result<Self, XmpError> {
         // Attributes arrive as their own tokens between `ElementStart` and `ElementEnd`, so an
         // element's name cannot be resolved until they have all been seen: a namespace an
         // element uses may be declared by that same element.
@@ -549,9 +701,7 @@ impl Reader {
                 detail: format!("<{}> is never closed", spelled(&frame.tag)),
             });
         }
-        Ok(Xmp {
-            properties: self.properties,
-        })
+        Ok(self)
     }
 
     /// Resolves a prefix against the bindings in scope, innermost first.
@@ -601,8 +751,10 @@ impl Reader {
         let kind = self.classify(&namespace, local, attributes, parent);
 
         // §7.5's attribute form: every attribute of a description that is neither a namespace
-        // declaration nor RDF's own is a simple property of it.
-        if kind == Kind::Description {
+        // declaration nor RDF's own is a simple property of it — of the packet where the
+        // description is a top-level one, and of the structure where it is nested inside a value.
+        let mut fields = Vec::new();
+        if matches!(kind, Kind::Description | Kind::Nested) {
             for (prefix, local, value) in attributes {
                 if prefix == "xmlns" || (prefix.is_empty() && local == "xmlns") {
                     continue;
@@ -611,14 +763,25 @@ impl Reader {
                 if namespace == RDF || namespace == XML || prefix.is_empty() {
                     continue;
                 }
-                self.record(
-                    Name {
-                        namespace,
-                        local: local.clone(),
-                    },
-                    // An attribute value is no more unescaped than character content is.
-                    Value::Text(unescaped(value)),
-                )?;
+                let stated = Name {
+                    namespace,
+                    local: local.clone(),
+                };
+                // An attribute value is no more unescaped than character content is.
+                let text = unescaped(value);
+                if kind == Kind::Description {
+                    let detail = self.detailed.then(|| Detail::Text(text.clone()));
+                    self.record(stated, prefix.clone(), Value::Text(text), detail)?;
+                } else if self.detailed {
+                    self.keep_field(
+                        &mut fields,
+                        Property {
+                            name: stated,
+                            prefix: prefix.clone(),
+                            value: Detail::Text(text),
+                        },
+                    )?;
+                }
             }
         }
 
@@ -628,7 +791,11 @@ impl Reader {
             bindings,
             text: String::new(),
             value: None,
+            detail: None,
             items: Vec::new(),
+            item_details: Vec::new(),
+            fields,
+            opaque: false,
         });
         Ok(())
     }
@@ -658,15 +825,17 @@ impl Reader {
                 }
             }
             Some(Kind::Description) => Kind::Property {
-                name: Name {
-                    namespace: namespace.to_owned(),
-                    local: local.to_owned(),
-                },
-                structured: attributes.iter().any(|(prefix, local, value)| {
-                    self.namespace(prefix) == RDF && local == "parseType" && value == "Resource"
-                }),
+                name: named(namespace, local),
+                structured: self.resource(attributes),
             },
-            Some(Kind::Property { .. }) => match (rdf, local) {
+            // A property, a field and an item hold a value, so the same three things may open
+            // inside each: an array, a nested description, or — where the element has already
+            // said its value is a structure — a field of it.
+            Some(
+                Kind::Property { structured, .. }
+                | Kind::Field { structured, .. }
+                | Kind::Item { structured, .. },
+            ) => match (rdf, local) {
                 (true, "Alt") => Kind::Container {
                     ordered: Container::Alt,
                 },
@@ -676,7 +845,16 @@ impl Reader {
                 (true, "Bag") => Kind::Container {
                     ordered: Container::Bag,
                 },
+                (true, "Description") => Kind::Nested,
+                _ if *structured => Kind::Field {
+                    name: named(namespace, local),
+                    structured: self.resource(attributes),
+                },
                 _ => Kind::Uninterpreted,
+            },
+            Some(Kind::Nested) => Kind::Field {
+                name: named(namespace, local),
+                structured: self.resource(attributes),
             },
             Some(Kind::Container { .. }) => {
                 if rdf && local == "li" {
@@ -684,13 +862,23 @@ impl Reader {
                         .iter()
                         .find(|(prefix, local, _)| self.namespace(prefix) == XML && local == "lang")
                         .map(|(_, _, value)| unescaped(value));
-                    Kind::Item { language }
+                    Kind::Item {
+                        language,
+                        structured: self.resource(attributes),
+                    }
                 } else {
                     Kind::Uninterpreted
                 }
             }
-            Some(Kind::Item { .. } | Kind::Uninterpreted) => Kind::Uninterpreted,
+            Some(Kind::Uninterpreted) => Kind::Uninterpreted,
         }
+    }
+
+    /// Whether an element states ISO 16684-1 section 7.6's `rdf:parseType="Resource"`.
+    fn resource(&self, attributes: &[(String, String, String)]) -> bool {
+        attributes.iter().any(|(prefix, local, value)| {
+            self.namespace(prefix) == RDF && local == "parseType" && value == "Resource"
+        })
     }
 
     /// Closes the innermost element, handing its value to whatever contains it.
@@ -708,16 +896,16 @@ impl Reader {
         self.bindings
             .truncate(self.bindings.len().saturating_sub(frame.bindings));
 
+        let detailed = self.detailed;
+        let text = trimmed(&frame.text);
         match frame.kind {
-            Kind::Item { language } => {
-                if let Some(container) = self.stack.last_mut() {
-                    if container.items.len() >= MAX_ITEMS {
-                        return Err(XmpError::TooMuch {
-                            what: "array items",
-                        });
-                    }
-                    container.items.push((language, trimmed(&frame.text)));
-                }
+            Kind::Item {
+                language,
+                structured,
+            } => {
+                let detail = detailed
+                    .then(|| settle(frame.detail, frame.fields, frame.opaque, structured, &text));
+                self.push_item(language, text, detail)?;
             }
             Kind::Container { ordered } => {
                 let value = match ordered {
@@ -729,30 +917,63 @@ impl Reader {
                         Value::Bag(frame.items.into_iter().map(|(_, text)| text).collect())
                     }
                 };
-                if let Some(property) = self.stack.last_mut() {
-                    property.value = Some(value);
-                }
+                let items = frame.item_details;
+                let detail = detailed.then(|| match ordered {
+                    Container::Alt => Detail::Alt(items),
+                    Container::Seq => {
+                        Detail::Seq(items.into_iter().map(|(_, detail)| detail).collect())
+                    }
+                    Container::Bag => {
+                        Detail::Bag(items.into_iter().map(|(_, detail)| detail).collect())
+                    }
+                });
+                self.decide(value, detail);
             }
             Kind::Property { name, structured } => {
                 let value = frame.value.unwrap_or_else(|| {
                     if structured {
                         Value::Structure
                     } else {
-                        Value::Text(trimmed(&frame.text))
+                        Value::Text(text.clone())
                     }
                 });
-                self.record(name, value)?;
+                let prefix = frame.tag.0;
+                let detail = detailed
+                    .then(|| settle(frame.detail, frame.fields, frame.opaque, structured, &text));
+                self.record(name, prefix, value, detail)?;
             }
-            // An uninterpreted element under a property is ISO 16684-1 section 7.6's structured value:
-            // the property is present and this reader does not read what it holds. Recording it
-            // as such is the difference between a gap and a silence.
+            Kind::Field { name, structured } => {
+                if detailed {
+                    if self.fields >= MAX_PROPERTIES {
+                        return Err(XmpError::TooMuch { what: "properties" });
+                    }
+                    let field = Property {
+                        name,
+                        prefix: frame.tag.0,
+                        value: settle(frame.detail, frame.fields, frame.opaque, structured, &text),
+                    };
+                    if let Some(structure) = self.stack.last_mut() {
+                        structure.fields.push(field);
+                        self.fields = self.fields.saturating_add(1);
+                    }
+                }
+            }
+            // A nested description is the other spelling of a structured value; an uninterpreted
+            // element under a value-holder is one this reader does not read into. Both make the
+            // value a structure, which is the difference between a gap and a silence.
+            Kind::Nested => {
+                let detail = detailed.then_some(Detail::Structure(frame.fields));
+                self.decide(Value::Structure, detail);
+            }
             Kind::Uninterpreted => {
-                if matches!(
-                    self.stack.last().map(|frame| &frame.kind),
-                    Some(Kind::Property { .. })
-                ) && let Some(property) = self.stack.last_mut()
+                if let Some(property) = self.stack.last_mut()
+                    && matches!(
+                        property.kind,
+                        Kind::Property { .. } | Kind::Field { .. } | Kind::Item { .. }
+                    )
                 {
                     property.value = Some(Value::Structure);
+                    property.opaque = true;
                 }
             }
             Kind::Outside | Kind::Rdf | Kind::Description => {}
@@ -760,12 +981,95 @@ impl Reader {
         Ok(())
     }
 
-    fn record(&mut self, name: Name, value: Value) -> Result<(), XmpError> {
+    fn record(
+        &mut self,
+        name: Name,
+        prefix: String,
+        value: Value,
+        detail: Option<Detail>,
+    ) -> Result<(), XmpError> {
         if self.properties.len() >= MAX_PROPERTIES {
             return Err(XmpError::TooMuch { what: "properties" });
         }
+        if let Some(detail) = detail {
+            self.details.push(Property {
+                name: name.clone(),
+                prefix,
+                value: detail,
+            });
+        }
         self.properties.push((name, value));
         Ok(())
+    }
+
+    /// Hands a closing child's value to the property, field or item that contains it.
+    fn decide(&mut self, value: Value, detail: Option<Detail>) {
+        if let Some(property) = self.stack.last_mut() {
+            property.value = Some(value);
+            if detail.is_some() {
+                property.detail = detail;
+            }
+        }
+    }
+
+    /// Hands a closing `rdf:li`'s value to the container that holds it.
+    fn push_item(
+        &mut self,
+        language: Option<String>,
+        text: String,
+        detail: Option<Detail>,
+    ) -> Result<(), XmpError> {
+        if let Some(container) = self.stack.last_mut() {
+            if container.items.len() >= MAX_ITEMS {
+                return Err(XmpError::TooMuch {
+                    what: "array items",
+                });
+            }
+            container.items.push((language.clone(), text));
+            if let Some(detail) = detail {
+                container.item_details.push((language, detail));
+            }
+        }
+        Ok(())
+    }
+
+    /// Keeps one field of a structured value, against [`MAX_PROPERTIES`].
+    fn keep_field(&mut self, fields: &mut Vec<Property>, field: Property) -> Result<(), XmpError> {
+        if self.fields >= MAX_PROPERTIES {
+            return Err(XmpError::TooMuch { what: "properties" });
+        }
+        self.fields = self.fields.saturating_add(1);
+        fields.push(field);
+        Ok(())
+    }
+}
+
+/// What a property, a field or an item's value is once its element has closed.
+///
+/// A child element that decided it wins; otherwise the element is a structure where it said so,
+/// where it holds fields, or where something this reader does not interpret closed inside it, and
+/// is its character content in every other case.
+fn settle(
+    decided: Option<Detail>,
+    fields: Vec<Property>,
+    opaque: bool,
+    structured: bool,
+    text: &str,
+) -> Detail {
+    decided.unwrap_or_else(|| {
+        if structured || opaque || !fields.is_empty() {
+            Detail::Structure(fields)
+        } else {
+            Detail::Text(text.to_owned())
+        }
+    })
+}
+
+/// A resolved name from its two halves.
+fn named(namespace: &str, local: &str) -> Name {
+    Name {
+        namespace: namespace.to_owned(),
+        local: local.to_owned(),
     }
 }
 
@@ -1054,6 +1358,123 @@ mod tests {
             Xmp::parse(b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>")
                 .expect("well-formed")
                 .is_empty()
+        );
+    }
+
+    /// The nested reading keeps what the flat one drops, and the flat one is unchanged by it.
+    ///
+    /// The packet is ISO 19005-2 §6.6.2.3.3's extension schema container in miniature: a bag
+    /// whose items are structures, one of whose fields is a sequence of structures. Nothing but
+    /// [`Xmp::parse_detail`] can see past the outermost of those.
+    #[test]
+    fn a_structure_is_read_to_its_fields_when_a_caller_asks_for_them() {
+        const EXTENSION: &str = "http://www.aiim.org/pdfa/ns/extension/";
+        const SCHEMA: &str = "http://www.aiim.org/pdfa/ns/schema#";
+        const PROPERTY: &str = "http://www.aiim.org/pdfa/ns/property#";
+        let packet = r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about=""
+              xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"
+              xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"
+              xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+            <pdfaExtension:schemas>
+              <rdf:Bag>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaSchema:namespaceURI>http://example.test/ns/</pdfaSchema:namespaceURI>
+                  <pdfaSchema:prefix>ex</pdfaSchema:prefix>
+                  <pdfaSchema:property>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <pdfaProperty:name>Serial</pdfaProperty:name>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </pdfaSchema:property>
+                </rdf:li>
+              </rdf:Bag>
+            </pdfaExtension:schemas>
+          </rdf:Description>
+        </rdf:RDF>"#;
+
+        // The flat reading has the bag and one empty item where the schema description is: an
+        // array item is a string there, and a structure has no string to be.
+        let flat = Xmp::parse(packet.as_bytes()).expect("well-formed");
+        assert_eq!(
+            flat.value(EXTENSION, "schemas"),
+            Some(&Value::Bag(vec![String::new()]))
+        );
+
+        let detailed = Xmp::parse_detail(packet.as_bytes()).expect("well-formed");
+        let [schemas] = detailed.as_slice() else {
+            panic!("the packet states one property, and a field is not a property");
+        };
+        assert_eq!(schemas.prefix, "pdfaExtension");
+        let [schema] = schemas.value.array().expect("an rdf:Bag") else {
+            panic!("the bag holds one schema description");
+        };
+        assert_eq!(
+            schema
+                .field(SCHEMA, "namespaceURI")
+                .and_then(|field| field.value.text()),
+            Some("http://example.test/ns/")
+        );
+        let properties = schema
+            .field(SCHEMA, "property")
+            .expect("the description states its properties");
+        let [property] = properties.value.array().expect("an rdf:Seq") else {
+            panic!("one property is described");
+        };
+        assert_eq!(
+            property
+                .field(PROPERTY, "name")
+                .and_then(|field| field.value.text()),
+            Some("Serial")
+        );
+        assert_eq!(
+            property.field(PROPERTY, "valueType"),
+            None,
+            "a field the packet does not state is absent rather than empty"
+        );
+    }
+
+    /// The other spelling of a structure, and the qualifiers an `rdf:Alt` keeps.
+    #[test]
+    fn a_nested_description_is_a_structure_and_an_alt_keeps_its_languages() {
+        let packet = r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
+                           xmlns:xmpTPg="http://ns.adobe.com/xap/1.0/t/pg/"
+                           xmlns:stDim="http://ns.adobe.com/xap/1.0/sType/Dimensions#">
+            <xmpTPg:MaxPageSize>
+              <rdf:Description stDim:w="595" stDim:h="842"/>
+            </xmpTPg:MaxPageSize>
+            <dc:title><rdf:Alt>
+              <rdf:li xml:lang="x-default">Report</rdf:li>
+              <rdf:li>Bericht</rdf:li>
+            </rdf:Alt></dc:title>
+          </rdf:Description>
+        </rdf:RDF>"#;
+        let detailed = Xmp::parse_detail(packet.as_bytes()).expect("well-formed");
+        let size = &detailed
+            .iter()
+            .find(|property| property.name.local == "MaxPageSize")
+            .expect("stated")
+            .value;
+        assert_eq!(
+            size.field("http://ns.adobe.com/xap/1.0/sType/Dimensions#", "w")
+                .and_then(|field| field.value.text()),
+            Some("595"),
+            "a nested description's attributes are the structure's fields"
+        );
+        let title = &detailed
+            .iter()
+            .find(|property| property.name.local == "title")
+            .expect("stated")
+            .value;
+        let items = title.alternatives().expect("an rdf:Alt");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].0.as_deref(), Some("x-default"));
+        assert_eq!(items[0].1.text(), Some("Report"));
+        assert_eq!(
+            items[1].0, None,
+            "an item that states no language is reported without one rather than dropped"
         );
     }
 

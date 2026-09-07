@@ -408,3 +408,197 @@ fn a_page_whose_codes_no_method_can_name_says_so_beside_its_text() {
          nothing in the substitute face, so this page loses two marks as well as two characters"
     );
 }
+
+/// Dropping §14.8.2.2's artifacts from §14.8.2.5's order must not cut the text.
+///
+/// The regression this file exists to keep: `interpretation.artifacts` are ranges of the *raw*
+/// readback, and the logical reading is a different string with the same characters in another
+/// arrangement. Subtracting one from the other removed a run of characters as long as the
+/// running head from wherever the running head's offsets happened to land — the first 62 of
+/// ISO 19005-2's page 26, and the same width off the top of every page of the standard here —
+/// and it did it in silence, which is why the assertion is on the *text* rather than on a flag.
+///
+/// A committed document rather than a fixture, for the reason the two tests above take one: the
+/// claim is about a real producer's interleaving of artifacts with tagged content, and a
+/// fixture that stated it would be stating the answer.
+#[test]
+fn dropping_artifacts_from_a_logical_reading_takes_nothing_out_of_it() {
+    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
+    let retrieval = Retrieval::open(&path)
+        .unwrap_or_else(|error| panic!("ISO 32000-2 is a committed document: {error}"));
+    let logical = Wanted {
+        logical: true,
+        ..Wanted::default()
+    };
+    let without = Wanted {
+        logical: true,
+        drop_artifacts: true,
+        ..Wanted::default()
+    };
+    for index in [100, 339, 500] {
+        let read = retrieval
+            .page(index, &logical)
+            .expect("a page of the standard");
+        let dropped = retrieval
+            .page(index, &without)
+            .expect("a page of the standard");
+        assert_eq!(read.order, pdf_retrieve::Order::Logical);
+        assert_eq!(
+            read.text, dropped.text,
+            "page {index}: §14.8.2.5.1 NOTE 3 has already left the artifacts out"
+        );
+        assert!(!read.text.is_empty(), "page {index} shows tagged text");
+    }
+}
+
+/// The structure tree's text, page by page, is the logical reading of that page.
+///
+/// Two readers of one tree, and the assertion is that they agree: `Tree::logical_text` walks
+/// §14.7.2 and concatenates what each content item marked, and [`Retrieval::structure`] walks
+/// the same tree and hands the items out one at a time with the element each hangs under. The
+/// second is the first with the joins left in, so filtering it to one page and joining it has
+/// to give the first back — and if it ever does not, one of the two has changed its reading of
+/// §14.8.2.5.1 without the other.
+#[test]
+fn the_structure_items_of_a_page_join_into_that_pages_logical_text() {
+    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
+    let retrieval = Retrieval::open(&path)
+        .unwrap_or_else(|error| panic!("ISO 32000-2 is a committed document: {error}"));
+    let structure = retrieval
+        .structure()
+        .expect("the standard is a tagged document");
+    assert!(!structure.truncated, "the walk reached the whole tree");
+    let wanted = Wanted {
+        logical: true,
+        ..Wanted::default()
+    };
+    for index in [100, 339, 500] {
+        let joined: String = structure
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                pdf_retrieve::Item::Text { page, text, .. } if *page == index => {
+                    Some(text.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+        let read = retrieval
+            .page(index, &wanted)
+            .expect("a page of the standard");
+        assert_eq!(
+            read.text, joined,
+            "page {index}: the two readings of one tree"
+        );
+    }
+}
+
+/// An element's own text and its children's arrive in the document's order, not gathered.
+///
+/// What the flat item stream buys over a text field per element, and the thing a consumer
+/// turning a document into prose depends on: ISO 32000-2 sets a URL as a `Link` inside a
+/// sentence, and an answer that gathered each element's text would read that URL after the full
+/// stop. Asserted structurally — a `Text` item, then an element, then another `Text` item under
+/// the same parent — because the prose itself is under the licence ADR 0187 states.
+#[test]
+fn an_elements_text_is_interleaved_with_its_children() {
+    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
+    let retrieval = Retrieval::open(&path)
+        .unwrap_or_else(|error| panic!("ISO 32000-2 is a committed document: {error}"));
+    let structure = retrieval
+        .structure()
+        .expect("the standard is a tagged document");
+    // The parent of every item, by the same stack the walk's depths describe: an element at
+    // depth `d` opens whatever follows at `d + 1`.
+    let items = &structure.items;
+    let mut open: Vec<usize> = Vec::new();
+    let mut parents: Vec<Option<usize>> = Vec::with_capacity(items.len());
+    for (at, item) in items.iter().enumerate() {
+        let depth = match item {
+            pdf_retrieve::Item::Element { depth, .. } | pdf_retrieve::Item::Text { depth, .. } => {
+                *depth
+            }
+        };
+        parents.push(
+            depth
+                .checked_sub(1)
+                .and_then(|above| open.get(above).copied()),
+        );
+        if matches!(item, pdf_retrieve::Item::Element { .. }) {
+            open.truncate(depth);
+            open.push(at);
+        }
+    }
+    // One parent whose own text is broken around a child of its own: text, element, text.
+    // Counted in a single pass over the items, keyed by parent, because the standard's tree has
+    // 78 468 elements and a scan per parent would be a quadratic test.
+    let mut state: std::collections::BTreeMap<usize, u8> = std::collections::BTreeMap::new();
+    let mut interleaved = 0_usize;
+    for (at, item) in items.iter().enumerate() {
+        let Some(parent) = parents.get(at).copied().flatten() else {
+            continue;
+        };
+        let seen = state.entry(parent).or_default();
+        match (item, *seen) {
+            (pdf_retrieve::Item::Text { .. }, 0) => *seen = 1,
+            (pdf_retrieve::Item::Element { .. }, 1) => *seen = 2,
+            (pdf_retrieve::Item::Text { .. }, 2) => {
+                *seen = 3;
+                interleaved = interleaved.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        interleaved > 0,
+        "the standard sets links inside its sentences, and the items say where"
+    );
+}
+
+/// The conformance verdict says what it covers, and a non-conforming file is an answer.
+///
+/// Two claims, and the second is the one a caller scripting this depends on: a document that does
+/// not conform is not an *error*, so the tool answers rather than failing. ISO 19005-2 §6.6.4 and
+/// ISO 19005-4 §6.7.3 both end by saying the `pdfaid` properties do not themselves determine
+/// conformance — so what a caller needs is the determination *and* its extent, which is why
+/// `checked` and `not_checked` are in the answer beside `conforms`.
+#[test]
+fn a_conformance_answer_carries_its_own_extent() {
+    let path = committed("PDF20_AN001-BPC.pdf");
+    let retrieval = Retrieval::open(&path)
+        .unwrap_or_else(|error| panic!("PDF20_AN001-BPC.pdf is a committed document: {error}"));
+    let report = pdf_archive::check(
+        retrieval.document(),
+        pdf_archive::Target::Four(pdf_archive::Flavour::Plain),
+    );
+    assert!(
+        report.judgements.len() > report.checked(),
+        "this crate does not yet check every requirement, and the report has to say so"
+    );
+    assert_eq!(
+        report.checked(),
+        report.judgements.len() - report.unchecked().count(),
+        "every requirement is checked or named as unchecked; there is no third state"
+    );
+}
+
+/// Each target is held to its own set of requirements, which is what makes the flavour a request.
+#[test]
+fn the_six_targets_are_not_one_target() {
+    let path = committed("PDF20_AN001-BPC.pdf");
+    let retrieval = Retrieval::open(&path)
+        .unwrap_or_else(|error| panic!("PDF20_AN001-BPC.pdf is a committed document: {error}"));
+    let sizes: Vec<usize> = pdf_archive::Target::ALL
+        .iter()
+        .map(|target| {
+            pdf_archive::check(retrieval.document(), *target)
+                .judgements
+                .len()
+        })
+        .collect();
+    assert!(
+        sizes.iter().any(|size| *size != sizes[0]),
+        "the annexes and levels change which requirements bind, and a validator that held every \
+         target to one set would be answering a question nobody asked"
+    );
+}

@@ -18,6 +18,10 @@ name = "quorra-retrieve"
 path = "src/main.rs"
 
 [dependencies]
+# The conformance reader, for the `archive-check` question. It depends on `pdf-model` and
+# `pdf-syntax` and on nothing this crate does not already carry, so the front door costs the
+# graph nothing beyond the crate itself.
+pdf-archive.workspace = true
 pdf-model.workspace = true
 pdf-syntax.workspace = true
 thiserror.workspace = true
@@ -28,6 +32,7 @@ thiserror.workspace = true
 # (doc/todo/48, ADR 0252).
 [dev-dependencies]
 conformance.workspace = true
+pdf-archive.workspace = true
 
 [lints]
 workspace = true
