@@ -68,6 +68,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # A display for the tests that build a device. The software Vulkan driver is
+      # installed further down and is what those tests draw with; this is for the moment
+      # `wgpu` looks past it. `render-raster`'s three-backend comparison builds a device
+      # per scene, and on the second one `wgpu-hal` reaches its GLES backend and calls
+      # EGL, which answers `BadDisplay` on a headless runner and panics rather than
+      # reporting that a backend is unavailable. `raster/`'s own workflow ran everything
+      # that touches a device under `xvfb-run` for this reason; that workflow was dropped
+      # as a duplicate of this one on 2026-09-06 and the display was not a duplicate.
+      - name: A display, for the backend `wgpu` falls through to
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libxkbcommon-x11-0
+
       # The fourteen specification documents this project is written against. They are
       # free to obtain from the PDF Association and not free to redistribute, so the
       # repository carries them encrypted rather than in the clear: doc/specifications.zip,
@@ -116,7 +129,7 @@ jobs:
       # tool install to the job that gates the snapshot release is not worth that, and the
       # `--ignored` corpus gates -- the ones that moved to `--profile gates` -- do not run here at
       # all, so no job on this file uses that profile.
-      - run: cargo test --workspace
+      - run: xvfb-run -a cargo test --workspace
 
   # Supply chain. Separated so that an advisory published upstream does not mask a
   # genuine test failure, and vice versa.
@@ -129,6 +142,18 @@ jobs:
 
   # Miri and the fuzz build need nightly, which is why rust-toolchain.toml pins
   # stable and these ask for nightly explicitly.
+  raster-examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install lavapipe (software Vulkan), Xvfb and xwd
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers xvfb x11-apps libxkbcommon-x11-0
+
       # ADR 0060 of `raster/`, which came in with that sub-project on 2026-09-06. `cargo
       # test` neither builds nor runs an example, so every `assert!` under
       # `raster/crates/raster-gpu/examples/` is a comment until something executes it —
@@ -151,6 +176,7 @@ jobs:
             echo "== $example --check =="
             xvfb-run -a cargo run --release -p raster-gpu --example "$example" -- --check
           done
+
 
   nightly:
     runs-on: ubuntu-latest
