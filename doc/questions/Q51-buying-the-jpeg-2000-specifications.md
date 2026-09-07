@@ -4,6 +4,26 @@ Source: `crates/pdf-archive/src/table/graphics.rs`, the seven rows of ISO 19005-
 ISO 19005-4 §6.2.7.3, every one of which is `Check::Unchecked` for the same reason.
 Status: **open** — answered when `A51-buying-the-jpeg-2000-specifications.md` exists beside this file.
 
+## The premise changed on 2026-09-07
+
+**The owner obtained part 1.** `doc/ISO_IEC 15444.pdf` is ISO/IEC 15444-1:2000, *Information
+technology — JPEG 2000 image coding system — Part 1: Core coding system*, gitignored by
+`/doc/*.pdf` like every other specification here, and `python3 tools/spec-md.py` has put its text
+in `doc/md/` where it can be read. It carries what most of ISO 19005-2 §6.2.8.3's rules need:
+Annex I.5.3.3 defines the `colr` box with its `METH`, `PREC`, `APPROX` and `EnumCS` fields, and
+Annex A.5.1's `SIZ` marker segment gives the component count and each component's bit depth.
+
+**What is still open is narrower and is below.** Two of §6.2.8.3's sentences reach past part 1:
+the JPX baseline set of features is defined in ISO/IEC 15444-2:2004 M.9.2, and the subclause's
+closing sentence asks that images be created and read as described in that part. There is also an
+edition subtlety worth knowing before anyone reads a rule off the wrong page: **§6.2.8.3 permits
+`METH` of 0x01, 0x02 or 0x03, and the 2000 first edition of part 1 defines only 1 and 2** — the
+third comes from the later work, so a validator that judged `METH` against part 1 alone would
+reject a value PDF/A allows.
+
+So the question is no longer whether to buy anything to *start*; it is whether part 2 is worth
+buying for the two rules part 1 cannot answer.
+
 ## Why it needs the owner
 
 It is a purchase decision, like `Q49`'s, and it is the only thing that would unblock seven rows of

@@ -275,12 +275,38 @@ nothing. Two things it immediately unparks are named where they act: Annex A's o
 which three agents had recorded as a table nobody holds, and §9.7.5.2's predefined CMap table,
 which ISO 32000-2 dropped and which PDF Association issue #77 is parked on.
 
+**Both are prepared the same way.** `python3 tools/spec-md.py "doc/ISO_IEC 15444.pdf"` and
+`python3 tools/spec-md.py doc/PDF32000_2008.pdf --out doc/md/ISO_32000-1_2008.md` put their text
+under `doc/md/`, which is ignored. That script reads them with this tree's own `quorra-retrieve`
+and writes into its header which order it got — the structure tree's where a document has one,
+the page's content order where it has not — because the two are not equally trustworthy and a
+reader quoting the result should know which they have. Nothing there is a gate's input:
+`conformance::STANDARD` names exactly one file, ISO 32000-2's, so nothing can be mistaken for the
+standard this project is written against.
+
 **Its own permissions forbid extraction, and that is the reader's to set.** `pdfinfo` reports
 `copy:no` on the file. `CLAUDE.md` principle 3's second half is explicit that a document's
 restrictions are the reader's to switch off — "a restriction a reader cannot switch off is a
 restriction imposed on the reader by somebody else's file, and this program is the reader's" — so
 this tree's own reader opens it and answers questions about it, as it does for the SRPS reprints in
 `doc/pdfa/`. That is a stance the project already took, not a new one taken here.
+
+## ISO/IEC 15444-1:2000, JPEG 2000's core coding system
+
+The owner obtained it on 2026-09-07 as `doc/ISO_IEC 15444.pdf` — *Information technology — JPEG
+2000 image coding system — Part 1: Core coding system*, the 2000 first edition. `/doc/*.pdf`
+already excludes it and the same licence position applies as to every specification here.
+
+ISO 19005-2 §6.2.8.3's JPEG 2000 rules turn on fields no reader in this tree could see: Annex
+I.5.3.3's `colr` box carries `METH`, `PREC`, `APPROX` and `EnumCS`, and Annex A.5.1's `SIZ`
+marker segment carries the component count and each component's bit depth. Two agents had
+declined those rules for exactly that reason, and correctly.
+
+**What it does not carry.** §6.2.8.3 also asks that only the JPX baseline set of features be
+used, and that is defined in ISO/IEC 15444-**2**:2004 M.9.2, which the project does not hold —
+`doc/questions/Q51` is open on whether to buy it, and now asks only about those two sentences
+rather than about starting at all. There is a related edition trap recorded where it acts: PDF/A
+permits a `METH` of 1, 2 or 3, and this edition of part 1 defines only 1 and 2.
 
 ## The XMP Specification, read for a table of facts
 

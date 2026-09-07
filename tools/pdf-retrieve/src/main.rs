@@ -7,6 +7,7 @@
 //! pdf-retrieve structure doc/ISO_32000-2_sponsored_EC3.pdf
 //! pdf-retrieve archive-check somefile.pdf 4
 //! pdf-retrieve page     doc/ISO_32000-2_sponsored_EC3.pdf 339 --annotations
+//! pdf-retrieve text     doc/ISO_32000-2_sponsored_EC3.pdf --logical
 //! pdf-retrieve section  doc/ISO_32000-2_sponsored_EC3.pdf 9.6.5.4 --annotations --no-artifacts
 //! ```
 //!
@@ -58,6 +59,8 @@ enum Question {
     Structure,
     /// One page's text.
     Page(usize),
+    /// Every page's text, in one answer.
+    Text,
     /// One section's text.
     Section(String),
     /// Whether the document conforms to a stated part and level of ISO 19005.
@@ -122,6 +125,7 @@ fn run() -> Result<Value, Refused> {
         "structure" => Question::Structure,
         "archive-check" => Question::Archive(subject.clone()),
         "page" => Question::Page(subject.parse().unwrap_or_default()),
+        "text" => Question::Text,
         "section" => Question::Section(subject),
         _ => {
             usage();
@@ -146,6 +150,15 @@ fn run() -> Result<Value, Refused> {
         Question::Structure => Ok(structure(&retrieval)),
         Question::Archive(target) => archive(&retrieval, &target),
         Question::Page(index) => Ok(page(&retrieval.page(index, &wanted)?)),
+        Question::Text => Ok(Value::Array(
+            (0..retrieval.page_count())
+                .map(|index| {
+                    retrieval
+                        .page(index, &wanted)
+                        .map_or(Value::Null, |read| page(&read))
+                })
+                .collect(),
+        )),
         Question::Section(address) => Ok(section(&retrieval.section(&address, &wanted)?)),
     }
 }
@@ -156,7 +169,7 @@ const VALUED: &str = "--subtype";
 /// What the tool takes, printed where a caller got it wrong.
 fn usage() {
     eprintln!(
-        "usage: pdf-retrieve <document|outline|sections|structure|archive-check|page|section> \
+        "usage: pdf-retrieve <document|outline|sections|structure|archive-check|text|page|section> \
          <file.pdf> \
          [<n>|<address>] \
          [--annotations] [--subtype <Name,Name>] [--no-artifacts] [--logical]"
