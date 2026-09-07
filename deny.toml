@@ -90,7 +90,12 @@ deny = [
     # `cargo deny` reads, and a ban in a nested file is a ban nothing enforces.
     { crate = "lcms2", reason = "no colour management in the rasteriser: it is handed device RGB" },
     { crate = "lcms2-sys", reason = "as lcms2" },
-    { crate = "moxcms", reason = "as lcms2, in pure Rust" },
+    # `moxcms` arrives in this graph through `hayro`, the reference implementation
+    # `tools/hayro-compare` drives for the oracle, and through `image` beneath it. That
+    # route is named rather than the ban dropped: nothing this project *ships* may reach a
+    # colour-management engine, and a reference renderer we run for comparison is not
+    # something we ship. Any other route fails the build, which is what the ban is for.
+    { crate = "moxcms", reason = "as lcms2, in pure Rust", wrappers = ["hayro-interpret", "image"] },
     { crate = "qcms", reason = "as lcms2" },
     # Unmaintained; its successors are `zune-*` and the `image` crate family.
     { crate = "stb_image", reason = "unmaintained C image decoder" },

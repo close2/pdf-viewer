@@ -247,9 +247,21 @@ if [ -n "$self_test" ]; then
     [ "$(walk_table 1000 < "$scratch/cycle" | tail -n +2 | sort | tr '\n' ' ')" = "1001 1002 " ] || fail "cycle: descendants $(walk_table 1000 < "$scratch/cycle" | tail -n +2 | tr '\n' ' ')"
     echo "bounded --self-test: a chain of 50000, a cycle and a duplicate walked once each"
 
-    # 3. A live tree that fans out into two hundred short-lived children under the wrapper
-    #    itself: exit 0, and the peak is a positive figure.
-    "$self" --tree 1 --data 1 --nice 0 -- bash -c 'for i in $(seq 200); do sleep 0.3 & done; wait' \
+    # 3. A live tree that fans out into two hundred children under the wrapper itself:
+    #    exit 0, and the peak is a positive figure.
+    #
+    #    **The children live for three seconds and not for a third of one**, and the
+    #    difference is the whole case. The sampler ticks once a second, so a tree that is
+    #    gone before the first tick leaves a peak of 0.00 and this case fails for a reason
+    #    that is the machine's speed rather than the wrapper's behaviour — which is what it
+    #    did on every CI runner from the session that wrote it until the ninth of September,
+    #    while passing on the machine it was written on. A self-test whose verdict depends
+    #    on losing a race is not a self-test.
+    #    The ceiling is eight gibibytes and not one: two hundred shells that are alive
+    #    when the sampler walks them cost 1.22 GiB of resident memory here, so the case as
+    #    first written would now be killed by its own bound — which is the sampler working
+    #    and the case's ceiling being a figure nobody had measured.
+    "$self" --tree 8 --data 1 --nice 0 -- bash -c 'for i in $(seq 200); do sleep 3 & done; wait' \
         > "$scratch/fan.out" 2> "$scratch/fan.err"
     status=$?
     [ "$status" -eq 0 ] || fail "fan-out: exit $status: $(tail -n 1 "$scratch/fan.err")"
