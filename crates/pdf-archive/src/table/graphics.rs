@@ -77,6 +77,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::jpeg2000::{Channel, ColourSpecification, Headers};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, Stream};
 
 use crate::Examination;
@@ -534,17 +535,18 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     Requirement {
         id: "graphics/jpeg2000-uses-the-baseline-feature-set",
         asks: "JPEG 2000 data shall use only the JPX baseline feature set, as the base standard \
-               and ISO 19005 restrict and extend it.",
+               and ISO 19005 restrict and extend it, and shall be created and read as the \
+               extensions part describes.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_NEEDS_A_CODESTREAM_READER),
+        check: Check::Unchecked(JPEG2000_BASELINE_IS_IN_THE_PART_NOT_HELD),
     },
     Requirement {
         id: "graphics/jpeg2000-channel-count",
         asks: "JPEG 2000 data shall have 1, 3 or 4 colour channels.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_NEEDS_A_CODESTREAM_READER),
+        check: Check::Implemented(jpeg2000_channel_count),
     },
     Requirement {
         id: "graphics/jpeg2000-one-best-colour-space-specification",
@@ -553,7 +555,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                conform to the base standard.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_NEEDS_A_CODESTREAM_READER),
+        check: Check::Implemented(jpeg2000_one_best_colour_space_specification),
     },
     Requirement {
         id: "graphics/jpeg2000-colour-specification-method",
@@ -561,14 +563,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                the three the part permits.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_NEEDS_A_CODESTREAM_READER),
+        check: Check::Implemented(jpeg2000_colour_specification_method),
     },
     Requirement {
         id: "graphics/jpeg2000-no-ciejab-colour-space",
         asks: "JPEG 2000 data shall not use the enumerated CIEJab colour space.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_NEEDS_A_CODESTREAM_READER),
+        check: Check::Implemented(jpeg2000_no_ciejab_colour_space),
     },
     Requirement {
         id: "graphics/jpeg2000-bit-depth",
@@ -576,7 +578,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                colour channel.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(JPEG2000_NEEDS_A_CODESTREAM_READER),
+        check: Check::Implemented(jpeg2000_bit_depth),
     },
     Requirement {
         id: "graphics/jpeg2000-device-colour-obeys-the-colour-rules",
@@ -585,9 +587,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "the device colour rules above are answered now, but this rule reaches them through \
-             the colour space the JPEG 2000 codestream itself declares where the image \
-             dictionary states none, and this project has no JPEG 2000 reader",
+            "what the codestream declares is now readable — `pdf_model::jpeg2000` reports the \
+             `colr` boxes — but the rule turns on the word *effectively*, and neither part says \
+             which of the enumerated colour spaces is a device space. Numbers 16 and 17 are \
+             sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather than device; \
+             12 (CMYK) has no such definition attached. Deciding which of them makes an image \
+             *effectively* DeviceCMYK, and then running §6.2.4.3's output-intent and default \
+             colour space tests over that decision, is a reading of ISO/IEC 15444-2's colour \
+             annex this project cannot make from part 1 alone",
         ),
     },
     Requirement {
@@ -673,14 +680,19 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
 ];
 
-/// Why every JPEG 2000 row is unchecked.
-const JPEG2000_NEEDS_A_CODESTREAM_READER: &str = "every one of these rules is decided inside the JPEG 2000 data rather than by the PDF \
-     objects around it — the channel count and bit depth by the image header, the colour space \
-     specifications by the `colr` boxes — and the corpus confirms it: its witnesses differ from \
-     their passing siblings only in those bytes, with the image dictionary's `ColorSpace` entry \
-     absent in each. What the rules need is not a decoder but the box and marker layout, and \
-     that layout is ISO/IEC 15444-1 and -2, which this project does not hold; `CLAUDE.md` \
-     principle 5 forbids reading it out of somebody else's implementation";
+/// Why the baseline-feature row is unchecked, where five rows beside it no longer are.
+///
+/// The project holds ISO/IEC 15444-1:2000, which is what the other five needed; it does not hold
+/// ISO/IEC 15444-2:2004, which is what this one needs and the only place either sentence of it is
+/// defined. `doc/questions/Q51` is open on buying it.
+const JPEG2000_BASELINE_IS_IN_THE_PART_NOT_HELD: &str = "both sentences of this rule name the extensions part rather than the core one. Its NOTE 1 \
+     says the JPX baseline set of features is defined in ISO/IEC 15444-2:2004 M.9.2, and the \
+     subclause closes by requiring the image to be created and read as that document describes. \
+     This project holds ISO/IEC 15444-1:2000 — enough for the channel count, the colour \
+     specification boxes and the bit depth, which are checked — and does not hold part 2, so \
+     there is no list of baseline features to judge an image against and `CLAUDE.md` principle 5 \
+     forbids reconstructing one from another implementation. `doc/questions/Q51` is the open \
+     purchase decision";
 
 /// How deep into one cross-referenced object's own structure the walk below goes.
 ///
@@ -2730,6 +2742,285 @@ fn inline_image_interpolation_is_off(exam: &Examination<'_>, findings: &mut Find
     }
 }
 
+/// The bit depths ISO 19005-2 §6.2.8.3 and ISO 19005-4 §6.2.7.3 admit, inclusive.
+///
+/// The same range ISO 32000-2 §7.4.9 states of the filter — "bits per sample shall be between 1
+/// to 38 inclusive" — and the same one ISO/IEC 15444-1:2000's Tables I-6 and A-11 encode, whose
+/// defined values run from one bit to thirty-eight and reserve the rest.
+const JPEG2000_DEPTHS: std::ops::RangeInclusive<u8> = 1..=38;
+
+/// The colour specification methods both parts admit in a `colr` box.
+///
+/// **Three of them, and ISO/IEC 15444-1:2000 Table I-9 defines only two.** The third comes from
+/// the later work the extensions part carries, so a validator that judged `METH` against the
+/// core part alone would reject a value ISO 19005 permits. The rule implemented here is
+/// ISO 19005's, not part 1's.
+const JPEG2000_METHODS: [u8; 3] = [0x01, 0x02, 0x03];
+
+/// The enumerated colour space both parts forbid, `CIEJab`.
+///
+/// Named by number rather than by definition, which is all either part gives it and all this
+/// rule needs. ISO 32000-2 §7.4.9 excludes the same number from what a PDF may carry.
+const JPEG2000_CIEJAB: u32 = 19;
+
+/// The `APPROX` value that marks the colour specification with the best colour fidelity.
+///
+/// Both parts' NOTE 2 says so in as many words. ISO/IEC 15444-1:2000 I.5.3.3 reserves the field
+/// and sets it to zero, which is the first edition's reading of a field ISO 19005 gives a
+/// meaning — so this constant is ISO 19005's requirement, not part 1's.
+const JPEG2000_BEST_APPROXIMATION: u8 = 0x01;
+
+/// Visits the headers of every `JPXDecode` stream the file's cross-referenced objects state.
+///
+/// **The codec is the test, not the `Subtype`.** ISO 19005-2 §6.2.8.3 and ISO 19005-4 §6.2.7.3
+/// bind "the JPEG2000 data" rather than a dictionary, and ISO 32000-2 §7.4.9 confines the filter
+/// to image `XObject`s — so a stream carrying it either is an image or is already breaking that
+/// clause, and neither is a reason to leave its data unread.
+///
+/// **Data that does not parse is passed over rather than reported**, which is the same choice
+/// [`icc_profiles_conform_to_the_base_standard`] makes about a stream that does not decode: what
+/// a malformed codestream breaks is §7.4.9 and the closing sentence of these two subclauses, and
+/// that sentence is the row this file leaves [`Check::Unchecked`]. Announcing it under the
+/// channel-count rule would put a true finding under a false clause.
+///
+/// The headers are parsed once per requirement rather than once per report, and deliberately: a
+/// parse here reads a hundred-odd bytes of boxes already in memory, decodes nothing, and starts
+/// no process — unlike the `/Annots` walk that put [`crate::Examination`]'s shared work there.
+fn for_each_jpeg2000(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Headers<'_>)) {
+    let document = exam.document;
+    for (id, object) in exam.objects() {
+        let Object::Stream(stream) = object else {
+            continue;
+        };
+        let Some(image) = document.image_stream(stream) else {
+            continue;
+        };
+        if image.codec.as_deref() != Some(b"JPXDecode".as_slice()) {
+            continue;
+        }
+        let Ok(headers) = Headers::parse(&image.data) else {
+            continue;
+        };
+        visit(*id, &headers);
+    }
+}
+
+/// Where a finding about JPEG 2000 data is reported: the stream that carries it.
+fn jpeg2000_site(id: ObjectId) -> Where {
+    Where::object(id).named("JPXDecode")
+}
+
+/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: 1, 3 or 4 colour channels.
+///
+/// A *colour* channel, which is not the same as a component: ISO/IEC 15444-1:2000 I.5.3.6 gives
+/// each channel a type, and only type 0 is colour, so an RGB image with an opacity channel has
+/// four components and three colour channels. `pdf_model::jpeg2000` makes that distinction and
+/// this rule takes it.
+///
+/// **Two statements of the count are checked where the file makes two.** I.5.3.6 says a file with
+/// no channel definition box holds colour channels only, so for such a file the image header's
+/// `NC` and the codestream's `Csiz` are both statements of this number — and I.5.3.1 says a file
+/// whose header contradicts its codestream is not conforming. Judging only one of them would let
+/// a file put the wrong count in the half a reader did not look at, which is exactly what the
+/// corpus witness for this rule does.
+fn jpeg2000_channel_count(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_jpeg2000(exam, |id, headers| {
+        let mut counts: Vec<u32> = headers.colour_channels().into_iter().collect();
+        if headers.channels.is_empty() {
+            counts.extend(
+                headers
+                    .codestream
+                    .as_ref()
+                    .map(|codestream| u32::from(codestream.components())),
+            );
+        }
+        counts.sort_unstable();
+        counts.dedup();
+        for count in counts {
+            if !matches!(count, 1 | 3 | 4) {
+                findings.record(
+                    jpeg2000_site(id),
+                    format!("JPEG 2000 data states {count} colour channels, not 1, 3 or 4"),
+                );
+            }
+        }
+    });
+}
+
+/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: one specification marked best, and its profile.
+///
+/// Two sentences, and the second depends on the first. Where the data states more than one
+/// colour space specification, exactly one shall carry [`JPEG2000_BEST_APPROXIMATION`] in its
+/// `APPROX` field; and where *that* specification — the selected one — uses an ICC profile, the
+/// profile shall meet what the base standard requires of one.
+///
+/// **The ICC half is read as far as ISO 32000-2 §8.6.5.5's Table 67 goes and no further**, which
+/// is the boundary [`icc_profiles_conform_to_the_base_standard`] already draws for the same
+/// clause: the profile's device class and data colour space are checked against that table,
+/// while Table 65's `N` has no counterpart here — a profile inside a `colr` box sits in no PDF
+/// dictionary to disagree with — and the sentence asking a profile to conform to the ICC
+/// specification its own header names needs the ICC texts, which this project does not hold.
+///
+/// Only a `METH` of 2 yields profile bytes to read. ISO/IEC 15444-1:2000 Table I-9 defines the
+/// embedded profile for that method alone and reserves every other value, so a `METH` of 3 —
+/// which ISO 19005 permits and part 1 does not describe — carries bytes this tree cannot claim
+/// to be reading correctly, and they are left alone rather than guessed at.
+fn jpeg2000_one_best_colour_space_specification(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_jpeg2000(exam, |id, headers| {
+        let best: Vec<&ColourSpecification<'_>> = headers
+            .colour
+            .iter()
+            .filter(|colour| colour.approximation == JPEG2000_BEST_APPROXIMATION)
+            .collect();
+
+        let selected = if headers.colour.len() > 1 {
+            if best.len() == 1 {
+                best.first().copied()
+            } else {
+                findings.record(
+                    jpeg2000_site(id),
+                    format!(
+                        "JPEG 2000 data states {} colour space specifications of which {} is \
+                         marked as the best available, where exactly one shall be",
+                        headers.colour.len(),
+                        best.len()
+                    ),
+                );
+                None
+            }
+        } else {
+            headers.colour.first()
+        };
+
+        let Some(profile) = selected.and_then(|colour| colour.profile) else {
+            return;
+        };
+        let Some((class, space)) = profile_header(profile) else {
+            return;
+        };
+        if !ICC_DEVICE_CLASSES.contains(&class) {
+            findings.record(
+                jpeg2000_site(id),
+                "the ICC profile in the selected JPEG 2000 colour specification is of a device \
+                 class the base standard does not admit for a colour space",
+            );
+        }
+        if !ICC_COLOUR_SPACES
+            .iter()
+            .any(|(signature, _)| *signature == space)
+        {
+            findings.record(
+                jpeg2000_site(id),
+                "the ICC profile in the selected JPEG 2000 colour specification states a data \
+                 colour space the base standard does not admit for a colour space",
+            );
+        }
+    });
+}
+
+/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: `METH` shall be 0x01, 0x02 or 0x03.
+///
+/// Every `colr` box, not only the first. Both parts write the sentence about "its `colr` box" in
+/// the singular, and ISO/IEC 15444-1:2000 I.5.3.3 permits several — a file may carry one per
+/// method — so the requirement is read as binding each of them. The alternative reading, that a
+/// file may hide an undefined method in a box after the first, would make the sentence say less
+/// the more boxes a file states.
+fn jpeg2000_colour_specification_method(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_jpeg2000(exam, |id, headers| {
+        for colour in &headers.colour {
+            if !JPEG2000_METHODS.contains(&colour.method) {
+                findings.record(
+                    jpeg2000_site(id),
+                    format!(
+                        "a JPEG 2000 colour specification box states a METH of {:#04x}, which is \
+                         none of 0x01, 0x02 and 0x03",
+                        colour.method
+                    ),
+                );
+            }
+        }
+    });
+}
+
+/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: enumerated colour space 19 shall not be used.
+///
+/// ISO/IEC 15444-1:2000 I.5.3.3 puts `EnumCS` in a `colr` box only where `METH` is 1, which is
+/// why `pdf_model::jpeg2000` reports it only there and this rule asks no more.
+///
+/// The neighbouring sentence — that enumerated colour space 12 (CMYK) *may* be used — states a
+/// permission rather than a requirement, so there is nothing for a file to fail and no row for
+/// it. It is written down here because its absence from the table is a decision.
+fn jpeg2000_no_ciejab_colour_space(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_jpeg2000(exam, |id, headers| {
+        for colour in &headers.colour {
+            if colour.enumerated == Some(JPEG2000_CIEJAB) {
+                findings.record(
+                    jpeg2000_site(id),
+                    "a JPEG 2000 colour specification box uses enumerated colour space 19, \
+                     CIEJab, which ISO 19005 forbids",
+                );
+            }
+        }
+    });
+}
+
+/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: 1 to 38 bits, the same on every colour channel.
+///
+/// Two sentences with different subjects, and they are checked over different populations.
+///
+/// - The *range* binds the bit depth of the JPEG 2000 data, so every component's declared depth
+///   is judged: an opacity channel's samples are as much the data as a colour channel's, and
+///   ISO 32000-2 §7.4.9 states the same range without narrowing it to colour either.
+/// - The *equality* binds the colour channels by its own words, so a channel that
+///   ISO/IEC 15444-1:2000 I.5.3.6 types as opacity is excluded from it — an RGB image with an
+///   eight-bit opacity channel over twelve-bit colour breaks no sentence of this rule.
+///
+/// Where the file states a channel definition box, its `Cn` indices are read as component
+/// indices, which I.5.3.6 makes them wherever there is no component mapping box. Where a file
+/// states one of *those*, they are not, and `pdf_model::jpeg2000` reads only its presence — so
+/// the equality check is skipped there rather than made over the wrong components. The range
+/// check above is unaffected, binding every component's declared depth however the channels are
+/// mapped.
+fn jpeg2000_bit_depth(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_jpeg2000(exam, |id, headers| {
+        let depths = headers.component_depths();
+        let mut reported: Vec<u8> = Vec::new();
+        for depth in &depths {
+            if !JPEG2000_DEPTHS.contains(&depth.bits) && !reported.contains(&depth.bits) {
+                reported.push(depth.bits);
+                findings.record(
+                    jpeg2000_site(id),
+                    format!(
+                        "JPEG 2000 data states a bit depth of {}, outside the range 1 to 38",
+                        depth.bits
+                    ),
+                );
+            }
+        }
+
+        if headers.component_mapping {
+            return;
+        }
+        let colour: Vec<u8> = if headers.channels.is_empty() {
+            depths.iter().map(|depth| depth.bits).collect()
+        } else {
+            headers
+                .channels
+                .iter()
+                .filter(|channel| channel.kind == Channel::COLOUR)
+                .filter_map(|channel| depths.get(usize::from(channel.channel)))
+                .map(|depth| depth.bits)
+                .collect()
+        };
+        if colour.windows(2).any(|pair| pair[0] != pair[1]) {
+            findings.record(
+                jpeg2000_site(id),
+                "the colour channels of JPEG 2000 data do not all have the same bit depth",
+            );
+        }
+    });
+}
+
 /// ISO 19005-2 §6.2.10, second paragraph.
 fn a_transparent_page_has_a_blending_space(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
@@ -3067,6 +3358,265 @@ mod tests {
         let exam = Examination::new(document, Target::Four(Flavour::Plain));
         predicate(&exam, &mut findings);
         findings.seen()
+    }
+
+    /// A JP2 box: `LBox`, `TBox`, payload. ISO/IEC 15444-1:2000 I.4.
+    fn jp2_box(kind: [u8; 4], payload: &[u8]) -> Vec<u8> {
+        let length = payload.len().saturating_add(8);
+        let mut bytes = u32::try_from(length)
+            .unwrap_or(u32::MAX)
+            .to_be_bytes()
+            .to_vec();
+        bytes.extend_from_slice(&kind);
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    /// An `ihdr` payload of `components` components at `bits`, I.5.3.1 Table I-5.
+    fn jp2_image_header(components: u16, bits: u8) -> Vec<u8> {
+        let mut payload = 1u32.to_be_bytes().to_vec();
+        payload.extend_from_slice(&1u32.to_be_bytes());
+        payload.extend_from_slice(&components.to_be_bytes());
+        payload.extend_from_slice(&[bits, 7, 0, 0]);
+        payload
+    }
+
+    /// A `colr` payload stating `METH` 1 and an enumerated space, I.5.3.3 Table I-11.
+    fn jp2_enumerated_colour(approximation: u8, space: u32) -> Vec<u8> {
+        let mut payload = vec![1, 0, approximation];
+        payload.extend_from_slice(&space.to_be_bytes());
+        payload
+    }
+
+    /// A `cdef` payload from `(Cn, Typ, Asoc)` triples, I.5.3.6.
+    fn jp2_channels(entries: &[(u16, u16, u16)]) -> Vec<u8> {
+        let mut payload = u16::try_from(entries.len())
+            .unwrap_or(u16::MAX)
+            .to_be_bytes()
+            .to_vec();
+        for (channel, kind, association) in entries {
+            payload.extend_from_slice(&channel.to_be_bytes());
+            payload.extend_from_slice(&kind.to_be_bytes());
+            payload.extend_from_slice(&association.to_be_bytes());
+        }
+        payload
+    }
+
+    /// A codestream of `SOC` and a `SIZ` segment for `components` components, A.5.1 Table A-9.
+    fn jp2_codestream(components: u16) -> Vec<u8> {
+        let mut parameters = 0u16.to_be_bytes().to_vec();
+        for value in [1u32, 1, 0, 0, 1, 1, 0, 0] {
+            parameters.extend_from_slice(&value.to_be_bytes());
+        }
+        parameters.extend_from_slice(&components.to_be_bytes());
+        for _ in 0..components {
+            parameters.extend_from_slice(&[7, 1, 1]);
+        }
+        let length = u16::try_from(parameters.len().saturating_add(2)).unwrap_or(u16::MAX);
+        let mut bytes = vec![0xFF, 0x4F, 0xFF, 0x51];
+        bytes.extend_from_slice(&length.to_be_bytes());
+        bytes.extend_from_slice(&parameters);
+        bytes
+    }
+
+    /// A whole JP2 file: signature, file type, the given header boxes, a codestream. I.5.
+    fn jp2_file(header: &[Vec<u8>], components: u16) -> Vec<u8> {
+        let mut inner = Vec::new();
+        for part in header {
+            inner.extend_from_slice(part);
+        }
+        let mut bytes = jp2_box(*b"jP  ", &[0x0D, 0x0A, 0x87, 0x0A]);
+        bytes.extend_from_slice(&jp2_box(*b"ftyp", b"jp2 \0\0\0\0jp2 "));
+        bytes.extend_from_slice(&jp2_box(*b"jp2h", &inner));
+        bytes.extend_from_slice(&jp2_box(*b"jp2c", &jp2_codestream(components)));
+        bytes
+    }
+
+    /// A file holding one `JPXDecode` image `XObject` over `data`.
+    ///
+    /// Assembled from bytes rather than through [`document_of`] for the obvious reason: JPEG 2000
+    /// data is not text, and these rules are about exactly those bytes.
+    fn jpx_document(data: &[u8]) -> Document {
+        let dict = format!(
+            "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /Filter /JPXDecode /Length {} >>",
+            data.len()
+        );
+        let mut image = dict.into_bytes();
+        image.extend_from_slice(b" stream\n");
+        image.extend_from_slice(data);
+        image.extend_from_slice(b"\nendstream");
+        let bodies = [
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [] /Count 0 >>".to_vec(),
+            image,
+        ];
+
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in bodies.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj ", index.saturating_add(1)).as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b" endobj\n");
+        }
+        let start = out.len();
+        let size = bodies.len().saturating_add(1);
+        out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+        for offset in &offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer << /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n")
+                .as_bytes(),
+        );
+        Document::open(out).unwrap_or_else(|_| Document::empty())
+    }
+
+    /// ISO/IEC 15444-1:2000 I.5.3.1 makes `NC` and `Csiz` two statements of one number, and says
+    /// a file whose two disagree is not conforming — so a bad count in either is a bad count.
+    #[test]
+    fn the_channel_count_is_judged_from_both_places_that_state_it() {
+        let header = |components| {
+            vec![
+                jp2_box(*b"ihdr", &jp2_image_header(components, 7)),
+                jp2_box(*b"colr", &jp2_enumerated_colour(0, 16)),
+            ]
+        };
+        let agreeing = jpx_document(&jp2_file(&header(3), 3));
+        assert_eq!(found(&agreeing, super::jpeg2000_channel_count), 0);
+
+        // The corpus witness's arrangement: a header claiming five, a codestream carrying three.
+        let by_the_header = jpx_document(&jp2_file(&header(5), 3));
+        assert_eq!(found(&by_the_header, super::jpeg2000_channel_count), 1);
+
+        let by_the_codestream = jpx_document(&jp2_file(&header(3), 5));
+        assert_eq!(found(&by_the_codestream, super::jpeg2000_channel_count), 1);
+    }
+
+    /// I.5.3.6's `Typ` separates colour channels from opacity, and only the first kind is counted.
+    #[test]
+    fn an_opacity_channel_is_not_a_colour_channel() {
+        let header = vec![
+            jp2_box(*b"ihdr", &jp2_image_header(4, 7)),
+            jp2_box(*b"colr", &jp2_enumerated_colour(0, 16)),
+            jp2_box(
+                *b"cdef",
+                &jp2_channels(&[(0, 0, 1), (1, 0, 2), (2, 0, 3), (3, 1, 0)]),
+            ),
+        ];
+        let document = jpx_document(&jp2_file(&header, 4));
+        assert_eq!(found(&document, super::jpeg2000_channel_count), 0);
+    }
+
+    /// The edition trap: ISO 19005 permits a `METH` of 3, which ISO/IEC 15444-1:2000 Table I-9
+    /// does not define. The rule implemented is ISO 19005's, so 3 passes and 4 does not.
+    #[test]
+    fn a_method_of_three_passes_and_a_method_of_four_does_not() {
+        let with = |method: u8| {
+            let header = vec![
+                jp2_box(*b"ihdr", &jp2_image_header(3, 7)),
+                jp2_box(*b"colr", &[method, 0, 0]),
+            ];
+            jpx_document(&jp2_file(&header, 3))
+        };
+        for method in [1, 2, 3] {
+            assert_eq!(
+                found(&with(method), super::jpeg2000_colour_specification_method),
+                0,
+                "METH {method} is one of the three ISO 19005 permits"
+            );
+        }
+        assert_eq!(
+            found(&with(4), super::jpeg2000_colour_specification_method),
+            1
+        );
+    }
+
+    /// The rule binds only data stating more than one specification, and asks for exactly one
+    /// marked best — which the corpus witness, stating two and marking neither, does not do.
+    #[test]
+    fn one_specification_needs_no_approximation_and_two_need_exactly_one() {
+        let with = |approximations: &[u8]| {
+            let mut header = vec![jp2_box(*b"ihdr", &jp2_image_header(3, 7))];
+            for approximation in approximations {
+                header.push(jp2_box(
+                    *b"colr",
+                    &jp2_enumerated_colour(*approximation, 16),
+                ));
+            }
+            jpx_document(&jp2_file(&header, 3))
+        };
+        let rule = super::jpeg2000_one_best_colour_space_specification;
+        assert_eq!(found(&with(&[0]), rule), 0);
+        assert_eq!(found(&with(&[1, 0]), rule), 0);
+        assert_eq!(found(&with(&[0, 0]), rule), 1);
+        assert_eq!(found(&with(&[1, 1]), rule), 1);
+    }
+
+    /// Enumerated space 19 is forbidden by name; 12 is permitted by name in the sentence beside
+    /// it, and 16 is what a conforming witness states.
+    #[test]
+    fn only_the_cie_jab_enumerated_space_is_refused() {
+        let with = |space: u32| {
+            let header = vec![
+                jp2_box(*b"ihdr", &jp2_image_header(3, 7)),
+                jp2_box(*b"colr", &jp2_enumerated_colour(0, space)),
+            ];
+            jpx_document(&jp2_file(&header, 3))
+        };
+        assert_eq!(found(&with(16), super::jpeg2000_no_ciejab_colour_space), 0);
+        assert_eq!(found(&with(12), super::jpeg2000_no_ciejab_colour_space), 0);
+        assert_eq!(found(&with(19), super::jpeg2000_no_ciejab_colour_space), 1);
+    }
+
+    /// The two sentences of the bit-depth rule bind different channels, and the tests separate
+    /// them: the range every component, the equality the colour channels alone.
+    #[test]
+    fn the_bit_depth_range_and_the_equality_bind_different_channels() {
+        let rule = super::jpeg2000_bit_depth;
+
+        // The corpus witness: a single `BPC` of 0x28, which Table I-6 reads as 41 bits.
+        let header = vec![
+            jp2_box(*b"ihdr", &jp2_image_header(3, 0x28)),
+            jp2_box(*b"colr", &jp2_enumerated_colour(0, 16)),
+        ];
+        assert_eq!(found(&jpx_document(&jp2_file(&header, 3)), rule), 1);
+
+        // Three colour channels of unequal depth, which the second sentence forbids.
+        let header = vec![
+            jp2_box(*b"ihdr", &jp2_image_header(3, 0xFF)),
+            jp2_box(*b"bpcc", &[7, 7, 0x0B]),
+            jp2_box(*b"colr", &jp2_enumerated_colour(0, 16)),
+        ];
+        assert_eq!(found(&jpx_document(&jp2_file(&header, 3)), rule), 1);
+
+        // The same depths, with the odd one typed as opacity: no sentence is broken.
+        let header = vec![
+            jp2_box(*b"ihdr", &jp2_image_header(3, 0xFF)),
+            jp2_box(*b"bpcc", &[7, 7, 0x0B]),
+            jp2_box(*b"colr", &jp2_enumerated_colour(0, 16)),
+            jp2_box(*b"cdef", &jp2_channels(&[(0, 0, 1), (1, 0, 2), (2, 1, 0)])),
+        ];
+        assert_eq!(found(&jpx_document(&jp2_file(&header, 3)), rule), 0);
+    }
+
+    /// Data that is not JPEG 2000 at all fails no JPEG 2000 rule here.
+    ///
+    /// What it breaks is ISO 32000-2 §7.4.9 and the closing sentence of both subclauses, and that
+    /// sentence is the row this file leaves unchecked — so a finding here would sit under a
+    /// clause that does not state it.
+    #[test]
+    fn unreadable_jpeg_2000_data_is_passed_over_rather_than_misreported() {
+        let document = jpx_document(b"this is not a JP2 file");
+        for rule in [
+            super::jpeg2000_channel_count,
+            super::jpeg2000_colour_specification_method,
+            super::jpeg2000_no_ciejab_colour_space,
+            super::jpeg2000_bit_depth,
+            super::jpeg2000_one_best_colour_space_specification,
+        ] {
+            assert_eq!(found(&document, rule), 0);
+        }
     }
 
     /// One file breaking one rule in each of the four places the walk has to reach: an output

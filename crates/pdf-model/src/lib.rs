@@ -56,6 +56,7 @@ mod icon;
 pub mod image;
 pub mod inline_image;
 mod integer_entry;
+pub mod jpeg2000;
 pub mod link;
 mod markup;
 pub mod measurement;

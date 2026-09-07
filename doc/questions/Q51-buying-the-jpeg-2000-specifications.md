@@ -1,7 +1,9 @@
 # Q51 — Should the project buy ISO/IEC 15444-1 and -2, the JPEG 2000 specifications?
 
 Source: `crates/pdf-archive/src/table/graphics.rs`, the seven rows of ISO 19005-2 §6.2.8.3 /
-ISO 19005-4 §6.2.7.3, every one of which is `Check::Unchecked` for the same reason.
+ISO 19005-4 §6.2.7.3. All seven were `Check::Unchecked` when this was written; five are
+implemented now that part 1 is held, and "What the tree does now that part 1 is held" below is
+the current state.
 Status: **open** — answered when `A51-buying-the-jpeg-2000-specifications.md` exists beside this file.
 
 ## The premise changed on 2026-09-07
@@ -73,13 +75,19 @@ that *according to the agreement with our partners, this document is only availa
 payment*. Checked on 2026-09-07. So there is no Adobe-style free copy the way `Q49` turned out to
 have, and no reading of these clauses without buying something.
 
-## What the tree does meanwhile
+## What the tree does now that part 1 is held
 
-All seven rows are present, named and reported. Six carry one shared reason —
-`JPEG2000_NEEDS_A_CODESTREAM_READER` in `graphics.rs` — and the seventh names the same absence from
-the colour side. `doc/questions/Q20`'s discipline means a verdict on a document holding a
-`JPXDecode` image says in as many words that these seven were not checked, so nothing is claimed
-that was not read.
+**Five of the seven rows are implemented**, on part 1 alone and as the recommendation below
+predicted: the channel count, the one best-marked colour space specification, the `METH` value,
+the CIEJab exclusion and the bit depth. The reader is `pdf_model::jpeg2000` — the JP2 boxes and the
+`SIZ` marker segment, no decoder — and ADR 0925 is why it went into `pdf-model` rather than into
+the validator. The corpus's `6.2.8.3` directory went from two agreed and five missed to seven
+agreed and none missed, `over` unchanged at zero.
+
+**Two rows remain, and only one of them is this question's.** The baseline-feature row needs
+ISO/IEC 15444-2:2004 for both of its sentences and carries a reason saying so. The device-colour
+row is *not* blocked on a purchase: it turns on which enumerated colour space makes an image
+"effectively" DeviceGray, DeviceRGB or DeviceCMYK, and neither part of ISO 19005 says.
 
 Nothing else is blocked. A document with no JPEG 2000 image is unaffected, and the corpus's own
 `6.2.8.3` directory is seven files out of a few thousand.
@@ -102,7 +110,11 @@ becomes answerable because the colour space the codestream declares becomes read
 That rule has no corpus witness, it is the one that would need real codestream analysis rather
 than box walking, and it can stay `Unchecked` with a truthful reason indefinitely.
 
+*Both halves of that recommendation have now been carried out as far as they can be without an
+answer: part 1 was bought and read, and the five rows it decides are implemented. What is left of
+this question is the second paragraph alone.*
+
 And **buy neither if PDF/A is not going to a conforming-validator claim**. If the target is the
 converter of `Q46` and JPEG 2000 images are to be refused rather than validated, the honest thing
-is to say so in `doc/pdf-a-conversion-limits.md` and leave all seven rows named — which is what the
-tree does today, at no cost.
+is to say so in `doc/pdf-a-conversion-limits.md` and leave the remaining rows named, which costs
+nothing and is what the tree already does for the two that are left.
