@@ -174,7 +174,13 @@ impl Program {
                 let Ok(code) = u8::try_from(code) else {
                     continue;
                 };
-                if custom && !self.assigned.get(usize::from(code)).copied().unwrap_or(false) {
+                if custom
+                    && !self
+                        .assigned
+                        .get(usize::from(code))
+                        .copied()
+                        .unwrap_or(false)
+                {
                     continue;
                 }
                 *slot = encoding
@@ -248,7 +254,10 @@ fn assigned_codes(data: &[u8]) -> Box<[bool; 256]> {
         if !name.starts_with(b"/") || !tail.starts_with(b"put") {
             continue;
         }
-        let Ok(code) = std::str::from_utf8(code).unwrap_or_default().parse::<usize>() else {
+        let Ok(code) = std::str::from_utf8(code)
+            .unwrap_or_default()
+            .parse::<usize>()
+        else {
             continue;
         };
         if let Some(slot) = assigned.get_mut(code) {
@@ -294,7 +303,10 @@ mod tests {
         let assigned = assigned_codes(SPARSE);
         assert!(assigned[32], "the array assigns code 32");
         assert!(assigned[65], "and code 65");
-        assert!(!assigned[33], "and mentions no other, whatever the map resolves to");
+        assert!(
+            !assigned[33],
+            "and mentions no other, whatever the map resolves to"
+        );
         assert_eq!(assigned.iter().filter(|slot| **slot).count(), 2);
     }
 
@@ -311,7 +323,10 @@ mod tests {
         // `dup <index> <length> RD <binary> NP` is how a Type 1 program writes a subroutine, and
         // it opens with the same keyword. The `/name put` shape is what tells the two apart.
         let subrs = b"/Subrs 2 array\ndup 0 15 RD ................ NP\ndup 1 9 RD ......... NP\n";
-        assert_eq!(assigned_codes(subrs).iter().filter(|slot| **slot).count(), 0);
+        assert_eq!(
+            assigned_codes(subrs).iter().filter(|slot| **slot).count(),
+            0
+        );
     }
 
     #[test]
@@ -331,7 +346,10 @@ mod tests {
         // for a code it does not map. The table is empty either way.
         let standard = b"/Encoding StandardEncoding def\ncurrentfile eexec\n";
         assert_eq!(
-            assigned_codes(standard).iter().filter(|slot| **slot).count(),
+            assigned_codes(standard)
+                .iter()
+                .filter(|slot| **slot)
+                .count(),
             0
         );
     }
