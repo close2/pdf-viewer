@@ -21,10 +21,14 @@
 //!
 //! **Errata are published for ISO 19005-4:2020 alone.** The site states no errata pages for
 //! parts 1, 2 and 3 and directs a reader to the Technical Notes instead, so a part 2 row is
-//! amended by nothing here, and PDF Association `TechNote 0010` — which clarifies parts 1 to 3 —
-//! is the document that would change that. It has not been read: the copy at `pdfa.org` returned
-//! HTTP 403 when this table was written, and a clarification nobody here has read may not be
-//! implemented (principle 5 again).
+//! amended by nothing here.
+//!
+//! **That pointer is now followed rather than noted.** PDF Association `TechNote 0010`, which
+//! clarifies parts 1 to 3, was unreadable when this table was written — the copy at `pdfa.org`
+//! returned HTTP 403 — and the owner obtained it in session 941. It is **not** an erratum and
+//! does not belong here: it changes no text, which is what every entry below does. It has its own
+//! module, [`crate::clarification`], and ADR 0931 argues why the two are different inputs rather
+//! than one.
 //!
 //! # What an erratum does to a row
 //!

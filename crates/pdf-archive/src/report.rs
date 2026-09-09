@@ -37,6 +37,12 @@ pub enum Outcome {
     ///
     /// Kept out of both `Met` and `Unchecked`: see [`crate::Check::Processor`].
     Processor(&'static str),
+    /// Stated by the published clause, and placed outside validation by a clarification.
+    ///
+    /// Kept out of `Met`, `Unchecked` and `Processor` alike: see
+    /// [`crate::Check::OutsideValidation`], and [`Judgement::clarified_by`] for where a reader
+    /// is told which record put it here.
+    OutsideValidation(&'static str),
 }
 
 /// One requirement's row in a report.
@@ -54,6 +60,12 @@ pub struct Judgement {
     /// verdict against their own copy of the standard has the *published* sentence in front of
     /// them and needs to be told which correction this crate applied.
     pub amended_by: Option<crate::errata::Erratum>,
+    /// The published clarification that changes what this requirement asks of a validator.
+    ///
+    /// Beside the citation for [`Judgement::amended_by`]'s reason, and for one more: a
+    /// clarification leaves the standard's text alone, so a reader who checked the clause and
+    /// found the sentence intact would otherwise have no way to tell a reading from a defect.
+    pub clarified_by: Option<crate::clarification::Clarification>,
     /// What became of it.
     pub outcome: Outcome,
 }
@@ -118,6 +130,17 @@ impl Report {
             .filter(|judgement| matches!(judgement.outcome, Outcome::Processor(_)))
     }
 
+    /// The requirements a clarification places outside validation.
+    ///
+    /// Reported, and never quietly dropped: the sentence is in the reader's copy of the
+    /// standard, so a report that simply omitted the row would read as a validator that had
+    /// forgotten a clause.
+    pub fn outside_validation(&self) -> impl Iterator<Item = &Judgement> {
+        self.judgements
+            .iter()
+            .filter(|judgement| matches!(judgement.outcome, Outcome::OutsideValidation(_)))
+    }
+
     /// How many of the binding requirements were actually checked.
     #[must_use]
     pub fn checked(&self) -> usize {
@@ -126,7 +149,7 @@ impl Report {
             .filter(|judgement| {
                 !matches!(
                     judgement.outcome,
-                    Outcome::Unchecked(_) | Outcome::Processor(_)
+                    Outcome::Unchecked(_) | Outcome::Processor(_) | Outcome::OutsideValidation(_)
                 )
             })
             .count()
@@ -135,9 +158,10 @@ impl Report {
     /// The report as text, for a person.
     ///
     /// The shape is fixed by the rule above: the verdict, then **how much of the target it is a
-    /// verdict over**, then the failures with their places, then the requirements that were not
-    /// checked. The last section is never omitted, even when it is empty, because a reader who
-    /// has learned to look for it must be able to see that it is empty rather than absent.
+    /// verdict over**, then the failures with their places, then anything a clarification put
+    /// outside validation, then the requirements that were not checked. The last section is
+    /// never omitted, even when it is empty, because a reader who has learned to look for it
+    /// must be able to see that it is empty rather than absent.
     #[must_use]
     pub fn render(&self) -> String {
         let mut out = String::new();
@@ -147,11 +171,13 @@ impl Report {
         };
         let _ = writeln!(out, "{}: {verdict}", self.target);
         // The denominator excludes what no document could fail, because a coverage figure that
-        // counted a processor's obligations against a file would understate itself.
+        // counted a processor's obligations — or a rule the committee has placed outside
+        // validation — against a file would understate itself.
         let about_the_file = self
             .judgements
             .len()
-            .saturating_sub(self.processor_obligations().count());
+            .saturating_sub(self.processor_obligations().count())
+            .saturating_sub(self.outside_validation().count());
         let _ = writeln!(
             out,
             "  {} of {about_the_file} requirements about this file checked",
@@ -176,6 +202,16 @@ impl Report {
                         erratum.standard, erratum.issue, erratum.change
                     );
                 }
+                if let Some(clarification) = judgement.clarified_by {
+                    let _ = writeln!(
+                        out,
+                        "      as clarified by {} {} for {}: {}",
+                        clarification.note,
+                        clarification.item,
+                        clarification.parts,
+                        clarification.change
+                    );
+                }
                 for place in places {
                     let _ = writeln!(out, "      {}: {}", render_place(place), place.what);
                 }
@@ -195,6 +231,26 @@ impl Report {
                 "  {obligations} further requirements bind a conforming processor rather than \
                  this file"
             );
+        }
+        for judgement in self.outside_validation() {
+            let Outcome::OutsideValidation(why) = judgement.outcome else {
+                continue;
+            };
+            let _ = writeln!(
+                out,
+                "\nstated by {} and not checked, because it is outside validation:\n  {} — {why}",
+                judgement.citation, judgement.id
+            );
+            if let Some(clarification) = judgement.clarified_by {
+                let _ = writeln!(
+                    out,
+                    "      {} {}, for {}: {}",
+                    clarification.note,
+                    clarification.item,
+                    clarification.parts,
+                    clarification.change
+                );
+            }
         }
         let unchecked: Vec<&Judgement> = self.unchecked().collect();
         let _ = writeln!(out, "\nnot checked ({}):", unchecked.len());

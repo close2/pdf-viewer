@@ -128,31 +128,51 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
          outline calls them 'non-primary'. The standard names them primary in a list, which is \
          as decided as a clause gets.",
     ),
-    // The two below are the ones to revisit first if the owner ever exercises the fourth path
-    // `crate::errata` and ADR 0922 reserve to them — a conflict the standard decides, where they
-    // rule that this crate follows veraPDF anyway. They are recorded as the standard decides
-    // them, and the argument for the other answer is written out so it does not have to be
-    // rediscovered.
-    (
-        "veraPDF test suite 6-6-2-3-3-t01-pass-e.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "ISO 19005-2 section 6.6.2.3.2's last sentence is literal: all fields described in each of \
-         section 6.6.2.3.3's tables shall be present in any extension schema container schema, and \
-         Table 3 lists `pdfaSchema:valueType` among them. This file omits it and is named a \
-         pass. **The contrary evidence exists and could not be read**: PDF Association \
-         TN 0009 section 4.3 is reported to say the field may be absent where a schema defines no \
-         custom types, and both it and TN 0010 return HTTP 403 — so principle 5 forbids \
-         implementing from them. The clause this crate has read is what it follows.",
-    ),
+    // ISO 19005-2 section 6.6.2.3.3, two witnesses that were one argument and are now two.
+    //
+    // **`TN 0009` is settled, by a different document.** Session 940 ruled both files against the
+    // corpus because the record said to be contrary — PDF Association TN 0009 section 4.3, on a
+    // field that may be absent where a schema defines no custom types — returned HTTP 403 and
+    // could not be read. `doc/TechNote0010.pdf` is now held, and its item A029 is that reading in
+    // an authoritative form: the ISO working group resolved that parts 1 to 3 are read as if an
+    // extension schema defining no custom value types may omit `pdfaSchema:valueType`, and a
+    // value type defining no structured fields may omit `pdfaType:field`, a validator allowing
+    // each absence and treating it as an empty array. `crate::clarification` carries it.
+    //
+    // **It settles one of the two files and not the other**, which is the clarification's own
+    // asymmetry rather than a compromise. `t01-pass-e` omits `pdfaSchema:valueType` and its one
+    // property uses the predefined `Boolean` type, so it is A029's first case exactly; it now
+    // agrees and has left this table. `t05-pass-a` omits `pdfaSchema:property`, which A029 does
+    // not mention in any of its four sentences — so section 6.6.2.3.2's own sentence stands for
+    // that field and the file stays ruled against the corpus, below.
+    //
+    // **And one witness moved the other way**, which is recorded here because it does not appear
+    // in this table: `6-6-2-3-3-t03-fail-b` omits `pdfaType:field` and is named a fail, and A029
+    // permits that absence in as many words. It is now a `missed` rather than an agreement, and
+    // that is the honest column for it — the file is non-conforming for a reason this crate does
+    // not yet check, its own `fs:property1` carrying a `cvt:field1` that no value type describes,
+    // which is section 6.6.2.3.1's question about a *custom* structure's fields. Catching it
+    // again by keeping a rule A029 withdrew would be the right verdict for a reason the
+    // committee has ruled out.
+    //
+    // **The row that remains is still the first to revisit** if the owner ever exercises the
+    // fourth path `crate::errata` and ADR 0922 reserve to them — a conflict the standard decides,
+    // where they rule that this crate follows veraPDF anyway. It is recorded as the standard
+    // decides it, with the argument for the other answer written out so that it does not have to
+    // be rediscovered.
     (
         "veraPDF test suite 6-6-2-3-3-t05-pass-a.pdf",
         Ruling::SpecAgainstTheCorpus,
-        "the same sentence, for `pdfaSchema:property`. This one is stranger than its sibling: \
-         **veraPDF's own implementation disagrees with veraPDF's own corpus here** — \
-         `veraPDF-library` issue #1257 is a user whose file was failed for exactly this missing \
-         field, and the report was closed with the maintainer confirming the file was at fault. \
-         A corpus file named a pass for a condition the implementation fails is evidence about \
-         the corpus rather than about the clause.",
+        "ISO 19005-2 section 6.6.2.3.2's last sentence is literal: all fields described in each of \
+         section 6.6.2.3.3's tables shall be present in any extension schema container schema, \
+         and Table 3 lists `pdfaSchema:property` among them. This file omits it and is named a \
+         pass. **TechNote 0010's A029 is now readable and does not reach this field** — it \
+         grants `pdfaSchema:valueType` and `pdfaType:field` and no others — so the published \
+         sentence still governs. Two further facts point the same way: **veraPDF's own \
+         implementation disagrees with veraPDF's own corpus here**, `veraPDF-library` issue \
+         #1257 being a user whose file was failed for exactly this missing field and closed with \
+         the maintainer confirming the file was at fault; and a schema that describes no \
+         properties at all describes nothing any property could use.",
     ),
     // ISO 19005-4's section 6.2.5 lost its transfer-function provision to erratum #314, and the
     // corpus predates the correction: three of its PDF/A-4 witnesses exercise a sentence part 4 no
@@ -224,48 +244,31 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
          over Korea1, GB1 and CNS1 and are expected to pass; there is no `-pass-g`, which is \
          what a file moved from the pass set to the fail set leaves behind.",
     ),
-    // ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5, six files and one argument.
+    // ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5, five witnesses that were one
+    // argument and are now two arguments with different answers.
     //
     // **veraPDF implements neither subclause**: `PDFA-2B.xml` and `PDFA-4.xml` carry no rule
-    // whose clause is `6.6.6` or `6.7.5`, which is a fact about the profiles rather than about
-    // the clauses and is why every witness in both directories is named a pass. The corpus's own
-    // `TWG test files/TWG test suite A021-pdfa2-pass-*.pdf` say why in their outlines: an ISO
-    // working group resolution to the effect that requirements on the `xmpMM:History` property
-    // are application requirements and therefore irrelevant to ISO 19005 validation.
+    // whose clause is `6.6.6` or `6.7.5`, which is why every witness in both directories is named
+    // a pass. Session 940 ruled all five against the corpus, on the reasoning that the resolution
+    // said to justify them reached this tree only through a third party's test fixture's outline
+    // and a conference summary that contradicted it — neither readable as a source of truth.
     //
-    // **That resolution is not the standard and could not be read as one.** It reaches this tree
-    // through a third party's test fixture; no approved erratum in `pdf-association/pdf-issues`
-    // touches either subclause; and a 2016 record of the same agenda item, on verapdf.org, says
-    // the *opposite* for parts 2 and 3 — that the parameters field remains required. The two
-    // secondary records disagree with each other, and `CLAUDE.md` principle 5 answers that the
-    // same way it answered `TN 0009` above: the clause this crate has read is what it follows.
+    // **Part 2's three are no longer disagreements at all.** `doc/TechNote0010.pdf` is held, and
+    // its item A021 is the resolution in an authoritative form: the ISO working group resolved
+    // that ISO 19005-2 and ISO 19005-3 are read as if requirements on the `xmpMM:History`
+    // property were requirements on the writing application, and therefore irrelevant to ISO
+    // 19005 validation. `metadata/provenance-recorded-action-fields` is a
+    // `Check::OutsideValidation` row on that record, so `6-6-6-t01-pass-b`, `-c` and `-d` — one
+    // missing `action`, one missing `parameters`, one missing `when` — are now agreements and
+    // have left this table. The corpus was right about all three, for a reason nobody here could
+    // read until the document was obtained (`doc/adr/0931`).
     //
-    // **And ISO 19005-4 is itself the working group's answer**, written after the item was
-    // raised: its section 6.7.5 keeps `action` and `when` as requirements and demotes `parameters`
-    // to a recommendation. A committee that had concluded the whole property was irrelevant to
-    // validation would not have re-stated two of its fields as requirements in the next part.
-    //
-    // `doc/questions/Q52` puts the practical half to the owner, because part 2's `parameters`
-    // requirement — unlike part 4's two — falls on files real producers write.
-    (
-        "veraPDF test suite 6-6-6-t01-pass-b.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "a recorded action stating parameters and when and no action field, named a pass. \
-         ISO 19005-2 section 6.6.6 requires the action, parameters and when fields of each action \
-         recorded in xmpMM:History.",
-    ),
-    (
-        "veraPDF test suite 6-6-6-t01-pass-c.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "the same subclause, missing parameters. This is the field the 2016 record says the \
-         working group reconfirmed for parts 2 and 3, so the contrary evidence and the clause \
-         agree here even though the corpus does not.",
-    ),
-    (
-        "veraPDF test suite 6-6-6-t01-pass-d.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "the same subclause, missing when.",
-    ),
+    // **Part 2's rule was the whole of the argument, and part 4's survives it.** A021's
+    // `Pertaining` line names parts 2 and 3 and no other, and its closing note says only that the
+    // proposal was accepted in principle for the part then being drafted. That part was published
+    // in 2020 as ISO 19005-4, and its section 6.7.5 states `action` and `when` as requirements
+    // anyway — so the note records an intention and the standard records a rule, and principle 5
+    // reads the standard. The two witnesses below stay ruled against the corpus.
     (
         "veraPDF test suite 6-7-5-t01-pass-b.pdf",
         Ruling::SpecAgainstTheCorpus,

@@ -17,13 +17,14 @@
 use pdf_archive::{Check, Flavour, Target, table};
 
 fn main() {
-    // Three numbers, and the third used to be wrong: it counted every row that is not a
-    // predicate, which since `Check::Processor` existed folded a conforming processor's
-    // obligations into this crate's debts. They are different things — see `Check::Processor` —
-    // so they are different columns.
+    // Four numbers, and the third used to be wrong twice over: it counted every row that is not
+    // a predicate, which folded into this crate's debts both a conforming processor's
+    // obligations and the rows a published clarification puts outside validation. The three are
+    // different facts — see `Check::Processor` and `Check::OutsideValidation` — so they are
+    // different columns.
     println!(
-        "{:<10} {:>6} {:>8} {:>10} {:>11}",
-        "target", "binds", "checked", "unchecked", "processor"
+        "{:<10} {:>6} {:>8} {:>10} {:>11} {:>9}",
+        "target", "binds", "checked", "unchecked", "processor", "clarified"
     );
     for target in Target::ALL {
         let bound: Vec<_> = table::binding(target).collect();
@@ -36,12 +37,13 @@ fn main() {
         let checked = count(|check| matches!(check, Check::Implemented(_)));
         let processor = count(|check| matches!(check, Check::Processor(_)));
         println!(
-            "{:<10} {:>6} {:>8} {:>10} {:>11}",
+            "{:<10} {:>6} {:>8} {:>10} {:>11} {:>9}",
             target.to_string(),
             bound.len(),
             checked,
             count(|check| matches!(check, Check::Unchecked(_))),
-            processor
+            processor,
+            count(|check| matches!(check, Check::OutsideValidation(_)))
         );
     }
     println!("\nrequirements that bind some PDF/A-4 flavours and not others:");

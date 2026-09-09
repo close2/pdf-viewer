@@ -9,13 +9,19 @@
 //! (`doc/questions/Q46`); and the set can be counted, listed and reviewed against the standard
 //! by somebody who is not reading Rust.
 //!
-//! # The two states a row can be in, and why the second one is not a gap
+//! # The states a row can be in, and why none of the silent ones is a gap
 //!
-//! A row's [`Requirement::check`] is either a predicate or a named absence. `CLAUDE.md`
+//! A row's [`Requirement::check`] is a predicate or one of three named absences. `CLAUDE.md`
 //! principle 5 and `doc/questions/Q20` both land on the same discipline: a requirement this
 //! crate does not check is reported **by name**, in the verdict, with the reason — never
 //! silently omitted, and never implemented from a secondary source. A validator that omits a
 //! check silently is indistinguishable from a document that passes it.
+//!
+//! The three absences are three different facts and were separated one at a time, each because
+//! folding it into a neighbour made a report say something untrue: [`Check::Unchecked`] is work
+//! this crate owes, [`Check::Processor`] is a rule no document could fail because its subject is
+//! a program, and [`Check::OutsideValidation`] is a rule the standard states that its own
+//! committee has since placed outside a validator's remit.
 
 use crate::finding::Findings;
 use crate::target::{Flavour, Level, Part, Target};
@@ -141,6 +147,23 @@ pub enum Check {
     /// So they are carried, named and reported in their own section — visible, and not mistaken
     /// for either a pass or a debt.
     Processor(&'static str),
+    /// The published clause states a requirement that a clarification puts outside validation.
+    ///
+    /// The fourth state, and it is neither of the two it sits between. The sentence **is** in the
+    /// standard — a reader with their own copy open will find it — and no erratum has removed it,
+    /// so [`crate::errata`]'s withdrawal is the wrong instrument. But the ISO working group
+    /// responsible for the part has resolved that the requirement is not addressed to a
+    /// conforming *file*, which makes checking it a validator failing documents over a rule the
+    /// committee says is somebody else's. See [`crate::clarification`] for the four conditions a
+    /// record has to meet before a row may be put here.
+    ///
+    /// **Not `Unchecked`**, which is a debt this crate owes and would be a lie here: there is
+    /// nothing owed. **Not `Processor`** either, whose subject is a program's behaviour that
+    /// `doc/PLAN.md` section 5a's ledger would carry; a requirement on the application that
+    /// *wrote* the file is not an obligation this program has. So it is its own state, reported
+    /// in its own section with the clarification beside it, and out of the denominator for the
+    /// same reason a processor's obligation is: no document can fail it.
+    OutsideValidation(&'static str),
     /// Not checked, and the reason — `doc/questions/Q20`'s discipline.
     ///
     /// The reason is prose for a person, and it is a promise about *why*: that the requirement
@@ -156,6 +179,9 @@ impl core::fmt::Debug for Check {
         match self {
             Self::Implemented(_) => out.write_str("Implemented(..)"),
             Self::Processor(why) => out.debug_tuple("Processor").field(why).finish(),
+            Self::OutsideValidation(why) => {
+                out.debug_tuple("OutsideValidation").field(why).finish()
+            }
             Self::Unchecked(why) => out.debug_tuple("Unchecked").field(why).finish(),
         }
     }

@@ -288,26 +288,13 @@ fn structure(retrieval: &Retrieval) -> Value {
     ])
 }
 
-/// Whether a document conforms to a part and level of ISO 19005, and what the answer covers.
+/// Where one failed requirement was not met, as JSON, and `null` for any other outcome.
 ///
-/// # Why the answer is not a boolean
-///
-/// ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3 both close by saying that the `pdfaid`
-/// properties do not themselves determine conformance — the determination is made against clause 5.
-/// So this reports what was *checked*, what failed and where, and **which requirements were not
-/// checked at all**, which `doc/questions/Q20` makes the discipline this crate lives by: a clean
-/// verdict that did not say what it was clean over would be indistinguishable from a complete one.
-///
-/// A non-conforming document is an answer rather than an error, so the exit status stays zero
-/// and the verdict is in the JSON. A caller wanting a shell test reads `conforms`.
-fn archive(retrieval: &Retrieval, target: &str) -> Result<Value, Refused> {
-    let target = if target.is_empty() {
-        pdf_archive::Target::Four(pdf_archive::Flavour::Plain)
-    } else {
-        pdf_archive::Target::parse(target).ok_or_else(|| Refused::Target(target.to_owned()))?
-    };
-    let report = pdf_archive::check(retrieval.document(), target);
-    let places = |judgement: &pdf_archive::Judgement| match &judgement.outcome {
+/// A free function rather than a closure inside `archive`, which `clippy::pedantic`'s line
+/// limit made the occasion for and which reads better anyway: the shape of a finding is a fact
+/// about the report rather than about this one call.
+fn archive_places(judgement: &pdf_archive::Judgement) -> Value {
+    match &judgement.outcome {
         pdf_archive::Outcome::Failed { places, total } => Value::Object(vec![
             ("total".to_owned(), Value::count(*total)),
             (
@@ -340,31 +327,70 @@ fn archive(retrieval: &Retrieval, target: &str) -> Result<Value, Refused> {
             ),
         ]),
         _ => Value::Null,
-    };
-    let row = |judgement: &pdf_archive::Judgement| {
-        let mut fields = vec![
-            ("id".to_owned(), Value::text(judgement.id)),
-            ("clause".to_owned(), Value::text(judgement.citation.clone())),
-            ("asks".to_owned(), Value::text(judgement.asks)),
-        ];
-        if let Some(erratum) = judgement.amended_by {
-            fields.push((
-                "corrected_by".to_owned(),
-                Value::Object(vec![
-                    ("standard".to_owned(), Value::text(erratum.standard)),
-                    ("issue".to_owned(), Value::count(erratum.issue as usize)),
-                    ("change".to_owned(), Value::text(erratum.change)),
-                ]),
-            ));
+    }
+}
+
+/// One requirement's row: what it asks, which record changes it, and what became of it.
+fn archive_row(judgement: &pdf_archive::Judgement) -> Value {
+    let mut fields = vec![
+        ("id".to_owned(), Value::text(judgement.id)),
+        ("clause".to_owned(), Value::text(judgement.citation.clone())),
+        ("asks".to_owned(), Value::text(judgement.asks)),
+    ];
+    if let Some(erratum) = judgement.amended_by {
+        fields.push((
+            "corrected_by".to_owned(),
+            Value::Object(vec![
+                ("standard".to_owned(), Value::text(erratum.standard)),
+                ("issue".to_owned(), Value::count(erratum.issue as usize)),
+                ("change".to_owned(), Value::text(erratum.change)),
+            ]),
+        ));
+    }
+    if let Some(clarification) = judgement.clarified_by {
+        fields.push((
+            "clarified_by".to_owned(),
+            Value::Object(vec![
+                ("note".to_owned(), Value::text(clarification.note)),
+                ("item".to_owned(), Value::text(clarification.item)),
+                ("parts".to_owned(), Value::text(clarification.parts)),
+                ("change".to_owned(), Value::text(clarification.change)),
+            ]),
+        ));
+    }
+    match judgement.outcome {
+        pdf_archive::Outcome::Unchecked(why) => {
+            fields.push(("not_checked_because".to_owned(), Value::text(why)));
         }
-        match judgement.outcome {
-            pdf_archive::Outcome::Unchecked(why) => {
-                fields.push(("not_checked_because".to_owned(), Value::text(why)));
-            }
-            _ => fields.push(("found".to_owned(), places(judgement))),
+        // A different key, because it is a different fact: `not_checked_because` names a
+        // debt this crate owes, and nothing is owed here.
+        pdf_archive::Outcome::OutsideValidation(why) => {
+            fields.push(("outside_validation_because".to_owned(), Value::text(why)));
         }
-        Value::Object(fields)
+        _ => fields.push(("found".to_owned(), archive_places(judgement))),
+    }
+    Value::Object(fields)
+}
+
+/// Whether a document conforms to a part and level of ISO 19005, and what the answer covers.
+///
+/// # Why the answer is not a boolean
+///
+/// ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3 both close by saying that the `pdfaid`
+/// properties do not themselves determine conformance — the determination is made against clause 5.
+/// So this reports what was *checked*, what failed and where, and **which requirements were not
+/// checked at all**, which `doc/questions/Q20` makes the discipline this crate lives by: a clean
+/// verdict that did not say what it was clean over would be indistinguishable from a complete one.
+///
+/// A non-conforming document is an answer rather than an error, so the exit status stays zero
+/// and the verdict is in the JSON. A caller wanting a shell test reads `conforms`.
+fn archive(retrieval: &Retrieval, target: &str) -> Result<Value, Refused> {
+    let target = if target.is_empty() {
+        pdf_archive::Target::Four(pdf_archive::Flavour::Plain)
+    } else {
+        pdf_archive::Target::parse(target).ok_or_else(|| Refused::Target(target.to_owned()))?
     };
+    let report = pdf_archive::check(retrieval.document(), target);
     Ok(Value::Object(vec![
         ("target".to_owned(), Value::text(target.to_string())),
         (
@@ -378,11 +404,18 @@ fn archive(retrieval: &Retrieval, target: &str) -> Result<Value, Refused> {
         ("checked".to_owned(), Value::count(report.checked())),
         (
             "failed".to_owned(),
-            Value::Array(report.failures().map(row).collect()),
+            Value::Array(report.failures().map(archive_row).collect()),
         ),
         (
             "not_checked".to_owned(),
-            Value::Array(report.unchecked().map(row).collect()),
+            Value::Array(report.unchecked().map(archive_row).collect()),
+        ),
+        // Separate from `not_checked`, because they are not a debt: the clause is published and
+        // a clarification its own committee resolved puts it outside a validator's remit. See
+        // `pdf_archive::Check::OutsideValidation`.
+        (
+            "outside_validation".to_owned(),
+            Value::Array(report.outside_validation().map(archive_row).collect()),
         ),
     ]))
 }

@@ -350,6 +350,48 @@ Two readings came out of it and both are recorded where they act:
   properties — `photoshop` 14 to 20, `xmpDM` 57 to 66 between 2005 and 2017 — so refusing an
   unknown name would fail conforming files over nothing but the age of the transcription.
 
+## PDF Association TechNote 0010, and a licence that could not be confirmed
+
+The owner obtained it on 2026-09-09 as `doc/TechNote0010.pdf` — *TechNote 0010: Clarifications of
+ISO 19005, parts 1-3 for developers of PDF/A creators and validators*, PDF Association, 2017,
+twenty-eight items each carrying a resolution of the ISO working group responsible for ISO 19005.
+`python3 tools/spec-md.py doc/TechNote0010.pdf` put its text under `doc/md/`, read with this
+project's own `quorra-retrieve`, and `/doc/*.pdf` and `doc/md/` are both ignored — the same
+treatment every specification here gets. It is what session 941 acted on; `doc/adr/0931` says what
+this tree does with a clarification that is neither the standard nor an erratum, and
+`crates/pdf-archive/src/clarification.rs` is where the two items taken from it live.
+
+| data | source examined | terms |
+|---|---|---|
+| PDF Association TechNote 0010 (2017) | the document itself, page 1 and its XMP packet | **stated copyright, no stated grant** — see below |
+
+**What the document says about itself is one line.** Page 1 carries a copyright notice naming the
+year and nothing else: no licence, no permission, no terms of use. Its XMP packet carries no
+`dc:rights` and no rights-management properties at all — which is worth recording precisely
+because the file is a conforming PDF/A-2a document whose producer filled in everything else.
+
+**What the publisher says could not be reached.** `pdfa.org` returns HTTP 403 to this machine, as
+it did in sessions 939 and 940 and as it does to both a browser user agent and a plain fetch, so
+the resource page's own terms are unread. `doc/rfc/0006` records the document as CC-BY-4.0, and a
+web search agrees, but **neither is a licence text this project has seen** — a second-hand report
+of a licence is the same kind of evidence as a second-hand report of a clause, and principle 5's
+discipline does not change subject just because the subject is copyright.
+
+**So the terms are treated as unclear, and the consequence is a rule rather than a worry: nothing
+in this tree quotes it.** Every one of its resolutions is cited by item number and paraphrased in
+this project's own words — `TechNote 0010 section A021`, never a sentence of it between quotation
+marks — which is exactly the discipline `doc/pdfa/`'s ISO reprints already impose and which costs
+nothing here, because what a validator needs from the note is the rule and not the wording. If the
+publisher's page becomes reachable and states CC-BY-4.0, the row above can be tightened to a
+licence and the quotation rule relaxed; until then it stays as written.
+
+**One further caution, and it is about reading rather than copyright.** Each item prints the case
+and then the verdict, and they are not the same thing: a problem statement, sometimes a *PDF
+Validation TWG proposal*, and then an *ISO WG Resolution*. Only the last is acted on here, and
+`crates/pdf-archive/src/clarification.rs` says why — at four items the working group left the
+published requirement as it stood, so a project that read the cases rather than the verdicts would
+have changed four rules the committee did not change.
+
 ## veraPDF, and the difference between running a program and reading it
 
 The owner put a checkout of veraPDF in `doc/veraPDF-library` on 2026-09-07 and asked whether its

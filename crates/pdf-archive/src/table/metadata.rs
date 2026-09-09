@@ -43,18 +43,25 @@
 //! - - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
 //!   each spelled with the prefix its table requires.
 //!
-//! # section 6.6.6 and section 6.7.5, where the standard and the committee's record disagree
+//! # section 6.6.6 and section 6.7.5, one subclause each, and only one of them a check
 //!
-//! The provenance subclauses recommend that each high-level action be recorded in
-//! `xmpMM:History` and then *require* fields of each action that is recorded — three in part 2,
-//! two in part 4, which demotes `parameters` to a recommendation. Both rows are implemented
-//! against the clause as published. **veraPDF checks neither**, its corpus names every witness a
-//! pass, and its `TWG test suite A021-*` documents carry an ISO working group resolution to the
-//! effect that the whole property is an application matter irrelevant to validation — while a
-//! 2016 record of the same agenda item says `parameters` remains required for part 2. Neither
-//! record is an approved erratum and the two contradict each other, so principle 5 leaves the
-//! clause as what these rows follow; `doc/questions/Q52` puts the choice to the owner, and
-//! `tests/corpus.rs` carries the five adjudications.
+//! The provenance subclauses ask that each high-level action be recorded in `xmpMM:History` and
+//! then *require* fields of each action that is recorded — three in part 2, two in part 4, which
+//! demotes `parameters` to a recommendation.
+//!
+//! **Part 2's is outside validation.** PDF Association `TechNote 0010`, which this tree now holds
+//! and which `crate::clarification` reads, records at item A021 the ISO working group resolving
+//! that parts 2 and 3 are to be read as if requirements on `xmpMM:History` were requirements on
+//! the writing application and thus irrelevant to ISO 19005 validation. That is why veraPDF
+//! checks neither subclause and why its corpus names every witness a pass; until session 941 this
+//! crate had the resolution only at second hand, through a test fixture's outline and a
+//! conference summary that contradicted it, and principle 5 rightly refused both. The row stays,
+//! reports nothing, and says why — `doc/adr/0931`.
+//!
+//! **Part 4's stands on part 4's own text**, published in 2020 with `action` and `when` still
+//! required, three years after a note in the technical note said the proposal had been accepted
+//! in principle for the part then being drafted. A published standard outranks a note about an
+//! intention.
 //!
 //! # section 6.6.5 and section 6.7.4, which are not unchecked for the reason they used to say
 //!
@@ -290,7 +297,15 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                and its time.",
         clauses: Clauses::only_two("6.6.6"),
         applies: Applies::Always,
-        check: Check::Implemented(provenance_recorded_action_fields),
+        check: Check::OutsideValidation(
+            "the sentence is in the published subclause and no erratum has withdrawn it, which \
+             is why this row is carried and cited rather than dropped. What is not carried is a \
+             check: the ISO working group's resolution named beside this row puts every \
+             requirement on the xmpMM:History property outside ISO 19005 validation for parts 2 \
+             and 3, and that reaches all three fields rather than only the parameters one that \
+             raised the item. ISO 19005-4 section 6.7.5 is a different case and stays a check — \
+             it was published three years afterwards and states its two fields on its own text",
+        ),
     },
     Requirement {
         id: "metadata/provenance-recorded-action-fields-four",
@@ -1674,6 +1689,17 @@ struct ValueType {
     name: &'static str,
     /// Every field the table describes, all of which section 6.6.2.3.2 requires to be present.
     fields: &'static [&'static str],
+    /// The fields of that list a validator allows to be absent, and why they are allowed.
+    ///
+    /// Two of them, and both come from PDF Association `TechNote 0010`'s item A029, where the
+    /// ISO working group resolved that parts 1 to 3 are read as if a schema describing no custom
+    /// value types may omit `pdfaSchema:valueType`, and a value type describing no structured
+    /// fields may omit `pdfaType:field` — a validator allowing each absence and treating it as
+    /// an empty array. `crate::clarification` carries the record and the report cites it.
+    ///
+    /// It is a field of the table rather than a branch in the predicate because the exemption is
+    /// a property of *which table* a structure is held to, which is what this type is.
+    may_be_absent: &'static [&'static str],
 }
 
 /// Table 3, the Schema value type.
@@ -1682,6 +1708,7 @@ static SCHEMA_TYPE: ValueType = ValueType {
     prefix: "pdfaSchema",
     name: "extension schema description",
     fields: &["schema", "namespaceURI", "prefix", "property", "valueType"],
+    may_be_absent: &["valueType"],
 };
 
 /// Table 4, the Property value type.
@@ -1690,6 +1717,7 @@ static PROPERTY_TYPE: ValueType = ValueType {
     prefix: "pdfaProperty",
     name: "extension schema property",
     fields: &["name", "valueType", "category", "description"],
+    may_be_absent: &[],
 };
 
 /// Table 5, the `ValueType` value type.
@@ -1698,6 +1726,7 @@ static TYPE_TYPE: ValueType = ValueType {
     prefix: "pdfaType",
     name: "extension schema value type",
     fields: &["type", "namespaceURI", "prefix", "description", "field"],
+    may_be_absent: &["field"],
 };
 
 /// Table 6, the Field value type.
@@ -1706,6 +1735,7 @@ static FIELD_TYPE: ValueType = ValueType {
     prefix: "pdfaField",
     name: "extension schema value type field",
     fields: &["name", "valueType", "description"],
+    may_be_absent: &[],
 };
 
 /// ISO 19005-2 section 6.6.2.3.3, and the sentence of section 6.6.2.3.2 that binds it.
@@ -1715,11 +1745,15 @@ static FIELD_TYPE: ValueType = ValueType {
 /// fields are required to be spelled with — which section 6.6.2.2 makes load-bearing by saying a
 /// prefix means nothing *except* where one is identified as required.
 ///
-/// **Two of Table 3's five fields are required here that another reading treats as optional**: a
-/// schema that describes no custom value types still has to state `pdfaSchema:valueType`, and one
-/// that describes no properties still has to state `pdfaSchema:property`, because the sentence
-/// admits no exception for an empty sequence. The disagreement is recorded rather than resolved
-/// quietly; `CLAUDE.md` principle 5 decides it for the clause.
+/// **One of Table 3's five fields is exempt and one is not, and the difference is a document this
+/// tree now holds.** `TechNote 0010`'s A029 records the ISO working group resolving that a schema
+/// describing no custom value types may omit `pdfaSchema:valueType`, and a value type describing
+/// no structured fields may omit `pdfaType:field`; each absence is allowed and read as an empty
+/// array, which [`ValueType::may_be_absent`] implements. The resolution reaches those two field
+/// names and no others — so a schema that describes no properties still has to state
+/// `pdfaSchema:property`, on the sentence as published. That asymmetry is the clarification's own
+/// and is why the corpus's two witnesses for this subclause are now ruled opposite ways
+/// (`tests/corpus.rs`, `doc/adr/0931`).
 fn extension_schema_container_fields(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_packet(exam, |id, properties| {
         for property in properties {
@@ -1796,6 +1830,7 @@ fn check_value_type(
             .iter()
             .find(|field| field.name.namespace == expected.uri && field.name.local == *wanted);
         match stated {
+            None if expected.may_be_absent.contains(wanted) => {}
             None => findings.record(
                 place(wanted),
                 format!(
@@ -1866,11 +1901,12 @@ fn for_each_recorded_action(document: &Document, mut visit: impl FnMut(usize, &D
     }
 }
 
-/// The shared body of the two provenance rows: every recorded action states these fields.
+/// Every action recorded in the history states the fields the part requires of it.
 ///
-/// The two parts differ only in the list — part 2 requires `action`, `parameters` and `when`,
-/// part 4 requires `action` and `when` and demotes `parameters` to a recommendation — so the
-/// requirement is one predicate and two rows rather than two predicates.
+/// **This used to be the shared body of two rows and is now part 4's alone.** Part 2's row is a
+/// [`Check::OutsideValidation`] on `TechNote 0010`'s A021, so the list is no longer a parameter
+/// that varies by part; it stays a parameter because the caller reads better for naming the two
+/// fields it is about, and because a part that added a third would add it there.
 fn recorded_action_fields(document: &Document, findings: &mut Findings, required: &[&str]) {
     for_each_recorded_action(document, |ordinal, action| {
         let Some(fields) = action.fields() else {
@@ -1901,31 +1937,19 @@ fn recorded_action_fields(document: &Document, findings: &mut Findings, required
     });
 }
 
-/// ISO 19005-2 section 6.6.6.
-///
-/// The subclause recommends that each high-level action be recorded and then requires three
-/// fields of each action that *is* recorded, so the rule is conditional on the file's own
-/// `xmpMM:History` and vacuous for a file that states none.
-///
-/// **`parameters` is in the list, and there is contrary evidence that could not be read.** The
-/// veraPDF corpus's own `TWG test suite A021-*` documents carry an ISO working group resolution
-/// saying requirements on `xmpMM:History` are application requirements and irrelevant to ISO
-/// 19005 validation; a 2016 record of the same agenda item says the opposite for parts 2 and 3,
-/// that `parameters` remains required. Neither is an approved erratum and neither is published
-/// where this project can read it as one, so `CLAUDE.md` principle 5 leaves the clause this crate
-/// has read as what it follows — the same answer, for the same reason, as the `TN 0009` note in
-/// `tests/corpus.rs`. `doc/questions/Q52` puts the choice to the owner, because the practical
-/// cost falls on real files rather than on test fixtures.
-fn provenance_recorded_action_fields(exam: &Examination<'_>, findings: &mut Findings) {
-    recorded_action_fields(exam.document, findings, &["action", "parameters", "when"]);
-}
-
 /// ISO 19005-4 section 6.7.5.
 ///
-/// Part 4's list is shorter than part 2's by one: `action` and `when` are required and
-/// `parameters` is demoted to a recommendation, alongside `softwareAgent` and `instanceID` which
-/// both parts recommend. Part 4 is the later text and was written after the working group had
-/// considered the subject, which is why this row is the one to trust first.
+/// Part 4 states that the actions *may* be recorded and then requires two fields of each action
+/// that is, so the rule is conditional on the file's own `xmpMM:History` and vacuous for a file
+/// that states none. `parameters` is a recommendation here, alongside `softwareAgent` and
+/// `instanceID`.
+///
+/// **Why part 2's twin is outside validation and this row is not.** `TechNote 0010`'s A021 names
+/// ISO 19005-2 and ISO 19005-3 and no other part, and it appends a note that the proposal was
+/// accepted in principle for the part then being drafted. That part was published in 2020 as
+/// ISO 19005-4 — and it states these two fields as requirements anyway. Where a note about an
+/// intention and a published standard disagree, the standard is the one this project reads
+/// (`CLAUDE.md` principle 5), so the later text governs and the clause binds.
 fn provenance_recorded_action_fields_four(exam: &Examination<'_>, findings: &mut Findings) {
     recorded_action_fields(exam.document, findings, &["action", "when"]);
 }
@@ -1989,8 +2013,8 @@ mod tests {
         identification_declares_flavour_f, identification_declares_level_a,
         identification_part_four, identification_part_two, identification_revision_year,
         identification_states_no_flavour, packet_header, properties_use_known_schemas,
-        provenance_recorded_action_fields, provenance_recorded_action_fields_four,
-        states_attribute, xmp_packet_header_attributes, xmp_packets_well_formed,
+        provenance_recorded_action_fields_four, states_attribute, xmp_packet_header_attributes,
+        xmp_packets_well_formed,
     };
     use super::{declared_target, identification_schema_prefix};
     use crate::target::{Flavour, Level, Target};
@@ -2540,29 +2564,25 @@ mod tests {
         ))
     }
 
-    /// ISO 19005-2 section 6.6.6's three fields and ISO 19005-4 section 6.7.5's two, over the same
-    /// entry.
+    /// ISO 19005-4 section 6.7.5's two fields, over three shapes of recorded action.
     ///
-    /// The middle case is the whole difference between the parts: an entry stating `action` and
-    /// `when` and no `parameters` meets part 4's list and misses one of part 2's.
+    /// **The middle case used to be the whole difference between the parts** — an entry stating
+    /// `action` and `when` and no `parameters` met part 4's list and missed one of part 2's — and
+    /// there is no part 2 half to this test any more, because `TechNote 0010`'s A021 puts section
+    /// 6.6.6 outside validation altogether. `a_clarified_row_reports_nothing_and_says_why` below
+    /// is what replaced it.
     #[test]
-    fn a_recorded_action_is_held_to_the_fields_its_own_part_requires() {
+    fn a_recorded_action_is_held_to_the_fields_part_four_requires() {
         let whole = history(
             "<stEvt:action>created</stEvt:action>\n\
              <stEvt:parameters>by hand</stEvt:parameters>\n\
              <stEvt:when>2016-04-05T13:19:21+01:00</stEvt:when>",
         );
-        assert_eq!(found(provenance_recorded_action_fields, &whole), 0);
         assert_eq!(found(provenance_recorded_action_fields_four, &whole), 0);
 
         let no_parameters = history(
             "<stEvt:action>created</stEvt:action>\n\
              <stEvt:when>2016-04-05T13:19:21+01:00</stEvt:when>",
-        );
-        assert_eq!(
-            found(provenance_recorded_action_fields, &no_parameters),
-            1,
-            "part 2 requires the parameters field"
         );
         assert_eq!(
             found(provenance_recorded_action_fields_four, &no_parameters),
@@ -2572,11 +2592,40 @@ mod tests {
 
         let neither = history("<stEvt:parameters>by hand</stEvt:parameters>");
         assert_eq!(
-            found(provenance_recorded_action_fields, &neither),
+            found(provenance_recorded_action_fields_four, &neither),
             2,
             "action and when, reported separately"
         );
-        assert_eq!(found(provenance_recorded_action_fields_four, &neither), 2);
+    }
+
+    /// The row ISO 19005-2 section 6.6.6 states is carried, binds part 2, and reports nothing.
+    ///
+    /// All three halves matter and the test asserts each: a row that had been deleted would take
+    /// the clause out of the verdict, a row that still checked would fail the files A021 says are
+    /// not a validator's business, and a row whose reason did not name the record would leave a
+    /// reader unable to tell a reading from a defect.
+    #[test]
+    fn a_clarified_row_reports_nothing_and_says_why() {
+        let file = history("<stEvt:parameters>by hand</stEvt:parameters>");
+        let report = crate::check(&file, Target::Two(Level::B));
+        let judged = report
+            .judgements
+            .iter()
+            .find(|judgement| judgement.id == "metadata/provenance-recorded-action-fields")
+            .expect("part 2 states section 6.6.6, so the row is in every part 2 report");
+        assert!(matches!(
+            judged.outcome,
+            crate::Outcome::OutsideValidation(_)
+        ));
+        assert_eq!(
+            judged.clarified_by.map(|record| record.item),
+            Some("A021"),
+            "the verdict has to name the record that put the clause outside validation"
+        );
+        assert!(
+            report.render().contains("outside validation"),
+            "and the rendered report has to show it to a person"
+        );
     }
 
     /// XML names are case-sensitive, and the `ResourceEvent` value type spells its fields in
@@ -2594,12 +2643,11 @@ mod tests {
 
     /// A file with no history at all has recorded no action, so the rule reaches nothing.
     #[test]
-    fn a_file_that_records_no_action_meets_the_provenance_rows_vacuously() {
+    fn a_file_that_records_no_action_meets_the_provenance_row_vacuously() {
         let file = document(&packet(
             "http://www.aiim.org/pdfa/ns/id/",
             "<pdfaid:part>4</pdfaid:part>",
         ));
-        assert_eq!(found(provenance_recorded_action_fields, &file), 0);
         assert_eq!(found(provenance_recorded_action_fields_four, &file), 0);
     }
 

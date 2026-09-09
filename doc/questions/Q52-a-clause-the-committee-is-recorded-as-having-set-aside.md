@@ -3,6 +3,18 @@
 Asked by session 940, which implemented it. **Provisional, not a blocker**: the rows are
 implemented against the clause as published, and what is open is whether one of them should be.
 
+Status: **answered** — `A52`, on the strength of `doc/TechNote0010.pdf`, which the owner obtained
+on 2026-09-09 and which is the document option 3 below names. The answer is option 3's own
+consequence and neither of the two the round offered: part 2's section 6.6.6 does not gate
+PDF/A-2 validation at all, not the `parameters` field and not `action` and `when` either, because
+the note's item A021 records the ISO working group resolving that requirements on the
+`xmpMM:History` property are the writing application's and are irrelevant to ISO 19005 validation.
+Part 4's section 6.7.5 stands on part 4's own published text. Session 941 carried it out and
+`doc/adr/0931` is the decision — including the general one this question turned out to need, which
+is how a reader tells a clarification this project acts on from committee guidance it does not.
+The argument below is kept as it was written: it is the record of what could and could not be read
+before the document was held, and its reasoning about part 4 survived the answer intact.
+
 ## The question
 
 ISO 19005-2 §6.6.6 and ISO 19005-4 §6.7.5 are the file-provenance subclauses. Both recommend that

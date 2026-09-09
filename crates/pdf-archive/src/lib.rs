@@ -33,6 +33,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod clarification;
 pub mod errata;
 pub mod examination;
 pub mod finding;
@@ -44,6 +45,7 @@ pub mod target;
 
 use pdf_syntax::Document;
 
+pub use crate::clarification::Clarification;
 pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, Where};
@@ -74,6 +76,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
     let outcome = match requirement.check {
         Check::Unchecked(why) => Outcome::Unchecked(why),
         Check::Processor(why) => Outcome::Processor(why),
+        Check::OutsideValidation(why) => Outcome::OutsideValidation(why),
         Check::Implemented(predicate) => {
             let mut findings = Findings::default();
             predicate(examination, &mut findings);
@@ -90,6 +93,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
     Judgement {
         id: requirement.id,
         amended_by: errata::amending(requirement.id),
+        clarified_by: clarification::clarifying(requirement.id),
         // A requirement only reaches here if `binds` said the target's part states it, so the
         // citation is always present; the fallback names the bug rather than panicking.
         citation: requirement
