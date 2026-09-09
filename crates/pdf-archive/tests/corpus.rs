@@ -259,7 +259,7 @@ fn documents(root: &Path) -> Vec<PathBuf> {
 }
 
 /// What this crate said about one corpus file, against what its name said.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 struct Tally {
     /// Both readings agree.
     agreed: usize,
@@ -290,6 +290,11 @@ struct Tally {
     /// *new* disagreements stand out, and one that re-reported every settled one would bury
     /// them.
     settled: usize,
+    /// The names behind `missed`, so the column can be worked on rather than only counted.
+    ///
+    /// A number tells a reader how much is left and nothing about what; twenty-three names fit
+    /// on a screen and each one is a document some author wrote to break a specific rule.
+    missed_names: Vec<String>,
 }
 
 /// Runs one target's corner of the corpus and tallies the two readings by clause.
@@ -331,7 +336,12 @@ fn sweep(root: &Path, folder: &str, target: Target) -> BTreeMap<String, Tally> {
             (Intended::Fail, false) if anywhere => {
                 tally.elsewhere = tally.elsewhere.saturating_add(1);
             }
-            (Intended::Fail, false) => tally.missed = tally.missed.saturating_add(1),
+            (Intended::Fail, false) => {
+                tally.missed = tally.missed.saturating_add(1);
+                if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                    tally.missed_names.push(name.to_owned());
+                }
+            }
             (Intended::Pass, true) => tally.over = tally.over.saturating_add(1),
         }
     }
@@ -341,6 +351,7 @@ fn sweep(root: &Path, folder: &str, target: Target) -> BTreeMap<String, Tally> {
 /// Prints one sweep, clause by clause.
 fn report(name: &str, by_clause: &BTreeMap<String, Tally>) {
     let mut total = Tally::default();
+    let mut missed: Vec<String> = Vec::new();
     println!("\n== {name} ==");
     println!("  clause  agreed  missed  over  settled  elsewhere  unreadable");
     for (clause, tally) in by_clause {
@@ -357,6 +368,9 @@ fn report(name: &str, by_clause: &BTreeMap<String, Tally>) {
         total.missed = total.missed.saturating_add(tally.missed);
         total.over = total.over.saturating_add(tally.over);
         total.settled = total.settled.saturating_add(tally.settled);
+        for name in &tally.missed_names {
+            missed.push(format!("{clause}  {name}"));
+        }
         total.elsewhere = total.elsewhere.saturating_add(tally.elsewhere);
         total.unreadable = total.unreadable.saturating_add(tally.unreadable);
     }
@@ -378,6 +392,12 @@ fn report(name: &str, by_clause: &BTreeMap<String, Tally>) {
          `elsewhere` caught, under the clause that states the rule rather than the one whose\n              \
          directory the witness sits in — a delegation, not a disagreement"
     );
+    if !missed.is_empty() {
+        println!("  the `missed` documents, by the clause their name claims:");
+        for line in &missed {
+            println!("    {line}");
+        }
+    }
 }
 
 #[test]
