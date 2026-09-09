@@ -1,0 +1,1 @@
+Allow it, and report every appearance written, so the difference between the producer's file and ours is visible in the report rather than only in the bytes.

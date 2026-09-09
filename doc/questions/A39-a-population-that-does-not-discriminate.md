@@ -1,0 +1,1 @@
+No exception. My answer to Q31 — option 2, one accessor applied wherever a table types an integer — covers /Rotate, which reads a real through the same rule. The stricter test (tolerate only where a page visibly changes) is declined.

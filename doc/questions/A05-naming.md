@@ -1,6 +1,7 @@
-We will rename the whole app to quorra.
-The currently named quorra library should be renamed (my first instinct was to use quorra-xxx; i.e. "quorra-" as prefix; but I am open to suggestions).
+Final answer, replacing the "not yet a qualified answer" this file held — my first text is preserved in Q05:
 
-I don't want to create too many exes.  So unless there is a good reason, I think we should make subcommands, like `quorra transform`...
+The product is quorra, and only the front doors carry the name: the binaries quorra, quorra-transform, quorra-retrieve and quorrafs. The crates keep the names that say what they do, and the workers keep theirs.
 
-This is not yet a qualified answer.  integrate this into the question, and let me decide again.
+The rendering library is named for what it is, not with a quorra- prefix: raster (raster, raster-scene, raster-gpu, raster-pages), living in this tree at raster/, with render-raster as this tree's adapter.
+
+The C interface takes the product's name — pdfv_ becomes quorra_ and pdfvfs_ becomes quorra_vfs_ (headers quorra.h, quorra_vfs.h) — because a C prefix has to be unique across everything a host links.

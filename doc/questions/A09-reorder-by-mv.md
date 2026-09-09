@@ -1,5 +1,3 @@
-Could we avoid this problem, by allowing "intermediate" names?
-If we for instance named every page 001.50.pdf repositing a page before could be achieved by naming the new page 001.30.pdf
-Unless you know why, the 50 is of course a "strange" number.  Maybe you have another idea.
+Implement it — my intermediate-names idea, in the shape the response proposes.
 
-This question is not answered.  Integrate my text and your response to it into the question again and let me answer again.
+Integer keys with a stride of 100, counting from 00100; inserting before a page takes the gap between its neighbours. Renormalise only on an explicit request. The page labels a reader actually sees stay available through meta/. A rename that crosses directories, is not a well-formed key, or lands on an occupied key is refused by name; a rename is an append write like every other.
