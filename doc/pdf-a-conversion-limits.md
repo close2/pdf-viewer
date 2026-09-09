@@ -68,29 +68,30 @@ So the single most useful thing a converter can say to a user is not "this faile
 cannot be PDF/A-2 and can be PDF/A-4f, for these three reasons."** That is the report the verb
 should produce, and it is the reason the validator is built before the converter.
 
-### 1.2 PDF/A-2's base document is one this project does not carry
-
-A limitation about the *evidence* rather than about any document, and it is the reason PDF/A-4 is
-the better default target where a user has a free choice.
+### 1.2 PDF/A-2's base document, and the day it stopped being a limitation
 
 ISO 19005-2 §5.1 makes a conforming file one that adheres to **all requirements of ISO 32000-1**
 as modified by part 2, and §6.7.2.1 pulls in ISO 32000-1:2008 §14.8 wholesale for Level A. This
-tree carries **ISO 32000-2** — that is what `doc/md/` holds, what the conformance ledger is
-written against and what every doc comment in `crates/` cites. ISO 32000-1:2008 is not here.
+tree is written against **ISO 32000-2** — that is what the conformance ledger is written against
+and what every doc comment in `crates/` cites — so for as long as ISO 32000-1:2008 was not here,
+every PDF/A-2 requirement was being read in the wrong edition.
 
-- **Where the two editions agree, which is most of the file format, nothing is lost**: reading the
-  requirement in ISO 32000-2 gives the same answer.
-- **Where they differ, our reading is of the wrong edition.** PDF 2.0 deprecated features, added
-  structure namespaces and new standard structure types, and changed the encryption clauses
-  outright. A PDF/A-2 verdict that leaned on one of those differences would be citing a clause the
-  part does not name.
-- **What the converter does about it**: the same thing §7 requires everywhere else — a requirement
-  read from the wrong edition is marked as such in the report rather than passed off as checked.
-  And where a user has no reason to prefer part 2, **PDF/A-4 is recommended**, because its base
-  document is the one this project owns, implements and cites.
+**The owner obtained it on 2026-09-07**, and `tools/spec-md.py` prepared it as
+`doc/md/ISO_32000-1_2008.md`. What that changes:
 
-This is a candidate question for the owner: ISO 32000-1:2008 is obtainable, and buying it would
-close the gap for the whole PDF/A-2 target rather than for any one clause.
+- **The gap that mattered is closed.** Where the two editions differ — PDF 2.0 deprecated
+  features, added structure namespaces and new standard structure types, and rewrote the
+  encryption clauses — a PDF/A-2 requirement can now be read in the edition part 2 actually
+  names, instead of in the nearest available one.
+- **It is not committed and cannot be**, on the same footing as the PDF/A parts themselves:
+  free to obtain is not free to redistribute, so `/doc/*.pdf` ignores it and `doc/md/` ignores
+  the prepared text. Committed source cites ISO 32000-1 clauses and does not quote them; only
+  ISO 32000-2 quotations are checkable by `tools/conformance`, because only that edition is in
+  the tree.
+- **PDF/A-4 is still the better default where a user has a free choice**, but the reason is now
+  a smaller one: its base is the edition this project implements, so a part 4 verdict cites the
+  clause the code was written against. That is a shorter chain of reasoning, not a difference in
+  what can be read.
 
 ---
 
@@ -679,6 +680,48 @@ believing it is easy.
 
 ---
 
+### 4.10 JPEG 2000 images, and where the offending field lives
+
+ISO 19005-2 §6.2.8.3 and ISO 19005-4 §6.2.7.3 place seven restrictions on JPEG 2000 data, and
+until this was implemented nobody here could see any of them. The useful thing a user needs
+told is not the list — it is that **the restrictions divide by where the field sits**, and that
+division decides whether the fix costs anything at all.
+
+A JPEG 2000 image in a PDF is a JP2 wrapper (ISO/IEC 15444-1 Annex I.4's boxes) around a
+codestream. `colr`, `ihdr`, `bpcc`, `cdef` and `cmap` are **wrapper**; the `SIZ` marker's
+component count and per-component depths are **codestream**. Rewriting a box is byte surgery on
+a hundred-odd bytes and touches no sample. Changing anything the codestream states means
+decoding and re-encoding.
+
+| restriction | clause | where the field lives | cost of the fix |
+|---|---|---|---|
+| exactly one colour specification marked best | -2 §6.2.8.3, -4 §6.2.7.3 | wrapper (`colr` `APPROX`) | **Mechanical** — mark one, drop the rest |
+| colour specification method is one of the three permitted | same | wrapper (`colr` `METH`) | **Mechanical** where a permitted method describes the same colour; otherwise Ask |
+| not the enumerated CIEJab colour space | same | wrapper (`colr` `EnumCS` 19) | **Ask** — the samples mean CIEJab, so replacing the box relabels them and changes the picture |
+| 1, 3 or 4 colour channels | same | wrapper (`ihdr` `NC`, `cdef`) or codestream (`SIZ` `Csiz`) | **depends, and this is the interesting one** — see below |
+| bit depth 1 to 38, the same on every colour channel | same | codestream (`SIZ` `Ssiz`), mirrored in the wrapper | **Re-encode** |
+| the JPX baseline feature set | same | codestream | **not checkable here** — the feature set is defined by ISO/IEC 15444-2, which this project does not hold (`doc/questions/Q51`) |
+| device colour spaces obey the device colour rules | same | wrapper | **not checkable here** — neither part says which enumerated colour space is *effectively* a device space |
+
+**The channel-count row is where a converter earns its keep.** A two-channel image — greyscale
+plus alpha — has two colour channels only because nothing says otherwise. A `cdef` box states
+what each channel *is*, and one that declares the second channel as opacity leaves one colour
+channel and a conforming image, without a sample being touched. That is not a trick: the box
+records a fact about the data, and it is only available when the fact is true. Where the second
+channel is genuinely a second colour, no box can say otherwise and the image must be re-encoded.
+
+- **Class: Mechanical for the two wrapper rows above, Ask for the rest.**
+- **The universal fallback is transcoding to `FlateDecode`**, and it means JPEG 2000 is never a
+  hard refusal. The decoded samples are what any renderer would show, so re-encoding them
+  losslessly loses nothing that was visible — at a large cost in file size, often ten times. It
+  is the right default only when the alternative is refusing the document.
+- **One honesty note about that fallback**: this project's own JPEG 2000 decoder is
+  `hayro-jpeg2000` in the sandboxed worker, and `doc/conformance/ledger.toml`'s §7.4.9 row
+  records that thirteen corpus codestreams still decode one level off the reference software.
+  Transcoding puts that decoder's output into the archived file permanently, where leaving the
+  codestream alone does not. Prefer the box rewrite wherever it is available, and say when it
+  was not.
+
 ## 5. What this converter will not do, on its own rules rather than the standard's
 
 Two refusals that are ours rather than ISO's — though on the first of them the standard turns out
@@ -865,11 +908,13 @@ resource at all and can be started before any of them are answered:**
 | | question | why it waits |
 |---|---|---|
 | **`Q47`** | A substitution family beyond the standard 14. | the standard 14 are already shipped and licensed for embedding (§10), which is the common case; the rest can be added when a document needs it |
-| **`Q49`** | Buying ISO 32000-1:2008, PDF/A-2's base document (§1.2). | irrelevant to a PDF/A-4-first plan, since part 4's base is the edition this tree owns |
+| **`Q51`** | Buying ISO/IEC 15444-2, which defines the JPX baseline feature set (§4.10). | one restriction of seven on JPEG 2000 images. Part 1 was obtained on 2026-09-07 and closed five of the other six; part 2 is the whole of what remains |
 | **`Q50`** | May a converter replace the deprecated `F` operator with `f` (§5.2)? | narrow: PDF/A-4 targets with legacy content streams |
 
-**One should be retired rather than answered**: `Q19` asks whether the fence moves for PDF/A-1,
-and `A17`'s "part 1 never" removed the occasion for the question.
+**Two should be retired rather than answered**: `Q19` asks whether the fence moves for PDF/A-1,
+and `A17`'s "part 1 never" removed the occasion for the question. `Q49` asked whether to buy
+ISO 32000-1:2008, and the owner obtained it on 2026-09-07 — `doc/md/ISO_32000-1_2008.md` is the
+prepared text, so PDF/A-2's base document is readable and §1.2's limitation is gone.
 
 **And two decisions were taken in conversation on 2026-09-07 and are recorded here rather than in
 an answer file** — that font substitution is the default rather than a refusal (§4.9), and that a
