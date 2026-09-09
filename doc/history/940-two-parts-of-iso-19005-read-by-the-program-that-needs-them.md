@@ -295,3 +295,31 @@ with them.
 **It stayed red for two days because it was being checked wrongly**, by grepping its output for
 the words "fail" and "error" instead of reading its exit status. That is worth writing down: a
 gate checked by the shape of its output is not checked.
+
+### What the round closed on, and the three stale reasons
+
+Four corpus misses stand where 688 did, and `over` never left zero. The last push closed three of
+them on one construction — §14.6.1's marked-content stack, which `survey.rs` had deliberately not
+kept — and the two §14.9.4 witnesses had to close **together**, because one corpus file is
+conforming with `/ActualText` on a structure element alone and implementing the content-stream
+route by itself would have failed it.
+
+**Three `Unchecked` reasons were found saying something that had stopped being true**, which is
+the finding this round would offer another round: the character-identifier row said this crate
+does not depend on `pdf-font`, months after the font tranche added it; the provenance rows named a
+`pdf-model` gap `parse_detail` had already closed; and the appearance-graphics row said the
+graphics rules do not reach appearance streams, while `survey.rs`'s own module documentation two
+files away said it walks every `/AP`. `A20` makes the reason the report, and a reason that has
+gone stale overstates a debt exactly as a weakened one understates it. None of the three was
+found by a gate. All three were found by reading the reason beside the code it describes.
+
+`survey.rs`'s own module documentation was asserting two false things about the crate as well —
+that a predicate has nowhere to leave a survey for its sibling, and that a report walks the
+content once per requirement. `Examination` had ended both some rounds earlier.
+
+Last: `tools/round.sh`, the first thing `doc/HANDOVER.md` tells a round to run, could not open a
+round on any branch this project actually uses. It reads the session number out of the branch name
+deliberately — a worktree is branched before its neighbours write their history files — but read
+the number as though it were the whole name, so `round-940/pdf-a-validator` reached a shell
+arithmetic context as `940/pdf-a-validator` and `set -u` ended the script. It has been failing for
+every round on a slugged branch, and nothing depended on it enough to notice.
