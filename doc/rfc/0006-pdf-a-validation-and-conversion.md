@@ -1,6 +1,19 @@
 # RFC 0006 — PDF/A: validating a document, and converting one
 
-Status: **draft**
+Status: **ratified 2026-09-09** by `doc/questions/A46-the-shape-and-the-go-ahead-for-pdf-a.md`
+— the owner's words are "RFC 0006 is ratified by this answer", and the same answer ends the hold
+that `A15` and `A17` had placed on PDF/A. Three things in it settle questions this document left
+open: the validator comes first, its shape is confirmed as one requirement table over parts 2 and
+4 with the levels as an applicability column, and **PDF/A-4 is to be finished and certified
+first**. `doc/adr/0926-*.md` is what the tree did about it.
+
+**What ratification does not do is repair §0.** This document was written from free previews, and
+the parts were bought afterwards (`A16`); several of its readings were overturned by the purchased
+text and are corrected in place where that happened — §5.1 on Level A and §5.7 on font
+substitution are the two that mattered. A reader should treat a claim here about what ISO 19005
+requires as needing a check against `doc/pdfa/`, and `doc/pdf-a-conversion-limits.md` as the
+document written *from* the standard rather than around it.
+
 Round: 895 — commissioned by the owner on 2026-09-03, "please start a round for an RFC for a
 feature to be able to convert to PDF/A (different versions)". Written beside rounds 892–894,
 which were building and walking throughout; this round writes this file and one line in

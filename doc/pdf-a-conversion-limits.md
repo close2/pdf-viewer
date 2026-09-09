@@ -188,6 +188,12 @@ one §2.1 makes.
     empty glyph carries none either, so the spirit survives, where mapping the code to some
     *plausible letter* would give it a false one. That is the line: preserve the absence, never
     fill it in.
+  - **`A48` allows it, reported per document and recorded in `xmpMM:History` naming the clause** —
+    and `doc/adr/0927` records that this is the *thinnest* of the four permissions the owner
+    granted, not a comfortable one. The other three state an interpretation the standard defines;
+    a code that reaches `.notdef` has no glyph the standard defines, so this one is the case where
+    "preserve the absence, never fill it in" is doing all the work. It is allowed because an empty
+    glyph preserves the absence. Anything that filled it would not be.
 - A `.notdef` on the page is usually the visible symptom of a missing font, so supplying the font
   (`--font`) fixes both this and §2.1.
 
@@ -437,10 +443,18 @@ must add an output intent, and that means shipping a profile.
   For sRGB and screen-produced content the change is nil to imperceptible; for a document whose
   `DeviceCMYK` was meant for a specific press it is real, and that is exactly when the user should
   be supplying the press profile instead.
-- **Licensing**: the ICC's sRGB profile is redistributable under a permissive grant with two
-  conditions (ship unchanged with its copyright tag; do not use ICC's name to advertise). Shipping
-  it is `doc/questions/Q18`'s open decision, and until it is answered the converter has no default
-  profile to embed — which makes this the one **Default** entry that is currently **blocked**.
+- **Licensing, and the decision**: the ICC's sRGB profile is redistributable under a permissive
+  grant with two conditions (ship unchanged with its copyright tag; do not use ICC's name to
+  advertise). **`A18` decides it: ship the standard sRGB profile, with a flag to override it.**
+  This entry is no longer blocked.
+- **`A18` attaches a condition, and it is the interesting half of the answer.** The report must say
+  that adding an output intent *reinterprets the marks already in the file* — the difference has to
+  be visible in the report, not only in the bytes. That follows from the bullet above rather than
+  contradicting it: the change is nil to imperceptible for screen-produced content and real for a
+  `DeviceCMYK` meant for a press, and a converter cannot tell the user which case they are in
+  unless it says what it did. `doc/adr/0927` has the argument, which is that this is *stating an
+  interpretation the standard defines* rather than filling in an absence — §10.4.2 already decides
+  what this renderer shows for a `DeviceRGB` colour, and the output intent records it.
 - **PDF/A-4 adds a second option worth knowing**: §6.2.3 allows a *page-level* output intent, so a
   document mixing an RGB body with CMYK inserts can carry the right profile per page instead of
   one compromise for all of them. PDF/A-2 has no such thing.
@@ -525,8 +539,10 @@ require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
   `pdf-model`'s `appearance.rs` and `variable_text.rs` already build them — which is why this sits
   inside ADR 0816's fence rather than outside it.
 - **Report every one written**, because a constructed appearance is *this program's* rendering of
-  a field or a markup, and a different reader's would differ in detail. This is `doc/rfc/0006`
-  question 7, and the owner should confirm it.
+  a field or a markup, and a different reader's would differ in detail. **`A21` confirms both
+  halves**: constructed appearances are allowed, and every appearance written is reported — the
+  difference between the producer's file and ours has to be visible in the report rather than only
+  in the bytes.
 - **`NeedAppearances` true is the interesting case**: it means the producer deliberately left
   appearances to the reader. Turning it false without constructing appearances would blank the
   form; constructing them freezes this program's rendering into the archive. **Ask.**
@@ -660,8 +676,13 @@ believing it is easy.
 - **The substitute must itself be legally embeddable** (§6.2.11.4.1). That rules out most fonts
   installed on the machine: a system Arial's OS/2 `fsType` bits usually permit preview and print
   rather than the unlimited universal embedding the clause requires. So the substitute has to come
-  from a family this project may ship or may rely on being licensed for embedding — which is
-  §8's new open question and the sibling of the ICC profile one.
+  from a family this project may ship or may rely on being licensed for embedding. **`A47`
+  answers it, and asks for more than this file had proposed**: ship a licence-clean OFL family
+  with wide coverage, *including a Noto-CJK-class family*, under the same discipline as
+  Liberation — the licence read off a copy, a row in `doc/third-party-data.md`, `/NOTICE`
+  extended. Where no shipped face covers a document's characters, **refuse rather than guess**.
+  §8.4 carries the packaging half of that answer, which is a naming requirement rather than a
+  build detail.
 
 #### What the converter therefore does
 
@@ -811,11 +832,22 @@ be met by rewriting a content stream — `.notdef` references (§2.2), `q`/`Q` n
 (§2.5), operators that ISO 32000-2 deprecates in a PDF/A-4 target (§6). The converter refuses
 those rather than rewriting the producer's page.
 
-**One case is genuinely arguable and is an open question for the owner**: replacing the deprecated
-`F` operator with `f`, which ISO 32000-2's Table 59 documents as equivalent
+**One case was genuinely arguable and `A50` has decided it**: replacing the deprecated `F`
+operator with `f`, which ISO 32000-2's Table 59 documents as equivalent
 ("Equivalent to `f`; deprecated in PDF 2.0"). It changes a byte in a content stream and cannot
-change a mark. If the fence is drawn at *marks*, it is allowed; if at *content streams*, it is
-not. It is not decided here.
+change a mark. The fence is drawn at **marks**, so the substitution is allowed — and the answer
+fixes its width in the same sentence, which is what keeps this section true rather than
+contradicted:
+
+- a **closed list** of operator spellings the standard itself documents as equivalent, and nothing
+  reached by analogy from that list;
+- applied **only where a target's deprecation rule requires it**, never as tidying;
+- **reported**, like every other thing this converter writes;
+- and explicitly **no wider licence to rewrite content streams** — the `.notdef` and `q`/`Q`
+  refusals above are untouched by it.
+
+So the heading still holds. The converter does not edit content streams to reach conformance; it
+respells one operator, from a list, where a rule names it.
 
 ---
 
@@ -834,7 +866,7 @@ standard becomes a conversion requirement, and the common ones bite ordinary fil
 | a blend mode written as an **array** | Table 57, §11.3.5 | **Mechanical** — reduced to the name a reader would have chosen |
 | `/NeedAppearances` | Table 224 | §4.4 |
 | `/XFA`, `/NeedsRendering` | Table 224, Table 29 | §3.4 |
-| the `F` fill operator | Table 59 | §5.2 — the open question |
+| the `F` fill operator | Table 59 | §5.2 — allowed by `A50`, narrowly and reported |
 | Adobe-Korea1 and Adobe-Japan2 character collections | §4.2, established notations | a Type 0 font on one of them loses -4's `ToUnicode` exemption (§4.3), which in -4 is only a *should* |
 | RC4, AES-128, security handler revisions 1–5 | §7.6 | moot: encryption is forbidden outright (§3.5) |
 
@@ -876,51 +908,88 @@ Three consequences a user should hold on to:
 
 ---
 
-## 8. Open questions this file cannot answer
+## 8. The questions this file could not answer, and the answers
 
-Each is filed as `doc/questions/Q*.md` and none is answered. They are ordered by what they block,
-because that is the only ordering that matters before implementation starts.
+**Every one of them is answered.** This section listed nine open questions when it was written on
+2026-09-07; the owner answered the last of them on 2026-09-09, and what follows is what each
+decided rather than what each asked. The `Q` files keep the arguments that raised them, which is
+the point of keeping both.
 
-**One blocks the decision itself:**
+**The decision that governs the rest is `A46`**: PDF/A is on, the hold `A15` and `A17` had placed
+on it is over, RFC 0006 is ratified, the validator comes first — and **PDF/A-4 is to be finished
+and certified first**. Everything below is downstream of that.
 
-| | question | blocks |
+### 8.1 Four permissions, and the condition all four carry
+
+| | decided | where it lands |
 |---|---|---|
-| **`Q46`** | Is PDF/A on, does the validator come first, and does one requirement table cover both owned parts at once? RFC 0006 is still `Status: draft` and `A17` put the feature on hold; the intent to build a converter reverses that but is not on the record. | everything below. Its third part is the build's shape: levels within a part are an applicability column rather than an implementation (§6.2.11.7.1 and §6.7.1 state their own applicability, and part 4's annexes mostly relax clause 6), and the two parts share most of their predicates — `python3 tools/pdfa-text.py --overlap` counts it |
+| **`A18`** | Ship the standard sRGB profile, with a flag to override it — **and report that adding an output intent reinterprets the marks already in the file** | §4.1 |
+| **`A21`** | Constructed annotation appearances are allowed, and every appearance written is reported | §4.4 |
+| **`A48`** | Both proposed constructions are allowed — the DeviceN `/DefaultCMYK` and the empty glyph in place of `.notdef` — reported per document and recorded in `xmpMM:History` naming the clause | §2.2, §10.1 |
+| **`A50`** | The deprecated operator substitution is allowed **narrowly**: a closed list of spellings the standard itself documents as equivalent, only where a target's deprecation rule requires it, and reported. No wider licence to rewrite content streams | §5.2 |
 
-**Three block the converter's first useful output — but not the validator, which needs no bundled
-resource at all and can be started before any of them are answered:**
+The condition is the same in all four and the owner wrote it four different ways, so it is stated
+once here: **what was written is reported** — named in the conversion's report, per document, not
+merely inferable from a diff. That is what makes these permissions rather than a licence. A
+converter that silently produced a conforming file would be indistinguishable from one that
+produced a wrong file, and the difference this project cares about is not whether the output
+conforms but whether the reader can see what was done to it.
 
-| | question | blocks |
-|---|---|---|
-| **`Q18`** | Shipping the ICC sRGB profile. | §4.1's default, and with it nearly every conversion: almost every document uses device colour somewhere |
-| **`Q21`** | May a converter write the appearances this tree constructs? | §4.4, and any document with an annotation lacking `/AP` |
-| **`Q48`** | Two constructions proposed on 2026-09-07 and not yet ratified: the DeviceN `/DefaultCMYK` of §10.1, and §2.2's empty glyph in place of `.notdef`. | every document with `DeviceCMYK` and no supplied profile; and the `.notdef` case |
+`A48` states the line all four sit on, and it is sharper than §5's own fence:
 
-**Two shape the output rather than the code, and are cheapest to answer first:**
+> state an interpretation the standard defines; never fill in an absence
 
-| | question | shapes |
-|---|---|---|
-| **`Q20`** | What should a validator say about a requirement it has not read? | the report's whole form — and §7's discipline is built on the recommended answer |
-| **`Q22`** | Are `pdf-transform archive` and `pdf-retrieve archive-check` the right names? | the crate and verb, which are cheap now and expensive later |
+Three of the four satisfy it comfortably — a `DeviceRGB` colour already means something §10.4.2
+decides, a constructed appearance writes down what §12.5.5 describes, and `F` and `f` are the same
+operator differently spelled. **The empty glyph is the thin case**, and `doc/adr/0927` says so
+rather than pretending otherwise: a code that reaches `.notdef` has no glyph the standard defines.
+It is allowed with reporting attached, which is the right shape for a thin case, not a comfortable
+one.
 
-**Three can be deferred without cost:**
+### 8.2 What the validator is held to
 
-| | question | why it waits |
-|---|---|---|
-| **`Q47`** | A substitution family beyond the standard 14. | the standard 14 are already shipped and licensed for embedding (§10), which is the common case; the rest can be added when a document needs it |
-| **`Q51`** | Buying ISO/IEC 15444-2, which defines the JPX baseline feature set (§4.10). | one restriction of seven on JPEG 2000 images. Part 1 was obtained on 2026-09-07 and closed five of the other six; part 2 is the whole of what remains |
-| **`Q50`** | May a converter replace the deprecated `F` operator with `f` (§5.2)? | narrow: PDF/A-4 targets with legacy content streams |
+**`A20`** confirms the not-checked verdict as built — a requirement this project has not read is
+reported not-checked, by name, per requirement, per target — and restates the rule that made it
+necessary: **a check is never implemented from a secondary source.** The sharp consequence for
+this file and for the code is that an `Unchecked` reason may never be weakened to make a row look
+better. The reason *is* the report.
 
-**Two should be retired rather than answered**: `Q19` asks whether the fence moves for PDF/A-1,
-and `A17`'s "part 1 never" removed the occasion for the question. `Q49` asked whether to buy
-ISO 32000-1:2008, and the owner obtained it on 2026-09-07 — `doc/md/ISO_32000-1_2008.md` is the
-prepared text, so PDF/A-2's base document is readable and §1.2's limitation is gone.
+**`A22`** takes the recommended names: `quorra-transform archive` and `quorra-retrieve
+archive-check`.
 
-**And two decisions were taken in conversation on 2026-09-07 and are recorded here rather than in
-an answer file** — that font substitution is the default rather than a refusal (§4.9), and that a
-tagged source may be converted to PDF/A-2a (§5.1). Both are the owner's, both overturned a written
-position, and both should end up in an ADR so that the next reader finds the argument rather than
-only the conclusion.
+### 8.3 Two questions overtaken rather than decided
+
+**`A49` is void.** It asked whether to buy ISO 32000-1:2008, PDF/A-2's base document, and the owner
+obtained Adobe's free copy the day after it was asked. §1.2 above is the rewrite that follows.
+
+**`A51` declines a purchase and closes a row for good.** ISO/IEC 15444-2 will not be bought, so the
+JPX baseline-feature restriction in §4.10 stays unchecked with its truthful reason — not as a debt
+but as a requirement whose defining text this project has decided not to hold. A
+conforming-validator claim with no gaps is a *new* question, asked if it is ever wanted.
+`doc/adr/0928` records it, including the finding that the 2016 and 2019 files in `doc/` are
+fifteen-page previews and cannot settle anything.
+
+### 8.4 The fonts answer, which is bigger than it looks
+
+**`A47`** confirms substitution as the default rather than a refusal, and then asks for something
+this file had not proposed: ship a licence-clean OFL family with wide coverage, **including a
+Noto-CJK-class family**, under the same discipline as Liberation — the licence read off a copy, a
+row in `doc/third-party-data.md`, `/NOTICE` extended. Where no shipped face covers a document's
+characters, refuse rather than guess.
+
+It also decides the packaging, and the instruction is unusually specific about *naming*: **two
+downloads**, the default one including the universal font family, and a smaller one without it
+**named so that it is unmistakably the incomplete one** — the name should say what is missing and
+that the download is incomplete, so that a person who does not know what to download, or does not
+care about the size, ends up with the bigger one. That is a defaults-and-naming requirement, not a
+build-system detail, and §10 is where its consequences land.
+
+### 8.5 The two decisions this file recorded before there was an answer file
+
+They were taken in conversation on 2026-09-07 — that font substitution is the default rather than a
+refusal (§4.9), and that a tagged source may be converted to PDF/A-2a (§5.1). Both overturned a
+written position in this file. `A47` has since confirmed the first in writing. The second still
+rests on the conversation alone, and remains the one decision here without an `A` file behind it.
 
 ---
 
@@ -1003,7 +1072,7 @@ and even there the standard defines a fallback.**
 | **substitutes for anything else** — a corporate face, CJK, a symbol font | §4.9 for the rest | **not shipped, and not hard**: OFL families exist with wide coverage, and the OFL's whole point is that embedding is permitted. The work is choosing the set, reading its licence and adding a row to `doc/third-party-data.md` — the same three steps Liberation already went through |
 | **Adobe predefined `CMap`s** | non-embedded CJK fonts, §6.2.11.3.3 | **already shipped** — all 239, **BSD-3-Clause**, in `data/cmaps/` |
 | **the Adobe Glyph List, standard-14 metrics** | naming codes (§2.1), widths (§4.9) | **already in the tree** |
-| **an sRGB ICC profile** | §4.1's output intent, which almost every conversion needs | **not shipped; `Q18` is open.** `doc/rfc/0006` §5.3 read the ICC's terms as a permissive grant with two conditions — ship it unchanged with its copyright tag, do not use ICC's name to advertise — with no copyleft and no field-of-use clause. A second route exists if that reading does not survive scrutiny: an ICC v2 matrix/TRC profile is a small, fully specified structure, and this tree already *reads* ICC profiles, so generating one from published colorimetry rather than redistributing anybody's file is a bounded piece of work |
+| **an sRGB ICC profile** | §4.1's output intent, which almost every conversion needs | **decided by `A18`: ship it, with a flag to override.** The reading it rests on: `doc/rfc/0006` §5.3 read the ICC's terms as a permissive grant with two conditions — ship it unchanged with its copyright tag, do not use ICC's name to advertise — with no copyleft and no field-of-use clause. A second route exists if that reading does not survive scrutiny: an ICC v2 matrix/TRC profile is a small, fully specified structure, and this tree already *reads* ICC profiles, so generating one from published colorimetry rather than redistributing anybody's file is a bounded piece of work |
 | **a CMYK output profile** | any document with `DeviceCMYK` content | **the one you supply** — and §10.1 has a spec-defined fallback for when you cannot, at a cost the standard itself states |
 
 ### 10.1 CMYK: the profile you supply, and the fallback if you have none
@@ -1020,7 +1089,9 @@ and the working assumption here is that it does not. So `--output-intent-profile
 interface, and for a print-origin archive it is mandatory rather than optional: the archive
 decides its house profile once.
 
-**But "no profile" is not a dead end, and the standard supplies the way out.** ISO 19005-2
+**But "no profile" is not a dead end, and the standard supplies the way out** — and `A48` has
+since allowed the construction below, reported per document and recorded in `xmpMM:History`
+naming the clause. ISO 19005-2
 §6.2.4.3's NOTE 2 says that a **DeviceN-based `DefaultCMYK`** is subject to §6.2.4.4 and is
 thereby device independent. So a `/DefaultCMYK` written as a DeviceN over
 `[/Cyan /Magenta /Yellow /Black]`, with an ICCBased sRGB alternate space and a tint transform, is

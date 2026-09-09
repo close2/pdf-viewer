@@ -302,11 +302,25 @@ I.5.3.3's `colr` box carries `METH`, `PREC`, `APPROX` and `EnumCS`, and Annex A.
 marker segment carries the component count and each component's bit depth. Two agents had
 declined those rules for exactly that reason, and correctly.
 
-**What it does not carry.** §6.2.8.3 also asks that only the JPX baseline set of features be
-used, and that is defined in ISO/IEC 15444-**2**:2004 M.9.2, which the project does not hold —
-`doc/questions/Q51` is open on whether to buy it, and now asks only about those two sentences
-rather than about starting at all. There is a related edition trap recorded where it acts: PDF/A
-permits a `METH` of 1, 2 or 3, and this edition of part 1 defines only 1 and 2.
+**What it does not carry, and that is now settled.** §6.2.8.3 also asks that only the JPX
+baseline set of features be used, and that is defined in ISO/IEC 15444-**2**:2004 M.9.2.
+`doc/questions/A51` decides it: part 2 will not be bought, and the row stays `Unchecked` with its
+truthful reason rather than as a debt (`doc/adr/0928`).
+
+**Two files beside it that look like later editions and are not.**
+`doc/ISO-IEC-15444-1-2016.pdf` and `doc/ISO-IEC-15444-1-2019.pdf` are the third and fourth
+editions' **iTeh STANDARD PREVIEW** documents: title page, copyright notice, foreword and table of
+contents, fifteen pages each. Prepared with `tools/spec-md.py` they come to about 5 300 words and
+contain the strings `colr` and `EnumCS` exactly zero times. They are recorded here so that a later
+round reading the filenames does not spend an hour discovering it. Same licence position as
+everything else here; `/doc/*.pdf` excludes them and `doc/md/` excludes their text.
+
+**The edition trap is therefore permanent**, and it is recorded where it acts rather than only
+here. ISO 19005 permits a `METH` of 3 where the 2000 edition defines only 1 and 2, names
+enumerated colour spaces 12 and 19 where its Table I-10 defines only 16 and 17, and gives `APPROX`
+a meaning where I.5.3.3 says the field shall be zero and readers shall ignore it. In all three the
+rule implemented is ISO 19005's, and each constant in `crates/pdf-archive/src/table/graphics.rs`
+says so above itself.
 
 ## The XMP Specification, read for a table of facts
 
