@@ -124,7 +124,13 @@ from=doc/history/
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 case "$branch" in
     round-[0-9]*)
+        # `round-940/pdf-a-validator` is the shape this project actually uses, so the number has
+        # to be cut out of the name rather than assumed to be the whole of it: taking everything
+        # after `round-` gave `940/pdf-a-validator`, and the first arithmetic on it — the fifth
+        # round test below — failed with `pdf: unbound variable` under `set -u`, which is the
+        # round opener refusing to open a round.
         session=${branch#round-}
+        session=${session%%[!0-9]*}
         last=$((session - 1))
         from="the branch name"
         ;;
