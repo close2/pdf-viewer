@@ -875,12 +875,34 @@ impl Shape {
     }
 }
 
-/// The lexical form the XMP Specification gives a scalar value type.
+/// The scalar value type the XMP Specification gives a property, and the form a validator holds
+/// it to.
 ///
 /// Only the six types it defines by their spelling are here. `Text`, `URI`, `AgentName`,
 /// `ProperName`, `MIMEType` and the rest are Unicode strings with no form to check, and a
 /// vocabulary — the specification's `Choice` — is a string too, so a value drawn from one is
 /// held to the type its members have and not to the list, which this reader does not carry.
+///
+/// # `TechNote 0010` A020, which decides how much of a type is a validator's business
+///
+/// The working group resolved that parts 1 to 3 are read as if an XMP value were validated on its
+/// type alone, with any further meaning inferred from a property's name or description
+/// disregarded, and it listed the rule for each basic type. Two of those bear on this enum:
+///
+/// - **`Rational` admits any string.** It is listed beside `Text`, `URI` and the rest rather than
+///   beside `Integer` and `Real`, so a validator may not hold `exif:XResolution` to a quotient —
+///   [`Lexical::accepts`] returns true for it, and the variant stays because the table's business
+///   is to record what the schema defines.
+/// - **`Date` is ISO 8601.** [`date`] implements the six profiles the XMP Specification lists,
+///   which are profiles *of* ISO 8601 — so nothing accepted here is outside A020's rule, while a
+///   date written in some other ISO 8601 form would be reported. Narrowing that would mean
+///   implementing a standard this project does not hold; `doc/questions/Q53` carries it.
+///
+/// `MimeType` is A020's third named form, RFC 2046, and no property is judged against it: `Any`
+/// is what `dc:format` and its like carry, which under-reports rather than misreports.
+/// `GPSCoordinate` is the type A020's list does not mention at all, and [`Lexical::Coordinate`]
+/// keeps the specification's form for it — a resolution that says nothing about a type withdraws
+/// nothing, and `doc/questions/Q53` asks whether that is the reading to keep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lexical {
     /// A string, with nothing to check.
@@ -891,7 +913,8 @@ enum Lexical {
     Integer,
     /// A decimal number with an optional sign and at most one point.
     Real,
-    /// A numerator and a denominator separated by a solidus.
+    /// The specification's `Rational`, written as a quotient — and admitting any string, because
+    /// `TechNote 0010` A020 puts it among the types a validator judges as text.
     Rational,
     /// One of the six ISO 8601 profiles the specification lists.
     Date,
@@ -911,11 +934,13 @@ impl Lexical {
             return true;
         }
         match self {
-            Self::Any => true,
+            // `Rational` sits here rather than beside `Integer` and `Real` because `TechNote
+            // 0010` A020 lists it among the types validated as any string: the quotient this
+            // crate used to require is a rule the working group withdrew.
+            Self::Any | Self::Rational => true,
             Self::Boolean => matches!(text, "True" | "False"),
             Self::Integer => integer(text),
             Self::Real => real(text),
-            Self::Rational => rational(text),
             Self::Date => date(text),
             Self::Coordinate => coordinate(text),
         }
@@ -928,7 +953,9 @@ impl Lexical {
             Self::Boolean => "True or False",
             Self::Integer => "an integer",
             Self::Real => "a real number",
-            Self::Rational => "a rational, written as a quotient",
+            // Unreachable while A020 stands, because nothing fails a `Rational`; kept so that the
+            // match stays a total description of the enum rather than a partial one.
+            Self::Rational => "a rational",
             Self::Date => "an ISO 8601 date",
             Self::Coordinate => "a GPS coordinate",
         }
@@ -950,12 +977,6 @@ fn real(text: &str) -> bool {
     };
     let decimal = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
     !(whole.is_empty() && fraction.is_empty()) && decimal(whole) && decimal(fraction)
-}
-
-/// A numerator, a solidus and a denominator, which is how the specification writes EXIF's
-/// rational values as text.
-fn rational(text: &str) -> bool {
-    matches!(text.split_once('/'), Some((numerator, denominator)) if integer(numerator) && integer(denominator))
 }
 
 /// One of the six date profiles the specification lists, from a bare year to a fractional second
@@ -1519,6 +1540,20 @@ fn spelled(property: &XmpProperty) -> String {
 /// one ISO 19005-2's bibliography names; the subclause cites the specification without a date,
 /// so a later edition's additions are predefined too, and refusing a name this table has not
 /// heard of would fail conforming files over the age of the table.
+///
+/// # `TechNote 0010` A020, which is the committee saying how far this row may go
+///
+/// The working group resolved that parts 1 to 3 are read as if an XMP value were validated **on
+/// its type alone**, with any other meaning inferable from a property's name or description
+/// disregarded. That is the approach this row already took — a value is held to the shape and the
+/// lexical form its type has, and to nothing a human-readable description says about permitted
+/// values — and A020 also settles the one place it went further than a type: a `Rational` is now
+/// admitted as any string, which [`Lexical`] records with the rest of the note's list and the
+/// reasons this table's readings agree or are asked about in `doc/questions/Q53`.
+///
+/// The language-qualifier finding below survives the resolution and is worth saying why: an `Alt`
+/// whose items carry `xml:lang` is what the *type* language alternative is, in the XMP
+/// Specification's own definition of it, rather than something read off the property's name.
 fn properties_use_known_schemas(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_packet(exam, |id, properties| {
         for property in properties {
@@ -2190,6 +2225,33 @@ mod tests {
             ));
             assert_eq!(found(properties_use_known_schemas, &file), 0, "{rating}");
         }
+    }
+
+    /// `TechNote 0010` A020: a `Rational` is one of the types validated as any string.
+    ///
+    /// `tiff:XResolution` is a rational, and this crate used to require the quotient the XMP
+    /// Specification writes one as. The working group's list of the basic types puts the type
+    /// beside `Text` and `URI` rather than beside `Integer` and `Real`, so a validator holding it
+    /// to a form is validating more than the type — which is the whole of what A020 withdraws.
+    #[test]
+    fn a_rational_admits_any_string() {
+        for value in ["72/1", "72", "seventy-two", "1/0"] {
+            let file = document(&schema_packet(
+                "tiff",
+                "http://ns.adobe.com/tiff/1.0/",
+                &format!("<tiff:XResolution>{value}</tiff:XResolution>"),
+            ));
+            assert_eq!(found(properties_use_known_schemas, &file), 0, "{value}");
+        }
+
+        // The shape of the value is still the type's, and A020 does not touch that: an ordered
+        // array where the schema defines a simple value is not a rational spelled oddly.
+        let shaped = document(&schema_packet(
+            "tiff",
+            "http://ns.adobe.com/tiff/1.0/",
+            "<tiff:XResolution><rdf:Seq><rdf:li>72/1</rdf:li></rdf:Seq></tiff:XResolution>",
+        ));
+        assert_eq!(found(properties_use_known_schemas, &shaped), 1);
     }
 
     /// A language alternative's items are each defined to carry a language, which is what

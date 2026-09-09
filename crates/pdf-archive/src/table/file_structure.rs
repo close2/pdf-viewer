@@ -1107,6 +1107,14 @@ const LONGEST_STRING: usize = 32_767;
 /// in as many words that there were "no effective restrictions on other strings in PDF files"; ISO
 /// 19005-2 section 6.1.13 drops that qualification and states the limit of the file. So an outline
 /// title of thirty-three thousand bytes fails, and the corpus reads it the same way.
+///
+/// **Measured on the decoded bytes**, which `pdf_syntax`'s lexer produces: a literal string's
+/// backslash and octal escapes are resolved and a hexadecimal string's digit pairs are folded, so
+/// a string written across sixty-six thousand bytes of hexadecimal is thirty-three thousand here.
+/// `TechNote 0010` A005 resolves that parts 1 to 3 are read as if the length of a name or a string
+/// were the length of its internal byte representation after exactly those decodings — so the
+/// question the clause leaves open, whether the limit counts what the file wrote or what it means,
+/// is answered, and answered the way this row already read it.
 fn string_lengths(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_object_value(exam, |id, _, value| {
         if let Object::String(bytes) = value
@@ -1130,6 +1138,12 @@ const LONGEST_NAME: usize = 127;
 /// decoded, so `/A#41` is two bytes here and five in the file. A name written with escapes past
 /// 127 bytes but decoding under it therefore passes, which is what the standard says and what
 /// the corpus expects.
+///
+/// `TechNote 0010` A005 is the working group resolving that same reading for parts 1 to 3, of
+/// names and strings together, and its background notes that the PDF 1.4 Reference's own example
+/// of it counted the leading solidus by mistake — corrected in ISO 32000-1 and stated as Table
+/// C.1 states it here. The record is cited beside this row's verdict because a validator counting
+/// the bytes the file wrote would disagree with it on every escaped name.
 fn name_lengths(exam: &Examination<'_>, findings: &mut Findings) {
     let check = |id: ObjectId, name: &Name, findings: &mut Findings| {
         if name.as_bytes().len() > LONGEST_NAME {
@@ -1172,6 +1186,13 @@ const DEEPEST_NESTING: usize = 28;
 /// comes from [`crate::survey`], which carries the `q` stack the walk needs anyway.
 /// [`crate::survey::Survey::deepest_graphics_state_nesting`] says what is and is not summed
 /// across a form `XObject`'s invocation, and why.
+///
+/// **Per content stream, and that is the committee's reading rather than this crate's caution.**
+/// `TechNote 0010` A004 resolves that parts 1 to 3 are read as if the limit assumed each content
+/// stream considered in isolation, ignoring the cumulative effect of nesting form `XObject`s — so
+/// a file whose page opens twenty `q`s and invokes a form that opens twenty more breaks nothing.
+/// A validator that summed the invocation would fail it, which is why the record is cited beside
+/// this row's verdict.
 fn graphics_state_nesting(exam: &Examination<'_>, findings: &mut Findings) {
     let Some(deepest) = exam.survey().deepest_graphics_state_nesting() else {
         return;
@@ -1372,10 +1393,10 @@ const GREATEST_CID: u32 = 65_535;
 /// # Where a CID is written, and which of those places this reads
 ///
 /// A CID is not stored anywhere as itself. It is *selected*, and ISO 32000-2 §9.7.5.3 gives the
-/// selection: an embedded CMap's `cidrange` maps a run of codes onto consecutive CIDs counting up
-/// from the one it names, `cidchar` maps one code to one CID, and `notdefrange` gives every code
-/// in a run the single CID it names. So the greatest CID a font can select is a fact about the
-/// CMap program, and reading it means parsing that program.
+/// selection: an embedded `CMap`'s `cidrange` maps a run of codes onto consecutive CIDs counting
+/// up from the one it names, `cidchar` maps one code to one CID, and `notdefrange` gives every
+/// code in a run the single CID it names. So the greatest CID a font can select is a fact about
+/// the `CMap` program, and reading it means parsing that program.
 ///
 /// **`pdf-font` already parses it**, and `Cargo.toml` explains why this crate depends on
 /// `pdf-font` directly. The row's reason used to say the opposite — that this crate does not
@@ -1383,13 +1404,21 @@ const GREATEST_CID: u32 = 65_535;
 /// tranche landed. A stale reason on an unchecked row is the failure `A20` names: the reason is
 /// the report.
 ///
-/// # What this does not reach
+/// # What this does not reach, and why that is the rule rather than a gap
 ///
 /// A `/W` array also spells CIDs, as the first element of each run, and a `/CIDToGIDMap` stream
-/// is indexed by one. Neither is read here: both describe CIDs the CMap must already select for
-/// them to matter, so a file whose greatest CID is inside the limit cannot be pushed past it by
-/// either. A file could still *write* an out-of-range CID into `/W` and never select it, and this
-/// rule would not see it — which is a narrower gap than the row had, not the absence of one.
+/// is indexed by one. Neither is read here, and this used to be recorded as a narrow gap: a file
+/// could write an out-of-range CID into `/W` and never select it, and the row would not see it.
+///
+/// **`TechNote 0010` A007 says that is not a gap.** The working group was asked whether the CID
+/// limit applies to the CIDs a content stream selects or to the `CMap` data itself, and resolved
+/// that it is applied to a `CMap`'s *syntax*, so that the `CMap` stream can be parsed. A `/W`
+/// array is not `CMap` syntax, and neither is a `/CIDToGIDMap` stream; the limit's subject is the
+/// program this predicate reads. The second half of the same question — whether a font used only
+/// in rendering mode 3 is exempt — falls away with it, because no rule here turns on what the
+/// content selects. Where a font names one of §9.7.5.2's predefined `CMap`s rather than embedding
+/// one, there is no syntax in the file to hold to the limit, which is why the name form is
+/// skipped.
 fn character_identifiers(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for (id, object) in exam.objects() {

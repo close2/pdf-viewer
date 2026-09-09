@@ -65,6 +65,11 @@ pub struct Judgement {
     /// Beside the citation for [`Judgement::amended_by`]'s reason, and for one more: a
     /// clarification leaves the standard's text alone, so a reader who checked the clause and
     /// found the sentence intact would otherwise have no way to tell a reading from a defect.
+    ///
+    /// **Only where the resolution names the part this verdict is about.** Several rows state the
+    /// same rule in both parts and carry a resolution that names one of them, and a record printed
+    /// under the other part's verdict would read as that verdict's ground; see
+    /// [`crate::clarification::clarifying`].
     pub clarified_by: Option<crate::clarification::Clarification>,
     /// What became of it.
     pub outcome: Outcome,

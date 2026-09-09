@@ -121,7 +121,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         id: "graphics/named-resources-are-defined",
         asks: "A resources dictionary shall define every named resource the content stream it \
                belongs to references.",
-        clauses: Clauses::only_four("6.2.2"),
+        clauses: Clauses::both("6.2.2", "6.2.2"),
         applies: Applies::Always,
         check: Check::Implemented(named_resources_are_defined),
     },
@@ -2186,6 +2186,31 @@ fn device_cmyk_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
 }
 
 /// ISO 19005-2 section 6.2.4.3, third sentence.
+///
+/// # The soft-mask exemption, and why it costs this predicate nothing
+///
+/// `TechNote 0010` A026 resolves that parts 2 and 3 are read as if the sentence admitted a third
+/// licence: `DeviceGray` as the `ColorSpace` of a **soft-mask image dictionary**, needing neither
+/// a default space nor an output intent, because there the samples describe shape rather than
+/// colour and no device dependency is introduced. Session 941 flagged it as the item of the note
+/// most likely to be costing a conforming file a false failure here. **It is not, and the reason
+/// is a boundary rather than a rule**: `crate::survey` records an image's `ColorSpace` only for an
+/// image a content stream draws — an `XObject` reached through `Do`, or §8.9.7's inline image —
+/// and a soft mask is reached from the `SMask` entry of an image dictionary, which the walk reads
+/// for Annex Q's transparency question and never descends into. So no soft-mask image's colour
+/// space is ever a [`DeviceColour`], and there is nothing here to exempt.
+///
+/// What the resolution binds is any later round that widens the walk. A soft-mask image's
+/// `ColorSpace` reaches this predicate only if somebody makes it, and on that day the exemption
+/// has to arrive with it; that is why this is written where the rule is rather than where the walk
+/// stops. The other direction is already right: an image that a content stream *draws* is judged
+/// whether or not it also serves as some other image's soft mask, because drawing it is what makes
+/// its samples colour.
+///
+/// A026's resolution names parts 2 and 3. ISO 19005-4 was published afterwards and its section
+/// 6.2.4.3 states the `DeviceGray` sentence with no soft-mask licence, so
+/// [`device_gray_under_part_four`] stands on part 4's own text — the reading ADR 0931 gives at
+/// A021 and part 4's provenance subclause.
 fn device_gray_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_two(exam, findings, DeviceFamily::Gray);
 }
@@ -2398,10 +2423,26 @@ fn a_device_dependent_page_carries_an_output_intent(
     }
 }
 
-/// ISO 19005-4 section 6.2.2, third paragraph.
+/// ISO 19005-4 section 6.2.2, third paragraph — and ISO 19005-2 section 6.2.2 under `TechNote
+/// 0010` A002.
+///
+/// # Why this binds part 2, whose text does not say it
+///
+/// **A reader with ISO 19005-2 open will not find this sentence, and the row binds part 2 anyway.**
+/// Part 2's section 6.2.2 requires a content stream that references other objects to have an
+/// explicitly associated resources dictionary and stops there; part 4 adds, in its own words, that
+/// the dictionary shall define the names the stream uses. `TechNote 0010` A002 is the ISO working
+/// group resolving that parts 2 and 3 are to be read as if that second sentence stood in their
+/// section 6.2.2 as well — the ambiguity it was asked about being precisely that the published
+/// sentence does not say the names have to be *defined* there.
+///
+/// This row therefore cites part 2's own clause number and reports the clarification beside the
+/// verdict, which `crate::clarification` carries and `crate::report` prints. Until session 942 the
+/// row was part 4's alone, so a PDF/A-2 file naming a resource its associated dictionary does not
+/// define passed here.
 ///
 /// The population is what `crate::survey` reached: a name is reported only where a content
-/// stream the walk actually ran used it, which is what the same paragraph's closing sentence
+/// stream the walk actually ran used it, which is what part 4's same paragraph's closing sentence
 /// asks for — a named resource nothing references is exempt, and so is a name in a stream
 /// nothing invokes.
 fn named_resources_are_defined(exam: &Examination<'_>, findings: &mut Findings) {
@@ -2478,6 +2519,17 @@ fn only_operators_the_base_standard_defines(exam: &Examination<'_>, findings: &m
 /// is not a stream that "references other objects", so a form with no `/Resources` that only
 /// paints paths breaks nothing; `crate::survey` reports the two facts per stream it opened, and
 /// a stream nothing invokes is not opened.
+///
+/// # The committee read it the same way, and said which four dictionaries count
+///
+/// `TechNote 0010` A003 resolves that parts 2 and 3 use "explicitly associated Resources
+/// dictionary" for exactly one thing: the `Resources` entry of a page dictionary, a tiling
+/// pattern dictionary, a form `XObject` dictionary — annotation appearance streams included — or
+/// a Type 3 font dictionary. Nothing inherited through the page tree is one. That is the reading
+/// this row already had from §7.8.3's word *explicitly*, and those four dictionaries are exactly
+/// the streams `crate::survey` opens with a record, so the resolution changes no verdict; it is
+/// cited because a validator that summed the page tree's inheritance into "associated" would
+/// disagree with every part-2 verdict here, and a reader is owed the reason.
 fn content_streams_carry_their_own_resources(exam: &Examination<'_>, findings: &mut Findings) {
     for opened in exam.survey().opened_streams() {
         if !opened.referenced || opened.own_resources {
@@ -2508,6 +2560,20 @@ fn content_streams_carry_their_own_resources(exam: &Examination<'_>, findings: &
 /// That is also what makes the rule per-side: `crate::survey` records each of fill and stroke
 /// separately, with the overprint parameter that governs that side, so a stream whose stroking
 /// space is `ICCBased` CMYK with `OP` true but which never strokes has not used it.
+///
+/// # The committee settled the per-side reading, and it is the one open question of the sentence
+///
+/// `TechNote 0010` A024 is the working group resolving that parts 2 and 3 are read as if the
+/// sentence paired each side with its own overprint parameter: an `ICCBased` CMYK space used for
+/// stroking while stroke overprinting is on, or used for filling while fill overprinting is on, or
+/// both. The question it was asked is the one this predicate would otherwise have to guess —
+/// whether an `ICCBased` CMYK *stroke* is forbidden because *fill* overprinting happens to be on
+/// — and the answer is no. So the resolution changes no verdict here and is cited because the
+/// looser reading is available to anyone reading the published sentence alone.
+///
+/// **A024's own pertaining line numbers this section 6.2.4.3 in both parts, and the sentence
+/// stands at section 6.2.4.2 in the copy this project holds.** The rule is identified by its
+/// sentence rather than by a note's clause number, so the citation above follows the standard.
 fn no_overprint_mode_one_under_icc_cmyk(exam: &Examination<'_>, findings: &mut Findings) {
     for paint in exam.survey().icc_cmyk_paints() {
         if !paint.overprinting || paint.mode != 1 {
@@ -3906,6 +3972,28 @@ mod tests {
         let document = coloured_page("/Fm0 Do", "/Resources << >>", "", "<< >>");
         assert!(document.catalog().is_ok());
         assert_eq!(found(&document, super::named_resources_are_defined), 1);
+    }
+
+    /// The same rule binds a PDF/A-2 file, on `TechNote 0010` A002 rather than on part 2's text.
+    ///
+    /// Pinned as a test because the reach is the whole of what the clarification changed, and a
+    /// row that quietly went back to part 4 alone would look exactly like one that never moved.
+    #[test]
+    fn named_resources_bind_both_parts_and_part_two_cites_the_clarification() {
+        let bound = |target| {
+            crate::table::binding(target)
+                .any(|row| row.id == "graphics/named-resources-are-defined")
+        };
+        assert!(bound(Target::Two(crate::Level::B)));
+        assert!(bound(Target::Four(Flavour::Plain)));
+        assert_eq!(
+            crate::clarification::clarifying(
+                "graphics/named-resources-are-defined",
+                crate::target::Part::Two
+            )
+            .map(|record| record.item),
+            Some("A002")
+        );
     }
 
     /// ISO 19005-2 section 6.2.6's third place, and ISO 19005-2 section 6.2.8.1's inline image.

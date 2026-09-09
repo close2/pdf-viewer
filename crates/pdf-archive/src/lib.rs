@@ -93,7 +93,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
     Judgement {
         id: requirement.id,
         amended_by: errata::amending(requirement.id),
-        clarified_by: clarification::clarifying(requirement.id),
+        clarified_by: clarification::clarifying(requirement.id, target.part()),
         // A requirement only reaches here if `binds` said the target's part states it, so the
         // citation is always present; the fallback names the bug rather than panicking.
         citation: requirement

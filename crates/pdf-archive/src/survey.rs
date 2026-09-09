@@ -20,10 +20,16 @@
 //! patterns selected through `scn`/`SCN`; the glyph procedures of a Type 3 font a show operator
 //! ran with; the appearance streams under a page annotation's `/AP`.
 //!
-//! Not walked: the group of a soft mask, and the content of a shading's function. A colour
-//! reached only through one of those is not reported, which is this crate's standing direction of
-//! error — **under-report rather than mis-report**, because a requirement that invents a failure
-//! tells a user their conforming file does not conform.
+//! Not walked: the group of a soft mask, the image an `SMask` entry names, and the content of a
+//! shading's function. A colour reached only through one of those is not reported, which is this
+//! crate's standing direction of error — **under-report rather than mis-report**, because a
+//! requirement that invents a failure tells a user their conforming file does not conform.
+//!
+//! The soft-mask image is the one of the three the standard has since answered, and a round that
+//! widens the walk to it has to bring the answer along: `TechNote 0010` A026 resolves that
+//! `DeviceGray` as the `ColorSpace` of a soft-mask image dictionary needs neither a default space
+//! nor an output intent, so reaching one without exempting it would turn today's silence into a
+//! false failure. `crate::table::graphics`'s `device_gray_under_part_two` carries the reading.
 //!
 //! # What it costs, and where the fix landed
 //!
@@ -365,8 +371,10 @@ pub struct GroupSpace {
 /// A resource a content stream named that the resource dictionary in force does not define.
 ///
 /// ISO 19005-4 section 6.2.2 requires the associated resource dictionary to define every named
-/// resource its content stream references; ISO 19005-2 states no such sentence, which is why only
-/// the part 4 row reads this.
+/// resource its content stream references. ISO 19005-2 states no such sentence in its own text —
+/// and binds it anyway, because `TechNote 0010` A002 is the working group resolving that parts 2
+/// and 3 are read as if it did. So both parts' rows read this; `crate::table::graphics`'s
+/// `named_resources_are_defined` carries the argument.
 #[derive(Debug, Clone)]
 pub struct MissingResource {
     /// The zero-based index of the page whose content named it.
@@ -781,6 +789,12 @@ impl Survey {
     /// a stream reached from two places has two depths, so a summed figure would depend on which
     /// invocation the walk happened to take — and a rule that failed a conforming file on that
     /// would be worse than one that missed a nesting split across two streams.
+    ///
+    /// **`TechNote 0010` A004 is the working group saying the same thing as a reading of the
+    /// limit**, rather than as a caution: parts 1 to 3 are read as if the nesting limit assumed
+    /// each content stream considered in isolation, ignoring the cumulative effect of nested form
+    /// `XObject`s. So the figure this keeps is the one the limit is about, and the paragraph above
+    /// is why it would have been kept that way regardless.
     ///
     /// Capped at [`MAX_NESTING`], which is an order of magnitude above the limit any rule reads
     /// it against.

@@ -1086,6 +1086,27 @@ fn appearance_dictionary_holds_only_normal(exam: &Examination<'_>, findings: &mu
 /// A button field's widget needs the subdictionary of appearance states ISO 32000-2 §12.7.5.2.3
 /// describes, one per value the button takes; every other annotation has one appearance and
 /// therefore a stream. `/FT` is inheritable, so the field type is looked up through `/Parent`.
+///
+/// # Two clarifications, both of which this row already satisfies
+///
+/// The published sentence is short and two of its readings have been resolved by the ISO working
+/// group, which is why the record is cited beside a verdict here:
+///
+/// - **`TechNote 0010` A012**: a push button has no permanent value and so only one appearance,
+///   which reads as though it should carry a stream — and the resolution is that it shall not.
+///   Every field of type `Btn` takes an appearance subdictionary as the value of `/N`, a push
+///   button included, even where the subdictionary holds a single entry. So the test above is on
+///   the field type alone and admits no push-button exception.
+/// - **`TechNote 0010` A023**: where a widget is not merged with its field — a radio group's kids,
+///   for instance — the annotation dictionary has no `/FT` of its own, and reading the key off the
+///   annotation would make the sentence say nothing about it. The resolution reads the field type
+///   from the parent form field dictionary in that case, which is what `inherited` does: merged,
+///   the key is on the annotation; unmerged, it is found through `/Parent`.
+///
+/// Both resolutions name parts 1 to 3, and the citation carries their reach. This row binds ISO
+/// 19005-4 as well, whose section 6.3.3 states the sentence in the same words about the same
+/// inheritable key — so the predicate is one predicate, and under part 4 the reading rests on
+/// part 4's own text rather than on a resolution that does not name it.
 fn normal_appearance_shape(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_annotation(exam, |place, annotation| {

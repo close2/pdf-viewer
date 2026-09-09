@@ -358,8 +358,10 @@ twenty-eight items each carrying a resolution of the ISO working group responsib
 `python3 tools/spec-md.py doc/TechNote0010.pdf` put its text under `doc/md/`, read with this
 project's own `quorra-retrieve`, and `/doc/*.pdf` and `doc/md/` are both ignored — the same
 treatment every specification here gets. It is what session 941 acted on; `doc/adr/0931` says what
-this tree does with a clarification that is neither the standard nor an erratum, and
-`crates/pdf-archive/src/clarification.rs` is where the two items taken from it live.
+this tree does with a clarification that is neither the standard nor an erratum, `doc/adr/0933`
+what session 942 found on taking eight more of its items, and
+`crates/pdf-archive/src/clarification.rs` is where every item taken from it lives, beside the ones
+recorded as confirming a reading, as owed, or as bearing on no row at all.
 
 | data | source examined | terms |
 |---|---|---|
