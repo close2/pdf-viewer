@@ -43,7 +43,26 @@ does not state, to improve a *report*, is the wrong trade to make without a witn
 nothing) because of the salvage. `doc/todo/00`'s step 7 is the instrument that would find it — our
 ink minus the lightest reference's — since the failure would show as a *missing* mark.
 
-## 2. A Type 1 program's unassigned codes claim glyph 0
+## 2. A Type 1 program's unassigned codes claim glyph 0 — **closed** (ADR 0932, session 941)
+
+The diagnosis below was right and its estimate of the size was not. A census over every corpus on
+this disk found **471 bare Type 1 programs with a custom encoding array**, of which the ones in 51
+documents claim **109 789 codes their own array never assigns**; that is the ordinary shape of a
+subsetted Type 1 font rather than an edge case. What kept it off the page is that the built-in
+table is consulted only where the PDF `/Encoding` names nothing, and a producer that subsets a
+font usually names the codes it goes on to show — so the wrong answer was computed and discarded.
+`crates/pdf-font/examples/type1_encoding_census.rs` is the instrument.
+
+The fix is not the `read-fonts` API question this file predicted. The `/Encoding` array is in the
+**cleartext** part of the program, before `eexec`, so which codes it assigns can be read without
+decrypting anything and without a second font reader: `assigned_codes` reads `dup <code> /<name>
+put` and nothing else, and every other property stays `read-fonts`' answer. A code assigned to a
+name the program lacks stays assigned, which is ISO 32000-2 §9.6.5.2's own instruction.
+
+The reading that follows is kept because it is the argument, and because its last paragraph names
+what a later round should still want: an upstream change so no consumer has to do this.
+
+### The original reading
 
 `crates/pdf-font/src/type1.rs:129-139` walks all 256 codes of a Type 1 program's built-in encoding
 through `skrifa`'s `Type1Font::encoding`. `read-fonts` pre-fills a custom encoding table with
