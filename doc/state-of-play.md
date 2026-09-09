@@ -323,6 +323,23 @@ rather than which page. **Its default answer is `Interpretation::text` byte for 
 test asserts: a tool that tidied it would put itself between a caller and the only independent
 measurement this project has of its own extraction. ADR 0257.
 
+**And a program can ask it whether a document is an archival one.** `crates/pdf-archive` holds a
+document to ISO 19005-2 or ISO 19005-4 — six targets, the levels and flavours being an
+applicability column over one requirement table rather than six implementations — and
+`quorra-retrieve archive-check` is the front door, JSON on stdout. **A verdict says what it did
+not check**, by name, per requirement, per target, with the reason each one is unchecked: a reader
+this tree lacks, a standard the project does not hold, or a clause that genuinely decides nothing.
+That is `A20`'s requirement and `doc/adr/0923`'s shape, and it is why a coverage line here excludes
+the obligations ISO 19005 places on a *processor* rather than on a file — a validator cannot pass
+or fail a document for those. Non-conformance is an answer rather than an error, so the exit status
+stays zero and the JSON carries the verdict.
+
+Its own reading is compared against the veraPDF corpus clause by clause, and **the comparison is
+adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
+first and the ruling recorded with its reasoning, because a disagreement is not evidence of
+ambiguity by itself. The approved PDF Association errata are an input beside the standard, one of
+which *withdraws* a rule from part 4. `tools/state.sh` prints where the comparison stands.
+
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
 states the NTSC weights — at a dpi (§8.3.2.3's 72 units to the inch, the oracle backend's own raster byte for

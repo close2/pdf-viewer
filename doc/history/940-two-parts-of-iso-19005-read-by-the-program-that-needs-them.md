@@ -227,3 +227,71 @@ covered would be the failure `Q20` exists to prevent.
 part 1 never, part 3 still preview-only, and — the sentence that matters most — **every statement
 the RFC marks second-hand is still second-hand.** What changed is that they can be checked. The
 checking is a round's work and was not this one's.
+
+---
+
+## The round did not end there — 2026-09-07 to 2026-09-09
+
+Everything above was written on the round's first day. What follows is the same round, continued,
+and it is appended rather than woven in because the record of when something was known is part of
+what a history file is for.
+
+ADR: 0924 (four facts `pdf-font` knew and did not say); 0925 (the JP2 boxes nobody had read);
+0926 (PDF/A is on, and part 4 is certified first); 0927 (four permissions and the condition they
+share); 0928 (a row that stays unchecked on purpose); 0929 (the previous revision is in the file
+and not reachable); 0930 (what the file said and what the reader kept).
+Questions: `Q46`–`Q52`, and **the owner answered every open question in the directory** — forty-two
+of them — on 2026-09-08 and 2026-09-09.
+
+### The answers, and the one that governs the rest
+
+`A46` turns PDF/A on: the hold `A15` and `A17` placed on it is over, RFC 0006 is ratified, the
+validator's shape is confirmed as built, and **PDF/A-4 is to be finished and certified first**.
+`A20` confirms the not-checked verdict and adds the prohibition this round then leaned on
+repeatedly — an `Unchecked` reason may not be weakened to make a row look better, because the
+reason is the report. `A51` declines ISO/IEC 15444-2, which closes the JPX baseline row for good
+rather than leaving it a debt. `A18`, `A21`, `A48` and `A50` grant a converter its first four
+permissions to write something a producer did not, each conditional on the same thing: **what was
+written is reported.**
+
+### Three specifications arrived and were prepared by the program
+
+`tools/spec-md.py` generalises the first day's script: it reads any specification in `doc/` with
+`quorra-retrieve` and writes into the output which order it got — the structure tree's where a
+document has one, the page's content order where it has not. ISO 32000-1:2008 (756 pages) and
+ISO/IEC 15444-1:2000 (240 pages) were prepared that way, and preparing the first at one page per
+subprocess took 91 seconds until `quorra-retrieve` grew a `text` question that answers a whole
+document in one pass: 0.7 seconds.
+
+**Two files that looked like later editions were not**, and that is recorded in three places so
+nobody spends an hour on it: `doc/ISO-IEC-15444-1-2016.pdf` and `-2019.pdf` are iTeh preview
+documents, fifteen pages of front matter, with `colr` and `EnumCS` appearing exactly zero times.
+
+### The validator finished its first pass
+
+Genuine corpus misses fell from 64 to seven, with `over` at zero on all six targets throughout.
+Five of the six rows that came off `Check::Unchecked` in the final push were blocked by a reader
+gap in this tree rather than by a standard — and two of those rows' reasons had simply **gone
+stale**, still naming a dependency that had since been added and a `pdf-model` gap that had since
+been closed. That is the shape `A20` warns about from the other side: a reason that has stopped
+being true overstates a debt exactly as a weakened one understates it.
+
+**Two defects were found with almost no corpus witness for their surface.** ISO 32000-2 §7.3.7
+makes an entry whose value is null an absent entry, and §7.3.10 puts a dangling reference in the
+same place; seventeen rules across three tranches counted the *key*, eight of them prohibitions,
+so each was a latent false positive against a conforming file. And lexing a page's content stream
+end to end walks into §8.9.7's inline-image binary and invents hexadecimal strings out of it,
+which failed five conforming documents before the new rules learned to skip to `EI`.
+
+### A gate that had been red since the crate landed
+
+`tools/state.sh quick` was exiting 101, and this branch had put it there: `main` contains no
+occurrence of `ISO 19005-2 §`, and this branch had 483. A `§` in this tree *means* a clause of
+ISO 32000-2 — that is the whole of what makes every one of them checkable — so
+`ISO 19005-2 §6.1.4` reads correctly to a person while silently resolving in the wrong document.
+The tree already wrote `ISO/TS 32001 section 5.1.4`. All 483 are respelled, `Clauses::citation`
+with them.
+
+**It stayed red for two days because it was being checked wrongly**, by grepping its output for
+the words "fail" and "error" instead of reading its exit status. That is worth writing down: a
+gate checked by the shape of its output is not checked.
