@@ -292,6 +292,22 @@ reading in this project goes through them:
 
 ### Tests, gates and reports
 
+- **An instrument consulted through a truncation is not consulted**, and the failures are not
+  exotic. `tools/state.sh quick` was read by grepping its output for the words "fail" and "error"
+  rather than for its **exit status**, and reported clean for two days while it exited 101;
+  `cargo fmt --check` was read through `head -5`, with the round's own diffs below the cut and a
+  concurrent round's file above them. Both are the same mistake as trap 1 one directory over: the
+  instrument that says a change happened is not the change. Read a gate's exit status, and read
+  all of its output or none of it.
+- **A stale binary in the shared build directory answers for a tree that no longer exists.** Four
+  agents in one week lost time to this and none of the four suspected it first, because the
+  failures look like findings: `cargo test -p conformance` reported this tree as holding more than
+  one corpus, and reported the standard as unreadable, from test binaries compiled in worktrees
+  that had since been removed — `CARGO_MANIFEST_DIR` is baked in at compile time and the workspace
+  shares one `CARGO_TARGET_DIR`. A gate result that contradicts something you can see with `ls` is
+  a stale artefact until proven otherwise; `touch` the source and rebuild before believing it.
+  The same shape reaches the `--profile gates` worker, which `doc/todo/02` §5 rebuilds every fifth
+  round precisely because it goes quietly out of date.
 - **A test asserted through the accessor that normalises the thing being tested is not a test.**
   §7.3.7's null-entry rule was checked through `Document::get_key`, which answers `Null` for an
   absent key. **And the accessor need not be one of ours**: `Object::as_dict` answers for a
