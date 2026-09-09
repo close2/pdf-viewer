@@ -26,23 +26,11 @@ use render_cpu::CpuRasterizer;
 /// Pixel budget, far above the 100×100 pages these tests build.
 const GENEROUS: u64 = 1 << 30;
 
-/// Assembles a one-page PDF whose page carries one annotation.
+/// Wraps a body of objects in a header, a cross-reference table and a trailer.
 ///
-/// The page's own content stream is empty, so every mark in the raster came from the
-/// appearance and nothing has to be subtracted to see it.
-fn pdf_with(annotation: &str, appearance_dict: &str, appearance: &str) -> Vec<u8> {
-    let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
-         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
-         5 0 obj\n{annotation}\nendobj\n\
-         6 0 obj\n<< /Type /XObject /Subtype /Form {appearance_dict} /Length {} >>\n\
-         stream\n{appearance}\nendstream\nendobj\n",
-        appearance.len().saturating_add(1)
-    );
-
+/// Every fixture in this file is one page, a few objects long and numbered from 1, so the offsets
+/// are whatever the objects land at — which is what §7.5.4 asks a cross-reference table to say.
+fn assemble(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -61,6 +49,26 @@ fn pdf_with(annotation: &str, appearance_dict: &str, appearance: &str) -> Vec<u8
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// Assembles a one-page PDF whose page carries one annotation.
+///
+/// The page's own content stream is empty, so every mark in the raster came from the
+/// appearance and nothing has to be subtracted to see it.
+fn pdf_with(annotation: &str, appearance_dict: &str, appearance: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n{annotation}\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form {appearance_dict} /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n",
+        appearance.len().saturating_add(1)
+    );
+
+    assemble(&body)
 }
 
 /// Renders a fixture at one pixel per unit onto a transparent background.
@@ -1080,50 +1088,149 @@ fn no_table_171_subtype_is_refused_with_the_catch_all_s_sentence() {
     );
 }
 
-/// A watermark annotation's `/FixedPrint` placement is reported rather than silently skipped.
+/// §12.5.6.22: a watermark's `/FixedPrint` places it against the media, not on its own `/Rect`.
 ///
-/// §12.5.6.22 introduces the entry's effect with a `shall` on **rendering**, not on printing —
-/// "When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
-/// occur" — and the second of its two bullets replaces the rectangle §12.5.5's algorithm places
-/// the appearance onto. This tree places the appearance onto `/Rect`, so the mark is in the
-/// wrong place and was in the wrong place without a word until the nine-hundred-and-thirty-third
-/// session, whose ledger row explained it as a printing capability this program does not have.
-/// It is not: the clause states the on-screen media dimensions itself, twice.
+/// > The annotation's rectangle (as specified by its Rect entry) shall be translated to the
+/// > origin and transformed by the Matrix entry of its FixedPrint dictionary to produce a
+/// > quadrilateral with arbitrary orientation.
 ///
-/// **Both halves are asserted because only the pair discriminates.** A reader that reported
-/// every watermark would pass the first assertion alone, and `/FixedPrint` is optional — Table
-/// 193 says so — so a watermark without one is placed exactly as any other annotation is and
-/// owes nothing. Calibrated by planting the defect this replaces (`fixed_print_owed` returning
-/// `None`), under which the first assertion fails and the second passes.
+/// > The transformed annotation rectangle shall be defined as the smallest upright rectangle that
+/// > encompasses this quadrilateral; it shall be used in place of the annotation rectangle
+/// > referred to in steps 2 and 3 of "Algorithm: appearance streams"
+///
+/// with Table 194's `/H` and `/V` "as a percentage of the width of the target media (or if
+/// unknown, the width of the page's MediaBox )", and §12.5.6.22 saying which media a screen has:
+/// "When displaying a watermark annotation on-screen, interactive PDF processors shall use the
+/// dimensions of the media box".
+///
+/// Every number is one addition on a 100 × 100 media box, checkable by hand:
+///
+/// ```text
+/// /Rect [20 30 60 70] translated to the origin   x  0..40   y  0..40
+/// transformed by /Matrix [1 0 0 1 5 5]           x  5..45   y  5..45
+/// /H 0.25 and /V 0.5 of 100 by 100               x 30..70   y 55..95
+/// ```
+///
+/// **Both halves are asserted because only the pair discriminates.** Table 193 makes the entry
+/// optional — "[i]f this entry is not present, the annotation shall be drawn without any special
+/// consideration for the dimensions of the target media" — so a watermark without one stays on
+/// its `/Rect`, and a reader that moved every watermark would pass the first assertion alone.
 #[test]
 #[expect(
     clippy::doc_markdown,
-    reason = "a verbatim quotation: §12.5.6.22 spells FixedPrint without backticks, and \
-              adding them inside the quotation marks would make the conformance gate's quotation \
-              check fail"
+    reason = "verbatim quotations: §12.5.6.22 and Table 194 spell FixedPrint and MediaBox \
+              without backticks"
 )]
-fn a_watermarks_fixed_print_is_reported_and_a_plain_one_is_not() {
-    let fixed = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Watermark /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> \
-         /FixedPrint << /Type /FixedPrint /Matrix [1 0 0 1 72 -72] /H 0 /V 1.0 >> >>",
-        "/BBox [0 0 10 10]",
-        "1 0 0 rg 0 0 10 10 re f",
+fn a_fixed_print_watermark_is_placed_against_the_media() {
+    let fixed = render(pdf_watermark(
+        "[0 0 100 100]",
+        "[20 30 60 70]",
+        "/FixedPrint << /Type /FixedPrint /Matrix [1 0 0 1 5 5] /H 0.25 /V 0.5 >>",
     ));
-    let said = format!("{:?}", fixed.unsupported);
-    assert!(
-        said.contains("/FixedPrint"),
-        "the entry states a placement this reader does not carry out: {said}"
+    assert_eq!(
+        extent(&fixed),
+        (30, 55, 69, 94),
+        "the appearance goes onto the transformed annotation rectangle"
     );
 
-    let plain = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Watermark /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> >>",
-        "/BBox [0 0 10 10]",
-        "1 0 0 rg 0 0 10 10 re f",
+    let plain = render(pdf_watermark("[0 0 100 100]", "[20 30 60 70]", ""));
+    assert_eq!(
+        extent(&plain),
+        (20, 30, 59, 69),
+        "and a watermark with no /FixedPrint is placed on /Rect like any other annotation"
+    );
+}
+
+/// §12.5.6.22's transformed rectangle is *upright*, so a rotating `/Matrix` reshapes the mark.
+///
+/// The clause's second bullet defines it as "the smallest upright rectangle that encompasses this
+/// quadrilateral", and §12.5.5's steps 2 and 3 then map the appearance's box onto that rectangle's
+/// corners — a scale and a translation, never a rotation. So a `/FixedPrint` `/Matrix` that turns
+/// the rectangle a quarter turn exchanges the mark's width and height and leaves it upright,
+/// which is the one visible difference between reading the bullet and applying the matrix to the
+/// appearance instead:
+///
+/// ```text
+/// /Rect [10 10 50 30] translated to the origin      x   0..40   y  0..20
+/// through [0 1 -1 0 0 0], (x, y) -> (-y, x)         x -20..0    y  0..40
+/// /H 0.5 and /V 0.25 of 100 by 100                  x  30..50   y 25..65
+/// ```
+#[test]
+fn a_fixed_prints_rotating_matrix_gives_an_upright_rectangle() {
+    let turned = render(pdf_watermark(
+        "[0 0 100 100]",
+        "[10 10 50 30]",
+        "/FixedPrint << /Type /FixedPrint /Matrix [0 1 -1 0 0 0] /H 0.5 /V 0.25 >>",
     ));
-    assert!(
-        plain.is_complete(),
-        "a watermark with no /FixedPrint is placed like any other annotation: {:?}",
-        plain.unsupported
+    assert_eq!(
+        extent(&turned),
+        (30, 25, 49, 64),
+        "the quadrilateral's own bounding box is what the appearance is scaled onto"
+    );
+}
+
+/// `/H` and `/V` are measured from the media's own corner, which need not be the origin.
+///
+/// §8.3.2.3's NOTE 1 is why this is a case at all: "In the PostScript language, the origin of
+/// default user space always corresponds to the lower-left corner of the output medium. While
+/// this convention is common in PDF documents as well, it is not required". A percentage of the
+/// media's width is a distance, so it is measured from that corner — which is what is left of
+/// §12.5.6.22's third sentence on a screen, where the media box *is* the media and B's scale and
+/// rotation are therefore the identity.
+///
+/// The fixture is the first test's, on a media box moved to `[10 20 110 120]`. Its dimensions are
+/// unchanged, so `/H` and `/V` contribute what they did there and the mark lands on the same
+/// place *on the medium* — which is the same place in the raster, because the page transform
+/// subtracts the same corner again. A reader that dropped the term would put it ten units left
+/// and twenty units down.
+#[test]
+fn a_fixed_print_is_measured_from_the_media_boxs_own_corner() {
+    let moved = render(pdf_watermark(
+        "[10 20 110 120]",
+        "[20 30 60 70]",
+        "/FixedPrint << /Type /FixedPrint /Matrix [1 0 0 1 5 5] /H 0.25 /V 0.5 >>",
+    ));
+    assert_eq!(
+        extent(&moved),
+        (30, 55, 69, 94),
+        "the media's corner enters the placement and leaves through the page's transform"
+    );
+}
+
+/// The one document in this tree that states a `/FixedPrint`, rebuilt from its own numbers.
+///
+/// `isartor-6-5-2-t01-fail-d.pdf` of the Isartor PDF/A-1b suite is the only witness under `doc/`
+/// — `examples/fixed_print_census` over the 4172 PDFs there that open — and what makes it worth
+/// a test is that its producer wrote a `/Rect` equal to the rectangle the clause computes:
+///
+/// ```text
+/// /Rect [148.75 272.25 446.25 569.75] to the origin    x    0..297.5     y    0..297.5
+/// through /Matrix [1 0 0 1 -148.75 -148.75]            x -148.75..148.75 y -148.75..148.75
+/// /H 0.5 and /V 0.5 of 595 by 842                      x 148.75..446.25  y 272.25..569.75
+/// ```
+///
+/// So all four terms — the corner that goes to the origin, the matrix, the two percentages and
+/// the media they are percentages of — have to be right for the mark to come out where the file's
+/// own rectangle already is, and a sign error in any of them moves it.
+///
+/// **Calibrated, and the result is worth stating rather than hiding.** Planting the defect this
+/// replaces — `annotation::fixed_print` answering `None`, which is what this tree did until the
+/// nine-hundred-and-forty-second session — fails the three tests above and leaves *this* one
+/// green. That is the witness's own property: its producer wrote the two rectangles equal, so no
+/// picture of this page can rank an implementation of the clause. What this test guards is the
+/// other direction, which is the one a real file can lose — an implementation that moves a mark
+/// the standard leaves where it is.
+#[test]
+fn the_one_witness_transforms_onto_its_own_rectangle() {
+    let witness = render(pdf_watermark(
+        "[0 0 595 842]",
+        "[148.75 272.25 446.25 569.75]",
+        "/FixedPrint << /Type /FixedPrint /V 0.5 /H 0.5 /Matrix [1 0 0 1 -148.75 -148.75] >>",
+    ));
+    assert_eq!(
+        extent(&witness),
+        (148, 272, 446, 569),
+        "the transformed rectangle is the file's own /Rect, to the pixel it partly covers"
     );
 }
 
@@ -1867,24 +1974,7 @@ fn with_down_appearance(bytes: Vec<u8>) -> Vec<u8> {
         down.len().saturating_add(1)
     );
 
-    let mut out = String::from("%PDF-1.7\n");
-    let mut offsets = Vec::new();
-    for object in body.split_inclusive("endobj\n") {
-        offsets.push(out.len());
-        out.push_str(object);
-    }
-    let xref_at = out.len();
-    let size = offsets.len().saturating_add(1);
-    let _ = writeln!(out, "xref\n0 {size}");
-    out.push_str("0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(
-        out,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-    );
-    out.into_bytes()
+    assemble(&body)
 }
 
 /// §12.5.6.7's leader lines: `/L` is where the leaders start, not where the line is.
@@ -2184,24 +2274,7 @@ fn pdf_rotated(rotate: u16, flags: i64, appearance: &str) -> Vec<u8> {
         appearance.len().saturating_add(1)
     );
 
-    let mut out = String::from("%PDF-1.7\n");
-    let mut offsets = Vec::new();
-    for object in body.split_inclusive("endobj\n") {
-        offsets.push(out.len());
-        out.push_str(object);
-    }
-    let xref_at = out.len();
-    let size = offsets.len().saturating_add(1);
-    let _ = writeln!(out, "xref\n0 {size}");
-    out.push_str("0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(
-        out,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-    );
-    out.into_bytes()
+    assemble(&body)
 }
 
 /// Renders one of those, at a magnification the caller states or at none.
@@ -2222,6 +2295,32 @@ fn render_at(bytes: Vec<u8>, magnification: Option<f32>) -> pdf_render::Raster {
         .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported")
+}
+
+/// A one-page fixture whose only annotation is a watermark, built from the caller's numbers.
+///
+/// `/BBox` is `[0 0 10 10]` and the appearance fills it, so the mark in the raster *is* the
+/// rectangle §12.5.5's algorithm placed the appearance onto — which is what §12.5.6.22 replaces.
+///
+/// **Hand-built, and `examples/fixed_print_census` is the reason.** One document under `doc/`
+/// states a `/FixedPrint` at all, out of the 4172 that open — `isartor-6-5-2-t01-fail-d.pdf` of
+/// the Isartor PDF/A-1b suite — and its transformed rectangle works out to exactly its own
+/// `/Rect`, so applying the clause moves nothing on the one page in reach. The gate corpus states
+/// none. A fixture that has to move is therefore built rather than found (trap 8).
+fn pdf_watermark(media_box: &str, rect: &str, fixed_print: &str) -> Vec<u8> {
+    let appearance = "0 0 0 rg 0 0 10 10 re f";
+    assemble(&format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox {media_box} \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Watermark /Rect {rect} /F 4 \
+         /AP << /N 6 0 R >> {fixed_print} >>\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n",
+        appearance.len().saturating_add(1)
+    ))
 }
 
 /// §12.5.3's `NoRotate`: the annotation stays upright while the page turns under it.

@@ -132,9 +132,13 @@ Under print intent:
   retired that phrase from both rows** (ADR 0906): the clause introduces the behaviour
   with "When rendering a watermark annotation with a FixedPrint entry, the following
   behaviour shall occur" and states the on-screen media dimensions itself, so the
-  *screen* case is owed today and is reported by `annotation::fixed_print_owed`. What
-  print intent adds here is one substitution — the paper's dimensions in place of the
-  media box's — rather than the whole entry.
+  *screen* case was owed rather than absent. **It is carried out since the
+  nine-hundred-and-forty-second session** (ADR 0934) — `annotation::fixed_print`, where
+  this bullet said `annotation::fixed_print_owed` reports it — so what print intent adds
+  here really is the one substitution below and nothing else: the paper's dimensions in
+  place of the media box's. The cancellation of the clause's matrix B is the term that
+  needed a derivation, and the print side is where it stops being the identity, because
+  a page placed on a sheet is exactly the case that sentence is written for.
 - **Transfer functions, §10.5**: already implemented for the screen (the ledger row is
   `implemented`; `CLAUDE.md`'s scope entry was amended on its evidence). They apply
   under print intent identically — the clause's subject is the component value

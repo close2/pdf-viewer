@@ -635,6 +635,18 @@ impl Default for ViewAdjust {
 pub(crate) struct ViewGeometry {
     /// §7.7.3.3's `/Rotate`, normalised to 0, 90, 180 or 270.
     pub rotate: u16,
+    /// The page's `/MediaBox`, normalised so the first corner is the lower left.
+    ///
+    /// The *media* of §12.5.6.22, which is the one clause here that places an annotation against
+    /// the sheet rather than against the page's own coordinates. It is the page's rather than the
+    /// reader's, exactly as `rotate` is, and it is carried here for the same reason: it is
+    /// geometry the annotation's placement needs and the annotation dictionary does not have.
+    ///
+    /// A box of no extent needs no special case and gets none: `/H` and `/V` are percentages of
+    /// the media's dimensions, so nought per cent of nothing is nothing and the placement falls
+    /// back to Table 194's `/Matrix` alone. That is what [`Self::default`] means — a caller that
+    /// stated no page geometry — and `crate::page::Page` always states a real one.
+    pub media_box: [f32; 4],
     /// Logical pixels per default user space unit — 1.0 at 100%.
     ///
     /// `None` is **not** 1.0: it is *nobody has said*, which is what every caller that renders a
@@ -801,7 +813,7 @@ pub(crate) fn decide(
     view: crate::view::AnnotationView<'_>,
     geometry: ViewGeometry,
 ) -> Decision {
-    let mut decision = decided(document, annotation, view);
+    let mut decision = decided(document, annotation, view, geometry.media_box);
     // §12.5.3's two view-dependent flags, applied once and to the whole annotation. Read here
     // rather than inside each construction because the clause's own sentence is about the
     // annotation rather than about its appearance, and because the fixed point it pivots about
@@ -816,10 +828,14 @@ pub(crate) fn decide(
 }
 
 /// [`decide`] without §12.5.3's view-dependent flags, which it applies to whatever this returns.
+///
+/// `media` is the page's media box, which §12.5.6.22 places a watermark against; see
+/// [`fixed_print`].
 fn decided(
     document: &Document,
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
+    media: [f32; 4],
 ) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
@@ -1001,7 +1017,7 @@ fn decided(
     // value, so the stream's `/Tx` marked-content region is rewritten in place. Everything
     // outside it is the file's own artwork and stays, which is what makes this a splice rather
     // than a second construction — see `crate::appearance::regenerate`.
-    let mut owed = missing_bbox.or_else(|| fixed_print_owed(document, annotation, &subtype, &name));
+    let mut owed = missing_bbox;
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype, view.value)
         && let Some(regenerated) =
@@ -1018,6 +1034,11 @@ fn decided(
     // question differently — see [`appearance_damage`].
     let damaged = appearance_damage(document, &stored, &name, &content);
 
+    // §12.5.6.22's transformed annotation rectangle, which is *only* the rectangle steps 2 and 3
+    // of §12.5.5 are run against — see [`fixed_print`] for why the substitution stops there and
+    // reaches neither the box above nor §12.5.3's fixed point below.
+    let placed = fixed_print(document, annotation, &subtype, rect, media).unwrap_or(rect);
+
     Decision::Draw {
         adjust: ViewAdjust::default(),
         highlight: pressed_mark(
@@ -1028,7 +1049,7 @@ fn decided(
             has_down(document, annotation),
         ),
         appearance: Box::new(Appearance {
-            transform: placement(bbox, matrix, rect),
+            transform: placement(bbox, matrix, placed),
             bbox: Some(bbox),
             // §12.5.2 and Table 166: a stored stream states its own *transparency*, so the
             // annotation's `/ca` and `/CA` are not applied to it — and a regenerated one is
@@ -1386,55 +1407,141 @@ fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
     matrix.then(align)
 }
 
-/// ISO 32000-2 §12.5.6.22: what a watermark annotation's `/FixedPrint` dictionary asks for, and
-/// this reader does not do.
+/// ISO 32000-2 §12.5.6.22's *transformed annotation rectangle*, for a watermark that states one.
 ///
-/// The clause introduces its behaviour as a requirement on *rendering* rather than on printing —
-/// "When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
-/// occur" — and the second of the two bullets it then states is where the departure is:
+/// `None` for every other subtype, and for a watermark with no `/FixedPrint`: Table 193 makes the
+/// entry optional and says what its absence means — "If this entry is not present, the annotation
+/// shall be drawn without any special consideration for the dimensions of the target media."
 ///
-/// > it shall be used in place of the annotation rectangle referred to in steps 2 and 3 of
-/// > "Algorithm: appearance streams"
+/// The clause introduces the entry's effect with a `shall` on *rendering* rather than on
+/// printing, which is what makes this a display obligation at all (ADR 0906):
 ///
-/// [`placement`] carries out those two steps against `/Rect` itself, so an annotation stating a
-/// fixed print dictionary is placed where the file's rectangle says and not where the clause
-/// says. **The reason §12.5.6.22's ledger row gave for that — "printing, which this program does
-/// not do" — is the clause's subject rather than its condition**, and the clause forecloses it in
-/// the paragraph above the table: "interactive PDF processors shall use the dimensions of the
-/// media box" when displaying one on-screen, and Table 194's own `/FixedPrint` row says drawing
-/// "shall be done relative to the dimensions specified by the page's MediaBox entry" wherever the
-/// target media are unknown. So the media dimensions a screen needs are stated twice over, and
-/// what is owed is the transformation rather than a printer.
+/// > When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
+/// > occur
 ///
-/// It is *reported* rather than applied because two of the transformation's terms are not owed by
-/// the same reading: the `/Matrix` and the `/H`/`/V` translations are stated outright, and the
-/// cancellation of "a matrix B that maps a scaled and rotated page into the default user space"
-/// is stated against a media origin whose relationship to this tree's page space is a derivation
-/// nobody here has made. Drawing the mark in the wrong place is worse than naming the entry
-/// (trap 5), and `doc/todo/25` prices the rest.
+/// and states it in two bullets. The first is the arithmetic:
+///
+/// > The annotation's rectangle (as specified by its Rect entry) shall be translated to the
+/// > origin and transformed by the Matrix entry of its FixedPrint dictionary to produce a
+/// > quadrilateral with arbitrary orientation.
+///
+/// and the second says what the result is for, and how far it reaches:
+///
+/// > The transformed annotation rectangle shall be defined as the smallest upright rectangle that
+/// > encompasses this quadrilateral; it shall be used in place of the annotation rectangle
+/// > referred to in steps 2 and 3 of "Algorithm: appearance streams"
+///
+/// [`placement`] *is* those two steps, so this is an argument to the algorithm every annotation in
+/// this tree already goes through rather than a second placement mechanism — and the
+/// substitution's scope is the clause's own two step numbers. It reaches neither §12.7.4.3's
+/// substitute `/BBox`, whose dimensions are the annotation rectangle's and which is step 1's
+/// operand, nor §12.5.3's fixed point, which §12.5.5 applies "further" after step 3 and which
+/// Table 167 puts at "the upper-left corner of its annotation rectangle". Both keep the rectangle
+/// the file states.
+///
+/// # Which corner goes to the origin
+///
+/// "[T]ranslated to the origin" does not name a corner, and the algorithm it substitutes into
+/// does: step 2 maps "the lower-left corner (the corner with the smallest x and y coordinates)".
+/// [`rectangle`] has already normalised `/Rect` onto that corner, so this is a subtraction of its
+/// first two numbers.
+///
+/// # The media, and where its origin is
+///
+/// Table 194 states `/H` and `/V` as translations "as a percentage of the width of the target
+/// media (or if unknown, the width of the page's MediaBox )", and §12.5.6.22 states which media a
+/// screen has:
+///
+/// > When displaying a watermark annotation on-screen, interactive PDF processors shall use the
+/// > dimensions of the media box
+///
+/// with Table 193 saying the same for a processor that does not know its target: drawing "shall
+/// be done relative to the dimensions specified by the page's MediaBox entry". (That on-screen
+/// sentence cites "Table 29 -Entries in the catalog dictionary", which is the catalogue and states
+/// no media box at all. Table 31's page entry is what the other two references name, and it is
+/// what `crate::page::Page` supplies.)
+///
+/// A percentage of a dimension is a *distance*, so it is measured from the media's own corner —
+/// and §8.3.2.3's NOTE 1 says that corner is not always the origin of default user space:
+///
+/// > In the PostScript language, the origin of default user space always corresponds to the
+/// > lower-left corner of the output medium. While this convention is common in PDF documents as
+/// > well, it is not required
+///
+/// which is what §12.5.6.22's third sentence is about:
+///
+/// > given a matrix B that maps a scaled and rotated page into the default user space, a new
+/// > matrix shall be computed that cancels out B and translates the origin of the media (e.g.,
+/// > printed page) to the origin of the default user space
+///
+/// **B's scale and rotation are the identity here by the clause's own stipulation rather than by
+/// a choice.** B is what places a scaled and rotated page onto a sheet — the paragraphs after the
+/// EXAMPLE are about tiling and n-up, which is where that happens, and they open "[i]n situations
+/// other than the usual case where the PDF page size equals the media size" — while the on-screen
+/// sentence above makes the page's media box *be* the media, which is that usual case by
+/// construction. What is left of the sentence is the translation between two origins, and that is
+/// the media box's lower-left corner: nothing at all for a file whose media box starts at (0, 0),
+/// and the whole difference for one whose does not.
+///
+/// **§7.7.3.3's `/Rotate` is deliberately not cancelled, and that one is a choice.** §12.5.6.22
+/// never mentions the entry; what it says of a screen is that the behaviour is "the same as for
+/// other annotations", and §12.5.3's `NoRotate` is the flag that exists to depart from exactly
+/// that. Reading a second such mechanism into the B sentence would make the flag redundant on
+/// this one subtype and would let a watermark's own `/F` ask for something it cannot have. So a
+/// fixed print watermark turns with its page as everything else on it does, unless it sets the
+/// flag — in which case §12.5.3's adjustment applies on top, about `/Rect`'s corner as above.
+///
+/// # What ranks this
+///
+/// One document in this tree states a `/FixedPrint` at all: `isartor-6-5-2-t01-fail-d.pdf`, of
+/// the Isartor PDF/A-1b suite, found by `examples/fixed_print_census` over the 4172 PDFs under
+/// `doc/` that open. The 974-document gate corpus states none, and neither do the four
+/// `doc/corpora` submodules. That one is a check on the arithmetic rather than a picture that
+/// moves: `/Rect [148.75 272.25 446.25 569.75]` on a 595 × 842 media box, under `/Matrix
+/// [1 0 0 1 -148.75 -148.75]` with `/H 0.5` and `/V 0.5`, transforms to exactly its own `/Rect` —
+/// so all four terms have to be right for the mark to stay where it already is, and none of them
+/// can be ranked by the picture. The fixtures are hand-built for that reason and say so (trap 8).
 #[expect(
     clippy::doc_markdown,
-    reason = "verbatim quotations: §12.5.6.22 and Table 194 spell FixedPrint and MediaBox without \
-              backticks, and adding them inside the quotation marks would make the conformance \
-              gate's quotation check fail"
+    reason = "verbatim quotations: §12.5.6.22, Table 193 and Table 194 spell FixedPrint, \
+              MediaBox and PostScript without backticks"
 )]
-fn fixed_print_owed(
+fn fixed_print(
     document: &Document,
     annotation: &Dictionary,
     subtype: &[u8],
-    name: &str,
-) -> Option<String> {
-    (subtype == b"Watermark"
-        && document
-            .get_key(annotation, "FixedPrint")
-            .as_dict()
-            .is_some())
-    .then(|| {
-        format!(
-            "{name}: /FixedPrint states a fixed size and position relative to the media, which \
-             is not applied to the appearance's placement"
-        )
-    })
+    rect: [f32; 4],
+    media: [f32; 4],
+) -> Option<[f32; 4]> {
+    if subtype != b"Watermark" {
+        return None;
+    }
+    let stated = document.get_key(annotation, "FixedPrint");
+    let fixed = stated.as_dict()?;
+
+    // Bullet one, in the order it is written: to the origin, through `/Matrix`, then the smallest
+    // upright rectangle around what came out — which is [`transformed`], §12.5.5's own step 1.
+    let at_origin = [0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]];
+    let upright = transformed(at_origin, matrix(document, fixed));
+
+    // Table 194: "1.0 represents 100% and 0.0 represents 0%", with the default 0 for both, and
+    // the media's own corner is where a percentage of its width is measured from.
+    let percentage = |key: &'static str| {
+        document
+            .get_key(fixed, key)
+            .as_number()
+            .map(narrow)
+            .filter(|value| value.is_finite())
+            .unwrap_or_default()
+    };
+    let across = media[0] + percentage("H") * (media[2] - media[0]);
+    let up = media[1] + percentage("V") * (media[3] - media[1]);
+    Some([
+        upright[0] + across,
+        upright[1] + up,
+        upright[2] + across,
+        upright[3] + up,
+    ])
 }
 
 /// Whether a rectangle covers no area, in either axis.

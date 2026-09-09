@@ -1,9 +1,13 @@
 # Annotations and events that depend on the view
 
-Status: `NoZoom` and `NoRotate` done (ADR 0168); all ten of Table 197's events raised; `/FixedPrint` reported and owed (ADR 0906).
+Status: **done.** `NoZoom` and `NoRotate` since the two-hundred-and-seventeenth session (ADR
+0168), all ten of Table 197's events raised, and §12.5.6.22's `/FixedPrint` applied in the
+nine-hundred-and-forty-second (ADR 0934). Every item this road was opened for is carried out;
+what is left of the subject is RFC 0004's printing half, which is that RFC's.
 Priority: 25
-Corpus: 15 documents write an `/AA`; 124 annotations in 51 documents set `NoZoom`
-Clauses: §12.6.3 Table 197, §12.5.3 Table 167
+Corpus: 15 documents write an `/AA`; 124 annotations in 51 documents set `NoZoom`; **one** of the
+4172 PDFs under `doc/` that open states a `/FixedPrint`
+Clauses: §12.6.3 Table 197, §12.5.3 Table 167, §12.5.6.22 Tables 193 and 194
 Code: `crates/pdf-model/src/annotation.rs`, `crates/viewer-core/src/interact.rs`
 
 ## Table 197's ten trigger events — **all ten are raised**
@@ -60,10 +64,10 @@ other than 1, and the standard states no precedence. Counted first: 511 text mar
 across 34 documents, 211 of them carrying `NoZoom`, and all 211 are strike-outs in
 `ISO_32000-2_sponsored_EC3.pdf` at one flag value.
 
-## `/FixedPrint` — owed, **reported**, and not a printing decision
+## `/FixedPrint` — **done in the nine-hundred-and-forty-second session** (ADR 0934)
 
-**This section said it "waits on a printing path rather than on a display one" and that was wrong,
-found in the nine-hundred-and-thirty-third session by reading §12.5.6.22 for a different
+**This section said the entry "waits on a printing path rather than on a display one" and that was
+wrong, found in the nine-hundred-and-thirty-third session by reading §12.5.6.22 for a different
 question** (ADR 0906). The clause introduces the entry's effect with a `shall` on *rendering*:
 
 > When rendering a watermark annotation with a FixedPrint entry, the following behaviour shall
@@ -79,23 +83,54 @@ relative to the dimensions specified by the page's MediaBox entry". So the media
 screen needs are stated by the standard, not owed to a printer. Table 167's `Print` flag is a
 separate question and stays where it was.
 
-**It is reported since that session** — `annotation::fixed_print_owed`, held by
-`annotations.rs::a_watermarks_fixed_print_is_reported_and_a_plain_one_is_not` — so a watermark
-placed the wrong way is loud rather than silent. What is owed is the placement itself, and what a
-round taking it has to derive is one thing rather than three:
+**The correction was the whole of the work.** `annotation::fixed_print` computes the transformed
+annotation rectangle and `annotation::decided` hands it to `placement` in place of `/Rect`; nothing
+else moved, because the substitution the clause states is an *argument* to §12.5.5's algorithm
+rather than a second placement mechanism. Of the three things this file said a round would have to
+derive, two were stated outright and the third came out smaller than its sentence:
 
 1. `/Rect` translated to the origin and transformed by Table 194's `/Matrix`, then the smallest
-   upright rectangle around the resulting quadrilateral. Stated outright.
+   upright rectangle around the resulting quadrilateral. Stated outright — and *which* corner goes
+   to the origin is stated too, one clause over: §12.5.5's step 2 is about "the lower-left corner
+   (the corner with the smallest x and y coordinates)".
 2. `/H` and `/V`, "as a percentage of the width of the target media (or if unknown, the width of
-   the page's `MediaBox`)". Stated outright, with the on-screen media dimensions above.
-3. **The one that needs a derivation**: "given a matrix B that maps a scaled and rotated page into
-   the default user space, a new matrix shall be computed that cancels out B and translates the
-   origin of the media (e.g., printed page) to the origin of the default user space." What B is on
-   a screen where the media *are* the page's media box is the question, and §7.7.3.3's `/Rotate`
-   is what makes it more than the identity. A round that guesses it puts the mark somewhere the
-   document never asked for, which is why the departure is named rather than drawn (trap 5).
+   the page's `MediaBox`)". Stated outright, with the on-screen media dimensions above. A
+   percentage of a width is a *distance*, so the corner it is measured from is the media's own —
+   which is where the third item's residue turns out to live.
+3. **The one that needed a derivation.** "[G]iven a matrix B that maps a scaled and rotated page
+   into the default user space, a new matrix shall be computed that cancels out B and translates
+   the origin of the media (e.g., printed page) to the origin of the default user space." B is what
+   places a page onto a *sheet*, which is what the paragraphs after the EXAMPLE are about: they
+   open "[i]n situations other than the usual case where the PDF page size equals the media size"
+   and go on to tiling and n-up. The on-screen sentence makes the page's media box **be** the
+   media, so a screen is that usual case by construction and B's scale and rotation are the
+   identity by the clause's own stipulation. What is left of the sentence is the translation
+   between two origins, and §8.3.2.3's NOTE 1 says why that is not nothing: "the origin of default
+   user space always corresponds to the lower-left corner of the output medium … it is not
+   required". So the term is the media box's lower-left corner, and it is nought for every file
+   whose media box starts there.
 
-RFC 0004's own survey found `/FixedPrint` essentially absent from the corpora, so the fixtures for
-this are synthetic and should say so (trap 8). That RFC carries the *print* half of the same entry,
-and after this correction the two halves are one substitution apart: the paper's dimensions in
-place of the media box's.
+**One choice, recorded as one: §7.7.3.3's `/Rotate` is not cancelled.** §12.5.6.22 never names the
+entry, it says the on-screen behaviour is "the same as for other annotations", and §12.5.3's
+`NoRotate` is the flag that exists to depart from turning with the page — reading a second such
+mechanism into the B sentence would make that flag redundant on this one subtype and would leave a
+watermark unable to ask for the behaviour its own `/F` states. The same scoping settles the other
+half of the interaction: the substitution names steps 2 and 3, so §12.5.3's fixed point stays the
+rectangle the file states, and so does §12.7.4.3's substitute `/BBox`, which is step 1's operand.
+
+**Counted before it was written, and the count is why the fixtures are hand-built.** RFC 0004's
+survey had found `/FixedPrint` essentially absent from the corpora;
+`crates/pdf-model/examples/fixed_print_census` put a number on it over every PDF in this tree — of
+the 4172 that open, five state a watermark annotation and **exactly one states a `/FixedPrint`**:
+`isartor-6-5-2-t01-fail-d.pdf`, of the Isartor PDF/A-1b suite. The 974-document gate corpus states
+none, and neither do the four `doc/corpora` submodules. That one witness is a **check on the
+arithmetic that cannot rank it**: its `/Rect [148.75 272.25 446.25 569.75]` on a 595 × 842 media
+box, under `/Matrix [1 0 0 1 -148.75 -148.75]` with `/H 0.5` and `/V 0.5`, transforms to exactly
+its own `/Rect` — so every one of the four terms has to be right for the mark not to move, its
+raster is byte-identical before and after the change, and no picture of it could have told a
+correct implementation from none at all. Trap 8's shape, and trap 1's inversion beside it.
+
+RFC 0004 carries the *print* half of the same entry — the two bullets after the EXAMPLE, page
+tiling and n-up, each conditioned on a selection a program with no print path never makes — and
+after this the two halves are one substitution apart: the paper's dimensions in place of the media
+box's.

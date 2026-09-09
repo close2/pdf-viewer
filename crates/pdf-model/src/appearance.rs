@@ -475,8 +475,10 @@ pub(crate) fn construct(
         // about where an appearance goes and none of it about what an appearance contains.
         // A watermark with no `/AP` therefore has nothing to derive, for a reason that is the
         // opposite of a silence: the clause is entirely about the annotation this reader is not
-        // being given. What the placement side of it owes is `crate::annotation::fixed_print_owed`,
-        // which reports it on the annotations that *do* carry an appearance stream.
+        // being given. The placement side of it is `crate::annotation::fixed_print`, which carries
+        // the clause out on the annotations that *do* carry an appearance stream — reported
+        // rather than applied until the nine-hundred-and-forty-second session, which is what
+        // this comment named here (`fixed_print_owed`, ADRs 0906 and 0934).
         b"Watermark" => Err(Refusal::NotDerivable(
             "its clause states where an appearance stream is placed rather than a mark to draw, \
              and Table 194's entries all transform the annotation rectangle",

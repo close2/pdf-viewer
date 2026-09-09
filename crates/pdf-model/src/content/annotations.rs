@@ -143,6 +143,10 @@ impl Interpreter<'_> {
             crate::annotation::ViewGeometry {
                 rotate: page.rotate,
                 magnification: self.view.magnification(),
+                // §12.5.6.22's media, for a watermark stating Table 193's `/FixedPrint`: "When
+                // displaying a watermark annotation on-screen, interactive PDF processors shall
+                // use the dimensions of the media box".
+                media_box: page.media_box,
             },
         ) {
             crate::annotation::Decision::Nothing => {}
