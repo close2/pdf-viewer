@@ -83,7 +83,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId, Stream};
 use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
-use crate::survey::{DeviceColour, DeviceFamily, IccProfile, Route, SpaceKind};
+use crate::survey::{DefaultSpace, DeviceColour, DeviceFamily, IccProfile, Route, SpaceKind};
 use crate::table::{name_of, states, states_name};
 use crate::target::Flavour;
 
@@ -2148,21 +2148,39 @@ fn current_intent(document_level: Intent, page_level: Option<&Intent>) -> Intent
     }
 }
 
-/// Whether §8.6.5.6's default colour space in force licenses a device colour under ISO 19005-2.
+/// Whether §8.6.5.6's default colour space licenses a device colour under ISO 19005-2.
 ///
 /// The `DeviceCMYK` sentence of ISO 19005-2 section 6.2.4.3 admits a `DeviceN`-based `DefaultCMYK`
 /// beside a device-independent one, and its NOTE 2 explains why: such a space is subject to
 /// Section 6.2.4.4, which is what makes it device independent. ISO 19005-4 dropped that half of the
 /// sentence, so [`licensed_by_default_under_part_four`] does not carry it.
-fn licensed_by_default_under_part_two(default: Option<SpaceKind>, family: DeviceFamily) -> bool {
-    default.is_some_and(|kind| {
+///
+/// # `TechNote 0010` A028, which is why the *explicit* default is the one read here
+///
+/// The published section 6.2.2 requires a content stream that references other objects to have an
+/// explicitly associated resources dictionary, and does not say whether §8.6.5.6's defaults are
+/// among the objects that sentence reaches. A028 is the ISO working group resolving that they are:
+/// parts 2 and 3 are read as if a default colour space had itself to be defined in the explicitly
+/// associated dictionary, and as if a processor ignored any resource that dictionary does not
+/// define. A003 fixes what the term *explicitly associated* names — a `Resources` entry in a
+/// page, a tiling pattern, a form `XObject` or a Type 3 font dictionary — so a form `XObject`
+/// that states none has no explicitly associated dictionary at all, and the page's `DefaultGray`
+/// no longer reaches into it.
+///
+/// So this reads [`DefaultSpace::explicit`] where [`licensed_by_default_under_part_four`] reads
+/// [`DefaultSpace::in_force`]: A028 names ISO 19005-2 and ISO 19005-3 and does not name part 4,
+/// whose own section 6.2.2 states the resource sentences in its own words and says nothing about
+/// defaults. Printing the resolution's reach wider than the working group drew it is what
+/// ADR 0933 forbids.
+fn licensed_by_default_under_part_two(default: DefaultSpace, family: DeviceFamily) -> bool {
+    default.explicit.is_some_and(|kind| {
         kind.is_independent() || (family == DeviceFamily::Cmyk && kind == SpaceKind::Colourant)
     })
 }
 
 /// Whether §8.6.5.6's default colour space in force licenses a device colour under ISO 19005-4.
-fn licensed_by_default_under_part_four(default: Option<SpaceKind>) -> bool {
-    default.is_some_and(SpaceKind::is_independent)
+fn licensed_by_default_under_part_four(default: DefaultSpace) -> bool {
+    default.in_force.is_some_and(SpaceKind::is_independent)
 }
 
 /// The sentence a failed device colour row prints.
@@ -3918,6 +3936,54 @@ mod tests {
             found(&document, super::device_gray_under_part_two),
             1,
             "the stroke is painted in the initial DeviceGray, which DefaultRGB does not reach"
+        );
+    }
+
+    /// `TechNote 0010` A028: the page's default does not reach a form that states no `Resources`.
+    ///
+    /// The whole of what the clarification changed is *which* dictionary the default is read
+    /// from, and the two parts read it differently — so one file is a failure under ISO 19005-2
+    /// and a pass under ISO 19005-4, and a row that quietly went back to the resources in force
+    /// would look exactly like one that never moved. The corpus cannot rank this: no document in
+    /// `doc/veraPDF-corpus` both states a default colour space and runs a stream against a
+    /// dictionary it fell back on, so the sweep is byte-for-byte unchanged either way.
+    #[test]
+    fn a_default_reaches_a_form_that_states_no_resources_only_under_part_four() {
+        let inner = "0 g 0 0 1 1 re f";
+        let document = coloured_page(
+            "/Fm0 Do",
+            "/Resources << /ColorSpace << /DefaultGray [/CalGray << /WhitePoint [1 1 1] >>] >> \
+             /XObject << /Fm0 5 0 R >> >>",
+            "",
+            &format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length {} >> \
+                 stream\n{inner}\nendstream",
+                inner.len()
+            ),
+        );
+        assert!(document.catalog().is_ok());
+        assert_eq!(
+            found(&document, super::device_gray_under_part_two),
+            1,
+            "A028: the form has no explicitly associated resources dictionary, so no DefaultGray \
+             is in force inside it"
+        );
+        assert_eq!(
+            found(&document, super::device_gray_under_part_four),
+            0,
+            "A028 names ISO 19005-2 and ISO 19005-3, and part 4's own section 6.2.2 says nothing \
+             about default colour spaces"
+        );
+        let row = "graphics/device-gray-needs-a-default-or-an-output-intent";
+        assert_eq!(
+            crate::clarification::clarifying(row, crate::target::Part::Two).map(|it| it.item),
+            Some("A026 and A028"),
+            "a part 2 verdict says which reading it applied"
+        );
+        assert_eq!(
+            crate::clarification::clarifying(row, crate::target::Part::Four),
+            None,
+            "and the record is not printed under a part it does not name"
         );
     }
 

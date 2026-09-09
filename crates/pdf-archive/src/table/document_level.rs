@@ -7,7 +7,7 @@
 //!
 //! # Where the two parts part company
 //!
-//! - - **Logical structure is part 2's alone.** Section 6.7 is a full subclause of eight parts and
+//! - **Logical structure is part 2's alone.** Section 6.7 is a full subclause of eight parts and
 //!   applies only at Level A, which is why every row in that area carries
 //!   `Applies::FromLevel(Level::A)`. ISO 19005-4 section 6.8 replaces the whole of it with two
 //!   sentences of encouragement and **states no requirement at all** — not one `shall` — so those
@@ -37,9 +37,9 @@
 //!   array and of the list of configurations, and the instruction not to use `/Intent` — ISO
 //!   19005-2 section 6.9 and ISO 19005-4 section 6.10, with part 4's instruction to ignore `/AS`
 //!   beside them;
-//! - - the display of the names of embedded files — ISO 19005-2 section 6.8 and ISO 19005-4 section
+//! - the display of the names of embedded files — ISO 19005-2 section 6.8 and ISO 19005-4 section
 //!   6.9;
-//! - - the instruction to ignore `/Trans` and `/Dur` — ISO 19005-2 section 6.10 and ISO 19005-4
+//! - the instruction to ignore `/Trans` and `/Dur` — ISO 19005-2 section 6.10 and ISO 19005-4
 //!   section 6.11;
 //! - **the whole of ISO 19005-4 section 6.13**, whose subject is what a processor does about
 //!   `/PrintScaling` and `/Enforce` when printing. It places nothing on a file.

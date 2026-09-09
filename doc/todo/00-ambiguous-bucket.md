@@ -588,6 +588,65 @@ so while the four references produce four different strings from the same bytes.
 clause, the eleven names, what each reference guesses, and the measurement that says the pages
 would be `ambiguous` whatever we drew.** Read it before re-deriving the head.
 
+**Re-run before and after in the nine-hundred-and-forty-third**, owed by §7 of `doc/todo/02`
+because the round before it implemented §12.5.6.22's `/FixedPrint` — and the sweep's job here is
+the one this file keeps saying it is, because that clause reaches no page of the gate corpus at
+all — `examples/fixed_print_census` over the 964 documents that open finds **no watermark
+annotation whatever**, so nothing here could have moved. Over all **836** ambiguous pages, on this
+file's own recipe
+(`-alpha off -channel R -colorspace Gray`): **19 at or past −1, 16 of them documents this tree
+reports on**, head `issue12418_reduced.pdf` −19.447, `issue4722.pdf` −13.810,
+`issue15977_reduced.pdf` −12.927, `bug1050040.pdf` −11.272, `issue5801.pdf` −8.991. On the
+complete documents `issue16038.pdf` −5.642, `issue12295.pdf` −2.362, `issue14297.pdf` −1.135,
+then `issue7821.pdf` −0.957, `jpx_smaskindata.pdf` −0.840 and nothing past −0.535 — **the
+eight-hundred-and-sixth session's six head entries to the thousandth**, a hundred and
+thirty-seven rounds later, and the alarm's own hold.
+
+**What the sweep cannot see, said once so a later null is readable.** Its population is the
+gate's `ambiguous` lines, so a page that moves between `ambiguous` and `agrees` or `contradicted`
+is invisible at both ends; the four `AMBIGUOUS_DIVIDED_CONSENSUS` pages have no artefact
+directory (they agree with a consensus, so the gate deletes it) and are the four names the loop
+counts and cannot measure; and every figure is a *difference between two programs*, so a
+reference re-rendered by a newer binary moves a row with nothing of ours having changed.
+
+**And the sixteen incomplete names were opened instead of passed over, which is ADR 0433's own
+instruction and had never been carried to the end.** Eleven are that ADR's §9.7.5.2 population.
+Two are ADR 0836's check-value refusal (`bug1050040.pdf` −11.272 and `issue13316_reduced.pdf`
+−3.030) and one is a widget with neither an `/AP` nor Table 192's `/CA`
+(`checkbox_no_appearance.pdf` −1.200) — held by a decision each, with the cost written down. **Two
+were named nowhere in this tree**, and both have an answer now: one is a defect and one is a
+clause read correctly.
+
+- **`bug866395.pdf` page 1 at −8.549**, ours **0.000** against `ghostscript` 8.549, `hayro`
+  11.502, `poppler` 11.780 and `mupdf` 11.801. Its `/FontFile3` is a ten-byte `FlateDecode`
+  stream that reaches the filter's end-of-data and produces **zero bytes**, which reached the sfnt
+  reader as though it were a program and came back `An offset was out of bounds` — a refusal where
+  §9.8.1's Table 120 says the entry is "A stream containing a font program whose format is
+  specified by the Subtype entry in the stream dictionary", so the descriptor stated none, and the
+  same subclause says what the rest of the descriptor is then for. The page draws `l’impayé`
+  at **11.706** now and moved `ambiguous (incomplete)` → `agrees`. ADR 0940, and
+  `examples/empty_font_program_census` prices the rule at **one stream in 1 237 documents**.
+- **`issue5954.pdf` page 1 at −7.367 is the other, and it is not a defect: it is §7.7.3.4 read
+  correctly, by us and by one reference.** The file is 741 bytes and states two resource
+  dictionaries. Object 3, the page, states `/Resources << /XObject << >> >>` — no `/Font` in it.
+  Object 2, the `/Pages` node above it, states `/Resources 5 0 R`, which defines `/F1` as
+  `/Times-Roman`. §7.7.3.4 settles which one the page has, in as many words: "All values shall be
+  inherited as-is, without merging, even for composite data types such as arrays and
+  dictionaries", and "[w]hen the first Resources dictionary is found the search shall be stopped
+  and that Resources dictionary shall be used in its entirety." The first one found is the page's
+  own, so `/F1` is undefined and the `Tf` names nothing — which is what this tree reports (`no
+  /Font resource named /F1`) and draws: nothing. **`poppler` reaches the same reading and says so
+  in its own log** — `Syntax Error: Unknown font tag 'F1'`, ink **0.000** — which is why
+  correction 1 drops its panel and the gap is taken against `hayro`. `mupdf` (7.409) and `hayro`
+  (7.367) draw *Issue 5954* in Times, so they took the ancestor's dictionary; `ghostscript`
+  (11.316) draws it in a sans of its own. **Four renderers, three readings, and the two that agree
+  with the clause are the two that draw nothing** — which is the negative tail behaving exactly as
+  correction 3 says, on a page that is light because the file is wrong.
+
+**Re-run after the fix, and the statement is the sharp one**: over the **835** pages that remain
+`ambiguous`, every row is **byte-identical** to the before-run — the same numbers, the same labels
+— and the single row that left is `bug866395.pdf`. Nothing else moved a thousandth.
+
 **Re-run whole in the eight-hundred-and-sixth**, over every page the gate prints as `ambiguous`,
 after the round that gave a patterned stroke its own region (ADR 0735) had gone in and while
 nothing in this round could move a pixel. On this file's own recipe (`-alpha off -colorspace

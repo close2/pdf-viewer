@@ -96,7 +96,7 @@
 //!
 //! What it bought, and this is the part worth reading twice:
 //!
-//! - - Three rows that were `Unchecked` — ISO 19005-2 section 6.1.13's limits on the values written
+//! - Three rows that were `Unchecked` — ISO 19005-2 section 6.1.13's limits on the values written
 //!   *inside* a content stream, its `q`/`Q` nesting limit, and section 6.2.2's ban on an operator
 //!   the base standard does not define — and eleven corpus documents this crate had been missing.
 //!   The three predicates that read them cost 40 ns, 360 ns and 500 ns on that same document,
@@ -332,6 +332,43 @@ impl Route {
     }
 }
 
+/// §8.6.5.6's default colour space for one family, under each part's reading of that clause.
+///
+/// Two readings rather than one, because `TechNote 0010` A028 names ISO 19005-2 and ISO 19005-3
+/// and does not name ISO 19005-4. The working group resolved that parts 2 and 3 are read as if
+/// section 6.2.2 required any default colour space to be defined in the *explicitly associated*
+/// resources dictionary, and as if a processor ignored what that dictionary does not define.
+/// Part 4's own section 6.2.2 states the resource sentences in its own words and says nothing
+/// about defaults, so it keeps the base standard's reading, where a form `XObject` with no
+/// `Resources` entry of its own is read against the dictionary it falls back on.
+///
+/// `crate::clarification` carries the record; `crate::table::graphics` is where each part picks
+/// the field its own clause reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DefaultSpace {
+    /// What the resources in force name, which is what ISO 19005-4 reads.
+    pub in_force: Option<SpaceKind>,
+    /// The same, where those resources are the stream's own explicitly associated dictionary.
+    ///
+    /// `None` where the stream states no `Resources` entry of its own — there is then no
+    /// explicitly associated dictionary at all, so A028 leaves no default in force.
+    pub explicit: Option<SpaceKind>,
+}
+
+impl DefaultSpace {
+    /// The default a stream reads, given whether the dictionary it was read from was its own.
+    const fn read(in_force: Option<SpaceKind>, explicitly_associated: bool) -> Self {
+        Self {
+            in_force,
+            explicit: if explicitly_associated {
+                in_force
+            } else {
+                None
+            },
+        }
+    }
+}
+
 /// One place a content stream selected a device colour space, with what licensed it there.
 ///
 /// The licences are recorded rather than judged, because the two owned parts license the same
@@ -349,8 +386,8 @@ pub struct DeviceColour {
     pub what: &'static str,
     /// How it was reached from the space the content named.
     pub via: Route,
-    /// §8.6.5.6's matching default colour space, as the resources in force stated it.
-    pub default: Option<SpaceKind>,
+    /// §8.6.5.6's matching default colour space, under each part's reading of that clause.
+    pub default: DefaultSpace,
     /// ISO 32000-2 §11.3.4's current transparency blending colour space, where there is one.
     pub blending: Option<SpaceKind>,
 }
@@ -365,7 +402,7 @@ pub struct GroupSpace {
     /// Where a report points a reader.
     pub place: Where,
     /// §8.6.5.6's matching default colour space, where the entry names a device space.
-    pub default: Option<SpaceKind>,
+    pub default: DefaultSpace,
 }
 
 /// A resource a content stream named that the resource dictionary in force does not define.
@@ -1188,11 +1225,11 @@ enum Observation {
         DeviceFamily,
         Route,
         &'static str,
-        Option<SpaceKind>,
+        DefaultSpace,
         Option<SpaceKind>,
     ),
     /// A transparency group's colour space.
-    Group(usize, SpaceKind, Option<SpaceKind>),
+    Group(usize, SpaceKind, DefaultSpace),
     /// A named resource the resources in force did not define.
     Missing(usize, &'static str, String),
     /// A rendering intent operator's operand.
@@ -1226,24 +1263,22 @@ enum Extent {
 
 /// The content stream [`Walk::run`] is reading.
 ///
-/// Two fields travel together because [`Walk::look_up`] needs both: the description a finding
-/// prints, and the entry in [`Survey::streams`] to mark when the stream names a resource.
+/// Two of the fields travel together because [`Walk::look_up`] needs both: the description a
+/// finding prints, and the entry in [`Survey::streams`] to mark when the stream names a resource.
 #[derive(Clone, Copy)]
 struct Origin {
     /// What kind of content stream it is, for the sentence a finding prints.
     what: &'static str,
     /// Its entry in [`Survey::streams`], where one fitted within [`MAX_OBSERVATIONS`].
     record: Option<usize>,
+    /// Whether the resources [`Walk::run`] reads it against are its own explicitly associated
+    /// dictionary rather than one it fell back on. See [`DefaultSpace`].
+    explicitly_associated: bool,
 }
 
 impl Walk<'_> {
     /// One page: its group, its content, and its annotations' appearances.
     fn page(&mut self, page: &Page, index: usize) {
-        let blending = self.page_group(page, index);
-        let state = State {
-            blending: blending.clone(),
-            ..State::default()
-        };
         // §7.8.3: a page's content is associated with the dictionary its own `Resources` entry
         // designates *or* one it inherits, and only the first of those is explicit. Read the
         // same way a form XObject's entry is, so that an entry reaching no dictionary counts
@@ -1253,6 +1288,11 @@ impl Walk<'_> {
             .get_key(&page.dict, "Resources")
             .as_dict()
             .is_some();
+        let blending = self.page_group(page, index, own);
+        let state = State {
+            blending: blending.clone(),
+            ..State::default()
+        };
         let origin = self.open_record(index, None, Where::page(index), "the page content", own);
         let mut reader = ContentReader::for_page(self.document, page);
         self.run(&mut reader, &page.resources, index, 0, &state, origin);
@@ -1279,7 +1319,11 @@ impl Walk<'_> {
             });
             self.survey.streams.len().saturating_sub(1)
         });
-        Origin { what, record }
+        Origin {
+            what,
+            record,
+            explicitly_associated: own_resources,
+        }
     }
 
     /// A page's `/Group`, which ISO 32000-2 §11.4.7 makes the page's blending colour space.
@@ -1287,7 +1331,7 @@ impl Walk<'_> {
     /// The clause is explicit that a page group's `CS` is honoured whatever its `I` entry says,
     /// because a page imposed on the output medium is effectively isolated — so, unlike a form
     /// `XObject`'s group below, no isolation test guards this one.
-    fn page_group(&mut self, page: &Page, index: usize) -> Blending {
+    fn page_group(&mut self, page: &Page, index: usize, explicitly_associated: bool) -> Blending {
         let group = self.document.get_key(&page.dict, "Group");
         let Some(group) = group.as_dict() else {
             return Blending::default();
@@ -1295,7 +1339,13 @@ impl Walk<'_> {
         if !self.is_transparency_group(group) {
             return Blending::default();
         }
-        self.record_group_space(group, &page.resources, index, Where::page(index))
+        self.record_group_space(
+            group,
+            &page.resources,
+            index,
+            Where::page(index),
+            explicitly_associated,
+        )
     }
 
     /// Whether a group attributes dictionary is a transparency group: §11.6.6, Table 147.
@@ -1313,16 +1363,18 @@ impl Walk<'_> {
         resources: &Dictionary,
         page: usize,
         place: Where,
+        explicitly_associated: bool,
     ) -> Blending {
         let Some(stated) = group.get("CS") else {
             return Blending::default();
         };
         let stated = self.document.resolve(stated);
         let kind = classify(self.document, &stated, resources, 0);
-        let default = match kind {
+        let in_force = match kind {
             SpaceKind::Device(family) => self.default_space(resources, family),
             _ => None,
         };
+        let default = DefaultSpace::read(in_force, explicitly_associated);
         if self.first_time(Observation::Group(page, kind, default)) {
             self.survey.groups.push(GroupSpace {
                 kind,
@@ -1404,10 +1456,15 @@ impl Walk<'_> {
         origin: Origin,
     ) {
         let mut state = initial.clone();
+        // `TechNote 0010` A028: parts 2 and 3 are read as if a default colour space had to be
+        // defined in the *explicitly associated* resources dictionary, and as if a processor
+        // ignored what that dictionary does not define. Both readings are recorded here because
+        // the resolution does not name ISO 19005-4; see [`DefaultSpace`].
+        let explicit = origin.explicitly_associated;
         let defaults = [
-            self.default_space(resources, DeviceFamily::Gray),
-            self.default_space(resources, DeviceFamily::Rgb),
-            self.default_space(resources, DeviceFamily::Cmyk),
+            DefaultSpace::read(self.default_space(resources, DeviceFamily::Gray), explicit),
+            DefaultSpace::read(self.default_space(resources, DeviceFamily::Rgb), explicit),
+            DefaultSpace::read(self.default_space(resources, DeviceFamily::Cmyk), explicit),
         ];
         let mut stack: Vec<State> = Vec::new();
         let mut names: Vec<Vec<u8>> = Vec::new();
@@ -1783,7 +1840,7 @@ impl Walk<'_> {
         {
             self.survey.transparent.insert(page);
             let place = id.map_or_else(|| Where::page(page), Where::object);
-            let stated = self.record_group_space(group, &resources, page, place);
+            let stated = self.record_group_space(group, &resources, page, place, stated_resources);
             if self.document.get_key(group, "I") == Object::Boolean(true) && stated.kind.is_some() {
                 state.blending = stated;
             }
@@ -2596,7 +2653,7 @@ struct Context<'a> {
     /// times over its 1 023 pages, and resolving `/ColorSpace` out of the resources at each of
     /// them clones a dictionary that cannot have changed — the resource dictionary in force is
     /// fixed for the length of one content stream. Indexed by [`DeviceFamily::index`].
-    defaults: [Option<SpaceKind>; 3],
+    defaults: [DefaultSpace; 3],
     /// The zero-based index of the page the content is drawn on.
     page: usize,
     /// How many nested streams deep the walk is.
@@ -3098,16 +3155,54 @@ mod tests {
             .iter()
             .find(|colour| colour.family == DeviceFamily::Rgb)
             .expect("the rg operator selects DeviceRGB");
+        let calibrated = Some(SpaceKind::Independent(Some(DeviceFamily::Rgb)));
+        assert_eq!(rgb.default.in_force, calibrated);
         assert_eq!(
-            rgb.default,
-            Some(SpaceKind::Independent(Some(DeviceFamily::Rgb)))
+            rgb.default.explicit, calibrated,
+            "the page states its own Resources, so the two readings agree"
         );
         let gray = survey
             .device_colours()
             .iter()
             .find(|colour| colour.family == DeviceFamily::Gray)
             .expect("B strokes as well as fills, in §8.6.8's initial DeviceGray");
-        assert_eq!(gray.default, None, "no DefaultGray is in force");
+        assert_eq!(gray.default.in_force, None, "no DefaultGray is in force");
+    }
+
+    /// `TechNote 0010` A028: a form `XObject` stating no `Resources` reads no default at all.
+    ///
+    /// The two fields of [`DefaultSpace`] part company exactly here, which is the whole reason
+    /// the type has two: the page's `DefaultGray` is what the resources in force say, and it is
+    /// not defined in any dictionary explicitly associated with the form's own content stream.
+    #[test]
+    fn a_form_that_states_no_resources_reads_no_default_colour_space() {
+        let inner = "0 g 0 0 1 1 re f";
+        let form = format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length {} >> \
+             stream\n{inner}\nendstream",
+            inner.len()
+        );
+        let document = page_with(
+            "/Fm0 Do",
+            "/Resources << /ColorSpace << /DefaultGray [/CalGray << /WhitePoint [1 1 1] >>] >> \
+             /XObject << /Fm0 5 0 R >> >>",
+            &[&form],
+        );
+        let survey = Survey::of(&document);
+        let gray = survey
+            .device_colours()
+            .iter()
+            .find(|colour| colour.family == DeviceFamily::Gray)
+            .expect("the form's `g` operator selects DeviceGray");
+        assert_eq!(
+            gray.default.in_force,
+            Some(SpaceKind::Independent(Some(DeviceFamily::Gray))),
+            "the page's dictionary is what §8.6.5.6 alone would read"
+        );
+        assert_eq!(
+            gray.default.explicit, None,
+            "A028: the form has no explicitly associated resources dictionary"
+        );
     }
 
     /// ISO 32000-2 Annex Q.2's conditions, and the one that is not a condition.

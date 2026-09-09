@@ -84,6 +84,13 @@ pub(crate) fn embedded_program(
                 detail: format!("/{key} did not decode"),
             });
         };
+        // A stream that carries no bytes carries no program, so the descriptor has stated
+        // none — which is [`no_program`]'s subject and the one case above this loop's own
+        // refusals. Asked before [`whole_program`] deliberately: its argument is about what a
+        // *prefix* of a program describes, and there is no prefix here to describe anything.
+        if no_program(&decoded.data) {
+            continue;
+        }
         // `truncation` below is the structural half of [`whole_program`]'s rule, and kept: it
         // catches a program whose stream decoded whole and whose directory still overruns it.
         let data = whole_program(document, &stream.dict, &decoded, key, name)?;
@@ -177,6 +184,15 @@ pub(crate) fn embedded_program(
                     name: name.to_owned(),
                     detail: "/FontFile did not decode".to_owned(),
                 })?;
+        // The same rule the loop above applies to the other two of Table 120's three keys, and
+        // it is stated in one place and applied in three: a stream carrying no bytes carries no
+        // program. This is the last key, so the refusal returned here is the one the tail of
+        // this function returns.
+        if no_program(&decoded.data) {
+            return Err(FontError::NotEmbedded {
+                name: name.to_owned(),
+            });
+        }
         // Type 1's own structure is a sequence of PostScript definitions rather than a table
         // directory, but its eexec-encrypted private portion is one blob with a checksum, so a
         // prefix is no more readable than a truncated sfnt is. Same refusal, same reason — and
@@ -220,6 +236,52 @@ pub(crate) fn embedded_program(
     Err(FontError::NotEmbedded {
         name: name.to_owned(),
     })
+}
+
+/// Whether a font-program stream's decoded bytes are no program at all.
+///
+/// **A stream carrying no bytes carries no font program**, which is what ISO 32000-2 §9.8.1's
+/// Table 120 says each of its three keys is for. `/FontFile` is
+///
+/// > A stream containing a Type 1 font program
+///
+/// `/FontFile2` is
+///
+/// > A stream containing a TrueType font program
+///
+/// and `/FontFile3` is
+///
+/// > A stream containing a font program whose format is specified by the Subtype entry in the
+/// > stream dictionary
+///
+/// No byte string of length zero is any of those three: §9.9's Table 124 requires of every
+/// subtype that "[t]he font program provided as the value of this key shall conform to" the
+/// format it names, and each of the three formats begins with a header the empty string does not
+/// have. So a descriptor whose program stream decodes to nothing has *provided* no program, and
+/// that is the state §9.8.1 gives the rest of the descriptor for:
+///
+/// > These font metrics provide information that enables a PDF processor to synthesise a
+/// > substitute font or select a similar font when the font program is unavailable.
+///
+/// [`FontError::NotEmbedded`] is this crate's name for that state and
+/// [`crate::loading::LoadedFont::load_simple`] substitutes for it, so answering `true` here puts
+/// the font on the route the clause names rather than on a refusal.
+///
+/// **It is asked before [`whole_program`], and the order carries the argument.** That function
+/// refuses a *prefix* of a program because a prefix is a table directory describing bytes that
+/// are not there, and reading one draws glyphs the producer never wrote (ADR 0343). Zero bytes
+/// describe nothing and can be read as nothing, so no mark can stand in place of the producer's
+/// — which is trap 5's own test (ADR 0106) answered the other way from every other damage this
+/// module refuses.
+///
+/// **The condition is emptiness and not shortness**, deliberately. That a stream of no bytes
+/// holds no program is a claim the standard settles; that eleven bytes are too few for a CFF is a
+/// claim about three format specifications, and the population says nothing turns on it —
+/// `examples/empty_font_program_census` over 1 237 documents in five corpora finds **one** empty
+/// program stream, `bug866395.pdf`'s `/FontFile3`, and **no** stream at all between one byte and
+/// eleven.
+fn no_program(decoded: &[u8]) -> bool {
+    decoded.is_empty()
 }
 
 /// The whole font program `decoded` carries, or the refusal a prefix of one earns.
@@ -370,11 +432,6 @@ fn stated_extent(document: &Document, dict: &Dictionary, key: &str) -> Option<us
     }
 }
 
-/// Returns `true` for a bare CFF font program.
-///
-/// A CFF file starts with a header whose first two bytes are its major and minor version,
-/// conventionally 1 and 0. An sfnt file starts with a recognisable tag instead — `0x00010000`,
-/// `OTTO`, `true` or `ttcf` — so a leading `01 00` that is none of those is CFF.
 /// The `CFF ` table of an sfnt that states no `head`, which is the program to read instead.
 ///
 /// `None` for everything else, which is every ordinary font: a container that states a `head`
@@ -392,6 +449,18 @@ fn extracted_cff(program: Program, data: &[u8]) -> Option<Vec<u8>> {
     Some(data.get(at..at.checked_add(length)?)?.to_vec())
 }
 
+/// Returns `true` for a bare CFF font program.
+///
+/// A CFF file starts with a header whose first two bytes are its major and minor version,
+/// conventionally 1 and 0. An sfnt file starts with a recognisable tag instead — `0x00010000`,
+/// `OTTO`, `true` or `ttcf` — so a leading `01 00` that is none of those is CFF.
+///
+/// **This paragraph was filed above [`extracted_cff`] rather than here**, welded onto that
+/// function's own comment by the edit that inserted it, so this function had no documentation and
+/// that one had two first sentences. `doc/todo/00`'s *A group's diagnosis can migrate to the group
+/// above it* is the same failure one directory over: Rust attaches a doc comment to whatever item
+/// follows, and nothing is malformed, so no gate sees it. Restored in the
+/// nine-hundred-and-forty-third session.
 fn is_bare_cff(data: &[u8]) -> bool {
     match data.get(..4) {
         // The four sfnt container signatures.
@@ -402,11 +471,6 @@ fn is_bare_cff(data: &[u8]) -> bool {
     }
 }
 
-/// Parses a bare Type 1 program, for the one kind of program that is kept parsed.
-///
-/// Done once at load rather than in `build_outline`, because the units per em, the code
-/// mapping and every outline come out of the same parse and that parse is the expensive
-/// one; see [`type1::Program`].
 /// The em square of a simple font's program, from whichever reader parsed it.
 ///
 /// A parsed Type 1 program answers from its own `/FontMatrix` and everything else from the
@@ -431,6 +495,18 @@ pub(crate) fn simple_units_per_em(
     }
 }
 
+/// Parses a bare Type 1 program, for the one kind of program that is kept parsed.
+///
+/// Done once at load rather than in `build_outline`, because the units per em, the code
+/// mapping and every outline come out of the same parse and that parse is the expensive
+/// one; see [`type1::Program`].
+///
+/// **This paragraph was welded onto [`simple_units_per_em`]'s comment**, the second of the two
+/// this module carried — see [`is_bare_cff`] for the shape and where it is written down.
+///
+/// # Errors
+///
+/// [`FontError::Malformed`] where the bytes are not a Type 1 program.
 pub(crate) fn parsed_type1(
     program: Program,
     data: &[u8],

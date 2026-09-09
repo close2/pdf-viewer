@@ -12,7 +12,7 @@
 //!
 //! Most of the subclause is shared word for word. Five places are not:
 //!
-//! - - **Part 2 makes the Unicode rules a `shall` for Levels A and U only** (section 6.2.11.7.1
+//! - **Part 2 makes the Unicode rules a `shall` for Levels A and U only** (section 6.2.11.7.1
 //!   says a Level B writer may ignore section 6.2.11.7). **Part 4 states the same rules as
 //!   `should`** — section 6.2.10.7 and the first half of section 6.2.10.8 — so they bind no part 4
 //!   target at all, and the rows carrying them cite part 2 alone.
@@ -20,10 +20,10 @@
 //!   `CMap` that *is* present, and that an `ActualText` entry states no private-use character.
 //!   The second has no counterpart in part 2 whatsoever, which makes it the one font rule that
 //!   is stricter in part 4 than in part 2.
-//! - - **Part 2 requires `CharSet` and `CIDSet`, where present, to be complete** (section
+//! - **Part 2 requires `CharSet` and `CIDSet`, where present, to be complete** (section
 //!   6.2.11.4.2). Part 4's section 6.2.10.4.2 dropped both: it now permits subsetting and states no
 //!   requirement.
-//! - - **Part 4's font-metrics subclause grew two rules** (section 6.2.10.5): a Type 3 font's
+//! - **Part 4's font-metrics subclause grew two rules** (section 6.2.10.5): a Type 3 font's
 //!   `d0`/`d1` operands, and a vertical composite font's `DW2`/`W2`. Part 2 section 6.2.11.5 states
 //!   neither.
 //! - **The two font-metrics subclauses bind different glyphs**, and this list said four for as

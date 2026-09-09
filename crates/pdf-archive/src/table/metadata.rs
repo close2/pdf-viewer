@@ -8,7 +8,7 @@
 //!
 //! # Three things the two parts disagree about, and one printing error
 //!
-//! - - **The schema's namespace URI is printed differently.** ISO 19005-2 section 6.6.4 gives it
+//! - **The schema's namespace URI is printed differently.** ISO 19005-2 section 6.6.4 gives it
 //!   with an `http` scheme and ISO 19005-4 section 6.7.3 with an `https` one. Nothing else about
 //!   the identifier moves, and a producer writing either has named the schema the standard defines,
 //!   so both are accepted for both parts — [`IDENTIFICATION_URIS`].
@@ -37,10 +37,10 @@
 //!
 //! - **section 6.6.2.3.1** judges the *predefined* half — the shape of a value, the spelling of its
 //!   scalar, and the language qualifiers a language alternative's items are defined to carry.
-//! - - **section 6.6.2.3.2** judges the other half, a namespace no predefined schema owns and no
+//! - **section 6.6.2.3.2** judges the other half, a namespace no predefined schema owns and no
 //!   embedded extension schema describes, because section 6.6.2.3.1 states that half by deferring
 //!   to section 6.6.2.3.2.
-//! - - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
+//! - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
 //!   each spelled with the prefix its table requires.
 //!
 //! # section 6.6.6 and section 6.7.5, one subclause each, and only one of them a check

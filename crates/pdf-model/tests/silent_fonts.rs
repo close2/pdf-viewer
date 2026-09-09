@@ -322,3 +322,89 @@ fn a_dingbats_page_reads_back_the_characters_annex_d6_states() {
         "and no dingbat reads back as the ASCII byte of its code"
     );
 }
+
+/// A font-program stream that decodes to no bytes has embedded no program, so a substitute draws.
+///
+/// `bug866395.pdf` is 200 × 50 points and shows one line, `l’impayé`, through a `/Type1` font
+/// whose descriptor names `/SSHIDR+Optima-Bold`. Its `/FontFile3` is a ten-byte `FlateDecode`
+/// stream that reaches the filter's own end-of-data and produces **zero bytes** — no damage, no
+/// prefix, no shortfall against an extent, nothing at all.
+///
+/// **Zero bytes are not a program**, which ISO 32000-2 §9.8.1's Table 120 says by saying what
+/// the entry is: `/FontFile3` is
+///
+/// > A stream containing a font program whose format is specified by the Subtype entry in the
+/// > stream dictionary
+///
+/// So the descriptor states no program, and that is the state §9.8.1 gives the rest of the
+/// descriptor for — "[t]hese font metrics provide information that enables a PDF processor to
+/// synthesise a substitute font or select a similar font when the font program is unavailable".
+/// The `/FontWeight 700`, the `/FontFamily (Optima)` and Table 121's Nonsymbolic bit are what
+/// choose the face; the font dictionary's own `/Widths` keep the layout.
+///
+/// **It drew nothing until the nine-hundred-and-forty-third session**, because an empty decode
+/// reached the sfnt reader as though it were a program and came back `An offset was out of
+/// bounds` — a `FontError::Malformed`, which this crate refuses where it substitutes for a
+/// `FontError::NotEmbedded`. That refusal is right where the bytes are *partly* the producer's
+/// (ADR 0343, ADR 0836: a prefix of a program draws glyphs in place of the producer's), and there
+/// are no bytes here to be partly anything.
+///
+/// The page was `ambiguous` at ink 0.000 against four references between 8.55 and 11.80, which no
+/// distance ranking could see — `doc/todo/00` step 7's ink sweep is what found it.
+#[test]
+fn an_empty_font_program_stream_is_substituted_for_rather_than_refused() {
+    let Some(interpretation) = page_one("bug866395.pdf") else {
+        return;
+    };
+    let said = reports(&interpretation);
+    assert!(
+        interpretation.is_complete() && said == "[]",
+        "an empty /FontFile3 states no program, so the substitute draws the line: {said}"
+    );
+    assert_eq!(
+        (interpretation.glyphs, interpretation.text.trim()),
+        (8, "l’impayé"),
+        "and the page's eight glyphs are the producer's own codes through a substituted face"
+    );
+}
+
+/// And the stream this file's witness turns on really is empty, read out of the document.
+///
+/// The discriminating half of the test above, and trap 27's rule: an assertion on the page alone
+/// would pass under any reason the page drew. This one states the *file's* shape — a
+/// `/FontFile3` whose decode reaches the filter's end-of-data and yields nothing — so that a
+/// document silently replaced, or a filter that started keeping a prefix, fails here rather than
+/// leaving the test above passing for a new reason.
+#[test]
+fn the_witness_states_a_font_program_stream_of_no_bytes() {
+    let path: PathBuf =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/bug866395.pdf");
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    let document = Document::open(bytes).unwrap_or_else(|e| panic!("bug866395.pdf: {e}"));
+    let mut seen = 0_usize;
+    for number in document.xref().object_numbers() {
+        let object = document.get(pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        });
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        let entry = document.get_key(dict, "FontFile3");
+        let Some(stream) = entry.as_stream() else {
+            continue;
+        };
+        let decoded = document
+            .decoded_stream_data_reported(stream)
+            .unwrap_or_else(|e| panic!("/FontFile3 did not decode: {e:?}"));
+        assert_eq!(
+            (decoded.data.len(), decoded.damage),
+            (0, None),
+            "the stream decodes whole and holds no byte of a font program"
+        );
+        seen += 1;
+    }
+    assert_eq!(seen, 1, "the document states exactly one /FontFile3");
+}

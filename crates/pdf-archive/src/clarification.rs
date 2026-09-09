@@ -50,8 +50,9 @@
 //! check has to reflect, and it **is cited in the report** so that a disagreement with another
 //! validator is legible as a reading rather than as a bug. Two shapes beyond narrowing a rule have
 //! turned up so far: A021 does not narrow a requirement but puts one outside validation
-//! altogether, which is what [`crate::Check::OutsideValidation`] exists for; and A002 *widens* a
-//! row's reach, binding a part whose own text does not state the sentence.
+//! altogether, which is what [`crate::Check::OutsideValidation`] exists for; and A002 and A028
+//! each *widen* a rule — A002 by binding a part whose own text does not state the sentence, A028
+//! by taking away a licence the base standard's own reading of §8.6.5.6 would give.
 //!
 //! **A row a clarification only confirms is carried here too**, and that is deliberate. The
 //! citation is what tells a reader which of two available readings of a published sentence this
@@ -79,6 +80,16 @@
 //!   quotient. Two points of that list are open and are `doc/questions/Q53`.
 //! - **A021**, ISO 19005-2 section 6.6.6 — the whole of the file-provenance requirement is outside
 //!   validation.
+//! - **A028**, ISO 19005-2 section 6.2.2 — a default colour space shall itself be defined in the
+//!   explicitly associated resources dictionary, and a processor ignores what that dictionary does
+//!   not define. With A003, which fixes what the term *explicitly associated* names, that means
+//!   a form `XObject`, a tiling pattern or a Type 3 font stating no `Resources` entry of its own
+//!   reads no §8.6.5.6 default at all — so the six part 2 rows whose licence turns on one read
+//!   [`crate::survey::DefaultSpace::explicit`] where part 4's read
+//!   [`crate::survey::DefaultSpace::in_force`]. **This is the second clarification that makes a
+//!   rule bind more rather than less**, and the corpus cannot rank it either: not one of
+//!   `doc/veraPDF-corpus`'s documents both states a default colour space and runs a content stream
+//!   against a dictionary it fell back on, so `over` is unmoved on all six targets. ADR 0935.
 //! - **A029**, ISO 19005-2 section 6.6.2.3.2 — an extension schema that describes no custom value
 //!   types may omit `pdfaSchema:valueType`, and a value type with no structured fields may omit
 //!   `pdfaType:field`; a validator treats each absence as an empty array.
@@ -111,7 +122,8 @@
 //!   standard.
 //! - **A026** — `DeviceGray` is permitted as the `ColorSpace` of a soft-mask image dictionary with
 //!   no default space and no output intent, because there it describes shape rather than colour
-//!   (`graphics/device-gray-needs-a-default-or-an-output-intent`). Session 941 flagged this as the
+//!   (`graphics/device-gray-needs-a-default-or-an-output-intent`, whose entry names A028 beside it
+//!   because that row reads a `DefaultGray` too). Session 941 flagged this as the
 //!   item most likely to be costing a conforming file a false failure, and it is not:
 //!   `crate::survey` records an image's colour space only for an image a content stream draws,
 //!   and never descends into an `SMask` entry, so no soft-mask image's colour space reaches the
@@ -147,17 +159,11 @@
 //!   Taking it means the survey recording *which* names each resources dictionary had referenced,
 //!   and the object-walking rows reading that set; it is a predicate to write rather than a rule to
 //!   withdraw, and it is the one item of this note that could move `over` off zero in either
-//!   direction.
-//! - **A028** — a default colour space is subject to the same rule: it shall be defined in the
-//!   explicitly associated resources dictionary, and a processor ignores any resource that
-//!   dictionary does not define. `crate::survey` reads §8.6.5.6's defaults from the resources in
-//!   force, which for a form `XObject` with no `Resources` entry of its own is the page's — so a
-//!   `DeviceGray` inside such a form is licensed here by a `DefaultGray` A028 says to ignore.
-//!   Taking it would add findings to files that already fail
-//!   `graphics/content-streams-have-an-explicit-resources-dictionary`, but not only to those: a
-//!   form that names no resource at all breaks nothing today and would begin to. That is the
-//!   `over` direction, so it wants a round with the corpus in front of it. **Session 941's list
-//!   omitted this item altogether**, which is why it is written down here at length.
+//!   direction. **Session 943 deferred it deliberately**, and ADR 0935 carries the argument: what
+//!   is missing here is section 6.2.2's *published* exemption rather than A010, which only narrows
+//!   it; and exempting an object requires proving it is reachable no other way, which no fact this
+//!   crate holds today can decide. Getting that wrong withdraws real failures in silence, which is
+//!   the one direction a validator may not move by accident.
 //!
 //! One item is a validator rule this crate has no row for at all: **A014** makes a font or
 //! `CIDFont` program whose `Subtype` the applicable PDF specification does not define a failure
@@ -173,9 +179,12 @@ pub struct Clarification {
     pub note: &'static str,
     /// The item number within it — `A021`.
     ///
-    /// Two item numbers where two of the note's items resolve two readings of the same sentence
-    /// and a row satisfies both: `A012 and A023` do that to the normal appearance of a button
-    /// field's widget, and citing one of them would send a reader to half of the answer.
+    /// Two item numbers where two of the note's items reach one row and citing either alone
+    /// would send a reader to half of the answer. `A012 and A023` resolve two readings of one
+    /// sentence about the normal appearance of a button field's widget; `A026 and A028` resolve
+    /// two different questions that meet at ISO 19005-2 section 6.2.4.3's `DeviceGray` rule —
+    /// what a soft mask's samples are, and which dictionary the `DefaultGray` that licenses the
+    /// rest is read from.
     pub item: &'static str,
     /// Which parts of ISO 19005 the working group's resolution names, for a reader.
     pub parts: &'static str,
@@ -193,6 +202,21 @@ pub struct Clarification {
     /// What the resolution asks of a validator, in one sentence of this crate's own words.
     pub change: &'static str,
 }
+
+/// What A028 asks of every row whose licence turns on §8.6.5.6's default colour space.
+///
+/// One sentence written once, because six rows of `crate::table::graphics` read that default and
+/// the resolution says the same thing to all of them. Five of the six say it in these words; the
+/// `DeviceGray` row spells it out again in its own entry, which also carries A026.
+/// `crate::survey::DefaultSpace` is where the two readings are recorded, and
+/// `licensed_by_default_under_part_two` is where part 2 picks its own.
+const DEFAULT_SPACE_IS_EXPLICITLY_ASSOCIATED: &str = concat!(
+    "a default colour space shall itself be defined in the resources dictionary explicitly ",
+    "associated with the content stream, and a processor ignores any resource that dictionary ",
+    "does not define — so a form XObject, a tiling pattern or a Type 3 font stating no ",
+    "Resources entry of its own has no default in force, whatever the page it is drawn on ",
+    "defines",
+);
 
 /// Every clarification that bears on a row of the table, by requirement identifier.
 ///
@@ -330,12 +354,65 @@ static CLARIFICATIONS: &[(&str, Clarification)] = &[
         "graphics/device-gray-needs-a-default-or-an-output-intent",
         Clarification {
             note: "TechNote 0010",
-            item: "A026",
+            item: "A026 and A028",
             parts: "ISO 19005-2 and ISO 19005-3",
             reaches: &[Part::Two],
             change: "DeviceGray is admitted as the ColorSpace of a soft-mask image dictionary \
                      with neither a default space nor an output intent, because there its \
-                     samples describe shape rather than colour",
+                     samples describe shape rather than colour; and the DefaultGray that \
+                     licenses it elsewhere is read from the resources dictionary explicitly \
+                     associated with the content stream that selected it, so a form XObject or \
+                     a Type 3 font stating no Resources entry of its own reads none",
+        },
+    ),
+    (
+        "graphics/device-rgb-needs-a-default-or-an-rgb-output-intent",
+        Clarification {
+            note: "TechNote 0010",
+            item: "A028",
+            parts: "ISO 19005-2 and ISO 19005-3",
+            reaches: &[Part::Two],
+            change: DEFAULT_SPACE_IS_EXPLICITLY_ASSOCIATED,
+        },
+    ),
+    (
+        "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+        Clarification {
+            note: "TechNote 0010",
+            item: "A028",
+            parts: "ISO 19005-2 and ISO 19005-3",
+            reaches: &[Part::Two],
+            change: DEFAULT_SPACE_IS_EXPLICITLY_ASSOCIATED,
+        },
+    ),
+    (
+        "graphics/separation-alternate-spaces-obey-the-colour-rules",
+        Clarification {
+            note: "TechNote 0010",
+            item: "A028",
+            parts: "ISO 19005-2 and ISO 19005-3",
+            reaches: &[Part::Two],
+            change: DEFAULT_SPACE_IS_EXPLICITLY_ASSOCIATED,
+        },
+    ),
+    (
+        "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules",
+        Clarification {
+            note: "TechNote 0010",
+            item: "A028",
+            parts: "ISO 19005-2 and ISO 19005-3",
+            reaches: &[Part::Two],
+            change: DEFAULT_SPACE_IS_EXPLICITLY_ASSOCIATED,
+        },
+    ),
+    (
+        "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
+        Clarification {
+            note: "TechNote 0010",
+            item: "A028",
+            parts: "ISO 19005-2 and ISO 19005-3",
+            reaches: &[Part::Two],
+            change: DEFAULT_SPACE_IS_EXPLICITLY_ASSOCIATED,
         },
     ),
     (
