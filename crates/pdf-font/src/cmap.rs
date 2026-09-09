@@ -653,6 +653,44 @@ impl CMap {
         self.mappings.iter().any(|mapping| !mapping.is_empty())
     }
 
+    /// The greatest character selector any of this `CMap`'s sections states.
+    ///
+    /// `None` for a `CMap` that states no mapping at all. Both kinds of section are read — the
+    /// `cidrange`/`cidchar` mappings and the `notdefrange`/`notdefchar` ones — because both name
+    /// a CID, and a `notdef` mapping's CID selects a glyph exactly as the other's does
+    /// (§9.7.6.3: it is consulted "to obtain a substitute character selector").
+    ///
+    /// The two range shapes are counted the way [`Mapping::get`] reads them, which is the whole
+    /// reason this lives here rather than in a caller: a `cidrange` numbers its codes upward
+    /// from the CID it names, so its greatest selector is that CID plus the width of the range,
+    /// while a `notdefrange` gives every code in the range the one CID it names.
+    ///
+    /// # Why this is a `pdf-font` accessor
+    ///
+    /// It reads structures the parse already built, allocates nothing, and is on no path a
+    /// viewer takes — `pdf-font` computes it only when something asks. What asks is
+    /// ISO 19005-2 section 6.1.13, whose implementation limit is stated about a *CID value* rather
+    /// than about a glyph: `pdf-archive` cannot ask the question without reaching the numbers
+    /// on the far side of `cidrange`, and reimplementing a `CMap` parser to reach them would be
+    /// a second reading of §9.7.5.3 for one rule to disagree with.
+    #[must_use]
+    pub fn greatest_selector(&self) -> Option<u32> {
+        let consecutive = self.mappings.iter().flat_map(|mapping| {
+            let singles = mapping.singles.values().copied();
+            let ranges = mapping
+                .ranges
+                .iter()
+                .map(|&(low, high, first)| first.saturating_add(high.saturating_sub(low)));
+            singles.chain(ranges)
+        });
+        let substitutes = self.notdef.iter().flat_map(|mapping| {
+            let singles = mapping.singles.values().copied();
+            let ranges = mapping.ranges.iter().map(|&(_, _, first)| first);
+            singles.chain(ranges)
+        });
+        consecutive.chain(substitutes).max()
+    }
+
     /// Visits every code this `CMap` states a mapping for that its own codespace admits.
     ///
     /// The inverse direction of [`Self::next_code`], and the only way to ask a composite font
@@ -812,6 +850,43 @@ mod tests {
         assert_eq!((one.value(), one.length), (0x41, 1));
         let two = map.next_code(&[0x81, 0x45, 0x00]);
         assert_eq!((two.value(), two.length), (0x8145, 2));
+    }
+
+    /// The greatest selector a `cidrange` states is its first CID plus the width of the range,
+    /// because [`Mapping::get`] numbers the codes upward from it; a `notdefrange` states one.
+    #[test]
+    fn the_greatest_selector_counts_a_range_to_its_end() {
+        let map = CMap::parse(SHIFT_JIS, None);
+        // `<8140> <817E> 633`: 62 codes above the first, so 633 + 62.
+        assert_eq!(map.greatest_selector(), Some(695));
+        let notdef_only = CMap::parse(
+            b"1 begincodespacerange <00> <FF> endcodespacerange
+              1 beginnotdefrange <00> <FF> 7 endnotdefrange",
+            None,
+        );
+        assert_eq!(
+            notdef_only.greatest_selector(),
+            Some(7),
+            "every code in a notdef range gets the one CID it names"
+        );
+        assert_eq!(
+            CMap::parse(b"1 begincodespacerange <00> <FF> endcodespacerange", None)
+                .greatest_selector(),
+            None,
+            "a CMap stating no mapping states no selector"
+        );
+    }
+
+    /// ISO 19005-2 section 6.1.13's limit is on the number rather than on the glyph, so the answer
+    /// has to come from the `cidrange` arithmetic and not from what the `CIDFont` happens to hold.
+    #[test]
+    fn a_cid_range_can_state_a_selector_above_the_archive_limit() {
+        let map = CMap::parse(
+            b"1 begincodespacerange <0000> <FFFF> endcodespacerange
+              1 begincidrange <3f00> <3fff> 65536 endcidrange",
+            None,
+        );
+        assert_eq!(map.greatest_selector(), Some(65536 + 0xFF));
     }
 
     #[test]

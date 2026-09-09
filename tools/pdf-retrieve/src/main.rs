@@ -292,11 +292,11 @@ fn structure(retrieval: &Retrieval) -> Value {
 ///
 /// # Why the answer is not a boolean
 ///
-/// ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3 both close by saying that the `pdfaid` properties
-/// do not themselves determine conformance — the determination is made against clause 5. So this
-/// reports what was *checked*, what failed and where, and **which requirements were not checked
-/// at all**, which `doc/questions/Q20` makes the discipline this crate lives by: a clean verdict
-/// that did not say what it was clean over would be indistinguishable from a complete one.
+/// ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3 both close by saying that the `pdfaid`
+/// properties do not themselves determine conformance — the determination is made against clause 5.
+/// So this reports what was *checked*, what failed and where, and **which requirements were not
+/// checked at all**, which `doc/questions/Q20` makes the discipline this crate lives by: a clean
+/// verdict that did not say what it was clean over would be indistinguishable from a complete one.
 ///
 /// A non-conforming document is an answer rather than an error, so the exit status stays zero
 /// and the verdict is in the JSON. A caller wanting a shell test reads `conforms`.

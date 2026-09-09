@@ -10,7 +10,7 @@
 //!
 //! Most of clause 6.1 is about *objects*, and those rules read [`Examination::objects`]: the
 //! population both parts' own exemption describes, an indirect object no cross-reference section
-//! names being exempt from everything (ISO 19005-2 §6.1.4, ISO 19005-4 §6.1.4).
+//! names being exempt from everything (ISO 19005-2 section 6.1.4, ISO 19005-4 section 6.1.4).
 //!
 //! Two rules are about *bytes* rather than objects — the indirect object's own `N G obj … endobj`
 //! shape, and the header — and those read the file through [`pdf_syntax::FileBytes`] at the
@@ -20,7 +20,7 @@
 //! One rule is about what a *content stream* does: an inline image's filter, which
 //! [`crate::survey`] already collects while it walks the pages.
 //!
-//! # ISO 19005-2 §6.1.13 is many requirements, and it is many rows
+//! # ISO 19005-2 section 6.1.13 is many requirements, and it is many rows
 //!
 //! The clause is a list of independent limits — on integers, on real numbers, on the length of a
 //! string and of a name, on how many indirect objects a file may have, on how deep `q` and `Q`
@@ -40,11 +40,12 @@
 //!
 //! **Part 4 states no implementation limits at all**, which is why every one of those rows is a
 //! [`Clauses::only_two`] — see `doc/pdf-a-conversion-limits.md`, and the PDF Association's own
-//! issue 626 recording that §6.1.13 was dropped rather than renumbered.
+//! issue 626 recording that section 6.1.13 was dropped rather than renumbered.
 
 use pdf_syntax::{Dictionary, Document, Lexer, Location, Name, Object, ObjectId, Stream, Token};
 
 use crate::Examination;
+use crate::table::states_name;
 use crate::target::Part;
 
 use crate::finding::{Findings, Where};
@@ -95,14 +96,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         asks: "The trailer dictionary shall contain an ID key whose value is the pair of file \
                identifiers the base standard defines.",
         // Part 2 states it itself. Part 4 does not — and it does not have to, because its base
-        // standard requires it of every PDF 2.0 file and §5.1 makes that binding. ISO 32000-2
-        // Table 15:
+        // standard requires it of every PDF 2.0 file and section 5.1 makes that binding. ISO
+        // 32000-2 Table 15:
         //
         // > (Required in PDF 2.0 and later, or if an Encrypt entry is present; optional
         // > otherwise; PDF 1.1) An array of two byte-strings constituting a PDF file identifier
         //
-        // Cited at §5.1 for part 4 so that a reader who looks up §6.1.3 and finds nothing is not
-        // left thinking this crate invented the rule.
+        // Cited at section 5.1 for part 4 so that a reader who looks up section 6.1.3 and finds
+        // nothing is not left thinking this crate invented the rule.
         clauses: Clauses::both("6.1.3", "5.1"),
         applies: Applies::Always,
         check: Check::Implemented(file_identifier),
@@ -129,12 +130,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                be separated by a single end-of-line marker.",
         clauses: Clauses::both("6.1.4", "6.1.4"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the rule is about the bytes of each cross-reference section, and `pdf_syntax` keeps \
-             the table it read rather than where it read each section from — so nothing in this \
-             tree can say where a section's `xref` keyword stands, least of all for the earlier \
-             sections of a `/Prev` chain",
-        ),
+        check: Check::Implemented(cross_reference_keyword_line_endings),
     },
     Requirement {
         id: "file-structure/no-lzw-filter",
@@ -180,8 +176,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         asks: "The stream keyword shall be followed by a carriage return and line feed or by a \
                single line feed, and the endstream keyword shall be preceded by an end-of-line \
                marker.",
-        // Part 4 dropped both sentences: its §6.1.6.1 keeps only the Length rule and the ban on
-        // external data. The row is `only_two` for that reason and not for want of looking.
+        // Part 4 dropped both sentences: its section 6.1.6.1 keeps only the Length rule and the ban
+        // on external data. The row is `only_two` for that reason and not for want of looking.
         clauses: Clauses::only_two("6.1.7.1"),
         applies: Applies::Always,
         check: Check::Implemented(stream_keyword_line_endings),
@@ -197,8 +193,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         id: "file-structure/document-signature-states-no-digest",
         asks: "Where a permissions dictionary states DocMDP, no signature reference dictionary \
                of that signature shall state DigestLocation, DigestMethod or DigestValue.",
-        // The second sentence of part 2's §6.1.12. Part 4's §6.1.11 carries the first sentence
-        // and drops this one, so it binds part 2 alone.
+        // The second sentence of part 2's section 6.1.12. Part 4's section 6.1.11 carries the first
+        // sentence and drops this one, so it binds part 2 alone.
         clauses: Clauses::only_two("6.1.12"),
         applies: Applies::Always,
         check: Check::Implemented(document_signature_states_no_digest),
@@ -216,11 +212,24 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         asks: "A hexadecimal string shall always have an even number of digits.",
         clauses: Clauses::both("6.1.6", "6.1.5"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the lexer completes an odd hexadecimal string the way the base standard requires \
-             and does not record that it did, so the fact is gone before this crate sees the \
-             object",
-        ),
+        check: Check::Implemented(hexadecimal_string_digits),
+    },
+    Requirement {
+        id: "file-structure/hexadecimal-string-holds-only-digits",
+        asks: "A hexadecimal string shall hold nothing but hexadecimal digits and white space.",
+        // Neither part states this one: it is the base standard's, and section 5.1 is what binds
+        // it. ISO 32000-2 §7.3.4.3, and ISO 32000-1:2008 §7.3.4.3 in the same words for part 2:
+        //
+        // > A hexadecimal string shall be written as a sequence of hexadecimal digits (0 -9 and
+        // > A -F or a -f) encoded as ASCII characters and enclosed within angle brackets
+        //
+        // followed by the one exemption, that white-space characters "shall be ignored". Cited at
+        // Section 5.1 in both parts rather than at ISO 19005's own section 6.1.6/section 6.1.5,
+        // which state the digit *count* and say nothing about what a digit is — attributing this to
+        // those clauses would be this crate inventing a rule and citing somebody else for it.
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(hexadecimal_string_holds_only_digits),
     },
     Requirement {
         id: "file-structure/bound-names-are-valid-utf8",
@@ -306,12 +315,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         asks: "No CID in the file shall be greater than 65535.",
         clauses: Clauses::only_two("6.1.13"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "a CID is stated by the CMap program that maps codes to it, and reading one means \
-             parsing that program's cidrange and cidchar sections; `pdf-font` parses CMaps and \
-             this crate does not depend on it, and `pdf-model` exposes no reader for one — the \
-             same absence `fonts/embedded-cmap-states-its-own-write-mode` names",
-        ),
+        check: Check::Implemented(character_identifiers),
     },
     Requirement {
         id: "implementation-limits/graphics-state-nesting",
@@ -330,7 +334,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
 ];
 
-/// ISO 19005-2 §6.1.3, ISO 19005-4 §6.1.3.
+/// ISO 19005-2 section 6.1.3, ISO 19005-4 section 6.1.3.
 fn no_encryption(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if document.trailer().get("Encrypt").is_some() {
@@ -341,7 +345,7 @@ fn no_encryption(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.1.2, ISO 19005-4 §6.1.2.
+/// ISO 19005-2 section 6.1.2, ISO 19005-4 section 6.1.2.
 ///
 /// Three separate requirements in one clause, and each is checked: the header is at byte zero,
 /// it states the version its part admits — `1.0` to `1.7` for part 2, `2.0` to `2.9` for part 4
@@ -366,8 +370,8 @@ fn file_header(exam: &Examination<'_>, findings: &mut Findings) {
         );
         return;
     }
-    // The digit each part admits, which is why this predicate needs the target: ISO 19005-2
-    // §6.1.2 admits 1.0 to 1.7 and ISO 19005-4 §6.1.2 admits 2.0 to 2.9, and a header stating
+    // The digit each part admits, which is why this predicate needs the target: ISO 19005-2 section
+    // 6.1.2 admits 1.0 to 1.7 and ISO 19005-4 section 6.1.2 admits 2.0 to 2.9, and a header stating
     // the other part's version is a failure rather than a curiosity.
     let (major, top) = match target.part() {
         Part::Two => (b'1', b'7'),
@@ -426,7 +430,7 @@ fn file_header(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-4 §6.1.3.
+/// ISO 19005-4 section 6.1.3.
 ///
 /// Part 2 says the same thing in a NOTE rather than a requirement, which is why this binds part
 /// 4 alone: a NOTE states no obligation, and a row that bound part 2 on one would be inventing a
@@ -453,7 +457,7 @@ fn nothing_after_the_end(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.1.3, and ISO 19005-4 §5.1 through ISO 32000-2 Table 15.
+/// ISO 19005-2 section 6.1.3, and ISO 19005-4 section 5.1 through ISO 32000-2 Table 15.
 ///
 /// The value is ISO 32000-2 §14.4's file identifier, which that clause makes "an array of two
 /// byte-strings".
@@ -470,9 +474,37 @@ fn nothing_after_the_end(exam: &Examination<'_>, findings: &mut Findings) {
 /// cannot be "based on the contents of the PDF file", though — every file would produce it — so
 /// the second sentence rules it out. The reading is stated here because it is a *derivation*
 /// rather than a quotation: the clause never uses the word "empty".
+///
+/// # Which trailer, when a file has several
+///
+/// [`pdf_syntax::Document::trailer`] is the **merge** of every section on the `/Prev` chain,
+/// which is right for a reader resolving `/Root` and wrong for this question. ISO 32000-1:2008
+/// §7.5.6 and ISO 32000-2 §7.5.6 both require each appended trailer to restate its predecessor's
+/// entries itself —
+///
+/// > The added trailer shall contain all the entries except the Prev entry (if present) from the
+/// > previous trailer, whether modified or not.
+///
+/// — so "the file trailer dictionary shall contain the ID keyword" is a question about the
+/// newest section's own dictionary. The merge answers it wrongly in one direction only, and it
+/// is the direction that matters: a file whose newest trailer states nothing and whose oldest
+/// stated everything passes the merge and has broken the rule.
+///
+/// A **linearised** file is where the corpus finds one, and it is not an exotic case.
+/// ISO 32000-1:2008 §F.3.4 makes the first-page trailer the one `startxref` names and says a
+/// reader "interprets the first-page cross-reference table as an update to an original document
+/// that is indexed by the main cross-reference table"; §F.3.11 then says the main trailer "shall
+/// not contain any entries other than Size". So in a conforming linearised file the identifier
+/// is in the *first-page* trailer, and a producer that leaves it only in the main one has
+/// written a file whose newest trailer does not state it.
+///
+/// Where the chain cannot be read at all — a table [`pdf_syntax::xref::rebuild`] recovered by
+/// scanning states no sections — the merge is used instead. That is deliberately the weaker
+/// test: the alternative is to fail a document over a trailer this crate synthesised.
 fn file_identifier(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    let Some(stated) = document.trailer().get("ID") else {
+    let governing = stated_trailer(document);
+    let Some(stated) = governing.get("ID") else {
         findings.record(Where::file().named("ID"), "the trailer states no ID");
         return;
     };
@@ -498,7 +530,7 @@ fn file_identifier(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-4 §6.1.3.
+/// ISO 19005-4 section 6.1.3.
 ///
 /// **A prohibition with one exception, and the exception is the reason the rule is worth
 /// stating.** ISO 32000-2 §14.3.3 deprecates the document information dictionary in favour of
@@ -523,7 +555,7 @@ fn document_information_dictionary_needs_piece_info(
     }
 }
 
-/// ISO 19005-4 §6.1.3.
+/// ISO 19005-4 section 6.1.3.
 ///
 /// The second half of the same clause, and a separate row because it binds a different document:
 /// this one fails where the first passes, a file whose `/PieceInfo` earns it an information
@@ -585,9 +617,9 @@ const STANDARD_FILTERS: &[&str] = &[
 
 /// Walks every stream the cross-reference table reaches.
 ///
-/// Bounded by that table rather than by a traversal of the page tree, and deliberately: both
-/// parts exempt an indirect object no cross-reference section names — ISO 19005-2 §6.1.4 and
-/// ISO 19005-4 §6.1.4 — so what this iterates is exactly the population the requirements bind.
+/// Bounded by that table rather than by a traversal of the page tree, and deliberately: both parts
+/// exempt an indirect object no cross-reference section names — ISO 19005-2 section 6.1.4 and ISO
+/// 19005-4 section 6.1.4 — so what this iterates is exactly the population the requirements bind.
 fn for_each_stream(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Stream)) {
     for (id, object) in exam.objects() {
         if let Object::Stream(stream) = object {
@@ -596,7 +628,7 @@ fn for_each_stream(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Stre
     }
 }
 
-/// ISO 19005-2 §6.1.7.2, ISO 19005-4 §6.1.6.2.
+/// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
 fn no_lzw_filter(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_stream(exam, |id, stream| {
@@ -611,7 +643,7 @@ fn no_lzw_filter(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.1.7.2, ISO 19005-4 §6.1.6.2.
+/// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
 ///
 /// A separate row from the `LZWDecode` one because the two sentences forbid different things:
 /// `LZWDecode` *is* one of Table 6's filters and is banned by name, while this bans everything
@@ -630,7 +662,7 @@ fn stream_filters_are_standard(exam: &Examination<'_>, findings: &mut Findings) 
     });
 }
 
-/// ISO 19005-2 §6.1.7.2, ISO 19005-4 §6.1.6.2.
+/// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
 ///
 /// The `Crypt` filter is permitted, and only in the one form that decrypts nothing: both parts
 /// require the `Name` of its decode parameters to be `Identity`. A stream that states `Crypt`
@@ -671,7 +703,7 @@ fn crypt_filter_is_identity(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.1.7.1, ISO 19005-4 §6.1.6.1.
+/// ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1.
 fn no_external_stream_data(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_stream(exam, |id, stream| {
         for key in ["F", "FFilter", "FDecodeParams"] {
@@ -685,14 +717,14 @@ fn no_external_stream_data(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.1.7.1, ISO 19005-4 §6.1.6.1.
+/// ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1.
 ///
 /// Asked of the reader rather than of the bytes: `pdf_syntax` takes the declared `/Length` where
 /// it is right and finds the real end of the data where it is wrong, so a disagreement between
 /// the entry and the data it handed back *is* the disagreement the clause forbids.
 ///
 /// Skipped where the file is encrypted, because a decrypted stream is not the length its bytes
-/// were, and an encrypted file has already failed §6.1.3.
+/// were, and an encrypted file has already failed section 6.1.3.
 fn stream_length_matches_the_data(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if document.trailer().get("Encrypt").is_some() {
@@ -732,7 +764,7 @@ const WIDE_STREAM_HEADER_WINDOW: usize = 8192;
 /// in the malformed ones this rule exists to catch.
 const ENDSTREAM_WINDOW: usize = 64;
 
-/// ISO 19005-2 §6.1.7.1.
+/// ISO 19005-2 section 6.1.7.1.
 ///
 /// **A bytes rule, like [`indirect_object_syntax`], and for the same reason**: the same document
 /// written with a space where §7.3.8 requires an end-of-line marker parses to exactly the same
@@ -747,7 +779,7 @@ const ENDSTREAM_WINDOW: usize = 64;
 ///
 /// Its streams are decrypted before this crate sees them and are not the length their bytes
 /// were, so stepping over the data would land in the wrong place. Such a file has already failed
-/// §6.1.3, and the same reasoning skips [`stream_length_matches_the_data`].
+/// Section 6.1.3, and the same reasoning skips [`stream_length_matches_the_data`].
 ///
 /// # Where it stays silent
 ///
@@ -841,7 +873,7 @@ fn stream_keyword_end(document: &Document, start: usize, id: ObjectId) -> Option
     None
 }
 
-/// ISO 19005-2 §6.1.12, ISO 19005-4 §6.1.11.
+/// ISO 19005-2 section 6.1.12, ISO 19005-4 section 6.1.11.
 fn permissions_dictionary_keys(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Ok(catalog) = document.catalog() else {
@@ -860,11 +892,11 @@ fn permissions_dictionary_keys(exam: &Examination<'_>, findings: &mut Findings) 
     }
 }
 
-/// ISO 19005-4 §6.1.12.
+/// ISO 19005-4 section 6.1.12.
 ///
-/// ISO 32000-2 §7.5.2 lets a catalog's `/Version` override the header's version, and Table 29
-/// makes it a name; part 4 pins the shape of that name to the version it admits, which is what
-/// the header's own rule does for the header. Part 2 states no such clause — its §6.1.12 is the
+/// ISO 32000-2 §7.5.2 lets a catalog's `/Version` override the header's version, and Table 29 makes
+/// it a name; part 4 pins the shape of that name to the version it admits, which is what the
+/// header's own rule does for the header. Part 2 states no such clause — its section 6.1.12 is the
 /// permissions one — so this binds part 4 alone.
 ///
 /// The value is compared after `#`-escapes are expanded, because `pdf_syntax` stores a name
@@ -889,7 +921,7 @@ fn catalog_version_key(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.1.12.
+/// ISO 19005-2 section 6.1.12.
 ///
 /// **Part 4 could not have kept this sentence, and the reason is worth knowing rather than
 /// treating as an omission.** ISO 32000-2's Table 256 has dropped `DigestLocation` and
@@ -949,7 +981,7 @@ const MAX_VALUE_DEPTH: u32 = 64;
 
 /// Visits every value inside one object, saying which dictionary key it was found under.
 ///
-/// The key is what several of §6.1.13's limits need — a name is as much a name for being a
+/// The key is what several of section 6.1.13's limits need — a name is as much a name for being a
 /// dictionary's key as for being its value — and it is `None` for an array's element and for the
 /// object handed in.
 fn for_each_value(object: &Object, depth: u32, visit: &mut impl FnMut(Option<&Name>, &Object)) {
@@ -1008,12 +1040,12 @@ fn shortened(bytes: &[u8]) -> String {
     }
 }
 
-/// The largest integer ISO 19005-2 §6.1.13 admits.
+/// The largest integer ISO 19005-2 section 6.1.13 admits.
 const LARGEST_INTEGER: i64 = 2_147_483_647;
-/// The smallest integer ISO 19005-2 §6.1.13 admits.
+/// The smallest integer ISO 19005-2 section 6.1.13 admits.
 const SMALLEST_INTEGER: i64 = -2_147_483_648;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 ///
 /// `pdf_syntax` carries an integer as `i64` precisely so that a validator can ask this: a
 /// reader that clamped to `i32` would have destroyed the evidence. An integer literal too large
@@ -1033,12 +1065,12 @@ fn integer_values(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// The largest magnitude ISO 19005-2 §6.1.13 admits of a real number.
+/// The largest magnitude ISO 19005-2 section 6.1.13 admits of a real number.
 const LARGEST_REAL: f64 = 3.403e38;
-/// The smallest non-zero magnitude ISO 19005-2 §6.1.13 admits of a real number.
+/// The smallest non-zero magnitude ISO 19005-2 section 6.1.13 admits of a real number.
 const SMALLEST_REAL: f64 = 1.175e-38;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 ///
 /// **Zero is not "closer to zero than ±1.175×10^-38".** The two bounds are IEEE 754 single
 /// precision's largest finite value and its smallest normal one, which is what ISO 32000-2's
@@ -1065,15 +1097,15 @@ fn real_values(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// The longest string ISO 19005-2 §6.1.13 admits, in bytes.
+/// The longest string ISO 19005-2 section 6.1.13 admits, in bytes.
 const LONGEST_STRING: usize = 32_767;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 ///
 /// **The clause is wider than the limit it derives from, and it is the clause that binds.**
 /// ISO 32000-2's Table C.1 restricts the length of "a string object in a content stream" and says
-/// in as many words that there were "no effective restrictions on other strings in PDF files";
-/// ISO 19005-2 §6.1.13 drops that qualification and states the limit of the file. So an outline
+/// in as many words that there were "no effective restrictions on other strings in PDF files"; ISO
+/// 19005-2 section 6.1.13 drops that qualification and states the limit of the file. So an outline
 /// title of thirty-three thousand bytes fails, and the corpus reads it the same way.
 fn string_lengths(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_object_value(exam, |id, _, value| {
@@ -1088,10 +1120,10 @@ fn string_lengths(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// The longest name ISO 19005-2 §6.1.13 admits, in bytes.
+/// The longest name ISO 19005-2 section 6.1.13 admits, in bytes.
 const LONGEST_NAME: usize = 127;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 ///
 /// **Measured on the decoded name, not on what was written.** ISO 32000-2 Table C.1 puts the
 /// limit on "the internal representation of a name object", and `pdf_syntax` stores a name
@@ -1117,10 +1149,10 @@ fn name_lengths(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// The most indirect objects ISO 19005-2 §6.1.13 admits.
+/// The most indirect objects ISO 19005-2 section 6.1.13 admits.
 const MOST_INDIRECT_OBJECTS: usize = 8_388_607;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 fn indirect_object_count(exam: &Examination<'_>, findings: &mut Findings) {
     let counted = exam.objects().len();
     if counted > MOST_INDIRECT_OBJECTS {
@@ -1131,10 +1163,10 @@ fn indirect_object_count(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// The deepest nesting of `q` and `Q` pairs ISO 19005-2 §6.1.13 admits.
+/// The deepest nesting of `q` and `Q` pairs ISO 19005-2 section 6.1.13 admits.
 const DEEPEST_NESTING: usize = 28;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 ///
 /// The depth is a property of the content stream's operators rather than of any object, so it
 /// comes from [`crate::survey`], which carries the `q` stack the walk needs anyway.
@@ -1152,15 +1184,15 @@ fn graphics_state_nesting(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.1.13, for the values written inside a content stream.
+/// ISO 19005-2 section 6.1.13, for the values written inside a content stream.
 ///
 /// # Why this is a row of its own rather than four lines in the four sibling rows
 ///
-/// The sibling rows read every object a cross-reference section names, which is where all but
-/// two of a file's values live; a number, string or name written as an *operand* is inside a
-/// stream's data and no object walk reaches it. Both halves are the same sentence of §6.1.13, so
-/// a reader has to be able to see which half a verdict covers — and a single row would say the
-/// clause was checked while half of it was not.
+/// The sibling rows read every object a cross-reference section names, which is where all but two
+/// of a file's values live; a number, string or name written as an *operand* is inside a stream's
+/// data and no object walk reaches it. Both halves are the same sentence of section 6.1.13, so a
+/// reader has to be able to see which half a verdict covers — and a single row would say the clause
+/// was checked while half of it was not.
 ///
 /// # One finding per kind, from the extreme
 ///
@@ -1231,10 +1263,10 @@ fn values_written_in_content_streams(exam: &Examination<'_>, findings: &mut Find
     }
 }
 
-/// The most colourants ISO 19005-2 §6.1.13 admits of a `DeviceN` colour space.
+/// The most colourants ISO 19005-2 section 6.1.13 admits of a `DeviceN` colour space.
 const MOST_COLOURANTS: usize = 32;
 
-/// ISO 19005-2 §6.1.13.
+/// ISO 19005-2 section 6.1.13.
 ///
 /// ISO 32000-2 §8.6.6.5 makes a `DeviceN` space the array `[/DeviceN names alternateSpace
 /// tintTransform]`, so the count is the length of the second element.
@@ -1263,15 +1295,15 @@ fn devicen_colourants(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// The smallest page boundary ISO 19005-2 §6.1.13 admits, in user-space units.
+/// The smallest page boundary ISO 19005-2 section 6.1.13 admits, in user-space units.
 const SMALLEST_BOUNDARY: f64 = 3.0;
-/// The largest page boundary ISO 19005-2 §6.1.13 admits, in user-space units.
+/// The largest page boundary ISO 19005-2 section 6.1.13 admits, in user-space units.
 const LARGEST_BOUNDARY: f64 = 14_400.0;
 
 /// How far up a page's `/Parent` chain an inheritable boundary is looked for.
 const MAX_ANCESTRY: u32 = 64;
 
-/// ISO 19005-2 §6.1.13, and ISO 32000-2 §14.11.2 for which rectangles are page boundaries.
+/// ISO 19005-2 section 6.1.13, and ISO 32000-2 §14.11.2 for which rectangles are page boundaries.
 ///
 /// # The rectangle asked about is the one the page *states*, and neither of the two obvious
 /// alternatives
@@ -1288,7 +1320,7 @@ const MAX_ANCESTRY: u32 = 64;
 /// extends beyond the medium — so a fourteen-thousand-unit crop box inside a five-hundred-unit
 /// media box arrives here already clipped to five hundred, and the value the file states
 /// disappears before the limit can be applied to it. That is a processor's compensation for a
-/// value outside the limit, not a redefinition of the value; every one of §6.1.13's eleven
+/// value outside the limit, not a redefinition of the value; every one of section 6.1.13's eleven
 /// sentences is about what a *file contains*, and this one is no different.
 ///
 /// A boundary the page does not state is not checked, because §14.11.2.1 defaults it to another
@@ -1325,6 +1357,64 @@ fn page_boundary_sizes(exam: &Examination<'_>, findings: &mut Findings) {
                     );
                 }
             }
+        }
+    }
+}
+
+/// The greatest CID ISO 19005-2 section 6.1.13 admits.
+///
+/// Two bytes' worth, and the limit is stated about a *CID value* rather than about a glyph
+/// count — a file with three glyphs may still select one of them by a CID of 70 000.
+const GREATEST_CID: u32 = 65_535;
+
+/// ISO 19005-2 section 6.1.13: no CID in the file shall be greater than 65535.
+///
+/// # Where a CID is written, and which of those places this reads
+///
+/// A CID is not stored anywhere as itself. It is *selected*, and ISO 32000-2 §9.7.5.3 gives the
+/// selection: an embedded CMap's `cidrange` maps a run of codes onto consecutive CIDs counting up
+/// from the one it names, `cidchar` maps one code to one CID, and `notdefrange` gives every code
+/// in a run the single CID it names. So the greatest CID a font can select is a fact about the
+/// CMap program, and reading it means parsing that program.
+///
+/// **`pdf-font` already parses it**, and `Cargo.toml` explains why this crate depends on
+/// `pdf-font` directly. The row's reason used to say the opposite — that this crate does not
+/// depend on it — which was true when the row was written and stopped being true when the font
+/// tranche landed. A stale reason on an unchecked row is the failure `A20` names: the reason is
+/// the report.
+///
+/// # What this does not reach
+///
+/// A `/W` array also spells CIDs, as the first element of each run, and a `/CIDToGIDMap` stream
+/// is indexed by one. Neither is read here: both describe CIDs the CMap must already select for
+/// them to matter, so a file whose greatest CID is inside the limit cannot be pushed past it by
+/// either. A file could still *write* an out-of-range CID into `/W` and never select it, and this
+/// rule would not see it — which is a narrower gap than the row had, not the absence of one.
+fn character_identifiers(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for (id, object) in exam.objects() {
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        if !states_name(document, dict, "Subtype", b"Type0") {
+            continue;
+        }
+        // §9.7.5.2's predefined CMaps are named rather than embedded, and a name states no CIDs
+        // of its own. Only the stream form carries a program to read.
+        let Object::Stream(stream) = document.get_key(dict, "Encoding") else {
+            continue;
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            continue;
+        };
+        let Some(greatest) = pdf_font::cmap::CMap::parse(&bytes, None).greatest_selector() else {
+            continue;
+        };
+        if greatest > GREATEST_CID {
+            findings.record(
+                Where::object(*id).named(greatest.to_string()),
+                "an embedded CMap selects a CID greater than this part allows",
+            );
         }
     }
 }
@@ -1380,7 +1470,7 @@ fn rectangle(document: &Document, object: &Object) -> Option<[f64; 2]> {
     Some([width, height])
 }
 
-/// Which of the three kinds of name ISO 19005-2 §6.1.8 binds a name is.
+/// Which of the three kinds of name ISO 19005-2 section 6.1.8 binds a name is.
 ///
 /// The clause binds exactly three and says every *other* name "should" follow suit — a
 /// recommendation, not a requirement. A rule that tested every name in the file would be
@@ -1407,7 +1497,7 @@ impl BoundName {
     }
 }
 
-/// ISO 19005-2 §6.1.8, ISO 19005-4 §6.1.7.
+/// ISO 19005-2 section 6.1.8, ISO 19005-4 section 6.1.7.
 ///
 /// The names are already decoded — `pdf_syntax` resolves `#xx` at parse time — so the test is
 /// exactly the clause's: are the bytes that remain a valid UTF-8 sequence.
@@ -1425,7 +1515,7 @@ fn bound_names_are_valid_utf8(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// Visits the names of one object that ISO 19005-2 §6.1.8 binds.
+/// Visits the names of one object that ISO 19005-2 section 6.1.8 binds.
 ///
 /// A structure element is recognised by its `/Type`, which ISO 32000-2 Table 355 makes optional;
 /// an element that omits it contributes nothing here, and its `/S` is reached anyway wherever the
@@ -1562,7 +1652,369 @@ const fn is_end_of_line(byte: u8) -> bool {
     matches!(byte, b'\r' | b'\n')
 }
 
-/// ISO 19005-2 §6.1.9, ISO 19005-4 §6.1.8.
+/// How many bytes of an indirect object's own syntax are read when looking for its strings.
+///
+/// An object's bytes run to wherever the next one begins, and that is usually a few hundred; the
+/// cap is what stops a stream object whose data is a megabyte from being read whole to reach the
+/// dictionary in its first line, since the reading stops at the `stream` keyword anyway. An
+/// object stating more than this much syntax — an array of tens of thousands of numbers — is read
+/// as far as the cap and no further, which is this crate's standing direction of error:
+/// under-report rather than mis-report.
+const OBJECT_SYNTAX_WINDOW: usize = 64 * 1024;
+
+/// One span of a document's bytes that is PDF syntax, and what its hexadecimal strings looked
+/// like as written.
+struct HexadecimalSpan {
+    /// Where a finding about it belongs.
+    place: Where,
+    /// What ISO 32000-2 §7.3.4.3's strings in that span said, from [`Lexer`]'s own count.
+    strings: pdf_syntax::HexadecimalStrings,
+}
+
+/// Every span of this document that is PDF syntax, with its hexadecimal strings counted.
+///
+/// # Why this is three walks and not one
+///
+/// §7.3.4.3's strings are *syntax*, and a PDF states syntax in three separate places: in the file
+/// itself, between an object's `obj` and its `endobj`; inside §7.5.7's object streams, whose data
+/// is a run of objects with no headers of their own; and inside a content stream, where a
+/// text-showing operator's operand is a string like any other. A walk that read only the first
+/// would pass a document whose every page draws with a malformed string, which is what the corpus
+/// witnesses for both of these rules are.
+///
+/// # What is not walked, and it is written down rather than implied
+///
+/// Of the content streams, only each page's own `/Contents` is read here. A form `XObject`
+/// invoked through `Do`, a tiling pattern, a Type 3 glyph procedure and an annotation's
+/// appearance stream are reached by following a resource dictionary, which is [`crate::survey`]'s
+/// one walk of the document's content — and a second walk of it here would cost every report a
+/// pass to answer a question the survey is already positioned to answer as it goes. So a
+/// hexadecimal string written *only* inside one of those is not reported. That is the crate's
+/// standing direction of error and not a claim that the clause exempts them.
+///
+/// Streams whose data this reader cannot decode are skipped for the same reason and with the same
+/// consequence: a filter chain nothing here can run is a stream this rule says nothing about.
+///
+/// # What it costs, measured, and the one thing that would halve it
+///
+/// `examples/cost` on ISO 32000-2's own specification — 1 023 pages, 101 318 objects: **266 ms**
+/// for the first of the two rules that ask and **146 ms** for the second, on a report that takes
+/// 4.1 s. They are the two dearest predicates in the crate, which is the honest place to say so
+/// rather than a footnote. The first pays for decoding on top of the walk and the second does
+/// not, because [`pdf_syntax::Document`] memoises a decoded stream; what the second pays for is
+/// the *lexing*, done twice because two clauses ask two questions of one walk and a predicate has
+/// nowhere to leave an answer for its sibling.
+///
+/// **That is the fix, and it is not in this file**: [`crate::Examination`] is where a report's
+/// shared work lives — its `survey`, its `objects`, its `annotations` are all there for this
+/// reason — and a field holding these spans would turn two walks into one. Reading the file
+/// whole instead of a window per object was tried first and refuted: 274 ms became 266 ms, an
+/// 8 ms saving for 19 MB retained, so the cost is the lexing and not the reading.
+fn hexadecimal_spans(exam: &Examination<'_>) -> Vec<HexadecimalSpan> {
+    let document = exam.document;
+    let mut out = Vec::new();
+
+    // The file's own syntax, object by object. Bounded by where the next object begins, because
+    // §7.3.10's `endobj` is what ends one and a producer that omitted it would otherwise have
+    // this reader lex the object after it twice.
+    let mut placed: Vec<(usize, ObjectId)> = exam
+        .objects()
+        .iter()
+        .filter_map(|(id, _)| match document.xref().location(id.number) {
+            Some(Location::Offset(at)) => Some((at, *id)),
+            _ => None,
+        })
+        .collect();
+    placed.sort_unstable();
+    for (index, (start, id)) in placed.iter().enumerate() {
+        let next = placed
+            .get(index.saturating_add(1))
+            .map_or(document.bytes().len(), |(at, _)| *at);
+        let end = next.min(start.saturating_add(OBJECT_SYNTAX_WINDOW));
+        let window = document.bytes().read(*start..end.max(*start));
+        let mut lexer = Lexer::at(&window, 0);
+        // Stopping at `stream` is what keeps a stream's *data* out of this: those bytes are an
+        // image or a compressed run, not syntax, and lexing them would invent hexadecimal
+        // strings out of binary that happens to hold an angle bracket. §7.3.8.1 puts the data
+        // immediately after the keyword, so the keyword is the boundary.
+        while let Some(token) = lexer.next_token() {
+            if matches!(token, Token::Keyword(b"stream" | b"endobj")) {
+                break;
+            }
+        }
+        record_span(&mut out, Where::object(*id), &lexer);
+    }
+
+    // §7.5.7's object streams: objects with no `N G obj` header, in a stream's decoded data.
+    for (id, object) in exam.objects() {
+        let Some(stream) = object.as_stream() else {
+            continue;
+        };
+        let is_object_stream = document
+            .get_key(&stream.dict, "Type")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"ObjStm");
+        if !is_object_stream {
+            continue;
+        }
+        let Some(data) = document.decoded_stream_data(stream) else {
+            continue;
+        };
+        let mut lexer = Lexer::new(&data);
+        while lexer.next_token().is_some() {}
+        record_span(&mut out, Where::object(*id), &lexer);
+    }
+
+    // §7.8.2's content streams, as far as a page's own `/Contents`.
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, page) in exam.pages().iter().enumerate() {
+        let listed = page.dict.get("Contents").cloned().unwrap_or(Object::Null);
+        // §7.7.3.3's Table 31 makes `/Contents` "either a single stream or an array of streams",
+        // and an array's elements are references. The reference is what identifies a stream two
+        // pages share, so it is kept rather than resolved away.
+        let items = match document.resolve(&listed) {
+            Object::Array(items) => items,
+            _ => vec![listed],
+        };
+        for item in &items {
+            if let Some(id) = item.as_reference()
+                && !seen.insert(id)
+            {
+                continue;
+            }
+            let resolved = document.resolve(item);
+            let Some(stream) = resolved.as_stream() else {
+                continue;
+            };
+            let Some(data) = document.decoded_stream_data(stream) else {
+                continue;
+            };
+            let resources = document
+                .get_key(&page.dict, "Resources")
+                .as_dict()
+                .cloned()
+                .unwrap_or_default();
+            let mut lexer = Lexer::new(&data);
+            while let Some(token) = lexer.next_token() {
+                // §8.9.7's inline image, whose data is **not** a program and must never be
+                // lexed as one. Compressed samples hold angle brackets like they hold any other
+                // byte, and reading them as syntax invents hexadecimal strings out of an image:
+                // five conforming corpus documents were failed by this rule before the skip was
+                // here, which is precisely the mis-report the crate's direction of error
+                // forbids. `pdf_model::inline_image::scan` is the reader that already knows
+                // where the data ends, and its `resume` is the only thing wanted here.
+                if matches!(token, Token::Keyword(b"BI")) {
+                    let scan = pdf_model::inline_image::scan(
+                        document,
+                        &data,
+                        lexer.position(),
+                        &resources,
+                        true,
+                    );
+                    lexer.seek(scan.resume);
+                }
+            }
+            record_span(&mut out, Where::page(index), &lexer);
+        }
+    }
+
+    out
+}
+
+/// Keeps a span, but only where its lexer read a hexadecimal string worth reporting.
+fn record_span(out: &mut Vec<HexadecimalSpan>, place: Where, lexer: &Lexer<'_>) {
+    let strings = lexer.hexadecimal_strings();
+    if strings.completed > 0 || strings.strayed > 0 {
+        out.push(HexadecimalSpan { place, strings });
+    }
+}
+
+/// ISO 19005-2 section 6.1.6, ISO 19005-4 section 6.1.5.
+///
+/// Both parts state the same rule in the same words, and both attach the same NOTE saying what it
+/// is for: it removes the base standard's provision for a missing final digit. That provision is
+/// ISO 32000-2 §7.3.4.3 —
+///
+/// > If the final digit of a hexadecimal string is missing -that is, if there is an odd number of
+/// > digits -the final digit shall be assumed to be 0.
+///
+/// — and ISO 32000-1:2008 §7.3.4.3 states it in the same terms for part 2. **A conforming reader
+/// therefore cannot see this fault in the value**: the string it builds from `<901FA>` is byte
+/// for byte the string it builds from `<901FA0>`, which is why the count comes from
+/// [`pdf_syntax::HexadecimalStrings`] — the lexer's own record of what the bytes said — rather
+/// than from the object.
+fn hexadecimal_string_digits(exam: &Examination<'_>, findings: &mut Findings) {
+    for span in hexadecimal_spans(exam) {
+        if span.strings.completed == 0 {
+            continue;
+        }
+        findings.record(
+            span.place,
+            format!(
+                "{} hexadecimal {} an odd number of digits, which the base standard completes \
+                 with a zero",
+                span.strings.completed,
+                if span.strings.completed == 1 {
+                    "string states"
+                } else {
+                    "strings state"
+                },
+            ),
+        );
+    }
+}
+
+/// ISO 19005-2 section 5.1 and ISO 19005-4 section 5.1, through the base standard's §7.3.4.3.
+///
+/// The sibling of [`hexadecimal_string_digits`], and a separate row because it is a separate
+/// clause: ISO 19005 says how many digits a hexadecimal string has and the base standard says
+/// what a digit is. §7.3.4.3 allows exactly two things between the angle brackets — the digits
+/// themselves, and white space, which "shall be ignored" — so a byte that is neither has been
+/// written into a string that shall not hold one.
+///
+/// A conforming reader cannot see this in the value either: §7.3.4.3 gives no meaning to such a
+/// byte, so this reader passes over it and the string comes out as though it were never there.
+fn hexadecimal_string_holds_only_digits(exam: &Examination<'_>, findings: &mut Findings) {
+    for span in hexadecimal_spans(exam) {
+        if span.strings.strayed == 0 {
+            continue;
+        }
+        findings.record(
+            span.place,
+            format!(
+                "{} hexadecimal {} a byte that is neither a hexadecimal digit nor white space",
+                span.strings.strayed,
+                if span.strings.strayed == 1 {
+                    "string holds"
+                } else {
+                    "strings hold"
+                },
+            ),
+        );
+    }
+}
+
+/// How many bytes are read at a cross-reference section's `xref` keyword.
+///
+/// Enough for the keyword, whatever stands between it and the subsection header, and the header
+/// itself; a separator longer than this is already not the single end-of-line marker the clause
+/// asks for, so the window is a bound on the reading rather than a limit on the verdict.
+const XREF_KEYWORD_WINDOW: usize = 96;
+
+/// The trailer the file itself states most recently, rather than the `/Prev` chain's merge.
+///
+/// The newest section is the first [`pdf_syntax::xref::sections`] reports, because that walk
+/// follows `startxref` and then `/Prev`. An empty dictionary there is not treated as a statement:
+/// a section this crate could not read a trailer out of says nothing about what the file states,
+/// so the merge answers instead. See [`file_identifier`] for the clause that makes the
+/// distinction matter.
+fn stated_trailer(document: &Document) -> Dictionary {
+    let newest = pdf_syntax::xref::sections(document.bytes(), document.limits())
+        .into_iter()
+        .next()
+        .map(|section| section.trailer)
+        .filter(|trailer| trailer.iter().next().is_some());
+    newest.unwrap_or_else(|| document.trailer().clone())
+}
+
+/// ISO 19005-2 section 6.1.4, ISO 19005-4 section 6.1.4.
+///
+/// Both parts state the rule in the same words and neither defines the marker itself: that is the
+/// base standard's, and ISO 32000-2 §7.2.3 makes it one of three byte sequences —
+///
+/// > The CARRIAGE RETURN (0Dh) and LINE FEED (0Ah) characters, also called newline characters,
+/// > shall be treated as end-of-line (EOL) markers. The combination of a CARRIAGE RETURN followed
+/// > immediately by a LINE FEED shall be treated as one EOL marker.
+///
+/// — so a SPACE before the marker, or a second marker after it, is a separator the clause does
+/// not allow. Those are the two shapes the corpus witnesses, and neither changes what the table
+/// parses to, which is why this rule reads the file's bytes rather than [`Examination::objects`].
+///
+/// # What is judged, and what has no subject
+///
+/// Every section `startxref` and `/Prev` name is judged, not only the last: the clause says "the
+/// xref keyword", and a file's earlier sections each state one. A section written as
+/// ISO 32000-2 §7.5.8's cross-reference *stream* has no `xref` keyword at all — §7.5.8.1 forbids
+/// one in a file written entirely with streams — so the rule has no subject there and nothing is
+/// reported, which is the shape of the construct rather than an exemption this crate grants.
+///
+/// Two more cases report nothing, both because the bytes do not carry the rule's subject rather
+/// than because they satisfy it: a section whose offset does not lead to the keyword (a
+/// cross-reference table this crate reached by some other route), and a classic section that
+/// states no subsection header after its keyword. A file recovered by scanning states no sections
+/// at all, and is silent for the same reason.
+fn cross_reference_keyword_line_endings(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for section in pdf_syntax::xref::sections(document.bytes(), document.limits()) {
+        if !section.classic {
+            continue;
+        }
+        let window = document
+            .bytes()
+            .read(section.offset..section.offset.saturating_add(XREF_KEYWORD_WINDOW));
+        // §7.5.5 measures `startxref` to "the beginning of the xref keyword", but a producer
+        // that pointed a little short of it has said nothing about *this* rule, so the keyword
+        // is looked for rather than assumed and a window without one is passed over.
+        let leading = window
+            .iter()
+            .position(|byte| !is_white_space(*byte))
+            .unwrap_or(window.len());
+        let Some(after) = window
+            .get(leading..)
+            .and_then(|rest| rest.strip_prefix(b"xref".as_slice()))
+        else {
+            continue;
+        };
+        // §7.5.4 gives the subsection header as two integers, so the first byte of what follows
+        // the separator is a decimal digit. Anything else — the `trailer` keyword of a section
+        // with no subsection, or the end of the window — is not a header for the separator to
+        // be judged against.
+        let Some(header_at) = after.iter().position(|byte| !is_white_space(*byte)) else {
+            continue;
+        };
+        if !after.get(header_at).is_some_and(u8::is_ascii_digit) {
+            continue;
+        }
+        let separator = after.get(..header_at).unwrap_or_default();
+        if matches!(separator, b"\r" | b"\n" | b"\r\n") {
+            continue;
+        }
+        findings.record(
+            Where::file().named("xref"),
+            format!(
+                "the xref keyword of the cross-reference section at byte {} and the subsection \
+                 header after it are separated by {} rather than by a single end-of-line marker",
+                section.offset,
+                describe_separator(separator),
+            ),
+        );
+    }
+}
+
+/// How a separator that is not a single end-of-line marker is named in a finding.
+///
+/// A witness a reader can act on: "two line feeds" and "a space and a line feed" are different
+/// edits to the file, and a byte count alone would send them looking for the difference.
+fn describe_separator(separator: &[u8]) -> String {
+    if separator.is_empty() {
+        return "nothing".to_owned();
+    }
+    let named: Vec<&str> = separator
+        .iter()
+        .map(|byte| match byte {
+            b'\r' => "a carriage return",
+            b'\n' => "a line feed",
+            b' ' => "a space",
+            b'\t' => "a tab",
+            12 => "a form feed",
+            0 => "a null",
+            _ => "a byte",
+        })
+        .collect();
+    named.join(" and ")
+}
+
+/// ISO 19005-2 section 6.1.9, ISO 19005-4 section 6.1.8.
 ///
 /// **The one rule in this tranche that reads the file's bytes rather than its objects**, because
 /// that is what it is about: the same document, written with a space where an end-of-line marker
@@ -1746,7 +2198,7 @@ const INLINE_IMAGE_FILTERS: &[&str] = &[
     "DCTDecode",
 ];
 
-/// ISO 19005-2 §6.1.10, ISO 19005-4 §6.1.9.
+/// ISO 19005-2 section 6.1.10, ISO 19005-4 section 6.1.9.
 ///
 /// **The two parts point at different tables, and the difference is real.** Part 2 forbids "a
 /// value not listed in ISO 32000-1:2008, Table 6", which is the ten standard stream filters;
@@ -1792,8 +2244,9 @@ mod tests {
     use crate::target::Target;
 
     use super::{
-        LARGEST_INTEGER, LONGEST_NAME, LONGEST_STRING, SMALLEST_INTEGER, for_each_value, shortened,
-        stream_keyword_line_endings,
+        LARGEST_INTEGER, LONGEST_NAME, LONGEST_STRING, SMALLEST_INTEGER,
+        cross_reference_keyword_line_endings, for_each_value, hexadecimal_string_digits,
+        hexadecimal_string_holds_only_digits, shortened, stream_keyword_line_endings,
     };
 
     /// Builds a dictionary from pairs, for the small hand-made objects the tests walk.
@@ -1831,8 +2284,8 @@ mod tests {
 
     #[test]
     fn the_limits_are_the_ones_the_clause_states() {
-        // Read off ISO 19005-2 §6.1.13 rather than remembered: the boundary values themselves
-        // conform, and only what lies beyond them does not.
+        // Read off ISO 19005-2 section 6.1.13 rather than remembered: the boundary values
+        // themselves conform, and only what lies beyond them does not.
         assert_eq!(LARGEST_INTEGER, 2_147_483_647);
         assert_eq!(SMALLEST_INTEGER, -2_147_483_648);
         assert_eq!(LONGEST_STRING, 32_767);
@@ -1926,6 +2379,117 @@ mod tests {
             "<< /Length 15 >>\nstream\r\nendstream x\r\n\r\nendstream",
         ]);
         assert!(judged(&awkward, stream_keyword_line_endings).met());
+    }
+
+    /// The same fixture as [`document_of`], with what stands after the `xref` keyword chosen.
+    ///
+    /// The rule under test is about exactly those bytes, so they are the parameter; every other
+    /// byte of the file is the one [`document_of`] writes.
+    fn document_with_xref_separator(objects: &[&str], separator: &str) -> Document {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let number = index.saturating_add(1);
+            let _ = writeln!(out, "{number} 0 obj\n{body}\nendobj");
+        }
+        let start = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = write!(out, "xref{separator}0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer << /Size {size} /Root 1 0 R /ID [<AA> <BB>] >>\nstartxref\n{start}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).unwrap_or_else(|_| Document::empty())
+    }
+
+    /// ISO 19005-2 section 6.1.4 and ISO 19005-4 section 6.1.4, over the three separators §7.2.3
+    /// allows.
+    ///
+    /// Written as a comparison because an assertion about one file passes for a reader that never
+    /// applies the rule: the same document, differing only in the bytes between `xref` and the
+    /// subsection header.
+    #[test]
+    fn the_xref_keyword_takes_one_end_of_line_marker_and_no_other_separator() {
+        let objects = ["<< /Type /Catalog >>"];
+        for allowed in ["\n", "\r", "\r\n"] {
+            let document = document_with_xref_separator(&objects, allowed);
+            assert!(
+                judged(&document, cross_reference_keyword_line_endings).met(),
+                "§7.2.3 makes {allowed:?} an end-of-line marker"
+            );
+        }
+        for forbidden in [" \n", "\n\n", "\n ", "\r\r", "\t\n"] {
+            let document = document_with_xref_separator(&objects, forbidden);
+            assert!(
+                !judged(&document, cross_reference_keyword_line_endings).met(),
+                "{forbidden:?} is not a single end-of-line marker"
+            );
+        }
+    }
+
+    /// ISO 19005-2 section 6.1.6, ISO 19005-4 section 6.1.5, and the base standard's §7.3.4.3
+    /// beside it.
+    ///
+    /// The point of the pair: a conforming reader builds the same value from `<414>` as from
+    /// `<4140>` and from `<41!2>` as from `<4142>`, so a check reading the objects would pass all
+    /// four. These read what the bytes said.
+    #[test]
+    fn a_hexadecimal_strings_digits_are_judged_as_written_rather_than_as_read() {
+        let even = document_of(&["<< /Type /Catalog /Note <4142> >>"]);
+        assert!(judged(&even, hexadecimal_string_digits).met());
+        assert!(judged(&even, hexadecimal_string_holds_only_digits).met());
+
+        let odd = document_of(&["<< /Type /Catalog /Note <414> >>"]);
+        assert!(!judged(&odd, hexadecimal_string_digits).met());
+        assert!(
+            judged(&odd, hexadecimal_string_holds_only_digits).met(),
+            "an odd count is not a stray byte"
+        );
+
+        let strayed = document_of(&["<< /Type /Catalog /Note <41!42> >>"]);
+        assert!(!judged(&strayed, hexadecimal_string_holds_only_digits).met());
+
+        let literal = document_of(&["<< /Type /Catalog /Note (414) >>"]);
+        assert!(
+            judged(&literal, hexadecimal_string_digits).met(),
+            "a literal string states no hexadecimal digits at all"
+        );
+    }
+
+    /// The same rules over a content stream, which is where the corpus's witnesses write it.
+    ///
+    /// §7.8.2 makes a content stream's operands direct objects, so a text-showing operator's
+    /// hexadecimal string is one — and it is invisible to a walk of the file's indirect objects,
+    /// which is why this rule reads the decoded content as well.
+    #[test]
+    fn a_hexadecimal_string_inside_a_content_stream_is_judged_too() {
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>";
+        let show = |text: &str| {
+            format!(
+                "<< /Length {} >>\nstream\nBT {text} Tj ET\nendstream",
+                text.len() + 9
+            )
+        };
+        let good = document_of(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            page,
+            &show("<4142>"),
+        ]);
+        assert!(judged(&good, hexadecimal_string_digits).met());
+
+        let odd = document_of(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            page,
+            &show("<41425>"),
+        ]);
+        assert!(!judged(&odd, hexadecimal_string_digits).met());
     }
 
     #[test]

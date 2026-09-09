@@ -124,6 +124,36 @@ pub enum Token<'a> {
     Keyword(&'a [u8]),
 }
 
+/// What §7.3.4.3's hexadecimal strings looked like **as written**, which their values do not say.
+///
+/// > If the final digit of a hexadecimal string is missing -that is, if there is an odd number of
+/// > digits -the final digit shall be assumed to be 0.
+///
+/// A reader obeying that sentence produces the same bytes for `<901FA>` as for `<901FA0>`, and a
+/// reader obeying the white-space sentence above it produces the same bytes for `<48 45>` as for
+/// `<4845>`. So the *value* of a hexadecimal string cannot answer any question about how it was
+/// written, and there are such questions: ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5
+/// forbid the odd count outright, and §7.3.4.3's own first sentence — a hexadecimal string "shall
+/// be written as a sequence of hexadecimal digits (0 -9 and A -F or a -f)" — is not satisfied by a
+/// string carrying anything else.
+///
+/// Counted here rather than reconstructed by a second reader, because a second reader would have
+/// to re-derive which `<` opens a string and which opens a dictionary, and one of the two would
+/// eventually be wrong. Nothing here is derived from the *value*: it is what the bytes said.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HexadecimalStrings {
+    /// How many hexadecimal strings this lexer has read.
+    pub read: u64,
+    /// How many stated an odd number of digits, so that the completion rule above applied.
+    pub completed: u64,
+    /// Where the first of those began — the offset of its `<`.
+    pub first_completed_at: Option<usize>,
+    /// How many held a byte that is neither a hexadecimal digit nor a white-space character.
+    pub strayed: u64,
+    /// Where the first of those began — the offset of its `<`.
+    pub first_strayed_at: Option<usize>,
+}
+
 /// A cursor over PDF bytes yielding tokens.
 #[derive(Debug, Clone)]
 pub struct Lexer<'a> {
@@ -131,6 +161,8 @@ pub struct Lexer<'a> {
     position: usize,
     /// The furthest byte a rewind gave up, or a lookahead reported; see [`Self::examined`].
     examined: usize,
+    /// What the hexadecimal strings read so far looked like; see [`HexadecimalStrings`].
+    hexadecimal: HexadecimalStrings,
 }
 
 #[expect(
@@ -146,6 +178,13 @@ impl<'a> Lexer<'a> {
             input,
             position: 0,
             examined: 0,
+            hexadecimal: HexadecimalStrings {
+                read: 0,
+                completed: 0,
+                first_completed_at: None,
+                strayed: 0,
+                first_strayed_at: None,
+            },
         }
     }
 
@@ -159,6 +198,13 @@ impl<'a> Lexer<'a> {
             input,
             position: offset.min(input.len()),
             examined: 0,
+            hexadecimal: HexadecimalStrings {
+                read: 0,
+                completed: 0,
+                first_completed_at: None,
+                strayed: 0,
+                first_strayed_at: None,
+            },
         }
     }
 
@@ -166,6 +212,16 @@ impl<'a> Lexer<'a> {
     #[must_use]
     pub fn position(&self) -> usize {
         self.position
+    }
+
+    /// What the hexadecimal strings read so far looked like as written.
+    ///
+    /// Accumulated over this lexer's whole life rather than reset per token, because the caller
+    /// that wants it is judging a *span of bytes* — an indirect object, a content stream — and
+    /// not a token. A caller wanting one token's answer lexes that token with a lexer of its own.
+    #[must_use]
+    pub const fn hexadecimal_strings(&self) -> HexadecimalStrings {
+        self.hexadecimal
     }
 
     /// Moves the cursor, clamped to the end of the input.
@@ -462,9 +518,18 @@ impl<'a> Lexer<'a> {
     ///
     /// Non-hex bytes are ignored, as the specification requires, and a trailing odd digit
     /// is padded with zero.
+    ///
+    /// **Both of those are lossy, and what they lose is recorded** in [`HexadecimalStrings`]
+    /// rather than thrown away: the value alone cannot say whether the producer wrote an odd
+    /// number of digits or a byte that is not a digit at all, and two clauses ask. Nothing is
+    /// counted per byte of a well-formed string — the digit count is `out.len()` and the parity
+    /// is `pending`, both already held, and the stray test runs only on a byte the hexadecimal
+    /// reading already rejected.
     fn read_hex_string(&mut self) -> Vec<u8> {
+        let opened_at = self.position.saturating_sub(1);
         let mut out = Vec::new();
         let mut pending: Option<u8> = None;
+        let mut strayed = false;
 
         while let Some(byte) = self.peek() {
             self.position = self.position.saturating_add(1);
@@ -472,6 +537,9 @@ impl<'a> Lexer<'a> {
                 break;
             }
             let Some(value) = hex_value(byte) else {
+                if !is_whitespace(byte) {
+                    strayed = true;
+                }
                 continue;
             };
             match pending.take() {
@@ -480,7 +548,14 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        self.hexadecimal.read = self.hexadecimal.read.saturating_add(1);
+        if strayed {
+            self.hexadecimal.strayed = self.hexadecimal.strayed.saturating_add(1);
+            self.hexadecimal.first_strayed_at.get_or_insert(opened_at);
+        }
         if let Some(high) = pending {
+            self.hexadecimal.completed = self.hexadecimal.completed.saturating_add(1);
+            self.hexadecimal.first_completed_at.get_or_insert(opened_at);
             out.push(high.saturating_mul(16));
         }
         out
@@ -1327,6 +1402,54 @@ mod tests {
             "odd digit pads"
         );
         assert_eq!(tokens(b"<>"), vec![Token::String(Vec::new())]);
+    }
+
+    /// The two facts §7.3.4.3's completion rule destroys, kept beside the value it produces.
+    ///
+    /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5 forbid the odd count, and §7.3.4.3's
+    /// own first sentence forbids the stray byte — neither is answerable from the string that comes
+    /// out.
+    #[test]
+    fn a_hexadecimal_string_records_how_it_was_written() {
+        fn read(input: &[u8]) -> crate::lexer::HexadecimalStrings {
+            let mut lexer = Lexer::new(input);
+            while lexer.next_token().is_some() {}
+            lexer.hexadecimal_strings()
+        }
+
+        let even = read(b"<4142>");
+        assert_eq!(even.read, 1);
+        assert_eq!(even.completed, 0);
+        assert_eq!(even.strayed, 0);
+
+        let spaced = read(b"<41\n42>");
+        assert_eq!(
+            spaced.completed, 0,
+            "white space is not a digit and not a stray"
+        );
+        assert_eq!(spaced.strayed, 0);
+
+        let odd = read(b"(a) <414> /N");
+        assert_eq!(odd.read, 1, "a literal string is not a hexadecimal one");
+        assert_eq!(odd.completed, 1);
+        assert_eq!(odd.first_completed_at, Some(4));
+
+        let strayed = read(b"<41!2>");
+        assert_eq!(strayed.strayed, 1);
+        assert_eq!(strayed.first_strayed_at, Some(0));
+        assert_eq!(
+            strayed.completed, 1,
+            "the stray byte is not a digit, so three digits remain and the count is odd"
+        );
+
+        let dictionary = read(b"<< /A <41> >>");
+        assert_eq!(dictionary.read, 1, "`<<` opens a dictionary, not a string");
+
+        let both = read(b"<4>\n<!>");
+        assert_eq!(both.read, 2);
+        assert_eq!(both.completed, 1);
+        assert_eq!(both.strayed, 1);
+        assert_eq!(both.first_strayed_at, Some(4));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # 0927 — Four things a converter may now write, and the condition all four carry
 
-Session 941. Status: **accepted**. Recorded under the questions-directory rule: when an `A` file
+Session 940. Status: **accepted**. Recorded under the questions-directory rule: when an `A` file
 appears, the round that acts on it records the decision in an ADR.
 
 ## The answers

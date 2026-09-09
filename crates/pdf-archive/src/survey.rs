@@ -61,9 +61,9 @@
 //!
 //! What it bought, and this is the part worth reading twice:
 //!
-//! - Three rows that were `Unchecked` — ISO 19005-2 §6.1.13's limits on the values written
-//!   *inside* a content stream, its `q`/`Q` nesting limit, and §6.2.2's ban on an operator the
-//!   base standard does not define — and eleven corpus documents this crate had been missing.
+//! - - Three rows that were `Unchecked` — ISO 19005-2 section 6.1.13's limits on the values written
+//!   *inside* a content stream, its `q`/`Q` nesting limit, and section 6.2.2's ban on an operator
+//!   the base standard does not define — and eleven corpus documents this crate had been missing.
 //!   The three predicates that read them cost 40 ns, 360 ns and 500 ns on that same document,
 //!   because all the work is here and none of it is repeated.
 //! - **A requirement that had been decoding these streams a second time stopped.**
@@ -107,7 +107,7 @@ const MAX_FORM_DEPTH: u32 = 8;
 /// How many nested content streams one document's walk may open.
 const MAX_STREAMS: usize = 4096;
 
-/// How deep a `q` stack is kept. ISO 19005-2 §6.1.13 limits a conforming file to 28.
+/// How deep a `q` stack is kept. ISO 19005-2 section 6.1.13 limits a conforming file to 28.
 const MAX_NESTING: usize = 512;
 
 /// How deep a colour space array may nest before [`classify`] gives up.
@@ -115,11 +115,11 @@ const MAX_SPACE_DEPTH: usize = 16;
 
 /// How many bytes of distinct shown strings one survey keeps, across every font in it.
 ///
-/// [`SelectedFont::shown`] is what the two rules about a *code* rest on — ISO 19005-2 §6.2.11.8
-/// and §6.2.11.4.1, and their part 4 numbers — and it is the one thing this walk keeps that a
-/// document can make large honestly rather than only maliciously. So it is bounded in bytes,
-/// and a font whose strings did not fit says so ([`SelectedFont::shown_complete`]) instead of
-/// being reported on a prefix: a rule that asked "does any code reach `.notdef`" of half a
+/// [`SelectedFont::shown`] is what the two rules about a *code* rest on — ISO 19005-2 section
+/// 6.2.11.8 and section 6.2.11.4.1, and their part 4 numbers — and it is the one thing this walk
+/// keeps that a document can make large honestly rather than only maliciously. So it is bounded in
+/// bytes, and a font whose strings did not fit says so ([`SelectedFont::shown_complete`]) instead
+/// of being reported on a prefix: a rule that asked "does any code reach `.notdef`" of half a
 /// page's text would answer *no* about a page it had not finished reading.
 ///
 /// Four mebibytes is two orders of magnitude above what an ordinary document's *distinct*
@@ -213,7 +213,7 @@ impl DeviceFamily {
 /// What a colour space is, as far as ISO 19005's colour subclauses need to tell them apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SpaceKind {
-    /// One of the three device colour spaces, which ISO 19005 §6.2.4.3 restricts.
+    /// One of the three device colour spaces, which ISO 19005 section 6.2.4.3 restricts.
     Device(DeviceFamily),
     /// A CIE-based space — `CalGray`, `CalRGB`, `Lab` or `ICCBased` — with the device family
     /// its component count corresponds to, where it has one.
@@ -228,8 +228,8 @@ pub enum SpaceKind {
 }
 
 impl SpaceKind {
-    /// Whether this space is device-independent, which is what every licence in §6.2.4.3 turns
-    /// on.
+    /// Whether this space is device-independent, which is what every licence in section 6.2.4.3
+    /// turns on.
     #[must_use]
     pub const fn is_independent(self) -> bool {
         matches!(self, Self::Independent(_))
@@ -244,26 +244,27 @@ impl SpaceKind {
 
 /// How a device colour space was reached from the space a content stream actually named.
 ///
-/// The three ISO 19005 subclauses that restrict colour do not restrict the same population.
-/// §6.2.4.3 is about the device space itself, wherever it turns up; §6.2.4.4 is about the
-/// alternate space of a `Separation` or `DeviceN`; §6.2.4.5 is about the space underlying an
+/// The three ISO 19005 subclauses that restrict colour do not restrict the same population. section
+/// 6.2.4.3 is about the device space itself, wherever it turns up; section 6.2.4.4 is about the
+/// alternate space of a `Separation` or `DeviceN`; section 6.2.4.5 is about the space underlying an
 /// `Indexed` or a `Pattern`. One walk finds all three, so each use carries the route that says
 /// which subclauses it answers to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Route {
     /// The content named the device colour space itself.
     Direct,
-    /// It is the base of an `Indexed` space or the underlying space of a `Pattern`: §6.2.4.5.
+    /// It is the base of an `Indexed` space or the underlying space of a `Pattern`: section
+    /// 6.2.4.5.
     Underlying,
-    /// It is the alternate space of a `Separation` or `DeviceN` space: §6.2.4.4.
+    /// It is the alternate space of a `Separation` or `DeviceN` space: section 6.2.4.4.
     Alternate,
 }
 
 impl Route {
     /// The route reached by descending into an `Indexed` base or a `Pattern`'s underlying space.
     ///
-    /// An alternate space stays an alternate space: descending further does not stop §6.2.4.4
-    /// from being the clause that put the restriction there.
+    /// An alternate space stays an alternate space: descending further does not stop section
+    /// 6.2.4.4 from being the clause that put the restriction there.
     const fn under(self) -> Self {
         match self {
             Self::Alternate => Self::Alternate,
@@ -275,8 +276,8 @@ impl Route {
 /// One place a content stream selected a device colour space, with what licensed it there.
 ///
 /// The licences are recorded rather than judged, because the two owned parts license the same
-/// use differently: ISO 19005-2 §6.2.4.3 admits a default space or the output intent, and
-/// ISO 19005-4 §6.2.4.3 admits the current transparency blending space as well.
+/// use differently: ISO 19005-2 section 6.2.4.3 admits a default space or the output intent, and
+/// ISO 19005-4 section 6.2.4.3 admits the current transparency blending space as well.
 #[derive(Debug, Clone)]
 pub struct DeviceColour {
     /// Which device colour space was selected.
@@ -310,9 +311,9 @@ pub struct GroupSpace {
 
 /// A resource a content stream named that the resource dictionary in force does not define.
 ///
-/// ISO 19005-4 §6.2.2 requires the associated resource dictionary to define every named resource
-/// its content stream references; ISO 19005-2 states no such sentence, which is why only the
-/// part 4 row reads this.
+/// ISO 19005-4 section 6.2.2 requires the associated resource dictionary to define every named
+/// resource its content stream references; ISO 19005-2 states no such sentence, which is why only
+/// the part 4 row reads this.
 #[derive(Debug, Clone)]
 pub struct MissingResource {
     /// The zero-based index of the page whose content named it.
@@ -325,7 +326,7 @@ pub struct MissingResource {
     pub what: &'static str,
 }
 
-/// One content stream the walk opened, and the two facts ISO 19005 §6.2.2 turns on.
+/// One content stream the walk opened, and the two facts ISO 19005 section 6.2.2 turns on.
 ///
 /// The clause requires a content stream that references other objects to have a resource
 /// dictionary *explicitly* associated with it, and ISO 32000-2 §7.8.3 is where "associated"
@@ -353,9 +354,9 @@ pub struct OpenedStream {
 pub struct IccProfile {
     /// The object the profile stream is, where the colour space array reaches it by reference.
     ///
-    /// ISO 19005-4 §6.2.4.2 makes two profiles identical when the colour space and the output
-    /// intent reach the same embedded stream by indirect reference, so the reference itself —
-    /// not what it resolves to — is one of the two things this carries.
+    /// ISO 19005-4 section 6.2.4.2 makes two profiles identical when the colour space and the
+    /// output intent reach the same embedded stream by indirect reference, so the reference itself
+    /// — not what it resolves to — is one of the two things this carries.
     pub id: Option<ObjectId>,
     /// The stream, so a profile written directly into the array is comparable too.
     pub stream: Arc<Stream>,
@@ -365,9 +366,10 @@ pub struct IccProfile {
 
 /// One place a content stream selected an `ICCBased` colour space.
 ///
-/// ISO 19005-4 §6.2.4.2's last requirement binds a profile that is *used*, which is the whole
-/// difference between the corpus's `6-2-4-2-t03-fail-a` and its `t03-pass-b`: the same profile
-/// sits in the same resource dictionary in both, and only one of them names it from content.
+/// ISO 19005-4 section 6.2.4.2's last requirement binds a profile that is *used*, which is the
+/// whole difference between the corpus's `6-2-4-2-t03-fail-a` and its `t03-pass-b`: the same
+/// profile sits in the same resource dictionary in both, and only one of them names it from
+/// content.
 #[derive(Debug, Clone)]
 pub struct IccSelection {
     /// The zero-based index of the page whose content selected it.
@@ -378,9 +380,9 @@ pub struct IccSelection {
     pub what: &'static str,
     /// How the space carrying the profile was reached from the space the content named.
     ///
-    /// The same reason [`DeviceColour::via`] carries one: §6.2.4.2's restrictions reach a
-    /// `Separation`'s alternate space only because §6.2.4.4 sends them there, so a report has to
-    /// be able to cite the clause that actually put the restriction where it found it.
+    /// The same reason [`DeviceColour::via`] carries one: section 6.2.4.2's restrictions reach a
+    /// `Separation`'s alternate space only because section 6.2.4.4 sends them there, so a report
+    /// has to be able to cite the clause that actually put the restriction where it found it.
     pub via: Route,
     /// The profile the selected space is formed from.
     pub profile: IccProfile,
@@ -432,7 +434,7 @@ pub struct Extreme<T> {
 ///
 /// # Why extremes rather than every operand that breaks a limit
 ///
-/// The rule that reads this — ISO 19005-2 §6.1.13, applied to the values written *inside* a
+/// The rule that reads this — ISO 19005-2 section 6.1.13, applied to the values written *inside* a
 /// content stream — is a set of bounds, and a bound is broken by the operand furthest out.
 /// Keeping the extreme of each kind answers it in six words of state, where keeping every
 /// breach would need the walk to know the standard's numbers and would let a hostile document
@@ -442,8 +444,8 @@ pub struct Extreme<T> {
 /// can act on anyway: the page and the value are what send them to the right place, and a file
 /// whose content states one out-of-range integer usually states thousands.
 ///
-/// A real number is kept as its **magnitude**, because both of §6.1.13's real-number bounds are
-/// stated as magnitudes and a signed extreme would answer neither.
+/// A real number is kept as its **magnitude**, because both of section 6.1.13's real-number bounds
+/// are stated as magnitudes and a signed extreme would answer neither.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ContentLiterals {
     /// The largest integer any operand stated.
@@ -492,10 +494,10 @@ pub struct SelectedFont {
     /// The distinct byte strings text-showing operators drew with it, in any rendering mode.
     ///
     /// **Any mode, deliberately**, because the clause that most needs this says so: ISO 19005-2
-    /// §6.2.11.8 and ISO 19005-4 §6.2.10.9 forbid a reference to `.notdef` from a text-showing
-    /// operator *regardless of text rendering mode*. A caller that wants only the rendered ones
-    /// has [`Self::rendered`] beside it; one that filtered these by it would miss the case the
-    /// corpus tests.
+    /// Section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a reference to `.notdef` from a
+    /// text-showing operator *regardless of text rendering mode*. A caller that wants only the
+    /// rendered ones has [`Self::rendered`] beside it; one that filtered these by it would miss the
+    /// case the corpus tests.
     ///
     /// Bytes rather than codes, because a code's length is the font's own `CMap`'s answer
     /// (ISO 32000-2 §9.7.6.2) and this walk holds no fonts — `pdf_font::LoadedFont::decode` is
@@ -622,7 +624,7 @@ impl Survey {
         &self.rendering_intents
     }
 
-    /// Every content stream the walk opened, with what ISO 19005 §6.2.2 asks about each.
+    /// Every content stream the walk opened, with what ISO 19005 section 6.2.2 asks about each.
     #[must_use]
     pub fn opened_streams(&self) -> &[OpenedStream] {
         &self.streams
@@ -751,10 +753,10 @@ struct Overprint {
 
 /// ISO 32000-2 §11.3.4's current blending colour space, as much of it as the rules need.
 ///
-/// Two fields rather than one because the colour subclauses ask two different questions of the
-/// same space: §6.2.4.3 asks which family it is device independent in, and §6.2.4.2 asks which
-/// profile it is, so that a colour space using the same profile can be told from one that does
-/// not.
+/// Two fields rather than one because the colour subclauses ask two different questions of the same
+/// space: section 6.2.4.3 asks which family it is device independent in, and section 6.2.4.2 asks
+/// which profile it is, so that a colour space using the same profile can be told from one that
+/// does not.
 #[derive(Clone, Default)]
 struct Blending {
     /// What kind of space it is.
@@ -774,7 +776,7 @@ enum Selected {
     ///
     /// Table 51 gives the colour space parameter an initial value of `DeviceGray`, so a
     /// painting operator that runs before any `cs`, `g`, `rg` or `k` is painting in a device
-    /// colour space the file never named — and ISO 19005 §6.2.4.3 restricts a use, not a
+    /// colour space the file never named — and ISO 19005 section 6.2.4.3 restricts a use, not a
     /// mention.
     #[default]
     Initial,
@@ -879,11 +881,11 @@ fn keyword_step(word: &[u8]) -> Step {
 ///
 /// # Why every operator is named here, including the ones this walk ignores
 ///
-/// The arms below fall into two halves. The first is the operators the survey *acts* on. The
-/// second names every remaining operator of the base standard's operator summary and does
-/// nothing with it — and it is there because the `None` case is itself an answer somebody asks
-/// for: ISO 19005-2 §6.2.2 and ISO 19005-4 §6.2.2 forbid a content stream to use an operator the
-/// base standard does not define, and [`Survey::unlisted_operators`] is how that is reported.
+/// The arms below fall into two halves. The first is the operators the survey *acts* on. The second
+/// names every remaining operator of the base standard's operator summary and does nothing with it
+/// — and it is there because the `None` case is itself an answer somebody asks for: ISO 19005-2
+/// Section 6.2.2 and ISO 19005-4 section 6.2.2 forbid a content stream to use an operator the base
+/// standard does not define, and [`Survey::unlisted_operators`] is how that is reported.
 ///
 /// **The two editions' summaries hold the same operators**, checked entry by entry: ISO 32000-2
 /// Annex A's Table A.1 and ISO 32000-1:2008 Annex A's Table A.1 each list the same 73, differing
@@ -1452,8 +1454,8 @@ impl Walk<'_> {
 
     /// ISO 32000-2 §9.6.5: a Type 3 font's glyphs are content streams of their own.
     ///
-    /// Annex Q.5 says the same thing for transparency, and §6.2.4.3's corpus says it for colour:
-    /// what a glyph procedure paints is painted on the page that showed the glyph.
+    /// Annex Q.5 says the same thing for transparency, and section 6.2.4.3's corpus says it for
+    /// colour: what a glyph procedure paints is painted on the page that showed the glyph.
     fn type3(&mut self, font: &Dictionary, state: &State, context: &Context<'_>) {
         let subtype = self.document.get_key(font, "Subtype");
         if subtype
@@ -1670,7 +1672,7 @@ impl Walk<'_> {
         }
     }
 
-    /// ISO 32000-2 Annex Q.2's four tests on one graphics state parameter dictionary.
+    /// ISO 32000-2 §Q.2's four tests on one graphics state parameter dictionary.
     ///
     /// > - SMask key is present and its value is of type dictionary;
     /// > - ca key is present and its value is less than one (1);
@@ -1955,7 +1957,7 @@ impl Walk<'_> {
     ///
     /// ISO 32000-2 §7.8.3 makes a resource dictionary a table of subdictionaries keyed by
     /// category, so a name that reaches no entry is a name the content stream referenced and its
-    /// resources did not define — which is the whole of ISO 19005-4 §6.2.2's third sentence.
+    /// resources did not define — which is the whole of ISO 19005-4 section 6.2.2's third sentence.
     fn look_up(
         &mut self,
         category: &'static str,
@@ -1964,7 +1966,7 @@ impl Walk<'_> {
         what: &'static str,
     ) -> Option<Object> {
         // The name was referenced whether or not the resources define it, which is the fact
-        // ISO 19005 §6.2.2's second requirement turns on.
+        // ISO 19005 section 6.2.2's second requirement turns on.
         if let Some(record) = context.record
             && let Some(opened) = self.survey.streams.get_mut(record)
         {
@@ -2269,8 +2271,8 @@ fn is_pattern(document: &Document, space: &Object) -> bool {
 /// ones.
 ///
 /// Names are looked up in the resources' `/ColorSpace` subdictionary, an `Indexed` space answers
-/// with its base and a `Pattern` space with its underlying space, because ISO 19005 §6.2.4.5
-/// makes the requirements of §6.2.4 apply to exactly those.
+/// with its base and a `Pattern` space with its underlying space, because ISO 19005 section 6.2.4.5
+/// makes the requirements of section 6.2.4 apply to exactly those.
 pub(crate) fn classify(
     document: &Document,
     space: &Object,
@@ -2295,9 +2297,10 @@ pub(crate) fn classify(
 
 /// Every device colour space one colour space object reaches, and by which route.
 ///
-/// A device space names itself; an `Indexed` or `Pattern` space is asked for the space beneath
-/// it, which ISO 19005 §6.2.4.5 makes subject to the same restrictions; a `Separation` or
-/// `DeviceN` space is asked for its alternate, which §6.2.4.4 makes subject to §6.2.4.3.
+/// A device space names itself; an `Indexed` or `Pattern` space is asked for the space beneath it,
+/// which ISO 19005 section 6.2.4.5 makes subject to the same restrictions; a `Separation` or
+/// `DeviceN` space is asked for its alternate, which section 6.2.4.4 makes subject to section
+/// 6.2.4.3.
 pub(crate) fn device_uses(
     document: &Document,
     space: &Object,
@@ -2422,19 +2425,19 @@ fn icc_family(document: &Document, dict: &Dictionary) -> Option<DeviceFamily> {
 ///
 /// The `ICCBased` twin of [`device_uses`], and deliberately the same shape: the three subclauses
 /// that restrict a colour space restrict it wherever it stands, and each of the three routes is a
-/// different clause's business. §6.2.4.5 sends the base of an `Indexed` and the underlying space
-/// of a `Pattern` to the rest of §6.2.4; §6.2.4.4 sends a `Separation`'s or `DeviceN`'s alternate
-/// space there in the same words.
+/// different clause's business. Section 6.2.4.5 sends the base of an `Indexed` and the underlying
+/// space of a `Pattern` to the rest of section 6.2.4; section 6.2.4.4 sends a `Separation`'s or
+/// `DeviceN`'s alternate space there in the same words.
 ///
 /// **The alternate used to be left out, and that was a misreading.** The argument for leaving it
 /// out was that a colourant space paints through its tint transform rather than in the alternate
 /// directly, so an alternate profile is a use that never happened. But ISO 32000-2 §8.6.6.4 is
-/// explicit that the tint transform's output *is* interpreted in the alternate space, which is
-/// why the sibling rule over device colours has always counted an alternate `DeviceCMYK` as a use
-/// of `DeviceCMYK` — and ISO 19005-4 §6.2.4.4 says in one sentence that the alternate space shall
-/// obey all the restrictions of §6.2.4.2 and §6.2.4.3, without distinguishing them. The corpus's
-/// `6-2-4-4-t01-fail-i` and `-fail-j` are exactly this case, and were missed for as long as the
-/// two halves of §6.2.4.4 were read differently.
+/// explicit that the tint transform's output *is* interpreted in the alternate space, which is why
+/// the sibling rule over device colours has always counted an alternate `DeviceCMYK` as a use of
+/// `DeviceCMYK` — and ISO 19005-4 section 6.2.4.4 says in one sentence that the alternate space
+/// shall obey all the restrictions of section 6.2.4.2 and section 6.2.4.3, without distinguishing
+/// them. The corpus's `6-2-4-4-t01-fail-i` and `-fail-j` are exactly this case, and were missed for
+/// as long as the two halves of section 6.2.4.4 were read differently.
 fn icc_uses(
     document: &Document,
     space: &Object,
@@ -2604,8 +2607,8 @@ mod tests {
         ))
     }
 
-    /// §6.2.4.4's alternate space and §6.2.4.5's base are found, and each says how it was
-    /// reached — which is what makes the three subclauses three rows over one walk.
+    /// Section 6.2.4.4's alternate space and section 6.2.4.5's base are found, and each says how it
+    /// was reached — which is what makes the three subclauses three rows over one walk.
     #[test]
     fn a_device_space_carries_the_route_that_reached_it() {
         let document = document_of(&[
@@ -2620,12 +2623,12 @@ mod tests {
         assert_eq!(
             device_uses(&document, &parsed(&document, 2), &resources),
             vec![(DeviceFamily::Rgb, Route::Underlying)],
-            "an Indexed base is §6.2.4.5's underlying space"
+            "an Indexed base is section 6.2.4.5's underlying space"
         );
         assert_eq!(
             device_uses(&document, &parsed(&document, 3), &resources),
             vec![(DeviceFamily::Cmyk, Route::Alternate)],
-            "a Separation's third element is §6.2.4.4's alternate space"
+            "a Separation's third element is section 6.2.4.4's alternate space"
         );
         assert!(
             device_uses(&document, &parsed(&document, 4), &resources).is_empty(),
@@ -2634,12 +2637,12 @@ mod tests {
         assert_eq!(
             classify(&document, &parsed(&document, 4), &resources, 0),
             SpaceKind::Independent(Some(DeviceFamily::Rgb)),
-            "three components make it the RGB-based space §6.2.4.3's second licence names"
+            "three components make it the RGB-based space section 6.2.4.3's second licence names"
         );
     }
 
     /// A name is a key into the resources' `/ColorSpace`, and one that reaches nothing is a
-    /// resource ISO 19005-4 §6.2.2 says the dictionary should have defined.
+    /// resource ISO 19005-4 section 6.2.2 says the dictionary should have defined.
     #[test]
     fn a_colour_space_name_is_resolved_through_the_resources_and_a_miss_is_reported() {
         let document = page_with(
@@ -2724,7 +2727,7 @@ mod tests {
         assert_eq!(
             survey.group_spaces().len(),
             1,
-            "the group's CS is recorded so §6.2.9's third paragraph can judge it"
+            "the group's CS is recorded so section 6.2.9's third paragraph can judge it"
         );
         assert_eq!(
             survey.group_spaces()[0].kind,
@@ -2804,7 +2807,7 @@ mod tests {
     }
 
     /// A name that is not a colour space family is looked up, and `Name` is compared by bytes.
-    /// ISO 19005 §6.2.2 turns on two facts per stream, and ISO 32000-2 §7.8.3 is where the
+    /// ISO 19005 section 6.2.2 turns on two facts per stream, and ISO 32000-2 §7.8.3 is where the
     /// second of them is defined: only a page dictionary may reach its resources by
     /// inheritance, and even there the entry is not explicit.
     #[test]
@@ -2840,7 +2843,7 @@ mod tests {
 
     /// A page that inherits its resources from an ancestor of the page tree has no `Resources`
     /// entry of its own, which is what ISO 32000-2 §7.8.3's first bullet permits and ISO 19005
-    /// §6.2.2 withdraws.
+    /// Section 6.2.2 withdraws.
     #[test]
     fn a_page_that_inherits_its_resources_does_not_own_them() {
         let document = document_of(&[
@@ -2902,8 +2905,8 @@ mod tests {
         assert_eq!(marks, vec![(false, true, 1)]);
     }
 
-    /// The selection is what ISO 19005-4 §6.2.4.2's last requirement binds, so a profile that
-    /// only sits in a resource dictionary is not one.
+    /// The selection is what ISO 19005-4 section 6.2.4.2's last requirement binds, so a profile
+    /// that only sits in a resource dictionary is not one.
     #[test]
     fn an_icc_space_is_recorded_where_the_content_selects_it_and_not_where_it_only_sits() {
         let selected = page_with(
@@ -2951,7 +2954,8 @@ mod tests {
                 .map(|found| found.spelling.clone())
                 .collect::<Vec<_>>(),
             vec![b"UnknownOperator".to_vec()],
-            "the compatibility brackets exempt nothing, which is what §6.2.2 says in as many \
+            "the compatibility brackets exempt nothing, which is what section 6.2.2 says in as \
+            many \
              words"
         );
         // §7.3.2's booleans and §7.3.9's null reach the walk as keywords and are operands.
@@ -2968,7 +2972,7 @@ mod tests {
         assert_eq!(survey.unlisted_operators().len(), 2);
     }
 
-    /// The extremes §6.1.13's limits are read against, taken from the operands themselves.
+    /// The extremes section 6.1.13's limits are read against, taken from the operands themselves.
     #[test]
     fn the_operands_extremes_are_kept_in_each_direction() {
         let document = page_with("7 -3 0.5 0 -12.25 /LongEnough (text) Tj", "", &[]);

@@ -22,9 +22,9 @@ use crate::target::{Flavour, Level, Part, Target};
 
 /// Where a requirement is written, in each part that states it.
 ///
-/// Two clause numbers rather than one, because the parts number the same rule differently —
-/// font embedding is ISO 19005-2 §6.2.11.4.1 and ISO 19005-4 §6.2.10.4.1 — and a verdict that
-/// cited the wrong part's numbering would be unusable to the person checking it against their
+/// Two clause numbers rather than one, because the parts number the same rule differently — font
+/// embedding is ISO 19005-2 section 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1 — and a verdict
+/// that cited the wrong part's numbering would be unusable to the person checking it against their
 /// own copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Clauses {
@@ -62,12 +62,16 @@ impl Clauses {
         }
     }
 
-    /// How this requirement is cited for a given target, as `ISO 19005-2 §6.1.6`.
+    /// How this requirement is cited for a given target, as `ISO 19005-2 section 6.1.6`.
     #[must_use]
     pub fn citation(self, target: Target) -> Option<String> {
         match target.part() {
-            Part::Two => self.two.map(|clause| format!("ISO 19005-2 §{clause}")),
-            Part::Four => self.four.map(|clause| format!("ISO 19005-4 §{clause}")),
+            Part::Two => self
+                .two
+                .map(|clause| format!("ISO 19005-2 section {clause}")),
+            Part::Four => self
+                .four
+                .map(|clause| format!("ISO 19005-4 section {clause}")),
         }
     }
 }
@@ -82,9 +86,9 @@ pub enum Applies {
     Always,
     /// To ISO 19005-2 at this level and above, and to every ISO 19005-4 target.
     ///
-    /// §5.3 lets a Level B file ignore §6.2.11.7 and §6.7; §5.4 lets a Level U file ignore
-    /// §6.7. Both are stated as exemptions from the whole part, so a requirement inside those
-    /// subclauses carries the level it starts applying at.
+    /// Section 5.3 lets a Level B file ignore section 6.2.11.7 and section 6.7; section 5.4 lets a
+    /// Level U file ignore section 6.7. Both are stated as exemptions from the whole part, so a
+    /// requirement inside those subclauses carries the level it starts applying at.
     FromLevel(Level),
     /// Only to the ISO 19005-4 flavours listed.
     ///
@@ -99,9 +103,9 @@ impl Applies {
     #[must_use]
     pub fn binds(self, target: Target) -> bool {
         match (self, target) {
-            // `FromLevel` names a level of *part 2*: §5.3 and §5.4 are that part's exemptions
-            // and ISO 19005-4 has no levels to be exempted at, so a part 4 target is bound by
-            // such a requirement exactly as `Always` binds it.
+            // `FromLevel` names a level of *part 2*: section 5.3 and section 5.4 are that part's
+            // exemptions and ISO 19005-4 has no levels to be exempted at, so a part 4 target is
+            // bound by such a requirement exactly as `Always` binds it.
             (Self::Always | Self::FromLevel(_), Target::Four(_))
             | (Self::Always, Target::Two(_)) => true,
             (Self::FromLevel(from), Target::Two(level)) => level >= from,
@@ -128,11 +132,11 @@ pub enum Check {
     /// second kind**, so reporting it beside a file's failures — "your processor must ignore
     /// `/Dur`" — tells a reader nothing about the file in front of them.
     ///
-    /// It is not `Unchecked` either, and the difference matters: `Unchecked` is a debt this
-    /// crate owes, and these are not owed by a validator at all. They are owed by *this
-    /// project*, if it claims to be a conforming processor, and `doc/PLAN.md` §5a's conformance
-    /// ledger is where a claim about this program's own behaviour belongs. Counting them among
-    /// a document's unchecked requirements overstated the gap by thirteen rows on PDF/A-4.
+    /// It is not `Unchecked` either, and the difference matters: `Unchecked` is a debt this crate
+    /// owes, and these are not owed by a validator at all. They are owed by *this project*, if it
+    /// claims to be a conforming processor, and `doc/PLAN.md` section 5a's conformance ledger is
+    /// where a claim about this program's own behaviour belongs. Counting them among a document's
+    /// unchecked requirements overstated the gap by thirteen rows on PDF/A-4.
     ///
     /// So they are carried, named and reported in their own section — visible, and not mistaken
     /// for either a pass or a debt.

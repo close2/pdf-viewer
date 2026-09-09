@@ -558,10 +558,10 @@ fn an_elements_text_is_interleaved_with_its_children() {
 /// The conformance verdict says what it covers, and a non-conforming file is an answer.
 ///
 /// Two claims, and the second is the one a caller scripting this depends on: a document that does
-/// not conform is not an *error*, so the tool answers rather than failing. ISO 19005-2 §6.6.4 and
-/// ISO 19005-4 §6.7.3 both end by saying the `pdfaid` properties do not themselves determine
-/// conformance — so what a caller needs is the determination *and* its extent, which is why
-/// `checked` and `not_checked` are in the answer beside `conforms`.
+/// not conform is not an *error*, so the tool answers rather than failing. ISO 19005-2 section
+/// 6.6.4 and ISO 19005-4 section 6.7.3 both end by saying the `pdfaid` properties do not themselves
+/// determine conformance — so what a caller needs is the determination *and* its extent, which is
+/// why `checked` and `not_checked` are in the answer beside `conforms`.
 #[test]
 fn a_conformance_answer_carries_its_own_extent() {
     let path = committed("PDF20_AN001-BPC.pdf");

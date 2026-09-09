@@ -1,18 +1,20 @@
 //! Everything after metadata: logical structure, embedded files, optional content, alternate
 //! presentations, and the document requirements dictionary.
 //!
-//! ISO 19005-2 §6.7 to §6.11 and ISO 19005-4 §6.8 to §6.15 — five subclauses in one part and
-//! eight in the other, and the mismatch is the interesting thing about this tranche.
+//! ISO 19005-2 section 6.7 to section 6.11 and ISO 19005-4 section 6.8 to section 6.15 — five
+//! subclauses in one part and eight in the other, and the mismatch is the interesting thing about
+//! this tranche.
 //!
 //! # Where the two parts part company
 //!
-//! - **Logical structure is part 2's alone.** §6.7 is a full subclause of eight parts and applies
-//!   only at Level A, which is why every row in that area carries `Applies::FromLevel(Level::A)`.
-//!   ISO 19005-4 §6.8 replaces the whole of it with two sentences of encouragement and **states no
-//!   requirement at all** — not one `shall` — so those rows are `Clauses::only_two`. Part 2's own
-//!   subclause is mostly recommendation too: of everything §6.7 says, six sentences are `shall`
-//!   and every one of the things a reader would call accessibility — alternate descriptions,
-//!   replacement text, expansions, the default language — is `should`. Six sentences, six rows.
+//! - - **Logical structure is part 2's alone.** Section 6.7 is a full subclause of eight parts and
+//!   applies only at Level A, which is why every row in that area carries
+//!   `Applies::FromLevel(Level::A)`. ISO 19005-4 section 6.8 replaces the whole of it with two
+//!   sentences of encouragement and **states no requirement at all** — not one `shall` — so those
+//!   rows are `Clauses::only_two`. Part 2's own subclause is mostly recommendation too: of
+//!   everything section 6.7 says, six sentences are `shall` and every one of the things a reader
+//!   would call accessibility — alternate descriptions, replacement text, expansions, the default
+//!   language — is `should`. Six sentences, six rows.
 //! - **Part 4 requires more of an embedded file than part 2 does**, adding `/AFRelationship` to
 //!   part 2's `/F` and `/UF`, and then Annexes A and B take the type restriction back off again
 //!   for PDF/A-4f and PDF/A-4e. So the row that asks an embedded file to be a PDF/A file binds
@@ -33,17 +35,21 @@
 //!
 //! - the rendering of optional content in the default configuration, the display of the `/Order`
 //!   array and of the list of configurations, and the instruction not to use `/Intent` — ISO
-//!   19005-2 §6.9 and ISO 19005-4 §6.10, with part 4's instruction to ignore `/AS` beside them;
-//! - the display of the names of embedded files — ISO 19005-2 §6.8 and ISO 19005-4 §6.9;
-//! - the instruction to ignore `/Trans` and `/Dur` — ISO 19005-2 §6.10 and ISO 19005-4 §6.11;
-//! - **the whole of ISO 19005-4 §6.13**, whose subject is what a processor does about
+//!   19005-2 section 6.9 and ISO 19005-4 section 6.10, with part 4's instruction to ignore `/AS`
+//!   beside them;
+//! - - the display of the names of embedded files — ISO 19005-2 section 6.8 and ISO 19005-4 section
+//!   6.9;
+//! - - the instruction to ignore `/Trans` and `/Dur` — ISO 19005-2 section 6.10 and ISO 19005-4
+//!   section 6.11;
+//! - **the whole of ISO 19005-4 section 6.13**, whose subject is what a processor does about
 //!   `/PrintScaling` and `/Enforce` when printing. It places nothing on a file.
 //!
-//! **ISO 19005-4 §6.14 and §6.15 place nothing on anybody.** Each is a single sentence permitting
-//! a conforming file to carry the base standard's geospatial information (§6.14) or measurement
-//! properties (§6.15) by any of the mechanisms ISO 32000-2 describes. A permission is not a
-//! requirement, and inventing a row for one would put a rule in this table that the standard does
-//! not state — so those two, and only those two, are still absent.
+//! **ISO 19005-4 section 6.14 and section 6.15 place nothing on anybody.** Each is a single
+//! sentence permitting a conforming file to carry the base standard's geospatial information
+//! (section 6.14) or measurement properties (section 6.15) by any of the mechanisms ISO 32000-2
+//! describes. A permission is not a requirement, and inventing a row for one would put a rule in
+//! this table that the standard does not state — so those two, and only those two, are still
+//! absent.
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
@@ -129,6 +135,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.8", "6.9"),
         applies: Applies::Always,
         check: Check::Implemented(file_and_unicode_names),
+    },
+    Requirement {
+        id: "embedded-files/associated-file-media-type",
+        asks: "An embedded file stream the document associates with one of its objects shall \
+               state a Subtype that is a MIME media type.",
+        clauses: Clauses::only_four("6.9"),
+        applies: Applies::Always,
+        check: Check::Implemented(associated_file_media_type),
     },
     Requirement {
         id: "embedded-files/relationship-stated",
@@ -286,7 +300,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
 ];
 
-/// ISO 19005-2 §6.7.2.2.
+/// ISO 19005-2 section 6.7.2.2.
 fn mark_info_marked(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if !MarkInfo::read(document).marked {
@@ -297,7 +311,7 @@ fn mark_info_marked(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.7.3.3.
+/// ISO 19005-2 section 6.7.3.3.
 fn structure_tree_root(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if Tree::of(document).is_none() {
@@ -308,7 +322,7 @@ fn structure_tree_root(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.7.3.4.
+/// ISO 19005-2 section 6.7.3.4.
 ///
 /// `pdf_model::structure::Tree::role` follows the role map to a fixed point and
 /// `Tree::standard_role` answers what the name it ends at *means*, so a `Some` role with a `None`
@@ -344,7 +358,7 @@ fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut
     }
 }
 
-/// ISO 19005-2 §6.7.4, which is one `shall` inside a subclause of recommendations.
+/// ISO 19005-2 section 6.7.4, which is one `shall` inside a subclause of recommendations.
 ///
 /// Everything a reader would call the accessibility of language is `should` there — the default
 /// `/Lang` on the catalog, a `/Lang` wherever the text departs from it, the escape sequence inside
@@ -363,7 +377,7 @@ fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut
 ///
 /// An entry that is not a text string at all is reported too: §14.9.2.2 makes a language
 /// identifier a text string, so a name or a number there is not one.
-/// ISO 19005-2 §6.7.4's `shall`, at every structure element that states a `/Lang`.
+/// ISO 19005-2 section 6.7.4's `shall`, at every structure element that states a `/Lang`.
 ///
 /// The same sentence as `catalog_language_identifier`, applied where §14.9.2's inheritance
 /// actually begins: the clause makes the requirement about a `/Lang` *wherever* it is present,
@@ -495,7 +509,7 @@ fn embedded_files_entries(document: &Document) -> Vec<(Vec<u8>, Object)> {
     pdf_syntax::tree::name_entries(embedded, &|object| document.resolve(object))
 }
 
-/// ISO 19005-2 §6.8, ISO 19005-4 §6.9.
+/// ISO 19005-2 section 6.8, ISO 19005-4 section 6.9.
 fn file_and_unicode_names(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_embedded_file_specification(exam, |place, specification| {
@@ -510,7 +524,111 @@ fn file_and_unicode_names(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-4 §6.9.
+/// ISO 19005-4 section 6.9, by way of the base standard that its section 5.1 makes binding.
+///
+/// **Part 4 states no rule about media types, and one binds anyway.** Section 5.1 says a conforming
+/// file adheres to every requirement of ISO 32000-2 as part 4 modifies it, and part 4 modifies
+/// nothing here — so §14.13.2's sentence about an embedded file stream used as an associated file
+/// is a requirement of a PDF/A-4 file, cited under the subclause that is *about* embedded files.
+/// That is the same construction `metadata/catalog-metadata-stream` uses for Table 347's entries.
+///
+/// > The embedded file stream dictionary shall include a valid MIME type value for the Subtype
+/// > key.
+///
+/// The sentence after it names `application/octet-stream` as the value to use where the type is
+/// not known, which is a producer's instruction rather than a second condition on the file.
+///
+/// **The population is the associated files and not every embedded file**, which is §14.13.1's
+/// own distinction: an associated file is one an object's `AF` array names, and the
+/// `AFRelationship` key part 4 section 6.9 requires of every embedded file is described there as
+/// something such a specification *should* include rather than as what makes it one. Table 44
+/// agrees from the other side, making `Subtype` optional in general and required of an embedded
+/// file stream used as an associated file.
+///
+/// What counts as valid is read no further than Internet RFC 2046, which Table 44 cites for the
+/// names: a media type is a top-level type and a subtype, so a value carrying no solidus has named
+/// no media type. The seven top-level types that RFC lists are deliberately *not* required — ISO
+/// 32000-2 itself names `model/u3d`, `model/prc` and `model/step` for 3D streams, and `model` is
+/// registered outside that list.
+fn associated_file_media_type(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let associated = associated_specifications(exam);
+    for_each_embedded_file_specification(exam, |place, specification| {
+        if !place.object.is_some_and(|id| associated.contains(&id)) {
+            return;
+        }
+        let files = document.get_key(specification, "EF");
+        let Some(files) = files.as_dict() else {
+            return;
+        };
+        for key in EMBEDDED_FILE_STREAM_KEYS {
+            let stream = document.get_key(files, key);
+            let Some(stream) = stream.as_stream() else {
+                continue;
+            };
+            let stated = document.get_key(&stream.dict, "Subtype");
+            let named = stated.as_name().map(|name| name.as_bytes().to_vec());
+            if named.as_deref().is_some_and(is_media_type) {
+                continue;
+            }
+            findings.record(
+                place.clone().named("Subtype"),
+                match named {
+                    Some(name) => format!(
+                        "an associated file's stream states {} as its Subtype, which is not a \
+                         MIME media type",
+                        String::from_utf8_lossy(&name)
+                    ),
+                    None => "an associated file's stream states no Subtype media type".to_owned(),
+                },
+            );
+        }
+    });
+}
+
+/// Whether a name is a MIME media type as Internet RFC 2046 composes one: a type and a subtype.
+///
+/// PDF writes the solidus in a name as `#2F` and this reader has already decoded it, so what
+/// arrives here is the media type as the RFC spells it.
+fn is_media_type(name: &[u8]) -> bool {
+    let mut halves = name.splitn(2, |byte| *byte == b'/');
+    let (Some(top), Some(sub)) = (halves.next(), halves.next()) else {
+        return false;
+    };
+    let token = |part: &[u8]| {
+        !part.is_empty()
+            && part
+                .iter()
+                .all(|byte| byte.is_ascii_graphic() && *byte != b'/')
+    };
+    token(top) && token(sub)
+}
+
+/// Every file specification an `AF` array names, by object number.
+///
+/// §14.13.1 lists eight kinds of dictionary that may carry the key and says the array is what
+/// connects a specification to the object it is associated with, so the population is taken from
+/// every object rather than from that list: a walk that named the eight would miss a ninth the
+/// standard adds, and there is nothing else an `AF` array can mean.
+fn associated_specifications(exam: &Examination<'_>) -> BTreeSet<ObjectId> {
+    let document = exam.document;
+    let mut out = BTreeSet::new();
+    for (_, object) in exam.objects() {
+        let dictionary = match object {
+            Object::Dictionary(dictionary) => dictionary,
+            Object::Stream(stream) => &stream.dict,
+            _ => continue,
+        };
+        let listed = document.get_key(dictionary, "AF");
+        let Some(items) = listed.as_array() else {
+            continue;
+        };
+        out.extend(items.iter().filter_map(Object::as_reference));
+    }
+    out
+}
+
+/// ISO 19005-4 section 6.9.
 fn relationship_stated(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_embedded_file_specification(exam, |place, specification| {
@@ -575,14 +693,15 @@ impl Drop for Descent {
     }
 }
 
-/// ISO 19005-2 §6.8, ISO 19005-4 §6.9: an embedded file has to be a conforming file itself.
+/// ISO 19005-2 section 6.8, ISO 19005-4 section 6.9: an embedded file has to be a conforming file
+/// itself.
 ///
 /// **Two of the three answers a file can give are decidable here, and the third is not.** The
-/// bytes either open as a PDF document or they do not, and a thing that is not a PDF conforms to
-/// no part of ISO 19005 — that is the whole of the first half, and it needs nothing but
-/// `pdf_syntax`. Beyond it, an embedded *document* is held to the part **it declares**: both parts
-/// this crate owns require a conforming file to state its part number (ISO 19005-2 §6.6.4,
-/// ISO 19005-4 §6.7.3), so a file's own identification schema says which target it is asking to be
+/// bytes either open as a PDF document or they do not, and a thing that is not a PDF conforms to no
+/// part of ISO 19005 — that is the whole of the first half, and it needs nothing but `pdf_syntax`.
+/// Beyond it, an embedded *document* is held to the part **it declares**: both parts this crate
+/// owns require a conforming file to state its part number (ISO 19005-2 section 6.6.4, ISO 19005-4
+/// Section 6.7.3), so a file's own identification schema says which target it is asking to be
 /// judged against, and `metadata::declared_target` reads it.
 ///
 /// What is left undecided is written down rather than hidden, and it is the part-1 case: an
@@ -592,10 +711,10 @@ impl Drop for Descent {
 /// reason — it may be a part 1 or part 3 file, and this crate cannot tell.
 ///
 /// The rule is also **wider than part 2's sentence in one direction and narrower in another**, and
-/// deliberately: §6.8 admits only ISO 19005-1 and part 2 where §6.9 admits parts 1, 2 and 4, so an
-/// embedded PDF/A-4 file inside a PDF/A-2 document is held to part 4 here and passes, where the
-/// clause would refuse it for its part number alone. That is a rule left unimplemented rather than
-/// implemented wrongly; the row above states the requirement in full.
+/// deliberately: section 6.8 admits only ISO 19005-1 and part 2 where section 6.9 admits parts 1, 2
+/// and 4, so an embedded PDF/A-4 file inside a PDF/A-2 document is held to part 4 here and passes,
+/// where the clause would refuse it for its part number alone. That is a rule left unimplemented
+/// rather than implemented wrongly; the row above states the requirement in full.
 ///
 /// A stream this reader cannot decode is passed over in silence rather than reported. A filter
 /// `pdf_syntax` does not decode is a fact about this program, and recording it as a fault would be
@@ -658,7 +777,7 @@ fn judge_embedded(place: &Where, bytes: Arc<[u8]>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-4 §A.2, which is the one requirement Annex A adds rather than relaxes.
+/// ISO 19005-4 section A.2, which is the one requirement Annex A adds rather than relaxes.
 fn pdfa_4f_carries_embedded_files(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let present = document.catalog().is_ok_and(|catalog| {
@@ -712,7 +831,7 @@ fn for_each_configuration(document: &Document, mut visit: impl FnMut(Where, &Dic
     }
 }
 
-/// ISO 19005-2 §6.9, ISO 19005-4 §6.10.
+/// ISO 19005-2 section 6.9, ISO 19005-4 section 6.10.
 ///
 /// Uniqueness is compared over the *text* each `/Name` decodes to rather than over its bytes,
 /// because that is what makes two configurations tell a person apart — the entry is a text string,
@@ -767,7 +886,7 @@ fn order_references(
     }
 }
 
-/// ISO 19005-2 §6.9, ISO 19005-4 §6.10.
+/// ISO 19005-2 section 6.9, ISO 19005-4 section 6.10.
 ///
 /// The groups a file has are the ones `/OCProperties /OCGs` lists: the base standard requires that
 /// array to name every one, and this crate has no better census of them than the document's own.
@@ -805,8 +924,8 @@ fn order_lists_every_group(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.9, and part 2's alone: ISO 19005-4 §6.10 permits the entry and has a processor
-/// ignore it instead.
+/// ISO 19005-2 section 6.9, and part 2's alone: ISO 19005-4 section 6.10 permits the entry and has
+/// a processor ignore it instead.
 fn no_automatic_states(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_configuration(document, |place, configuration| {
@@ -819,7 +938,7 @@ fn no_automatic_states(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.10, ISO 19005-4 §6.11.
+/// ISO 19005-2 section 6.10, ISO 19005-4 section 6.11.
 fn no_alternate_presentations(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Ok(catalog) = document.catalog() else {
@@ -836,7 +955,7 @@ fn no_alternate_presentations(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.10, ISO 19005-4 §6.11.
+/// ISO 19005-2 section 6.10, ISO 19005-4 section 6.11.
 fn no_presentation_steps(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let pages = Pages::new(document);
@@ -853,7 +972,7 @@ fn no_presentation_steps(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.11, ISO 19005-4 §6.12.
+/// ISO 19005-2 section 6.11, ISO 19005-4 section 6.12.
 fn no_requirements_dictionary(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if let Ok(catalog) = document.catalog()
@@ -879,7 +998,8 @@ mod tests {
         no_requirements_dictionary, order_lists_every_group, pdfa_4f_carries_embedded_files,
         relationship_stated, role_map_terminates_at_a_standard_type, structure_tree_root,
     };
-    use super::{catalog_language_identifier, embedded_file_is_itself_pdfa};
+    use super::{associated_file_media_type, catalog_language_identifier};
+    use super::{embedded_file_is_itself_pdfa, is_media_type};
     use crate::target::{Flavour, Level, Target};
 
     /// A one-page document with whatever the fixture adds to its catalog and to its object body.
@@ -925,9 +1045,9 @@ mod tests {
 
     /// The applicability columns this tranche turns on, asserted rather than described.
     ///
-    /// ISO 19005-4 §6.8 states no requirement, so every logical-structure row is part 2's and
-    /// binds Level A alone; ISO 19005-4 Annex A §A.2 is PDF/A-4f's alone; and the row that asks an
-    /// embedded file to be a PDF/A file is lifted by both annexes, so under part 4 it binds the
+    /// ISO 19005-4 section 6.8 states no requirement, so every logical-structure row is part 2's
+    /// and binds Level A alone; ISO 19005-4 Annex A §A.2 is PDF/A-4f's alone; and the row that asks
+    /// an embedded file to be a PDF/A file is lifted by both annexes, so under part 4 it binds the
     /// plain profile and nothing else.
     #[test]
     fn the_rows_bind_the_levels_and_flavours_their_clauses_reach() {
@@ -1003,7 +1123,7 @@ mod tests {
         assert_eq!(found(no_presentation_steps, &with_steps), 1);
     }
 
-    /// ISO 19005-2 §6.9: a configuration without a name, and two configurations sharing one.
+    /// ISO 19005-2 section 6.9: a configuration without a name, and two configurations sharing one.
     #[test]
     fn a_configuration_states_a_name_and_no_two_state_the_same_one() {
         let named = document(
@@ -1023,7 +1143,7 @@ mod tests {
         assert_eq!(found(configuration_names, &duplicated), 1);
     }
 
-    /// ISO 19005-2 §6.9: an `/Order` that names one group of two, including through nesting.
+    /// ISO 19005-2 section 6.9: an `/Order` that names one group of two, including through nesting.
     #[test]
     fn an_order_array_has_to_reach_every_group_the_file_declares() {
         let complete = document(
@@ -1056,7 +1176,8 @@ mod tests {
         assert_eq!(found(no_automatic_states, &file), 1);
     }
 
-    /// ISO 19005-2 §6.8 and ISO 19005-4 §6.9, over a specification the name tree files indirectly.
+    /// ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9, over a specification the name tree
+    /// files indirectly.
     #[test]
     fn an_embedded_file_states_its_two_names_and_its_relationship() {
         let bare = document(
@@ -1083,11 +1204,12 @@ mod tests {
         assert_eq!(
             found(pdfa_4f_carries_embedded_files, &document("", "")),
             1,
-            "ISO 19005-4 §A.2 makes the tree required of a PDF/A-4f file"
+            "ISO 19005-4 section A.2 makes the tree required of a PDF/A-4f file"
         );
     }
 
-    /// ISO 19005-2 §6.7.3.3 and §6.7.3.4: a tree that is there, and a type that maps nowhere.
+    /// ISO 19005-2 section 6.7.3.3 and section 6.7.3.4: a tree that is there, and a type that maps
+    /// nowhere.
     #[test]
     fn a_structure_type_that_maps_to_no_standard_type_is_named() {
         let untagged = document("", "");
@@ -1114,7 +1236,7 @@ mod tests {
         assert_eq!(found(role_map_terminates_at_a_standard_type, &unmapped), 1);
     }
 
-    /// ISO 19005-2 §6.7.4, over the four shapes §14.9.2.2's sentence distinguishes.
+    /// ISO 19005-2 section 6.7.4, over the four shapes §14.9.2.2's sentence distinguishes.
     ///
     /// The tags are the corpus's own witnesses for the clause, which is why they are these rather
     /// than invented ones: `zh-Hant-HK` and `ru-petr1708` exercise the script, region and variant
@@ -1150,7 +1272,8 @@ mod tests {
         );
     }
 
-    /// ISO 19005-2 §6.8, ISO 19005-4 §6.9: the half of the rule that needs no recursion.
+    /// ISO 19005-2 section 6.8, ISO 19005-4 section 6.9: the half of the rule that needs no
+    /// recursion.
     ///
     /// A stream that is not a PDF at all conforms to no part of ISO 19005, and a stream that
     /// declares no part is passed over — it may be the part 1 or part 3 file this crate cannot
@@ -1177,6 +1300,61 @@ mod tests {
             found(embedded_file_is_itself_pdfa, &document("", "")),
             0,
             "a document that embeds nothing has nothing to be judged"
+        );
+    }
+
+    /// Internet RFC 2046's composition, and nothing beyond it.
+    ///
+    /// The two `model/` types are ISO 32000-2 §13.6.3's own, and they are why the seven top-level
+    /// types the RFC lists are not required here.
+    #[test]
+    fn a_media_type_is_a_type_and_a_subtype_around_a_solidus() {
+        for good in [
+            &b"application/pdf"[..],
+            b"application/octet-stream",
+            b"model/u3d",
+            b"text/csv",
+        ] {
+            assert!(is_media_type(good), "{}", String::from_utf8_lossy(good));
+        }
+        for bad in [
+            &b"application"[..],
+            b"/pdf",
+            b"application/",
+            b"application/pdf; charset=utf-8",
+            b"",
+        ] {
+            assert!(!is_media_type(bad), "{}", String::from_utf8_lossy(bad));
+        }
+    }
+
+    /// The rule reaches an embedded file the document associates and no other.
+    ///
+    /// §14.13.1 makes an `AF` array what connects a specification to an object, so the same
+    /// malformed `Subtype` is a failure in the first document and nothing in the second.
+    #[test]
+    fn only_an_associated_files_media_type_is_judged() {
+        let specification = "4 0 obj\n<< /Type /Filespec /F (data.pdf) /UF (data.pdf) \
+                             /AFRelationship /Data /EF << /F 5 0 R >> >>\nendobj\n\
+                             5 0 obj\n<< /Type /EmbeddedFile /Subtype /application /Length 0 >>\n\
+                             stream\n\nendstream\nendobj\n";
+        let associated = document(" /AF [4 0 R]", specification);
+        assert_eq!(found(associated_file_media_type, &associated), 1);
+
+        let unassociated = document("", specification);
+        assert_eq!(found(associated_file_media_type, &unassociated), 0);
+
+        let proper = "4 0 obj\n<< /Type /Filespec /F (data.pdf) /UF (data.pdf) \
+                      /AFRelationship /Data /EF << /F 5 0 R >> >>\nendobj\n\
+                      5 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fpdf /Length 0 >>\n\
+                      stream\n\nendstream\nendobj\n";
+        assert_eq!(
+            found(
+                associated_file_media_type,
+                &document(" /AF [4 0 R]", proper)
+            ),
+            0,
+            "a name writing the solidus as #2F is the media type it decodes to"
         );
     }
 }

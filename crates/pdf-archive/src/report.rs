@@ -1,9 +1,9 @@
 //! The verdict, and the discipline that makes it worth having.
 //!
-//! ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3 both end their identification subclause with the
-//! same warning: the `pdfaid` properties do not by themselves determine conformance, and the
-//! actual determination is made against clause 5. So a file *claiming* to be PDF/A-4 and a
-//! file *being* PDF/A-4 are different facts, and this report answers the second.
+//! ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3 both end their identification subclause
+//! with the same warning: the `pdfaid` properties do not by themselves determine conformance, and
+//! the actual determination is made against clause 5. So a file *claiming* to be PDF/A-4 and a file
+//! *being* PDF/A-4 are different facts, and this report answers the second.
 //!
 //! # A pass is relative to a stated list
 //!

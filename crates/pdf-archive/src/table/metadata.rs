@@ -1,4 +1,4 @@
-//! Metadata: ISO 19005-2 §6.6 and ISO 19005-4 §6.7.
+//! Metadata: ISO 19005-2 section 6.6 and ISO 19005-4 section 6.7.
 //!
 //! The subclause that carries the file's own claim to be PDF/A, and it is the most consequential
 //! row in this crate: everything else here decides whether a document *is* what it says, and the
@@ -8,10 +8,10 @@
 //!
 //! # Three things the two parts disagree about, and one printing error
 //!
-//! - **The schema's namespace URI is printed differently.** ISO 19005-2 §6.6.4 gives it with an
-//!   `http` scheme and ISO 19005-4 §6.7.3 with an `https` one. Nothing else about the identifier
-//!   moves, and a producer writing either has named the schema the standard defines, so both are
-//!   accepted for both parts — [`IDENTIFICATION_URIS`].
+//! - - **The schema's namespace URI is printed differently.** ISO 19005-2 section 6.6.4 gives it
+//!   with an `http` scheme and ISO 19005-4 section 6.7.3 with an `https` one. Nothing else about
+//!   the identifier moves, and a producer writing either has named the schema the standard defines,
+//!   so both are accepted for both parts — [`IDENTIFICATION_URIS`].
 //! - **Part 4 adds `pdfaid:rev` and takes the conformance level away from every file but two.**
 //!   Part 2's level is A, B or U and every conforming file states one; part 4's is E or F and
 //!   only a PDF/A-4e or PDF/A-4f file may state anything at all.
@@ -22,40 +22,64 @@
 //!   rows therefore look it up in the identification namespace, which is the reading that leaves
 //!   the table self-consistent. That is a departure from the letter of one cell and it is written
 //!   down here rather than buried in a predicate.
-//! - Part 2 builds its own extension-schema machinery (§6.6.2.3, five tables of it); part 4
+//! - Part 2 builds its own extension-schema machinery (section 6.6.2.3, five tables of it); part 4
 //!   replaces the whole of it with one sentence pointing at ISO 16684-2, a standard this project
-//!   does not hold. So §6.6.2.3's three rows are implemented and §6.7.2.3's is not, and the
-//!   reasons are entirely different reasons.
+//!   does not hold. So section 6.6.2.3's three rows are implemented and section 6.7.2.3's is not,
+//!   and the reasons are entirely different reasons.
 //!
-//! # §6.6.2.3, and the standard this crate had to go and read
+//! # section 6.6.2.3, and the standard this crate had to go and read
 //!
-//! §6.6.2.3.1 requires every property to use a predefined schema or an extension schema, and
+//! Section 6.6.2.3.1 requires every property to use a predefined schema or an extension schema, and
 //! *using* a schema means carrying the value type it gives the property. Deciding that needs the
 //! XMP Specification's own tables, which ISO 19005-2 lists in its bibliography with a public
 //! address and which are read here into [`PREDEFINED`]. The three rows divide the subclause like
 //! this, and the division is stated because the clauses overlap:
 //!
-//! - **§6.6.2.3.1** judges the *predefined* half — the shape of a value, the spelling of its
+//! - **section 6.6.2.3.1** judges the *predefined* half — the shape of a value, the spelling of its
 //!   scalar, and the language qualifiers a language alternative's items are defined to carry.
-//! - **§6.6.2.3.2** judges the other half, a namespace no predefined schema owns and no embedded
-//!   extension schema describes, because §6.6.2.3.1 states that half by deferring to §6.6.2.3.2.
-//! - **§6.6.2.3.3** judges the description itself: every field of its four tables present, each
-//!   spelled with the prefix its table requires.
+//! - - **section 6.6.2.3.2** judges the other half, a namespace no predefined schema owns and no
+//!   embedded extension schema describes, because section 6.6.2.3.1 states that half by deferring
+//!   to section 6.6.2.3.2.
+//! - - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
+//!   each spelled with the prefix its table requires.
+//!
+//! # section 6.6.6 and section 6.7.5, where the standard and the committee's record disagree
+//!
+//! The provenance subclauses recommend that each high-level action be recorded in
+//! `xmpMM:History` and then *require* fields of each action that is recorded — three in part 2,
+//! two in part 4, which demotes `parameters` to a recommendation. Both rows are implemented
+//! against the clause as published. **veraPDF checks neither**, its corpus names every witness a
+//! pass, and its `TWG test suite A021-*` documents carry an ISO working group resolution to the
+//! effect that the whole property is an application matter irrelevant to validation — while a
+//! 2016 record of the same agenda item says `parameters` remains required for part 2. Neither
+//! record is an approved erratum and the two contradict each other, so principle 5 leaves the
+//! clause as what these rows follow; `doc/questions/Q52` puts the choice to the owner, and
+//! `tests/corpus.rs` carries the five adjudications.
+//!
+//! # section 6.6.5 and section 6.7.4, which are not unchecked for the reason they used to say
+//!
+//! The file-identifier rule compares one revision of a file against the previous one, and the
+//! previous one is *in the file*: ISO 32000-2 §7.5.6's incremental update appends, so an updated
+//! document still carries its earlier cross-reference sections, trailers and `/ID` arrays.
+//! `pdf_syntax::xref::sections` names each of those sections' own trailers, so the earlier `/ID`
+//! arrays are reachable and the old reason — that this crate is handed a document with no earlier
+//! state — was wrong. What is still out of reach is the earlier revision's *packet*, which is what
+//! the clause's condition needs; `doc/adr/0929` has the reading and what would close it.
 //!
 //! # The clause that binds a reader, and the one that binds nobody
 //!
 //! **A clause whose only requirement is addressed to a processor used to get no row here**, on the
 //! reasoning that this crate judges a file. The reasoning was right and the conclusion was wrong —
-//! a requirement named only in a module header is invisible in a verdict — so ISO 19005-2 §6.6.3
-//! is now a [`Check::Processor`] row: its one requirement is that a conforming reader ignore the
-//! document information dictionary, the file is expressly permitted to carry one, and the
+//! a requirement named only in a module header is invisible in a verdict — so ISO 19005-2 section
+//! 6.6.3 is now a [`Check::Processor`] row: its one requirement is that a conforming reader ignore
+//! the document information dictionary, the file is expressly permitted to carry one, and the
 //! consistency of its values with the metadata stream is a recommendation. Part 4 states the whole
-//! subject in §6.1.3 instead, which is the file-structure tranche's row.
+//! subject in section 6.1.3 instead, which is the file-structure tranche's row.
 //!
-//! **ISO 19005-2 §6.6.2.2 and ISO 19005-4 §6.7.2.2 still have no row, and that is different**:
-//! their namespace-prefix table is recommended rather than required, so there is no requirement to
-//! carry. What those subclauses *do* state is the sentence that makes a prefix binding wherever
-//! one is identified as required — which is what
+//! **ISO 19005-2 section 6.6.2.2 and ISO 19005-4 section 6.7.2.2 still have no row, and that is
+//! different**: their namespace-prefix table is recommended rather than required, so there is no
+//! requirement to carry. What those subclauses *do* state is the sentence that makes a prefix
+//! binding wherever one is identified as required — which is what
 //! `metadata/identification-schema-prefix` rests on.
 
 use pdf_model::xmp::{Detail, Property as XmpProperty, Value, Xmp};
@@ -189,9 +213,19 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("6.6.4"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "which amendment or corrigendum a file was written against is not a fact the file \
-             states anywhere else, so nothing here can tell an absent entry from a correct one",
+            "the *presence* half alone, which is what is left after the row below: whether a \
+             file was written against an amendment or a corrigendum is not a fact the file \
+             states anywhere but in these two properties, so an absent entry and a correct one \
+             look the same from here. The value of one that is stated is checked",
         ),
+    },
+    Requirement {
+        id: "metadata/identification-amendment-form",
+        asks: "An amendment or corrigendum identifier the identification schema does state shall \
+               be the number and the year, separated by a colon.",
+        clauses: Clauses::only_two("6.6.4"),
+        applies: Applies::Always,
+        check: Check::Implemented(identification_amendment_form),
     },
     Requirement {
         id: "metadata/identification-part-number-four",
@@ -237,8 +271,17 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.6.5", "6.7.4"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "the rule compares one revision of a file against the previous one, and this crate \
-             is handed a single document with no earlier state to compare it against",
+            "the packet of the previous revision, and not the trailer of it. A file that has \
+             been incrementally updated (ISO 32000-2 §7.5.6) contains its previous revisions, \
+             and `pdf_syntax::xref::sections` now names each section's own trailer — so the \
+             earlier `/ID` arrays are reachable and the reason this row used to give, that this \
+             crate is handed a single document with no earlier state, was wrong. What is still \
+             out of reach is the clause's *condition*: whether an `xmpMM:History` entry was \
+             **added** is a comparison of two revisions' metadata packets, and resolving the \
+             earlier one's `/Metadata` needs an object resolved as of an earlier section, which \
+             `pdf_syntax` does not offer. A check firing on the trailers alone would report a \
+             revision that added no history entry, which section 6.6.5 does not bind at all \
+             (`doc/adr/0929`)",
         ),
     },
     Requirement {
@@ -247,10 +290,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                and its time.",
         clauses: Clauses::only_two("6.6.6"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "a history entry is a structured value and `pdf_model::xmp` reports one as \
-             `Value::Structure` without its fields, so the fields to check are not readable here",
-        ),
+        check: Check::Implemented(provenance_recorded_action_fields),
     },
     Requirement {
         id: "metadata/provenance-recorded-action-fields-four",
@@ -258,23 +298,22 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                part 4 demotes the parameters field part 2 requires to a recommendation.",
         clauses: Clauses::only_four("6.7.5"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "the same reader gap: a history entry's fields are inside a `Value::Structure`",
-        ),
+        check: Check::Implemented(provenance_recorded_action_fields_four),
     },
 ];
 
 /// The two spellings the two parts print for the identification schema's namespace.
 ///
-/// ISO 19005-2 §6.6.4 gives it with an `http` scheme and ISO 19005-4 §6.7.3 with an `https` one.
-/// A producer that writes either has named the schema each part defines, and a validator that
-/// insisted on one spelling would refuse files over the standard's own inconsistency.
+/// ISO 19005-2 section 6.6.4 gives it with an `http` scheme and ISO 19005-4 section 6.7.3 with an
+/// `https` one. A producer that writes either has named the schema each part defines, and a
+/// validator that insisted on one spelling would refuse files over the standard's own
+/// inconsistency.
 const IDENTIFICATION_URIS: [&str; 2] = [
     "http://www.aiim.org/pdfa/ns/id/",
     "https://www.aiim.org/pdfa/ns/id/",
 ];
 
-/// ISO 19005-2 §6.6.2.1, ISO 19005-4 §6.7.2.1.
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
 ///
 /// Both parts point at the same table of the base standard for what a metadata stream *is*, and
 /// ISO 32000-2 §14.3.2's Table 347 makes `/Type` and `/Subtype` required entries of it — so a
@@ -339,7 +378,7 @@ fn for_each_metadata_stream(exam: &Examination<'_>, mut visit: impl FnMut(Object
     }
 }
 
-/// ISO 19005-2 §6.6.2.1, ISO 19005-4 §6.7.2.1.
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
 ///
 /// Part 2 asks for conformance with the XMP specification and well-formedness under XML 1.0 and
 /// RDF/XML; part 4 asks for well-formedness under ISO 16684-1. What `pdf_model::xmp` can answer
@@ -427,7 +466,7 @@ fn states_attribute(header: &[u8], name: &[u8]) -> bool {
     })
 }
 
-/// ISO 19005-2 §6.6.2.1, ISO 19005-4 §6.7.2.1.
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
 fn xmp_packet_header_attributes(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_metadata_stream(exam, |id, stream| {
@@ -536,18 +575,18 @@ fn identification_part(document: &Document, findings: &mut Findings, part: &str)
     }
 }
 
-/// The prefix ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3 each identify as required for the
-/// identification schema.
+/// The prefix ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3 each identify as required for
+/// the identification schema.
 const IDENTIFICATION_PREFIX: &str = "pdfaid";
 
-/// ISO 19005-2 §6.6.4, ISO 19005-4 §6.7.3.
+/// ISO 19005-2 section 6.6.4, ISO 19005-4 section 6.7.3.
 ///
 /// **A prefix is usually meaningless and here it is not**, which is the whole of this row. Both
-/// parts say in their namespaces-and-prefixes subclause (§6.6.2.2, §6.7.2.2) that no significance
-/// attaches to a prefix *except where a specific prefix is identified as required*, and both then
-/// identify one for this schema in as many words. So a packet that binds the identification
-/// namespace to any other prefix has broken a sentence the standard went out of its way to make
-/// binding.
+/// parts say in their namespaces-and-prefixes subclause (section 6.6.2.2, section 6.7.2.2) that no
+/// significance attaches to a prefix *except where a specific prefix is identified as required*,
+/// and both then identify one for this schema in as many words. So a packet that binds the
+/// identification namespace to any other prefix has broken a sentence the standard went out of its
+/// way to make binding.
 ///
 /// The population is every property in the identification namespace, under either spelling of its
 /// URI: [`IDENTIFICATION_URIS`] takes the `http` scheme part 2 prints and the `https` scheme part 4
@@ -580,18 +619,18 @@ fn identification_schema_prefix(exam: &Examination<'_>, findings: &mut Findings)
 
 /// The target a document's own identification schema claims, where it claims one this crate owns.
 ///
-/// Both parts require a conforming file to say which part it conforms to — ISO 19005-2 §6.6.4,
-/// ISO 19005-4 §6.7.3 — and to say the level or the flavour beside it, so a file's own packet
-/// names one of this crate's six targets. That is what lets `document_level.rs` hold an *embedded*
-/// file to ISO 19005 without guessing which part to hold it to.
+/// Both parts require a conforming file to say which part it conforms to — ISO 19005-2 section
+/// 6.6.4, ISO 19005-4 section 6.7.3 — and to say the level or the flavour beside it, so a file's
+/// own packet names one of this crate's six targets. That is what lets `document_level.rs` hold an
+/// *embedded* file to ISO 19005 without guessing which part to hold it to.
 ///
 /// `None` is every case where the file does not name one this crate can judge: no packet, no part
 /// number, or a part that is not 2 or 4 (`doc/questions/A17`: part 1 never, part 3 not bought).
 ///
 /// Where the part is named and the conformance property is not, the *weakest* reading of it is
-/// taken — Level B for part 2, the plain profile for part 4 — because those are what each part
-/// says an unqualified claim means: §6.6.4 gives A, B and U and §6.7.3 reserves E and F for the
-/// two annexes, so a part 4 file stating nothing is claiming the plain profile exactly.
+/// taken — Level B for part 2, the plain profile for part 4 — because those are what each part says
+/// an unqualified claim means: section 6.6.4 gives A, B and U and section 6.7.3 reserves E and F
+/// for the two annexes, so a part 4 file stating nothing is claiming the plain profile exactly.
 pub(super) fn declared_target(document: &Document) -> Option<Target> {
     let packet = document_packet(document)?;
     let part = as_text(identification(&packet, "part")?)?.trim();
@@ -613,19 +652,19 @@ pub(super) fn declared_target(document: &Document) -> Option<Target> {
     }
 }
 
-/// ISO 19005-2 §6.6.4.
+/// ISO 19005-2 section 6.6.4.
 fn identification_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     identification_part(document, findings, "2");
 }
 
-/// ISO 19005-4 §6.7.3.
+/// ISO 19005-4 section 6.7.3.
 fn identification_part_four(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     identification_part(document, findings, "4");
 }
 
-/// ISO 19005-2 §6.6.4.
+/// ISO 19005-2 section 6.6.4.
 ///
 /// The level a *particular* file has to state is decided by clause 5 and therefore by the target,
 /// which a predicate is not given — so this row checks the claim's shape, and
@@ -653,7 +692,7 @@ fn identification_conformance_level(exam: &Examination<'_>, findings: &mut Findi
     }
 }
 
-/// ISO 19005-2 §6.6.4, for the one level of part 2 a row can bind to exactly.
+/// ISO 19005-2 section 6.6.4, for the one level of part 2 a row can bind to exactly.
 fn identification_declares_level_a(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let packet = document_packet(document);
@@ -667,15 +706,15 @@ fn identification_declares_level_a(exam: &Examination<'_>, findings: &mut Findin
 
 /// The publication year of the only revision of ISO 19005-4 there is.
 ///
-/// §6.7.3 asks for "the four digit year of that revision" and Table 2 for the year of publication
-/// or revision, neither of which names a number on its own — the number comes from the part's own
-/// date, ISO 19005-4:2020. Erratum #253 is what makes it exact rather than inferred: the working
-/// group reworded the requirement to the four-digit publication year of that specific revision and
-/// reconfirmed that it is 2020 for the current one. A later dated revision moves this constant,
-/// which is why it is a constant.
+/// Section 6.7.3 asks for "the four digit year of that revision" and Table 2 for the year of
+/// publication or revision, neither of which names a number on its own — the number comes from the
+/// part's own date, ISO 19005-4:2020. Erratum #253 is what makes it exact rather than inferred: the
+/// working group reworded the requirement to the four-digit publication year of that specific
+/// revision and reconfirmed that it is 2020 for the current one. A later dated revision moves this
+/// constant, which is why it is a constant.
 const REVISION_YEAR: &str = "2020";
 
-/// ISO 19005-4 §6.7.3, as erratum #253 rewords it.
+/// ISO 19005-4 section 6.7.3, as erratum #253 rewords it.
 fn identification_revision_year(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let packet = document_packet(document);
@@ -698,7 +737,7 @@ fn identification_revision_year(exam: &Examination<'_>, findings: &mut Findings)
     }
 }
 
-/// ISO 19005-4 §6.7.3, for a file held to the plain profile.
+/// ISO 19005-4 section 6.7.3, for a file held to the plain profile.
 ///
 /// The clause reserves the conformance property for the two annexes, so a file that states one is
 /// claiming to be PDF/A-4e or PDF/A-4f rather than the plain profile this target holds it to.
@@ -724,7 +763,7 @@ fn identification_states_no_flavour(exam: &Examination<'_>, findings: &mut Findi
 }
 
 /// The shared body of the two flavour rows: Annex A's F and Annex B's E, both stated through
-/// ISO 19005-4 §6.7.3.
+/// ISO 19005-4 section 6.7.3.
 fn identification_flavour(document: &Document, findings: &mut Findings, flavour: &str) {
     let packet = document_packet(document);
     let place = || Where::file().named("conformance");
@@ -748,21 +787,21 @@ fn identification_flavour(document: &Document, findings: &mut Findings, flavour:
     }
 }
 
-/// ISO 19005-4 §6.7.3, which Annex B §B.5 requires a PDF/A-4e file to satisfy.
+/// ISO 19005-4 section 6.7.3, which Annex B §B.5 requires a PDF/A-4e file to satisfy.
 fn identification_declares_flavour_e(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     identification_flavour(document, findings, "E");
 }
 
-/// ISO 19005-4 §6.7.3, which Annex A §A.3 requires a PDF/A-4f file to satisfy.
+/// ISO 19005-4 section 6.7.3, which Annex A section A.3 requires a PDF/A-4f file to satisfy.
 fn identification_declares_flavour_f(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     identification_flavour(document, findings, "F");
 }
 
-/// ISO 19005-2 §6.6.2.3.3's five namespaces: the container schema and its four value types.
+/// ISO 19005-2 section 6.6.2.3.3's five namespaces: the container schema and its four value types.
 const EXTENSION_URI: &str = "http://www.aiim.org/pdfa/ns/extension/";
-/// The Schema value type's field namespace, ISO 19005-2 §6.6.2.3.3 Table 3.
+/// The Schema value type's field namespace, ISO 19005-2 section 6.6.2.3.3 Table 3.
 const SCHEMA_URI: &str = "http://www.aiim.org/pdfa/ns/schema#";
 /// The Property value type's field namespace, Table 4.
 const PROPERTY_URI: &str = "http://www.aiim.org/pdfa/ns/property#";
@@ -1008,7 +1047,7 @@ impl Schema {
 ///
 /// # Where this comes from, and why it is here at all
 ///
-/// ISO 19005-2 §6.6.2.3.1 requires a property to *use* a predefined schema, and a schema is
+/// ISO 19005-2 section 6.6.2.3.1 requires a property to *use* a predefined schema, and a schema is
 /// only usable as defined: `xmpDM:logComment` is a text property, so a file that states a
 /// sequence there has borrowed the namespace rather than used the schema. Deciding that needs
 /// the specification's own tables, which are not in `doc/pdfa/` — ISO 19005-2 lists the XMP
@@ -1025,9 +1064,9 @@ impl Schema {
 /// this table does not carry the lists themselves.
 ///
 /// One row is not the September 2005 edition's: that edition types `xmp:Rating` as a choice of
-/// integers, and the current one (Part 2, *Additional Properties*) types it as a choice of
-/// reals. §6.6.2.3.1 cites the specification without a date, so the later and wider type is the
-/// one a file is entitled to, and `1.0` is a rating.
+/// integers, and the current one (Part 2, *Additional Properties*) types it as a choice of reals.
+/// Section 6.6.2.3.1 cites the specification without a date, so the later and wider type is the one
+/// a file is entitled to, and `1.0` is a rating.
 static PREDEFINED: &[Schema] = &[
     Schema {
         uri: "http://purl.org/dc/elements/1.1/",
@@ -1088,7 +1127,7 @@ static PREDEFINED: &[Schema] = &[
         ],
     },
     Schema {
-        uri: "http://ns.adobe.com/xap/1.0/mm/",
+        uri: MEDIA_MANAGEMENT_URI,
         name: "XMP Media Management",
         prefix: "xmpMM",
         properties: &[
@@ -1410,8 +1449,8 @@ fn predefined(namespace: &str) -> Option<&'static Schema> {
 
 /// Whether a namespace is one ISO 19005 itself defines rather than the XMP Specification.
 ///
-/// ISO 19005-2 §6.6.2.3.1 admits the schemas of ISO 19005-1 and of part 2 alongside the XMP
-/// Specification's: the identification schema of each part's own subclause, and §6.6.2.3.3's
+/// ISO 19005-2 section 6.6.2.3.1 admits the schemas of ISO 19005-1 and of part 2 alongside the XMP
+/// Specification's: the identification schema of each part's own subclause, and section 6.6.2.3.3's
 /// container schema together with the four value types whose fields it is built from.
 fn defined_by_iso_19005(namespace: &str) -> bool {
     IDENTIFICATION_URIS.contains(&namespace)
@@ -1449,16 +1488,16 @@ fn spelled(property: &XmpProperty) -> String {
     }
 }
 
-/// ISO 19005-2 §6.6.2.3.1.
+/// ISO 19005-2 section 6.6.2.3.1.
 ///
 /// The subclause requires every property to use a predefined schema or an extension schema
-/// complying with §6.6.2.3.2, and *using* a schema is more than borrowing its namespace: a
+/// complying with section 6.6.2.3.2, and *using* a schema is more than borrowing its namespace: a
 /// property the specification gives a value type has to carry a value of that type, or the file
 /// has invented a property inside somebody else's schema. So this row judges the predefined half
 /// — the shape of the value, the lexical form of its scalar, and the language qualifiers a
 /// language alternative's items are defined to have. The other half, a namespace no predefined
-/// schema owns, is [`extension_schemas_embedded`]'s row, because §6.6.2.3.1 states it by
-/// deferring to §6.6.2.3.2 and a reader that reported both would report each file twice.
+/// schema owns, is [`extension_schemas_embedded`]'s row, because section 6.6.2.3.1 states it by
+/// deferring to section 6.6.2.3.2 and a reader that reported both would report each file twice.
 ///
 /// **A property whose local name the table does not carry is not judged**, and that is a reading
 /// rather than a gap. [`PREDEFINED`] is the September 2005 edition of the XMP Specification, the
@@ -1578,7 +1617,7 @@ fn described_schemas(properties: &[XmpProperty]) -> Vec<String> {
     described
 }
 
-/// ISO 19005-2 §6.6.2.3.2.
+/// ISO 19005-2 section 6.6.2.3.2.
 ///
 /// A property whose namespace no predefined schema owns needs an extension schema describing it,
 /// and the subclause says where that description may be: in the stream the property is in, or in
@@ -1624,16 +1663,16 @@ fn catalog_detail(document: &Document) -> Option<Vec<XmpProperty>> {
     Xmp::parse_detail(&bytes).ok()
 }
 
-/// One of ISO 19005-2 §6.6.2.3.3's four value types, as its table defines it.
+/// One of ISO 19005-2 section 6.6.2.3.3's four value types, as its table defines it.
 struct ValueType {
     /// The field namespace URI the table gives it.
     uri: &'static str,
-    /// The prefix the table *requires* — §6.6.2.2 makes a prefix meaningless except where one is
-    /// identified as required, and each of these four tables identifies one.
+    /// The prefix the table *requires* — section 6.6.2.2 makes a prefix meaningless except where
+    /// one is identified as required, and each of these four tables identifies one.
     prefix: &'static str,
     /// What to call it in a finding.
     name: &'static str,
-    /// Every field the table describes, all of which §6.6.2.3.2 requires to be present.
+    /// Every field the table describes, all of which section 6.6.2.3.2 requires to be present.
     fields: &'static [&'static str],
 }
 
@@ -1669,12 +1708,12 @@ static FIELD_TYPE: ValueType = ValueType {
     fields: &["name", "valueType", "description"],
 };
 
-/// ISO 19005-2 §6.6.2.3.3, and the sentence of §6.6.2.3.2 that binds it.
+/// ISO 19005-2 section 6.6.2.3.3, and the sentence of section 6.6.2.3.2 that binds it.
 ///
-/// §6.6.2.3.2 requires every field described in each of §6.6.2.3.3's tables to be present in any
-/// extension schema container schema, and each of those tables names the prefix its fields are
-/// required to be spelled with — which §6.6.2.2 makes load-bearing by saying a prefix means
-/// nothing *except* where one is identified as required.
+/// Section 6.6.2.3.2 requires every field described in each of section 6.6.2.3.3's tables to be
+/// present in any extension schema container schema, and each of those tables names the prefix its
+/// fields are required to be spelled with — which section 6.6.2.2 makes load-bearing by saying a
+/// prefix means nothing *except* where one is identified as required.
 ///
 /// **Two of Table 3's five fields are required here that another reading treats as optional**: a
 /// schema that describes no custom value types still has to state `pdfaSchema:valueType`, and one
@@ -1745,7 +1784,7 @@ fn check_value_type(
         findings.record(
             Where::object(id).named(expected.name),
             format!(
-                "an {} is {} where §6.6.2.3.3 defines it as a structure",
+                "an {} is {} where section 6.6.2.3.3 defines it as a structure",
                 expected.name,
                 shaped(structure)
             ),
@@ -1776,6 +1815,166 @@ fn check_value_type(
     }
 }
 
+/// The XMP Media Management namespace, whose `History` property records the actions.
+///
+/// ISO 19005-2 Table 1 and ISO 19005-4 Table 1 both bind it to the `xmpMM` prefix, and both
+/// Section 6.6.6 and section 6.7.5 name the property by that prefix.
+const MEDIA_MANAGEMENT_URI: &str = "http://ns.adobe.com/xap/1.0/mm/";
+
+/// The field namespace of the XMP Specification's `ResourceEvent` value type.
+///
+/// **Where this comes from.** ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5 name the
+/// fields — `action`, `parameters`, `when` — and name no namespace for them, because the structure
+/// they are fields of is the XMP Specification's: `xmpMM:History` is a sequence of `ResourceEvent`
+/// structures, and that value type is where the field names are defined. That specification is the
+/// same one [`PREDEFINED`] is read from, for the same reason and on the same terms — ISO 19005-2
+/// lists it in its bibliography with a public address — so this is a primary source already in use
+/// here rather than a new one, and `doc/questions/A20`'s prohibition on checking from a secondary
+/// source is not engaged.
+const RESOURCE_EVENT_URI: &str = "http://ns.adobe.com/xap/1.0/sType/ResourceEvent#";
+
+/// The prefix the XMP Specification uses for [`RESOURCE_EVENT_URI`], for a finding to print.
+///
+/// **Not a required prefix and not treated as one**: the lookup is by namespace URI, as section
+/// 6.6.2.2 and section 6.7.2.2 require of every prefix neither part identifies as required. This is
+/// here only so that a message names the field the way the reader's packet spells it.
+const RESOURCE_EVENT_PREFIX: &str = "stEvt";
+
+/// Every action the catalog's packet records, as ISO 19005-2 section 6.6.6 and ISO 19005-4 section
+/// 6.7.5 mean the phrase: one item of `xmpMM:History`.
+///
+/// **The catalog's packet and no other.** Both subclauses say the property is inside the metadata
+/// stream that is the value of the `Metadata` entry in the document catalog dictionary, so a
+/// history in a page's or a font's stream is not what either clause is about.
+///
+/// A `History` that is not an array is passed over here: what shape the property takes is
+/// [`properties_use_known_schemas`]'s row, which holds it to the XMP Specification's `seq`, and
+/// reporting the same fault under two requirements would make a report state it twice.
+fn for_each_recorded_action(document: &Document, mut visit: impl FnMut(usize, &Detail)) {
+    let Some(properties) = catalog_detail(document) else {
+        return;
+    };
+    let mut ordinal = 0usize;
+    for property in &properties {
+        if property.name.namespace != MEDIA_MANAGEMENT_URI || property.name.local != "History" {
+            continue;
+        }
+        for action in property.value.array().unwrap_or_default() {
+            ordinal = ordinal.saturating_add(1);
+            visit(ordinal, action);
+        }
+    }
+}
+
+/// The shared body of the two provenance rows: every recorded action states these fields.
+///
+/// The two parts differ only in the list — part 2 requires `action`, `parameters` and `when`,
+/// part 4 requires `action` and `when` and demotes `parameters` to a recommendation — so the
+/// requirement is one predicate and two rows rather than two predicates.
+fn recorded_action_fields(document: &Document, findings: &mut Findings, required: &[&str]) {
+    for_each_recorded_action(document, |ordinal, action| {
+        let Some(fields) = action.fields() else {
+            findings.record(
+                Where::file().named("xmpMM:History"),
+                format!(
+                    "history entry {ordinal} is {} where a recorded action is a structure of \
+                     fields",
+                    shaped(action)
+                ),
+            );
+            return;
+        };
+        for wanted in required {
+            let stated = fields.iter().any(|field| {
+                field.name.namespace == RESOURCE_EVENT_URI && field.name.local == *wanted
+            });
+            if !stated {
+                findings.record(
+                    Where::file().named(format!("{RESOURCE_EVENT_PREFIX}:{wanted}")),
+                    format!(
+                        "history entry {ordinal} specifies no {wanted} field, which the \
+                         subclause requires of each recorded action"
+                    ),
+                );
+            }
+        }
+    });
+}
+
+/// ISO 19005-2 section 6.6.6.
+///
+/// The subclause recommends that each high-level action be recorded and then requires three
+/// fields of each action that *is* recorded, so the rule is conditional on the file's own
+/// `xmpMM:History` and vacuous for a file that states none.
+///
+/// **`parameters` is in the list, and there is contrary evidence that could not be read.** The
+/// veraPDF corpus's own `TWG test suite A021-*` documents carry an ISO working group resolution
+/// saying requirements on `xmpMM:History` are application requirements and irrelevant to ISO
+/// 19005 validation; a 2016 record of the same agenda item says the opposite for parts 2 and 3,
+/// that `parameters` remains required. Neither is an approved erratum and neither is published
+/// where this project can read it as one, so `CLAUDE.md` principle 5 leaves the clause this crate
+/// has read as what it follows — the same answer, for the same reason, as the `TN 0009` note in
+/// `tests/corpus.rs`. `doc/questions/Q52` puts the choice to the owner, because the practical
+/// cost falls on real files rather than on test fixtures.
+fn provenance_recorded_action_fields(exam: &Examination<'_>, findings: &mut Findings) {
+    recorded_action_fields(exam.document, findings, &["action", "parameters", "when"]);
+}
+
+/// ISO 19005-4 section 6.7.5.
+///
+/// Part 4's list is shorter than part 2's by one: `action` and `when` are required and
+/// `parameters` is demoted to a recommendation, alongside `softwareAgent` and `instanceID` which
+/// both parts recommend. Part 4 is the later text and was written after the working group had
+/// considered the subject, which is why this row is the one to trust first.
+fn provenance_recorded_action_fields_four(exam: &Examination<'_>, findings: &mut Findings) {
+    recorded_action_fields(exam.document, findings, &["action", "when"]);
+}
+
+/// ISO 19005-2 section 6.6.4, the form of an amendment or corrigendum identifier that is stated.
+///
+/// Two sentences of the subclause, one shape: where a file conforms to a version of the part
+/// defined by an amendment, `pdfaid:amd` is the amendment number and year separated by a colon,
+/// and where it conforms to one defined by a corrigendum, `pdfaid:corr` is the corrigendum number
+/// and year separated by a colon.
+///
+/// **What this row can and cannot decide.** Whether a file *ought* to state one is
+/// `metadata/identification-amendment-and-corrigendum`'s row and is not decidable here: no other
+/// fact in the file says which amendment it was written against. What is decidable is the value
+/// of one the file *does* state, because stating the property is the file naming the amendment it
+/// conforms to — Table 8 gives the two properties no other meaning — and the sentence then says
+/// what that name looks like.
+///
+/// The form is read no further than the subclause states it: a colon, a number before it, a year
+/// after it, both decimal. Section 6.6.4 says `year` where ISO 19005-4 section 6.7.3 says `four
+/// digit year`, so four digits are not required here.
+fn identification_amendment_form(exam: &Examination<'_>, findings: &mut Findings) {
+    let packet = document_packet(exam.document);
+    for (local, what) in [("amd", "amendment"), ("corr", "corrigendum")] {
+        let Stated::Text(text) = stated(packet.as_ref(), local) else {
+            continue;
+        };
+        if numbered_and_dated(text) {
+            continue;
+        }
+        findings.record(
+            Where::file().named(format!("{IDENTIFICATION_PREFIX}:{local}")),
+            format!(
+                "the file states {} as its {what} identifier, where the subclause requires the \
+                 {what} number and year separated by a colon",
+                short(text)
+            ),
+        );
+    }
+}
+
+/// Whether a value is a number and a year separated by a colon, ISO 19005-2 section 6.6.4's form.
+fn numbered_and_dated(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed
+        .split_once(':')
+        .is_some_and(|(number, year)| integer(number.trim()) && integer(year.trim()))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::Examination;
@@ -1786,11 +1985,12 @@ mod tests {
     use super::{
         Findings, PREDEFINED, REQUIREMENTS, catalog_metadata_stream, date,
         extension_schema_container_fields, extension_schemas_embedded,
-        identification_conformance_level, identification_declares_flavour_f,
-        identification_declares_level_a, identification_part_four, identification_part_two,
-        identification_revision_year, identification_states_no_flavour, packet_header,
-        properties_use_known_schemas, states_attribute, xmp_packet_header_attributes,
-        xmp_packets_well_formed,
+        identification_amendment_form, identification_conformance_level,
+        identification_declares_flavour_f, identification_declares_level_a,
+        identification_part_four, identification_part_two, identification_revision_year,
+        identification_states_no_flavour, packet_header, properties_use_known_schemas,
+        provenance_recorded_action_fields, provenance_recorded_action_fields_four,
+        states_attribute, xmp_packet_header_attributes, xmp_packets_well_formed,
     };
     use super::{declared_target, identification_schema_prefix};
     use crate::target::{Flavour, Level, Target};
@@ -1916,7 +2116,7 @@ mod tests {
     /// The XMP Dynamic Media schema, whose properties are the ones the corpus exercises most.
     const DM: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
 
-    /// ISO 19005-2 §6.6.2.3.1: a predefined property carrying a value of another type has
+    /// ISO 19005-2 section 6.6.2.3.1: a predefined property carrying a value of another type has
     /// borrowed the namespace rather than used the schema.
     #[test]
     fn a_predefined_property_is_held_to_the_value_type_its_schema_gives_it() {
@@ -1956,8 +2156,8 @@ mod tests {
         ));
         assert_eq!(found(properties_use_known_schemas, &lowercase), 1);
 
-        // A rating is a real in the current edition of the specification, which §6.6.2.3.1 cites
-        // undated — so both spellings of one are a value of the type.
+        // A rating is a real in the current edition of the specification, which section 6.6.2.3.1
+        // cites undated — so both spellings of one are a value of the type.
         for rating in ["1", "1.0"] {
             let file = document(&schema_packet(
                 "xmp",
@@ -1988,7 +2188,7 @@ mod tests {
     }
 
     /// A property in a schema nobody predefines needs an extension schema describing it —
-    /// ISO 19005-2 §6.6.2.3.2 — and this row is the one that says so.
+    /// ISO 19005-2 section 6.6.2.3.2 — and this row is the one that says so.
     #[test]
     fn a_custom_property_needs_a_schema_description_and_the_description_satisfies_it() {
         let bare = document(&schema_packet(
@@ -2013,7 +2213,7 @@ mod tests {
     }
 
     /// A complete extension schema description of `http://example.test/ns/`, with every field of
-    /// ISO 19005-2 §6.6.2.3.3's four tables.
+    /// ISO 19005-2 section 6.6.2.3.3's four tables.
     const DESCRIPTION: &str = r#"<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType="Resource">
       <pdfaSchema:schema>Example</pdfaSchema:schema>
       <pdfaSchema:namespaceURI>http://example.test/ns/</pdfaSchema:namespaceURI>
@@ -2037,7 +2237,7 @@ mod tests {
       </rdf:li></rdf:Seq></pdfaSchema:valueType>
     </rdf:li></rdf:Bag></pdfaExtension:schemas>"#;
 
-    /// ISO 19005-2 §6.6.2.3.3: every field of every table, spelled with the required prefix.
+    /// ISO 19005-2 section 6.6.2.3.3: every field of every table, spelled with the required prefix.
     #[test]
     fn a_container_schema_states_every_field_with_the_prefix_its_table_requires() {
         let whole = document(&schema_packet("ex", "http://example.test/ns/", DESCRIPTION));
@@ -2108,7 +2308,7 @@ mod tests {
         }
     }
 
-    /// ISO 19005-2 §6.6.4, read off a packet spelled the way a producer spells one.
+    /// ISO 19005-2 section 6.6.4, read off a packet spelled the way a producer spells one.
     #[test]
     fn a_part_two_identification_is_read_and_its_level_is_checked_against_the_target() {
         let file = document(&packet(
@@ -2157,7 +2357,7 @@ mod tests {
         }
     }
 
-    /// A revision that is not four digits is not the year ISO 19005-4 §6.7.3 asks for.
+    /// A revision that is not four digits is not the year ISO 19005-4 section 6.7.3 asks for.
     #[test]
     fn a_revision_year_is_four_digits_and_nothing_else() {
         let file = document(&packet(
@@ -2167,7 +2367,8 @@ mod tests {
         assert_eq!(found(identification_revision_year, &file), 1);
     }
 
-    /// ISO 19005-4 §6.7.3 as erratum #253 rewords it: the year of the revision, not any year.
+    /// ISO 19005-4 section 6.7.3 as erratum #253 rewords it: the year of the revision, not any
+    /// year.
     ///
     /// Part 4 has one revision and it was published in 2020, so a four-digit year that is not
     /// that one names no edition of the part that exists — which is why 2018 is refused here and
@@ -2188,7 +2389,8 @@ mod tests {
         );
     }
 
-    /// ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3: the one prefix both parts make binding.
+    /// ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3: the one prefix both parts make
+    /// binding.
     ///
     /// The failing spelling is part 4's own Table 2, which erratum #123 records as an error: the
     /// table gives the conformance property a `pdfa` prefix in a schema whose required prefix the
@@ -2226,7 +2428,8 @@ mod tests {
         assert_eq!(
             declared_target(&claiming("<pdfaid:part>4</pdfaid:part>")),
             Some(Target::Four(Flavour::Plain)),
-            "§6.7.3 reserves the conformance property for the two annexes, so stating none is \
+            "section 6.7.3 reserves the conformance property for the two annexes, so stating none \
+            is \
              the plain profile exactly"
         );
         assert_eq!(
@@ -2316,5 +2519,130 @@ mod tests {
              <x:xmpmeta xmlns:x=\"adobe:ns:meta/\"></x:xmpmeta>\n<?xpacket end=\"w\"?>",
         );
         assert_eq!(found(xmp_packet_header_attributes, &file), 2);
+    }
+
+    /// A packet whose catalog metadata states one `xmpMM:History` entry with these fields.
+    ///
+    /// The shape is the one every producer writes and the one the corpus's own provenance
+    /// witnesses use: a `rdf:Seq` of `rdf:parseType="Resource"` items whose fields are in the
+    /// XMP Specification's `ResourceEvent` namespace.
+    fn history(fields: &str) -> Document {
+        document(&format!(
+            "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             <rdf:Description rdf:about=\"\" \
+             xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" \
+             xmlns:stEvt=\"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#\">\n\
+             <xmpMM:History><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n{fields}\n\
+             </rdf:li></rdf:Seq></xmpMM:History>\n\
+             </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+        ))
+    }
+
+    /// ISO 19005-2 section 6.6.6's three fields and ISO 19005-4 section 6.7.5's two, over the same
+    /// entry.
+    ///
+    /// The middle case is the whole difference between the parts: an entry stating `action` and
+    /// `when` and no `parameters` meets part 4's list and misses one of part 2's.
+    #[test]
+    fn a_recorded_action_is_held_to_the_fields_its_own_part_requires() {
+        let whole = history(
+            "<stEvt:action>created</stEvt:action>\n\
+             <stEvt:parameters>by hand</stEvt:parameters>\n\
+             <stEvt:when>2016-04-05T13:19:21+01:00</stEvt:when>",
+        );
+        assert_eq!(found(provenance_recorded_action_fields, &whole), 0);
+        assert_eq!(found(provenance_recorded_action_fields_four, &whole), 0);
+
+        let no_parameters = history(
+            "<stEvt:action>created</stEvt:action>\n\
+             <stEvt:when>2016-04-05T13:19:21+01:00</stEvt:when>",
+        );
+        assert_eq!(
+            found(provenance_recorded_action_fields, &no_parameters),
+            1,
+            "part 2 requires the parameters field"
+        );
+        assert_eq!(
+            found(provenance_recorded_action_fields_four, &no_parameters),
+            0,
+            "part 4 only recommends it"
+        );
+
+        let neither = history("<stEvt:parameters>by hand</stEvt:parameters>");
+        assert_eq!(
+            found(provenance_recorded_action_fields, &neither),
+            2,
+            "action and when, reported separately"
+        );
+        assert_eq!(found(provenance_recorded_action_fields_four, &neither), 2);
+    }
+
+    /// XML names are case-sensitive, and the `ResourceEvent` value type spells its fields in
+    /// lower case — so a capital `When` states a field that value type does not define.
+    ///
+    /// The corpus witness `6-7-5-t01-pass-b.pdf` is exactly this construction.
+    #[test]
+    fn a_field_spelled_with_the_wrong_case_is_not_the_field_the_subclause_names() {
+        let file = history(
+            "<stEvt:action>created</stEvt:action>\n\
+             <stEvt:When>2016-04-05T13:19:21+01:00</stEvt:When>",
+        );
+        assert_eq!(found(provenance_recorded_action_fields_four, &file), 1);
+    }
+
+    /// A file with no history at all has recorded no action, so the rule reaches nothing.
+    #[test]
+    fn a_file_that_records_no_action_meets_the_provenance_rows_vacuously() {
+        let file = document(&packet(
+            "http://www.aiim.org/pdfa/ns/id/",
+            "<pdfaid:part>4</pdfaid:part>",
+        ));
+        assert_eq!(found(provenance_recorded_action_fields, &file), 0);
+        assert_eq!(found(provenance_recorded_action_fields_four, &file), 0);
+    }
+
+    /// ISO 19005-2 section 6.6.4's form for an amendment or corrigendum identifier that is stated.
+    ///
+    /// A file that states neither is not judged here — whether it should have is the row above
+    /// this one, and nothing in the file settles it.
+    #[test]
+    fn an_amendment_identifier_is_a_number_and_a_year_around_a_colon() {
+        let stated =
+            |properties: &str| document(&packet("http://www.aiim.org/pdfa/ns/id/", properties));
+
+        assert_eq!(
+            found(
+                identification_amendment_form,
+                &stated("<pdfaid:part>2</pdfaid:part>"),
+            ),
+            0,
+            "a file stating neither property"
+        );
+        assert_eq!(
+            found(
+                identification_amendment_form,
+                &stated("<pdfaid:corr>1:2007</pdfaid:corr>"),
+            ),
+            0,
+            "the form the subclause describes"
+        );
+        assert_eq!(
+            found(
+                identification_amendment_form,
+                &stated("<pdfaid:amd>2016</pdfaid:amd>"),
+            ),
+            1,
+            "a year alone is not a number and a year separated by a colon"
+        );
+        assert_eq!(
+            found(
+                identification_amendment_form,
+                &stated("<pdfaid:amd>1:2016</pdfaid:amd>\n<pdfaid:corr>later</pdfaid:corr>"),
+            ),
+            1,
+            "and the two properties are judged separately"
+        );
     }
 }

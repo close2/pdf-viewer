@@ -3,7 +3,7 @@
 The tree's specifications arrive as PDFs and are read as Markdown: `doc/md/` is where
 `tools/conformance` looks for ISO 32000-2's own words, and where a person greps. Two more
 specifications arrived in the nine-hundred-and-fortieth session — ISO 32000-1:2008, which
-ISO 19005-2 makes its base document, and ISO/IEC 15444-1:2000, which ISO 19005-2 §6.2.8.3's
+ISO 19005-2 makes its base document, and ISO/IEC 15444-1:2000, which ISO 19005-2 section 6.2.8.3's
 JPEG 2000 rules rest on — and both need the same treatment, so it is a command rather than
 two one-off transcriptions.
 

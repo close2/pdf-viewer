@@ -100,8 +100,8 @@ impl<'a> Examination<'a> {
     /// Every object a cross-reference section names, fetched once and lent to every rule.
     ///
     /// **The population the requirements bind**, and it is the cross-reference table's rather
-    /// than a traversal's for the reason both parts give: ISO 19005-2 §6.1.4 and ISO 19005-4
-    /// §6.1.4 exempt an indirect object no cross-reference section names.
+    /// than a traversal's for the reason both parts give: ISO 19005-2 section 6.1.4 and ISO 19005-4
+    /// Section 6.1.4 exempt an indirect object no cross-reference section names.
     ///
     /// Fetched once for the same reason the survey is. Twelve requirements walked this
     /// separately, at roughly 180 ms each on ISO 32000-2's 110 000 objects, and the repetition

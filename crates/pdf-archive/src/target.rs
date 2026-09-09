@@ -2,9 +2,9 @@
 //!
 //! Two owned parts, six targets, and the shape of that set is the reason this crate has one
 //! requirement table rather than six: **a level is an applicability column, not an
-//! implementation.** ISO 19005-2 §5.3 and §5.4 say so themselves — Level B may ignore the
-//! Unicode subclause and Level A's logical structure, Level U may ignore the latter — and
-//! ISO 19005-4's Annexes A and B are modifications to clause 6 that mostly *relax* it. So the
+//! implementation.** ISO 19005-2 section 5.3 and section 5.4 say so themselves — Level B may ignore
+//! the Unicode subclause and Level A's logical structure, Level U may ignore the latter — and ISO
+//! 19005-4's Annexes A and B are modifications to clause 6 that mostly *relax* it. So the
 //! difference between `2b` and `2a` is which requirements apply, and every predicate is shared.
 //!
 //! # Why parts 1 and 3 are not here
@@ -22,10 +22,10 @@ pub enum Part {
     /// ISO 19005-2:2011, PDF/A-2, defined on ISO 32000-1.
     ///
     /// **Its base document is a different edition from the one this tree is written against**,
-    /// which is a fact about every PDF/A-2 verdict rather than about any one requirement: §5.1
-    /// makes a conforming file one that adheres to all of ISO 32000-1 as modified by part 2,
-    /// while `doc/md/`, the conformance ledger and every doc comment in `crates/` are
-    /// ISO 32000-2's.
+    /// which is a fact about every PDF/A-2 verdict rather than about any one requirement: section
+    /// 5.1 makes a conforming file one that adheres to all of ISO 32000-1 as modified by part 2,
+    /// while `doc/md/`, the conformance ledger and every doc comment in `crates/` are ISO
+    /// 32000-2's.
     ///
     /// **The edition itself is now readable.** The owner obtained ISO 32000-1:2008 on
     /// 2026-09-07 — Adobe publishes it without charge — and it is `doc/PDF32000_2008.pdf`,
@@ -43,18 +43,19 @@ pub enum Part {
     Four,
 }
 
-/// ISO 19005-2 §5's conformance levels.
+/// ISO 19005-2 section 5's conformance levels.
 ///
 /// The order is the standard's own containment: every Level A file is a Level U file and every
-/// Level U file is a Level B file, because §5.2 and §5.4 define A and U by *adding* to B rather
-/// than by replacing it.
+/// Level U file is a Level B file, because section 5.2 and section 5.4 define A and U by *adding*
+/// to B rather than by replacing it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Level {
-    /// §5.3's Level B: every requirement except §6.2.11.7's Unicode maps and §6.7's structure.
+    /// Section 5.3's Level B: every requirement except section 6.2.11.7's Unicode maps and section
+    /// 6.7's structure.
     B,
-    /// §5.4's Level U: every requirement except §6.7's structure.
+    /// Section 5.4's Level U: every requirement except section 6.7's structure.
     U,
-    /// §5.2's Level A: every requirement of the part.
+    /// Section 5.2's Level A: every requirement of the part.
     A,
 }
 
@@ -147,7 +148,8 @@ impl Target {
 
     /// The `pdfaid:part` value a conforming file states for this target.
     ///
-    /// ISO 19005-2 §6.6.4 and ISO 19005-4 §6.7.3 both require it to be the part number.
+    /// ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3 both require it to be the part
+    /// number.
     #[must_use]
     pub const fn identification_part(self) -> u8 {
         match self.part() {

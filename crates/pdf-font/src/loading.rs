@@ -55,6 +55,36 @@ use crate::vertical::{Downward, Form, VerticalForms};
 /// A character code's glyph, for each of the 256 codes a simple font can use.
 pub(crate) type CodeTable = [Option<u16>; 256];
 
+/// A set of the one-byte character codes a simple font can use, as a bitmask.
+///
+/// Thirty-two bytes rather than a `[bool; 256]` or a `BTreeSet`, because a [`LoadedFont`] holds
+/// one whether or not anything ever asks and the page-one path loads every font a page uses
+/// (`CLAUDE.md` principle 2). Nothing allocates and nothing is computed twice: the one place
+/// that fills it is already walking all 256 codes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CodeSet([u64; 4]);
+
+impl CodeSet {
+    /// Records a code. A value above 255 is not a simple font's code and is ignored.
+    pub(crate) fn insert(&mut self, code: u32) {
+        let (word, bit) = (code / 64, code % 64);
+        if let Ok(word) = usize::try_from(word)
+            && let Some(slot) = self.0.get_mut(word)
+        {
+            *slot |= 1_u64 << bit;
+        }
+    }
+
+    /// Whether the code is in the set.
+    pub(crate) fn contains(&self, code: u32) -> bool {
+        let (word, bit) = (code / 64, code % 64);
+        usize::try_from(word)
+            .ok()
+            .and_then(|word| self.0.get(word))
+            .is_some_and(|slot| slot & (1_u64 << bit) != 0)
+    }
+}
+
 /// The glyph index a font program answers with when it has no glyph for a code.
 ///
 /// Glyph 0 is `.notdef` in every format Table 124 admits, and both of clause 9's selection
@@ -432,6 +462,18 @@ pub struct LoadedFont {
     /// a character through the Adobe Glyph List, and it is what actually selected the
     /// glyph, so it describes what was drawn rather than what the producer claimed.
     glyph_names: Option<GlyphNames>,
+    /// The codes whose glyph was reached only by a mapping ISO 32000-2 §9.6.5.4 leaves open.
+    ///
+    /// That subclause's last sentence — "if a character cannot be mapped in any of the ways
+    /// described previously, a PDF processor may supply a mapping of its choosing" — is a
+    /// licence, and [`crate::truetype`] takes it twice. Empty for every font that never reached
+    /// it, and for every route other than a simple `TrueType`/`OpenType` program, because no
+    /// other route has that sentence behind it.
+    ///
+    /// Recorded rather than recomputed because it is knowable only while the table is being
+    /// built: what comes out is 256 glyph indices with no record of which rule supplied each.
+    /// [`Self::glyph_needed_a_reader_chosen_mapping`] is what asks.
+    reader_chosen: CodeSet,
     /// §9.6.5.2's substitute: the glyph this program itself calls `.notdef`.
     ///
     /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
@@ -530,6 +572,39 @@ impl std::fmt::Debug for LoadedFont {
             .field("substituted", &self.substituted)
             .finish_non_exhaustive()
     }
+}
+
+/// §9.10.2's third method, where the descendant's character collection supplies it.
+///
+/// [`collection_meaning`] answers with whichever of the clause's methods applies, and only the
+/// CID-keyed one belongs in [`LoadedFont::collection`]: the others are keyed by code and are
+/// `/ToUnicode`'s own field. Split out so the composite constructor states one field per line.
+fn collection_by_cid(document: &Document, descendant: &Dictionary) -> Option<tounicode::ToUnicode> {
+    match collection_meaning(document, descendant) {
+        Some(Meaning::ByCid(table)) => Some(table),
+        _ => None,
+    }
+}
+
+/// A parsed Type 1 program's own code-to-glyph tables, or the error that says why there are none.
+///
+/// Split out of [`LoadedFont::load_simple`] because the two failures it distinguishes are the
+/// whole of it: a `/Subtype /Type1` font whose program never parsed is one the document did not
+/// embed usably, and one whose charset and encoding could not be read is malformed. Both are
+/// reported as themselves rather than as a font that maps nothing.
+fn type1_code_to_glyph(
+    program: Option<&type1::Program>,
+    name: &str,
+) -> Result<NameKeyed, FontError> {
+    program
+        .ok_or_else(|| FontError::NotEmbedded {
+            name: name.to_owned(),
+        })?
+        .code_to_glyph()
+        .map_err(|error| FontError::Malformed {
+            name: name.to_owned(),
+            detail: error.to_string(),
+        })
 }
 
 impl LoadedFont {
@@ -645,6 +720,9 @@ impl LoadedFont {
         // no `/ToUnicode`, which is common in older documents.
         let names;
         let mut notdef = None; // §9.6.5.2's substitute; only a name-keyed program has one
+        // Empty unless the route below is a simple sfnt one, which is the only route §9.6.5.4
+        // governs.
+        let mut reader_chosen = CodeSet::default();
         let mapping = match (program, substituted) {
             // A substitute shares no glyph order with the font the document meant, so its
             // glyphs are reached by what each code *means* rather than by index.
@@ -655,9 +733,10 @@ impl LoadedFont {
                 CodeMapping::Named(Box::new(table))
             }
             (Program::Sfnt, None) => {
-                let (table, resolved) =
+                let (table, resolved, chosen) =
                     truetype_code_table(document, dict, descriptor, &data, name)?;
                 names = Some(resolved);
+                reader_chosen = chosen;
                 CodeMapping::Named(Box::new(table))
             }
             (Program::BareCff, None) => {
@@ -679,16 +758,7 @@ impl LoadedFont {
                 CodeMapping::Named(Box::new(table))
             }
             (Program::Type1, None) => {
-                let keyed = type1
-                    .as_ref()
-                    .ok_or_else(|| FontError::NotEmbedded {
-                        name: name.to_owned(),
-                    })?
-                    .code_to_glyph()
-                    .map_err(|e| FontError::Malformed {
-                        name: name.to_owned(),
-                        detail: e.to_string(),
-                    })?;
+                let keyed = type1_code_to_glyph(type1.as_ref(), name)?;
                 let (table, resolved) = simple_code_table(document, dict, &keyed, name)?;
                 (names, notdef) = (Some(resolved), keyed.by_name.get(".notdef").copied());
                 CodeMapping::Named(Box::new(table))
@@ -725,6 +795,7 @@ impl LoadedFont {
             symbolic_set: requested.and_then(|request| symbolic_set(request.family)),
             glyph_names: names,
             notdef,
+            reader_chosen,
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
             agl_by_code: OnceLock::new(),
@@ -872,16 +943,16 @@ impl LoadedFont {
             mapping,
             substituted,
             to_unicode: to_unicode(document, dict),
-            collection: match collection_meaning(document, &descendant) {
-                Some(Meaning::ByCid(table)) => Some(table),
-                _ => None,
-            },
+            collection: collection_by_cid(document, &descendant),
             // §9.6.5.1 gives the two symbolic standard-14 fonts *simple* built-in encodings, and
             // a composite font has none of them.
             symbolic_set: None,
             glyph_names: None,
             // A composite font's substitute is §9.7.6.3's CID 0, applied in `glyph_for`.
             notdef: None,
+            // §9.6.5.4 is a *simple* font's subclause: a composite font's codes reach glyphs
+            // through §9.7.6.2 and §9.7.4.2, neither of which offers the processor a choice.
+            reader_chosen: CodeSet::default(),
             widths: composite_widths(document, &descendant),
             default_width,
             extent: vertical_extent(document, descriptor),
@@ -1334,11 +1405,11 @@ impl LoadedFont {
     /// so that a caller comparing the two is comparing two statements rather than one with
     /// itself.
     ///
-    /// It exists for the callers that have to make exactly that comparison: ISO 19005-2
-    /// §6.2.11.5 and ISO 19005-4 §6.2.10.5 require the two to agree to within a thousandth of a
-    /// text-space unit, and `pdf-model/tests/composite_fonts.rs` asks the same question of the
-    /// corpus by reading `hmtx` by hand. A conformance check reading it a second time would
-    /// have been a second font reader in a crate whose whole design says it has none.
+    /// It exists for the callers that have to make exactly that comparison: ISO 19005-2 section
+    /// 6.2.11.5 and ISO 19005-4 section 6.2.10.5 require the two to agree to within a thousandth of
+    /// a text-space unit, and `pdf-model/tests/composite_fonts.rs` asks the same question of the
+    /// corpus by reading `hmtx` by hand. A conformance check reading it a second time would have
+    /// been a second font reader in a crate whose whole design says it has none.
     ///
     /// # `None` is an answer about this reader, never about the file
     ///
@@ -1371,11 +1442,11 @@ impl LoadedFont {
     /// The vertical displacement the *embedded font program* states for a code, in the units
     /// [`Self::vertical_metrics`] answers in and with its sign convention: downward is negative.
     ///
-    /// The program-side counterpart of the first number [`Self::vertical_metrics`] returns.
-    /// That method resolves §9.7.4.3's `/DW2` and `/W2`, which are the *`CIDFont` dictionary's*
-    /// statement of `w1`; this reads OpenType's `vmtx`, which is the program's. ISO 19005-4
-    /// §6.2.10.5 requires the two to agree where the program states them at all, and there is
-    /// no way to ask that question of one number.
+    /// The program-side counterpart of the first number [`Self::vertical_metrics`] returns. That
+    /// method resolves §9.7.4.3's `/DW2` and `/W2`, which are the *`CIDFont` dictionary's*
+    /// statement of `w1`; this reads OpenType's `vmtx`, which is the program's. ISO 19005-4 section
+    /// 6.2.10.5 requires the two to agree where the program states them at all, and there is no way
+    /// to ask that question of one number.
     ///
     /// `None` where the program states nothing — which is the common case, since a face never
     /// meant to be set vertically carries no `vmtx` — and for every refusal
@@ -1394,8 +1465,8 @@ impl LoadedFont {
     /// The `cmap` subtables the embedded program carries, as platform and encoding ID pairs.
     ///
     /// ISO 32000-2 §9.6.5.4 names the subtables it uses by exactly those two numbers, and so
-    /// do the requirements written on top of it — ISO 19005-2 §6.2.11.6 and ISO 19005-4
-    /// §6.2.10.6 among them. This crate's own reader keeps only the three the subclause's
+    /// do the requirements written on top of it — ISO 19005-2 section 6.2.11.6 and ISO 19005-4
+    /// Section 6.2.10.6 among them. This crate's own reader keeps only the three the subclause's
     /// algorithm needs; a caller asking what a font *contains* rather than what it can draw
     /// needs the whole list, in the table's order.
     ///
@@ -1514,10 +1585,10 @@ impl LoadedFont {
     /// What was done to read the program at all, where its own Font DICTs could not be.
     ///
     /// A CID-keyed CFF some of whose Font DICTs could not be read draws the glyphs under them
-    /// against an empty Private DICT ([`cff::FontDictRepair`]), and the sentence says so and
-    /// how many of those glyphs call a local subroutine that DICT cannot hold. It is a fact about the program; whether the page
-    /// shows one of those glyphs is [`Self::glyph_lost_to_repair`]'s question, asked per code,
-    /// and a page that shows none has lost nothing and reports nothing.
+    /// against an empty Private DICT ([`cff::FontDictRepair`]), and the sentence says so and how
+    /// many of those glyphs call a local subroutine that DICT cannot hold. It is a fact about the
+    /// program; whether the page shows one of those glyphs is [`Self::glyph_lost_to_repair`]'s
+    /// question, asked per code, and a page that shows none has lost nothing and reports nothing.
     #[must_use]
     pub fn repair_shortfall(&self) -> Option<String> {
         let repair = self.font_dicts.as_ref()?;
@@ -1849,6 +1920,32 @@ impl LoadedFont {
         let font = FontRef::new(&self.data).ok()?;
         let character = text.char_for(cmap, code)?;
         font.charmap().map(character).is_none().then_some(character)
+    }
+
+    /// Whether this code reached its glyph only by a mapping ISO 32000-2 §9.6.5.4 leaves open.
+    ///
+    /// That subclause sets out how a simple `TrueType` or `OpenType` font's codes reach glyphs
+    /// and then closes the list with a licence:
+    ///
+    /// > If a character cannot be mapped in any of the ways described previously, a PDF
+    /// > processor may supply a mapping of its choosing.
+    ///
+    /// [`crate::truetype`] supplies two such mappings, and this says which codes they answered.
+    /// `false` for a code the subclause's own steps reached, for a code that reaches no glyph at
+    /// all, and for every font of another kind — a composite font, a Type 1 or bare CFF program,
+    /// or a substitute — because none of those is what that sentence is about.
+    ///
+    /// # Why this is exposed
+    ///
+    /// Because a *conforming file* is the one thing the licence is not addressed to. ISO 19005-2
+    /// Section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 require a rendered TrueType font's codes
+    /// to reach glyphs by the base standard's procedure without a mapping the reader chooses — so a
+    /// validator has to be able to ask which route drew a code, and the route is knowable only
+    /// where the table is built. It costs a viewer thirty-two bytes per loaded font and no work at
+    /// all: the bit is set inside a loop that was already running.
+    #[must_use]
+    pub fn glyph_needed_a_reader_chosen_mapping(&self, code: Code) -> bool {
+        self.reader_chosen.contains(code.value())
     }
 
     /// The glyph index a character code reaches, or `None` where it reaches none.
@@ -2742,14 +2839,13 @@ mod simple_font_subtype_tests {
 
     /// Assembles a minimal sfnt whose one drawable glyph carries constructive instructions.
     ///
-    /// The glyph's `glyf` data states a 300-unit square at (100, 100); its instruction
-    /// program moves point 3 — the square's top-left corner — up by 100 units (`SVTCA[y]`, `PUSHB` the point, `PUSHW` 6400
-    /// sixty-fourths, `SHPIX`). A renderer that draws the stated outline and one that runs
-    /// the program therefore disagree about one y coordinate by a tenth of an em — the
-    /// hint-reliant construction of ADR 0727's witness, reduced to one point. `family` goes
+    /// The glyph's `glyf` data states a 300-unit square at (100, 100); its instruction program
+    /// moves point 3 — the square's top-left corner — up by 100 units (`SVTCA[y]`, `PUSHB` the
+    /// point, `PUSHW` 6400 sixty-fourths, `SHPIX`). A renderer that draws the stated outline and
+    /// one that runs the program therefore disagree about one y coordinate by a tenth of an em —
+    /// the hint-reliant construction of ADR 0727's witness, reduced to one point. `family` goes
     /// into the name table, which is what `skrifa`'s `require_interpreter` reads; `fpgm` is
-    /// prepended verbatim when given, so a test can hand the interpreter a program that
-    /// cannot run.
+    /// prepended verbatim when given, so a test can hand the interpreter a program that cannot run.
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_possible_wrap,

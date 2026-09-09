@@ -1,6 +1,6 @@
 # 0926 — PDF/A is on, and part 4 is certified first
 
-Session 941. Status: **accepted**. Recorded under the questions-directory rule: when an `A` file
+Session 940. Status: **accepted**. Recorded under the questions-directory rule: when an `A` file
 appears, the round that acts on it records the decision in an ADR — the `A` file is the owner's
 word, and the ADR is what the tree did about it.
 

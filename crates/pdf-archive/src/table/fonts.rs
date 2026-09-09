@@ -1,40 +1,41 @@
 //! Clause 6.2.11 of ISO 19005-2 and clause 6.2.10 of ISO 19005-4: fonts.
 //!
-//! The largest tranche and the one PDF/A exists for. Both parts open it by saying what the
-//! whole subclause is *for* — that the same glyphs come back in fifty years, and that the
-//! characters behind them can still be recovered — and both then say that a requirement binds
-//! every font in the file, including one shown only in text rendering mode 3, unless it says
-//! otherwise. Neither of those two opening subclauses (ISO 19005-2 §6.2.11.1,
-//! ISO 19005-4 §6.2.10.1) constrains a document by itself, so neither is a row here; what they
-//! do is fix the population every row below is about, which is why they are named in this
-//! paragraph rather than left out.
+//! The largest tranche and the one PDF/A exists for. Both parts open it by saying what the whole
+//! subclause is *for* — that the same glyphs come back in fifty years, and that the characters
+//! behind them can still be recovered — and both then say that a requirement binds every font in
+//! the file, including one shown only in text rendering mode 3, unless it says otherwise. Neither
+//! of those two opening subclauses (ISO 19005-2 section 6.2.11.1, ISO 19005-4 section 6.2.10.1)
+//! constrains a document by itself, so neither is a row here; what they do is fix the population
+//! every row below is about, which is why they are named in this paragraph rather than left out.
 //!
 //! # Where the two parts differ, and it is not where one would guess
 //!
 //! Most of the subclause is shared word for word. Five places are not:
 //!
-//! - **Part 2 makes the Unicode rules a `shall` for Levels A and U only** (§6.2.11.7.1 says a
-//!   Level B writer may ignore §6.2.11.7). **Part 4 states the same rules as `should`** —
-//!   §6.2.10.7 and the first half of §6.2.10.8 — so they bind no part 4 target at all, and the
-//!   rows carrying them cite part 2 alone.
+//! - - **Part 2 makes the Unicode rules a `shall` for Levels A and U only** (section 6.2.11.7.1
+//!   says a Level B writer may ignore section 6.2.11.7). **Part 4 states the same rules as
+//!   `should`** — section 6.2.10.7 and the first half of section 6.2.10.8 — so they bind no part 4
+//!   target at all, and the rows carrying them cite part 2 alone.
 //! - **Part 4 keeps two `shall`s inside those two subclauses**: the values in a `ToUnicode`
 //!   `CMap` that *is* present, and that an `ActualText` entry states no private-use character.
 //!   The second has no counterpart in part 2 whatsoever, which makes it the one font rule that
 //!   is stricter in part 4 than in part 2.
-//! - **Part 2 requires `CharSet` and `CIDSet`, where present, to be complete** (§6.2.11.4.2).
-//!   Part 4's §6.2.10.4.2 dropped both: it now permits subsetting and states no requirement.
-//! - **Part 4's font-metrics subclause grew two rules** (§6.2.10.5): a Type 3 font's `d0`/`d1`
-//!   operands, and a vertical composite font's `DW2`/`W2`. Part 2 §6.2.11.5 states neither.
+//! - - **Part 2 requires `CharSet` and `CIDSet`, where present, to be complete** (section
+//!   6.2.11.4.2). Part 4's section 6.2.10.4.2 dropped both: it now permits subsetting and states no
+//!   requirement.
+//! - - **Part 4's font-metrics subclause grew two rules** (section 6.2.10.5): a Type 3 font's
+//!   `d0`/`d1` operands, and a vertical composite font's `DW2`/`W2`. Part 2 section 6.2.11.5 states
+//!   neither.
 //! - **The two font-metrics subclauses bind different glyphs**, and this list said four for as
-//!   long as it missed it. Part 2 §6.2.11.5 asks that the dictionary and the program agree for a
-//!   font that is embedded and used for rendering, and says nothing about *which* of its glyphs;
-//!   part 4 §6.2.10.5 narrows the same rule to the glyphs referenced for rendering and exempts
-//!   those referenced only in mode 3. So part 4 is the *weaker* of the two here — the reverse of
-//!   the direction the entry above records — and a predicate that judged every stated width
-//!   would report a part 4 file for a width it is not asked about.
+//!   long as it missed it. Part 2 section 6.2.11.5 asks that the dictionary and the program agree
+//!   for a font that is embedded and used for rendering, and says nothing about *which* of its
+//!   glyphs; part 4 section 6.2.10.5 narrows the same rule to the glyphs referenced for rendering
+//!   and exempts those referenced only in mode 3. So part 4 is the *weaker* of the two here — the
+//!   reverse of the direction the entry above records — and a predicate that judged every stated
+//!   width would report a part 4 file for a width it is not asked about.
 //!
-//! The `cmap`-subtable rules of §6.2.11.6 and §6.2.10.6 also differ in their detail — part 2
-//! wants one or more non-symbolic subtables, part 4 names (3,1) or (1,0) — but they are one
+//! The `cmap`-subtable rules of section 6.2.11.6 and section 6.2.10.6 also differ in their detail —
+//! part 2 wants one or more non-symbolic subtables, part 4 names (3,1) or (1,0) — but they are one
 //! rule stated twice and are cited as such.
 //!
 //! # Two populations, and why they are not the same one
@@ -64,13 +65,13 @@
 //! the fact was inside `pdf-font` rather than on its surface, so `pdf-font` publishes it.** A
 //! glyph's advance as the *program* states it is [`pdf_font::LoadedFont::program_advance`] —
 //! where [`pdf_font::LoadedFont::advance`] is the *dictionary's*, which is the very number
-//! §6.2.11.5 / §6.2.10.5 compare it against — and an sfnt's `cmap` subtables, which
-//! §6.2.11.6 / §6.2.10.6 name by platform and encoding ID, are
+//! Section 6.2.11.5 / section 6.2.10.5 compare it against — and an sfnt's `cmap` subtables, which
+//! Section 6.2.11.6 / section 6.2.10.6 name by platform and encoding ID, are
 //! [`pdf_font::LoadedFont::program_cmap_subtables`]. None of them is a second font reader here,
 //! which is the condition this crate's dependency on `pdf-font` was taken under.
 //!
-//! The last four arrived together, because §6.2.11.7's and §6.2.11.4.2's rules turn on them
-//! (ADR 0924):
+//! The last four arrived together, because section 6.2.11.7's and section 6.2.11.4.2's rules turn
+//! on them (ADR 0924):
 //!
 //! - **A `ToUnicode` `CMap`'s value set** is [`pdf_font::tounicode::ToUnicode::mappings`], which
 //!   hands back what the file *said* rather than answering per code.
@@ -78,12 +79,13 @@
 //!   holds, which was exact for no font: ISO 32000-2 §9.7.6.2 lets a code be one to four bytes
 //!   and the walk stopped at two.
 //! - **Which glyph name a simple font's encoding selected** is
-//!   [`pdf_font::LoadedFont::selected_glyph_name`]. §6.2.11.7.2's second exemption is about the
+//!   [`pdf_font::LoadedFont::selected_glyph_name`]. Section 6.2.11.7.2's second exemption is about
+//!   the
 //!   *name*, and every reading of a code — `text`, `naming_gap` — has by then taken §9.10.2's
 //!   closing permission to choose a character where its methods fail, which hides exactly the
 //!   fonts the exemption does not cover.
 //!
-//! §6.2.11.4.2's two rules came off `Unchecked` the same way and in the same ADR: what a
+//! Section 6.2.11.4.2's two rules came off `Unchecked` the same way and in the same ADR: what a
 //! *program* contains, rather than what a code reaches, is
 //! [`pdf_font::LoadedFont::program_glyph_names`] and
 //! [`pdf_font::LoadedFont::program_character_identifiers`]. A `/CharSet` or `/CIDSet` claims to
@@ -109,6 +111,7 @@ use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 use crate::survey::SelectedFont;
+use crate::table::states;
 use crate::target::{Level, Part};
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
@@ -181,11 +184,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                rendering shall be used.",
         clauses: Clauses::both("6.2.11.4.1", "6.2.10.4.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "this is a fact about a licence rather than about the file; a font program's \
-             embedding bits are evidence of what its vendor asserts and not of what the \
-             copyright holder permits, and neither part makes those bits the test",
-        ),
+        check: Check::Unchecked(EMBEDDING_PERMISSION_IS_A_LICENCE),
     },
     Requirement {
         id: "fonts/embedded-programs-define-every-glyph-shown",
@@ -290,13 +289,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                by the base standard's own procedure, without a mapping the reader invents.",
         clauses: Clauses::both("6.2.11.6", "6.2.10.6"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "`pdf-font` takes two tiers past §9.6.5.4's own steps for a code its glyph \
-             names do not reach — offering the code as a character, then as a glyph index — \
-             which is exactly the reader-chosen mapping this rule forbids, and it reports \
-             neither: `NamingGap` and `uncovered_character` are about reading text back \
-             rather than about which tier drew it",
-        ),
+        check: Check::Implemented(truetype_codes_reach_glyphs_by_the_standard_route),
     },
     Requirement {
         id: "fonts/to-unicode-present",
@@ -346,11 +339,11 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 
 /// Visits every `/Type /Font` dictionary the cross-reference table reaches.
 ///
-/// Bounded by that table for the reason `super::file_structure::for_each_stream` gives:
-/// ISO 19005-2 §6.1.4 and ISO 19005-4 §6.1.4 exempt an indirect object no cross-reference
-/// section names, so this is the population the requirements bind. A font dictionary written
-/// directly inside a resource dictionary has no object of its own and is not reached; see the
-/// module documentation for why that under-reports rather than mis-reports.
+/// Bounded by that table for the reason `super::file_structure::for_each_stream` gives: ISO 19005-2
+/// Section 6.1.4 and ISO 19005-4 section 6.1.4 exempt an indirect object no cross-reference section
+/// names, so this is the population the requirements bind. A font dictionary written directly
+/// inside a resource dictionary has no object of its own and is not reached; see the module
+/// documentation for why that under-reports rather than mis-reports.
 fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Dictionary)) {
     let document = exam.document;
     for (id, object) in exam.objects() {
@@ -401,10 +394,27 @@ fn descriptor(document: &Document, font: &Dictionary) -> Option<Dictionary> {
 /// ISO 32000-2 §9.9's Table 128 gives the three keys — `/FontFile` for Type 1, `/FontFile2` for
 /// TrueType, `/FontFile3` for the CFF and `OpenType` shapes — and a descriptor states at most
 /// one of them.
-fn carries_a_program(descriptor: &Dictionary) -> bool {
+///
+/// # Why the value is resolved rather than the key counted
+///
+/// Because §7.3.7 says a key written with nothing behind it is not a key at all:
+///
+/// > A dictionary entry whose value is null (see 7.3.9, "Null object") shall be treated the same
+/// > as if the entry does not exist.
+///
+/// and §7.3.10 puts a dangling reference in the same place:
+///
+/// > An indirect reference to an undefined object shall not be considered an error by a PDF
+/// > processor; it shall be treated as a reference to the null object.
+///
+/// So `/FontFile3 19 0 R` where object 19 is `null` states no font program, and a rule that
+/// counted the key would report the file as embedding one. The corpus's
+/// `6-2-11-4-1-t01-fail-a` is exactly that construction, and the fault it carries is
+/// [`font_programs_embedded`]'s.
+fn carries_a_program(document: &Document, descriptor: &Dictionary) -> bool {
     ["FontFile", "FontFile2", "FontFile3"]
         .iter()
-        .any(|key| descriptor.get(key).is_some())
+        .any(|key| states(document, descriptor, key))
 }
 
 /// Whether the descriptor's flags say the font is symbolic, where they say anything at all.
@@ -516,7 +526,7 @@ static PREDEFINED_CMAPS: &[&str] = &[
     "Identity-V",
 ];
 
-/// ISO 19005-2 §6.2.11.3.1, ISO 19005-4 §6.2.10.3.1.
+/// ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1.
 ///
 /// The clause exempts the identity `CMaps` outright and otherwise asks the two `CIDSystemInfo`
 /// dictionaries to describe one character collection, which is ISO 32000-2 §9.7.3's own
@@ -530,11 +540,11 @@ static PREDEFINED_CMAPS: &[&str] = &[
 ///
 /// **Only an embedded `CMap` is compared, and the reason is no longer that the answer is out of
 /// reach.** A predefined `CMap`'s `CIDSystemInfo` is stated by the `CMap` program rather than by
-/// the file — and this tree carries those programs: `data/cmaps` holds Adobe's 239 files, every
-/// one of which states its own `/Registry`, `/Ordering` and `/Supplement`, and `pdf_font::predefined`
-/// already reads them for their mappings. So the fact is here, in the strongest form there is:
-/// a predefined `CMap` *is* its program, which is why this answer does not depend on which
-/// edition of the base standard happens to print a table of them.
+/// the file — and this tree carries those programs: `data/cmaps` holds Adobe's 239 files, every one
+/// of which states its own `/Registry`, `/Ordering` and `/Supplement`, and `pdf_font::predefined`
+/// already reads them for their mappings. So the fact is here, in the strongest form there is: a
+/// predefined `CMap` *is* its program, which is why this answer does not depend on which edition of
+/// the base standard happens to print a table of them.
 ///
 /// What is not settled is whether the clause should be *applied* to it. PDF Association issue
 /// #77 — determining the supplement of a predefined `CMap` — is open and parked, and a great many
@@ -595,7 +605,7 @@ fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut F
     });
 }
 
-/// ISO 19005-2 §6.2.11.3.2, ISO 19005-4 §6.2.10.3.2.
+/// ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2.
 ///
 /// The base standard makes `/CIDToGIDMap` optional with a default of `Identity`; both parts of
 /// ISO 19005 make it required for an embedded Type 2 `CIDFont`, so an absent entry is a failure
@@ -606,7 +616,9 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
         if subtype(document, font).as_deref() != Some("CIDFontType2") {
             return;
         }
-        if !descriptor(document, font).is_some_and(|descriptor| carries_a_program(&descriptor)) {
+        if !descriptor(document, font)
+            .is_some_and(|descriptor| carries_a_program(document, &descriptor))
+        {
             return;
         }
         match document.get_key(font, "CIDToGIDMap") {
@@ -628,7 +640,7 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.11.3.3, ISO 19005-4 §6.2.10.3.3.
+/// ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
 fn cmap_embedded_or_predefined(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_font(exam, |id, font| {
@@ -655,7 +667,7 @@ fn cmap_embedded_or_predefined(exam: &Examination<'_>, findings: &mut Findings) 
     });
 }
 
-/// ISO 19005-2 §6.2.11.3.3, ISO 19005-4 §6.2.10.3.3, second paragraph.
+/// ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3, second paragraph.
 ///
 /// Read over every `CMap` stream the cross-reference table holds, rather than only the ones a
 /// composite font names, because a chain of `/UseCMap` entries puts the offending reference in
@@ -695,7 +707,7 @@ fn cmap_uses_only_predefined_cmaps(exam: &Examination<'_>, findings: &mut Findin
     }
 }
 
-/// ISO 19005-2 §6.2.11.3.3, ISO 19005-4 §6.2.10.3.3 — the sentence about `/WMode`.
+/// ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3 — the sentence about `/WMode`.
 ///
 /// A `CMap` states its writing mode twice: once as `/WMode` in the stream dictionary and once
 /// as a `/WMode … def` in the `CMap` program. ISO 32000-2 §9.7.5.3's Table 118 already requires
@@ -749,7 +761,8 @@ fn embedded_cmap_states_its_own_write_mode(exam: &Examination<'_>, findings: &mu
 // 6.2.11.4 / 6.2.10.4 — embedding, and the content walk that decides who it binds.
 // --------------------------------------------------------------------------------------------
 
-/// ISO 19005-2 §6.2.11.4.1, ISO 19005-4 §6.2.10.4.1 — the rule the whole standard is for.
+/// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1 — the rule the whole standard is
+/// for.
 ///
 /// The population is [`crate::survey::Survey`]'s: a font a content stream shows in a rendering mode
 /// other than 3. Both parts state the definition themselves — a font is used when a glyph of it
@@ -793,7 +806,7 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
                     used.name
                 ),
             ),
-            Some(descriptor) if !carries_a_program(&descriptor) => findings.record(
+            Some(descriptor) if !carries_a_program(document, &descriptor) => findings.record(
                 place,
                 format!(
                     "the font {} is rendered and its descriptor states no FontFile, FontFile2 \
@@ -841,8 +854,8 @@ fn charset_names(bytes: &[u8]) -> Option<BTreeSet<String>> {
     (!names.is_empty()).then_some(names)
 }
 
-/// ISO 19005-2 §6.2.11.4.2, second requirement, and part 2 only: ISO 19005-4 §6.2.10.4.2 dropped
-/// both of this subclause's rules and states none.
+/// ISO 19005-2 section 6.2.11.4.2, second requirement, and part 2 only: ISO 19005-4 section
+/// 6.2.10.4.2 dropped both of this subclause's rules and states none.
 ///
 /// The clause makes normative what §9.8.1's Table 122 describes: a `/CharSet` present in an
 /// embedded Type 1 font's descriptor names every glyph **in the program**, not merely the glyphs
@@ -904,7 +917,7 @@ fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &m
     });
 }
 
-/// ISO 19005-2 §6.2.11.4.2, third requirement, and part 2 only.
+/// ISO 19005-2 section 6.2.11.4.2, third requirement, and part 2 only.
 ///
 /// The `CIDFont` counterpart of [`charset_lists_every_glyph_in_the_program`]: a `/CIDSet` present
 /// in an embedded `CIDFont`'s descriptor marks every CID the program defines rather than only the
@@ -1007,7 +1020,9 @@ fn font_with_its_own_program(document: &Document, used: &SelectedFont) -> Option
     } else {
         used.dict.clone()
     };
-    if !descriptor(document, &holder).is_some_and(|descriptor| carries_a_program(&descriptor)) {
+    if !descriptor(document, &holder)
+        .is_some_and(|descriptor| carries_a_program(document, &descriptor))
+    {
         return None;
     }
     let font = LoadedFont::load(document, &used.dict, &used.name).ok()?;
@@ -1022,7 +1037,106 @@ fn font_place(used: &SelectedFont) -> Where {
     )
 }
 
-/// ISO 19005-2 §6.2.11.8, ISO 19005-4 §6.2.10.9.
+/// Why the embedding-permission row is unchecked, in two claims kept apart on purpose.
+///
+/// The row's reason used to run them together, and they are not the same kind of statement.
+///
+/// **The reading.** Neither section 6.2.11.4.1 nor section 6.2.10.4.1 names a font program's
+/// embedding flags, or any other structure a file carries. Each states a condition on the *licence*
+/// — the program has to be one that may lawfully be embedded for unlimited, universal rendering —
+/// and each explains itself with a note about programs whose legality rests on a special agreement
+/// with the copyright holder, and about the burden of verifying such an agreement. So the clause's
+/// subject is a legal fact about a font, and a legal fact is not something a document asserts.
+///
+/// **The judgement**, which is this crate's and not the standard's: that an sfnt `OS/2` table's
+/// embedding-rights field is evidence of what a vendor asserted rather than of what the
+/// copyright holder permits. It is defensible and it is not derived, so it is named as a
+/// judgement here rather than presented as a reading.
+///
+/// Either way the row stays where it is, on a third ground that needs neither: the field that
+/// would carry the evidence is defined by ISO/IEC 14496-22, which this project cites and does
+/// not hold, so `CLAUDE.md` principle 5 forbids implementing a test on it from anywhere else.
+const EMBEDDING_PERMISSION_IS_A_LICENCE: &str = "the clause states a condition on a licence rather than on the file: a font program may be \
+     used only if it may lawfully be embedded for unlimited, universal rendering, and each \
+     part's note explains that in terms of a special agreement with the copyright holder. \
+     Nothing in either part makes a font program's own embedding-rights field the test — and \
+     the judgement that such a field is evidence of a vendor's assertion rather than of what the \
+     copyright holder permits is this crate's rather than the standard's, so it is named as a \
+     judgement. The independent ground is that the field is defined by ISO/IEC 14496-22, which \
+     this project cites and does not hold";
+
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6 — the last sentence of each.
+///
+/// Both parts close their character-encoding subclause with the same requirement: for a TrueType
+/// font that is to be rendered, a character code has to reach its glyph by the base standard's own
+/// procedure, with no non-standard mapping the conforming processor chose. Part 2 cites ISO 32000-1
+/// Section 9.6.6.4 and part 4 ISO 32000-2 §9.6.5, which are the same subclause under two numbers.
+///
+/// # Why the base standard leaves a processor anything to choose
+///
+/// Because §9.6.5.4 says so outright, in its last sentence:
+///
+/// > If a character cannot be mapped in any of the ways described previously, a PDF processor
+/// > may supply a mapping of its choosing.
+///
+/// So a code the subclause's own steps do not reach is not an error in the base standard — it is
+/// a code whose glyph is whatever the reader decides. That is exactly the ambiguity ISO 19005
+/// removes, and the reason this rule exists: two conforming processors may draw the same file
+/// differently, which section 6.2.11's own preamble says the font subclauses are there to prevent.
+///
+/// # How the question is answered
+///
+/// [`pdf_font::LoadedFont::glyph_needed_a_reader_chosen_mapping`] reports it, because the fact
+/// is knowable only while the code table is built and is gone from the table that comes out.
+/// This row was `Unchecked` for exactly that reason until that accessor existed.
+///
+/// # Three narrowings, each of which under-reports on purpose
+///
+/// - **Only a font whose `/Subtype` is `TrueType`.** Both clauses say "TrueType fonts", and a
+///   simple font that embeds an `OpenType` program under another subtype takes §9.6.5.4's route
+///   without being one of the fonts the sentence names.
+/// - **Only a font rendered from its own embedded program**, through
+///   [`font_with_its_own_program`]: a substituted face's mapping is a fact about this machine,
+///   and reporting it would name the file for something the file did not do.
+/// - **Only the codes a content stream showed.** Read as a requirement about all 256 codes it
+///   would fail every subset ever made, since a subset's unused codes reach nothing at all.
+fn truetype_codes_reach_glyphs_by_the_standard_route(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+) {
+    let document = exam.document;
+    for used in exam.survey().fonts() {
+        if !used.rendered || subtype(document, &used.dict).as_deref() != Some("TrueType") {
+            continue;
+        }
+        let Some(font) = font_with_its_own_program(document, used) else {
+            continue;
+        };
+        // One finding per code: a page showing the same code a hundred times has one fault.
+        let mut reported = BTreeSet::new();
+        for text in &used.shown {
+            for code in font.decode(text) {
+                if !font.glyph_needed_a_reader_chosen_mapping(code)
+                    || !reported.insert(code.value())
+                {
+                    continue;
+                }
+                findings.record(
+                    font_place(used).named(used.name.clone()),
+                    format!(
+                        "code {} in the TrueType font {} reaches a glyph only through a mapping \
+                         ISO 32000 leaves to the processor, not through the encoding procedure \
+                         the clause requires",
+                        code.value(),
+                        used.name
+                    ),
+                );
+            }
+        }
+    }
+}
+
+/// ISO 19005-2 section 6.2.11.8, ISO 19005-4 section 6.2.10.9.
 ///
 /// A code whose glyph selection lands on glyph 0 has referenced `.notdef`, which is what both
 /// parts forbid from any text-showing operator. ISO 32000-2 states glyph 0's meaning twice —
@@ -1065,7 +1179,8 @@ fn no_notdef_glyph_shown(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.2.11.4.1, ISO 19005-4 §6.2.10.4.1 — the requirement after embedding itself.
+/// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1 — the requirement after embedding
+/// itself.
 ///
 /// Subsetting is permitted by both parts, and this is the sentence that bounds it: whatever the
 /// file draws, the embedded program has to define. So the population is the codes a content
@@ -1123,7 +1238,7 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
 // --------------------------------------------------------------------------------------------
 
 /// What both parts mean by consistent: a difference of no more than a thousandth of a
-/// text-space unit (ISO 19005-2 §6.2.11.5, ISO 19005-4 §6.2.10.5).
+/// text-space unit (ISO 19005-2 section 6.2.11.5, ISO 19005-4 section 6.2.10.5).
 const CONSISTENT: f64 = 0.001;
 
 /// How many tokens of a glyph procedure are read looking for its first operator.
@@ -1208,7 +1323,8 @@ fn glyph_procedure_width(bytes: &[u8]) -> Option<(&'static str, f64)> {
     None
 }
 
-/// ISO 19005-4 §6.2.10.5, second paragraph — part 4's own addition, which part 2 states nowhere.
+/// ISO 19005-4 section 6.2.10.5, second paragraph — part 4's own addition, which part 2 states
+/// nowhere.
 ///
 /// A Type 3 font states each glyph's width twice: in the font dictionary's `/Widths` array, and
 /// in the `d0` or `d1` operator its glyph procedure has to open with. The clause requires the two
@@ -1275,7 +1391,7 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
     }
 }
 
-/// ISO 19005-2 §6.2.11.5, first paragraph; ISO 19005-4 §6.2.10.5, first paragraph.
+/// ISO 19005-2 section 6.2.11.5, first paragraph; ISO 19005-4 section 6.2.10.5, first paragraph.
 ///
 /// A file states every glyph's advance twice — once in the font dictionary, where §9.6.2.1's
 /// `/Widths` or §9.7.4.3's `/W` puts it, and once inside the embedded program — and both parts
@@ -1291,8 +1407,8 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 ///
 /// # The population, and why one predicate serves two clauses that differ
 ///
-/// The parts disagree about *which* glyphs, and part 4 is the weaker: §6.2.11.5 says only
-/// "embedded … and used for rendering" and puts no condition on the glyph, while §6.2.10.5
+/// The parts disagree about *which* glyphs, and part 4 is the weaker: section 6.2.11.5 says only
+/// "embedded … and used for rendering" and puts no condition on the glyph, while section 6.2.10.5
 /// narrows it to the glyphs referenced for rendering and exempts those referenced only in text
 /// rendering mode 3. This checks the narrower population — the codes the survey saw shown, in a
 /// font a content stream rendered — which is exactly part 4's and a subset of part 2's. Part 2
@@ -1360,7 +1476,7 @@ fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings
     }
 }
 
-/// ISO 19005-4 §6.2.10.5, third paragraph — part 4's second addition, absent from part 2.
+/// ISO 19005-4 section 6.2.10.5, third paragraph — part 4's second addition, absent from part 2.
 ///
 /// A composite font shown in writing mode 1 has its vertical metrics in §9.7.4.3's `/DW2` and
 /// `/W2`, and an embedded `OpenType` program may state the same quantity in its `vmtx` table.
@@ -1430,7 +1546,7 @@ fn vertical_metrics_agree_with_the_program(exam: &Examination<'_>, findings: &mu
 // 6.2.11.6 / 6.2.10.6 — character encodings.
 // --------------------------------------------------------------------------------------------
 
-/// ISO 19005-2 §6.2.11.6, ISO 19005-4 §6.2.10.6, second paragraph.
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, second paragraph.
 ///
 /// Applied to a TrueType font whose descriptor says it is non-symbolic. A font whose file
 /// states no descriptor or no `/Flags` is passed over, because the rule's own subject is
@@ -1461,7 +1577,7 @@ fn non_symbolic_truetype_uses_a_standard_encoding(exam: &Examination<'_>, findin
     });
 }
 
-/// ISO 19005-2 §6.2.11.6, ISO 19005-4 §6.2.10.6, fourth paragraph.
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, fourth paragraph.
 fn symbolic_truetype_states_no_encoding(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_font(exam, |id, font| {
@@ -1470,7 +1586,7 @@ fn symbolic_truetype_states_no_encoding(exam: &Examination<'_>, findings: &mut F
         {
             return;
         }
-        if font.get("Encoding").is_some() {
+        if states(document, font, "Encoding") {
             findings.record(
                 Where::object(id).named("Encoding"),
                 "a symbolic TrueType font states an Encoding entry",
@@ -1479,7 +1595,7 @@ fn symbolic_truetype_states_no_encoding(exam: &Examination<'_>, findings: &mut F
     });
 }
 
-/// ISO 19005-2 §6.2.11.6, ISO 19005-4 §6.2.10.6, third paragraph.
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, third paragraph.
 ///
 /// The clause permits a non-symbolic `TrueType` font to state a `/Differences` array only under
 /// two conditions at once: every name in it is in the Adobe Glyph List, **and** the embedded
@@ -1557,8 +1673,8 @@ const MACINTOSH_ROMAN: (u16, u16) = (1, 0);
 /// [`font_with_its_own_program`] is what loads a program without standing a substitute in for it
 /// and it is handed a [`SelectedFont`]. A `TrueType` font dictionary that no page uses is
 /// therefore not asked. Both parts' first and fourth paragraphs are about a font "used for
-/// rendering" anyway; what this misses is the general sentence of ISO 19005-2 §6.2.11.1 and
-/// ISO 19005-4 §6.2.10.1, which extends a requirement to fonts shown only in mode 3.
+/// rendering" anyway; what this misses is the general sentence of ISO 19005-2 section 6.2.11.1 and
+/// ISO 19005-4 section 6.2.10.1, which extends a requirement to fonts shown only in mode 3.
 ///
 /// `None` — nothing to judge — for every font whose program this tree could not read as an sfnt,
 /// which is the module's standing rule: a program this reader declines is not a program whose
@@ -1580,7 +1696,7 @@ fn rendered_truetype_subtables<'a>(
     })
 }
 
-/// ISO 19005-2 §6.2.11.6, ISO 19005-4 §6.2.10.6, first paragraph.
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, first paragraph.
 ///
 /// **The one place in this subclause where the two parts genuinely ask different questions**, so
 /// this is one of the few predicates that reads [`Examination::target`]:
@@ -1623,7 +1739,7 @@ fn non_symbolic_truetype_program_maps_every_code(exam: &Examination<'_>, finding
     }
 }
 
-/// ISO 19005-2 §6.2.11.6, ISO 19005-4 §6.2.10.6, fourth paragraph, second half.
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, fourth paragraph, second half.
 ///
 /// The first half — that a symbolic `TrueType` font state no `/Encoding` — is
 /// [`symbolic_truetype_states_no_encoding`], which needs no font program and so binds every font
@@ -1658,7 +1774,7 @@ fn symbolic_truetype_program_has_a_usable_cmap(exam: &Examination<'_>, findings:
     }
 }
 
-/// ISO 19005-2 §6.2.11.6, ISO 19005-4 §6.2.10.6, third paragraph, second condition.
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, third paragraph, second condition.
 ///
 /// The paragraph permits a `/Differences` array only where *both* conditions hold, and
 /// [`non_symbolic_truetype_differences_are_listed_names`] is the first of them. This is the
@@ -1719,7 +1835,8 @@ fn subtables_as_words(subtables: &[(u16, u16)]) -> String {
 // 6.2.11.7 / 6.2.10.7 and 6.2.10.8 — Unicode, which is where the parts separate.
 // --------------------------------------------------------------------------------------------
 
-/// The character collections ISO 19005-2 §6.2.11.7.2 and ISO 19005-4 §6.2.10.7 exempt.
+/// The character collections ISO 19005-2 section 6.2.11.7.2 and ISO 19005-4 section 6.2.10.7
+/// exempt.
 ///
 /// **The union of the two lists, deliberately.** Part 2 names Adobe-Korea1 and part 4 names
 /// Adobe-KR. Exempting on either keeps the check from reporting a font one of the parts would
@@ -1727,10 +1844,10 @@ fn subtables_as_words(subtables: &[(u16, u16)]) -> String {
 ///
 /// **The reason recorded here used to be that a predicate could not know which part it was
 /// judging, and that has not been true since [`Examination::target`] arrived**; the rules under
-/// §6.2.11.6 / §6.2.10.6 read it. So the union is a choice rather than a limit, and it is the
-/// looser of the two available answers: narrowing it to the part's own list would report a
-/// part 2 file whose `CIDFont` states Adobe-KR, an ordering ISO 19005-2 predates. Whether that
-/// is the right reading of §6.2.11.7.2 is a question for the clause, and it is open.
+/// Section 6.2.11.6 / section 6.2.10.6 read it. So the union is a choice rather than a limit, and
+/// it is the looser of the two available answers: narrowing it to the part's own list would report
+/// a part 2 file whose `CIDFont` states Adobe-KR, an ordering ISO 19005-2 predates. Whether that is
+/// the right reading of section 6.2.11.7.2 is a question for the clause, and it is open.
 static EXEMPT_ORDERINGS: &[&str] = &["GB1", "CNS1", "Japan1", "Korea1", "KR"];
 
 /// Whether a glyph name is in either list ISO 19005's second `/ToUnicode` exemption names.
@@ -1745,11 +1862,11 @@ fn name_is_in_either_list(name: &str) -> bool {
 
 /// Whether a Type 1, multiple-master or Type 3 font draws a glyph whose name is in neither list.
 ///
-/// This is the second exemption of ISO 19005-2 §6.2.11.7.2 being **ruled out**, and only that:
-/// `false` means the exemption stands or could not be settled, and the two are deliberately the
-/// same answer here. The exemption asks about "the glyphs referenced", so the population is the
-/// codes the content streams showed ([`crate::survey::SelectedFont::shown`]) rather than the
-/// codes the encoding could reach.
+/// This is the second exemption of ISO 19005-2 section 6.2.11.7.2 being **ruled out**, and only
+/// that: `false` means the exemption stands or could not be settled, and the two are deliberately
+/// the same answer here. The exemption asks about "the glyphs referenced", so the population is the
+/// codes the content streams showed ([`crate::survey::SelectedFont::shown`]) rather than the codes
+/// the encoding could reach.
 ///
 /// # How the name is obtained, and why the two subtypes take different routes
 ///
@@ -1765,13 +1882,13 @@ fn name_is_in_either_list(name: &str) -> bool {
 /// permitting a processor to choose a character where its three methods fail. `pdf-font` takes
 /// that permission — a Type 1 code whose name is `integraldisplay` comes back as the character
 /// the *code* would be in ASCII — so the gap is `None` and the unlisted name has been hidden by
-/// the very sentence that says nothing could name it. ISO 19005-2 §6.2.11.7.2's exemption is
+/// the very sentence that says nothing could name it. ISO 19005-2 section 6.2.11.7.2's exemption is
 /// about the name, not about whether a reader found something to say, so the name is what is
 /// asked for. The Symbol set is consulted beside the Adobe Glyph List because the clause names
 /// both and §9.10.2 names only the first.
 ///
 /// `.notdef` is passed over: it is §9.6.5.2's substitute for a glyph the font does not have
-/// rather than a glyph the content referenced, and drawing it is ISO 19005-2 §6.2.11.8's
+/// rather than a glyph the content referenced, and drawing it is ISO 19005-2 section 6.2.11.8's
 /// subject — [`no_notdef_glyph_shown`] reports it there, and reporting it here as well would
 /// state one fault twice under two clauses.
 ///
@@ -1812,8 +1929,8 @@ fn references_an_unlisted_glyph_name(exam: &Examination<'_>, id: ObjectId, subty
     })
 }
 
-/// ISO 19005-2 §6.2.11.7.2, and part 2 only: ISO 19005-4 §6.2.10.7 states the same rule with
-/// `should`, which binds nobody.
+/// ISO 19005-2 section 6.2.11.7.2, and part 2 only: ISO 19005-4 section 6.2.10.7 states the same
+/// rule with `should`, which binds nobody.
 ///
 /// # Which fonts this reports, and which it will not
 ///
@@ -1833,7 +1950,7 @@ fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
         let Some(subtype) = subtype(document, font) else {
             return;
         };
-        if font.get("ToUnicode").is_some() {
+        if states(document, font, "ToUnicode") {
             return;
         }
         if matches!(
@@ -1892,7 +2009,7 @@ fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// The three Unicode values ISO 19005-2 §6.2.11.7.2 and ISO 19005-4 §6.2.10.7 forbid.
+/// The three Unicode values ISO 19005-2 section 6.2.11.7.2 and ISO 19005-4 section 6.2.10.7 forbid.
 ///
 /// Zero because the clause asks for values greater than it, and the other two because they are
 /// the byte-order mark and its byte-swapped twin: a `/ToUnicode` destination is UTF-16BE
@@ -1900,11 +2017,11 @@ fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
 /// character belonged.
 static UNUSABLE_VALUES: [char; 3] = ['\u{0}', '\u{FEFF}', '\u{FFFE}'];
 
-/// ISO 19005-2 §6.2.11.7.2's last sentence, ISO 19005-4 §6.2.10.7's last sentence.
+/// ISO 19005-2 section 6.2.11.7.2's last sentence, ISO 19005-4 section 6.2.10.7's last sentence.
 ///
-/// Both parts state this one as a `shall` — part 4 conditions it on a `/ToUnicode` being present
-/// at all, which is the same population, since a font without one states no values. It is the
-/// one rule of §6.2.10.7 that binds a part 4 file, the rest of that subclause being `should`.
+/// Both parts state this one as a `shall` — part 4 conditions it on a `/ToUnicode` being present at
+/// all, which is the same population, since a font without one states no values. It is the one rule
+/// of section 6.2.10.7 that binds a part 4 file, the rest of that subclause being `should`.
 ///
 /// # Reading the values off, which is what the clause asks
 ///
@@ -2106,7 +2223,7 @@ fn states_any_actual_text(exam: &Examination<'_>) -> bool {
     exam.survey().names_actual_text()
 }
 
-/// ISO 19005-2 §6.2.11.7.3, and part 2 Level A only: part 4 states no counterpart to it.
+/// ISO 19005-2 section 6.2.11.7.3, and part 2 Level A only: part 4 states no counterpart to it.
 ///
 /// A character a font maps into the Private Use Area means nothing on its own — the area is by
 /// definition unassigned — so the clause requires an `ActualText` entry saying what it stands
@@ -2128,6 +2245,23 @@ fn states_any_actual_text(exam: &Examination<'_>) -> bool {
 /// entry covers some other character, which is a real failure this cannot yet tell from a real
 /// pass. The corpus has a witness of each, and the silent one is named here rather than counted
 /// as met.
+///
+/// # What closing it takes, and why half of it is worse than none
+///
+/// The two witnesses still missed are `6-2-11-7-3-t01-fail-b`, whose `ActualText` sits on a
+/// `Span` in the content stream and encloses the *other* of two shown codes, and `-fail-c`,
+/// whose entry sits on a structure element instead. ISO 32000-2 §14.9.4 puts the entry in both
+/// places, so both routes have to be read together: `-t01-pass-b` is a **conforming** file whose
+/// only `ActualText` is on a structure element, and a rule that read the content stream alone
+/// would fail it. That is the one outcome this crate may not produce.
+///
+/// Reading both means [`crate::survey`] carrying a stack of open marked-content sequences — the
+/// property list a `BDC` states inline or names through `/Properties`, and its `/MCID` — and
+/// then §14.7.5.4's parent tree from a `/MCID` to its structure element and `/P` upward from
+/// there, because an ancestor's entry replaces "the structure element and its children".
+/// `pdf_model::structure::ParentTree` is the second half already built; the first is a shape the
+/// survey's token walk does not have today, since it deliberately does not parse a `BDC`
+/// operand as a dictionary.
 ///
 /// A font whose `shown` set overran the survey's budget is still read: the question is whether
 /// *any* private-use character was shown, so a prefix can establish it and can only under-report.
@@ -2180,7 +2314,8 @@ fn actual_text_covers_private_use_characters(exam: &Examination<'_>, findings: &
     }
 }
 
-/// ISO 19005-4 §6.2.10.8, last sentence — the one font rule part 4 states and part 2 does not.
+/// ISO 19005-4 section 6.2.10.8, last sentence — the one font rule part 4 states and part 2 does
+/// not.
 ///
 /// The surrounding paragraph recommends an `ActualText` for a private-use character with
 /// `should`, so it binds nothing; this sentence is a `shall` and says the replacement text may
@@ -2200,7 +2335,7 @@ fn actual_text_states_no_private_use(exam: &Examination<'_>, findings: &mut Find
             Object::Stream(stream) => stream.dict.clone(),
             _ => continue,
         };
-        if dict.get("ActualText").is_none() {
+        if !states(document, &dict, "ActualText") {
             continue;
         }
         let Some(bytes) = document
@@ -2756,9 +2891,9 @@ mod tests {
         );
     }
 
-    /// The codes a `CMap` sends into the Private Use Area, which is what ISO 19005-2
-    /// §6.2.11.7.3 is about. A span is answered by its first offending code rather than all of
-    /// them, because one `bfrange` line is one thing the producer wrote.
+    /// The codes a `CMap` sends into the Private Use Area, which is what ISO 19005-2 section
+    /// 6.2.11.7.3 is about. A span is answered by its first offending code rather than all of them,
+    /// because one `bfrange` line is one thing the producer wrote.
     #[test]
     fn the_private_use_codes_are_read_off_the_statements() {
         let plain = ToUnicode::parse(b"1 beginbfchar\n<41> <0041>\nendbfchar\n");

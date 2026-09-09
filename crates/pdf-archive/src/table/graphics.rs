@@ -5,38 +5,38 @@
 //! state `TR`, a halftone is of type 1 or 5. Those are decided by reading the objects a
 //! cross-reference section names, and they are the ones implemented here.
 //!
-//! The rest turn on **what a page's content actually does** — which colour space is in force
-//! when a colour is set, whether a page contains transparency, what a rendering intent
-//! operator's operand was. Those read [`crate::survey`], which walks the content streams once
-//! and reports the answers with the resource dictionary and the blending space that were in
-//! force at each point. ISO 19005-2 §6.2.4.3's device colour rules are the largest of them and
-//! the reason the survey exists.
+//! The rest turn on **what a page's content actually does** — which colour space is in force when a
+//! colour is set, whether a page contains transparency, what a rendering intent operator's operand
+//! was. Those read [`crate::survey`], which walks the content streams once and reports the answers
+//! with the resource dictionary and the blending space that were in force at each point. ISO
+//! 19005-2 section 6.2.4.3's device colour rules are the largest of them and the reason the survey
+//! exists.
 //!
 //! A rule the survey still cannot decide stays a [`Check::Unchecked`] row naming what a reader
 //! would have to answer, which is `doc/questions/Q20`'s discipline rather than a gap.
 //!
 //! # Why the colour rows are split by part where the other rows are not
 //!
-//! ISO 19005-2 §6.2.4.3 and ISO 19005-4 §6.2.4.3 license the same use differently, and a
-//! predicate is not told which target it is running for. So each of the three device colour
-//! sentences is two rows, one per part, and the same is true of the two subclauses that point
-//! at them (§6.2.4.4's alternate spaces, §6.2.4.5's underlying ones) and of the transparency
-//! group colour space. Part 4's extra licences — the current blending space, and a page-level
-//! output intent — are exactly what would over-report if part 2's rule were applied to a part 4
-//! file, and under-report the other way round.
+//! ISO 19005-2 section 6.2.4.3 and ISO 19005-4 section 6.2.4.3 license the same use differently,
+//! and a predicate is not told which target it is running for. So each of the three device colour
+//! sentences is two rows, one per part, and the same is true of the two subclauses that point at
+//! them (section 6.2.4.4's alternate spaces, section 6.2.4.5's underlying ones) and of the
+//! transparency group colour space. Part 4's extra licences — the current blending space, and a
+//! page-level output intent — are exactly what would over-report if part 2's rule were applied to a
+//! part 4 file, and under-report the other way round.
 //!
 //! A third kind is here for completeness and can never be otherwise: a clause addressed to the
 //! *conforming processor* — ignore flatness, never substitute a thumbnail, respect overprint —
 //! states nothing a document can be held to, and a row that quietly passed one would be claiming
 //! to have judged the file. Nine rows are of that kind and they carry [`Check::Processor`],
 //! which is neither a pass nor a debt: they are obligations on *this program*, and
-//! `doc/PLAN.md` §5a's conformance ledger is where a claim about its own rendering belongs.
+//! `doc/PLAN.md` section 5a's conformance ledger is where a claim about its own rendering belongs.
 //! Reading them as unchecked requirements overstated this crate's gap by nine rows on clause
 //! 6.2 alone.
 //!
 //! # Where the two parts differ, and it is more than renumbering
 //!
-//! - ISO 19005-2 §6.2.6 restricts rendering intent names; **ISO 19005-4 states no such
+//! - ISO 19005-2 section 6.2.6 restricts rendering intent names; **ISO 19005-4 states no such
 //!   subclause at all**, which is why the rendering-intent rows are [`Clauses::only_two`].
 //! - Part 2 forbids `HTP` in a graphics state and part 4 forbids `HTO` — different keys, so
 //!   different rows.
@@ -44,13 +44,13 @@
 //!   *any* output intent.
 //! - Part 4 admits a **page-level** PDF/A output intent, and requires one on any page whose
 //!   contents are not fully device-independent. Part 2 knows only the document's array.
-//! - Part 4's §6.2.4.3 admits the **current transparency blending space** as a third way to
+//! - Part 4's section 6.2.4.3 admits the **current transparency blending space** as a third way to
 //!   license a device colour space, where part 2 admits only a default space or the output
 //!   intent. Part 2 in turn admits a **DeviceN-based `DefaultCMYK`**, which part 4 dropped.
 //! - Part 4 forbids an `ICCBased` space whose profile duplicates the output intent's CMYK
-//!   profile; part 2 states no such rule. It is **two** rows in part 4, because §6.2.4.4 sends a
-//!   `Separation`'s or `DeviceN`'s alternate space to §6.2.4.2 as well, and a verdict has to cite
-//!   the sentence that put the restriction where it found the fault.
+//!   profile; part 2 states no such rule. It is **two** rows in part 4, because section 6.2.4.4
+//!   sends a `Separation`'s or `DeviceN`'s alternate space to section 6.2.4.2 as well, and a
+//!   verdict has to cite the sentence that put the restriction where it found the fault.
 //! - Both parts require an `ICCBased` space's profile to conform to something, and the
 //!   somethings are different documents: part 2 names four ICC editions, part 4 defers to
 //!   ISO 32000-2 §8.6.5.5. Only the second is a text this tree holds, so they are two rows
@@ -61,15 +61,15 @@
 //! - Part 2 forbids PostScript `XObject`s and the `Subtype2`/`PS` passthrough in a form `XObject`;
 //!   part 4 dropped both, keeping only `OPI`.
 //!
-//! ISO 19005-4's Annex A does not touch clause 6.2. **Annex B does**, which this file said it
-//! did not: §B.2.3 states how a PDF/A-4e processor colour manages 3D artwork, and sends it to
-//! §6.2.4.2. So one row here is an [`Applies::Flavours`] row citing `B.2.3`, and every other is
-//! [`Applies::Always`]. Nothing in Annex B binds a *file's* colour, which is why that row is a
+//! ISO 19005-4's Annex A does not touch clause 6.2. **Annex B does**, which this file said it did
+//! not: section B.2.3 states how a PDF/A-4e processor colour manages 3D artwork, and sends it to
+//! Section 6.2.4.2. So one row here is an [`Applies::Flavours`] row citing `B.2.3`, and every other
+//! is [`Applies::Always`]. Nothing in Annex B binds a *file's* colour, which is why that row is a
 //! processor obligation rather than a check.
 //!
 //! # Recommendations are not rows
 //!
-//! ISO 19005-2 §6.2.4.4's closing sentence about `Colorants` consistency is a *should*. This
+//! ISO 19005-2 section 6.2.4.4's closing sentence about `Colorants` consistency is a *should*. This
 //! table is of requirements, and admitting a recommendation would make a failed verdict say
 //! something the standard does not.
 
@@ -84,6 +84,7 @@ use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 use crate::survey::{DeviceColour, DeviceFamily, IccProfile, Route, SpaceKind};
+use crate::table::{name_of, states, states_name};
 use crate::target::Flavour;
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
@@ -131,6 +132,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.2.3", "6.2.3"),
         applies: Applies::Always,
         check: Check::Implemented(pdfa_output_intent_states_a_destination_profile),
+    },
+    Requirement {
+        id: "graphics/destination-profile-conforms-to-an-icc-edition",
+        asks: "A PDF/A output intent's destination profile shall be a valid ICC profile — one \
+               that conforms to the edition of the ICC specification its own header names.",
+        clauses: Clauses::both("6.2.3", "6.2.3"),
+        applies: Applies::Always,
+        check: Check::Unchecked(DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT),
     },
     Requirement {
         id: "graphics/destination-profile-class-and-colour-space",
@@ -189,7 +198,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         applies: Applies::Always,
         check: Check::Unchecked(
             "the general statement the subclauses below make specific, and every colour this \
-             crate can see is judged by the §6.2.4.3 to §6.2.4.5 rows. A predicate here would \
+             crate can see is judged by the section 6.2.4.3 to section 6.2.4.5 rows. A predicate \
+             here would \
              report those same failures under a clause number that adds nothing to them, and \
              the part of the sentence it would *not* cover — a colour specified indirectly \
              through the output intent's profile — is the licence those rows already apply",
@@ -340,9 +350,11 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Processor(
             "every sentence of the subclause is addressed to a conforming processor, and the \
              first of them relieves one of colour managing 3D artwork at all — so no property of \
-             a document satisfies or breaks it. The rules it points at are §6.2.4.2's, applied \
+             a document satisfies or breaks it. The rules it points at are section 6.2.4.2's, \
+             applied \
              to a profile the processor builds rather than to a colour space the file selects; \
-             this project's own answer to it belongs in `doc/PLAN.md` §5a's ledger beside the \
+             this project's own answer to it belongs in `doc/PLAN.md` section 5a's ledger beside \
+             the \
              clause 13 exclusion that keeps 3D artwork unrendered here",
         ),
     },
@@ -592,7 +604,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              which of the enumerated colour spaces is a device space. Numbers 16 and 17 are \
              sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather than device; \
              12 (CMYK) has no such definition attached. Deciding which of them makes an image \
-             *effectively* DeviceCMYK, and then running §6.2.4.3's output-intent and default \
+             *effectively* DeviceCMYK, and then running section 6.2.4.3's output-intent and \
+             default \
              colour space tests over that decision, is a reading of ISO/IEC 15444-2's colour \
              annex this project cannot make from part 1 alone",
         ),
@@ -680,19 +693,52 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
 ];
 
+/// Why the destination profile's *validity* is unchecked, where its class and space are not.
+///
+/// Both parts require the `DestOutputProfile` value to be a valid ICC profile stream, and neither
+/// says what makes one valid; the base standard hands the format to §8.6.5.5, which hands it to
+/// the ICC specification itself. This project holds no edition of it, so the sentence bottoms out
+/// in a text that is not here — the same shape as
+/// `graphics/icc-profiles-conform-to-a-permitted-edition`, one clause over.
+///
+/// The corpus's `6-2-3-t01-fail-d` is the witness that makes the gap concrete rather than
+/// theoretical, and it is the same file under both parts: an Adobe RGB (1998) profile whose header
+/// states specification version 5, which names ICC.2's iccMAX rather than any edition of ICC.1.
+/// Nothing this project holds forbids it — ISO 32000-2 §8.6.5.5 says a writer "may embed profiles
+/// conforming to an earlier or later ICC version", and ISO 32000-1 section 8.6.5.5 says the same of
+/// a later one — so the only sentence that could decide is §8.6.5.5's "Profiles shall conform to
+/// the specification version indicated by the Profile version number in its header", and answering
+/// it means reading ICC.2.
+const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require the destination profile to be a *valid* ICC profile stream and \
+     neither defines validity; the base standard sends the format to ISO 32000 section 8.6.5.5, \
+     which \
+     sends it to the ICC specification, and this project holds no edition of ICC.1, ISO 15076-1 \
+     or ICC.2. What is readable here is checked under the rows beside this one — the profile \
+     decodes, carries the `acsp` signature, and states a device class and colour space each part \
+     admits. What is not is whether the profile conforms to the edition its own header's version \
+     number names: a header stating version 5 names iccMAX, and ISO 32000 permits a writer to \
+     embed a later ICC version outright, so nothing short of that text decides it";
+
 /// Why the baseline-feature row is unchecked, where five rows beside it no longer are.
 ///
 /// The project holds ISO/IEC 15444-1:2000, which is what the other five needed; it does not hold
 /// ISO/IEC 15444-2:2004, which is what this one needs and the only place either sentence of it is
-/// defined. `doc/questions/Q51` is open on buying it.
+/// defined. **`doc/questions/A51` closed that**: the owner will not buy the extensions part, so
+/// this row is settled rather than pending, and `doc/adr/0928` records the argument.
+///
+/// The two later editions of part 1 in `doc/` cannot substitute for it, and a round that has not
+/// opened them will assume they can: they are iTeh STANDARD PREVIEW extracts, fifteen pages of
+/// front matter apiece, and neither contains a single occurrence of `colr` or `EnumCS`.
 const JPEG2000_BASELINE_IS_IN_THE_PART_NOT_HELD: &str = "both sentences of this rule name the extensions part rather than the core one. Its NOTE 1 \
      says the JPX baseline set of features is defined in ISO/IEC 15444-2:2004 M.9.2, and the \
      subclause closes by requiring the image to be created and read as that document describes. \
      This project holds ISO/IEC 15444-1:2000 — enough for the channel count, the colour \
      specification boxes and the bit depth, which are checked — and does not hold part 2, so \
      there is no list of baseline features to judge an image against and `CLAUDE.md` principle 5 \
-     forbids reconstructing one from another implementation. `doc/questions/Q51` is the open \
-     purchase decision";
+     forbids reconstructing one from another implementation. This is settled rather than \
+     outstanding: `doc/questions/A51` rules that the extensions part will not be bought, so the \
+     row stays unchecked deliberately and a later round should neither reconstruct the list from \
+     a secondary source nor soften this reason (`doc/adr/0928`)";
 
 /// How deep into one cross-referenced object's own structure the walk below goes.
 ///
@@ -727,7 +773,8 @@ const BLEND_MODES: [&[u8]; 17] = [
     b"Luminosity",
 ];
 
-/// The four rendering intents ISO 32000 defines, which ISO 19005-2 §6.2.6 restricts a file to.
+/// The four rendering intents ISO 32000 defines, which ISO 19005-2 section 6.2.6 restricts a file
+/// to.
 const RENDERING_INTENTS: [&[u8]; 4] = [
     b"RelativeColorimetric",
     b"AbsoluteColorimetric",
@@ -768,8 +815,8 @@ struct Site<'a> {
 
 /// Visits every dictionary the file's cross-referenced objects state, direct ones included.
 ///
-/// The population is `file_structure`'s and for its reason: ISO 19005-2 §6.1.4 and
-/// ISO 19005-4 §6.1.4 exempt an indirect object no cross-reference section names, so what a
+/// The population is `file_structure`'s and for its reason: ISO 19005-2 section 6.1.4 and
+/// ISO 19005-4 section 6.1.4 exempt an indirect object no cross-reference section names, so what a
 /// requirement binds is exactly the objects that table reaches. References are *not* followed —
 /// every indirect object is visited once by the loop itself — which is what makes the walk
 /// terminate without a set of visited objects and visit each dictionary exactly once.
@@ -892,17 +939,6 @@ fn collect_positions(
     }
 }
 
-/// A name-valued entry, as bytes, following an indirect reference.
-fn name_of(document: &Document, dict: &Dictionary, key: &str) -> Option<Vec<u8>> {
-    let value = document.get_key(dict, key);
-    value.as_name().map(|name| name.as_bytes().to_vec())
-}
-
-/// Whether a dictionary states `key` as exactly this name.
-fn states_name(document: &Document, dict: &Dictionary, key: &str, name: &[u8]) -> bool {
-    name_of(document, dict, key).is_some_and(|value| value == name)
-}
-
 /// Whether this dictionary describes an `XObject` of the given subtype.
 fn is_xobject(document: &Document, dict: &Dictionary, subtype: &[u8]) -> bool {
     states_name(document, dict, "Subtype", subtype)
@@ -925,7 +961,7 @@ fn is_graphics_state(document: &Document, site: &Site<'_>) -> bool {
 /// `Colorants` of neither — one required entry it always has is `HalftoneType`, and `Type` names
 /// it where a producer wrote that instead.
 fn is_halftone(document: &Document, dict: &Dictionary) -> bool {
-    dict.get("HalftoneType").is_some() || states_name(document, dict, "Type", b"Halftone")
+    states(document, dict, "HalftoneType") || states_name(document, dict, "Type", b"Halftone")
 }
 
 /// The output intent dictionaries one `OutputIntents` array holds.
@@ -948,8 +984,8 @@ fn output_intents(document: &Document, holder: &Dictionary) -> Vec<(Where, Dicti
 /// Every `OutputIntents` array the document states, the catalog's first and then each page's.
 ///
 /// ISO 32000-1 defines the entry only on the catalog, so for an ISO 19005-2 target the pages
-/// contribute nothing; ISO 19005-4 §6.2.3 is what adds the page-level array, and the two rows
-/// that read pages are `only_four` for that reason.
+/// contribute nothing; ISO 19005-4 section 6.2.3 is what adds the page-level array, and the two
+/// rows that read pages are `only_four` for that reason.
 fn output_intent_arrays(document: &Document) -> Vec<Vec<(Where, Dictionary)>> {
     let mut arrays = Vec::new();
     if let Ok(catalog) = document.catalog() {
@@ -968,12 +1004,12 @@ fn page_output_intent_arrays(document: &Document) -> Vec<Vec<(Where, Dictionary)
         .collect()
 }
 
-/// Whether an output intent is a PDF/A one: ISO 19005-2 §6.2.3, ISO 19005-4 §6.2.3.
+/// Whether an output intent is a PDF/A one: ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3.
 fn is_pdfa_output_intent(document: &Document, intent: &Dictionary) -> bool {
     states_name(document, intent, "S", b"GTS_PDFA1")
 }
 
-/// ISO 19005-2 §6.2.3, ISO 19005-4 §6.2.3.
+/// ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3.
 fn pdfa_output_intent_states_a_destination_profile(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -1015,7 +1051,7 @@ fn profile_header(data: &[u8]) -> Option<(&[u8], &[u8])> {
     Some((class, space))
 }
 
-/// ISO 19005-2 §6.2.3, ISO 19005-4 §6.2.3.
+/// ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3.
 ///
 /// The clause states the restriction of the profile that *is* a `DestOutputProfile` value,
 /// without qualifying which output intent stated it — and the paragraph before it requires every
@@ -1082,7 +1118,7 @@ const ICC_DEVICE_CLASSES: [&[u8]; 4] = [b"scnr", b"mntr", b"prtr", b"spac"];
 const ICC_COLOUR_SPACES: [(&[u8], i64); 4] =
     [(b"GRAY", 1), (b"RGB ", 3), (b"CMYK", 4), (b"Lab ", 3)];
 
-/// ISO 19005-4 §6.2.4.2, first sentence.
+/// ISO 19005-4 section 6.2.4.2, first sentence.
 ///
 /// # Why part 4's version of this rule is readable here and part 2's is not
 ///
@@ -1105,8 +1141,8 @@ const ICC_COLOUR_SPACES: [(&[u8], i64); 4] =
 /// the part 2 row rather than being half-answered here.
 ///
 /// A stream that does not decode, or that carries no ICC signature at offset 36, is passed over
-/// rather than reported. Whether a stream decodes is §6.1.7's subject, and a filter this tree
-/// cannot yet decode would otherwise be announced to a user as a colour fault.
+/// rather than reported. Whether a stream decodes is section 6.1.7's subject, and a filter this
+/// tree cannot yet decode would otherwise be announced to a user as a colour fault.
 fn icc_profiles_conform_to_the_base_standard(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_colour_space(exam, b"ICCBased", |id, items| {
@@ -1160,10 +1196,10 @@ fn icc_profiles_conform_to_the_base_standard(exam: &Examination<'_>, findings: &
 
 /// Visits every colour space array of one family the file's cross-referenced objects state.
 ///
-/// The population is [`crate::Examination::objects`]'s and for its reason: ISO 19005-2 §6.1.4
-/// and ISO 19005-4 §6.1.4 exempt an indirect object no cross-reference section names, so the
-/// objects that table reaches are what a requirement binds. References are not followed, because
-/// the loop visits every one of those objects itself.
+/// The population is [`crate::Examination::objects`]'s and for its reason: ISO 19005-2 section
+/// 6.1.4 and ISO 19005-4 section 6.1.4 exempt an indirect object no cross-reference section names,
+/// so the objects that table reaches are what a requirement binds. References are not followed,
+/// because the loop visits every one of those objects itself.
 ///
 /// **A structural population rather than the content survey's**, which is a choice the two rules
 /// reading this share with [`separations_of_one_name_agree`] beside them: each is about how a
@@ -1221,7 +1257,7 @@ fn descend_for_family(
     }
 }
 
-/// ISO 19005-2 §6.2.3.
+/// ISO 19005-2 section 6.2.3.
 ///
 /// Part 2 forbids the key in a *PDF/X* output intent, which is the one identified by a
 /// `GTS_PDFX` subtype; ISO 19005-4 widened it to every output intent, and that is the row below.
@@ -1233,7 +1269,7 @@ fn no_destination_profile_reference_in_a_pdfx_output_intent(
     for array in output_intent_arrays(document) {
         for (place, intent) in array {
             if states_name(document, &intent, "S", b"GTS_PDFX")
-                && intent.get("DestOutputProfileRef").is_some()
+                && states(document, &intent, "DestOutputProfileRef")
             {
                 findings.record(
                     place.named("DestOutputProfileRef"),
@@ -1244,7 +1280,7 @@ fn no_destination_profile_reference_in_a_pdfx_output_intent(
     }
 }
 
-/// ISO 19005-4 §6.2.3.
+/// ISO 19005-4 section 6.2.3.
 fn no_destination_profile_reference(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let arrays = output_intent_arrays(document)
@@ -1252,7 +1288,7 @@ fn no_destination_profile_reference(exam: &Examination<'_>, findings: &mut Findi
         .chain(page_output_intent_arrays(document));
     for array in arrays {
         for (place, intent) in array {
-            if intent.get("DestOutputProfileRef").is_some() {
+            if states(document, &intent, "DestOutputProfileRef") {
                 findings.record(
                     place.named("DestOutputProfileRef"),
                     "an output intent names a profile outside the file",
@@ -1262,7 +1298,7 @@ fn no_destination_profile_reference(exam: &Examination<'_>, findings: &mut Findi
     }
 }
 
-/// ISO 19005-2 §6.2.3, ISO 19005-4 §6.2.3.
+/// ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3.
 fn one_destination_profile_per_output_intents_array(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -1308,7 +1344,7 @@ fn check_one_destination_profile(array: &[(Where, Dictionary)], findings: &mut F
     }
 }
 
-/// ISO 19005-4 §6.2.3.
+/// ISO 19005-4 section 6.2.3.
 fn page_output_intents_have_the_same_shape(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for array in page_output_intent_arrays(document) {
@@ -1408,7 +1444,7 @@ fn as_separation(document: &Document, items: &[Object], id: ObjectId) -> Option<
     })
 }
 
-/// ISO 19005-2 §6.2.4.4, ISO 19005-4 §6.2.4.4.
+/// ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4.
 ///
 /// The clause is explicit about how the comparison is made: the PDF objects are compared rather
 /// than what evaluating them would produce, and neither compression nor indirection counts. So
@@ -1452,7 +1488,7 @@ fn separations_of_one_name_agree(exam: &Examination<'_>, findings: &mut Findings
 /// entry to describe. `All` cannot appear at all — §8.6.6.5 forbids it in a `DeviceN` space.
 const NEVER_SPOT: [&[u8]; 5] = [b"Cyan", b"Magenta", b"Yellow", b"Black", b"None"];
 
-/// ISO 19005-2 §6.2.4.4, ISO 19005-4 §6.2.4.4.
+/// ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4.
 ///
 /// # Which components are spot, which was thought to be undecidable and is not
 ///
@@ -1607,17 +1643,17 @@ fn equivalent_dictionaries(
     })
 }
 
-/// ISO 19005-2 §6.2.5, ISO 19005-4 §6.2.5.
+/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 fn no_transfer_function_in_a_graphics_state(exam: &Examination<'_>, findings: &mut Findings) {
     forbidden_graphics_state_key(exam, findings, "TR");
 }
 
-/// ISO 19005-2 §6.2.5.
+/// ISO 19005-2 section 6.2.5.
 fn no_halftone_phase_in_a_graphics_state(exam: &Examination<'_>, findings: &mut Findings) {
     forbidden_graphics_state_key(exam, findings, "HTP");
 }
 
-/// ISO 19005-4 §6.2.5.
+/// ISO 19005-4 section 6.2.5.
 fn no_halftone_origin_in_a_graphics_state(exam: &Examination<'_>, findings: &mut Findings) {
     forbidden_graphics_state_key(exam, findings, "HTO");
 }
@@ -1630,7 +1666,7 @@ fn forbidden_graphics_state_key(
 ) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
-        if is_graphics_state(document, site) && site.dict.get(key).is_some() {
+        if is_graphics_state(document, site) && states(document, site.dict, key) {
             findings.record(
                 Where::object(site.id).named(key),
                 "a graphics state parameter dictionary states a key ISO 19005 forbids",
@@ -1639,11 +1675,11 @@ fn forbidden_graphics_state_key(
     });
 }
 
-/// ISO 19005-2 §6.2.5, ISO 19005-4 §6.2.5.
+/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 fn second_transfer_function_is_default(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
-        if !is_graphics_state(document, site) || site.dict.get("TR2").is_none() {
+        if !is_graphics_state(document, site) || !states(document, site.dict, "TR2") {
             return;
         }
         if !states_name(document, site.dict, "TR2", b"Default") {
@@ -1655,7 +1691,7 @@ fn second_transfer_function_is_default(exam: &Examination<'_>, findings: &mut Fi
     });
 }
 
-/// ISO 19005-2 §6.2.5, ISO 19005-4 §6.2.5.
+/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 fn halftone_type_is_one_or_five(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
@@ -1672,11 +1708,11 @@ fn halftone_type_is_one_or_five(exam: &Examination<'_>, findings: &mut Findings)
     });
 }
 
-/// ISO 19005-2 §6.2.5, ISO 19005-4 §6.2.5.
+/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 fn no_halftone_name(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
-        if is_halftone(document, site.dict) && site.dict.get("HalftoneName").is_some() {
+        if is_halftone(document, site.dict) && states(document, site.dict, "HalftoneName") {
             findings.record(
                 Where::object(site.id).named("HalftoneName"),
                 "a halftone states a HalftoneName",
@@ -1703,7 +1739,7 @@ const STANDARD_PRIMARY_COLOURANTS: [&[u8]; 8] = [
 const TYPE_FIVE_NON_COLOURANT_KEYS: [&[u8]; 4] =
     [b"Type", b"HalftoneType", b"HalftoneName", b"Default"];
 
-/// ISO 19005-2 §6.2.5, ISO 19005-4 §6.2.5.
+/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 ///
 /// # What "only as required" resolves to
 ///
@@ -1752,7 +1788,7 @@ fn halftone_transfer_function_only_where_required(exam: &Examination<'_>, findin
                 let Some(component) = halftone_dictionary(&component) else {
                     continue;
                 };
-                let stated = component.get("TransferFunction").is_some();
+                let stated = states(document, component, "TransferFunction");
                 let place =
                     || Where::object(site.id).named(String::from_utf8_lossy(key).into_owned());
                 if STANDARD_PRIMARY_COLOURANTS.contains(&key) {
@@ -1776,7 +1812,7 @@ fn halftone_transfer_function_only_where_required(exam: &Examination<'_>, findin
         if is_graphics_state(document, site) {
             let current = document.get_key(site.dict, "HT");
             if halftone_dictionary(&current)
-                .is_some_and(|halftone| halftone.get("TransferFunction").is_some())
+                .is_some_and(|halftone| states(document, halftone, "TransferFunction"))
             {
                 findings.record(
                     Where::object(site.id).named("HT"),
@@ -1800,7 +1836,7 @@ fn halftone_dictionary(object: &Object) -> Option<&Dictionary> {
     }
 }
 
-/// ISO 19005-2 §6.2.6.
+/// ISO 19005-2 section 6.2.6.
 ///
 /// The two places a *dictionary* states an intent: a graphics state's `RI` and an image's
 /// `Intent`. The `ri` operator's operand is the third, and it is a row of its own because it
@@ -1811,7 +1847,7 @@ fn halftone_dictionary(object: &Object) -> Option<&Dictionary> {
 fn rendering_intent_entries_name_one_of_four(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for (page, image) in exam.survey().inline_images() {
-        if image.get("Intent").is_none() {
+        if !states(document, image, "Intent") {
             continue;
         }
         if !name_of(document, image, "Intent")
@@ -1845,7 +1881,7 @@ fn rendering_intent_entries_name_one_of_four(exam: &Examination<'_>, findings: &
     });
 }
 
-/// ISO 19005-2 §6.2.8.1, ISO 19005-4 §6.2.7.1.
+/// ISO 19005-2 section 6.2.8.1, ISO 19005-4 section 6.2.7.1.
 fn no_image_alternates_or_opi(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
@@ -1853,7 +1889,7 @@ fn no_image_alternates_or_opi(exam: &Examination<'_>, findings: &mut Findings) {
             return;
         }
         for key in ["Alternates", "OPI"] {
-            if site.dict.get(key).is_some() {
+            if states(document, site.dict, key) {
                 findings.record(
                     Where::object(site.id).named(key),
                     "an image dictionary states a key ISO 19005 forbids",
@@ -1863,11 +1899,12 @@ fn no_image_alternates_or_opi(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.8.1, ISO 19005-4 §6.2.7.1.
+/// ISO 19005-2 section 6.2.8.1, ISO 19005-4 section 6.2.7.1.
 fn image_interpolation_is_off(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
-        if !is_xobject(document, site.dict, b"Image") || site.dict.get("Interpolate").is_none() {
+        if !is_xobject(document, site.dict, b"Image") || !states(document, site.dict, "Interpolate")
+        {
             return;
         }
         if document.get_key(site.dict, "Interpolate") != Object::Boolean(false) {
@@ -1879,11 +1916,11 @@ fn image_interpolation_is_off(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.9.1, ISO 19005-4 §6.2.8.1.
+/// ISO 19005-2 section 6.2.9.1, ISO 19005-4 section 6.2.8.1.
 fn no_form_xobject_opi(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
-        if is_xobject(document, site.dict, b"Form") && site.dict.get("OPI").is_some() {
+        if is_xobject(document, site.dict, b"Form") && states(document, site.dict, "OPI") {
             findings.record(
                 Where::object(site.id).named("OPI"),
                 "a form XObject states the OPI key",
@@ -1892,14 +1929,14 @@ fn no_form_xobject_opi(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.9.1.
+/// ISO 19005-2 section 6.2.9.1.
 fn no_postscript_passthrough_in_a_form_xobject(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
         if !is_xobject(document, site.dict, b"Form") {
             return;
         }
-        if site.dict.get("PS").is_some() {
+        if states(document, site.dict, "PS") {
             findings.record(
                 Where::object(site.id).named("PS"),
                 "a form XObject carries a PostScript stream",
@@ -1914,14 +1951,14 @@ fn no_postscript_passthrough_in_a_form_xobject(exam: &Examination<'_>, findings:
     });
 }
 
-/// ISO 19005-2 §6.2.9.2, ISO 19005-4 §6.2.8.2.
+/// ISO 19005-2 section 6.2.9.2, ISO 19005-4 section 6.2.8.2.
 ///
 /// ISO 32000-2 §8.10.4 makes a reference `XObject` a form `XObject` carrying a `Ref` entry, so that
 /// entry is what the file is searched for.
 fn no_reference_xobjects(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
-        if is_xobject(document, site.dict, b"Form") && site.dict.get("Ref").is_some() {
+        if is_xobject(document, site.dict, b"Form") && states(document, site.dict, "Ref") {
             findings.record(
                 Where::object(site.id).named("Ref"),
                 "a form XObject names content in another file",
@@ -1930,7 +1967,7 @@ fn no_reference_xobjects(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.9.3.
+/// ISO 19005-2 section 6.2.9.3.
 fn no_postscript_xobjects(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
@@ -1943,7 +1980,7 @@ fn no_postscript_xobjects(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.10, ISO 19005-4 §6.2.9.
+/// ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9.
 fn graphics_state_blend_modes_are_defined(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
@@ -1959,7 +1996,7 @@ fn graphics_state_blend_modes_are_defined(exam: &Examination<'_>, findings: &mut
     });
 }
 
-/// ISO 19005-4 §6.2.9.
+/// ISO 19005-4 section 6.2.9.
 fn annotation_blend_modes_are_defined(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_dictionary(exam, |site| {
@@ -2014,10 +2051,10 @@ fn check_blend_mode(
 
 /// What the PDF/A output intent in force says, as the colour rules need it.
 ///
-/// Three answers rather than two, because "there is an output intent whose destination profile
-/// this crate could not read" is not the same fact as "there is none" and must not license the
-/// same conclusion. An unreadable profile licenses every family, so that a file whose profile is
-/// broken is reported once — by the §6.2.3 row that is about the profile — rather than again on
+/// Three answers rather than two, because "there is an output intent whose destination profile this
+/// crate could not read" is not the same fact as "there is none" and must not license the same
+/// conclusion. An unreadable profile licenses every family, so that a file whose profile is broken
+/// is reported once — by the section 6.2.3 row that is about the profile — rather than again on
 /// every colour it sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Intent {
@@ -2030,8 +2067,8 @@ enum Intent {
 }
 
 impl Intent {
-    /// Whether a PDF/A output intent is in effect at all, which is what §6.2.4.3's `DeviceGray`
-    /// sentence and §6.2.9's transparency sentence each turn on.
+    /// Whether a PDF/A output intent is in effect at all, which is what section 6.2.4.3's
+    /// `DeviceGray` sentence and section 6.2.9's transparency sentence each turn on.
     const fn present(self) -> bool {
         !matches!(self, Self::Absent)
     }
@@ -2090,7 +2127,7 @@ fn document_intent(document: &Document) -> Intent {
         .map_or(Intent::Absent, |array| intent_of(document, array))
 }
 
-/// The PDF/A output intent each page states, which ISO 19005-4 §6.2.3 adds.
+/// The PDF/A output intent each page states, which ISO 19005-4 section 6.2.3 adds.
 fn page_intents(document: &Document) -> Vec<Intent> {
     let pages = Pages::new(document);
     (0..pages.len())
@@ -2102,8 +2139,8 @@ fn page_intents(document: &Document) -> Vec<Intent> {
         .collect()
 }
 
-/// ISO 19005-4 §6.2.3's current PDF/A output intent for one page: the page's own where it states
-/// one, and otherwise the document's.
+/// ISO 19005-4 section 6.2.3's current PDF/A output intent for one page: the page's own where it
+/// states one, and otherwise the document's.
 fn current_intent(document_level: Intent, page_level: Option<&Intent>) -> Intent {
     match page_level {
         Some(&stated) if stated.present() => stated,
@@ -2113,9 +2150,9 @@ fn current_intent(document_level: Intent, page_level: Option<&Intent>) -> Intent
 
 /// Whether §8.6.5.6's default colour space in force licenses a device colour under ISO 19005-2.
 ///
-/// The `DeviceCMYK` sentence of ISO 19005-2 §6.2.4.3 admits a `DeviceN`-based `DefaultCMYK`
+/// The `DeviceCMYK` sentence of ISO 19005-2 section 6.2.4.3 admits a `DeviceN`-based `DefaultCMYK`
 /// beside a device-independent one, and its NOTE 2 explains why: such a space is subject to
-/// §6.2.4.4, which is what makes it device independent. ISO 19005-4 dropped that half of the
+/// Section 6.2.4.4, which is what makes it device independent. ISO 19005-4 dropped that half of the
 /// sentence, so [`licensed_by_default_under_part_four`] does not carry it.
 fn licensed_by_default_under_part_two(default: Option<SpaceKind>, family: DeviceFamily) -> bool {
     default.is_some_and(|kind| {
@@ -2138,22 +2175,22 @@ fn unlicensed(colour: &DeviceColour, licences: &str) -> String {
     )
 }
 
-/// ISO 19005-2 §6.2.4.3, first sentence.
+/// ISO 19005-2 section 6.2.4.3, first sentence.
 fn device_rgb_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_two(exam, findings, DeviceFamily::Rgb);
 }
 
-/// ISO 19005-2 §6.2.4.3, second sentence.
+/// ISO 19005-2 section 6.2.4.3, second sentence.
 fn device_cmyk_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_two(exam, findings, DeviceFamily::Cmyk);
 }
 
-/// ISO 19005-2 §6.2.4.3, third sentence.
+/// ISO 19005-2 section 6.2.4.3, third sentence.
 fn device_gray_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_two(exam, findings, DeviceFamily::Gray);
 }
 
-/// One family's worth of ISO 19005-2 §6.2.4.3, which admits two licences.
+/// One family's worth of ISO 19005-2 section 6.2.4.3, which admits two licences.
 fn device_colour_under_part_two(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -2162,11 +2199,11 @@ fn device_colour_under_part_two(
     unlicensed_under_part_two(exam, findings, |colour| colour.family == family);
 }
 
-/// Every device colour use a filter keeps that ISO 19005-2 §6.2.4.3 does not license.
+/// Every device colour use a filter keeps that ISO 19005-2 section 6.2.4.3 does not license.
 ///
-/// The filter is what makes the three subclauses that share this rule three rows: §6.2.4.3
-/// selects by family, §6.2.4.4 selects the alternate spaces and §6.2.4.5 the underlying ones,
-/// and the licence they are judged against is one sentence written once.
+/// The filter is what makes the three subclauses that share this rule three rows: section 6.2.4.3
+/// selects by family, section 6.2.4.4 selects the alternate spaces and section 6.2.4.5 the
+/// underlying ones, and the licence they are judged against is one sentence written once.
 fn unlicensed_under_part_two(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -2197,22 +2234,22 @@ fn unlicensed_under_part_two(
     }
 }
 
-/// ISO 19005-4 §6.2.4.3, first sentence.
+/// ISO 19005-4 section 6.2.4.3, first sentence.
 fn device_rgb_under_part_four(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_four(exam, findings, DeviceFamily::Rgb);
 }
 
-/// ISO 19005-4 §6.2.4.3, second sentence.
+/// ISO 19005-4 section 6.2.4.3, second sentence.
 fn device_cmyk_under_part_four(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_four(exam, findings, DeviceFamily::Cmyk);
 }
 
-/// ISO 19005-4 §6.2.4.3, third sentence.
+/// ISO 19005-4 section 6.2.4.3, third sentence.
 fn device_gray_under_part_four(exam: &Examination<'_>, findings: &mut Findings) {
     device_colour_under_part_four(exam, findings, DeviceFamily::Gray);
 }
 
-/// One family's worth of ISO 19005-4 §6.2.4.3.
+/// One family's worth of ISO 19005-4 section 6.2.4.3.
 ///
 /// Three licences rather than part 2's two, and the added one is the reason this is a separate
 /// predicate: the transparency blending space then in force licenses a device colour of its own
@@ -2226,7 +2263,7 @@ fn device_colour_under_part_four(
     unlicensed_under_part_four(exam, findings, |colour| colour.family == family);
 }
 
-/// Every device colour use a filter keeps that ISO 19005-4 §6.2.4.3 does not license.
+/// Every device colour use a filter keeps that ISO 19005-4 section 6.2.4.3 does not license.
 fn unlicensed_under_part_four(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -2285,7 +2322,7 @@ fn blending_wanted(family: DeviceFamily) -> String {
     }
 }
 
-/// Whether ISO 19005-4 §6.2.4.3's third licence covers this use.
+/// Whether ISO 19005-4 section 6.2.4.3's third licence covers this use.
 ///
 /// The clause states it for `DeviceRGB` and `DeviceCMYK` and not for `DeviceGray`, which is why
 /// the family is tested rather than the blending space alone: a grey colour under an ICC grey
@@ -2297,34 +2334,34 @@ fn licensed_by_blending(colour: &DeviceColour) -> bool {
             .is_some_and(|kind| kind.is_independent_family(colour.family))
 }
 
-/// ISO 19005-2 §6.2.4.4, third paragraph.
+/// ISO 19005-2 section 6.2.4.4, third paragraph.
 fn separation_alternate_spaces_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     unlicensed_under_part_two(exam, findings, |colour| colour.via == Route::Alternate);
 }
 
-/// ISO 19005-4 §6.2.4.4, third paragraph.
+/// ISO 19005-4 section 6.2.4.4, third paragraph.
 fn separation_alternate_spaces_under_part_four(exam: &Examination<'_>, findings: &mut Findings) {
     unlicensed_under_part_four(exam, findings, |colour| colour.via == Route::Alternate);
 }
 
-/// ISO 19005-2 §6.2.4.5.
+/// ISO 19005-2 section 6.2.4.5.
 fn underlying_spaces_under_part_two(exam: &Examination<'_>, findings: &mut Findings) {
     unlicensed_under_part_two(exam, findings, |colour| colour.via == Route::Underlying);
 }
 
-/// ISO 19005-4 §6.2.4.5.
+/// ISO 19005-4 section 6.2.4.5.
 fn underlying_spaces_under_part_four(exam: &Examination<'_>, findings: &mut Findings) {
     unlicensed_under_part_four(exam, findings, |colour| colour.via == Route::Underlying);
 }
 
-/// ISO 19005-4 §6.2.3, fifth paragraph.
+/// ISO 19005-4 section 6.2.3, fifth paragraph.
 ///
-/// The condition is a page whose contents are not fully specified in device-independent colour,
-/// and §6.2.4.1 defines that as colour given either by a device-independent space or through the
+/// The condition is a page whose contents are not fully specified in device-independent colour, and
+/// Section 6.2.4.1 defines that as colour given either by a device-independent space or through the
 /// output intent's profile. So a page is device-dependent here exactly where it sets a device
-/// colour that neither §8.6.5.6's default nor §6.2.4.3's blending-space licence makes
-/// independent — the output intent itself is excluded from the test, because it is what the
-/// clause is asking the page to supply.
+/// colour that neither §8.6.5.6's default nor section 6.2.4.3's blending-space licence makes
+/// independent — the output intent itself is excluded from the test, because it is what the clause
+/// is asking the page to supply.
 fn a_device_dependent_page_carries_an_output_intent(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -2361,7 +2398,7 @@ fn a_device_dependent_page_carries_an_output_intent(
     }
 }
 
-/// ISO 19005-4 §6.2.2, third paragraph.
+/// ISO 19005-4 section 6.2.2, third paragraph.
 ///
 /// The population is what `crate::survey` reached: a name is reported only where a content
 /// stream the walk actually ran used it, which is what the same paragraph's closing sentence
@@ -2380,7 +2417,7 @@ fn named_resources_are_defined(exam: &Examination<'_>, findings: &mut Findings) 
     }
 }
 
-/// ISO 19005-2 §6.2.2, ISO 19005-4 §6.2.2, the first sentence.
+/// ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2, the first sentence.
 ///
 /// # What "defined in the base standard" is decided against
 ///
@@ -2420,7 +2457,7 @@ fn only_operators_the_base_standard_defines(exam: &Examination<'_>, findings: &m
     }
 }
 
-/// ISO 19005-2 §6.2.2, ISO 19005-4 §6.2.2, the paragraph about associated resources.
+/// ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2, the paragraph about associated resources.
 ///
 /// Both parts require a content stream that references other objects to have a resource
 /// dictionary *explicitly* associated with it, and ISO 32000-2 §7.8.3 is what "associated"
@@ -2457,7 +2494,7 @@ fn content_streams_carry_their_own_resources(exam: &Examination<'_>, findings: &
     }
 }
 
-/// ISO 19005-2 §6.2.4.2, ISO 19005-4 §6.2.4.2, the overprint sentence.
+/// ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2, the overprint sentence.
 ///
 /// Both parts forbid overprint mode 1 while an `ICCBased` CMYK colour space is in use and
 /// overprinting is on. The population is a painting operator rather than a colour space
@@ -2491,8 +2528,8 @@ fn no_overprint_mode_one_under_icc_cmyk(exam: &Examination<'_>, findings: &mut F
 /// A profile an `ICCBased` colour space may be compared against: how it is reached, and what it
 /// is.
 ///
-/// Both halves matter, and for different tests of ISO 19005-4 §6.2.4.2: the reference decides
-/// the first, and the bytes the second.
+/// Both halves matter, and for different tests of ISO 19005-4 section 6.2.4.2: the reference
+/// decides the first, and the bytes the second.
 struct Candidate {
     /// The object the profile stream is, where the entry that names it is a reference.
     id: Option<ObjectId>,
@@ -2535,14 +2572,14 @@ impl Profiles {
     }
 }
 
-/// Whether ISO 19005-4 §6.2.4.2's two stated tests make two profiles the same one.
+/// Whether ISO 19005-4 section 6.2.4.2's two stated tests make two profiles the same one.
 ///
 /// The clause states the first outright — the colour space and the other holder reaching one
 /// embedded stream by indirect reference — and states the second as equal MD5 hashes, read from
-/// each profile's own `Profile ID` field where it states a non-zero one and computed by
-/// ISO 15076-1:2010 §7.2.18's method where it does not. **This project holds neither ICC text**,
-/// so neither the field's position nor the computation is readable here, and `CLAUDE.md`
-/// principle 5 forbids taking them from somebody else's implementation.
+/// each profile's own `Profile ID` field where it states a non-zero one and computed by ISO
+/// 15076-1:2010 section 7.2.18's method where it does not. **This project holds neither ICC text**,
+/// so neither the field's position nor the computation is readable here, and `CLAUDE.md` principle
+/// 5 forbids taking them from somebody else's implementation.
 ///
 /// What is decidable without them is the case where the two profiles decode to the same bytes:
 /// an MD5 is a function of the bytes it is taken over, and both routes the clause names take
@@ -2573,7 +2610,7 @@ fn same_profile(
 
 /// The `DestOutputProfile` of one `OutputIntents` array's PDF/A entry.
 ///
-/// The entry is read unresolved, because ISO 19005-4 §6.2.4.2's first test is about the
+/// The entry is read unresolved, because ISO 19005-4 section 6.2.4.2's first test is about the
 /// reference rather than about what it reaches.
 fn pdfa_destination_profile(
     document: &Document,
@@ -2592,7 +2629,7 @@ fn pdfa_destination_profile(
     })
 }
 
-/// ISO 19005-4 §6.2.4.2, the last requirement.
+/// ISO 19005-4 section 6.2.4.2, the last requirement.
 ///
 /// An `ICCBased` colour space carrying a CMYK destination profile identical to the one in the
 /// current PDF/A output intent, or in the transparency blending colour space then in force, is
@@ -2609,14 +2646,15 @@ fn no_icc_space_duplicating_a_current_profile(exam: &Examination<'_>, findings: 
     duplicating_a_current_profile(exam, findings, |via| via != Route::Alternate);
 }
 
-/// ISO 19005-4 §6.2.4.2's last requirement, reached through §6.2.4.4's third paragraph.
+/// ISO 19005-4 section 6.2.4.2's last requirement, reached through section 6.2.4.4's third
+/// paragraph.
 ///
-/// Split from the row above rather than folded into it, because the two cite different clauses:
-/// an `ICCBased` space the content selects is §6.2.4.2's own business, and the alternate space of
-/// a `Separation` or `DeviceN` is subject to §6.2.4.2 only because §6.2.4.4 says so. A reader
-/// checking a verdict against their own copy has to be sent to the sentence that put the
-/// restriction where this found it — the same reason the device colour rules are three rows over
-/// one walk rather than one row.
+/// Split from the row above rather than folded into it, because the two cite different clauses: an
+/// `ICCBased` space the content selects is section 6.2.4.2's own business, and the alternate space
+/// of a `Separation` or `DeviceN` is subject to section 6.2.4.2 only because section 6.2.4.4 says
+/// so. A reader checking a verdict against their own copy has to be sent to the sentence that put
+/// the restriction where this found it — the same reason the device colour rules are three rows
+/// over one walk rather than one row.
 fn separation_alternates_duplicating_a_current_profile(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -2658,8 +2696,8 @@ fn duplicating_a_current_profile(
             continue;
         }
         let used = Candidate::of(&selection.profile);
-        // §6.2.3: a page's own PDF/A output intent is the current one where it states one, and
-        // the document's otherwise.
+        // Section 6.2.3: a page's own PDF/A output intent is the current one where it states one,
+        // and the document's otherwise.
         let current = of_page
             .get(selection.page)
             .and_then(Option::as_ref)
@@ -2705,7 +2743,7 @@ fn icc_space_reached(via: Route) -> &'static str {
     }
 }
 
-/// ISO 19005-2 §6.2.6, the `ri` operator.
+/// ISO 19005-2 section 6.2.6, the `ri` operator.
 ///
 /// The operator's operand is a name in the content stream rather than an entry in a dictionary,
 /// so it is `crate::survey` that reports it. ISO 19005-4 states no rendering intent subclause at
@@ -2723,14 +2761,14 @@ fn rendering_intent_operator_names_one_of_four(exam: &Examination<'_>, findings:
     }
 }
 
-/// ISO 19005-2 §6.2.8.1, ISO 19005-4 §6.2.7.1, the inline image half.
+/// ISO 19005-2 section 6.2.8.1, ISO 19005-4 section 6.2.7.1, the inline image half.
 ///
 /// §8.9.7's `/I` is the abbreviation of `Interpolate`, and `pdf_model::inline_image` expands it
 /// before the dictionary reaches here, so one spelling is read rather than two.
 fn inline_image_interpolation_is_off(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for (page, image) in exam.survey().inline_images() {
-        if image.get("Interpolate").is_none() {
+        if !states(document, image, "Interpolate") {
             continue;
         }
         if document.get_key(image, "Interpolate") != Object::Boolean(false) {
@@ -2742,7 +2780,7 @@ fn inline_image_interpolation_is_off(exam: &Examination<'_>, findings: &mut Find
     }
 }
 
-/// The bit depths ISO 19005-2 §6.2.8.3 and ISO 19005-4 §6.2.7.3 admit, inclusive.
+/// The bit depths ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 admit, inclusive.
 ///
 /// The same range ISO 32000-2 §7.4.9 states of the filter — "bits per sample shall be between 1
 /// to 38 inclusive" — and the same one ISO/IEC 15444-1:2000's Tables I-6 and A-11 encode, whose
@@ -2772,10 +2810,10 @@ const JPEG2000_BEST_APPROXIMATION: u8 = 0x01;
 
 /// Visits the headers of every `JPXDecode` stream the file's cross-referenced objects state.
 ///
-/// **The codec is the test, not the `Subtype`.** ISO 19005-2 §6.2.8.3 and ISO 19005-4 §6.2.7.3
-/// bind "the JPEG2000 data" rather than a dictionary, and ISO 32000-2 §7.4.9 confines the filter
-/// to image `XObject`s — so a stream carrying it either is an image or is already breaking that
-/// clause, and neither is a reason to leave its data unread.
+/// **The codec is the test, not the `Subtype`.** ISO 19005-2 section 6.2.8.3 and ISO 19005-4
+/// section 6.2.7.3 bind "the JPEG2000 data" rather than a dictionary, and ISO 32000-2 §7.4.9
+/// confines the filter to image `XObject`s — so a stream carrying it either is an image or is
+/// already breaking that clause, and neither is a reason to leave its data unread.
 ///
 /// **Data that does not parse is passed over rather than reported**, which is the same choice
 /// [`icc_profiles_conform_to_the_base_standard`] makes about a stream that does not decode: what
@@ -2810,7 +2848,7 @@ fn jpeg2000_site(id: ObjectId) -> Where {
     Where::object(id).named("JPXDecode")
 }
 
-/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: 1, 3 or 4 colour channels.
+/// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: 1, 3 or 4 colour channels.
 ///
 /// A *colour* channel, which is not the same as a component: ISO/IEC 15444-1:2000 I.5.3.6 gives
 /// each channel a type, and only type 0 is colour, so an RGB image with an opacity channel has
@@ -2847,7 +2885,8 @@ fn jpeg2000_channel_count(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: one specification marked best, and its profile.
+/// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: one specification marked best, and its
+/// profile.
 ///
 /// Two sentences, and the second depends on the first. Where the data states more than one
 /// colour space specification, exactly one shall carry [`JPEG2000_BEST_APPROXIMATION`] in its
@@ -2918,7 +2957,7 @@ fn jpeg2000_one_best_colour_space_specification(exam: &Examination<'_>, findings
     });
 }
 
-/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: `METH` shall be 0x01, 0x02 or 0x03.
+/// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: `METH` shall be 0x01, 0x02 or 0x03.
 ///
 /// Every `colr` box, not only the first. Both parts write the sentence about "its `colr` box" in
 /// the singular, and ISO/IEC 15444-1:2000 I.5.3.3 permits several — a file may carry one per
@@ -2942,7 +2981,8 @@ fn jpeg2000_colour_specification_method(exam: &Examination<'_>, findings: &mut F
     });
 }
 
-/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: enumerated colour space 19 shall not be used.
+/// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: enumerated colour space 19 shall not
+/// be used.
 ///
 /// ISO/IEC 15444-1:2000 I.5.3.3 puts `EnumCS` in a `colr` box only where `METH` is 1, which is
 /// why `pdf_model::jpeg2000` reports it only there and this rule asks no more.
@@ -2964,7 +3004,8 @@ fn jpeg2000_no_ciejab_colour_space(exam: &Examination<'_>, findings: &mut Findin
     });
 }
 
-/// ISO 19005-2 §6.2.8.3, ISO 19005-4 §6.2.7.3: 1 to 38 bits, the same on every colour channel.
+/// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: 1 to 38 bits, the same on every colour
+/// channel.
 ///
 /// Two sentences with different subjects, and they are checked over different populations.
 ///
@@ -3021,7 +3062,7 @@ fn jpeg2000_bit_depth(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.2.10, second paragraph.
+/// ISO 19005-2 section 6.2.10, second paragraph.
 fn a_transparent_page_has_a_blending_space(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if document_intent(document).present() {
@@ -3036,7 +3077,7 @@ fn a_transparent_page_has_a_blending_space(exam: &Examination<'_>, findings: &mu
     }
 }
 
-/// ISO 19005-4 §6.2.9, second paragraph.
+/// ISO 19005-4 section 6.2.9, second paragraph.
 fn a_transparent_page_has_a_blending_space_or_an_output_intent(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -3076,13 +3117,13 @@ fn transparent_pages_without_a_blending_space(exam: &Examination<'_>) -> Vec<usi
                 document
                     .get_key(&page.dict, "Group")
                     .as_dict()
-                    .is_none_or(|group| group.get("CS").is_none())
+                    .is_none_or(|group| !states(document, group, "CS"))
             })
         })
         .collect()
 }
 
-/// ISO 19005-2 §6.2.10, third paragraph.
+/// ISO 19005-2 section 6.2.10, third paragraph.
 fn group_colour_spaces_obey_the_colour_rules_under_part_two(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -3109,7 +3150,7 @@ fn group_colour_spaces_obey_the_colour_rules_under_part_two(
     }
 }
 
-/// ISO 19005-4 §6.2.9, third paragraph.
+/// ISO 19005-4 section 6.2.9, third paragraph.
 ///
 /// The one difference from part 2's row is which output intent counts: ISO 19005-4 admits a
 /// page-level one, so a group on a page that states its own is judged against that.
@@ -3768,8 +3809,8 @@ mod tests {
         document_of(&borrowed)
     }
 
-    /// ISO 19005-2 §6.2.4.3's first sentence, and ISO 19005-4's, disagree by one licence — so
-    /// one file is a failure under part 2 and a pass under part 4.
+    /// ISO 19005-2 section 6.2.4.3's first sentence, and ISO 19005-4's, disagree by one licence —
+    /// so one file is a failure under part 2 and a pass under part 4.
     #[test]
     fn the_blending_space_licenses_a_device_colour_only_under_part_four() {
         let document = coloured_page(
@@ -3814,8 +3855,8 @@ mod tests {
         );
     }
 
-    /// ISO 19005-2 §6.2.10 and ISO 19005-4 §6.2.9: a transparent page with no output intent
-    /// anywhere needs a Group with a CS, and a page-level output intent answers only part 4.
+    /// ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9: a transparent page with no output
+    /// intent anywhere needs a Group with a CS, and a page-level output intent answers only part 4.
     #[test]
     fn a_transparent_page_needs_a_blending_space_or_the_output_intent_its_part_admits() {
         let bare = coloured_page(
@@ -3859,7 +3900,7 @@ mod tests {
         );
     }
 
-    /// ISO 19005-4 §6.2.2's third sentence, over the streams the walk actually ran.
+    /// ISO 19005-4 section 6.2.2's third sentence, over the streams the walk actually ran.
     #[test]
     fn a_named_resource_the_associated_dictionary_does_not_define_is_reported() {
         let document = coloured_page("/Fm0 Do", "/Resources << >>", "", "<< >>");
@@ -3867,7 +3908,7 @@ mod tests {
         assert_eq!(found(&document, super::named_resources_are_defined), 1);
     }
 
-    /// ISO 19005-2 §6.2.6's third place, and ISO 19005-2 §6.2.8.1's inline image.
+    /// ISO 19005-2 section 6.2.6's third place, and ISO 19005-2 section 6.2.8.1's inline image.
     #[test]
     fn the_operators_and_the_inline_images_a_page_states_are_read() {
         let content = "/Bogus ri BI /W 1 /H 1 /BPC 8 /CS /G /I true /Intent /Bogus ID \x00 EI";
@@ -3891,7 +3932,8 @@ mod tests {
         );
     }
 
-    /// ISO 19005 §6.2.4.4's `Colorants` sentence, over the four shapes a component name can have.
+    /// ISO 19005 section 6.2.4.4's `Colorants` sentence, over the four shapes a component name can
+    /// have.
     ///
     /// One file rather than four, because the rule is stated of the colour space rather than of
     /// the page, so every space the objects hold is judged wherever it sits.
@@ -3924,7 +3966,7 @@ mod tests {
         );
     }
 
-    /// ISO 19005 §6.2.5's transfer function sentence, in the three positions it reaches.
+    /// ISO 19005 section 6.2.5's transfer function sentence, in the three positions it reaches.
     #[test]
     fn a_transfer_function_is_judged_by_where_the_halftone_sits() {
         let document = document_of(&[
@@ -3964,7 +4006,7 @@ mod tests {
         String::from_utf8(bytes).unwrap_or_default()
     }
 
-    /// ISO 19005-4 §6.2.4.2's first sentence, through ISO 32000-2 §8.6.5.5's two tables.
+    /// ISO 19005-4 section 6.2.4.2's first sentence, through ISO 32000-2 §8.6.5.5's two tables.
     #[test]
     fn an_icc_based_space_is_judged_on_its_component_count_and_its_profile_type() {
         let good = profile("mntr", "RGB ");
@@ -3995,10 +4037,9 @@ mod tests {
     }
 
     /// An empty document meets every implemented row: none of these rules asks a file to state
-    /// anything, so a file that states nothing breaks none of them.
-    /// ISO 32000-2 §7.8.3 lets a page reach its resources by inheritance and requires every
-    /// other kind of content stream to carry the entry, so ISO 19005 §6.2.2's word *explicitly*
-    /// is what each of these turns on.
+    /// anything, so a file that states nothing breaks none of them. ISO 32000-2 §7.8.3 lets a page
+    /// reach its resources by inheritance and requires every other kind of content stream to carry
+    /// the entry, so ISO 19005 section 6.2.2's word *explicitly* is what each of these turns on.
     #[test]
     fn a_stream_that_names_a_resource_without_owning_a_dictionary_is_reported() {
         let inherited = document_of(&[
@@ -4103,8 +4144,8 @@ mod tests {
         document_of(&borrowed)
     }
 
-    /// ISO 19005-4 §6.2.4.2's two stated tests, and the two things that take a document out of
-    /// the rule's reach: a profile that is not CMYK, and a space nothing selects.
+    /// ISO 19005-4 section 6.2.4.2's two stated tests, and the two things that take a document out
+    /// of the rule's reach: a profile that is not CMYK, and a space nothing selects.
     #[test]
     fn an_icc_space_duplicating_the_current_profile_is_reported_when_the_content_selects_it() {
         let one_profile = ["<< /N 4 /Length 4 >> stream\nabcd\nendstream"];
@@ -4117,8 +4158,9 @@ mod tests {
             ),
             1
         );
-        // §6.2.4.4 sends the alternate space to §6.2.4.2, and it is the §6.2.4.4 row that
-        // reports it — cited where the sentence that put the restriction there stands.
+        // Section 6.2.4.4 sends the alternate space to section 6.2.4.2, and it is the section
+        // 6.2.4.4 row that reports it — cited where the sentence that put the restriction there
+        // stands.
         let alternate = duplicating_page(
             "/CS0 cs 1 scn",
             "[/Separation /Spot [/ICCBased 6 0 R] 7 0 R]",
@@ -4140,7 +4182,7 @@ mod tests {
                 super::no_icc_space_duplicating_a_current_profile
             ),
             0,
-            "the §6.2.4.2 row keeps the spaces the content names directly"
+            "the section 6.2.4.2 row keeps the spaces the content names directly"
         );
         let unused = duplicating_page("0 0 0 0 k", "[/ICCBased 6 0 R]", &one_profile);
         assert_eq!(

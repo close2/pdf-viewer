@@ -12,7 +12,50 @@
 //! the standard reads it with the standard open. The identifiers are not clause numbers for the
 //! reason [`crate::Requirement::id`] gives: the two parts number the same rule differently.
 
+use pdf_syntax::{Dictionary, Document, Object};
+
 use crate::requirement::Requirement;
+
+/// Whether a dictionary states an entry at all, in ISO 32000-2 §7.3.7's sense.
+///
+/// Not `Dictionary::get`, because a key written with nothing behind it is not a key:
+///
+/// > A dictionary entry whose value is null (see 7.3.9, "Null object") shall be treated the same
+/// > as if the entry does not exist.
+///
+/// and §7.3.10 puts a reference to an object that is not there in the same place:
+///
+/// > An indirect reference to an undefined object shall not be considered an error by a PDF
+/// > processor; it shall be treated as a reference to the null object.
+///
+/// Every rule that forbids a key, and every guard that skips a dictionary for not stating one,
+/// asks through this — otherwise `/OPI null` would be reported as an `/OPI`, which is this crate
+/// failing a document the base standard says states nothing there. It lives here rather than in
+/// a tranche because three tranches ask it and the sentences behind it are the same in each; two
+/// private copies with two different doc comments is how one of them drifts.
+///
+/// **Measured, because sixteen rules in the graphics tranche alone ask it while walking every
+/// object.** `examples/cost.rs` over ISO 32000-1's own 127 000 objects: 1.923 s and 1.919 s of
+/// predicates with the key read the cheap way, 1.927 s and 1.949 s with it resolved; over
+/// ISO 32000-2's 101 000, 4.013 s against 4.075 s. Under two per cent, and inside the spread of
+/// two runs — because `Document::get_key` fetches an object only where the entry *is* a
+/// reference, and a forbidden key is absent from almost every dictionary this walks.
+pub(crate) fn states(document: &Document, dict: &Dictionary, key: &str) -> bool {
+    !matches!(document.get_key(dict, key), Object::Null)
+}
+
+/// The name a dictionary states for `key`, or `None` where it states something else.
+pub(crate) fn name_of(document: &Document, dict: &Dictionary, key: &str) -> Option<Vec<u8>> {
+    document
+        .get_key(dict, key)
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())
+}
+
+/// Whether a dictionary states `key` as exactly this name.
+pub(crate) fn states_name(document: &Document, dict: &Dictionary, key: &str, name: &[u8]) -> bool {
+    name_of(document, dict, key).is_some_and(|value| value == name)
+}
 
 mod document_level;
 mod file_structure;

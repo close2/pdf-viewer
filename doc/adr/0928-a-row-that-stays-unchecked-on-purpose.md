@@ -1,6 +1,6 @@
 # 0928 — A row that stays unchecked on purpose
 
-Session 941. Status: **accepted**. Recorded under the questions-directory rule: when an `A` file
+Session 940. Status: **accepted**. Recorded under the questions-directory rule: when an `A` file
 appears, the round that acts on it records the decision in an ADR.
 
 ## The answer

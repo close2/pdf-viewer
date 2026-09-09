@@ -1243,9 +1243,9 @@ fn a_rebuild_that_cannot_read_an_object_stream_says_so() {
 
 /// One zlib stream holding `payload` in a single stored block, finished or not.
 ///
-/// RFC 1951 section 3.2.3's BFINAL is the only difference between the two, which is what makes the pair
-/// above a comparison rather than two files: the decoder receives every byte either way and only
-/// one of them says the stream is over. §7.4.4.1 makes the format normative for `FlateDecode`,
+/// RFC 1951 section 3.2.3's BFINAL is the only difference between the two, which is what makes the
+/// pair above a comparison rather than two files: the decoder receives every byte either way and
+/// only one of them says the stream is over. §7.4.4.1 makes the format normative for `FlateDecode`,
 /// and RFC 1950's Adler-32 is written only where the stream claims to be complete.
 fn zlib_stored(payload: &[u8], complete: bool) -> Vec<u8> {
     let mut out = vec![0x78, 0x01];
@@ -1325,5 +1325,93 @@ fn an_entry_the_reader_cannot_read_is_not_a_deletion() {
     assert!(
         deleted.misfiled_objects().is_empty(),
         "and nothing was repaired, because nothing was wrong"
+    );
+}
+
+/// ISO 32000-2 §7.5.6: what each appended trailer states is its own, and the merge is not it.
+///
+/// > The added trailer shall contain all the entries except the Prev entry (if present) from the
+/// > previous trailer, whether modified or not.
+///
+/// [`pdf_syntax::XrefTable::trailer`] answers what a *reader* wants — the merge, so that `/Root`
+/// resolves whichever section stated it — and that answer cannot distinguish a file obeying the
+/// sentence above from one that does not. `xref::sections` is the second answer, and this is the
+/// comparison that shows they are different: the same document written twice, differing only in
+/// whether the newest trailer restates `/ID`, is one document to the merge and two to this.
+#[test]
+fn each_cross_reference_section_reports_the_trailer_it_states_rather_than_the_merge() {
+    let build = |restated: &str| {
+        let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+        let first_at = out.len();
+        classic_section(&mut out, &offsets, "/ID [<AA> <BB>] ");
+        let at = out.len();
+        out.push_str("4 0 obj\n(the replacement)\nendobj\n");
+        let second_at = out.len();
+        out.push_str("xref\n");
+        subsection(&mut out, 4, &[(at, 'n')]);
+        let _ = write!(
+            out,
+            "trailer\n<< /Size 5 /Root 1 0 R {restated}/Prev {first_at} >>\n\
+             startxref\n{second_at}\n%%EOF\n"
+        );
+        (out.into_bytes(), first_at, second_at)
+    };
+
+    for (restated, newest_states_id) in [("/ID [<AA> <CC>] ", true), ("", false)] {
+        let (bytes, first_at, second_at) = build(restated);
+        let document = open(bytes);
+        assert!(
+            document.trailer().get("ID").is_some(),
+            "the merge carries the identifier from whichever section stated it, either way"
+        );
+
+        let sections = pdf_syntax::xref::sections(document.bytes(), document.limits());
+        let offsets: Vec<usize> = sections.iter().map(|section| section.offset).collect();
+        assert_eq!(
+            offsets,
+            vec![second_at, first_at],
+            "startxref first, then what /Prev points back to"
+        );
+        assert!(
+            sections.iter().all(|section| section.classic),
+            "both sections are written as §7.5.4 tables"
+        );
+        assert_eq!(
+            sections
+                .first()
+                .and_then(|section| section.trailer.get("ID"))
+                .is_some(),
+            newest_states_id,
+            "and the newest section's own trailer says only what the file wrote in it"
+        );
+        assert!(
+            sections
+                .last()
+                .and_then(|section| section.trailer.get("ID"))
+                .is_some(),
+            "while the section it points back to states its own"
+        );
+    }
+}
+
+/// A file written entirely with §7.5.8's streams states no `xref` keyword, and says so.
+///
+/// §7.5.8.1 forbids one outright — "the keywords xref and trailer shall no longer be used" — so a
+/// caller judging what stands around that keyword has no subject in such a file, and needs to be
+/// told rather than left to guess from the offset.
+#[test]
+fn a_cross_reference_stream_section_is_not_reported_as_a_classic_table() {
+    let document = open(skeleton_with_xref_stream([1, 4, 2], true));
+    let sections = pdf_syntax::xref::sections(document.bytes(), document.limits());
+    assert_eq!(sections.len(), 1, "one section, and it is the stream");
+    assert!(
+        sections.iter().all(|section| !section.classic),
+        "a cross-reference stream has no xref keyword"
+    );
+    assert!(
+        sections
+            .first()
+            .is_some_and(|section| section.trailer.get("Root").is_some()),
+        "§7.5.8.2 puts the trailer's entries in the stream's own dictionary"
     );
 }

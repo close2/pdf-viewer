@@ -273,18 +273,9 @@ pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 /// found either, and [`SyntaxError::NoCrossReferences`] if neither the table nor a scan
 /// yields any object.
 pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
-    // The header may be preceded by junk — files served through mail gateways acquire it —
-    // so the specification's "first line" is relaxed to "somewhere near the start".
-    let header_window = file.len().min(HEADER_SEARCH_WINDOW);
-    let start = file.read(0..header_window);
-    // §12.7.8.2.2 gives an FDF file a header of its own — `%FDF-1.n` where a PDF writes
-    // `%PDF-n.m` — and §12.7.8.2.1 makes the rest of the file structure clause 7's, §7.5.2's
-    // offset rule below included. So the *second* marker is searched for only where the first
-    // is absent: a PDF whose first kilobyte happens to contain `%FDF-` is still measured from
-    // its own header, and an FDF file stops being measured from byte zero by accident.
-    let header_at = position_of(&start, *b"%PDF-").or_else(|| position_of(&start, *b"%FDF-"));
+    let header_at = header_position(file);
 
-    if let Some(table) = read_from_startxref(file, header_at.unwrap_or(0), limits)
+    if let Some(table) = read_from_startxref(file, header_at.unwrap_or(0), limits, None)
         && !table.is_empty()
     {
         return Ok(table);
@@ -292,6 +283,72 @@ pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
 
     // The table was absent, unreadable, or empty. Scan.
     rebuild(file, limits, header_at.is_some())
+}
+
+/// Where the file's header stands, which §7.5.2 makes the origin of every offset in it.
+///
+/// The header may be preceded by junk — files served through mail gateways acquire it — so the
+/// specification's "first line" is relaxed to "somewhere near the start".
+///
+/// §12.7.8.2.2 gives an FDF file a header of its own — `%FDF-1.n` where a PDF writes `%PDF-n.m`
+/// — and §12.7.8.2.1 makes the rest of the file structure clause 7's, §7.5.2's offset rule
+/// included. So the *second* marker is searched for only where the first is absent: a PDF whose
+/// first kilobyte happens to contain `%FDF-` is still measured from its own header, and an FDF
+/// file stops being measured from byte zero by accident.
+fn header_position(file: &FileBytes) -> Option<usize> {
+    let header_window = file.len().min(HEADER_SEARCH_WINDOW);
+    let start = file.read(0..header_window);
+    position_of(&start, *b"%PDF-").or_else(|| position_of(&start, *b"%FDF-"))
+}
+
+/// Where one cross-reference section stands, and what its own trailer says.
+///
+/// **A section's trailer is not the document's trailer, and the difference is a clause.**
+/// [`XrefTable::trailer`] is the *merge* the `/Prev` chain produces, which is what a reader
+/// resolving `/Root` wants; §7.5.6 requires each appended trailer to restate the previous one's
+/// entries itself —
+///
+/// > The added trailer shall contain all the entries except the Prev entry (if present) from the
+/// > previous trailer, whether modified or not.
+///
+/// — so a caller judging whether a file *states* what the standard requires has to see the
+/// section's own dictionary, not the merge. The merge would answer yes for a file whose newest
+/// trailer says nothing and whose oldest said everything, and that file has broken the rule.
+#[derive(Debug, Clone)]
+pub struct SectionRecord {
+    /// The byte offset the chain led to: §7.5.4's `xref` keyword, or the `N G obj` header of
+    /// §7.5.8's cross-reference stream.
+    pub offset: usize,
+    /// Whether the section is §7.5.4's classic table, which begins with the `xref` keyword.
+    pub classic: bool,
+    /// The trailer this section states, before any merge with the sections it points back to.
+    pub trailer: Dictionary,
+}
+
+/// Every cross-reference section `startxref` and the `/Prev` chain name, newest first.
+///
+/// **Nothing on the opening path calls this**, and that is the point: [`read`] passes `None`
+/// where this passes a recorder, so a document that never asks pays one `Option` test per
+/// section and no allocation. A caller that does ask — a validator judging §7.5.4's or §7.5.6's
+/// own shape — pays a second walk of the chain, which is the same four numbers and the same
+/// entries [`read`] already read. Being a second walk rather than a field on [`XrefTable`] is
+/// what keeps it off the launch path, which `CLAUDE.md` section 2 makes a requirement rather than a
+/// preference.
+///
+/// Empty where the chain cannot be read at all — the file whose table [`rebuild`] recovered by
+/// scanning states no sections, and saying nothing about it is the honest answer rather than
+/// reporting the scan's synthesis as though the file had stated it.
+///
+/// A hybrid-reference file's `/XRefStm` is **not** listed. §7.5.8.4 makes it a stream the same
+/// section points at for readers that understand one, not another link in `/Prev`'s chain, and a
+/// caller asking which trailers the file appended in what order would be told about a section
+/// the file never appended.
+#[must_use]
+pub fn sections(file: &FileBytes, limits: Limits) -> Vec<SectionRecord> {
+    let mut record = Vec::new();
+    let base = header_position(file).unwrap_or(0);
+    let _ = read_from_startxref(file, base, limits, Some(&mut record));
+    record
 }
 
 /// Reconstructs a cross-reference table by scanning the file for objects.
@@ -422,7 +479,12 @@ fn position_of(window: &[u8], marker: [u8; 5]) -> Option<usize> {
 /// because a file whose header is at zero adds zero.
 ///
 /// Returns `None` when the chain cannot be read at all, leaving the caller to scan.
-fn read_from_startxref(file: &FileBytes, base: usize, limits: Limits) -> Option<XrefTable> {
+fn read_from_startxref(
+    file: &FileBytes,
+    base: usize,
+    limits: Limits,
+    mut record: Option<&mut Vec<SectionRecord>>,
+) -> Option<XrefTable> {
     let mut next = find_startxref(file)?.saturating_add(base);
     let mut table = XrefTable::default();
     let mut visited = std::collections::BTreeSet::new();
@@ -444,6 +506,13 @@ fn read_from_startxref(file: &FileBytes, base: usize, limits: Limits) -> Option<
         let Some(section) = read_section(file, next, base, limits) else {
             break;
         };
+        if let Some(record) = record.as_mut() {
+            record.push(SectionRecord {
+                offset: next,
+                classic: section.classic,
+                trailer: section.trailer.clone(),
+            });
+        }
         entries.extend(section.entries);
         table.entries_lost = table.entries_lost.saturating_add(section.lost);
         table.unread.extend(section.unread);
@@ -494,6 +563,13 @@ struct Section {
     /// [`XrefTable::declared_and_unread`] for what a caller may do with one and why it is not
     /// the same fact as an absent entry.
     unread: Vec<(u32, u32)>,
+    /// Whether the section is §7.5.4's classic table, which begins with the `xref` keyword.
+    ///
+    /// False for §7.5.8's cross-reference stream, which has no such keyword — §7.5.8.1 forbids
+    /// it in a file written entirely with streams. Carried so that [`sections`] can hand a
+    /// caller the distinction, because a rule about the bytes around `xref` has no subject in a
+    /// section that states none.
+    classic: bool,
 }
 
 /// How many bytes a cross-reference section's window starts with.
@@ -630,6 +706,7 @@ fn read_classic_table(
                     trailer,
                     lost: 0,
                     unread,
+                    classic: true,
                 });
             }
             _ => {
@@ -769,6 +846,7 @@ fn finish(
         trailer: trailer.unwrap_or_default(),
         lost: 0,
         unread,
+        classic: true,
     }
 }
 
@@ -872,6 +950,7 @@ fn read_xref_stream(
                     trailer: stream.dict.clone(),
                     lost,
                     unread: subsections_from(&index, pair_index, first, offset),
+                    classic: false,
                 });
             };
             cursor = cursor.saturating_add(row);
@@ -890,6 +969,7 @@ fn read_xref_stream(
         trailer: stream.dict.clone(),
         lost,
         unread: Vec::new(),
+        classic: false,
     })
 }
 

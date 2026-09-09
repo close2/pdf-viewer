@@ -22,7 +22,7 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 use crate::cff::CodeToGlyph;
 use crate::encoding;
 use crate::glyph_names::{GlyphNames, encoding_names, no_names};
-use crate::loading::{CodeTable, FontError};
+use crate::loading::{CodeSet, CodeTable, FontError};
 use crate::name_keyed::NameKeyed;
 
 /// The three `cmap` subtables ISO 32000-2 §9.6.5.4 distinguishes.
@@ -172,7 +172,7 @@ pub(crate) fn truetype_code_table(
     descriptor: Option<&Dictionary>,
     data: &[u8],
     name: &str,
-) -> Result<(CodeTable, GlyphNames), FontError> {
+) -> Result<(CodeTable, GlyphNames, CodeSet), FontError> {
     let font = FontRef::new(data).map_err(|e| FontError::Malformed {
         name: name.to_owned(),
         detail: e.to_string(),
@@ -229,7 +229,11 @@ pub(crate) fn truetype_code_table(
             .and_then(|glyph_name| named_glyph(&font, &subtables, charset.as_ref(), glyph_name));
     }
 
-    // The two tiers the specification leaves to the processor; see the note above.
+    // The two tiers the specification leaves to the processor; see the note above. Which codes they
+    // answered is recorded rather than forgotten: ISO 19005-2 section 6.2.11.6 and ISO 19005-4
+    // Section 6.2.10.6 forbid a conforming file from needing them, and the fact is knowable here
+    // and nowhere afterwards — the table that comes out cannot say how a slot was filled.
+    let mut reader_chosen = CodeSet::default();
     for (code, slot) in table.iter_mut().enumerate() {
         if slot.is_some() {
             continue;
@@ -244,6 +248,9 @@ pub(crate) fn truetype_code_table(
                 .then(|| u16::try_from(code).ok())
                 .flatten()
         });
+        if slot.is_some() {
+            reader_chosen.insert(code);
+        }
     }
 
     if table.iter().all(Option::is_none) {
@@ -255,7 +262,7 @@ pub(crate) fn truetype_code_table(
         });
     }
 
-    Ok((table, names))
+    Ok((table, names, reader_chosen))
 }
 
 /// Every glyph a font's Unicode subtable names, keyed by glyph.
@@ -406,7 +413,10 @@ fn is_symbolic(document: &Document, descriptor: &Dictionary) -> bool {
 
 #[cfg(test)]
 mod truetype_encoding_tests {
-    use super::{Subtables, as_character, named_glyph, post_glyph, symbol_glyph};
+    use super::{
+        Subtables, as_character, named_glyph, post_glyph, symbol_glyph, truetype_code_table,
+    };
+    use crate::fixture::font_dictionary;
     use crate::sfnt::{
         be32, glyph_length, repaired_loca_extent, repaired_loca_format, repaired_loca_order,
         sfnt_tables,
@@ -963,6 +973,39 @@ mod truetype_encoding_tests {
         let font = FontRef::new(&data).expect("readable");
 
         assert_eq!(as_character(&Subtables::read(&font), 0x41), Some(GLYPH));
+    }
+
+    /// The two tiers below §9.6.5.4's own are recorded, and only they are.
+    ///
+    /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 forbid a conforming file from
+    /// needing them, so which codes took them has to survive the building of the table. The fixture
+    /// is the corpus's `6-2-11-8-t01-fail-b` in miniature: a nonsymbolic font with
+    /// `WinAnsiEncoding`, whose code 0x41 reaches a glyph through the subclause's own steps — the
+    /// encoding names it `A`, the Adobe Glyph List makes that U+0041, the (3, 1) subtable maps it —
+    /// and whose code 0x00 the encoding names nothing at all, so only the processor's choice of
+    /// offering the code as a character reaches anything.
+    #[test]
+    fn only_the_reader_chosen_tiers_are_recorded() {
+        let mut glyphs = vec![0_u16; 0x42];
+        glyphs[0x00] = 5;
+        glyphs[0x41] = GLYPH;
+        let data = sfnt(&[(*b"cmap", cmap(3, 1, 0, &glyphs))]);
+        let (document, dict) = font_dictionary("/Encoding /WinAnsiEncoding");
+
+        let (table, _, chosen) =
+            truetype_code_table(&document, &dict, None, &data, "F0").expect("the fixture loads");
+
+        assert_eq!(table[0x41], Some(GLYPH));
+        assert!(
+            !chosen.contains(0x41),
+            "the encoding, the Adobe Glyph List and the (3, 1) subtable are the clause's own \
+             steps"
+        );
+        assert_eq!(table[0x00], Some(5));
+        assert!(
+            chosen.contains(0x00),
+            "WinAnsiEncoding names no glyph for code 0, so only the last resort reached one"
+        );
     }
 
     /// A font with no `cmap` at all is the only one whose codes may be glyph indices.

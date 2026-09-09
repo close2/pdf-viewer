@@ -79,20 +79,20 @@ fn an_encrypted_document_fails_by_name_at_every_target() {
 /// Both parts want a file identifier, and they want it for different reasons.
 ///
 /// **This test asserted the opposite until the file-structure rows were extended**, on the
-/// reading that ISO 19005-4 §6.1.3 states no identifier requirement — which is true, and was the
-/// wrong conclusion. Part 4's §5.1 makes the whole of ISO 32000-2 binding, and that standard's
-/// Table 15 makes `/ID` "Required in PDF 2.0 and later". So the requirement reaches a PDF/A-4
-/// file through the base standard, and what differs between the parts is the **citation** rather
-/// than the rule. A report that cited §6.1.3 to a part 4 reader would send them to a clause that
-/// does not contain it, which is the failure this test now guards.
+/// reading that ISO 19005-4 section 6.1.3 states no identifier requirement — which is true, and was
+/// the wrong conclusion. Part 4's section 5.1 makes the whole of ISO 32000-2 binding, and that
+/// standard's Table 15 makes `/ID` "Required in PDF 2.0 and later". So the requirement reaches a
+/// PDF/A-4 file through the base standard, and what differs between the parts is the **citation**
+/// rather than the rule. A report that cited section 6.1.3 to a part 4 reader would send them to a
+/// clause that does not contain it, which is the failure this test now guards.
 #[test]
 fn the_file_identifier_is_cited_to_each_part_where_that_part_states_it() {
     let no_id = document("", "");
     for (target, clause) in [
-        (Target::Two(Level::B), "ISO 19005-2 §6.1.3"),
+        (Target::Two(Level::B), "ISO 19005-2 section 6.1.3"),
         (
             Target::Four(pdf_archive::Flavour::Plain),
-            "ISO 19005-4 §5.1",
+            "ISO 19005-4 section 5.1",
         ),
     ] {
         let report = check(&no_id, target);
@@ -179,7 +179,8 @@ fn a_stricter_level_binds_at_least_what_a_looser_one_binds() {
         let count = check(&clean, Target::Two(level)).judgements.len();
         assert!(
             count >= previous,
-            "{level:?} binds fewer requirements than the level below it, which inverts §5.2's \
+            "{level:?} binds fewer requirements than the level below it, which inverts section \
+            5.2's \
              containment"
         );
         previous = count;

@@ -14,9 +14,9 @@
 //!
 //! # What a metadata stream is, structurally
 //!
-//! An XMP packet is RDF/XML narrowed to one shape. Properties live on or under
-//! `rdf:Description` elements, and ISO 16684-1 section 7.5 gives a simple property two spellings that
-//! mean the same thing — an attribute on the description, or a child element:
+//! An XMP packet is RDF/XML narrowed to one shape. Properties live on or under `rdf:Description`
+//! elements, and ISO 16684-1 section 7.5 gives a simple property two spellings that mean the same
+//! thing — an attribute on the description, or a child element:
 //!
 //! ```xml
 //! <rdf:Description rdf:about="" pdf:Producer="An exporter"/>
@@ -25,8 +25,8 @@
 //!
 //! and three container forms, `rdf:Alt`, `rdf:Seq` and `rdf:Bag`, whose items are `rdf:li`
 //! elements. A language alternative is an `rdf:Alt` whose items carry `xml:lang`; `x-default` is
-//! ISO 16684-1 section 8.2.2.4's name for the one to show when nothing better is known, and it is what
-//! §12.2's `/DisplayDocTitle` ends up asking for.
+//! ISO 16684-1 section 8.2.2.4's name for the one to show when nothing better is known, and it is
+//! what §12.2's `/DisplayDocTitle` ends up asking for.
 //!
 //! # A prefix is not a name
 //!
@@ -40,11 +40,11 @@
 //! # What is read and what is deliberately not
 //!
 //! Simple properties in both spellings, and all three containers. A property whose value is a
-//! *structure* — ISO 16684-1 section 7.6, an `rdf:parseType="Resource"` or a nested `rdf:Description` —
-//! is recorded as [`Value::Structure`]: the property is reported as present and its value is
-//! reported as uninterpreted, which is the difference between a gap and a silence. Nothing in
-//! clause 12 or 14 asks for one; `xmpMM:DerivedFrom` and `xmpTPg:MaxPageSize` are the common
-//! ones and neither reaches a pixel.
+//! *structure* — ISO 16684-1 section 7.6, an `rdf:parseType="Resource"` or a nested
+//! `rdf:Description` — is recorded as [`Value::Structure`]: the property is reported as present and
+//! its value is reported as uninterpreted, which is the difference between a gap and a silence.
+//! Nothing in clause 12 or 14 asks for one; `xmpMM:DerivedFrom` and `xmpTPg:MaxPageSize` are the
+//! common ones and neither reaches a pixel.
 //!
 //! **A caller that needs the fields asks for them.** [`Xmp::parse_detail`] walks the same grammar
 //! and keeps everything, as [`Detail`] rather than [`Value`]: ISO 19005-2's extension schema
@@ -53,8 +53,8 @@
 //! richer [`Value`] because the two readings have different callers — nothing that draws a page
 //! wants the larger one, and the packet is untrusted bytes whose parsed size this module bounds.
 //!
-//! Qualifiers other than `xml:lang` (ISO 16684-1 section 7.7) are dropped, which is the same statement:
-//! the property keeps its value and loses an annotation on it.
+//! Qualifiers other than `xml:lang` (ISO 16684-1 section 7.7) are dropped, which is the same
+//! statement: the property keeps its value and loses an annotation on it.
 
 use pdf_syntax::{Dictionary, Document};
 
@@ -155,17 +155,18 @@ pub enum Value {
     Seq(Vec<String>),
     /// `rdf:Bag`, an unordered array. Kept distinct from [`Value::Seq`] because the file said so.
     Bag(Vec<String>),
-    /// ISO 16684-1 section 7.6's structured value, present and not interpreted. See the module comment.
+    /// ISO 16684-1 section 7.6's structured value, present and not interpreted. See the module
+    /// comment.
     Structure,
 }
 
 /// A property's value with everything the packet states about it, [`Value::Structure`] included.
 ///
 /// [`Value`] is what a *viewer* needs: one string to show, or a list of them. This is what a
-/// *validator* needs, and it exists because ISO 19005-2 §6.6.2.3.3's extension schema container
-/// schema is a bag of structures whose fields are themselves sequences of structures — a reader
-/// that reported only that a structure was *present* could not check one field of it. Read with
-/// [`Xmp::parse_detail`], which a caller asks for deliberately: building this costs a second
+/// *validator* needs, and it exists because ISO 19005-2 section 6.6.2.3.3's extension schema
+/// container schema is a bag of structures whose fields are themselves sequences of structures — a
+/// reader that reported only that a structure was *present* could not check one field of it. Read
+/// with [`Xmp::parse_detail`], which a caller asks for deliberately: building this costs a second
 /// representation of the packet, and nothing that draws a page wants one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Detail {
@@ -232,9 +233,9 @@ impl Detail {
 
 /// One property or field as a packet states it, for [`Xmp::parse_detail`].
 ///
-/// The prefix is here because a prefix is *usually* not a name — see the module comment — and
-/// twice in ISO 19005 it is: ISO 19005-2 §6.6.2.3.3 requires the fields of its four value types
-/// to be spelled with the prefixes its tables name, and §6.6.2.2 says a prefix means nothing
+/// The prefix is here because a prefix is *usually* not a name — see the module comment — and twice
+/// in ISO 19005 it is: ISO 19005-2 section 6.6.2.3.3 requires the fields of its four value types to
+/// be spelled with the prefixes its tables name, and section 6.6.2.2 says a prefix means nothing
 /// *except* where one is identified as required. A reader that resolved the prefix away could
 /// not answer that requirement, so it is kept beside the resolved name rather than instead of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -363,7 +364,7 @@ impl Xmp {
     ///
     /// A simple property gives its text. A language alternative gives `x-default` where the
     /// packet states one, and otherwise its first item — which is the order ISO 16684-1
-    /// section 8.2.2.4 puts them in, its first item being the default. An array gives its first
+    /// Section 8.2.2.4 puts them in, its first item being the default. An array gives its first
     /// item; a structure gives nothing, because it has no single string to give.
     #[must_use]
     pub fn text(&self, namespace: &str, local: &str) -> Option<&str> {
@@ -546,8 +547,8 @@ enum Kind {
     Description,
     /// A property element, directly under a description.
     ///
-    /// `structured` is ISO 16684-1 section 7.6's `rdf:parseType="Resource"`, which says the value is a
-    /// structure *before* any child arrives — and saying so up front is the only way a
+    /// `structured` is ISO 16684-1 section 7.6's `rdf:parseType="Resource"`, which says the value
+    /// is a structure *before* any child arrives — and saying so up front is the only way a
     /// self-closing structured property is distinguishable from an empty simple one.
     Property { name: Name, structured: bool },
     /// A field of a structured value: the same element shape as [`Kind::Property`], belonging to
@@ -1210,8 +1211,8 @@ mod tests {
         assert_eq!(xmp.keywords(), Some("annual, report"));
     }
 
-    /// ISO 16684-1 section 7.6's structured value is reported as present and uninterpreted, which is
-    /// the whole difference between a gap and a silence.
+    /// ISO 16684-1 section 7.6's structured value is reported as present and uninterpreted, which
+    /// is the whole difference between a gap and a silence.
     #[test]
     fn a_structured_value_is_recorded_rather_than_mistaken_for_text() {
         let packet = r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -1363,7 +1364,7 @@ mod tests {
 
     /// The nested reading keeps what the flat one drops, and the flat one is unchanged by it.
     ///
-    /// The packet is ISO 19005-2 §6.6.2.3.3's extension schema container in miniature: a bag
+    /// The packet is ISO 19005-2 section 6.6.2.3.3's extension schema container in miniature: a bag
     /// whose items are structures, one of whose fields is a sequence of structures. Nothing but
     /// [`Xmp::parse_detail`] can see past the outermost of those.
     #[test]

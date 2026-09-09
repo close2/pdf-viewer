@@ -26,7 +26,7 @@
 //!   field; part 4 permits it on a widget and limits which trigger keys an `/AA` elsewhere may
 //!   hold.
 //! - **Annotation appearances.** Part 2 states the have-an-appearance rule itself; part 4's
-//!   §6.3.3 states only the `/N`-only rule and attributes the other to ISO 32000-2 §12.5.2,
+//!   section 6.3.3 states only the `/N`-only rule and attributes the other to ISO 32000-2 §12.5.2,
 //!   whose exempt list is one subtype longer.
 //!
 //! # The rows no document can fail
@@ -41,11 +41,11 @@
 //! them as debts this crate owes overstated the gap, and counting them as met would claim
 //! something about a *program* in a verdict about a file.
 //!
-//! One row that looks like they do is not one, and the line is worth stating. ISO 19005-4 §6.4.1's
-//! rule about a stripped form's XFDF binds a processor **writing** a file, and a clause that tells
-//! a writer what to do constrains the file it produces. It stays `Unchecked`, for a different
-//! reason: a document with no XFDF attachment may simply be one nobody stripped, so this crate
-//! cannot tell a conforming file from a violating one.
+//! One row that looks like they do is not one, and the line is worth stating. ISO 19005-4 section
+//! 6.4.1's rule about a stripped form's XFDF binds a processor **writing** a file, and a clause
+//! that tells a writer what to do constrains the file it produces. It stays `Unchecked`, for a
+//! different reason: a document with no XFDF attachment may simply be one nobody stripped, so this
+//! crate cannot tell a conforming file from a violating one.
 //!
 //! # What the walks are bounded by
 //!
@@ -115,7 +115,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Processor(
             "Annex B's one sentence about a file here is the format rule above; this pair is what \
              the two kinds of processor do with the artwork, and the appearance a file has to \
-             carry for the second of them is the §6.3.3 rows'",
+             carry for the second of them is the section 6.3.3 rows'",
         ),
     },
     Requirement {
@@ -358,8 +358,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 
 /// ISO 32000-2 Table 171's annotation subtypes, less the three both parts forbid outright.
 ///
-/// The `Sound`, `Screen` and `Movie` types are absent because ISO 19005-2 §6.3.1 and
-/// ISO 19005-4 §6.3.1 each strike them by name, so a file naming one has broken the same rule
+/// The `Sound`, `Screen` and `Movie` types are absent because ISO 19005-2 section 6.3.1 and ISO
+/// 19005-4 section 6.3.1 each strike them by name, so a file naming one has broken the same rule
 /// that a file naming a subtype outside the table has.
 static PERMITTED_IN_PART_FOUR: &[&str] = &[
     "Text",
@@ -392,12 +392,13 @@ static PERMITTED_IN_PART_FOUR: &[&str] = &[
 /// The two subtypes ISO 32000-2 Table 171 marks `(PDF 2.0)`, and which ISO 32000-1 therefore
 /// does not define.
 ///
-/// This is how ISO 19005-2 §6.3.1's set is derived without reading ISO 32000-1, which this
+/// This is how ISO 19005-2 section 6.3.1's set is derived without reading ISO 32000-1, which this
 /// project does not hold (`Part::Two`'s note): the later table says of each row which edition
 /// introduced it, so subtracting the PDF 2.0 rows from it leaves the earlier edition's set.
 static ADDED_BY_ISO_32000_2: &[&str] = &["Projection", "RichMedia"];
 
-/// The subtype ISO 19005-2 §6.3.1 strikes and ISO 19005-4 §6.3.1 only confines to PDF/A-4e.
+/// The subtype ISO 19005-2 section 6.3.1 strikes and ISO 19005-4 section 6.3.1 only confines to
+/// PDF/A-4e.
 static THREE_DIMENSIONAL: &str = "3D";
 
 /// ISO 32000-2 Table 167's flag values, which are `1 << (bit position - 1)`.
@@ -414,7 +415,7 @@ const NO_VIEW: i64 = 1 << 5;
 /// Table 167 bit 9.
 const TOGGLE_NO_VIEW: i64 = 1 << 8;
 
-/// The four named actions ISO 19005-2 §6.5.1 and ISO 19005-4 §6.6.1 leave permitted.
+/// The four named actions ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1 leave permitted.
 static PERMITTED_NAMED_ACTIONS: &[&str] = &["NextPage", "PrevPage", "FirstPage", "LastPage"];
 
 /// The action types both parts forbid in every file.
@@ -432,7 +433,7 @@ static PROHIBITED_ACTIONS: &[&str] = &[
 /// The two action types ISO 19005-2 forbids outright and ISO 19005-4 confines to PDF/A-4e.
 static ENGINEERING_ACTIONS: &[&str] = &["SetOCGState", "GoTo3DView"];
 
-/// ISO 19005-4 §6.6.3's permitted keys in an additional-actions dictionary outside a widget.
+/// ISO 19005-4 section 6.6.3's permitted keys in an additional-actions dictionary outside a widget.
 ///
 /// They are ISO 32000-2 Table 197's annotation triggers, which is why an `/AA` on a catalog or
 /// a page can hold none of them: Table 199's `/WC` and Table 198's `/O` are not in this list.
@@ -762,7 +763,7 @@ fn descend_action(
 // 6.3 Annotations
 // ---------------------------------------------------------------------------------------
 
-/// ISO 19005-2 §6.3.1.
+/// ISO 19005-2 section 6.3.1.
 ///
 /// The permitted set is ISO 32000-2 Table 171 less the two rows that table marks `(PDF 2.0)` —
 /// which is ISO 32000-1's set — less the four subtypes the clause strikes by name.
@@ -787,7 +788,7 @@ fn subtype_permitted_by_part_two(exam: &Examination<'_>, findings: &mut Findings
     });
 }
 
-/// ISO 19005-4 §6.3.1's first paragraph.
+/// ISO 19005-4 section 6.3.1's first paragraph.
 ///
 /// `3D`, `RichMedia` and `FileAttachment` are permitted here: this row is the table membership
 /// and the three struck names, and the two rows below carry the flavour conditions the clause's
@@ -811,7 +812,7 @@ fn subtype_permitted_by_part_four(exam: &Examination<'_>, findings: &mut Finding
     });
 }
 
-/// ISO 19005-4 §6.3.1's third paragraph, which Annex B relaxes for PDF/A-4e alone.
+/// ISO 19005-4 section 6.3.1's third paragraph, which Annex B relaxes for PDF/A-4e alone.
 fn no_three_dimensional_annotation(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_annotation(exam, |place, annotation| {
@@ -827,18 +828,18 @@ fn no_three_dimensional_annotation(exam: &Examination<'_>, findings: &mut Findin
     });
 }
 
-/// The two 3D formats ISO 19005-4 §B.2.2 admits, which are also the only two ISO 32000-2's
+/// The two 3D formats ISO 19005-4 section B.2.2 admits, which are also the only two ISO 32000-2's
 /// Table 311 recognises.
 static THREE_DIMENSIONAL_FORMATS: &[&str] = &["U3D", "PRC"];
 
-/// ISO 19005-4 §B.2.2, the one sentence of Annex B's 3D subclauses that is about a file.
+/// ISO 19005-4 section B.2.2, the one sentence of Annex B's 3D subclauses that is about a file.
 ///
 /// The rest of §B.2 is addressed to a processor — which artwork it displays, how it colour-manages
 /// it — and `CLAUDE.md`'s clause-13 exclusion is about building that. Reading a name out of a
 /// dictionary is neither, so this row is implemented while its neighbours are
 /// [`Check::Processor`]: the exclusion is on the media engine, not on the validator.
 ///
-/// **The population is where the sentence puts it and no wider.** §B.2.2 names the 3D stream
+/// **The population is where the sentence puts it and no wider.** section B.2.2 names the 3D stream
 /// dictionary of ISO 32000-2 §13.6.3, and its own NOTE says that a stream reached from a
 /// `RichMedia` assets tree *may* use another format — so a 3D stream is one a 3D annotation names
 /// through `/3DD`, or one that declares itself with `/Type /3D`. An embedded file stream carrying
@@ -885,8 +886,8 @@ fn three_dimensional_stream_format(exam: &Examination<'_>, findings: &mut Findin
                 place.named(format),
                 "a 3D stream states a format other than U3D or PRC",
             ),
-            // Table 311 makes the entry required and §B.2.2 requires it to be one of two values,
-            // so a stream stating none has satisfied neither.
+            // Table 311 makes the entry required and section B.2.2 requires it to be one of two
+            // values, so a stream stating none has satisfied neither.
             None => findings.record(
                 place.named("Subtype"),
                 "a 3D stream states no Subtype naming its format",
@@ -895,7 +896,7 @@ fn three_dimensional_stream_format(exam: &Examination<'_>, findings: &mut Findin
     }
 }
 
-/// ISO 19005-4 §6.3.1's fifth paragraph, which Annex A relaxes for PDF/A-4f alone.
+/// ISO 19005-4 section 6.3.1's fifth paragraph, which Annex A relaxes for PDF/A-4f alone.
 fn no_file_attachment_annotation(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_annotation(exam, |place, annotation| {
@@ -908,7 +909,7 @@ fn no_file_attachment_annotation(exam: &Examination<'_>, findings: &mut Findings
     });
 }
 
-/// ISO 19005-2 §6.3.2, ISO 19005-4 §6.3.2, first sentence.
+/// ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2, first sentence.
 ///
 /// ISO 32000-2 Table 166 makes `/F` optional with a default of 0; both parts make it required
 /// on everything but a popup, which is why an absent entry is a finding here rather than a
@@ -936,7 +937,7 @@ fn flags_entry_present(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// ISO 19005-2 §6.3.2, ISO 19005-4 §6.3.2, second sentence.
+/// ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2, second sentence.
 fn printable_and_visible(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_annotation(exam, |place, annotation| {
@@ -1003,7 +1004,8 @@ fn has_appearance(document: &Document, annotation: &Dictionary) -> bool {
     )
 }
 
-/// The body ISO 19005-2 §6.3.3 and ISO 32000-2 §12.5.2 share, with the exempt subtypes named.
+/// The body ISO 19005-2 section 6.3.3 and ISO 32000-2 §12.5.2 share, with the exempt subtypes
+/// named.
 fn appearance_dictionary_present(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -1026,7 +1028,7 @@ fn appearance_dictionary_present(
     });
 }
 
-/// ISO 19005-2 §6.3.3's first paragraph, whose exempt subtypes are `Popup` and `Link`.
+/// ISO 19005-2 section 6.3.3's first paragraph, whose exempt subtypes are `Popup` and `Link`.
 fn appearance_dictionary_present_two(exam: &Examination<'_>, findings: &mut Findings) {
     appearance_dictionary_present(
         exam,
@@ -1036,7 +1038,7 @@ fn appearance_dictionary_present_two(exam: &Examination<'_>, findings: &mut Find
     );
 }
 
-/// ISO 19005-4 §6.3.3, whose NOTE 1 attributes this rule to ISO 32000-2 §12.5.2 rather than
+/// ISO 19005-4 section 6.3.3, whose NOTE 1 attributes this rule to ISO 32000-2 §12.5.2 rather than
 /// restating it.
 ///
 /// **That is a real difference between the parts and not a formality.** Table 166's own wording
@@ -1052,7 +1054,8 @@ fn appearance_dictionary_present_four(exam: &Examination<'_>, findings: &mut Fin
     );
 }
 
-/// ISO 19005-2 §6.3.3, ISO 19005-4 §6.3.3: an appearance dictionary holds `/N` and nothing else.
+/// ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3: an appearance dictionary holds `/N` and
+/// nothing else.
 fn appearance_dictionary_holds_only_normal(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_annotation(exam, |place, annotation| {
@@ -1070,7 +1073,7 @@ fn appearance_dictionary_holds_only_normal(exam: &Examination<'_>, findings: &mu
     });
 }
 
-/// ISO 19005-2 §6.3.3, ISO 19005-4 §6.3.3: what the `/N` entry's value has to be.
+/// ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3: what the `/N` entry's value has to be.
 ///
 /// A button field's widget needs the subdictionary of appearance states ISO 32000-2 §12.7.5.2.3
 /// describes, one per value the button takes; every other annotation has one appearance and
@@ -1102,10 +1105,10 @@ fn normal_appearance_shape(exam: &Examination<'_>, findings: &mut Findings) {
 // 6.4 Interactive forms, and the signature clauses that lean on 6.3
 // ---------------------------------------------------------------------------------------
 
-/// ISO 19005-2 §6.4.1, ISO 19005-4 §6.4.1.
+/// ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1.
 ///
 /// The `/A` half only: part 2 forbids `/AA` in the same sentence, but it forbids it in three
-/// more places in §6.5.2 and that is the clause this table cites for it.
+/// more places in section 6.5.2 and that is the clause this table cites for it.
 fn no_action_on_widget_or_field(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_widget_or_field(exam, |place, dictionary| {
         if dictionary.get("A").is_some() {
@@ -1117,7 +1120,7 @@ fn no_action_on_widget_or_field(exam: &Examination<'_>, findings: &mut Findings)
     });
 }
 
-/// ISO 19005-2 §6.4.1, ISO 19005-4 §6.4.1, last sentence.
+/// ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1, last sentence.
 fn need_appearances_absent_or_false(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Some(form) = acro_form(document) else {
@@ -1132,7 +1135,7 @@ fn need_appearances_absent_or_false(exam: &Examination<'_>, findings: &mut Findi
     }
 }
 
-/// ISO 19005-2 §6.4.2, ISO 19005-4 §6.4.2, first sentence.
+/// ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2, first sentence.
 fn no_xfa_key(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Some(form) = acro_form(document) else {
@@ -1146,7 +1149,7 @@ fn no_xfa_key(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.4.2, ISO 19005-4 §6.4.2, second sentence.
+/// ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2, second sentence.
 fn no_needs_rendering(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Ok(catalog) = document.catalog() else {
@@ -1160,7 +1163,8 @@ fn no_needs_rendering(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// ISO 19005-2 §6.4.3, ISO 19005-4 §6.5.1: a signature field's annotations obey 6.3.2 and 6.3.3.
+/// ISO 19005-2 section 6.4.3, ISO 19005-4 section 6.5.1: a signature field's annotations obey 6.3.2
+/// and 6.3.3.
 ///
 /// It is not the annotation rows over again, and the population is why: those walk `/Annots`,
 /// and a signature widget the field tree names but no page lists is invisible to them. What is
@@ -1229,7 +1233,7 @@ fn actions_of_type(
     });
 }
 
-/// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1, first sentence of each.
+/// ISO 19005-2 section 6.5.1, ISO 19005-4 section 6.6.1, first sentence of each.
 fn no_launch_multimedia_or_form_actions(exam: &Examination<'_>, findings: &mut Findings) {
     actions_of_type(
         exam,
@@ -1239,7 +1243,7 @@ fn no_launch_multimedia_or_form_actions(exam: &Examination<'_>, findings: &mut F
     );
 }
 
-/// ISO 19005-2 §6.5.1, which ISO 19005-4 §6.6.2 reverses into a permission.
+/// ISO 19005-2 section 6.5.1, which ISO 19005-4 section 6.6.2 reverses into a permission.
 fn no_javascript_action(exam: &Examination<'_>, findings: &mut Findings) {
     actions_of_type(
         exam,
@@ -1249,7 +1253,7 @@ fn no_javascript_action(exam: &Examination<'_>, findings: &mut Findings) {
     );
 }
 
-/// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1, the sentence after the list of eight.
+/// ISO 19005-2 section 6.5.1, ISO 19005-4 section 6.6.1, the sentence after the list of eight.
 ///
 /// **The names come from a specification, not from another validator, and the route is worth
 /// recording** because both parts describe these two actions without naming their `/S` values: part
@@ -1266,7 +1270,8 @@ fn no_javascript_action(exam: &Examination<'_>, findings: &mut Findings) {
 /// type, so a document naming one has broken this sentence whichever way it is read.
 static DEPRECATED_ACTIONS: &[&str] = &["SetState", "NOP"];
 
-/// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1: the two actions earlier specifications withdrew.
+/// ISO 19005-2 section 6.5.1, ISO 19005-4 section 6.6.1: the two actions earlier specifications
+/// withdrew.
 fn no_deprecated_set_state_or_no_op_actions(exam: &Examination<'_>, findings: &mut Findings) {
     actions_of_type(
         exam,
@@ -1277,7 +1282,8 @@ fn no_deprecated_set_state_or_no_op_actions(exam: &Examination<'_>, findings: &m
     );
 }
 
-/// ISO 19005-2 §6.5.1 and ISO 19005-4 §6.6.1's second paragraph, which differ only in reach.
+/// ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1's second paragraph, which differ only in
+/// reach.
 ///
 /// One predicate, two rows: part 2 forbids these two types in every file, and part 4 forbids
 /// them in every file but a PDF/A-4e one, which is an [`Applies`] difference rather than a
@@ -1291,7 +1297,7 @@ fn no_optional_content_or_view_action(exam: &Examination<'_>, findings: &mut Fin
     );
 }
 
-/// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1: the four named actions and no others.
+/// ISO 19005-2 section 6.5.1, ISO 19005-4 section 6.6.1: the four named actions and no others.
 fn named_action_is_page_navigation(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_action(exam, |place, action| {
@@ -1313,11 +1319,11 @@ fn named_action_is_page_navigation(exam: &Examination<'_>, findings: &mut Findin
     });
 }
 
-/// ISO 19005-2 §6.5.2, which forbids `/AA` in four places.
+/// ISO 19005-2 section 6.5.2, which forbids `/AA` in four places.
 ///
-/// §6.4.1 restates the widget-and-field half of this; the table cites §6.5.2 because that is
-/// the clause stating the whole of it. Note what it does *not* reach: an `/AA` on an annotation
-/// that is not a widget is outside the four places this clause enumerates.
+/// Section 6.4.1 restates the widget-and-field half of this; the table cites section 6.5.2 because
+/// that is the clause stating the whole of it. Note what it does *not* reach: an `/AA` on an
+/// annotation that is not a widget is outside the four places this clause enumerates.
 fn no_additional_actions_dictionary(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_document_additional_actions(document, |place, _| {
@@ -1336,7 +1342,7 @@ fn no_additional_actions_dictionary(exam: &Examination<'_>, findings: &mut Findi
     });
 }
 
-/// ISO 19005-4 §6.6.3's fourth paragraph.
+/// ISO 19005-4 section 6.6.3's fourth paragraph.
 ///
 /// The permitted keys are Table 197's annotation triggers, so in practice this forbids every
 /// key a catalog's or a page's additional-actions dictionary could legitimately hold — Table
@@ -1446,7 +1452,8 @@ mod tests {
         findings.seen()
     }
 
-    /// ISO 19005-4 §6.3.1 admits the two subtypes PDF 2.0 added; ISO 19005-2 §6.3.1 cannot.
+    /// ISO 19005-4 section 6.3.1 admits the two subtypes PDF 2.0 added; ISO 19005-2 section 6.3.1
+    /// cannot.
     #[test]
     fn the_two_parts_disagree_about_the_subtypes_pdf_2_added() {
         let file = with_annotations(&[
@@ -1464,7 +1471,8 @@ mod tests {
         );
     }
 
-    /// ISO 19005-2 §6.5.1, ISO 19005-4 §6.6.1: the two actions earlier specifications withdrew.
+    /// ISO 19005-2 section 6.5.1, ISO 19005-4 section 6.6.1: the two actions earlier specifications
+    /// withdrew.
     ///
     /// The `/S` values are the ones the Arlington PDF Model's Adobe PDF 1.2 tables give — see
     /// [`DEPRECATED_ACTIONS`] — and they are what the corpus's own witnesses for both clauses use.
@@ -1489,7 +1497,7 @@ mod tests {
         );
     }
 
-    /// ISO 19005-4 §B.2.2, and the boundary its own NOTE draws.
+    /// ISO 19005-4 section B.2.2, and the boundary its own NOTE draws.
     ///
     /// A 3D stream is one a 3D annotation names through `/3DD` or one that declares `/Type /3D`;
     /// an embedded file stream carrying 3D data for a `RichMedia` annotation is neither, which is

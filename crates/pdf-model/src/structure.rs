@@ -494,9 +494,9 @@ impl Tree {
     /// `/RoleMap` name by name to a fixed point — so the erratum names the order this code
     /// already has rather than changing it.
     ///
-    /// The namespace is [`DEFAULT_STANDARD_NAMESPACE`]. An element that states a `/NS` whose dictionary
-    /// has no `/NS` string of its own has named a namespace this reader cannot identify, and
-    /// answers `None` rather than the default — Table 356 makes the entry required, so the
+    /// The namespace is [`DEFAULT_STANDARD_NAMESPACE`]. An element that states a `/NS` whose
+    /// dictionary has no `/NS` string of its own has named a namespace this reader cannot identify,
+    /// and answers `None` rather than the default — Table 356 makes the entry required, so the
     /// alternative would be to report a document's broken namespace as the standard one.
     #[must_use]
     pub fn namespace(&self, document: &Document, element: &Dictionary) -> Option<String> {
@@ -585,8 +585,8 @@ impl Tree {
     /// # What the condition is, and what it deliberately is not
     ///
     /// The element counted is one whose type ends at `math` — all lowercase, which the subclause's
-    /// NOTE 2 says is "to match the `MathML` 3.0 specification" — **in the `MathML` namespace**, with
-    /// no `Formula` anywhere above it. Three readings are folded into that and each is the
+    /// NOTE 2 says is "to match the `MathML` 3.0 specification" — **in the `MathML` namespace**,
+    /// with no `Formula` anywhere above it. Three readings are folded into that and each is the
     /// narrow one:
     ///
     /// - **The namespace is part of the type.** §14.8.6.2 is the clause that says a name means
@@ -599,8 +599,8 @@ impl Tree {
     ///   the clause does not state (`doc/traps/instruments-and-reports.md` trap 11).
     /// - **The second `shall` is not answered here**, and that is a reading rather than an
     ///   omission: it requires all `MathML` structure element types and their attributes to have
-    ///   the `MathML` namespace explicitly defined, which quantifies over `MathML`'s own vocabulary —
-    ///   and ISO 32000-2 states that vocabulary nowhere, because §2's normative reference to
+    ///   the `MathML` namespace explicitly defined, which quantifies over `MathML`'s own vocabulary
+    ///   — and ISO 32000-2 states that vocabulary nowhere, because §2's normative reference to
     ///   `MathML` Core holds it. A condition over a list this standard does not print would be this
     ///   reader's invention wearing the clause's number.
     ///
@@ -3660,11 +3660,11 @@ pub fn document_language(document: &Document) -> Option<String> {
 /// predates the grammar.
 ///
 /// **Public because a second reader needs the same test and may not have a second grammar.**
-/// ISO 19005-2 §6.7.4's only `shall` is that a `/Lang` which is present be a language identifier
-/// as §14.9.2 defines, and `crates/pdf-archive` judges that for a *structure element* and a
-/// marked-content property list where [`Tree::document_language`] answers only for the catalog.
-/// Duplicating ninety lines of RFC 5646 ABNF and the grandfathered list into that crate would
-/// give this project two grammars to keep in step, and would contradict `pdf-archive`'s own
+/// ISO 19005-2 section 6.7.4's only `shall` is that a `/Lang` which is present be a language
+/// identifier as §14.9.2 defines, and `crates/pdf-archive` judges that for a *structure element*
+/// and a marked-content property list where [`Tree::document_language`] answers only for the
+/// catalog. Duplicating ninety lines of RFC 5646 ABNF and the grandfathered list into that crate
+/// would give this project two grammars to keep in step, and would contradict `pdf-archive`'s own
 /// design, which is to add no reader of its own.
 ///
 /// Widening it costs the viewer nothing: the function is pure, allocates one `Vec` of borrowed
