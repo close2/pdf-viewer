@@ -44,7 +44,8 @@
 use std::sync::Arc;
 
 use pdf_syntax::{
-    Damage, Document, Lexer, Object, Pumped, Pumping, Stream, StreamRefusal, StreamSource, Token,
+    Damage, Dictionary, Document, Lexer, Name, Object, Pumped, Pumping, Stream, StreamRefusal,
+    StreamSource, Token,
 };
 
 use crate::page::{ContentIssue, Page, filter_names};
@@ -1053,4 +1054,159 @@ fn comment_open(run: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// What one value of an inline dictionary or array is, out of the token's borrow.
+///
+/// The interpreter's step counterpart for the two constructions §14.6.2 writes inside a content
+/// stream. The two that need the reader again are named rather than built here, for the reason
+/// [`ContentReader::with_token`] gives: the token is lent, and the reader cannot be asked for
+/// the next one while it is still alive.
+#[derive(Debug)]
+enum Value {
+    /// A direct object, already built.
+    Object(Object),
+    /// `<<` — a dictionary nested inside this one.
+    Dictionary,
+    /// `[` — an array.
+    Array,
+    /// The construction's own closer, or the end of the stream.
+    End,
+}
+
+/// Converts a content-stream token into an operand.
+pub(super) fn token_to_object(token: Token<'_>) -> Object {
+    match token {
+        Token::Integer(value) => Object::Integer(value),
+        Token::Real(value) => Object::Real(value),
+        Token::Name(bytes) => Object::Name(Name::new(bytes)),
+        Token::String(bytes) => Object::String(bytes.into()),
+        // Arrays and dictionaries appear as operands to `d`, `TJ` and `BDC`. Recognising
+        // the brackets is enough for the operators this interpreter implements; a full
+        // re-parse would duplicate the object parser for no present gain.
+        _ => Object::Null,
+    }
+}
+
+/// Assembles an inline dictionary from a content stream's tokens, after its `<<`.
+///
+/// The content lexer yields tokens and not objects, so a dictionary written inside a content
+/// stream — which only `BDC` and the inline-image operators use — has to be put together here.
+///
+/// Array values were read as far as their brackets and discarded until the eighty-third
+/// session, on the reasoning that "no property list entry this tree reads is an array". That
+/// stopped being true the moment §14.8.2.2's artifacts were read: Table 363's `/BBox` and
+/// `/Attached` are both arrays, and both came back empty from a parser that was recognising
+/// the brackets without reading between them — which is this project's own trap 8 in
+/// `doc/HANDOVER.md`, met from the inside.
+///
+/// An unterminated dictionary ends with the stream, which is what a truncated content stream
+/// leaves behind; the entries read before it are still the ones the file stated.
+///
+/// **Public because a second reader of the same construction is the thing to avoid.** The
+/// interpreter is not the only caller that needs §14.6.2's property list: `pdf-archive`'s content
+/// survey reads a `BDC` operand for §14.9.4's replacement text, §14.7.5.4's `/MCID` and §14.9.2's
+/// `/Lang`, and a parser of its own would be ninety lines that drift from this one. Nothing on
+/// the viewer's open path changed to make it so: this is the same function, in the module whose
+/// reader it needs, with `pub` in front of it.
+#[must_use]
+pub fn inline_dictionary(reader: &mut ContentReader<'_>) -> Dictionary {
+    dictionary_at(reader, 0)
+}
+
+/// [`inline_dictionary`] at a stated nesting depth, which is how it bounds itself.
+fn dictionary_at(reader: &mut ContentReader<'_>, depth: usize) -> Dictionary {
+    /// How deep a dictionary may nest inside a content stream.
+    ///
+    /// A property list is one level in every use the standard defines; this bounds a hostile
+    /// stream that opens dictionaries and never closes them.
+    const MAX_DEPTH: usize = 8;
+
+    let mut dict = Dictionary::new();
+    if depth > MAX_DEPTH {
+        return dict;
+    }
+    loop {
+        let key = reader.with_token(|token| match token {
+            Some(Token::DictClose) | None => None,
+            Some(Token::Name(bytes)) => Some(Some(Name::new(bytes))),
+            // Anything that is not a name where a key belongs is a malformed dictionary;
+            // skipping the token keeps the rest of the entries readable.
+            Some(_) => Some(None),
+        });
+        let Some(key) = key else { break };
+        let Some(key) = key else { continue };
+
+        let value = reader.with_token(|token| match token {
+            Some(Token::DictOpen) => Value::Dictionary,
+            Some(Token::ArrayOpen) => Value::Array,
+            Some(Token::DictClose) | None => Value::End,
+            // `true`, `false` and `null` lex as keywords in a content stream, which is why
+            // two corpus documents used to report them as unknown *operators*: an inline
+            // property list's booleans were reaching the operator dispatch one token at a
+            // time. §7.3.2 makes them objects wherever an object belongs.
+            Some(Token::Keyword(word)) => Value::Object(match word {
+                b"true" => Object::Boolean(true),
+                b"false" => Object::Boolean(false),
+                _ => Object::Null,
+            }),
+            Some(other) => Value::Object(token_to_object(other)),
+        });
+        let value = match value {
+            Value::End => break,
+            Value::Dictionary => Object::Dictionary(dictionary_at(reader, depth.saturating_add(1))),
+            Value::Array => Object::Array(inline_array(reader, 0)),
+            Value::Object(object) => object,
+        };
+        dict.insert(key, value);
+    }
+    dict
+}
+
+/// Assembles an array from a content stream's tokens, after its `[`.
+///
+/// Bounded in both directions a hostile stream can grow: the nesting, by the same constant
+/// [`dictionary_at`] uses, and the number of elements — a property list is a handful of
+/// numbers or names, and an array of a million of them is a file making a reader work.
+fn inline_array(reader: &mut ContentReader<'_>, depth: usize) -> Vec<Object> {
+    /// The same bound as [`dictionary_at`]'s, and for the same reason.
+    const MAX_DEPTH: usize = 8;
+    /// Most elements read from one array written inside a content stream.
+    const MAX_ELEMENTS: usize = 65_536;
+
+    let mut out = Vec::new();
+    if depth > MAX_DEPTH {
+        // Consumed rather than left, so the caller resumes at the right token: an array this
+        // deep is nothing this reader will use, and the stream after it still has to parse.
+        while reader.with_token(|token| match token {
+            None | Some(Token::ArrayClose) => false,
+            Some(_) => true,
+        }) {}
+        return out;
+    }
+    loop {
+        let step = reader.with_token(|token| match token {
+            None | Some(Token::ArrayClose) => Value::End,
+            Some(Token::ArrayOpen) => Value::Array,
+            Some(Token::DictOpen) => Value::Dictionary,
+            // As in a dictionary's values: §7.3.2's booleans and §7.3.9's null lex as
+            // keywords inside a content stream.
+            Some(Token::Keyword(word)) => Value::Object(match word {
+                b"true" => Object::Boolean(true),
+                b"false" => Object::Boolean(false),
+                _ => Object::Null,
+            }),
+            Some(other) => Value::Object(token_to_object(other)),
+        });
+        let value = match step {
+            Value::End => break,
+            Value::Array => Object::Array(inline_array(reader, depth.saturating_add(1))),
+            Value::Dictionary => Object::Dictionary(dictionary_at(reader, depth.saturating_add(1))),
+            Value::Object(object) => object,
+        };
+        if out.len() < MAX_ELEMENTS {
+            out.push(value);
+        }
+    }
+    out
 }

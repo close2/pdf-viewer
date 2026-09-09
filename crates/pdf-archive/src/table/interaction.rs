@@ -172,10 +172,18 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_four("6.3.3"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "the rules it defers to are the graphics tranche's, and applying them to appearance \
-             streams needs a content-stream walk this tranche does not do; when the graphics \
-             rows walk content they will reach appearance streams too and this row becomes \
-             theirs",
+            "delegated, and the delegation is real rather than promised: the sentence sends an \
+             appearance dictionary's graphics to clause 6.2, and clause 6.2's rows already \
+             reach it. The content survey walks every /AP entry of every page annotation as the \
+             form XObject ISO 32000-2 section 12.5.5 makes it, so the colour, transparency, \
+             operator and content-stream rows judge what an appearance stream draws exactly as \
+             they judge a page's content, and the object-population rows reach the images, \
+             profiles and fonts it uses because those are objects a cross-reference section \
+             names. A predicate here would report those same failures under a clause number \
+             that adds nothing to them. Two limits, and they are the survey's rather than this \
+             row's: an appearance on no page's /Annots is not walked, nor is a soft mask's \
+             group or a shading's function anywhere; and a fault inside an appearance is \
+             reported against the page the annotation is on",
         ),
     },
     Requirement {

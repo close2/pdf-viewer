@@ -98,13 +98,14 @@
 //! predicate here does is guess, because a validator that invents a failure is worse than one
 //! that admits a gap.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_font::cmap::CMap;
 use pdf_font::encoding;
 use pdf_font::encoding::SymbolicEncoding;
 use pdf_font::tounicode::{Mapping, ToUnicode};
 use pdf_font::{LoadedFont, NOTDEF_GLYPH};
+use pdf_model::structure::ParentTree;
 use pdf_syntax::{Dictionary, Document, Lexer, Name, Object, ObjectId, Token, text_string};
 
 use crate::Examination;
@@ -1114,7 +1115,7 @@ fn truetype_codes_reach_glyphs_by_the_standard_route(
         };
         // One finding per code: a page showing the same code a hundred times has one fault.
         let mut reported = BTreeSet::new();
-        for text in &used.shown {
+        for text in used.shown.keys() {
             for code in font.decode(text) {
                 if !font.glyph_needed_a_reader_chosen_mapping(code)
                     || !reported.insert(code.value())
@@ -1160,7 +1161,7 @@ fn no_notdef_glyph_shown(exam: &Examination<'_>, findings: &mut Findings) {
         // One finding per code rather than per occurrence: a page that shows the same code a
         // thousand times has one fault in it.
         let mut reported = BTreeSet::new();
-        for text in &used.shown {
+        for text in used.shown.keys() {
             for code in font.decode(text) {
                 if font.glyph_index(code) != Some(NOTDEF_GLYPH) || !reported.insert(code.value()) {
                     continue;
@@ -1210,7 +1211,7 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
             continue;
         };
         let mut reported = BTreeSet::new();
-        for text in &used.shown {
+        for text in used.shown.keys() {
             for code in font.decode(text) {
                 if font
                     .glyph_index(code)
@@ -1448,7 +1449,7 @@ fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings
             continue;
         };
         let mut reported = BTreeSet::new();
-        for text in &used.shown {
+        for text in used.shown.keys() {
             for code in font.decode(text) {
                 if !reported.insert(code.value()) {
                     continue;
@@ -1513,7 +1514,7 @@ fn vertical_metrics_agree_with_the_program(exam: &Examination<'_>, findings: &mu
             continue;
         }
         let mut reported = BTreeSet::new();
-        for text in &used.shown {
+        for text in used.shown.keys() {
             for code in font.decode(text) {
                 if !reported.insert(code.value()) {
                     continue;
@@ -1907,9 +1908,9 @@ fn references_an_unlisted_glyph_name(exam: &Examination<'_>, id: ObjectId, subty
         return false;
     };
     if subtype == "Type3" {
-        let names: std::collections::BTreeMap<i64, String> =
+        let names: BTreeMap<i64, String> =
             type3_encoding(document, &used.dict).into_iter().collect();
-        return used.shown.iter().flatten().any(|byte| {
+        return used.shown.keys().flatten().any(|byte| {
             names
                 .get(&i64::from(*byte))
                 .is_some_and(|name| !name_is_in_either_list(name))
@@ -1921,7 +1922,7 @@ fn references_an_unlisted_glyph_name(exam: &Examination<'_>, id: ObjectId, subty
     if font.is_substituted() {
         return false;
     }
-    used.shown.iter().any(|text| {
+    used.shown.keys().any(|text| {
         font.decode(text).into_iter().any(|code| {
             font.selected_glyph_name(code)
                 .is_some_and(|name| name != ".notdef" && !name_is_in_either_list(name))
@@ -2184,9 +2185,11 @@ fn private_use_codes(map: &ToUnicode) -> Vec<(u32, u32)> {
 /// content half to nothing.
 ///
 /// **Deliberately an over-approximation.** It answers "does the file say `ActualText` at all",
-/// not "does it say it about the right character", and it exists so that
-/// [`actual_text_covers_private_use_characters`] can report the case where the answer is *no* —
-/// the one case in which no span analysis is needed to be certain.
+/// not "does it say it about the right character". Since the survey carries §14.6.1's
+/// marked-content stack it is no longer what decides the whole rule: it stands in front of the
+/// one showing the stack cannot settle — a string no marked-content sequence encloses, which
+/// §14.7.5.4's object content items can still put an entry on. Where the answer is *no*, no
+/// analysis of spans is needed to be certain.
 fn states_any_actual_text(exam: &Examination<'_>) -> bool {
     /// How deep a direct dictionary is followed. An indirect one is an object of its own and is
     /// reached by the outer walk, so this only has to cover what a producer writes inline.
@@ -2227,47 +2230,53 @@ fn states_any_actual_text(exam: &Examination<'_>) -> bool {
 ///
 /// A character a font maps into the Private Use Area means nothing on its own — the area is by
 /// definition unassigned — so the clause requires an `ActualText` entry saying what it stands
-/// for, either for that character or for a sequence containing it.
+/// for, either for that character or for a sequence of characters it is part of.
 ///
-/// # What this reports, and the half it declines
-///
-/// Two facts make the clause decidable, and this crate has one of them:
+/// # The two facts, and where each is read
 ///
 /// - **Which shown codes map into the area** is read off the font's own `/ToUnicode` with
-///   [`ToUnicode::mappings`], against the codes [`crate::survey::SelectedFont::shown`] recorded —
-///   every rendering mode included, which is what the clause says in as many words.
-/// - **Whether a given `ActualText` covers a given character** needs the `BDC`/`EMC` spans and
-///   which string was drawn inside which, and `crate::survey` records neither.
+///   [`ToUnicode::mappings`], against the strings [`crate::survey::SelectedFont::shown`]
+///   recorded — every rendering mode included, which is what the clause says in as many words.
+/// - **Whether an `ActualText` covers a given showing** is ISO 32000-2 §14.9.4's question, and
+///   §14.9.4 answers it in two places: the property list of the marked-content sequence
+///   enclosing the string, and the dictionary of the structure element that sequence belongs
+///   to. [`crate::survey::Replacement`] is the first, recorded as the content walk passes; the
+///   second is [`ParentTree`] and `/P` upward from there, because Table 355 makes a structure
+///   element's entry a replacement for "the content enclosed by the structure element and its
+///   children" — so an ancestor's entry covers a descendant's content.
 ///
-/// So the predicate reports the case the second fact is not needed for: a private-use character
-/// is shown and the file states **no** `ActualText` at all, where no span analysis can make one
-/// cover it. Where the file does state one somewhere, this stays silent — including where the
-/// entry covers some other character, which is a real failure this cannot yet tell from a real
-/// pass. The corpus has a witness of each, and the silent one is named here rather than counted
-/// as met.
+/// **Both routes have to be read together or neither may be.** `6-2-11-7-3-t01-fail-b` states
+/// its entry on a `Span` in the content stream and encloses the *other* of two shown codes with
+/// it; `-fail-c` states it on a structure element instead; and `-t01-pass-b` is a **conforming**
+/// file whose only entry is on a structure element. A rule that read the content stream alone
+/// would fail that third one, which is the outcome this crate may not produce.
 ///
-/// # What closing it takes, and why half of it is worse than none
+/// # Where it stays silent, and why each silence is there
 ///
-/// The two witnesses still missed are `6-2-11-7-3-t01-fail-b`, whose `ActualText` sits on a
-/// `Span` in the content stream and encloses the *other* of two shown codes, and `-fail-c`,
-/// whose entry sits on a structure element instead. ISO 32000-2 §14.9.4 puts the entry in both
-/// places, so both routes have to be read together: `-t01-pass-b` is a **conforming** file whose
-/// only `ActualText` is on a structure element, and a rule that read the content stream alone
-/// would fail it. That is the one outcome this crate may not produce.
-///
-/// Reading both means [`crate::survey`] carrying a stack of open marked-content sequences — the
-/// property list a `BDC` states inline or names through `/Properties`, and its `/MCID` — and
-/// then §14.7.5.4's parent tree from a `/MCID` to its structure element and `/P` upward from
-/// there, because an ancestor's entry replaces "the structure element and its children".
-/// `pdf_model::structure::ParentTree` is the second half already built; the first is a shape the
-/// survey's token walk does not have today, since it deliberately does not parse a `BDC`
-/// operand as a dictionary.
+/// - A showing whose enclosing sequence stated the entry, or whose property list this walk
+///   could not read: [`crate::survey::Replacement`] records nothing for it.
+/// - A marked-content identifier that reaches no structure element — no parent tree, no
+///   `/StructParents`, an index past the array. The file may still be tagged in a way this
+///   crate did not follow, and a validator that reported it would be inventing a failure.
+/// - A string shown under more sequences than the survey kept
+///   ([`crate::survey::Replacement::elided`]).
+/// - A showing enclosed by no marked-content sequence at all, in a file that states an
+///   `ActualText` *somewhere*. §14.7.5.4 lets a structure element own whole objects as content
+///   items rather than only marked-content sequences, and text drawn inside such an object is
+///   covered by an entry no marked-content walk can see. So the unenclosed case keeps the
+///   document-wide test [`states_any_actual_text`] in front of it, which is the one condition
+///   under which no analysis of spans is needed to be certain.
 ///
 /// A font whose `shown` set overran the survey's budget is still read: the question is whether
-/// *any* private-use character was shown, so a prefix can establish it and can only under-report.
+/// a private-use character was shown uncovered, so a prefix can establish it and can only
+/// under-report.
 fn actual_text_covers_private_use_characters(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    let mut offences: Vec<(ObjectId, u32, u32)> = Vec::new();
+    let mut trees: BTreeMap<usize, ParentTree> = BTreeMap::new();
+    // Kept apart because the second list is reported only where the document states no entry
+    // at all; see the silences above.
+    let mut marked: Vec<(ObjectId, u32, u32)> = Vec::new();
+    let mut unenclosed: Vec<(ObjectId, u32, u32)> = Vec::new();
     for used in exam.survey().fonts() {
         let Some(id) = used.id else {
             continue;
@@ -2285,33 +2294,103 @@ fn actual_text_covers_private_use_characters(exam: &Examination<'_>, findings: &
         let Ok(font) = LoadedFont::load(document, &used.dict, &used.name) else {
             continue;
         };
-        let shown: BTreeSet<u32> = used
-            .shown
-            .iter()
-            .flat_map(|text| font.decode(text))
-            .map(pdf_font::Code::value)
-            .collect();
-        offences.extend(
-            private
+        for (text, replacement) in &used.shown {
+            let codes: BTreeSet<u32> = font
+                .decode(text)
                 .into_iter()
-                .filter(|(code, _)| shown.contains(code))
-                .map(|(code, value)| (id, code, value)),
-        );
+                .map(pdf_font::Code::value)
+                .collect();
+            let held: Vec<(ObjectId, u32, u32)> = private
+                .iter()
+                .filter(|(code, _)| codes.contains(code))
+                .map(|(code, value)| (id, *code, *value))
+                .collect();
+            if held.is_empty() {
+                continue;
+            }
+            if !replacement.identifiers.is_empty()
+                && !replacement.elided
+                && !replacement
+                    .identifiers
+                    .iter()
+                    .any(|(page, mcid)| reaches_replacement_text(exam, &mut trees, *page, *mcid))
+            {
+                marked.extend(held.iter().copied());
+            }
+            if replacement.bare {
+                unenclosed.extend(held);
+            }
+        }
     }
-    // Asked only once something was found, because it decodes every content stream the document
-    // has and a document with no private-use character owes nothing for the answer.
-    if offences.is_empty() || states_any_actual_text(exam) {
-        return;
+    // Asked only once something was found, because it walks every object the document has and a
+    // document with no private-use character owes nothing for the answer.
+    if !unenclosed.is_empty() && !states_any_actual_text(exam) {
+        marked.append(&mut unenclosed);
     }
-    for (id, code, value) in offences {
+    let mut reported: BTreeSet<(ObjectId, u32)> = BTreeSet::new();
+    for (id, code, value) in marked {
+        if !reported.insert((id, code)) {
+            continue;
+        }
         findings.record(
             Where::object(id).named("ToUnicode"),
             format!(
                 "code {code} is shown and maps to U+{value:04X}, which is in the Unicode Private \
-                 Use Area, and the file states no ActualText entry anywhere"
+                 Use Area, and no ActualText entry covers the text it was shown in"
             ),
         );
     }
+}
+
+/// Whether one marked-content identifier reaches §14.9.4's entry on a structure element.
+///
+/// `true` where an entry is found **and** where the identifier reaches no element at all: the
+/// second is not a pass, it is this crate declining to report a file it could not read the
+/// structure of. See the silences on [`actual_text_covers_private_use_characters`].
+///
+/// The walk upward is §14.7.2's `/P`, which Table 355 makes required on every structure element
+/// and which stops at the structure tree root — Table 354 makes `/Type` required there, which is
+/// what tells the top of the chain from the rest of it.
+fn reaches_replacement_text(
+    exam: &Examination<'_>,
+    trees: &mut BTreeMap<usize, ParentTree>,
+    page: usize,
+    mcid: i64,
+) -> bool {
+    /// How far the `/P` chain is followed. §14.7.2's hierarchy is a tree and real ones are a
+    /// handful of levels deep; a file may state a chain that is neither.
+    const MAX_ANCESTRY: usize = 64;
+
+    let document = exam.document;
+    let tree = trees.entry(page).or_insert_with(|| {
+        exam.pages()
+            .get(page)
+            .map(|sheet| ParentTree::for_page(document, &sheet.dict))
+            .unwrap_or_default()
+    });
+    let Some(element) = tree.element(document, mcid) else {
+        return true;
+    };
+    let mut at = element;
+    for _ in 0..MAX_ANCESTRY {
+        if !document.get_key(&at, "ActualText").is_null() {
+            return true;
+        }
+        if document
+            .get_key(&at, "Type")
+            .as_name()
+            .is_some_and(|kind| kind.as_bytes() == b"StructTreeRoot")
+        {
+            return false;
+        }
+        let Some(above) = document.get_key(&at, "P").as_dict().cloned() else {
+            return false;
+        };
+        at = above;
+    }
+    // A chain this long is one no reader can follow to an answer, so it is not one this rule
+    // reports against.
+    true
 }
 
 /// ISO 19005-4 section 6.2.10.8, last sentence — the one font rule part 4 states and part 2 does
@@ -2380,10 +2459,11 @@ mod tests {
     use pdf_syntax::Document;
 
     use super::{
-        Findings, actual_text_states_no_private_use, charset_names,
-        cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present, cmap_embedded_or_predefined,
-        embedded_cmap_states_its_own_write_mode, font_programs_embedded, glyph_procedure_width,
-        is_private_use, non_symbolic_truetype_differences_are_listed_names,
+        Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
+        charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
+        cmap_embedded_or_predefined, embedded_cmap_states_its_own_write_mode,
+        font_programs_embedded, glyph_procedure_width, is_private_use,
+        non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
         symbolic_truetype_states_no_encoding, to_unicode_present, to_unicode_values_are_usable,
         type3_glyph_procedures_state_their_width,
@@ -2949,6 +3029,89 @@ mod tests {
              2 0 obj\n<< /Type /StructElem /ActualText (ff) >>\nendobj\n",
         );
         assert!(findings(&plain, actual_text_states_no_private_use).is_empty());
+    }
+
+    /// A one-page tagged document that shows code 0x41, which its `/ToUnicode` maps into the
+    /// Private Use Area, inside whatever marked content `content` writes around it.
+    ///
+    /// `element` is the body of the one structure element the page's parent tree names, so a
+    /// test can put §14.9.4's entry on it or leave it off.
+    fn showing_a_private_use_code(content: &str, element: &str) -> Document {
+        let program = "1 beginbfchar\n<41> <e020>\nendbfchar\n";
+        let stream = format!("BT /F1 12 Tf {content} ET");
+        document(&format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /StructParents 0 \
+             /Resources << /Font << /F1 5 0 R >> /Properties << /P0 << /MCID 0 >> >> >> \
+             /Contents 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length {length} >>\nstream\n{stream}\nendstream\nendobj\n\
+             5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+             /ToUnicode 7 0 R >>\nendobj\n\
+             6 0 obj\n<< /Type /StructTreeRoot /K [8 0 R] /ParentTree 9 0 R >>\nendobj\n\
+             7 0 obj\n<< /Length {mapped} >>\nstream\n{program}\nendstream\nendobj\n\
+             8 0 obj\n<< /Type /StructElem /S /Span /P 6 0 R /Pg 3 0 R {element} >>\nendobj\n\
+             9 0 obj\n<< /Nums [0 [8 0 R]] >>\nendobj\n",
+            length = stream.len(),
+            mapped = program.len(),
+        ))
+    }
+
+    /// ISO 19005-2 section 6.2.11.7.3, against ISO 32000-2 §14.9.4's two places for the entry.
+    #[test]
+    fn a_private_use_character_is_covered_from_the_property_list_or_from_the_structure() {
+        let inline = showing_a_private_use_code("/Span << /ActualText (ab) >> BDC (A) Tj EMC", "");
+        assert!(
+            findings(&inline, actual_text_covers_private_use_characters).is_empty(),
+            "the sequence enclosing the string states the entry in its own property list"
+        );
+
+        let structural =
+            showing_a_private_use_code("/Span << /MCID 0 >> BDC (A) Tj EMC", "/ActualText (ab)");
+        assert!(
+            findings(&structural, actual_text_covers_private_use_characters).is_empty(),
+            "the entry is on the structure element the identifier reaches, which §14.9.4 names \
+             first of the two"
+        );
+
+        let named = showing_a_private_use_code("/Span /P0 BDC (A) Tj EMC", "/ActualText (ab)");
+        assert!(
+            findings(&named, actual_text_covers_private_use_characters).is_empty(),
+            "§14.6.2 lets the property list be named through the resources rather than written \
+             into the operands"
+        );
+
+        let uncovered = showing_a_private_use_code("/Span << /MCID 0 >> BDC (A) Tj EMC", "");
+        assert_eq!(
+            findings(&uncovered, actual_text_covers_private_use_characters).len(),
+            1,
+            "the sequence states no entry and neither does the element it belongs to"
+        );
+
+        let unknown = showing_a_private_use_code("/Span /Absent BDC (A) Tj EMC", "");
+        assert!(
+            findings(&unknown, actual_text_covers_private_use_characters).is_empty(),
+            "a property list this crate cannot read is not a file it may report against"
+        );
+    }
+
+    /// The showing that no marked-content sequence encloses, which §14.7.5.4's object content
+    /// items can still have an entry for — so the document-wide test stands in front of it.
+    #[test]
+    fn an_unenclosed_private_use_character_is_reported_only_where_the_file_states_no_entry() {
+        let alone = showing_a_private_use_code("(A) Tj", "");
+        assert_eq!(
+            findings(&alone, actual_text_covers_private_use_characters).len(),
+            1,
+            "nothing encloses the string and the file states no entry anywhere"
+        );
+
+        let elsewhere = showing_a_private_use_code("(A) Tj", "/ActualText (ab)");
+        assert!(
+            findings(&elsewhere, actual_text_covers_private_use_characters).is_empty(),
+            "the file states an entry this walk cannot tie to the string, and a validator that \
+             reported it would be inventing a failure"
+        );
     }
 
     #[test]

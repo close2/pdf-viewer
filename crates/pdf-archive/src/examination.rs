@@ -42,6 +42,7 @@ use std::cell::OnceCell;
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::survey::Survey;
+use crate::table::file_structure::HexadecimalSpan;
 use crate::target::Target;
 
 /// One document, held to one target, with the shared work computed on demand.
@@ -61,6 +62,8 @@ pub struct Examination<'a> {
     annotations: OnceCell<Vec<Annotation>>,
     /// Every page, with inheritance applied, walked once.
     pages: OnceCell<Vec<pdf_model::Page>>,
+    /// Every span of the file that is PDF syntax, lexed once; see [`Self::hexadecimal_spans`].
+    spans: OnceCell<Vec<HexadecimalSpan>>,
 }
 
 /// One annotation, with the page it is on and the object it was reached through.
@@ -89,6 +92,7 @@ impl<'a> Examination<'a> {
             objects: OnceCell::new(),
             annotations: OnceCell::new(),
             pages: OnceCell::new(),
+            spans: OnceCell::new(),
         }
     }
 
@@ -137,6 +141,21 @@ impl<'a> Examination<'a> {
             let pages = pdf_model::Pages::new(self.document);
             (0..pages.len()).filter_map(|at| pages.get(at)).collect()
         })
+    }
+
+    /// Every span of this document that is PDF syntax, with its hexadecimal strings counted.
+    ///
+    /// **The measurement that put this here.** Two rows read this — ISO 19005-2 section 6.1.6's
+    /// even digit count and the base standard's rule about what a digit is — and each walked the
+    /// file, its object streams and its content streams for itself: 266 ms and 146 ms on
+    /// ISO 32000-2's own specification, the two dearest predicates in the crate. One walk
+    /// answers both questions, because the count the lexer keeps holds both.
+    ///
+    /// The walk itself is `crate::table::file_structure::hexadecimal_spans`, beside the clauses
+    /// that read it, because that is where the reasoning about what counts as syntax belongs.
+    pub(crate) fn hexadecimal_spans(&self) -> &[HexadecimalSpan] {
+        self.spans
+            .get_or_init(|| crate::table::file_structure::hexadecimal_spans(self))
     }
 
     /// Every annotation of every page, resolved once.

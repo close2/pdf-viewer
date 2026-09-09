@@ -58,7 +58,7 @@ pub(crate) fn states_name(document: &Document, dict: &Dictionary, key: &str, nam
 }
 
 mod document_level;
-mod file_structure;
+pub(crate) mod file_structure;
 mod fonts;
 mod graphics;
 mod interaction;

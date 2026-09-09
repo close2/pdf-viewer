@@ -122,8 +122,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     Requirement {
         id: "logical-structure/element-and-property-list-language-identifiers",
         asks: "Where a structure element or a marked-content property list states a Lang entry, \
-               its value shall be a language identifier the base standard defines. A property \
-               list's Lang is not yet judged; a structure element's is.",
+               its value shall be a language identifier the base standard defines.",
         clauses: Clauses::only_two("6.7.4"),
         applies: Applies::FromLevel(Level::A),
         check: Check::Implemented(element_language_identifiers),
@@ -388,11 +387,37 @@ fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut
 /// this project should not have two of, and `pdf-archive` states that it adds no reader of its
 /// own.
 ///
-/// A property list's `/Lang` is the half still missing, and it is missing for a different
-/// reason — it lives in a content stream, and `Examination::survey()` does not record marked
-/// content's property lists. The row's `asks` says so rather than implying both are covered.
+/// # The second place a `/Lang` stands
+///
+/// A marked-content property list is the other, and the clause names it beside the structure
+/// element. It is not an object where a producer wrote it into a `BDC` or `DP` operator's
+/// operands (ISO 32000-2 §14.6.2), so the content survey is what sees it —
+/// [`crate::survey::Survey::marked_languages`] records both forms, the inline one and the one
+/// named through the resources' `/Properties`, and this reads them under the same sentence as
+/// the elements. The corpus witness is `6-7-4-t01-fail-c`, whose primary language subtag is
+/// Cyrillic inside an inline property list.
 fn element_language_identifiers(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
+    for stated in exam.survey().marked_languages() {
+        match &stated.value {
+            Err(kind) => findings.record(
+                Where::page(stated.page).named((*kind).to_owned()),
+                "a marked-content property list's Lang is not a text string",
+            ),
+            Ok(bytes) => {
+                let text = pdf_syntax::text_string(bytes);
+                // The empty text string is §14.9.2.2's identifier for an unknown language.
+                if text.is_empty() || pdf_model::structure::well_formed_language_tag(&text) {
+                    continue;
+                }
+                findings.record(
+                    Where::page(stated.page).named(text),
+                    "a marked-content property list's Lang is not a language identifier the \
+                     base standard defines",
+                );
+            }
+        }
+    }
     let Some(tree) = Tree::of(document) else {
         return;
     };

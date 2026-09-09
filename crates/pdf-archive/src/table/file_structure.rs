@@ -1664,11 +1664,15 @@ const OBJECT_SYNTAX_WINDOW: usize = 64 * 1024;
 
 /// One span of a document's bytes that is PDF syntax, and what its hexadecimal strings looked
 /// like as written.
-struct HexadecimalSpan {
+///
+/// Visible to [`crate::Examination`] because that is where the walk producing these is shared;
+/// see [`hexadecimal_spans`].
+#[derive(Debug)]
+pub(crate) struct HexadecimalSpan {
     /// Where a finding about it belongs.
-    place: Where,
+    pub(crate) place: Where,
     /// What ISO 32000-2 §7.3.4.3's strings in that span said, from [`Lexer`]'s own count.
-    strings: pdf_syntax::HexadecimalStrings,
+    pub(crate) strings: pdf_syntax::HexadecimalStrings,
 }
 
 /// Every span of this document that is PDF syntax, with its hexadecimal strings counted.
@@ -1682,35 +1686,45 @@ struct HexadecimalSpan {
 /// would pass a document whose every page draws with a malformed string, which is what the corpus
 /// witnesses for both of these rules are.
 ///
-/// # What is not walked, and it is written down rather than implied
+/// # The fourth place, and how it is reached
 ///
-/// Of the content streams, only each page's own `/Contents` is read here. A form `XObject`
-/// invoked through `Do`, a tiling pattern, a Type 3 glyph procedure and an annotation's
-/// appearance stream are reached by following a resource dictionary, which is [`crate::survey`]'s
-/// one walk of the document's content — and a second walk of it here would cost every report a
-/// pass to answer a question the survey is already positioned to answer as it goes. So a
-/// hexadecimal string written *only* inside one of those is not reported. That is the crate's
-/// standing direction of error and not a claim that the clause exempts them.
+/// A content stream is not only a page's `/Contents`: a form `XObject` invoked through `Do`, a
+/// tiling pattern, a Type 3 glyph procedure and an annotation's appearance stream are content
+/// streams too, and each is reached by following a resource dictionary. This used to read the
+/// pages alone and say so, which left a hexadecimal string written only inside a form
+/// unreported. It is [`crate::survey`] that already follows those dictionaries, so what is done
+/// here is to read the streams it says it opened — [`crate::survey::Survey::opened_streams`]
+/// carries the object of each — rather than to walk the resources a second time.
 ///
-/// Streams whose data this reader cannot decode are skipped for the same reason and with the same
-/// consequence: a filter chain nothing here can run is a stream this rule says nothing about.
+/// **The inline-image skip needs the resources in force**, and the survey's record does not
+/// carry them, so this uses the stream's own `/Resources` and falls back to the page's. That is
+/// what the survey itself reads a form against in every case but one — a form with no
+/// `/Resources` of its own invoked from another form — and ISO 19005 section 6.2.2 requires
+/// every one of these streams to carry the entry anyway.
 ///
-/// # What it costs, measured, and the one thing that would halve it
+/// Streams whose data this reader cannot decode are skipped, with the consequence that follows:
+/// a filter chain nothing here can run is a stream this rule says nothing about. So is the
+/// content of a soft mask's group and of a shading's function, which the survey does not walk
+/// anywhere. That is the crate's standing direction of error and not a claim that the clause
+/// exempts them.
 ///
-/// `examples/cost` on ISO 32000-2's own specification — 1 023 pages, 101 318 objects: **266 ms**
-/// for the first of the two rules that ask and **146 ms** for the second, on a report that takes
-/// 4.1 s. They are the two dearest predicates in the crate, which is the honest place to say so
-/// rather than a footnote. The first pays for decoding on top of the walk and the second does
-/// not, because [`pdf_syntax::Document`] memoises a decoded stream; what the second pays for is
-/// the *lexing*, done twice because two clauses ask two questions of one walk and a predicate has
-/// nowhere to leave an answer for its sibling.
+/// # What it costs, measured, and where the halving came from
 ///
-/// **That is the fix, and it is not in this file**: [`crate::Examination`] is where a report's
-/// shared work lives — its `survey`, its `objects`, its `annotations` are all there for this
-/// reason — and a field holding these spans would turn two walks into one. Reading the file
-/// whole instead of a window per object was tried first and refuted: 274 ms became 266 ms, an
-/// 8 ms saving for 19 MB retained, so the cost is the lexing and not the reading.
-fn hexadecimal_spans(exam: &Examination<'_>) -> Vec<HexadecimalSpan> {
+/// `examples/cost` on ISO 32000-2's own specification — 1 023 pages, 101 318 objects: this walk
+/// was **266 ms** in the first of the two rules that ask and **146 ms** in the second, on a
+/// report that took 4.1 s, because it ran once for each of them. They were the two dearest
+/// predicates in the crate.
+///
+/// **They are one walk now**: [`Examination::hexadecimal_spans`] holds it in the `OnceCell`
+/// beside the survey, the object population and the annotations, which is where a report's
+/// shared work belongs. Following the survey's nested streams (above) added about 25 ms to the
+/// walk; sharing it took the second rule's whole cost off the report. The measurement is in
+/// this crate's `examples/cost`, which is why the numbers here are numbers rather than a belief.
+///
+/// Reading the file whole instead of a window per object was tried first and refuted: 274 ms
+/// became 266 ms, an 8 ms saving for 19 MB retained, so the cost is the lexing and not the
+/// reading.
+pub(crate) fn hexadecimal_spans(exam: &Examination<'_>) -> Vec<HexadecimalSpan> {
     let document = exam.document;
     let mut out = Vec::new();
 
@@ -1794,31 +1808,68 @@ fn hexadecimal_spans(exam: &Examination<'_>) -> Vec<HexadecimalSpan> {
                 .as_dict()
                 .cloned()
                 .unwrap_or_default();
-            let mut lexer = Lexer::new(&data);
-            while let Some(token) = lexer.next_token() {
-                // §8.9.7's inline image, whose data is **not** a program and must never be
-                // lexed as one. Compressed samples hold angle brackets like they hold any other
-                // byte, and reading them as syntax invents hexadecimal strings out of an image:
-                // five conforming corpus documents were failed by this rule before the skip was
-                // here, which is precisely the mis-report the crate's direction of error
-                // forbids. `pdf_model::inline_image::scan` is the reader that already knows
-                // where the data ends, and its `resume` is the only thing wanted here.
-                if matches!(token, Token::Keyword(b"BI")) {
-                    let scan = pdf_model::inline_image::scan(
-                        document,
-                        &data,
-                        lexer.position(),
-                        &resources,
-                        true,
-                    );
-                    lexer.seek(scan.resume);
-                }
-            }
-            record_span(&mut out, Where::page(index), &lexer);
+            record_content_span(document, &data, &resources, Where::page(index), &mut out);
         }
     }
 
+    // The content streams a resource dictionary reaches, as the survey found them.
+    for opened in exam.survey().opened_streams() {
+        let Some(id) = opened.object else {
+            continue;
+        };
+        if !seen.insert(id) {
+            continue;
+        }
+        let object = document.get(id);
+        let Some(stream) = object.as_stream() else {
+            continue;
+        };
+        let Some(data) = document.decoded_stream_data(stream) else {
+            continue;
+        };
+        let resources = document
+            .get_key(&stream.dict, "Resources")
+            .as_dict()
+            .cloned()
+            .or_else(|| {
+                exam.pages()
+                    .get(opened.page)
+                    .and_then(|page| document.get_key(&page.dict, "Resources").as_dict().cloned())
+            })
+            .unwrap_or_default();
+        record_content_span(document, &data, &resources, opened.place.clone(), &mut out);
+    }
+
     out
+}
+
+/// Lexes one decoded content stream, stepping over §8.9.7's inline image data, and keeps what
+/// its hexadecimal strings looked like.
+///
+/// **The inline image data is not a program and must never be lexed as one.** Compressed samples
+/// hold angle brackets like they hold any other byte, and reading them as syntax invents
+/// hexadecimal strings out of an image: five conforming corpus documents were failed by these
+/// rules before the skip was here, which is precisely the mis-report the crate's direction of
+/// error forbids. `pdf_model::inline_image::scan` is the reader that already knows where the
+/// data ends, and its `resume` is the only thing wanted here — which is why it is given the
+/// resources in force, since §8.9.7 lets `/CS` name a colour space the resources define and the
+/// component count is what says how long the data is.
+fn record_content_span(
+    document: &Document,
+    data: &[u8],
+    resources: &Dictionary,
+    place: Where,
+    out: &mut Vec<HexadecimalSpan>,
+) {
+    let mut lexer = Lexer::new(data);
+    while let Some(token) = lexer.next_token() {
+        if matches!(token, Token::Keyword(b"BI")) {
+            let scan =
+                pdf_model::inline_image::scan(document, data, lexer.position(), resources, true);
+            lexer.seek(scan.resume);
+        }
+    }
+    record_span(out, place, &lexer);
 }
 
 /// Keeps a span, but only where its lexer read a hexadecimal string worth reporting.
@@ -1844,12 +1895,12 @@ fn record_span(out: &mut Vec<HexadecimalSpan>, place: Where, lexer: &Lexer<'_>) 
 /// [`pdf_syntax::HexadecimalStrings`] — the lexer's own record of what the bytes said — rather
 /// than from the object.
 fn hexadecimal_string_digits(exam: &Examination<'_>, findings: &mut Findings) {
-    for span in hexadecimal_spans(exam) {
+    for span in exam.hexadecimal_spans() {
         if span.strings.completed == 0 {
             continue;
         }
         findings.record(
-            span.place,
+            span.place.clone(),
             format!(
                 "{} hexadecimal {} an odd number of digits, which the base standard completes \
                  with a zero",
@@ -1875,12 +1926,12 @@ fn hexadecimal_string_digits(exam: &Examination<'_>, findings: &mut Findings) {
 /// A conforming reader cannot see this in the value either: §7.3.4.3 gives no meaning to such a
 /// byte, so this reader passes over it and the string comes out as though it were never there.
 fn hexadecimal_string_holds_only_digits(exam: &Examination<'_>, findings: &mut Findings) {
-    for span in hexadecimal_spans(exam) {
+    for span in exam.hexadecimal_spans() {
         if span.strings.strayed == 0 {
             continue;
         }
         findings.record(
-            span.place,
+            span.place.clone(),
             format!(
                 "{} hexadecimal {} a byte that is neither a hexadecimal digit nor white space",
                 span.strings.strayed,

@@ -25,27 +25,56 @@
 //! error — **under-report rather than mis-report**, because a requirement that invents a failure
 //! tells a user their conforming file does not conform.
 //!
-//! # What it costs, and the one thing that would fix it
+//! # What it costs, and where the fix landed
 //!
-//! **A survey is one pass over the document's content, and every requirement that reads one
-//! walks again.** `examples/survey_cost` measures it: ISO 32000-2's own specification — 1 023
-//! pages, 8 029 592 content-stream tokens — costs 574 ms to read the tokens of and 1.0 s to
-//! survey, and a whole PDF/A-4 report over it takes 19 s because thirteen of its requirements
-//! each ask for a survey of their own.
+//! **A survey is one pass over the document's content, and it used to be walked once per
+//! requirement that read one.** `examples/survey_cost` measured that: ISO 32000-2's own
+//! specification — 1 023 pages, 8 029 592 content-stream tokens — cost 574 ms to read the tokens
+//! of and 1.0 s to survey, and a whole PDF/A-4 report over it took 19 s because thirteen of its
+//! requirements each asked for a survey of their own.
 //!
-//! That is a deliberate cost with a named fix, and the fix is not in this file. A requirement's
-//! predicate is a `fn(&Document, &mut Findings)` (`crate::requirement::Check`), so there is
-//! nowhere for one report's requirements to share a survey; giving [`crate::check`] a survey it
-//! computes once and lends to each predicate would turn thirteen passes into one. Caching on the
-//! document instead was considered and rejected: a `&Document` has no identity a cache can key on
-//! that a later document cannot reuse, and a validator that answers about the wrong file is worse
-//! than a slow one.
+//! **That fix has been made, and it is [`crate::Examination`]**: a predicate is handed the
+//! examination rather than the document, and the survey is an `OnceCell` on it, so a report
+//! walks the content once however many of its requirements read it. `examples/cost` prints the
+//! survey as its own line for that reason. Caching on the document instead was considered and
+//! rejected: a `&Document` has no identity a cache can key on that a later document cannot
+//! reuse, and a validator that answers about the wrong file is worse than a slow one.
 //!
-//! What *is* done here is to keep the pass itself honest. Observations are deduplicated as they
-//! are made — the same specification selects a device colour space 317 127 times and says 2 565
-//! distinct things by doing so, because [`Where`] names a page rather than an operator — and
+//! What *is* still done here is to keep the pass itself honest. Observations are deduplicated
+//! as they are made — the same specification selects a device colour space 317 127 times and
+//! says 2 565 distinct things by doing so, because [`Where`] names a page rather than an
+//! operator — and
 //! §8.6.5.6's defaults are resolved once per content stream rather than once per colour operator,
 //! since the resource dictionary in force cannot change within one.
+//!
+//! # What the marked-content stack costs, and what it bought
+//!
+//! [`Survey::of`] carries §14.6.1's open sequences on a stack, reads each `BDC` operand as
+//! §14.6.2's property list, and records against every string a text-showing operator drew what
+//! stood between it and §14.9.4's replacement text ([`Replacement`]). That is the one thing here
+//! that reads a construction the walk used to step over, so it was measured with
+//! `examples/cost` on ISO 32000-2's own specification — 1 023 pages and 8 029 592
+//! content-stream tokens.
+//!
+//! **About 6%, and the ratio is what to trust rather than either figure.** Back to back in one
+//! session, fastest of five runs each, the survey went from 547 ms to 580 ms; the same
+//! comparison earlier the same day, on a quieter machine and fastest of three, put it at 521 ms
+//! and 596 ms. The spread between sessions is twice the difference either measured, which is
+//! the honest thing to write down rather than the one number that flattered the change.
+//!
+//! The 6% divides in half, measured by taking each side out on the quieter machine: about
+//! 36 ms of the 75 was building the property lists
+//! (`pdf_model::content::reader::inline_dictionary`, which is the interpreter's own reader of
+//! that construction rather than a second one), and about 40 ms was the walk reading the
+//! operands *inside* them for ISO 19005-2 section 6.1.13's limits — which the token walk used
+//! to see for itself and would otherwise have stopped seeing. Neither half is optional: the
+//! first is the only route to a `BDC` property list, and dropping the second would have
+//! narrowed one rule silently while widening another.
+//!
+//! What it bought: the three corpus documents this crate had been missing under
+//! ISO 19005-2 section 6.2.11.7.3 and section 6.7.4, and — because the property list is now
+//! read rather than guessed at — an `/ActualText` value that is no longer paired with its name
+//! by adjacency alone.
 //!
 //! # What the three per-token measurements cost, and what they bought
 //!
@@ -84,6 +113,7 @@
 //! streams one walk opens. Reaching any of them stops the walk, which under-reports in the same
 //! direction as everything else.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -147,6 +177,29 @@ const SHOWN_BUDGET: usize = 4 << 20;
 /// A quarter of [`SHOWN_BUDGET`], because these are entries a producer writes by hand where
 /// those are every string a page draws.
 const ACTUAL_TEXT_BUDGET: usize = 1 << 20;
+
+/// How deep a dictionary a content stream wrote inline is read for its operands.
+///
+/// `pdf_model::content::reader::inline_dictionary` bounds what it *builds*; this bounds what
+/// this walk then reads out of it, and the two are separate numbers because they answer to
+/// separate callers.
+const MAX_INLINE_DEPTH: u32 = 8;
+
+/// How many marked-content sequences one walk keeps open at once.
+///
+/// §14.6.1 makes `BMC`/`BDC` … `EMC` nest, and a hostile stream can open them and never close
+/// one. A sequence opened past this is read for its property list like any other and then
+/// forgotten, which loses a coverage that would have made a rule *quieter* — so the bound
+/// under-reports in the same direction as everything else here.
+const MAX_MARK_DEPTH: usize = 64;
+
+/// How many marked-content identifiers one shown string keeps.
+///
+/// [`Replacement::identifiers`] is a list the rule reading it must have **whole**: it stays
+/// silent where any one of them reaches §14.9.4's entry, so a prefix would make it speak where
+/// the entry it did not keep was the covering one. A string shown under more sequences than
+/// this therefore records [`Replacement::elided`] and is not reported at all.
+const MAX_IDENTIFIERS: usize = 8;
 
 /// How many *distinct* observations of one kind a survey keeps.
 ///
@@ -326,6 +379,23 @@ pub struct MissingResource {
     pub what: &'static str,
 }
 
+/// One `/Lang` a marked-content property list stated, with the page that stated it.
+///
+/// ISO 19005-2 section 6.7.4 binds a `/Lang` in three places — the catalog, a structure element
+/// and a property list — and only this one is written inside a content stream. A property list
+/// named through the resources (ISO 32000-2 §14.6.2) is an object as well, and is recorded here
+/// too: the requirement that reads this walks the *structure tree* for the other two places, so
+/// a `/Properties` entry is reached by nothing else.
+#[derive(Debug, Clone)]
+pub struct MarkedLanguage {
+    /// The zero-based index of the page whose content stated it.
+    pub page: usize,
+    /// The value as the property list wrote it, or the name of its type where it is not a text
+    /// string — §14.9.2.2 makes a language identifier a text string, so that is a failure of
+    /// its own and one a report has to be able to describe.
+    pub value: Result<Vec<u8>, &'static str>,
+}
+
 /// One content stream the walk opened, and the two facts ISO 19005 section 6.2.2 turns on.
 ///
 /// The clause requires a content stream that references other objects to have a resource
@@ -339,6 +409,14 @@ pub struct MissingResource {
 pub struct OpenedStream {
     /// The zero-based index of the page whose rendering reached it.
     pub page: usize,
+    /// The object it is, where the walk reached it as one.
+    ///
+    /// `None` for a page's own `/Contents`, which §7.7.3.3 lets be an array of streams and which
+    /// is therefore not one object. Every other content stream a walk opens — a form `XObject`,
+    /// a tiling pattern, a Type 3 glyph procedure, an annotation appearance — is a stream
+    /// object, and this is how a rule that wants to read the bytes again finds them without
+    /// walking the resource dictionaries a second time.
+    pub object: Option<ObjectId>,
     /// Where a report points a reader.
     pub place: Where,
     /// What kind of content stream it is, for the sentence a finding prints.
@@ -491,7 +569,8 @@ pub struct SelectedFont {
     pub name: String,
     /// Whether a text-showing operator ran with it in a rendering mode other than 3.
     pub rendered: bool,
-    /// The distinct byte strings text-showing operators drew with it, in any rendering mode.
+    /// The distinct byte strings text-showing operators drew with it, in any rendering mode,
+    /// each with what stood between it and §14.9.4's replacement text.
     ///
     /// **Any mode, deliberately**, because the clause that most needs this says so: ISO 19005-2
     /// Section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a reference to `.notdef` from a
@@ -502,13 +581,48 @@ pub struct SelectedFont {
     /// Bytes rather than codes, because a code's length is the font's own `CMap`'s answer
     /// (ISO 32000-2 §9.7.6.2) and this walk holds no fonts — `pdf_font::LoadedFont::decode` is
     /// what turns these into codes, in the crate that already loads the font to ask about it.
-    pub shown: BTreeSet<Vec<u8>>,
+    ///
+    /// **A map rather than a set** because ISO 19005-2 section 6.2.11.7.3 asks about a
+    /// *character* and not about a font: whether a character mapped into the Private Use Area
+    /// is covered by a replacement text depends on where in the marked-content nesting the
+    /// string holding it was drawn. [`Replacement`] is that, kept beside the string rather than
+    /// in a second map, so the bytes are stored once.
+    pub shown: BTreeMap<Vec<u8>, Replacement>,
     /// Whether [`Self::shown`] is all of what was drawn, or a prefix cut off by [`SHOWN_BUDGET`].
     ///
     /// A rule that asks whether *any* shown code is faulty may read a prefix; a rule that asks
     /// whether *every* shown code is sound may not. This is the flag that tells the second kind
     /// to stay silent.
     pub shown_complete: bool,
+}
+
+/// What stood between one string a font drew and ISO 32000-2 §14.9.4's replacement text.
+///
+/// §14.9.4 puts an `ActualText` in two places and the walk can only see one of them: the
+/// property list of an enclosing marked-content sequence is here in the content stream, while a
+/// structure element's entry is an object away — reached from §14.7.5.4's `/MCID` through the
+/// page's parent tree, which is a document walk and not a content walk. So this records what
+/// the content stream said and leaves the second route to the requirement that reads it.
+///
+/// **A showing an enclosing sequence covered outright contributes nothing.** Where an open
+/// sequence stated `/ActualText` in its property list — or stated a property list this walk
+/// could not read, which is the same answer for the purpose of not inventing a failure — that
+/// showing of the string is settled where it stands and is not recorded here.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Replacement {
+    /// Whether some showing of the string stood inside no marked-content sequence at all.
+    ///
+    /// The one case no later lookup can change: nothing encloses the string, so no property
+    /// list and no structure element is attached to it.
+    pub bare: bool,
+    /// The `/MCID`s of the sequences enclosing the showings that were not settled inline, each
+    /// with the page whose parent tree indexes it.
+    ///
+    /// The page travels with the identifier because §14.7.5.4 makes the identifier an index
+    /// into *a page's* parent tree entry, and one font is shown on many pages.
+    pub identifiers: Vec<(usize, i64)>,
+    /// Whether an identifier was dropped for [`MAX_IDENTIFIERS`], so the list above is a prefix.
+    pub elided: bool,
 }
 
 /// How one selected font is told from another.
@@ -557,6 +671,8 @@ pub struct Survey {
     actual_texts: Vec<(usize, Vec<u8>)>,
     /// Whether any content stream named `/ActualText` at all, whatever it gave the name.
     names_actual_text: bool,
+    /// Every `/Lang` a marked-content property list stated.
+    languages: Vec<MarkedLanguage>,
     /// How many pages the walk covered, so a caller can iterate them.
     pages: usize,
 }
@@ -572,6 +688,7 @@ impl Survey {
             budget: TOKEN_BUDGET,
             shown_budget: SHOWN_BUDGET,
             actual_text_budget: ACTUAL_TEXT_BUDGET,
+            marks: Vec::new(),
             seen: BTreeSet::new(),
             survey: Self::default(),
         };
@@ -685,9 +802,11 @@ impl Survey {
     /// nothing that walks the cross-reference table can see it. This is where it is seen, because
     /// the walk is reading those operands anyway.
     ///
-    /// **The pairing is deliberately shallow** — a `/ActualText` name operand and the string
-    /// operand that follows it — and it is sound because nothing else in a content stream spells
-    /// that name. Whatever dictionary nesting stands around the pair is irrelevant to it.
+    /// Read out of the property list itself: the entry is the value of an `ActualText` key,
+    /// wherever inside the dictionary that key stands. This used to be a *shallow* pairing — the
+    /// name operand and the string after it — which was sound only because nothing else in a
+    /// content stream spells that name; the walk now builds the dictionary anyway, for
+    /// §14.7.5.4's `/MCID`, so the entry is read rather than inferred.
     ///
     /// Bounded by [`ACTUAL_TEXT_BUDGET`], and an entry that did not fit is absent rather than
     /// short. A caller that needs to know whether the document states one *at all* asks
@@ -695,6 +814,15 @@ impl Survey {
     #[must_use]
     pub fn inline_actual_texts(&self) -> &[(usize, Vec<u8>)] {
         &self.actual_texts
+    }
+
+    /// Every `/Lang` a marked-content property list stated, in the order the walk read them.
+    ///
+    /// Deduplicated by page and value, because [`Where`] names a page rather than an operator
+    /// and a page that states the same identifier in a hundred sequences says one thing.
+    #[must_use]
+    pub fn marked_languages(&self) -> &[MarkedLanguage] {
+        &self.languages
     }
 
     /// Whether any content stream named `/ActualText`, whatever it gave the name.
@@ -826,6 +954,18 @@ enum Operator {
     },
     /// `BI`, whose data is not a token stream.
     InlineImage,
+    /// `BMC` or `BDC`, which open one of §14.6.1's marked-content sequences.
+    ///
+    /// The two are one case because what they open is the same; the difference is only whether
+    /// a property list stands between the tag and the operator, which the operands say.
+    BeginMarked,
+    /// `EMC`, which closes the innermost open sequence.
+    EndMarked,
+    /// `DP`, §14.6.1's marked-content *point* with a property list.
+    ///
+    /// A point encloses nothing, so it opens no sequence and covers no string. It is here for
+    /// its property list alone, which ISO 19005-2 section 6.7.4 binds exactly as a sequence's.
+    MarkedPoint,
     /// Any other operator.
     Other,
 }
@@ -844,6 +984,12 @@ enum Step {
     Operator(Operator),
     /// A keyword ISO 32000's operator summary does not list, which consumes them too.
     Unlisted(Vec<u8>),
+    /// A dictionary operand's `<<`, which only §14.6.2's property list is written as.
+    ///
+    /// The tokens of it are not steps: [`Walk::run`] reads them into a dictionary with
+    /// `pdf_model::content::reader::inline_dictionary`, which is the interpreter's own reader of
+    /// this construction rather than a second one.
+    Dictionary,
     /// An operand of a kind no rule here reads.
     Other,
     /// The content stream ended.
@@ -859,6 +1005,7 @@ fn next_step(reader: &mut ContentReader<'_>) -> Step {
         Some(Token::Real(value)) => Step::Real(value),
         Some(Token::String(text)) => Step::Text(text),
         Some(Token::Keyword(word)) => keyword_step(word),
+        Some(Token::DictOpen) => Step::Dictionary,
         Some(_) => Step::Other,
     })
 }
@@ -933,12 +1080,15 @@ fn keyword(word: &[u8]) -> Option<Operator> {
             stroke: true,
         },
         b"BI" => Operator::InlineImage,
+        b"BDC" | b"BMC" => Operator::BeginMarked,
+        b"EMC" => Operator::EndMarked,
+        b"DP" => Operator::MarkedPoint,
         // The rest of Table A.1, in the order the table prints them. Nothing here changes the
         // state this walk carries; they are listed so that the fall-through means what it says.
-        b"BDC" | b"BMC" | b"BT" | b"BX" | b"c" | b"cm" | b"d" | b"d0" | b"d1" | b"DP" | b"EI"
-        | b"EMC" | b"ET" | b"EX" | b"h" | b"i" | b"ID" | b"j" | b"J" | b"l" | b"m" | b"M"
-        | b"MP" | b"n" | b"re" | b"T*" | b"Tc" | b"Td" | b"TD" | b"TL" | b"Tm" | b"Ts" | b"Tw"
-        | b"Tz" | b"v" | b"w" | b"W" | b"W*" | b"y" => Operator::Other,
+        b"BT" | b"BX" | b"c" | b"cm" | b"d" | b"d0" | b"d1" | b"EI" | b"ET" | b"EX" | b"h"
+        | b"i" | b"ID" | b"j" | b"J" | b"l" | b"m" | b"M" | b"MP" | b"n" | b"re" | b"T*"
+        | b"Tc" | b"Td" | b"TD" | b"TL" | b"Tm" | b"Ts" | b"Tw" | b"Tz" | b"v" | b"w" | b"W"
+        | b"W*" | b"y" => Operator::Other,
         _ => return None,
     };
     Some(operator)
@@ -947,6 +1097,31 @@ fn keyword(word: &[u8]) -> Option<Operator> {
 /// One of the six operators that names a device colour space and sets a colour in it.
 const fn device_colour(family: DeviceFamily, stroking: bool) -> Operator {
     Operator::SetDeviceColour { family, stroking }
+}
+
+/// One open marked-content sequence, as much of its property list as the rules here read.
+///
+/// ISO 32000-2 §14.6.1's sequences nest, and what encloses a string is what decides whether
+/// §14.9.4's replacement text covers it — so this is a stack entry and not a flag.
+#[derive(Clone, Copy, Default)]
+struct Mark {
+    /// Whether this sequence settles the question for what it encloses.
+    ///
+    /// True where its property list states `/ActualText`, and **also** where the list is one
+    /// this walk could not read — a named property list the resources do not define, or a value
+    /// that is no dictionary. The two are one field because they have one consequence: a rule
+    /// that may not invent a failure has to stay silent for both.
+    settles: bool,
+    /// §14.7.5.4's `/MCID`, where the property list states one.
+    mcid: Option<i64>,
+    /// How many sequences opened under this one were not given a stack entry of their own.
+    ///
+    /// [`MAX_MARK_DEPTH`] bounds the stack, and a bound that simply dropped an open sequence
+    /// would leave its `EMC` to close somebody else's. So the drop is counted here and the
+    /// `EMC` spends the count instead — and [`Mark::settles`] is set at the same moment, which
+    /// makes everything under the bound silent rather than reported against a sequence this
+    /// walk stopped following.
+    suppressed: u32,
 }
 
 /// The state one document's walk carries across its content streams.
@@ -967,6 +1142,13 @@ struct Walk<'a> {
     shown_budget: usize,
     /// How many more bytes of `/ActualText` may be kept; see [`ACTUAL_TEXT_BUDGET`].
     actual_text_budget: usize,
+    /// The marked-content sequences open where the walk is standing, outermost first.
+    ///
+    /// One stack for the whole walk rather than one per stream, because a form `XObject`
+    /// invoked between a `BDC` and its `EMC` draws *inside* that sequence: §8.10.1 runs its
+    /// content where the `Do` stands. Each stream remembers the depth it found and truncates
+    /// back to it when it ends, so an unbalanced stream cannot close its caller's sequences.
+    marks: Vec<Mark>,
     /// Which observations have already been recorded, so that a repeat costs nothing.
     ///
     /// A page that paints ten thousand red rectangles selects `DeviceRGB` ten thousand times
@@ -1015,6 +1197,8 @@ enum Observation {
     Operator(usize, &'static str, Vec<u8>),
     /// An `/ActualText` value written inline, by the page that drew it.
     ActualText(usize, Vec<u8>),
+    /// A `/Lang` a marked-content property list stated, by the page that stated it.
+    Language(usize, Result<Vec<u8>, &'static str>),
 }
 
 /// Which of [`ContentLiterals`]' two length extremes an operand widens.
@@ -1055,7 +1239,7 @@ impl Walk<'_> {
             .get_key(&page.dict, "Resources")
             .as_dict()
             .is_some();
-        let origin = self.open_record(index, Where::page(index), "the page content", own);
+        let origin = self.open_record(index, None, Where::page(index), "the page content", own);
         let mut reader = ContentReader::for_page(self.document, page);
         self.run(&mut reader, &page.resources, index, 0, &state, origin);
         self.annotations(page, index, &blending);
@@ -1065,6 +1249,7 @@ impl Walk<'_> {
     fn open_record(
         &mut self,
         page: usize,
+        object: Option<ObjectId>,
         place: Where,
         what: &'static str,
         own_resources: bool,
@@ -1072,6 +1257,7 @@ impl Walk<'_> {
         let record = (self.survey.streams.len() < MAX_OBSERVATIONS).then(|| {
             self.survey.streams.push(OpenedStream {
                 page,
+                object,
                 place,
                 what,
                 referenced: false,
@@ -1216,21 +1402,33 @@ impl Walk<'_> {
         // the operator decide is what makes those three the same case here.
         let mut strings: Vec<Vec<u8>> = Vec::new();
         let mut integer: Option<i64> = None;
-        // Whether the operand just read was the name `/ActualText`, so that the string operand
-        // after it is that entry's value: ISO 32000-2 §14.9.4's entry, written inline into a
-        // `BDC` property list. One `bool` because the pair is adjacent and nothing else in a
-        // content stream spells the name.
-        let mut naming_actual_text = false;
+        // §14.6.2's property list, where the operator being assembled was given one written
+        // into its operands rather than named through the resources.
+        let mut property: Option<Dictionary> = None;
+        // Where this stream found the marked-content stack. A stream that opens more sequences
+        // than it closes leaves them here, and one that closes more would otherwise close its
+        // caller's; §14.6.1 makes neither a thing a conforming stream does, so the depth is
+        // restored on the way out rather than the imbalance reported.
+        let base = self.marks.len();
         loop {
             if self.budget == 0 {
+                self.marks.truncate(base);
                 return;
             }
             self.budget = self.budget.saturating_sub(1);
             let step = next_step(reader);
             let names_it = matches!(&step, Step::Name(name) if name == b"ActualText");
             match step {
-                Step::End => return,
+                Step::End => {
+                    self.marks.truncate(base);
+                    return;
+                }
                 Step::Other => {}
+                Step::Dictionary => {
+                    let dict = pdf_model::content::reader::inline_dictionary(reader);
+                    self.note_inline_dictionary(&dict, page);
+                    property = Some(dict);
+                }
                 Step::Name(name) => {
                     self.note_length(name.len(), page, Extent::Name);
                     self.survey.names_actual_text |= names_it;
@@ -1251,9 +1449,6 @@ impl Walk<'_> {
                 Step::Real(value) => self.note_real(value, page),
                 Step::Text(text) => {
                     self.note_length(text.len(), page, Extent::String);
-                    if naming_actual_text {
-                        self.note_actual_text(&text, page);
-                    }
                     // Bounded by the same budget the kept strings are, so a stream of literals
                     // between two operators cannot grow this vector without one.
                     if text.len() <= self.shown_budget {
@@ -1265,6 +1460,7 @@ impl Walk<'_> {
                     names.clear();
                     strings.clear();
                     integer = None;
+                    property = None;
                 }
                 Step::Operator(operator) => {
                     let context = Context {
@@ -1274,6 +1470,7 @@ impl Walk<'_> {
                         depth,
                         what: origin.what,
                         record: origin.record,
+                        marks_base: base,
                     };
                     self.apply(
                         &operator,
@@ -1283,6 +1480,7 @@ impl Walk<'_> {
                             names: &names,
                             strings: &strings,
                             integer,
+                            property: property.as_ref(),
                         },
                         &context,
                         reader,
@@ -1290,9 +1488,9 @@ impl Walk<'_> {
                     names.clear();
                     strings.clear();
                     integer = None;
+                    property = None;
                 }
             }
-            naming_actual_text = names_it;
         }
     }
 
@@ -1384,6 +1582,23 @@ impl Walk<'_> {
             }
             Operator::Paint { fill, stroke } => self.paint(fill, stroke, state, context),
             Operator::InlineImage => self.inline_image(reader, context),
+            Operator::BeginMarked => self.begin_marked(operands, context),
+            Operator::EndMarked => {
+                if let Some(top) = self.marks.last_mut()
+                    && top.suppressed > 0
+                {
+                    top.suppressed = top.suppressed.saturating_sub(1);
+                } else if self.marks.len() > context.marks_base {
+                    self.marks.pop();
+                }
+            }
+            Operator::MarkedPoint => {
+                // A point encloses nothing, so its property list is read for §14.9.2's `/Lang`
+                // and nothing is pushed.
+                if let PropertyList::Read(list) = self.property_list(operands, context) {
+                    self.note_language(&list, context.page);
+                }
+            }
             Operator::Other => {}
         }
     }
@@ -1423,6 +1638,14 @@ impl Walk<'_> {
             || FontKey::Direct(context.page, name.to_vec()),
             FontKey::Indirect,
         );
+        // Read before the entry is borrowed, and once rather than per string: every string a
+        // single text-showing operator draws stands inside the same sequences. The stack is
+        // lent to `widen` rather than collected into a list, because collecting one would be a
+        // heap allocation per text-showing operator on a tagged page — which is most of them.
+        let settled = self.marks.iter().any(|mark| mark.settles);
+        let bare = !settled && !self.marks.iter().any(|mark| mark.mcid.is_some());
+        let enclosing: &[Mark] = if settled { &[] } else { &self.marks };
+        let page = context.page;
         let entry = self
             .survey
             .fonts
@@ -1433,12 +1656,13 @@ impl Walk<'_> {
                 page: context.page,
                 name: String::from_utf8_lossy(name).into_owned(),
                 rendered: false,
-                shown: BTreeSet::new(),
+                shown: BTreeMap::new(),
                 shown_complete: true,
             });
         entry.rendered |= rendered;
         for text in strings {
-            if entry.shown.contains(text) {
+            if let Some(replacement) = entry.shown.get_mut(text) {
+                widen(replacement, bare, enclosing, page);
                 continue;
             }
             if text.len() > self.shown_budget {
@@ -1447,7 +1671,9 @@ impl Walk<'_> {
                 continue;
             }
             self.shown_budget = self.shown_budget.saturating_sub(text.len());
-            entry.shown.insert(text.clone());
+            let mut replacement = Replacement::default();
+            widen(&mut replacement, bare, enclosing, page);
+            entry.shown.insert(text.clone(), replacement);
         }
         Some(dict)
     }
@@ -2079,6 +2305,145 @@ impl Walk<'_> {
         self.survey.actual_texts.push((page, text.to_vec()));
     }
 
+    /// Opens one of §14.6.1's marked-content sequences, with what its property list says.
+    fn begin_marked(&mut self, operands: &Operands<'_>, context: &Context<'_>) {
+        let mark = match self.property_list(operands, context) {
+            // `BMC`, whose sequence carries no property list at all: §14.6.1 gives it a tag and
+            // nothing else, so nothing it encloses is covered by anything.
+            PropertyList::Absent => Mark::default(),
+            PropertyList::Unreadable => Mark {
+                settles: true,
+                mcid: None,
+                suppressed: 0,
+            },
+            PropertyList::Read(list) => {
+                self.note_language(&list, context.page);
+                Mark {
+                    // §14.9.4 puts the entry in the property list of a sequence, and what it
+                    // replaces is everything the sequence encloses. The *value* is not read
+                    // here: whether it is a text string or a name is that rule's question, and
+                    // this one is only whether the entry stands.
+                    settles: !self.document.get_key(&list, "ActualText").is_null(),
+                    mcid: self.document.get_key(&list, "MCID").as_integer(),
+                    suppressed: 0,
+                }
+            }
+        };
+        if self.marks.len() < MAX_MARK_DEPTH {
+            self.marks.push(mark);
+        } else if let Some(top) = self.marks.last_mut() {
+            top.suppressed = top.suppressed.saturating_add(1);
+            top.settles = true;
+        }
+    }
+
+    /// §14.6.2's property list, written into the operands or named through the resources.
+    ///
+    /// **Not read through [`Walk::look_up`], deliberately.** That reader records a name the
+    /// resources do not define and marks the stream as having referenced a resource, and both
+    /// of those are read by ISO 19005 section 6.2.2's rows. Reaching a property list is a new
+    /// route to both facts, so taking it here would change what two other requirements say
+    /// about documents nobody has looked at; it is a change worth making on its own evidence
+    /// rather than as a side effect of this one.
+    fn property_list<'o>(
+        &self,
+        operands: &Operands<'o>,
+        context: &Context<'_>,
+    ) -> PropertyList<'o> {
+        if let Some(inline) = operands.property {
+            return PropertyList::Read(Cow::Borrowed(inline));
+        }
+        // §14.6.2's second form: the tag and then a name, so the name is the last of the two.
+        if operands.names.len() < 2 {
+            return PropertyList::Absent;
+        }
+        let Some(name) = operands.names.last() else {
+            return PropertyList::Absent;
+        };
+        let table = self.document.get_key(context.resources, "Properties");
+        let found = table
+            .as_dict()
+            .and_then(|table| table.get_by_name(&Name::new(name.clone())))
+            .cloned();
+        let Some(found) = found else {
+            return PropertyList::Unreadable;
+        };
+        match self.document.resolve(&found) {
+            Object::Dictionary(dict) => PropertyList::Read(Cow::Owned(dict)),
+            _ => PropertyList::Unreadable,
+        }
+    }
+
+    /// Keeps a `/Lang` a marked-content property list stated, once per page and value.
+    ///
+    /// ISO 19005-2 section 6.7.4 requires a `/Lang` that is present to be a language identifier
+    /// wherever it stands, and a property list is one of the three places it can stand.
+    fn note_language(&mut self, list: &Dictionary, page: usize) {
+        let stated = self.document.get_key(list, "Lang");
+        if stated.is_null() {
+            return;
+        }
+        let value = stated
+            .as_string()
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| stated.type_name());
+        if !self.first_time(Observation::Language(page, value.clone())) {
+            return;
+        }
+        self.survey.languages.push(MarkedLanguage { page, value });
+    }
+
+    /// Reads a dictionary a content stream wrote inline, for the three things it can hold.
+    ///
+    /// Its operands are operands: ISO 19005-2 section 6.1.13's limits are on the values written
+    /// inside a content stream, and a number written inside a property list is one of them —
+    /// which is why this walks the whole dictionary rather than its top level. §14.9.4's entry
+    /// is here where a producer wrote the list inline, which is no object at all: nothing that
+    /// walks the cross-reference table can see it. And the *name* `ActualText` is the wider
+    /// fact [`Survey::names_actual_text`] keeps, which no budget may narrow.
+    ///
+    /// Each entry costs one token of the walk's budget. That is an under-count of what the
+    /// tokens of a dictionary really were — a key and its value are at least two — and it is
+    /// the direction that keeps a bound from ending a walk early over an estimate.
+    fn note_inline_dictionary(&mut self, dict: &Dictionary, page: usize) {
+        self.note_inline_entries(dict, page, 0);
+    }
+
+    /// The entries of one dictionary written inline, at a stated nesting depth.
+    fn note_inline_entries(&mut self, dict: &Dictionary, page: usize, depth: u32) {
+        for (name, value) in dict.iter() {
+            self.survey.names_actual_text |= name.as_bytes() == b"ActualText";
+            self.note_length(name.as_bytes().len(), page, Extent::Name);
+            self.note_inline_object(value, page, Some(name), depth.saturating_add(1));
+        }
+    }
+
+    /// One value inside a dictionary a content stream wrote inline; see above.
+    fn note_inline_object(&mut self, object: &Object, page: usize, key: Option<&Name>, depth: u32) {
+        if depth >= MAX_INLINE_DEPTH || self.budget == 0 {
+            return;
+        }
+        self.budget = self.budget.saturating_sub(1);
+        match object {
+            Object::Integer(value) => self.note_integer(*value, page),
+            Object::Real(value) => self.note_real(*value, page),
+            Object::Name(name) => self.note_length(name.as_bytes().len(), page, Extent::Name),
+            Object::String(text) => {
+                self.note_length(text.len(), page, Extent::String);
+                if key.is_some_and(|key| key.as_bytes() == b"ActualText") {
+                    self.note_actual_text(text, page);
+                }
+            }
+            Object::Array(items) => {
+                for item in items {
+                    self.note_inline_object(item, page, None, depth.saturating_add(1));
+                }
+            }
+            Object::Dictionary(dict) => self.note_inline_entries(dict, page, depth),
+            _ => {}
+        }
+    }
+
     /// Records a keyword no operator summary lists, once per page, stream kind and spelling.
     fn note_unlisted_operator(&mut self, word: &[u8], page: usize, origin: Origin) {
         if !self.first_time(Observation::Operator(page, origin.what, word.to_vec())) {
@@ -2136,7 +2501,7 @@ impl Walk<'_> {
         };
         self.opened = self.opened.saturating_add(1);
         let place = id.map_or_else(|| Where::page(page), Where::object);
-        let origin = self.open_record(page, place, description, own_resources);
+        let origin = self.open_record(page, id, place, description, own_resources);
         let mut reader = content.reader();
         self.run(
             &mut reader,
@@ -2149,6 +2514,25 @@ impl Walk<'_> {
     }
 }
 
+/// Widens what is known about one string by one showing of it.
+///
+/// A showing an enclosing sequence settled contributes nothing at all: `bare` is false and
+/// `identifiers` is empty, so this leaves the record as it found it. See [`Replacement`].
+fn widen(replacement: &mut Replacement, bare: bool, enclosing: &[Mark], page: usize) {
+    replacement.bare |= bare;
+    for identifier in enclosing.iter().filter_map(|mark| mark.mcid) {
+        let identifier = (page, identifier);
+        if replacement.identifiers.contains(&identifier) {
+            continue;
+        }
+        if replacement.identifiers.len() >= MAX_IDENTIFIERS {
+            replacement.elided = true;
+            break;
+        }
+        replacement.identifiers.push(identifier);
+    }
+}
+
 /// The operands standing before an operator that this walk keeps.
 struct Operands<'a> {
     /// The names, at most the first two.
@@ -2157,6 +2541,8 @@ struct Operands<'a> {
     strings: &'a [Vec<u8>],
     /// The last integer.
     integer: Option<i64>,
+    /// §14.6.2's property list, where one was written into the operands rather than named.
+    property: Option<&'a Dictionary>,
 }
 
 impl Operands<'_> {
@@ -2169,6 +2555,20 @@ impl Operands<'_> {
     fn last(&self) -> Option<&Vec<u8>> {
         self.names.last()
     }
+}
+
+/// What stood where a marked-content operator's property list belongs.
+///
+/// The read case is a [`Cow`] so that the common one costs nothing: a property list written into
+/// the operands is already built and is lent, where one named through the resources has to be
+/// resolved out of the document and is owned.
+enum PropertyList<'a> {
+    /// None was written: `BMC`, or a `BDC` whose operands state no list.
+    Absent,
+    /// One this walk read, whether it was written inline or named through the resources.
+    Read(Cow<'a, Dictionary>),
+    /// One it could not: a name the resources do not define, or a value that is no dictionary.
+    Unreadable,
 }
 
 /// Where in the document the walk is standing.
@@ -2191,6 +2591,8 @@ struct Context<'a> {
     what: &'static str,
     /// The stream's entry in [`Survey::streams`], for [`Walk::look_up`] to mark.
     record: Option<usize>,
+    /// How deep [`Walk::marks`] was when this content stream began; see [`Walk::run`].
+    marks_base: usize,
 }
 
 /// Whether a dictionary's `BM` entry sets a blend mode other than `Normal`.
@@ -2551,7 +2953,7 @@ fn icc_profile(
 mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object};
 
-    use super::{DeviceFamily, Route, SpaceKind, Survey, classify, device_uses};
+    use super::{DeviceFamily, Replacement, Route, SpaceKind, Survey, classify, device_uses};
 
     /// A file assembled from object bodies, with a cross-reference table over them.
     ///
@@ -3022,6 +3424,138 @@ mod tests {
         let survey = Survey::of(&neither);
         assert!(!survey.names_actual_text());
         assert!(survey.inline_actual_texts().is_empty());
+    }
+
+    /// ISO 19005-4 section 6.3.3 sends an appearance dictionary's graphics to clause 6.2, and
+    /// this is what carries that delegation: §12.5.5 makes an appearance stream a form
+    /// `XObject`, and the walk follows every `/AP` entry of every page annotation into one.
+    #[test]
+    fn a_colour_selected_only_inside_an_annotation_appearance_is_recorded() {
+        let marks = "1 0 0 rg 0 0 5 5 re f";
+        let appearance = format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 5 5] /Resources << >> /Length {} >>\n\
+             stream\n{marks}\nendstream",
+            marks.len()
+        );
+        let annotation =
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 5 5] /F 4 /AP << /N 6 0 R >> >>";
+        let document = page_with("", "/Annots [5 0 R]", &[annotation, &appearance]);
+        let survey = Survey::of(&document);
+        let families: Vec<DeviceFamily> = survey
+            .device_colours()
+            .iter()
+            .map(|colour| colour.family)
+            .collect();
+        assert_eq!(
+            families,
+            vec![DeviceFamily::Rgb],
+            "the page's own content selects nothing, so this is the appearance stream's"
+        );
+    }
+
+    /// §14.6.1's sequences nest, and what encloses a shown string is what may replace it.
+    #[test]
+    fn a_shown_string_carries_the_marked_content_that_encloses_it() {
+        let font = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+        let resources = "/Resources << /Font << /F1 5 0 R >> \
+                         /Properties << /P0 << /MCID 7 >> /P1 << /ActualText (ab) >> >> >>";
+        let shown = |content: &str| {
+            let document = page_with(&format!("BT /F1 12 Tf {content} ET"), resources, &[font]);
+            let survey = Survey::of(&document);
+            survey
+                .fonts()
+                .flat_map(|used| used.shown.values().cloned())
+                .collect::<Vec<Replacement>>()
+        };
+
+        assert_eq!(
+            shown("(x) Tj"),
+            vec![Replacement {
+                bare: true,
+                identifiers: Vec::new(),
+                elided: false,
+            }],
+            "nothing encloses it, so nothing can replace it"
+        );
+        assert_eq!(
+            shown("/Span << /MCID 3 >> BDC (x) Tj EMC"),
+            vec![Replacement {
+                bare: false,
+                identifiers: vec![(0, 3)],
+                elided: false,
+            }],
+            "§14.7.5.4's identifier is the route to the structure element, and it is kept"
+        );
+        assert_eq!(
+            shown("/Span /P0 BDC (x) Tj EMC"),
+            vec![Replacement {
+                bare: false,
+                identifiers: vec![(0, 7)],
+                elided: false,
+            }],
+            "§14.6.2's property list may be named through the resources instead"
+        );
+        assert_eq!(
+            shown("/Span << /ActualText (ab) >> BDC /Span << /MCID 3 >> BDC (x) Tj EMC EMC"),
+            vec![Replacement::default()],
+            "an enclosing sequence states the entry, so the showing is settled where it stands"
+        );
+        assert_eq!(
+            shown("/Span /P1 BDC (x) Tj EMC"),
+            vec![Replacement::default()],
+            "and the same where that sequence named its property list"
+        );
+        assert_eq!(
+            shown("/Span /Absent BDC (x) Tj EMC"),
+            vec![Replacement::default()],
+            "a property list this walk cannot read settles it too, because a rule that may not \
+             invent a failure has to stay silent for both"
+        );
+        assert_eq!(
+            shown("/Artifact BMC (x) Tj EMC"),
+            vec![Replacement {
+                bare: true,
+                identifiers: Vec::new(),
+                elided: false,
+            }],
+            "`BMC` opens a sequence with no property list at all, which can replace nothing"
+        );
+        assert_eq!(
+            shown("/Span << /MCID 3 >> BDC EMC (x) Tj"),
+            vec![Replacement {
+                bare: true,
+                identifiers: Vec::new(),
+                elided: false,
+            }],
+            "the sequence closed before the string was shown"
+        );
+    }
+
+    /// ISO 19005-2 section 6.7.4 binds a `/Lang` in a property list as well as in an element.
+    #[test]
+    fn a_language_in_a_marked_content_property_list_is_recorded_once_per_page_and_value() {
+        let inline = "/Span << /Lang (en-GB) >> BDC EMC ";
+        let document = page_with(
+            &format!("{inline}{inline}/Span /P0 BDC EMC /Span << /Lang /en >> DP"),
+            "/Resources << /Properties << /P0 << /Lang (de) >> >> >>",
+            &[],
+        );
+        let survey = Survey::of(&document);
+        let stated: Vec<(usize, Result<Vec<u8>, &str>)> = survey
+            .marked_languages()
+            .iter()
+            .map(|found| (found.page, found.value.clone()))
+            .collect();
+        assert_eq!(
+            stated,
+            vec![
+                (0, Ok(b"en-GB".to_vec())),
+                (0, Ok(b"de".to_vec())),
+                (0, Err("name")),
+            ],
+            "the repeat says nothing new, a named property list is read like an inline one, and \
+             a value that is no text string is kept as what it is"
+        );
     }
 
     /// The depth is the stack's after the push, so one `q` is one level.
