@@ -71,7 +71,7 @@ struct Arguments {
 
 /// The usage line, which is also the whole of this program's interface.
 const USAGE: &str =
-    "usage: pdffs [--allow-other] [--foreground] [--machine-fonts] <file.pdf> <mountpoint>";
+    "usage: quorrafs [--allow-other] [--foreground] [--machine-fonts] <file.pdf> <mountpoint>";
 
 /// Reads the command line, or says what is wrong with it.
 ///

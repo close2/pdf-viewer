@@ -169,7 +169,7 @@ const VALUED: &str = "--subtype";
 /// What the tool takes, printed where a caller got it wrong.
 fn usage() {
     eprintln!(
-        "usage: pdf-retrieve <document|outline|sections|structure|archive-check|text|page|section> \
+        "usage: quorra-retrieve <document|outline|sections|structure|archive-check|text|page|section> \
          <file.pdf> \
          [<n>|<address>] \
          [--annotations] [--subtype <Name,Name>] [--no-artifacts] [--logical]"

@@ -1053,7 +1053,7 @@ impl Sinks for StdoutSinks {
 /// What the tool takes, printed by `--help` on stdout and above a usage error on stderr — one
 /// text, so the two say the same words.
 const USAGE: &str = "\
-usage: pdf-transform <verb> <file.pdf> [options] -o <name>
+usage: quorra-transform <verb> <file.pdf> [options] -o <name>
 
 verbs:
   render       pages to raster images        -o 'page-%d.png' | -o -

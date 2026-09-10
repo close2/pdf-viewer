@@ -546,8 +546,21 @@ cargo build --release --bin quorra --bin pdf-sandbox-worker --bin pdf-view-worke
                      --bin quorra-retrieve --bin quorra-transform \
                      --bin quorrafs --bin pdf-vfs-worker
 for binary in quorra pdf-sandbox-worker pdf-view-worker quorra-gtk quorra-qt \
-              quorra-confined pdf-retrieve pdf-transform pdffs pdf-vfs-worker
+              quorra-confined quorra-retrieve quorra-transform quorrafs pdf-vfs-worker
 do install -Dm755 "$built/$binary" "target/$binary"; done
+```
+
+**The loop's names must be the *binary target* names, and three of them were not.** Until session
+945 it installed `pdf-retrieve`, `pdf-transform` and `pdffs` — the names those programs had before
+the rename — while the line above it already built `quorra-retrieve`, `quorra-transform` and
+`quorrafs`. That did not fail, and could not: the pre-rename artefacts were still sitting in the
+shared build directory, because `cargo` removes nothing it no longer produces. So `install` found
+them, copied them, and every fifth round put **September's binaries** under `target/` while
+`target/quorra-retrieve` did not exist at all. `cargo metadata --no-deps --format-version 1 | jq
+-r '.packages[].targets[] | select(.kind[]=="bin") | .name'` is the authority on this list; the
+names in a document are a copy of it and drift the way copies do.
+
+```sh
 cargo build --release -p viewer-ffi -p pdf-vfs-ffi   # libraries, so not in the invocation above
 install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so
 install -Dm755 "$built/libpdf_vfs_ffi.so" target/libpdf_vfs_ffi.so

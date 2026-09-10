@@ -118,11 +118,18 @@ section_accessibility() {
         cargo test --profile gates -p viewer-core --test accessibility_census -- --ignored --nocapture
 }
 
+# The adapter crate is `render-raster`, and this said `render-quorra` until session 945 — a name
+# the rename to `raster` left behind (`doc/questions/A05`: the rendering library is named for what
+# it is, and `render-raster` is this tree's adapter for it). `cargo` answered "package ID
+# specification `render-quorra` did not match any packages", `run` reported that no line matched
+# the pattern, and the sequence carried on: the gate was not failing, it was not running.
+# `doc/todo/02` §2 has carried the correct name throughout, which is how two statements of one
+# command drift when only one of them is executed.
 section_quorra() {
     gate_binaries
-    run "quorra against the CPU oracle" \
+    run "raster against the CPU oracle" \
         '^[0-9]+ pages compared|^  (rasterisation|median page)' \
-        cargo test --profile gates -p render-quorra --test corpus -- --ignored --nocapture
+        cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
 }
 
 section_fixed() {
