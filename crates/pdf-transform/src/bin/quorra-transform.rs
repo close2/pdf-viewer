@@ -26,6 +26,7 @@
 //! pdf-transform optimize    in.pdf --object-streams disable --recompress none -o out.pdf
 //! pdf-transform archive     in.pdf --to 4 -o out.pdf
 //! pdf-transform archive     in.pdf --to 2b --authorise image-smoothing -o out.pdf
+//! pdf-transform archive     in.pdf --to 4 --output-intent-profile press.icc -o out.pdf
 //! ```
 
 //!
@@ -51,8 +52,9 @@
 
 use std::io::{BufRead as _, IsTerminal as _, Write};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use pdf_model::icc::Identification;
 use pdf_transform::archive::{ArchivePlan, Authorisations, Loss};
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
@@ -208,6 +210,7 @@ const VALUED: &[&str] = &[
     "--images",
     "--to",
     "--authorise",
+    "--output-intent-profile",
 ];
 
 /// The flags whose value is optional and, when given, is written inline with `=`.
@@ -256,6 +259,7 @@ const KNOWN: &[&str] = &[
     "--images",
     "--to",
     "--authorise",
+    "--output-intent-profile",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -564,7 +568,46 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         names,
         target,
         authorised,
+        profile: output_intent_profile(arguments)?,
     })
+}
+
+/// `--output-intent-profile <file>`: the destination profile an added output intent names.
+///
+/// **Read and checked here rather than per document**, because a profile that is not one is the
+/// caller's mistake and belongs in usage rather than in a conversion report. What it is checked
+/// against is what ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 require of a
+/// destination profile: an output or a monitor profile, over grey, RGB or CMYK.
+///
+/// Its `cprt` tag is printed at the same time, and that is not decoration:
+/// `doc/pdf-a-conversion-limits.md` section 10.1 records the ICC's own guidance that a profile's
+/// terms of use live in its header's creator field and that tag, so a user embedding somebody
+/// else's press profile is told whose it is before the run rather than after.
+fn output_intent_profile(arguments: &Arguments) -> Result<Option<Arc<[u8]>>, Failure> {
+    let Some(path) = arguments.value(&["--output-intent-profile"]) else {
+        return Ok(None);
+    };
+    let path = PathBuf::from(path);
+    let bytes = std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let stated = Identification::read(&bytes).ok_or_else(|| {
+        Failure::Usage(format!(
+            "--output-intent-profile {}: this file is not an ICC profile",
+            path.display()
+        ))
+    })?;
+    let class = stated.class_name();
+    let space = stated.space_name();
+    if !matches!(class.as_str(), "prtr" | "mntr")
+        || !matches!(space.as_str(), "GRAY" | "RGB" | "CMYK")
+    {
+        return Err(Failure::Usage(format!(
+            "--output-intent-profile {}: ISO 19005 admits an output or a monitor profile over \
+             grey, RGB or CMYK as a destination profile, and this one is a {class} profile over \
+             {space}",
+            path.display()
+        )));
+    }
+    Ok(Some(bytes.into()))
 }
 
 /// `optimize`: the two knobs RFC 0002 section 6.5 names, and the one it defers.
@@ -1265,15 +1308,24 @@ archive:
   --authorise <what>       may repeat. What the conversion may throw away: image-smoothing turns
                            /Interpolate off, so a low-resolution image looks blockier. Anything
                            not authorised stops the conversion instead of happening quietly
+  --output-intent-profile <file>
+                           the ICC profile a PDF/A output intent added by this conversion names
+                           as its destination profile. The default is the sRGB profile this
+                           program ships. Supply your own for a document produced for a press —
+                           DeviceCMYK is licensed only by a CMYK profile, and which press a
+                           document was made for is the one thing nobody but its owner knows.
+                           A supplied profile's own copyright tag is printed, because embedding
+                           somebody's profile means shipping their terms with it
   the document is validated against the target, one decision is taken per requirement it fails,
   and the rewrites those decisions call for are applied — then the output is validated again and
   is **not written** if it fails a requirement the source met. The report says, per document,
   what already conformed, what was changed and under which clause, what was refused and why, and
-  which requirements the verdict does not cover; --report=json carries all of it. This slice
-  performs the mechanical rewrites that need no resource this tree ships. Everything else — the
-  output intent and colour, fonts, metadata and the identification schema, the structure tree,
-  encryption, attachments — is refused **by name**, with the clause it could not meet, and no
-  file is written. doc/pdf-a-conversion-limits.md is the whole list.
+  which requirements the verdict does not cover; --report=json carries all of it. Adding an
+  output intent is reported as what it is: it states an interpretation, so every device colour
+  in the file afterwards means what that profile says it means to a conforming reader. Fonts,
+  the structure tree, encryption, attachments and the rest are refused **by name**, with the
+  clause they could not meet, and no file is written.
+  doc/pdf-a-conversion-limits.md is the whole list.
 
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)

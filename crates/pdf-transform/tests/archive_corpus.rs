@@ -106,6 +106,7 @@ fn sweep(root: &Path, part: &str, target: Target) -> Tally {
                 names: "out.pdf".parse().expect("a pattern"),
                 target,
                 authorised: Authorisations::default(),
+                profile: None,
             }),
             &[Source::new(bytes)],
             &sinks,

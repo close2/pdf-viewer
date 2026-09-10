@@ -308,6 +308,177 @@ fn fixed_at(data: &[u8], at: usize) -> Option<f32> {
     Some(signed as f32 / 65536.0)
 }
 
+/// The longest text this reads out of one of a profile's text tags.
+///
+/// A `desc` names the profile and a `cprt` states its terms of use; neither is prose. The bound
+/// is here because a profile is untrusted bytes and its tags say how long they are (principle 3),
+/// and it is generous enough that no real profile reaches it.
+const MAX_TAG_TEXT: usize = 4096;
+
+/// What a profile says about itself, read without building a transform.
+///
+/// The colour-management path never needs this and a *converter* does, which is why it is a
+/// second entry point rather than fields on [`Profile`]. Two things live here:
+///
+/// - **The header's class and colour space**, at ISO 15076-1 section 7.2's fixed offsets. ISO
+///   19005 restricts both of a PDF/A output intent's destination profile, so a program that adds
+///   one has to be able to say which it has.
+/// - **The `desc` and `cprt` tags.** The ICC's guidance is that a profile's copyright owner and
+///   terms of use are identified in its header's creator field and in its `cprt` tag, which is
+///   what `doc/pdf-a-conversion-limits.md` section 10.1 turns into a rule: a program handed
+///   somebody else's press profile reads the tag and tells the user whose profile they are
+///   embedding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Identification {
+    /// The profile/device class signature at offset 12 — `mntr` for a display, `prtr` for an
+    /// output device.
+    pub class: [u8; 4],
+    /// The data colour space signature at offset 16 — `GRAY`, `RGB ` or `CMYK` for the three
+    /// families a PDF names.
+    pub space: [u8; 4],
+    /// The version at offset 8, as major, minor and bug-fix; the second byte holds the last two
+    /// in its high and low nibbles.
+    pub version: (u8, u8, u8),
+    /// The `desc` tag: what the profile calls itself.
+    pub description: Option<String>,
+    /// The `cprt` tag: who holds the copyright in it, and on what terms.
+    pub copyright: Option<String>,
+}
+
+impl Identification {
+    /// Reads what a profile says about itself, or `None` where the bytes are not a profile.
+    ///
+    /// The signature at offset 36 is what decides that, exactly as [`Profile::parse`] decides
+    /// it: four bytes of arbitrary data would otherwise be judged on the four at offset 12.
+    #[must_use]
+    pub fn read(data: &[u8]) -> Option<Self> {
+        if data.len() > MAX_PROFILE || data.get(36..40)? != b"acsp" {
+            return None;
+        }
+        let class = signature_at(data, 12)?;
+        let space = signature_at(data, 16)?;
+        let coded = *data.get(9)?;
+        let version = (*data.get(8)?, coded >> 4, coded & 0x0f);
+        Some(Self {
+            class,
+            space,
+            description: tag_text(data, *b"desc"),
+            copyright: tag_text(data, *b"cprt"),
+            version,
+        })
+    }
+
+    /// The class, as text, for a report.
+    #[must_use]
+    pub fn class_name(&self) -> String {
+        String::from_utf8_lossy(&self.class).trim().to_owned()
+    }
+
+    /// The colour space, as text, for a report.
+    #[must_use]
+    pub fn space_name(&self) -> String {
+        String::from_utf8_lossy(&self.space).trim().to_owned()
+    }
+}
+
+/// One four-character signature out of the header.
+fn signature_at(data: &[u8], at: usize) -> Option<[u8; 4]> {
+    let bytes = data.get(at..at.checked_add(4)?)?;
+    Some([
+        *bytes.first()?,
+        *bytes.get(1)?,
+        *bytes.get(2)?,
+        *bytes.get(3)?,
+    ])
+}
+
+/// The text one of a profile's tags carries, in whichever of three types states it.
+///
+/// The tag table is the same one [`Profile::parse`] walks — a count at offset 128 and twelve
+/// bytes an entry — and the three types are the ones a `desc` or a `cprt` is written in:
+///
+/// - **`text`**, ISO 15076-1 section 10.22: seven-bit ASCII from offset 8, terminated by a NUL.
+/// - **`mluc`**, section 10.13: a record count and a record size, then records naming a
+///   language, a country, a length in bytes and an offset from the start of the tag, with the
+///   strings themselves in UTF-16. The first record is taken, because what a report wants is the
+///   notice rather than a language negotiation.
+/// - **`desc`**, which is neither of those: it is ICC.1:1998-09's `textDescriptionType`,
+///   withdrawn in the v4 texts and therefore in none this project holds. A v2 profile — the one
+///   ISO 19005-2 section 6.2.4.2 admits, and the one this program ships — states its description
+///   in it, so it is read here: a four-byte ASCII count at offset 8 and the string after it,
+///   with the Unicode and `ScriptCode` blocks that follow ignored.
+fn tag_text(data: &[u8], signature: [u8; 4]) -> Option<String> {
+    let count = usize::try_from(u32_at(data, 128)?).ok()?;
+    if count > 1024 {
+        return None;
+    }
+    for index in 0..count {
+        let at = 132usize.checked_add(index.checked_mul(12)?)?;
+        if data.get(at..at.checked_add(4)?)? != signature {
+            continue;
+        }
+        let offset = usize::try_from(u32_at(data, at.checked_add(4)?)?).ok()?;
+        let length = usize::try_from(u32_at(data, at.checked_add(8)?)?).ok()?;
+        let tag = data.get(offset..offset.checked_add(length)?)?;
+        return match tag.get(0..4)? {
+            b"text" => ascii_text(tag.get(8..)?),
+            b"desc" => {
+                let stated = usize::try_from(u32_at(tag, 8)?).ok()?;
+                ascii_text(tag.get(12..12usize.checked_add(stated)?)?)
+            }
+            b"mluc" => multi_localized(tag),
+            _ => None,
+        };
+    }
+    None
+}
+
+/// A NUL-terminated run of ASCII, as a `text` and a `desc` tag both carry.
+///
+/// `None` where a byte is outside printable ASCII: the two types are defined over seven-bit
+/// ASCII, and a tag holding anything else is not stating what this reads it for.
+fn ascii_text(bytes: &[u8]) -> Option<String> {
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    let text = bytes.get(..end)?;
+    if text.len() > MAX_TAG_TEXT
+        || !text
+            .iter()
+            .all(|byte| byte.is_ascii_graphic() || *byte == b' ')
+    {
+        return None;
+    }
+    Some(String::from_utf8(text.to_vec()).ok()?.trim().to_owned())
+}
+
+/// The first record of a `multiLocalizedUnicodeType` tag, decoded from UTF-16.
+fn multi_localized(tag: &[u8]) -> Option<String> {
+    let records = usize::try_from(u32_at(tag, 8)?).ok()?;
+    let size = usize::try_from(u32_at(tag, 12)?).ok()?;
+    if records == 0 || size < 12 {
+        return None;
+    }
+    let length = usize::try_from(u32_at(tag, 20)?).ok()?;
+    let offset = usize::try_from(u32_at(tag, 24)?).ok()?;
+    if length > MAX_TAG_TEXT || !length.is_multiple_of(2) {
+        return None;
+    }
+    let bytes = tag.get(offset..offset.checked_add(length)?)?;
+    let units = bytes.chunks_exact(2).map(|pair| match pair {
+        &[high, low] => u16::from_be_bytes([high, low]),
+        // `chunks_exact(2)` yields nothing else; the arm exists because the slice pattern is
+        // not exhaustive to the compiler.
+        _ => 0,
+    });
+    let text: String = char::decode_utf16(units)
+        .collect::<Result<String, _>>()
+        .ok()?;
+    Some(text.trim_end_matches('\0').trim().to_owned())
+}
+
 impl Profile {
     /// Parses a profile, returning `None` if it is not one this can evaluate.
     ///
@@ -1510,7 +1681,53 @@ mod tests {
         black_only_clut, complement_clut, mba_tag, mft2_tag, one_way_cmyk_profile, profile_of,
         two_way_cmyk_profile,
     };
-    use super::{Encoding, Profile};
+    use super::{Encoding, Identification, Profile};
+
+    /// The profile this program ships for `doc/questions/A18`'s output intent, read out of the
+    /// file rather than off the page that offers it — which is what `data/icc/PROVENANCE.md`
+    /// records having done by hand, and this is the same reading done by the code that will
+    /// embed it.
+    #[test]
+    fn the_shipped_srgb_profile_states_its_class_space_and_terms() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        let stated = Identification::read(bytes).expect("the shipped profile is a profile");
+        assert_eq!(&stated.class, b"mntr", "a monitor profile");
+        assert_eq!(&stated.space, b"RGB ", "over RGB");
+        assert_eq!(stated.version, (2, 0, 0), "ICC version 2.0.0");
+        assert_eq!(stated.description.as_deref(), Some("sRGB2014"));
+        assert_eq!(
+            stated.copyright.as_deref(),
+            Some("Copyright International Color Consortium, 2015"),
+            "the tag ISO 15076-1 puts a profile's terms of use in"
+        );
+    }
+
+    #[test]
+    fn bytes_that_are_not_a_profile_are_not_read_as_one() {
+        assert_eq!(Identification::read(&[0u8; 200]), None, "no acsp signature");
+        assert_eq!(Identification::read(b"short"), None, "no header at all");
+    }
+
+    /// A v4 profile states both tags as `multiLocalizedUnicodeType`, so the v2 reading alone
+    /// would answer nothing for a press profile somebody supplies.
+    #[test]
+    fn a_multi_localized_tag_is_read_as_the_other_two_are() {
+        let mut tag = b"mluc\0\0\0\0".to_vec();
+        tag.extend_from_slice(&1u32.to_be_bytes());
+        tag.extend_from_slice(&12u32.to_be_bytes());
+        tag.extend_from_slice(b"enUS");
+        let text: Vec<u8> = "Held by somebody"
+            .encode_utf16()
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        tag.extend_from_slice(&u32::try_from(text.len()).expect("small").to_be_bytes());
+        tag.extend_from_slice(&28u32.to_be_bytes());
+        tag.extend_from_slice(&text);
+        let profile = profile_of(*b"CMYK", *b"XYZ ", 4, &[(*b"cprt", tag)]);
+        let stated = Identification::read(&profile).expect("a profile");
+        assert_eq!(stated.copyright.as_deref(), Some("Held by somebody"));
+        assert_eq!(stated.description, None, "no desc tag was written");
+    }
 
     /// A real CMYK profile, taken from the pdf.js corpus at test time.
     ///

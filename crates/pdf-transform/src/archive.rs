@@ -32,25 +32,28 @@
 //! nothing is changed that no failed requirement asked for, and no file is written that does not
 //! conform.
 //!
-//! # What this slice does and what it refuses
+//! # What this verb does and what it refuses
 //!
-//! The mechanical rewrites of `doc/pdf-a-conversion-limits.md` section 4.7 that need no resource
-//! this tree does not ship. **Everything else is refused by name**: the output intent and colour
-//! (section 4.1, which needs an ICC profile nobody has shipped yet), fonts (section 4.9), metadata
-//! and the identification schema (section 4.2), the structure tree (section 5.1), encryption
-//! (section 3.5) and attachments (section 3.1). A document needing one of those is told which
-//! requirement, at which clause, this converter cannot yet meet — and no file is written. A stub
-//! that wrote one anyway would be producing a file wearing a conformance claim it had not earned,
-//! which is the failure section 7 of that document exists to prevent.
+//! The mechanical rewrites of `doc/pdf-a-conversion-limits.md` section 4.7, and the two section 4
+//! *defaults* without which almost no real document can be made to conform at all: **the output
+//! intent** (section 4.1) and **the identification schema** (section 4.2). **Everything else is
+//! refused by name**: fonts (section 4.9), the structure tree (section 5.1), encryption
+//! (section 3.5), attachments (section 3.1), `/Info` reconciliation and the extension schemas a
+//! producer's private XMP property needs (section 4.2's other halves). A document needing one of
+//! those is told which requirement, at which clause, this converter cannot yet meet — and no file
+//! is written. A stub that wrote one anyway would be producing a file wearing a conformance claim
+//! it had not earned, which is the failure section 7 of that document exists to prevent.
 //!
 //! # The report is an output, not a log
 //!
 //! `doc/adr/0927`: the owner's four permissions to write something a producer did not — `A18`,
 //! `A21`, `A48`, `A50` — all carry one condition, that **what was written is reported**, named
-//! per document rather than inferable from a diff. None of those four permissions is exercised
-//! by this slice, and the report they require is built now regardless, because a report designed
-//! after the writing has begun is a log. [`Conversion`] is it, and it reaches a caller through
-//! [`crate::Report::archive`] whether or not a file was written.
+//! per document rather than inferable from a diff. `A18` is the first of the four this verb
+//! exercises, and its condition is why [`Decision::Stated`] exists as a variant of its own: an
+//! output intent loses nothing and all the same changes what every device colour in the file
+//! means to a conforming reader, so the sentence saying so travels with the decision rather than
+//! being left to a caller to remember. [`Conversion`] is the report, and it reaches a caller
+//! through [`crate::Report::archive`] whether or not a file was written.
 //!
 //! # One cost, stated
 //!
@@ -63,8 +66,11 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write as _;
 
-use pdf_archive::{Judgement, Outcome, Target, Verdict};
+use pdf_archive::survey::DeviceFamily;
+use pdf_archive::{Flavour, Judgement, Level, Outcome, Target, Verdict};
 use pdf_model::Pages;
+use pdf_model::icc::Identification;
+use pdf_model::xmp::{self, Schema};
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::{Assembly, Form, ObjectStreams, Options, Streams, flate_encode};
 use pdf_syntax::{Document, Version, serialize::serialize};
@@ -87,6 +93,16 @@ const MAX_WALK_DEPTH: usize = 257;
 /// either — ISO 19005 chose it.
 const COMPRESSION_LEVEL: u32 = 9;
 
+/// The ICC profile this program ships, and the default destination profile of an output intent
+/// it adds.
+///
+/// `doc/questions/A18`: ship the standard sRGB profile, with a flag to override it.
+/// `data/icc/PROVENANCE.md` records which of the ICC's four sRGB profiles this is and why — the
+/// short answer being that ISO 19005-2 section 6.2.4.2 names the ICC editions a profile may
+/// conform to and the ICC's headline v4 download conforms to none of them. It is `static` data,
+/// so it costs no parse time until something asks for it.
+const SRGB: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+
 /// One document converted to a stated part and level of ISO 19005.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArchivePlan {
@@ -102,6 +118,15 @@ pub struct ArchivePlan {
     pub target: Target,
     /// What the caller has authorised this conversion to lose.
     pub authorised: Authorisations,
+    /// The ICC profile an output intent this conversion adds states as its destination profile.
+    ///
+    /// `None` is the shipped sRGB profile, which is `doc/questions/A18`'s answer and
+    /// [`SRGB`]'s reason for existing. A caller supplies one — `--output-intent-profile` —
+    /// for a document produced for a press, which is the case
+    /// `doc/pdf-a-conversion-limits.md` section 10.1 says nobody but the document's owner can
+    /// decide. A supplied profile's own `cprt` tag is named in the report, because a user
+    /// embedding somebody else's profile is entitled to be told whose it is.
+    pub profile: Option<std::sync::Arc<[u8]>>,
 }
 
 /// Something a conversion can throw away, which a user has to authorise first.
@@ -224,6 +249,14 @@ pub enum Rewrite {
     AlternatePresentations,
     /// Every page's `/PresSteps` is removed.
     PresentationSteps,
+    /// The catalog's `/OutputIntents` gains a PDF/A entry naming a destination profile.
+    ///
+    /// **The one rewrite of this verb that changes what the file *means*** rather than only what
+    /// it holds, which is why it is a [`Decision::Stated`] and not a [`Decision::Mechanical`].
+    OutputIntent,
+    /// The document's XMP packet states the identification schema the target's part requires,
+    /// and is created where the document had none.
+    IdentificationSchema,
 }
 
 impl Rewrite {
@@ -251,6 +284,14 @@ impl Rewrite {
                 "the name dictionary's /AlternatePresentations is removed"
             }
             Self::PresentationSteps => "a page's /PresSteps is removed",
+            Self::OutputIntent => {
+                "the catalog states a PDF/A output intent whose destination profile says what \
+                 this file's device colours mean"
+            }
+            Self::IdentificationSchema => {
+                "the document's XMP packet states this part's identification schema, and is \
+                 created where the document had none"
+            }
         }
     }
 
@@ -270,6 +311,8 @@ impl Rewrite {
             Self::RequirementsDictionary => "requirements-dictionary",
             Self::AlternatePresentations => "alternate-presentations",
             Self::PresentationSteps => "presentation-steps",
+            Self::OutputIntent => "output-intent",
+            Self::IdentificationSchema => "identification-schema",
         }
     }
 }
@@ -343,6 +386,22 @@ pub enum Decision {
         /// The rewrite that would have lost it.
         rewrite: Rewrite,
     },
+    /// section 4: the requirement is met by writing down an interpretation the standard defines,
+    /// which changes what the file *asserts* without changing what it holds.
+    ///
+    /// **The class `doc/adr/0927`'s four permissions belong to**, and the reason it is not
+    /// [`Self::Mechanical`]: nothing is lost, and something all the same is different afterwards.
+    /// `doc/questions/A48` draws the line these sit on — *state an interpretation the standard
+    /// defines; never fill in an absence* — and each of the four is conditional on the same
+    /// thing, that what was written is reported. So the sentence saying what a different reader
+    /// may now do differently rides in the decision itself rather than being left to a caller to
+    /// remember.
+    Stated {
+        /// The rewrite that states it.
+        rewrite: Rewrite,
+        /// What is now asserted that was not before, in one sentence for a person.
+        reinterprets: &'static str,
+    },
     /// section 2: no file is written, and the reason says which of three kinds of *no* this is.
     Refused(Because),
 }
@@ -351,14 +410,19 @@ impl Decision {
     /// Whether this decision lets the conversion proceed.
     #[must_use]
     pub const fn proceeds(self) -> bool {
-        matches!(self, Self::Mechanical(_) | Self::Authorised { .. })
+        matches!(
+            self,
+            Self::Mechanical(_) | Self::Stated { .. } | Self::Authorised { .. }
+        )
     }
 
     /// The rewrite this decision performs, where it performs one.
     #[must_use]
     pub const fn rewrite(self) -> Option<Rewrite> {
         match self {
-            Self::Mechanical(rewrite) | Self::Authorised { rewrite, .. } => Some(rewrite),
+            Self::Mechanical(rewrite)
+            | Self::Stated { rewrite, .. }
+            | Self::Authorised { rewrite, .. } => Some(rewrite),
             Self::Unauthorised { .. } | Self::Refused(_) => None,
         }
     }
@@ -368,6 +432,7 @@ impl Decision {
     pub const fn word(self) -> &'static str {
         match self {
             Self::Mechanical(_) => "mechanical",
+            Self::Stated { .. } => "stated",
             Self::Authorised { .. } => "authorised",
             Self::Unauthorised { .. } => "unauthorised",
             Self::Refused(_) => "refused",
@@ -383,8 +448,27 @@ impl Decision {
 enum Answer {
     /// A rewrite that loses nothing.
     Mechanical(Rewrite),
+    /// A rewrite that states an interpretation, with the sentence [`Decision::Stated`] carries.
+    ///
+    /// The `Option<DeviceFamily>` is the one thing a static table cannot answer about an output
+    /// intent: ISO 19005 section 6.2.4.3 licenses `DeviceRGB` through an **RGB** destination
+    /// profile and `DeviceCMYK` through a **CMYK** one, so which of those rows an intent answers
+    /// depends on the profile in hand rather than on the requirement alone. `None` is a row any
+    /// PDF/A output intent answers whatever its profile is.
+    Stated(Option<DeviceFamily>, Rewrite, &'static str),
     /// A rewrite that loses something, which the caller must authorise.
     Loses(Loss, Rewrite),
+}
+
+impl Answer {
+    /// The rewrite this answer performs, whatever the caller has authorised.
+    const fn rewrite(self) -> Rewrite {
+        match self {
+            Self::Mechanical(rewrite) | Self::Stated(_, rewrite, _) | Self::Loses(_, rewrite) => {
+                rewrite
+            }
+        }
+    }
 }
 
 /// One row of the converter's decision table: what to do about one of the validator's
@@ -401,6 +485,32 @@ struct Remedy {
     /// What is done about it.
     answer: Answer,
 }
+
+/// What adding an output intent asserts, which is `doc/questions/A18`'s condition on allowing it.
+///
+/// The answer attaches this to the permission rather than to the code: the difference has to be
+/// **visible in the report, not only in the bytes**. `doc/adr/0927` has the argument — an output
+/// intent is what a conforming reader colour-manages device colours *through*, so writing one
+/// down records the interpretation this renderer was applying anyway (§10.4.2) and at the same
+/// time changes what a *different* reader is told those colours mean.
+const OUTPUT_INTENT_REINTERPRETS: &str = "a PDF/A output intent is what a conforming reader \
+     colour-manages device colours through, so every DeviceGray, DeviceRGB and DeviceCMYK value \
+     in this file now means what the destination \
+     profile says it means, and the same profile becomes the default blending space for \
+     transparency. This renderer already showed those colours that way; another reader may not \
+     have, and for content separated for a particular press the difference is real rather than \
+     imperceptible — supply that press's profile with --output-intent-profile instead";
+
+/// The one requirement identifier that will not fit beside its key inside 100 columns.
+const CMYK_UNDER_PART_FOUR: &str =
+    "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent";
+
+/// Why a colour requirement an output intent of another family answers is refused.
+const WRONG_FAMILY: &str = "this requirement is licensed by a destination profile of its own \
+     colour family, and the profile this conversion has is of another. Supply the right one with \
+     --output-intent-profile; for CMYK with no profile to hand, \
+     doc/pdf-a-conversion-limits.md section 10.1 states the DeviceN /DefaultCMYK construction the \
+     standard's own §10.4.2.5 transform makes conforming, which this converter does not write yet";
 
 /// Every requirement this converter can answer, and how.
 ///
@@ -480,6 +590,150 @@ const REMEDIES: &[Remedy] = &[
         requirement: "alternate-presentations/no-presentation-steps",
         answer: Answer::Mechanical(Rewrite::PresentationSteps),
     },
+    // ISO 19005-2 section 6.2.4.3, ISO 19005-4 section 6.2.4.3, and the two transparency
+    // subclauses that turn on the same sentence — ISO 19005-2 section 6.2.10 and ISO 19005-4
+    // section 6.2.9. Every one of them licenses a device colour space through a PDF/A output
+    // intent, so one intent answers all of them at once; which of them it actually answers turns
+    // on the destination profile's own colour family, which is what `Answer::Stated` carries.
+    Remedy {
+        requirement: "graphics/device-rgb-needs-a-default-or-an-rgb-output-intent",
+        answer: Answer::Stated(
+            Some(DeviceFamily::Rgb),
+            Rewrite::OutputIntent,
+            OUTPUT_INTENT_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
+        answer: Answer::Stated(
+            Some(DeviceFamily::Rgb),
+            Rewrite::OutputIntent,
+            OUTPUT_INTENT_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+        answer: Answer::Stated(
+            Some(DeviceFamily::Cmyk),
+            Rewrite::OutputIntent,
+            OUTPUT_INTENT_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: CMYK_UNDER_PART_FOUR,
+        answer: Answer::Stated(
+            Some(DeviceFamily::Cmyk),
+            Rewrite::OutputIntent,
+            OUTPUT_INTENT_REINTERPRETS,
+        ),
+    },
+    // Both parts license `DeviceGray` through a PDF/A output intent of *any* family, and neither
+    // page-level rule below asks anything of the profile either.
+    Remedy {
+        requirement: "graphics/device-gray-needs-a-default-or-an-output-intent",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/device-gray-needs-a-default-or-a-current-output-intent",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    // ISO 19005-4 section 6.2.3's page-level rule binds only where the *document* states no
+    // PDF/A output intent, so a document-level one answers it outright and PDF/A-4's page-level
+    // intents are a facility this converter has no occasion to use. That is the clause read
+    // rather than the feature declined: a page-level intent is for a document mixing an RGB body
+    // with CMYK inserts, and choosing which pages get which profile is not a decision that can be
+    // taken from the file.
+    Remedy {
+        requirement: "graphics/a-device-dependent-page-carries-an-output-intent",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/a-transparent-page-has-a-blending-space",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/a-transparent-page-has-a-blending-space-or-an-output-intent",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9 make a transparency group's `CS`
+    // subject to the colour subclauses, and ISO 19005-2 section 6.2.4.5 and ISO 19005-4 section
+    // 6.2.4.5 do the same for what underlies an `Indexed` or a `Pattern`, section 6.2.4.4 for a
+    // `Separation` or `DeviceN` alternate. Which family each of those turns out to need is a fact
+    // about the document rather than about the requirement, so these rows state no family and the
+    // output's own verdict is what decides whether the intent answered them — which is exactly the
+    // case `doc/adr/0947`'s fourth decision built the net for.
+    Remedy {
+        requirement: "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/transparency-group-colour-spaces-obey-the-colour-rules-of-part-four",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules-of-part-four",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/separation-alternate-spaces-obey-the-colour-rules",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/separation-alternate-spaces-obey-the-colour-rules-of-part-four",
+        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1: the catalog states a metadata
+    // stream. Answered by the same rewrite as the schema itself, because a document with no packet
+    // gets one that states the schema and a document with one keeps every other property in it.
+    Remedy {
+        requirement: "metadata/catalog-metadata-stream",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    // ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3: the identification schema, which
+    // is the file's own claim to be PDF/A. `doc/pdf-a-conversion-limits.md` section 4.2 calls it
+    // **Mechanical**, "and the one place the converter states a claim about its own output" — the
+    // claim being safe because `doc/adr/0947`'s third stage holds the output to the target again
+    // before the file is written.
+    Remedy {
+        requirement: "metadata/identification-schema-prefix",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-part-number",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-conformance-level",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-declares-level-a",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-part-number-four",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-revision-year",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-states-no-flavour",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-declares-flavour-e",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
+    Remedy {
+        requirement: "metadata/identification-declares-flavour-f",
+        answer: Answer::Mechanical(Rewrite::IdentificationSchema),
+    },
 ];
 
 /// The requirements the *writer* satisfies, because every output of this verb is a new file.
@@ -558,12 +812,554 @@ const UTF8_NAMES: &str = "ISO 19005 binds these names to valid UTF-8, and renami
      row \
      as a refusal rather than a rewrite";
 
+/// The two spellings the two parts print for the identification schema's namespace.
+///
+/// ISO 19005-2 section 6.6.4 gives it with an `http` scheme and ISO 19005-4 section 6.7.3 with an
+/// `https` one. A conversion writes the one its target's part prints and **removes both**, because
+/// a property left behind under the other spelling would be a second claim standing beside the one
+/// just written.
+const IDENTIFICATION_URIS: [&str; 2] = [
+    "http://www.aiim.org/pdfa/ns/id/",
+    "https://www.aiim.org/pdfa/ns/id/",
+];
+
+/// The prefix both parts make required for every property of the identification schema.
+const IDENTIFICATION_PREFIX: &str = "pdfaid";
+
+/// The publication year ISO 19005-4's own revision property names.
+const REVISION_YEAR: &str = "2020";
+
+/// Why no output intent could be prepared for this document.
+const NO_USABLE_PROFILE: &str = "an output intent needs a destination profile that is an ICC \
+     profile of an output or monitor class over grey, RGB or CMYK, and this conversion has none: \
+     either the profile supplied with --output-intent-profile is not one, or the file already \
+     holds a destination profile that is not — and ISO 19005 requires every entry of an \
+     OutputIntents array to name the same profile object, so a second one cannot be added beside \
+     it";
+
+/// Why a producer's XMP packet could not be given the identification schema.
+const PACKET_NOT_EDITABLE: &str = "this document's XMP packet cannot be edited in place, and \
+     replacing it would throw away metadata its producer wrote — which is a loss nobody has been \
+     asked to authorise. doc/pdf-a-conversion-limits.md section 4.2 is where that question \
+     belongs, and this converter does not put it yet";
+
+/// The placeholder for a construction no failed requirement asked for.
+///
+/// Never reported: `decide` reads a preparation's reason only for a requirement the table answers
+/// with the rewrite that preparation builds, and such a requirement is exactly what makes the
+/// preparation happen. It says so rather than borrowing another reason's sentence.
+const NOT_ASKED_FOR: &str = "no requirement this document failed asked for this construction, so \
+     none was prepared";
+
+/// Why neither construction could be prepared for a document with no readable catalog.
+///
+/// Unreachable through [`run`], which refuses such a document before stage 1; it exists so that
+/// the reason a requirement is refused with is never a reason that is not the actual one.
+const NO_CATALOG: &str = "this document has no readable catalog, so there is nowhere to state an \
+     output intent or a metadata stream";
+
+/// Why an object could not be added to the output.
+const NO_SPARE_OBJECT: &str = "this document uses every object number a conversion could give to \
+     the stream it has to add";
+
+/// The properties the identification schema states for one target.
+///
+/// ISO 19005-2 section 6.6.4 asks for a part number of 2 and a conformance level of A, B or U;
+/// ISO 19005-4 section 6.7.3 asks for a part number of 4 and a revision year, and reserves a
+/// conformance property for the two annexes — a file that is neither PDF/A-4e nor PDF/A-4f states
+/// none at all. **Part 4's own table spells that property with a `pdfa` prefix** in a schema whose
+/// required prefix the same table gives as `pdfaid`; `pdf_archive`'s metadata tranche records why
+/// it reads the property in the identification namespace whatever prefix spells it, and this
+/// writes `pdfaid` because that is the prefix the subclause makes required and the one
+/// `metadata/identification-schema-prefix` holds a file to.
+fn identification_properties(target: Target) -> Vec<(&'static str, String)> {
+    match target {
+        Target::Two(level) => vec![
+            ("part", "2".to_owned()),
+            (
+                "conformance",
+                match level {
+                    Level::A => "A",
+                    Level::B => "B",
+                    Level::U => "U",
+                }
+                .to_owned(),
+            ),
+        ],
+        Target::Four(flavour) => {
+            let mut out = vec![("part", "4".to_owned()), ("rev", REVISION_YEAR.to_owned())];
+            match flavour {
+                Flavour::Plain => {}
+                Flavour::E => out.push(("conformance", "E".to_owned())),
+                Flavour::F => out.push(("conformance", "F".to_owned())),
+            }
+            out
+        }
+    }
+}
+
+/// The namespace URI the target's own part prints for the identification schema.
+const fn identification_uri(target: Target) -> &'static str {
+    match target.part() {
+        pdf_archive::Part::Two => IDENTIFICATION_URIS[0],
+        pdf_archive::Part::Four => IDENTIFICATION_URIS[1],
+    }
+}
+
+/// Where an output intent's destination profile came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileSource {
+    /// The sRGB profile this program ships — `doc/questions/A18`'s default.
+    Shipped,
+    /// One the caller supplied.
+    Supplied,
+    /// One the document already held.
+    ///
+    /// Not a choice this conversion made: ISO 19005 requires every entry of an `OutputIntents`
+    /// array that states a destination profile to state the *same* object, so a file that already
+    /// holds one decides what a new entry names.
+    AlreadyInTheFile,
+}
+
+impl ProfileSource {
+    /// A stable word for the report's machine-readable form.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Shipped => "shipped",
+            Self::Supplied => "supplied",
+            Self::AlreadyInTheFile => "already-in-the-file",
+        }
+    }
+
+    /// Where the profile came from, in one clause for a person.
+    #[must_use]
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Shipped => "the sRGB profile this program ships",
+            Self::Supplied => "the profile you supplied",
+            Self::AlreadyInTheFile => "the destination profile this file already held",
+        }
+    }
+}
+
+/// The destination profile a conversion's output intent names, as the report states it.
+///
+/// **The `cprt` tag is the load-bearing field.** `doc/pdf-a-conversion-limits.md` section 10.1
+/// records the ICC's own guidance that a profile's copyright owner and terms of use live in its
+/// header's creator field and its `cprt` tag, and turns that into a rule: a user who embeds
+/// somebody else's press profile is told whose it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DestinationProfile {
+    /// Where it came from.
+    pub source: ProfileSource,
+    /// The profile's `desc` tag: what it calls itself.
+    pub describes: Option<String>,
+    /// Its `cprt` tag: whose profile it is, and on what terms.
+    pub copyright: Option<String>,
+    /// The colour space its own header states.
+    pub space: String,
+}
+
+impl DestinationProfile {
+    /// The profile as JSON.
+    fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("source".to_owned(), Value::text(self.source.word())),
+            (
+                "describes".to_owned(),
+                self.describes
+                    .as_ref()
+                    .map_or(Value::Null, |text| Value::text(text.clone())),
+            ),
+            (
+                "copyright".to_owned(),
+                self.copyright
+                    .as_ref()
+                    .map_or(Value::Null, |text| Value::text(text.clone())),
+            ),
+            ("space".to_owned(), Value::text(self.space.clone())),
+        ])
+    }
+}
+
+/// The output intent a conversion is in a position to add.
+struct Intent {
+    /// The object the destination profile is, in the *source's* numbering.
+    destination: ObjectId,
+    /// The profile stream this conversion adds, where it adds one.
+    written: Option<Object>,
+    /// The colour family the profile's own header states.
+    family: DeviceFamily,
+    /// What the report says about the profile.
+    reported: DestinationProfile,
+}
+
+/// The metadata stream a conversion is in a position to write.
+struct Metadata {
+    /// The object the packet goes in, in the *source's* numbering.
+    at: ObjectId,
+    /// The stream this conversion adds, where the document had no packet to edit.
+    written: Option<Object>,
+    /// The packet, for the stream that carries it.
+    packet: Vec<u8>,
+}
+
+/// What this slice's two constructions need, worked out before any decision is taken.
+///
+/// Both depend on the *document* rather than on the requirement alone — whether a profile can be
+/// shared with one the file already holds, whether the packet a producer wrote can be edited in
+/// place — and **a decision that cannot be carried out is a refusal rather than a plan**, which
+/// is the rule [`version_for`] already answers to. So both are settled here, in stage 2, and the
+/// reason each failed is the reason the requirements it would have answered are refused with.
+///
+/// Nothing is prepared that no failed requirement asked for: a document that already conforms
+/// does not have its packet read, which is what keeps `doc/adr/0947`'s first rule true of this
+/// slice as well.
+struct Prepared {
+    /// The output intent to add, or why one cannot be.
+    intent: Result<Intent, Because>,
+    /// The metadata stream to write, or why one cannot be.
+    metadata: Result<Metadata, Because>,
+}
+
+impl Prepared {
+    /// Works out what can be built for this document, and only what a failed requirement asks for.
+    fn of(plan: &ArchivePlan, document: &Document, failed: &BTreeSet<&'static str>) -> Self {
+        let wanted = |rewrite: Rewrite| {
+            REMEDIES.iter().any(|remedy| {
+                failed.contains(remedy.requirement) && remedy.answer.rewrite() == rewrite
+            })
+        };
+        let mut spare = Spare::of(document);
+        let catalog = document.catalog().ok();
+        Self {
+            intent: match (wanted(Rewrite::OutputIntent), catalog.as_ref()) {
+                (true, Some(catalog)) => prepare_intent(plan, document, catalog, &mut spare),
+                (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+                // Nothing failed that an output intent answers, so nothing is prepared and the
+                // reason is never read: `decide` consults this only for a requirement `wanted`
+                // has already found in the table.
+                (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+            },
+            metadata: match (wanted(Rewrite::IdentificationSchema), catalog.as_ref()) {
+                (true, Some(catalog)) => {
+                    prepare_metadata(plan.target, document, catalog, &mut spare)
+                }
+                (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+                (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+            },
+        }
+    }
+
+    /// The objects the conversion adds, in the source's numbering, for [`enter`] to find.
+    fn added(&self) -> BTreeMap<ObjectId, Object> {
+        let mut out = BTreeMap::new();
+        if let Ok(intent) = &self.intent
+            && let Some(object) = &intent.written
+        {
+            out.insert(intent.destination, object.clone());
+        }
+        if let Ok(metadata) = &self.metadata
+            && let Some(object) = &metadata.written
+        {
+            out.insert(metadata.at, object.clone());
+        }
+        out
+    }
+}
+
+/// Object numbers nothing in the source resolves to, for the objects a conversion adds.
+///
+/// Past the highest number any cross-reference section names, and then checked one at a time:
+/// **the objects a conversion adds are built in the source's numbering** like every other object
+/// this verb rewrites, so a number that collided with a source object would silently replace it.
+struct Spare {
+    /// The next number to try.
+    next: u32,
+}
+
+impl Spare {
+    /// Begins past the highest object number the document's cross-reference sections name.
+    fn of(document: &Document) -> Self {
+        let highest = document.xref().object_numbers().max().unwrap_or(0);
+        Self {
+            next: highest.saturating_add(1),
+        }
+    }
+
+    /// The next number the document resolves to nothing.
+    fn take(&mut self, document: &Document) -> Option<ObjectId> {
+        for _ in 0..MAX_SPARE_NUMBERS {
+            let id = ObjectId::new(self.next, 0);
+            self.next = self.next.checked_add(1)?;
+            if document.get(id) == Object::Null {
+                return Some(id);
+            }
+        }
+        None
+    }
+}
+
+/// How many object numbers [`Spare`] tries before giving up.
+const MAX_SPARE_NUMBERS: usize = 64;
+
+/// The `/OutputIntents` array the catalog states, resolved to its entries.
+fn output_intent_entries(document: &Document, catalog: &Dictionary) -> Vec<Object> {
+    document
+        .get_key(catalog, "OutputIntents")
+        .as_array()
+        .map(<[Object]>::to_vec)
+        .unwrap_or_default()
+}
+
+/// The colour family a profile's header names, where it is one of ISO 19005's three.
+fn family_of(stated: &Identification) -> Option<DeviceFamily> {
+    // ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 admit an output or a monitor
+    // profile and no other class, and grey, RGB or CMYK and no other space. `pdf_archive` judges
+    // both of a file's own profile; this asks the same question of one about to be written, so
+    // that a conversion cannot add a profile the validator would then reject.
+    if stated.class != *b"prtr" && stated.class != *b"mntr" {
+        return None;
+    }
+    match &stated.space {
+        b"GRAY" => Some(DeviceFamily::Gray),
+        b"RGB " => Some(DeviceFamily::Rgb),
+        b"CMYK" => Some(DeviceFamily::Cmyk),
+        _ => None,
+    }
+}
+
+/// Prepares the output intent: the profile it names, and where that profile comes from.
+fn prepare_intent(
+    plan: &ArchivePlan,
+    document: &Document,
+    catalog: &Dictionary,
+    spare: &mut Spare,
+) -> Result<Intent, Because> {
+    let wrong = Because::NotBuiltYet(NO_USABLE_PROFILE);
+    // ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3: where an OutputIntents array holds
+    // more than one entry, every entry stating a destination profile states the *same* object. So
+    // a file that already holds one decides what a new entry may name, and adding a second
+    // profile beside it is not open to this conversion at all.
+    if let Some(destination) = held_destination_profile(document, catalog) {
+        let Object::Stream(stream) = document.get(destination) else {
+            return Err(wrong);
+        };
+        let data = document.decoded_stream_data(&stream).ok_or(wrong)?;
+        let stated = Identification::read(&data).ok_or(wrong)?;
+        let family = family_of(&stated).ok_or(wrong)?;
+        return Ok(Intent {
+            destination,
+            written: None,
+            family,
+            reported: DestinationProfile {
+                source: ProfileSource::AlreadyInTheFile,
+                space: stated.space_name(),
+                describes: stated.description,
+                copyright: stated.copyright,
+            },
+        });
+    }
+
+    let (source, bytes) = match &plan.profile {
+        Some(supplied) => (ProfileSource::Supplied, supplied.to_vec()),
+        None => (ProfileSource::Shipped, SRGB.to_vec()),
+    };
+    let stated = Identification::read(&bytes).ok_or(wrong)?;
+    let family = family_of(&stated).ok_or(wrong)?;
+    let destination = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    Ok(Intent {
+        destination,
+        written: Some(profile_stream(&bytes, family)),
+        family,
+        reported: DestinationProfile {
+            source,
+            space: stated.space_name(),
+            describes: stated.description,
+            copyright: stated.copyright,
+        },
+    })
+}
+
+/// The object an entry of the catalog's `OutputIntents` array already names as its destination
+/// profile, where one does.
+fn held_destination_profile(document: &Document, catalog: &Dictionary) -> Option<ObjectId> {
+    output_intent_entries(document, catalog)
+        .iter()
+        .filter_map(|entry| document.resolve(entry).as_dict().cloned())
+        .find_map(|entry| {
+            entry
+                .get("DestOutputProfile")
+                .and_then(Object::as_reference)
+        })
+}
+
+/// The ICC profile stream an output intent names.
+///
+/// §14.11.5's Table 401 makes `DestOutputProfile` "[a]n ICC profile stream defining the
+/// transformation from the PDF document's source colours to output device colourants" and says
+/// that "[t]he format of the profile stream is the same as that used in specifying an `ICCBased`
+/// colour space", which is §8.6.5.5's — hence the `/N`.
+fn profile_stream(bytes: &[u8], family: DeviceFamily) -> Object {
+    let components = match family {
+        DeviceFamily::Gray => 1,
+        DeviceFamily::Rgb => 3,
+        DeviceFamily::Cmyk => 4,
+    };
+    let mut dict = Dictionary::new();
+    dict.insert(Name::new(&b"N"[..]), Object::Integer(components));
+    let data = match flate_encode(bytes, COMPRESSION_LEVEL) {
+        Some(encoded) => {
+            dict.insert(
+                Name::new(&b"Filter"[..]),
+                Object::Name(Name::new(&b"FlateDecode"[..])),
+            );
+            encoded
+        }
+        None => bytes.to_vec(),
+    };
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: data.into(),
+        decryption_failed: false,
+    }))
+}
+
+/// The output intent dictionary a conversion adds.
+///
+/// §14.11.5's Table 400 and Table 401 decide every entry, and one of them is a choice this file
+/// records rather than derives. `OutputConditionIdentifier` is required and the table says that
+/// "[i]f the intended production condition is not a recognised standard, the value of this entry
+/// may be `Custom` or an application-specific, machine-readable name" — so `Custom` is the
+/// standard's own word for exactly this case, and no convention is being copied from anywhere.
+/// The same sentence then says that "[t]he `DestOutputProfile` entry defines the ICC profile, and
+/// the `Info` entry shall be used for further human-readable identification", which is why `Info`
+/// carries the profile's own `desc` tag: it is read out of the profile rather than written about
+/// it. `S` is `GTS_PDFA1`, which both parts' section 6.2.3 requires of a PDF/A output intent.
+fn intent_dictionary(intent: &Intent) -> Dictionary {
+    let mut out = Dictionary::new();
+    out.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"OutputIntent"[..])),
+    );
+    out.insert(
+        Name::new(&b"S"[..]),
+        Object::Name(Name::new(&b"GTS_PDFA1"[..])),
+    );
+    out.insert(
+        Name::new(&b"OutputConditionIdentifier"[..]),
+        Object::String(b"Custom".to_vec().into()),
+    );
+    let info = intent
+        .reported
+        .describes
+        .clone()
+        .unwrap_or_else(|| "the ICC profile embedded beside this entry".to_owned());
+    out.insert(
+        Name::new(&b"Info"[..]),
+        Object::String(info.into_bytes().into()),
+    );
+    out.insert(
+        Name::new(&b"DestOutputProfile"[..]),
+        Object::Reference(intent.destination),
+    );
+    out
+}
+
+/// Prepares the metadata stream: the packet, and the object it goes in.
+///
+/// Two cases, and the difference between them is the whole of what makes this safe. A document
+/// with a packet has it **edited in place** — `pdf_model::xmp::restate` cuts the identification
+/// schema's properties out of the producer's own bytes and puts this target's in, leaving every
+/// other byte alone. A document with none gets a fresh packet stating the schema and nothing
+/// else. What is never done is reading a producer's packet to a value and printing it again: this
+/// tree's reader keeps neither an `rdf:about` subject nor a qualifier other than `xml:lang`, so a
+/// packet round-tripped through it would come back quietly poorer.
+fn prepare_metadata(
+    target: Target,
+    document: &Document,
+    catalog: &Dictionary,
+    spare: &mut Spare,
+) -> Result<Metadata, Because> {
+    let properties = identification_properties(target);
+    let schema = Schema {
+        namespace: identification_uri(target),
+        prefix: IDENTIFICATION_PREFIX,
+        properties: &properties,
+    };
+    if let Some(at) = catalog.get("Metadata").and_then(Object::as_reference)
+        && let Object::Stream(stream) = document.get(at)
+        && let Some(bytes) = document.decoded_stream_data(&stream)
+    {
+        let packet = xmp::restate(&bytes, &IDENTIFICATION_URIS, &schema)
+            .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?;
+        return Ok(Metadata {
+            at,
+            written: None,
+            packet,
+        });
+    }
+    let at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    let packet = xmp::packet(&schema);
+    Ok(Metadata {
+        at,
+        written: Some(metadata_stream(&Dictionary::new(), &packet)),
+        packet,
+    })
+}
+
+/// One metadata stream, with the two entries §14.3.2's Table 347 requires of it.
+///
+/// `/Type`:
+///
+/// > ( Required ) The type of PDF object that this dictionary describes; shall be Metadata for a
+/// > metadata stream.
+///
+/// `/Subtype`:
+///
+/// > ( Required ) The type of metadata stream that this dictionary describes; shall be XML .
+///
+/// The packet is written uncompressed, which is what §14.3.2's own EXAMPLE shows and what leaves
+/// a document's metadata legible to a reader that is not a PDF parser. Any filter the source's
+/// stream stated goes with the bytes it decoded.
+fn metadata_stream(from: &Dictionary, packet: &[u8]) -> Object {
+    let mut dict = from.clone();
+    dict.remove("Filter");
+    dict.remove("DecodeParms");
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Metadata"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"XML"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(packet.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: packet.to_vec().into(),
+        decryption_failed: false,
+    }))
+}
+
 /// Decides what to do about every requirement the document failed.
 ///
 /// The middle stage, as a pure function of the validator's report and the caller's
 /// authorisations. **A requirement absent from [`REMEDIES`] and [`WRITER_EMITS`] is refused by
 /// name** — never passed over, and never answered by a rewrite invented here.
-fn decide(judgement: &Judgement, authorised: Authorisations) -> Decision {
+fn decide(judgement: &Judgement, authorised: Authorisations, prepared: &Prepared) -> Decision {
     if judgement.id == "file-structure/bound-names-are-valid-utf8" {
         return Decision::Refused(Because::TheFence(UTF8_NAMES));
     }
@@ -585,7 +1381,31 @@ fn decide(judgement: &Judgement, authorised: Authorisations) -> Decision {
         return Decision::Refused(Because::NotBuiltYet(NOT_BUILT_YET));
     };
     match remedy.answer {
+        // The two rewrites this slice added are answers only where the construction they need
+        // could be prepared, and the reason it could not is the reason the requirement is
+        // refused with — never this converter's own paraphrase of it.
+        Answer::Mechanical(Rewrite::IdentificationSchema) => match &prepared.metadata {
+            Ok(_) => Decision::Mechanical(Rewrite::IdentificationSchema),
+            Err(because) => Decision::Refused(*because),
+        },
         Answer::Mechanical(rewrite) => Decision::Mechanical(rewrite),
+        Answer::Stated(family, Rewrite::OutputIntent, reinterprets) => match &prepared.intent {
+            Err(because) => Decision::Refused(*because),
+            // ISO 19005 section 6.2.4.3 licenses a device colour space through a destination
+            // profile **of its own family**, so a row naming one is answered by this intent only
+            // where the profile in hand is that family's. A row naming none is answered by any
+            // PDF/A output intent, and a row whose family is the *document's* rather than the
+            // requirement's names none — the output's own verdict is what settles those.
+            Ok(intent) if family.is_none_or(|wanted| wanted == intent.family) => Decision::Stated {
+                rewrite: Rewrite::OutputIntent,
+                reinterprets,
+            },
+            Ok(_) => Decision::Refused(Because::NotBuiltYet(WRONG_FAMILY)),
+        },
+        Answer::Stated(_, rewrite, reinterprets) => Decision::Stated {
+            rewrite,
+            reinterprets,
+        },
         Answer::Loses(loss, rewrite) if authorised.grants(loss) => {
             Decision::Authorised { loss, rewrite }
         }
@@ -668,6 +1488,13 @@ pub struct Conversion {
     /// `None` means no file was written: some decision refused, and [`Conversion::decided`]
     /// says which.
     pub achieved: Option<Achieved>,
+    /// The destination profile the output intent this conversion added names.
+    ///
+    /// `None` where no output intent was added. `doc/questions/A18` makes this half of the
+    /// report the condition on the permission: a conversion that adds an output intent has
+    /// changed what every device colour in the file means to a conforming reader, and a user is
+    /// entitled to be told which profile decided that and whose profile it is.
+    pub profile: Option<DestinationProfile>,
 }
 
 impl Conversion {
@@ -703,6 +1530,12 @@ impl Conversion {
                     .as_ref()
                     .map_or(Value::Null, Achieved::to_json),
             ),
+            (
+                "output_intent_profile".to_owned(),
+                self.profile
+                    .as_ref()
+                    .map_or(Value::Null, DestinationProfile::to_json),
+            ),
         ])
     }
 
@@ -723,15 +1556,39 @@ impl Conversion {
             self.target,
             self.conformed.len()
         );
+        // One rewrite can answer a dozen requirements — an output intent answers most of the
+        // colour subclause at once — and its sentence about what the file now asserts is the same
+        // sentence every time. Said once, so that a reader meets it rather than skims past it;
+        // the JSON keeps it against each decision, where a machine wants it.
+        let mut said: BTreeSet<&'static str> = BTreeSet::new();
         for decided in &self.decided {
+            let repeated = match decided.decision {
+                Decision::Stated { reinterprets, .. } => !said.insert(reinterprets),
+                _ => false,
+            };
             let _ = writeln!(
                 out,
                 "  {} ({}) — {} place(s)\n      {}",
                 decided.requirement,
                 decided.citation,
                 decided.places,
-                describe_decision(decided)
+                describe_decision(decided, repeated)
             );
+        }
+        if let Some(profile) = &self.profile {
+            let _ = writeln!(
+                out,
+                "  the output intent's destination profile is {}{}, over {}",
+                profile.source.describe(),
+                profile
+                    .describes
+                    .as_ref()
+                    .map_or_else(String::new, |name| format!(" ({name})")),
+                profile.space
+            );
+            if let Some(copyright) = &profile.copyright {
+                let _ = writeln!(out, "      its copyright tag says: {copyright}");
+            }
         }
         if let Some(achieved) = &self.achieved {
             let verdict = if achieved.conforms {
@@ -772,13 +1629,29 @@ impl Conversion {
 }
 
 /// One decision, worded for a person.
-fn describe_decision(decided: &Decided) -> String {
+fn describe_decision(decided: &Decided, repeated: bool) -> String {
     match decided.decision {
         Decision::Mechanical(rewrite) => {
             format!(
                 "changed, losing nothing: {} ({} done)",
                 rewrite.describe(),
                 decided.changed
+            )
+        }
+        Decision::Stated {
+            rewrite,
+            reinterprets,
+        } => {
+            let sentence = if repeated {
+                "the same interpretation as above"
+            } else {
+                reinterprets
+            };
+            format!(
+                "changed, stating an interpretation the standard defines: {} ({} done)\n      {}",
+                rewrite.describe(),
+                decided.changed,
+                sentence
             )
         }
         Decision::Authorised { loss, rewrite } => format!(
@@ -812,6 +1685,13 @@ impl Decided {
         match self.decision {
             Decision::Mechanical(rewrite) => {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
+            }
+            Decision::Stated {
+                rewrite,
+                reinterprets,
+            } => {
+                fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
+                fields.push(("reinterprets".to_owned(), Value::text(reinterprets)));
             }
             Decision::Authorised { loss, rewrite } | Decision::Unauthorised { loss, rewrite } => {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
@@ -903,7 +1783,7 @@ pub(crate) fn run(
     // Stage 1: the validator is the reading. Nothing below re-reads ISO 19005.
     let input = pdf_archive::check(document, plan.target);
     // Stage 2: one decision per failed requirement.
-    let (mut conversion, version) = decide_every_failure(plan, document, &input);
+    let (mut conversion, version, prepared) = decide_every_failure(plan, document, &input);
     if !conversion.proceeds() {
         for decided in &conversion.decided {
             if decided.decision.proceeds() {
@@ -913,14 +1793,22 @@ pub(crate) fn run(
                 source: plan.source,
                 page: None,
                 subject: format!("{} ({})", decided.requirement, decided.citation),
-                detail: describe_decision(decided),
+                detail: describe_decision(decided, false),
             });
         }
         report.archive = Some(conversion);
         return Ok(());
     }
     // Stage 3: apply, hold the output to the same target, and write it only if it stands.
-    let outcome = apply_the_decisions(plan, document, &input, &mut conversion, version, sinks);
+    let outcome = apply_the_decisions(
+        plan,
+        document,
+        &input,
+        &mut conversion,
+        version,
+        &prepared,
+        sinks,
+    );
     let written = match outcome {
         Ok(written) => written,
         Err(refusal) => {
@@ -946,7 +1834,7 @@ fn decide_every_failure(
     plan: &ArchivePlan,
     document: &Document,
     input: &pdf_archive::Report,
-) -> (Conversion, Option<Version>) {
+) -> (Conversion, Option<Version>, Prepared) {
     let mut conversion = Conversion {
         source: plan.source,
         target: plan.target,
@@ -959,7 +1847,10 @@ fn decide_every_failure(
         decided: Vec::new(),
         not_checked: input.unchecked().map(NotChecked::of).collect(),
         achieved: None,
+        profile: None,
     };
+    let failed: BTreeSet<&'static str> = input.failures().map(|judgement| judgement.id).collect();
+    let prepared = Prepared::of(plan, document, &failed);
     let mut version = None;
     for judgement in input.failures() {
         let places = match &judgement.outcome {
@@ -968,7 +1859,7 @@ fn decide_every_failure(
             // reports no places rather than panicking.
             _ => 0,
         };
-        let mut decision = decide(judgement, plan.authorised);
+        let mut decision = decide(judgement, plan.authorised, &prepared);
         if decision.rewrite() == Some(Rewrite::FileHeader) {
             match version_for(document, plan.target) {
                 Ok(stated) => version = Some(stated),
@@ -984,7 +1875,7 @@ fn decide_every_failure(
             changed: 0,
         });
     }
-    (conversion, version)
+    (conversion, version, prepared)
 }
 
 /// What stage 3 produced: a file, or a refusal to write one.
@@ -1002,6 +1893,7 @@ fn apply_the_decisions(
     input: &pdf_archive::Report,
     conversion: &mut Conversion,
     version: Option<Version>,
+    prepared: &Prepared,
     sinks: &dyn Sinks,
 ) -> Result<Written, Refusal> {
     // Asked here for a document whose header already conformed, which is every document that
@@ -1021,7 +1913,12 @@ fn apply_the_decisions(
         .iter()
         .filter_map(|decided| decided.decision.rewrite())
         .collect();
-    let converted = convert(document, plan.target, &wanted, version)?;
+    if wanted.contains(&Rewrite::OutputIntent)
+        && let Ok(intent) = &prepared.intent
+    {
+        conversion.profile = Some(intent.reported.clone());
+    }
+    let converted = convert(document, plan.target, &wanted, version, prepared)?;
     for decided in &mut conversion.decided {
         if let Some(rewrite) = decided.decision.rewrite() {
             decided.changed = converted.applied.get(&rewrite).copied().unwrap_or(0);
@@ -1204,6 +2101,7 @@ fn convert(
     target: Target,
     wanted: &BTreeSet<Rewrite>,
     version: Version,
+    prepared: &Prepared,
 ) -> Result<Converted, Refusal> {
     let root = crate::optimize::catalog_of(document)?;
     let sites = Sites::of(document, root);
@@ -1212,6 +2110,9 @@ fn convert(
         target,
         wanted,
         sites,
+        added: prepared.added(),
+        intent: prepared.intent.as_ref().ok(),
+        metadata: prepared.metadata.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1253,7 +2154,15 @@ fn convert(
     let mut bytes = Vec::new();
     serialize(&assembly, version, options, &mut bytes)
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
-    for whole in [Rewrite::FileHeader, Rewrite::WholeFileRewritten] {
+    // The rewrites there is no place to count: the file's own shape, and the two constructions
+    // that are one per document by definition — a document gains one output intent and states one
+    // identification schema.
+    for whole in [
+        Rewrite::FileHeader,
+        Rewrite::WholeFileRewritten,
+        Rewrite::OutputIntent,
+        Rewrite::IdentificationSchema,
+    ] {
         if wanted.contains(&whole) {
             applied.insert(whole, 1);
         }
@@ -1299,6 +2208,15 @@ fn enter(
 ) -> Result<Option<ObjectId>, pdf_syntax::AssemblyError> {
     if let Some(already) = assembly.copied(0, id) {
         return Ok(Some(already));
+    }
+    // An object this conversion *adds* is built in the source's numbering like every object it
+    // rewrites, so that the walk maps its references exactly as it maps a rewritten object's.
+    // [`Spare`] is what keeps its number from colliding with one the source uses.
+    if let Some(added) = rewriter.added.get(&id) {
+        let placed = assembly.replace(0, id)?;
+        replaced.push((id, added.clone()));
+        queue.push_back(id);
+        return Ok(Some(placed));
     }
     let value = rewriter.document.get(id);
     if value == Object::Null {
@@ -1464,6 +2382,12 @@ struct Rewriter<'a> {
     wanted: &'a BTreeSet<Rewrite>,
     /// The positions three of them turn on.
     sites: Sites,
+    /// The objects this conversion adds, in the source's numbering.
+    added: BTreeMap<ObjectId, Object>,
+    /// The output intent to write into the catalog, where one is being added.
+    intent: Option<&'a Intent>,
+    /// The metadata stream to write, where one is being written.
+    metadata: Option<&'a Metadata>,
 }
 
 impl Rewriter<'_> {
@@ -1541,6 +2465,25 @@ impl Rewriter<'_> {
             count(applied, Rewrite::CatalogVersion);
             changed = true;
         }
+        if self.wants(Rewrite::OutputIntent)
+            && let Some(intent) = self.intent
+        {
+            // Written as a direct array whatever the source stated it as: an array object the
+            // source held indirectly is not carried, because nothing in the rewritten catalog
+            // refers to it any more. Its entries are — a reference among them is renumbered like
+            // any other reference this verb rewrites.
+            let mut entries = output_intent_entries(self.document, catalog);
+            entries.push(Object::Dictionary(intent_dictionary(intent)));
+            catalog.insert(Name::new(&b"OutputIntents"[..]), Object::Array(entries));
+            changed = true;
+        }
+        if self.wants(Rewrite::IdentificationSchema)
+            && let Some(metadata) = self.metadata
+            && metadata.written.is_some()
+        {
+            catalog.insert(Name::new(&b"Metadata"[..]), Object::Reference(metadata.at));
+            changed = true;
+        }
         if self.wants(Rewrite::AlternatePresentations)
             && let Some(Object::Dictionary(names)) = catalog.get("Names")
         {
@@ -1568,6 +2511,15 @@ impl Rewriter<'_> {
         if self.wants(Rewrite::PostScriptXObject) && self.subtype_is(&stream.dict, b"PS") {
             count(applied, Rewrite::PostScriptXObject);
             return Rewritten::Dropped;
+        }
+        // The producer's own packet, with the identification schema's properties cut out of it
+        // and this target's put in — every other byte of it the producer's.
+        if self.wants(Rewrite::IdentificationSchema)
+            && let Some(metadata) = self.metadata
+            && metadata.written.is_none()
+            && metadata.at == id
+        {
+            return Rewritten::Changed(metadata_stream(&stream.dict, &metadata.packet));
         }
         let mut changed = false;
         let mut dict = match self.rewrite_dictionary(id, &stream.dict, applied) {

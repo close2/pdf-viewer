@@ -500,6 +500,385 @@ impl Xmp {
     }
 }
 
+/// A schema's properties, to be stated in a packet as ISO 16684-1 section 7.5's simple values.
+///
+/// One namespace and one prefix rather than a property list of arbitrary names, because that is
+/// what a *schema* is and what the one caller writes: an identification schema is a fixed set of
+/// scalar properties in one namespace whose prefix its own subclause makes required.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Schema<'a> {
+    /// The namespace URI the properties belong to.
+    pub namespace: &'a str,
+    /// The prefix to spell them with.
+    pub prefix: &'a str,
+    /// The properties, as local name and value, in the order they are to be written.
+    pub properties: &'a [(&'a str, String)],
+}
+
+/// Why a packet could not be written.
+///
+/// Separate from [`XmpError`] because the two say different things: that one is a packet this
+/// tree cannot *read*, and these are all reasons a packet cannot be *edited* while leaving the
+/// rest of it exactly as its producer wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum WriteError {
+    /// The packet is not UTF-8, and this writer edits a packet's own bytes.
+    #[error("the packet is not UTF-8 text, and this writer edits a packet's own bytes")]
+    NotUtf8,
+    /// The packet's XML does not parse, so no span in it can be trusted.
+    #[error("the packet's XML does not parse: {detail}")]
+    Malformed {
+        /// What the tokenizer said.
+        detail: String,
+    },
+    /// The packet holds no `rdf:RDF` element a description can go inside.
+    ///
+    /// Exactly one, with a close tag of its own, is what this writer needs: a packet stating two
+    /// leaves no answer to which of them the schema belongs in, and a self-closing one has no
+    /// inside at all.
+    #[error(
+        "the packet states {found} rdf:RDF elements and none this writer can put a description \
+         inside"
+    )]
+    NoPlaceForADescription {
+        /// How many were found.
+        found: usize,
+    },
+    /// The packet nests deeper than [`MAX_DEPTH`].
+    #[error("the packet nests deeper than this writer follows")]
+    TooDeep,
+    /// The packet is larger than [`MAX_BYTES`].
+    #[error("the packet is {bytes} bytes, past this writer's bound")]
+    TooLarge {
+        /// What the packet holds.
+        bytes: usize,
+    },
+}
+
+/// A fresh packet stating exactly `schema`'s properties and nothing else.
+///
+/// The wrapper is the one ISO 32000-2 §14.3.2's own EXAMPLE prints — the `<?xpacket>` header with
+/// its identifier, `x:xmpmeta`, and one `rdf:RDF` — so nothing here is a convention read off
+/// another producer's file. What goes inside is one `rdf:Description` whose subject is the empty
+/// string, which is that example's spelling of "this document".
+///
+/// For a document that *has* a packet, [`restate`] is the function: this one would throw the
+/// producer's metadata away.
+#[must_use]
+pub fn packet(schema: &Schema<'_>) -> Vec<u8> {
+    let mut out = String::new();
+    out.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    out.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    out.push_str("<rdf:RDF xmlns:rdf=\"");
+    escaped(RDF, &mut out);
+    out.push_str("\">\n");
+    description(schema, &mut out);
+    out.push_str("</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    out.into_bytes()
+}
+
+/// `bytes` with every property in `namespaces` removed and `schema`'s stated in their place.
+///
+/// **Every other byte of the packet crosses unchanged**, which is the whole point of doing this
+/// by span surgery rather than by parsing to a value and printing it again. This module's reader
+/// keeps neither an `rdf:about` subject nor a qualifier other than `xml:lang`
+/// (ISO 16684-1 section 7.7), so a writer built on the reading would silently drop what the
+/// reading drops. A producer's packet is metadata somebody wrote deliberately; the only thing a
+/// conversion has any business changing in it is the schema it was asked to change.
+///
+/// `namespaces` is a list rather than one URI because a schema can be printed with more than one
+/// spelling of its own namespace, and a property left behind under the other spelling would be a
+/// second claim beside the one just written.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched: a caller that cannot
+/// write is expected to say so rather than to write something else.
+pub fn restate(
+    bytes: &[u8],
+    namespaces: &[&str],
+    schema: &Schema<'_>,
+) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let edit = Editor::run(text, namespaces)?;
+    let Some(at) = edit.inside_rdf else {
+        return Err(WriteError::NoPlaceForADescription {
+            found: edit.rdf_elements,
+        });
+    };
+
+    // The cuts, then the one insertion, taken in the order they occur in the packet — so that a
+    // property stated *after* the `rdf:RDF` this writes into is still removed.
+    let mut out = String::with_capacity(text.len());
+    let mut cut = 0usize;
+    let mut written = false;
+    let copy = |out: &mut String, from: usize, to: usize| {
+        out.push_str(text.get(from..to).unwrap_or_default());
+    };
+    for (from, to) in edit.deletions {
+        if from < cut {
+            continue;
+        }
+        if !written && at <= from {
+            copy(&mut out, cut, at);
+            description(schema, &mut out);
+            cut = at;
+            written = true;
+        }
+        copy(&mut out, cut, from);
+        cut = to;
+    }
+    if !written {
+        copy(&mut out, cut, at);
+        description(schema, &mut out);
+        cut = at;
+    }
+    copy(&mut out, cut, text.len());
+    Ok(out.into_bytes())
+}
+
+/// One `rdf:Description` stating a schema's properties, with both prefixes it uses declared on it.
+///
+/// Declared rather than inherited: what a prefix is bound to at the point this is inserted is the
+/// producer's business, and an element that carries its own bindings means the same thing wherever
+/// it is put.
+fn description(schema: &Schema<'_>, out: &mut String) {
+    out.push_str("<rdf:Description rdf:about=\"\" xmlns:rdf=\"");
+    escaped(RDF, out);
+    out.push_str("\" xmlns:");
+    out.push_str(schema.prefix);
+    out.push_str("=\"");
+    escaped(schema.namespace, out);
+    out.push_str("\">\n");
+    for (local, value) in schema.properties {
+        out.push('<');
+        out.push_str(schema.prefix);
+        out.push(':');
+        out.push_str(local);
+        out.push('>');
+        escaped(value, out);
+        out.push_str("</");
+        out.push_str(schema.prefix);
+        out.push(':');
+        out.push_str(local);
+        out.push_str(">\n");
+    }
+    out.push_str("</rdf:Description>\n");
+}
+
+/// Text with XML's three markup characters replaced by their entities.
+fn escaped(text: &str, out: &mut String) {
+    for character in text.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            other => out.push(other),
+        }
+    }
+}
+
+/// One open element, while the spans are being collected.
+#[derive(Debug)]
+struct Opened {
+    /// The prefix and local name as the packet spelled them, kept so that a close tag can be
+    /// checked against the tag it closes — a mismatch means every span after it is untrustworthy.
+    tag: (String, String),
+    /// How many namespace bindings this element declared, popped when it closes.
+    bindings: usize,
+    /// The byte offset of this element's `<`, where this element is the one being removed.
+    ///
+    /// `None` for an element that stays and for one inside an element already being removed:
+    /// a nested deletion inside a deletion would record a range the outer one already covers.
+    removing: Option<usize>,
+    /// Whether this element or an ancestor is being removed.
+    doomed: bool,
+    /// Whether this element is the packet's `rdf:RDF`.
+    rdf: bool,
+}
+
+/// The spans one pass over a packet found.
+struct Editor {
+    /// Prefix-to-URI bindings, innermost last, as [`Reader`] keeps them and for its reason.
+    bindings: Vec<(String, String)>,
+    stack: Vec<Opened>,
+    /// The ranges to cut, ordered by where they start.
+    deletions: Vec<(usize, usize)>,
+    /// The offset just before the packet's `</rdf:RDF>`, where exactly one was found.
+    inside_rdf: Option<usize>,
+    /// How many `rdf:RDF` elements the packet stated.
+    rdf_elements: usize,
+}
+
+impl Editor {
+    /// Walks the packet, recording what to cut and where to insert.
+    fn run(text: &str, namespaces: &[&str]) -> Result<Self, WriteError> {
+        let mut editor = Self {
+            bindings: Vec::new(),
+            stack: Vec::new(),
+            deletions: Vec::new(),
+            inside_rdf: None,
+            rdf_elements: 0,
+        };
+        // An element's own prefix may be bound by an attribute of that same element, so nothing
+        // is resolved until the element's attributes have all arrived — [`Reader::run`] takes
+        // the same shape for the same reason.
+        let mut pending: Option<(String, String, usize)> = None;
+        let mut attributes: Vec<(String, String, String, usize, usize)> = Vec::new();
+        for token in xmlparser::Tokenizer::from(text) {
+            let token = token.map_err(|error| WriteError::Malformed {
+                detail: error.to_string(),
+            })?;
+            match token {
+                xmlparser::Token::ElementStart {
+                    prefix,
+                    local,
+                    span,
+                } => {
+                    pending = Some((prefix.to_string(), local.to_string(), span.start()));
+                    attributes.clear();
+                }
+                xmlparser::Token::Attribute {
+                    prefix,
+                    local,
+                    value,
+                    span,
+                } => attributes.push((
+                    prefix.to_string(),
+                    local.to_string(),
+                    value.to_string(),
+                    span.start(),
+                    span.end(),
+                )),
+                xmlparser::Token::ElementEnd { end, span } => match end {
+                    xmlparser::ElementEnd::Open => {
+                        let Some(open) = pending.take() else { continue };
+                        editor.open(&open, &attributes, namespaces)?;
+                    }
+                    xmlparser::ElementEnd::Empty => {
+                        let Some(open) = pending.take() else { continue };
+                        let tag = (open.0.clone(), open.1.clone());
+                        editor.open(&open, &attributes, namespaces)?;
+                        // A self-closing element has no inside, so an `rdf:RDF` written this way
+                        // is not a place a description can go: `closed` is told so.
+                        editor.close(&tag, span.end(), None)?;
+                    }
+                    xmlparser::ElementEnd::Close(prefix, local) => {
+                        let tag = (prefix.to_string(), local.to_string());
+                        editor.close(&tag, span.end(), Some(span.start()))?;
+                    }
+                },
+                _ => {}
+            }
+        }
+        if let Some(open) = editor.stack.last() {
+            return Err(WriteError::Malformed {
+                detail: format!("<{}> is never closed", spelled(&open.tag)),
+            });
+        }
+        editor.deletions.sort_unstable();
+        Ok(editor)
+    }
+
+    /// Resolves a prefix against the bindings in scope, innermost first.
+    fn namespace(&self, prefix: &str) -> &str {
+        if prefix == "xml" {
+            return XML;
+        }
+        self.bindings
+            .iter()
+            .rev()
+            .find(|(bound, _)| bound == prefix)
+            .map_or("", |(_, uri)| uri.as_str())
+    }
+
+    /// Opens an element: installs its bindings, and decides whether it or any of its attributes
+    /// state a property of one of the namespaces being restated.
+    fn open(
+        &mut self,
+        (prefix, local, start): &(String, String, usize),
+        attributes: &[(String, String, String, usize, usize)],
+        namespaces: &[&str],
+    ) -> Result<(), WriteError> {
+        if self.stack.len() >= MAX_DEPTH {
+            return Err(WriteError::TooDeep);
+        }
+        let mut bindings = 0usize;
+        for (prefix, local, value, ..) in attributes {
+            match (prefix.as_str(), local.as_str()) {
+                ("", "xmlns") => self.bindings.push((String::new(), value.clone())),
+                ("xmlns", _) => self.bindings.push((local.clone(), value.clone())),
+                _ => continue,
+            }
+            bindings = bindings.saturating_add(1);
+        }
+
+        let inherited = self.stack.last().is_some_and(|open| open.doomed);
+        let namespace = self.namespace(prefix).to_owned();
+        let own = namespaces.contains(&namespace.as_str());
+        let rdf = namespace == RDF && local == "RDF";
+        if rdf {
+            self.rdf_elements = self.rdf_elements.saturating_add(1);
+        }
+        if !inherited && !own {
+            // ISO 16684-1 section 7.5's other spelling: a property stated as an attribute of the
+            // description it belongs to. Removing the attribute removes the property, and the
+            // element it sat on is somebody else's.
+            for (prefix, _, _, from, to) in attributes {
+                if !prefix.is_empty() && namespaces.contains(&self.namespace(prefix)) {
+                    self.deletions.push((*from, *to));
+                }
+            }
+        }
+        self.stack.push(Opened {
+            tag: (prefix.clone(), local.clone()),
+            bindings,
+            removing: (own && !inherited).then_some(*start),
+            doomed: own || inherited,
+            rdf,
+        });
+        Ok(())
+    }
+
+    /// Closes an element, ending a deletion where this element began one.
+    ///
+    /// `content_ends` is where the close tag starts, and `None` for a self-closing element.
+    fn close(
+        &mut self,
+        tag: &(String, String),
+        end: usize,
+        content_ends: Option<usize>,
+    ) -> Result<(), WriteError> {
+        let Some(open) = self.stack.pop() else {
+            return Err(WriteError::Malformed {
+                detail: format!("</{}> closes nothing", spelled(tag)),
+            });
+        };
+        if content_ends.is_some() && open.tag != *tag {
+            return Err(WriteError::Malformed {
+                detail: format!("</{}> closes <{}>", spelled(tag), spelled(&open.tag)),
+            });
+        }
+        for _ in 0..open.bindings {
+            self.bindings.pop();
+        }
+        if let Some(from) = open.removing {
+            self.deletions.push((from, end));
+        }
+        if open.rdf {
+            self.inside_rdf = match (self.rdf_elements, content_ends) {
+                (1, Some(at)) => Some(at),
+                _ => None,
+            };
+        }
+        Ok(())
+    }
+}
+
 /// Whether two `xml:lang` values name the same language.
 ///
 /// ISO 16684-1 section 6.4 requires every comparison of `xml:lang` values to be
@@ -1199,7 +1578,133 @@ fn numeric(reference: &str) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DC, PDF, Value, XMP, Xmp, XmpError};
+    use super::{DC, PDF, Schema, Value, WriteError, XMP, Xmp, XmpError, packet, restate};
+
+    /// The identification namespace, spelled as ISO 19005-4 section 6.7.3 prints it. Used here
+    /// only as *a* namespace to restate: nothing in this module knows what PDF/A is.
+    const IDENTIFICATION: &str = "https://www.aiim.org/pdfa/ns/id/";
+    /// The same namespace with the scheme ISO 19005-2 section 6.6.4 prints, which is why
+    /// [`restate`] takes a list.
+    const OLD_IDENTIFICATION: &str = "http://www.aiim.org/pdfa/ns/id/";
+
+    /// The schema the tests below write.
+    fn identification(part: &str) -> Vec<(&'static str, String)> {
+        vec![("part", part.to_owned()), ("rev", "2020".to_owned())]
+    }
+
+    #[test]
+    fn a_fresh_packet_states_the_schema_and_reads_back() {
+        let properties = identification("4");
+        let written = packet(&Schema {
+            namespace: IDENTIFICATION,
+            prefix: "pdfaid",
+            properties: &properties,
+        });
+        let read = Xmp::parse(&written).expect("the packet this module wrote parses");
+        assert_eq!(read.text(IDENTIFICATION, "part"), Some("4"));
+        assert_eq!(read.text(IDENTIFICATION, "rev"), Some("2020"));
+        assert_eq!(
+            Xmp::rdf_elements(&written),
+            Ok(1),
+            "one rdf:RDF element, which is what ISO 19005 requires of a packet"
+        );
+    }
+
+    #[test]
+    fn restating_replaces_the_schema_and_leaves_every_other_property_alone() {
+        let before = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+ xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:conformance="B">
+<pdf:Producer>Somebody's exporter</pdf:Producer>
+<pdfaid:part>2</pdfaid:part>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+        let properties = identification("4");
+        let after = restate(
+            before,
+            &[IDENTIFICATION, OLD_IDENTIFICATION],
+            &Schema {
+                namespace: IDENTIFICATION,
+                prefix: "pdfaid",
+                properties: &properties,
+            },
+        )
+        .expect("a packet this writer can edit");
+        let read = Xmp::parse(&after).expect("the edited packet parses");
+        assert_eq!(
+            read.text(PDF, "Producer"),
+            Some("Somebody's exporter"),
+            "the producer's own property crosses untouched"
+        );
+        assert_eq!(
+            read.text(IDENTIFICATION, "part"),
+            Some("4"),
+            "the new claim"
+        );
+        assert_eq!(
+            read.text(OLD_IDENTIFICATION, "conformance"),
+            None,
+            "the attribute spelling of the old claim is gone with the element spelling"
+        );
+        assert_eq!(read.text(IDENTIFICATION, "rev"), Some("2020"));
+        assert!(
+            String::from_utf8_lossy(&after).contains("<?xpacket end=\"w\"?>"),
+            "the wrapper is the producer's, byte for byte"
+        );
+    }
+
+    #[test]
+    fn a_packet_with_no_place_for_a_description_is_refused_rather_than_replaced() {
+        assert_eq!(
+            restate(
+                b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>",
+                &[IDENTIFICATION],
+                &Schema {
+                    namespace: IDENTIFICATION,
+                    prefix: "pdfaid",
+                    properties: &[],
+                },
+            ),
+            Err(WriteError::NoPlaceForADescription { found: 0 })
+        );
+    }
+
+    #[test]
+    fn a_packet_whose_tags_do_not_match_is_refused_rather_than_edited() {
+        let broken =
+            b"<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><a></b></rdf:RDF>";
+        assert!(
+            matches!(
+                restate(
+                    broken,
+                    &[IDENTIFICATION],
+                    &Schema {
+                        namespace: IDENTIFICATION,
+                        prefix: "pdfaid",
+                        properties: &[],
+                    },
+                ),
+                Err(WriteError::Malformed { .. })
+            ),
+            "a span in a packet whose tags do not nest is not a span this writer trusts"
+        );
+    }
+
+    #[test]
+    fn a_value_carrying_markup_is_escaped() {
+        let properties = vec![("part", "4 < 5 & true".to_owned())];
+        let written = packet(&Schema {
+            namespace: IDENTIFICATION,
+            prefix: "pdfaid",
+            properties: &properties,
+        });
+        let read = Xmp::parse(&written).expect("the packet parses");
+        assert_eq!(read.text(IDENTIFICATION, "part"), Some("4 < 5 & true"));
+    }
 
     /// A packet in the shape Adobe's own writer produces, with all three property spellings.
     const PACKET: &str = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>

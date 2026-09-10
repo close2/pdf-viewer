@@ -26,6 +26,8 @@
               expected to decide about and did not, must both fail loudly"
 )]
 
+use std::fmt::Write as _;
+
 use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{ArchivePlan, Authorisations, Because, Decision, Loss, Rewrite};
@@ -84,8 +86,25 @@ struct Conforming {
     objects: Vec<String>,
     /// The page's content stream, dictionary and data.
     contents: Option<(String, Vec<u8>)>,
+    /// What §14.3.2's metadata stream holds, and whether the catalog names it.
+    metadata: Packet,
     /// The header line, where a test wants a wrong one.
     header: Option<&'static str>,
+}
+
+/// What the fixture's §14.3.2 metadata stream holds.
+///
+/// Three cases rather than a string, because a conversion has to be tested against all three: the
+/// packet that already conforms, a producer's packet claiming something else, and a catalog that
+/// names no metadata stream at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Packet {
+    /// The identification packet the fixture's own target requires.
+    Identification,
+    /// A packet the test wrote.
+    Stated(String),
+    /// The stream is written and the catalog does not name it, so the document states none.
+    Unnamed,
 }
 
 impl Default for Conforming {
@@ -99,6 +118,7 @@ impl Default for Conforming {
             objects: Vec::new(),
             contents: None,
             header: None,
+            metadata: Packet::Identification,
         }
     }
 }
@@ -119,9 +139,14 @@ impl Conforming {
             .contents
             .clone()
             .unwrap_or_else(|| (String::new(), Vec::new()));
+        let names_metadata = if self.metadata == Packet::Unnamed {
+            ""
+        } else {
+            "/Metadata 5 0 R"
+        };
         let mut bodies: Vec<Vec<u8>> = vec![
             format!(
-                "<< /Type /Catalog /Pages 2 0 R /Metadata 5 0 R {} >>",
+                "<< /Type /Catalog /Pages 2 0 R {names_metadata} {} >>",
                 self.catalog
             )
             .into_bytes(),
@@ -137,7 +162,10 @@ impl Conforming {
                 &content_data,
             ),
             {
-                let packet = identification(self.target);
+                let packet = match &self.metadata {
+                    Packet::Stated(packet) => packet.clone(),
+                    Packet::Identification | Packet::Unnamed => identification(self.target),
+                };
                 stream(
                     &format!("/Type /Metadata /Subtype /XML /Length {}", packet.len()),
                     packet.as_bytes(),
@@ -240,6 +268,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             names: "out.pdf".parse().expect("a pattern"),
             target,
             authorised,
+            profile: None,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -860,4 +889,347 @@ fn every_loss_has_a_word_a_caller_can_authorise_it_by() {
         assert!(authorisations.grants(loss));
     }
     assert_eq!(Loss::parse("everything"), None);
+}
+
+/// The `desc` and `cprt` tags `data/icc/PROVENANCE.md` read out of the shipped profile by hand.
+///
+/// Repeated here rather than imported so that a change to the shipped file fails a test in the
+/// crate that embeds it as well as in the one that reads it.
+const SHIPPED_PROFILE: (&str, &str) =
+    ("sRGB2014", "Copyright International Color Consortium, 2015");
+
+/// A page that paints in `DeviceRGB`, which is the commonest reason a document needs an output
+/// intent at all.
+///
+/// §8.6.8's `rg` "shall set the colour space to `DeviceRGB` … and set the colour to use for
+/// filling operations", so this content selects the space the colour subclauses restrict.
+fn paints_in_device_rgb() -> (String, Vec<u8>) {
+    (String::new(), b"1 0 0 rg 0 0 10 10 re f".to_vec())
+}
+
+/// A page that paints in `DeviceCMYK`: §8.6.8's `k`, the operator the sRGB default cannot license.
+fn paints_in_device_cmyk() -> (String, Vec<u8>) {
+    (String::new(), b"0 0 0 1 k 0 0 10 10 re f".to_vec())
+}
+
+/// The output intent dictionary a converted file states, where it states one.
+fn output_intent(bytes: &[u8]) -> pdf_syntax::object::Dictionary {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT)
+        .expect("a converted document opens");
+    let catalog = document.catalog().expect("a catalog");
+    let intents = document.get_key(&catalog, "OutputIntents");
+    let entries = intents.as_array().expect("an OutputIntents array");
+    let entry = entries.first().expect("one entry");
+    document
+        .resolve(entry)
+        .as_dict()
+        .cloned()
+        .expect("an output intent dictionary")
+}
+
+#[test]
+fn a_device_rgb_page_gains_the_shipped_output_intent_and_the_report_says_what_that_asserts() {
+    // ISO 19005-4 section 6.2.4.3 licenses DeviceRGB through a PDF/A output intent holding an RGB
+    // destination profile, and section 6.2.3 requires that intent's /S to be GTS_PDFA1.
+    // `doc/questions/A18` allows shipping the profile *and attaches the condition this test is
+    // about*: the report says that adding one reinterprets the marks already in the file.
+    let source = Conforming {
+        contents: Some(paints_in_device_rgb()),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    let decided = decision(
+        &report,
+        "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
+    );
+    let Decision::Stated {
+        rewrite,
+        reinterprets,
+    } = decided
+    else {
+        panic!("an output intent states an interpretation rather than losing nothing: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::OutputIntent);
+    assert!(
+        reinterprets.contains("colour-manages"),
+        "the sentence a reader is owed: {reinterprets}"
+    );
+
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let intent = output_intent(&output);
+    assert_eq!(
+        intent
+            .get("S")
+            .and_then(|value| value.as_name())
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"GTS_PDFA1".to_vec()),
+        "the value both parts' section 6.2.3 makes a PDF/A output intent"
+    );
+    assert_eq!(
+        intent
+            .get("OutputConditionIdentifier")
+            .and_then(pdf_syntax::Object::as_string),
+        Some(&b"Custom"[..]),
+        "§14.11.5's own word for a production condition that is not a recognised standard"
+    );
+
+    let profile = conversion(&report)
+        .profile
+        .as_ref()
+        .expect("the report names the profile the intent embeds");
+    assert_eq!(profile.describes.as_deref(), Some(SHIPPED_PROFILE.0));
+    assert_eq!(
+        profile.copyright.as_deref(),
+        Some(SHIPPED_PROFILE.1),
+        "doc/pdf-a-conversion-limits.md section 10.1: whose profile this is, read out of the \
+         profile"
+    );
+    assert_eq!(profile.space, "RGB");
+    let rendered = conversion(&report).render();
+    assert!(
+        rendered.contains(SHIPPED_PROFILE.1),
+        "the copyright tag is in the report a person reads:\n{rendered}"
+    );
+}
+
+#[test]
+fn a_device_cmyk_page_is_refused_by_name_because_srgb_does_not_license_it() {
+    // ISO 19005-4 section 6.2.4.3 licenses DeviceCMYK through a **CMYK** destination profile, and
+    // the profile this program ships is RGB. `doc/pdf-a-conversion-limits.md` section 10.1 is the
+    // whole of the answer: supply the press's profile, or wait for the DeviceN /DefaultCMYK
+    // construction that section states.
+    let source = Conforming {
+        contents: Some(paints_in_device_cmyk()),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    let decided = decision(
+        &report,
+        "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
+    );
+    let Decision::Refused(because) = decided else {
+        panic!("an sRGB intent does not license DeviceCMYK: {decided:?}");
+    };
+    assert!(
+        because.sentence().contains("--output-intent-profile"),
+        "the refusal says what would answer it: {}",
+        because.sentence()
+    );
+    assert!(output.is_none(), "no file is written");
+}
+
+#[test]
+fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
+    // doc/pdf-a-conversion-limits.md section 10.1: the ICC's guidance is that a profile's terms of
+    // use live in its `cprt` tag, so a user embedding somebody else's profile is told whose it is.
+    // The profile supplied here is the shipped one, which is the only ICC profile this tree may
+    // redistribute — what the test establishes is that a *supplied* profile is read the same way
+    // and reported as supplied.
+    let source = Conforming {
+        contents: Some(paints_in_device_rgb()),
+        ..Conforming::default()
+    }
+    .build();
+    let sinks = MemorySinks::new();
+    let profile: std::sync::Arc<[u8]> = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/sRGB2014.icc"
+    ))
+    .expect("the shipped profile is in the tree")
+    .into();
+    let report = apply(
+        &Plan::Archive(ArchivePlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+            target: Target::Four(Flavour::Plain),
+            authorised: Authorisations::default(),
+            profile: Some(profile),
+        }),
+        &[Source::new(source)],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let stated = conversion(&report)
+        .profile
+        .as_ref()
+        .expect("a profile is reported");
+    assert_eq!(stated.source.word(), "supplied");
+    assert_eq!(stated.copyright.as_deref(), Some(SHIPPED_PROFILE.1));
+    assert!(
+        sinks.into_outputs().pop().is_some(),
+        "the document converts"
+    );
+}
+
+#[test]
+fn a_destination_profile_the_file_already_holds_is_shared_rather_than_doubled() {
+    // ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3: where an OutputIntents array holds
+    // more than one entry, every entry that states a DestOutputProfile states the same indirect
+    // object. So a file holding a PDF/X intent over an RGB profile gets a PDF/A entry naming
+    // *that* object, and a converter that embedded a second profile beside it would break the
+    // requirement it was trying to meet.
+    let icc = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/sRGB2014.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    // §7.4.2's ASCIIHexDecode, so that the fixture's object bodies stay text — which is also how
+    // §14.11.5's own EXAMPLE writes a profile stream.
+    let mut hex = String::new();
+    for byte in &icc {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let source = Conforming {
+        contents: Some(paints_in_device_rgb()),
+        catalog: "/OutputIntents [ << /Type /OutputIntent /S /GTS_PDFX \
+                  /OutputConditionIdentifier (Custom) /DestOutputProfile 6 0 R >> ]"
+            .to_owned(),
+        objects: vec![
+            String::from_utf8_lossy(&stream(
+                &format!("/N 3 /Filter /ASCIIHexDecode /Length {}", hex.len()),
+                hex.as_bytes(),
+            ))
+            .into_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(
+        conversion(&report)
+            .profile
+            .as_ref()
+            .map(|profile| profile.source.word()),
+        Some("already-in-the-file"),
+        "the report says the profile was not this conversion's choice"
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let entries = document.get_key(&catalog, "OutputIntents");
+    let entries = entries.as_array().expect("an array").to_vec();
+    assert_eq!(entries.len(), 2, "the producer's entry and the one added");
+    let named: Vec<_> = entries
+        .iter()
+        .filter_map(|entry| document.resolve(entry).as_dict().cloned())
+        .filter_map(|entry| {
+            entry
+                .get("DestOutputProfile")
+                .and_then(pdf_syntax::Object::as_reference)
+        })
+        .collect();
+    assert_eq!(named.len(), 2, "both entries state a destination profile");
+    assert_eq!(
+        named.first(),
+        named.get(1),
+        "and they state the same object, which is what section 6.2.3 requires"
+    );
+}
+
+#[test]
+fn a_packet_claiming_another_part_is_edited_in_place_and_keeps_its_other_properties() {
+    // ISO 19005-4 section 6.7.3 requires a part number of 4 and a revision year; the fixture's
+    // part 2 packet states neither. What this test is really about is the *other* property: a
+    // producer's `pdf:Producer` is metadata somebody wrote deliberately, and a conversion that
+    // rebuilt the packet from this tree's own reading of it would drop what that reading drops.
+    let source = Conforming {
+        metadata: Packet::Stated(
+            "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             <rdf:Description rdf:about=\"\" \
+             xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" \
+             xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\">\n\
+             <pdf:Producer>Somebody's exporter</pdf:Producer>\n\
+             <pdfaid:part>2</pdfaid:part>\n\
+             <pdfaid:conformance>B</pdfaid:conformance>\n\
+             </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+                .to_owned(),
+        ),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "metadata/identification-part-number-four"),
+        Decision::Mechanical(Rewrite::IdentificationSchema)
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let packet = document_packet(&output);
+    let read = pdf_model::xmp::Xmp::parse(&packet).expect("the written packet parses");
+    assert_eq!(
+        read.text("http://ns.adobe.com/pdf/1.3/", "Producer"),
+        Some("Somebody's exporter"),
+        "the producer's own property crosses the conversion"
+    );
+    assert_eq!(
+        read.text("https://www.aiim.org/pdfa/ns/id/", "part"),
+        Some("4")
+    );
+    assert_eq!(
+        read.text("https://www.aiim.org/pdfa/ns/id/", "rev"),
+        Some("2020")
+    );
+    assert_eq!(
+        read.text("http://www.aiim.org/pdfa/ns/id/", "conformance"),
+        None,
+        "ISO 19005-4 section 6.7.3 reserves the conformance property for its two annexes, so the \
+         old claim's is removed under both spellings of the namespace"
+    );
+}
+
+#[test]
+fn a_document_with_no_metadata_stream_is_given_one() {
+    // ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 require the catalog to state a
+    // metadata stream; section 4.2 of doc/pdf-a-conversion-limits.md makes synthesising one the
+    // default where the document has none. §14.3.2's Table 347 decides the two entries it carries.
+    let source = Conforming {
+        metadata: Packet::Unnamed,
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "metadata/catalog-metadata-stream"),
+        Decision::Mechanical(Rewrite::IdentificationSchema)
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let read = pdf_model::xmp::Xmp::parse(&document_packet(&output)).expect("it parses");
+    assert_eq!(
+        read.text("https://www.aiim.org/pdfa/ns/id/", "part"),
+        Some("4")
+    );
+}
+
+/// The bytes of a converted document's catalog metadata stream.
+fn document_packet(bytes: &[u8]) -> Vec<u8> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let stream = document.get_key(&catalog, "Metadata");
+    let stream = stream.as_stream().expect("a metadata stream");
+    document
+        .decoded_stream_data(stream)
+        .expect("the packet decodes")
+        .to_vec()
 }
