@@ -122,6 +122,23 @@
 //! `w`, and at the raster's edge the half that falls outside is still lost. What it replaces is a
 //! construction that was wrong about the total as well as the placement. ADR 0268.
 //!
+//! # And "one device pixel wide" is a family of widths rather than one, once the axes disagree
+//!
+//! §8.4.3.2 says so in as many words — "[i]f the CTM specifies scaling by different factors in the
+//! horizontal and vertical dimensions, the thickness of stroked lines in device space shall vary
+//! according to their orientation" — and the substitution above is built on a *width*, which
+//! cannot vary. A band swept along `u` has device thickness `w · |u| · |det T| / |T u|`, so under
+//! `diag(1/8, 1/200)` a band of one path unit is 1/200 of a device pixel thick along `x` and 1/8
+//! of one along `y`: the width that makes the first a pixel makes the second twenty-five.
+//!
+//! [`substitute_width`] states the second of those — one pixel across whichever way the mark runs
+//! — and that is the right reading for §8.5.3.2's dot and Table 53's cap, which are shapes of the
+//! line's width in every direction. Asking it for a **band** paints the band across
+//! `max_stretch / min_stretch` device pixels, which loses both halves of §10.7.4 at once: the ink
+//! goes to pixels the shape's own region does not intersect, and the alpha it is divided by lands
+//! in the eight bits it rides in, where a fifth of it is rounded away. [`band_substitute_width`]
+//! is the band's own question, asked from the directions the path runs in. ADR 0945.
+//!
 //! # The marks whose area is a *square* of the width, which the same identity does not reach
 //!
 //! ADR 0268's identity is the swept **body's**: widening a band by `k` multiplies its area by `k`
@@ -341,6 +358,13 @@ pub fn expressible_coverage(coverage: f32) -> f32 {
 ///
 /// Returns `None` where the transform is singular or not finite, for [`crate::thinnest_line`]'s
 /// reason: a path collapsed to a point has no space of its own left for a width to be stated in.
+///
+/// **It is the answer for a mark that has to be a pixel across in every direction, and not for a
+/// band.** §8.5.3.2's dot and Table 53's cap are shapes of the line's width both ways, so nothing
+/// but the larger singular value will do for them. A stroke's swept body is thin along **one**
+/// direction only, and stating it here widens it by `max_stretch / min_stretch` device pixels
+/// along the other — see [`band_substitute_width`], which is what a body is stated at, and ADR
+/// 0945 for what that cost before the two questions were separated.
 #[must_use]
 pub fn substitute_width(to_device: Transform) -> Option<f32> {
     let floor = to_device.min_stretch();
@@ -348,6 +372,103 @@ pub fn substitute_width(to_device: Transform) -> Option<f32> {
         return None;
     }
     Some(1.0 / floor)
+}
+
+/// The path-space width at which the **band** a stroke sweeps along `direction` is one whole
+/// device pixel thick — ISO 32000-2 §10.7.4, for the mark [`substitute_width`] is not about.
+///
+/// A band of path width `w` swept along `u` has path area `w · |u|` per unit of the parameter, so
+/// its device area is `w · |u| · |det T|` and its device length is `|T u|`; its device thickness
+/// is therefore `w · |u| · |det T| / |T u|`. Setting that to one device pixel and solving for the
+/// width gives what this returns:
+///
+/// ```text
+///   W = |T u| / (|u| · |det T|)
+/// ```
+///
+/// For a similarity of scale `s` — every page transform — `|T u|` is `s · |u|` and `|det T|` is
+/// `s²`, so `W` is `1 / s` whatever the direction, which is [`substitute_width`]'s answer to the
+/// last bit. The two part only where the transform stretches the axes by different factors, and
+/// there the direction is what decides: a band running along the transform's *longer* axis is
+/// thin along its shorter one and needs the larger width, and one running the other way needs the
+/// smaller.
+///
+/// Returns `None` for a direction of no length, which names no band, and for a transform that is
+/// singular or not finite, which leaves no space to state a width in.
+#[must_use]
+pub fn substitute_width_across(to_device: Transform, direction: (f32, f32)) -> Option<f32> {
+    let (dx, dy) = direction;
+    let length = dx.hypot(dy);
+    let mapped = (to_device.a * dx + to_device.c * dy).hypot(to_device.b * dx + to_device.d * dy);
+    let determinant = to_device.determinant().abs();
+    let width = mapped / (length * determinant);
+    (length > 0.0 && mapped > 0.0 && determinant > 0.0 && width.is_finite()).then_some(width)
+}
+
+/// The width a stroke's swept body is substituted at, so that no part of it is painted wider than
+/// one device pixel — ISO 32000-2 §10.7.4.
+///
+/// §10.7.4 opens by saying which pixels a shape reaches:
+///
+/// > A shape shall be scan-converted by painting any pixel whose half-open square region
+/// > intersects the shape, no matter how small the intersection is.
+///
+/// The substitution this module argues already paints a wider band than the document's own, and
+/// the bound on that is the pixel grid itself: a band of the true width lies inside the pixel line
+/// the substitute stretches it into. That bound is what [`substitute_width`] loses under an
+/// anisotropic placement, where it states a band up to `max_stretch / min_stretch` device pixels
+/// across — ink laid down a dozen pixels from the mark, at an alpha driven into the eight-bit
+/// floor, which is where it stops being conserved as well.
+///
+/// So the width is [`substitute_width_across`]'s, taken over the directions the path itself runs
+/// in and **narrowed to the smallest of them**, which is the one no direction exceeds a pixel at.
+/// Three consequences, and the first is why this changes nothing on almost every page:
+///
+/// - under a similarity every direction gives one answer, so this is [`substitute_width`];
+/// - where a path states one direction — one `m` and one `l`, which is what a turned rule is —
+///   the answer is exact, and the substitute is one device pixel thick;
+/// - where it states several that disagree, the narrowest is the one that paints no pixel the
+///   shape does not reach, and the directions wanting more are left thinner than the raster can
+///   measure. Exactness there needs a width per segment and therefore a draw per segment, which
+///   costs the joins between them; `pdf-model/examples/anisotropic_band_census` prices the
+///   population that would buy, and over `doc/pdf.js` and `doc/corpora/pdfbox` it is **two
+///   strokes on one page**.
+///
+/// A path with no segment at all — a lone `m`, whose marks are §8.5.3.2's — has no direction and
+/// falls back to [`substitute_width`], which is that mark's own answer. A path holding a curve
+/// has a direction that varies along it, and falls back to [`crate::thinnest_line`]: the width no
+/// direction whatever exceeds a pixel at.
+#[must_use]
+pub fn band_substitute_width(path: &Path, to_device: Transform) -> Option<f32> {
+    let mut narrowest: Option<f32> = None;
+    let mut current = Point::new(0.0, 0.0);
+    let mut start = Point::new(0.0, 0.0);
+    for command in path.commands() {
+        let step = match *command {
+            PathCommand::MoveTo(p) => {
+                current = p;
+                start = p;
+                continue;
+            }
+            PathCommand::LineTo(p) => {
+                let step = (p.x - current.x, p.y - current.y);
+                current = p;
+                step
+            }
+            PathCommand::Close => {
+                let step = (start.x - current.x, start.y - current.y);
+                current = start;
+                step
+            }
+            // A cubic's tangent turns along it, so no finite set of directions is the whole of
+            // what it sweeps: the width no direction exceeds a pixel at is the honest answer.
+            PathCommand::CurveTo(..) => return crate::thinnest_line(to_device),
+        };
+        if let Some(width) = substitute_width_across(to_device, step) {
+            narrowest = Some(narrowest.map_or(width, |had: f32| had.min(width)));
+        }
+    }
+    narrowest.or_else(|| substitute_width(to_device))
 }
 
 /// A mark whose area goes as the *square* of the stroke's width, restated at a width the device
@@ -379,8 +500,19 @@ pub struct EnlargedMark {
 /// [`expressible_coverage`] states the least the raster can hold instead of nothing at all.
 #[must_use]
 pub fn enlarged_mark(width: f32, to_device: Transform) -> Option<EnlargedMark> {
-    let substitute = substitute_width(to_device)?;
-    if !width.is_finite() || width <= 0.0 || width >= substitute {
+    enlarged_mark_at(width, substitute_width(to_device)?)
+}
+
+/// [`enlarged_mark`] at a substitute width the caller has already chosen.
+///
+/// A cap ends the **body** it caps, and §8.4.3.3 states it as a shape of that line's width — so
+/// where the body has been restated at a width of its own ([`band_substitute_width`]), the cap is
+/// restated at the same one, or the mark that projects beyond a stroke's end is wider than the
+/// stroke. That is not a rounding: on `issue12295.pdf`, whose placement stretches the two axes by
+/// a factor of 25, the two widths are 7.3 and 184.4 path units apart. ADR 0945.
+#[must_use]
+pub fn enlarged_mark_at(width: f32, substitute: f32) -> Option<EnlargedMark> {
+    if !width.is_finite() || !substitute.is_finite() || width <= 0.0 || width >= substitute {
         return None;
     }
     let ratio = width / substitute;
@@ -1275,7 +1407,13 @@ mod tests {
     }
 
     /// Where the axes are stretched by different factors the substitute takes the *smaller*, so
-    /// that it is a whole pixel across whichever way the rule runs.
+    /// that it is a whole pixel across whichever way the **mark** runs.
+    ///
+    /// **This comment used to say "whichever way the rule runs", and a rule is the one mark it is
+    /// not true of.** A rule sweeps a band that is thin along one direction only, so a width that
+    /// is a pixel across every direction is `max_stretch / min_stretch` pixels across the band —
+    /// which is `band_substitute_width`'s subject and ADR 0945's. What this quantity is right for
+    /// is §8.5.3.2's dot and Table 53's cap, whose shape is the line's width both ways.
     #[test]
     fn an_anisotropic_transform_widens_the_substitute_rather_than_narrowing_it() {
         let at = Transform::scale(4.0, 0.25);
@@ -1454,6 +1592,101 @@ mod tests {
         assert!(
             (ordinary.coverage - 0.04).abs() < f32::EPSILON,
             "0.2 squared is well above a level and is left exactly where the arithmetic puts it"
+        );
+    }
+
+    /// A band's substitute width is one device pixel measured **across** the band.
+    ///
+    /// ISO 32000-2 §10.7.4's construction restates a mark the raster cannot measure at a width it
+    /// can, and the width that means depends on which way the band runs the moment the placement
+    /// stretches the two axes by different factors. The arithmetic is `super::
+    /// substitute_width_across`'s own and the numbers here are chosen so that it closes by hand:
+    /// under `diag(1/8, 1/200)` a band running along `x` is thin along `y` and needs 200 path
+    /// units to be a device pixel thick, and one running along `y` needs 8.
+    #[test]
+    fn a_bands_substitute_width_is_one_device_pixel_across_the_band() {
+        let at = Transform::new(0.125, 0.0, 0.0, 0.005, 0.0, 0.0);
+        let along_x = super::substitute_width_across(at, (1.0, 0.0)).expect("a direction");
+        let along_y = super::substitute_width_across(at, (0.0, 1.0)).expect("a direction");
+        assert!((along_x - 200.0).abs() < 1e-3, "along x: {along_x}");
+        assert!((along_y - 8.0).abs() < 1e-3, "along y: {along_y}");
+        // The two ends of the family are the two singular values' reciprocals, which is what says
+        // `substitute_width` is the widest member of it rather than a different quantity.
+        let widest = super::substitute_width(at).expect("a placement");
+        let narrowest = crate::thinnest_line(at).expect("a placement");
+        assert!((widest - along_x).abs() < 1e-3, "widest: {widest}");
+        assert!((narrowest - along_y).abs() < 1e-3, "narrowest: {narrowest}");
+    }
+
+    /// Under a similarity the direction does not matter, which is why almost no page moves.
+    ///
+    /// §8.4.3.2 makes the device thickness depend on orientation only "[i]f the CTM specifies
+    /// scaling by different factors in the horizontal and vertical dimensions"; where it does not,
+    /// every direction gives [`super::substitute_width`]'s own answer.
+    #[test]
+    fn under_a_similarity_every_direction_gives_the_same_substitute() {
+        let at = Transform::new(0.0, 2.5, -2.5, 0.0, 7.0, -3.0);
+        let expected = super::substitute_width(at).expect("a placement");
+        for direction in [(1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (3.0, -7.0)] {
+            let width = super::substitute_width_across(at, direction).expect("a direction");
+            assert!(
+                (width - expected).abs() < 1e-4,
+                "{direction:?} gave {width}, not {expected}"
+            );
+        }
+    }
+
+    /// A path is substituted at the narrowest width the directions it runs in ask for.
+    ///
+    /// §10.7.4 opens with which pixels a shape reaches — "painting any pixel whose half-open
+    /// square region intersects the shape" — so no part of the substitute may be wider than the
+    /// pixel line the true band lies in. A path holding both an `x` and a `y` segment therefore
+    /// takes the smaller of this transform's two answers, and a lone `m`, which sweeps no band at
+    /// all, falls back to the mark's own width.
+    #[test]
+    fn a_paths_substitute_is_the_narrowest_its_own_directions_ask_for() {
+        let at = Transform::new(0.125, 0.0, 0.0, 0.005, 0.0, 0.0);
+        let across = path(&[
+            PathCommand::MoveTo(Point::new(0.0, 0.0)),
+            PathCommand::LineTo(Point::new(100.0, 0.0)),
+        ]);
+        let down = path(&[
+            PathCommand::MoveTo(Point::new(0.0, 0.0)),
+            PathCommand::LineTo(Point::new(0.0, 100.0)),
+        ]);
+        let both = path(&[
+            PathCommand::MoveTo(Point::new(0.0, 0.0)),
+            PathCommand::LineTo(Point::new(100.0, 0.0)),
+            PathCommand::LineTo(Point::new(100.0, 100.0)),
+        ]);
+        let alone = path(&[PathCommand::MoveTo(Point::new(0.0, 0.0))]);
+        let width = |p: &Path| super::band_substitute_width(p, at).expect("a placement");
+        assert!((width(&across) - 200.0).abs() < 1e-3, "{}", width(&across));
+        assert!((width(&down) - 8.0).abs() < 1e-3, "{}", width(&down));
+        assert!((width(&both) - 8.0).abs() < 1e-3, "{}", width(&both));
+        assert!((width(&alone) - 200.0).abs() < 1e-3, "{}", width(&alone));
+    }
+
+    /// A cap is restated at the width of the body it caps, not at a width of its own.
+    ///
+    /// §8.4.3.3 states a cap as a shape of the line's width, so where the body has been widened
+    /// the cap follows it there — and its area goes as the *square*, which is what its coverage
+    /// divides back. Under this placement the two widths are a factor of 25 apart, so a cap taking
+    /// the wrong one projects twenty-five device pixels past a stroke one pixel wide.
+    #[test]
+    fn a_cap_is_enlarged_to_the_width_of_the_body_it_caps() {
+        let at = Transform::new(0.125, 0.0, 0.0, 0.005, 0.0, 0.0);
+        let body = super::enlarged_mark_at(1.0, 8.0).expect("under the quantum");
+        assert!((body.width - 8.0).abs() < f32::EPSILON);
+        assert!(
+            (body.coverage - 1.0 / 64.0).abs() < 1e-6,
+            "one eighth squared: {}",
+            body.coverage
+        );
+        let whole_placement = super::enlarged_mark(1.0, at).expect("under the quantum");
+        assert!(
+            (whole_placement.width - 200.0).abs() < 1e-3,
+            "the mark that has to be a pixel across both ways is still stated at 200"
         );
     }
 }

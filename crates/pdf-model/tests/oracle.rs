@@ -8569,6 +8569,26 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// neither arm of `Interpreter::tile` is reached on it at all; what it states is the 65 859
 /// sub-pixel strokes above, in a flat colour. The gap reproduces at −2.362 and the verdict is
 /// unchanged. ADR 0738.
+///
+/// # And every figure above was true of a page drawn wrong, which took opening it
+///
+/// The nine-hundred-and-forty-fourth session looked at the raster instead of the ladder.
+/// `issue12295.pdf` is a Holter report; all four references draw a legible ECG and this tree drew
+/// a featureless grey smear with **no QRS complexes in it at all**. Every measurement in this note
+/// is of *how much*, and both of the page's defects were errors of **where**: the strokes sit
+/// under `diag(0.1366, −0.0054)`, two stretches a factor of 25 apart, and §10.7.4's substitution
+/// for a mark under the raster's quantum was stating its band at `1 / min_stretch` — one device
+/// pixel along `y` and **twenty-five along `x`** — so a spike 0.1366 of a pixel wide was painted
+/// across twenty-five columns at an alpha of 1.38 levels, which an eight-bit raster holds one of.
+/// The ink was conserved by the widening and then a fifth of it was rounded away; a ladder sees
+/// neither. ADR 0945 has the arithmetic, the fix and the census that prices it.
+///
+/// **What that changes here is a figure and not the verdict.** Ours at the page's own scale is
+/// 7.1795 where it was 8.0147, descending onto 6.8047 at eight times — 5.5% above the page's own
+/// geometry where it stood 17.8% above — so this group's premise holds more sharply than before:
+/// every renderer paints more than the geometry and ours least, and it is now least by less. The
+/// page is `ambiguous` on both sides of the change, because the four references still floor a
+/// sub-pixel stroke at four device-pixel widths no two of which agree.
 const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
     "issue12963.pdf page 2",
     "issue12963.pdf page 3",

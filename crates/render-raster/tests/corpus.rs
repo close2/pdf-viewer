@@ -691,9 +691,19 @@ const DIFFERS_AT_THE_EDGES: [&str; 5] = [
 /// particular. What this gate prints for `issue16038.pdf` today is mean **1.2328** at ssim
 /// 0.98798 — below the 1.2808 recorded above, so the two rasterisers have come *closer* on it
 /// since, and the figures above are the movements their own sessions measured.
-const DIFFERS_IN_SHAPE: [&str; 17] = [
+///
+/// **`bug1844576.pdf` left in the nine-hundred-and-forty-fourth, and it left by the processor
+/// moving onto the geometry** (ADR 0945). Its last line here was mean 2.1265, worst tile 5.02 at
+/// (0, 0), differing 0.0721, ssim 0.98080. `pdf-model/examples/anisotropic_band_census` says the
+/// page states one stroke under the device's quantum whose placement is not a similarity, and
+/// §10.7.4's substitution on the processor was stating such a stroke's band at
+/// `1 / min_stretch` — one device pixel across whichever way the *mark* runs, which is §8.5.3.2's
+/// dot's question and not a band's. raster has never had that defect, because its anisotropic
+/// route outlines a stroke in path space at the width the document stated (`stroke::expanded`),
+/// so the two backends agreeing here is the processor arriving where raster already was rather
+/// than either moving toward the other.
+const DIFFERS_IN_SHAPE: [&str; 16] = [
     "22060_A1_01_Plans.pdf",
-    "bug1844576.pdf",
     "bug1844583.pdf",
     "bug1978317.pdf",
     "copy_paste_ligatures.pdf",

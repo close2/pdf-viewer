@@ -2245,11 +2245,19 @@ fn draw_rule_as_bands(
 /// ADR 0268's general construction: the rule stroked one device pixel wide, at the alpha its own
 /// width implies, with §8.4.3.3's cap as a second mark at the alpha *its* own area implies.
 ///
-/// See [`draw_sub_pixel_rule`] for why this is owed and [`pdf_render::substitute_width`] for why
-/// the width is stated from the transform's *smaller* stretch. The two moves are one arithmetic
-/// identity: the substitute's device area is `width / style.width` times the rule's, and the alpha
-/// is `style.width / width`, so the ink is the rule's own area whatever the transform and whatever
-/// the angle.
+/// See [`draw_sub_pixel_rule`] for why this is owed and [`pdf_render::band_substitute_width`] for
+/// where the width comes from. The two moves are one arithmetic identity: the substitute's device
+/// area is `width / style.width` times the rule's, and the alpha is `style.width / width`, so the
+/// ink is the rule's own area whatever the transform and whatever the angle.
+///
+/// **The width is the *band's* rather than the mark's, and under an uneven placement those are
+/// two different quantities.** A swept body is thin along one direction only, so what makes it a
+/// device pixel thick depends on which way it runs, where [`pdf_render::substitute_width`] answers
+/// the question §8.5.3.2's dot asks — a pixel across whichever way the mark runs. Asking the
+/// first with the second's answer is what drew `issue12295.pdf`'s traces across twenty-five device
+/// pixels at half a percent each, on a placement whose two stretches are a factor of 25 apart.
+/// §8.4.3.3's cap then follows the body it caps rather than keeping a width of its own, or the
+/// mark projecting past a stroke one pixel wide is twenty-five. ADR 0945.
 ///
 /// The dashes are dispensed first, by the same `tiny_skia::Path::dash` that `stroke_path` would
 /// have called, because widening a dashed stroke must not widen its dashes: §8.4.3.6's pattern is
@@ -2265,12 +2273,14 @@ fn draw_rule_at_one_pixel(
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
-    let Some(width) = pdf_render::substitute_width(at) else {
+    let Some(width) = pdf_render::band_substitute_width(geometry.0, at) else {
         return false;
     };
     // A width above the substitute's is not this rule's business: `draw_sub_pixel_rule` has
-    // already established that the stroke is at or under one device pixel by §8.4.3.2's reading,
-    // and under an anisotropic transform that leaves the two readings a factor apart.
+    // already established that the stroke is at or under one device pixel by §8.4.3.2's reading.
+    // Kept although `band_substitute_width` is never under `thinnest_line` — the two are equal
+    // for a path holding a curve — so that the test guarding the widening below is the widening's
+    // own rather than a property of a caller.
     if !at_or_under_the_quantum(style.width, width) {
         return false;
     }
@@ -2310,7 +2320,7 @@ fn draw_rule_at_one_pixel(
         return false;
     };
     let mut faint = brush.clone();
-    // `width` is a reciprocal of a positive stretch, so it is finite and above zero. The floor is
+    // `width` is stated in the path's own space and is finite and above zero. The floor is
     // §10.7.4's "no shape ever disappears" reaching the *alpha* the substitute rides in, which is
     // eight bits and runs out below 1/255 of a device pixel of thickness.
     faint
@@ -2328,7 +2338,7 @@ fn draw_rule_at_one_pixel(
     // not pay for a path conversion to be told so.
     if widening
         && cap != pdf_render::LineCap::Butt
-        && let Some(mark) = pdf_render::enlarged_mark(style.width, at)
+        && let Some(mark) = pdf_render::enlarged_mark_at(style.width, width)
         && let Some(caps) =
             pdf_render::sub_pixel_caps(cut_ends.as_ref().unwrap_or(geometry.0), cap, mark)
         && let Some(converted) = convert::path(&caps)

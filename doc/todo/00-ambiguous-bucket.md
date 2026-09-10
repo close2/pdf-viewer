@@ -588,6 +588,84 @@ so while the four references produce four different strings from the same bytes.
 clause, the eleven names, what each reference guesses, and the measurement that says the pages
 would be `ambiguous` whatever we drew.** Read it before re-deriving the head.
 
+**Re-run before and after in the nine-hundred-and-forty-fourth**, the round sent to the three
+names at or past −1 that sit on documents the gate calls **complete** — `issue16038.pdf` −5.642,
+`issue12295.pdf` −2.362, `issue14297.pdf` −1.135 — with the instruction to look at the page rather
+than at the number. Two of the three are diagnosed correctly and the readings that say so are
+below; the third was a defect, and the shape of it is the reason this sweep is run at all stated
+in reverse.
+
+**`issue12295.pdf` was drawn wrong, and every measurement this bucket held about it was true.**
+The page is a Holter report: a heart-rate chart and eight ECG strips. All four references draw a
+legible ECG and this tree drew a featureless grey smear with **no QRS complexes in it at all** —
+which the five-hundred-and-eighty-third session's entry describes exactly ("our ECG traces are a
+ghost either way") and files under `doc/todo/11`. Its strips sit under `diag(0.1366, −0.0054)`,
+two stretches a factor of 25 apart, and §10.7.4's substitution for a mark under the raster's
+quantum was stating the band at `1 / min_stretch` — one device pixel along `y` and **twenty-five
+along `x`** — so a spike 0.1366 of a device pixel wide was painted across twenty-five columns at
+an alpha of 1.38 levels, of which an eight-bit raster holds one. **Both halves of that are errors
+of *where*, and the widening conserves the ink**: `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`'s note is
+four ladders and a closed form, and not one of them can see a mark that is in the wrong place at
+the right weight. ADR 0945 has the arithmetic, the fix, the probe and the census — whose
+residual over 975 corpus first pages is **two strokes of 4 010 408** — and step 5's own
+line — the closed form answers "how much" and is silent on "where" — is what this page is.
+
+**So the row moves, and the direction is the finding rather than a regression.** Ours at the
+page's own scale goes 8.015 → 7.180 of 255, and the whole ladder with it — 7.206 → 6.878 at two
+times, 6.857 → 6.826 at four, and **6.805 at eight either way**, because at eight times a `1 w`
+stroke is over a device pixel and no substitution is asked for at all. So the sweep's
+gap goes **−2.362 → −3.198**: the number is a difference between two programs and this round moved
+ours *onto* the geometry, away from four references that each floor a sub-pixel stroke at a
+device-pixel width. A round reading this row later should read it with the ladder beside it.
+
+**And the fix has an independent check that is not this round's own probe.** `bug1844576.pdf`
+leaves `render-raster/tests/corpus.rs`'s `DIFFERS_IN_SHAPE` — its line there was mean 2.1265,
+ssim 0.98080 — because raster has never had this defect: its anisotropic route outlines a stroke
+in path space at the width the document stated. A second implementation written to a different
+construction was already drawing what the new width produces.
+
+**Everything else on the sweep is byte-identical.** Over the 771 ambiguous pages whose artefacts
+are on disk, `issue12295.pdf` is the only row that moves at all: the incomplete head reproduces to
+the thousandth (`issue12418_reduced.pdf` −19.447, `issue4722.pdf` −13.810,
+`issue15977_reduced.pdf` −12.927, `bug1050040.pdf` −11.272, `issue5801.pdf` −8.991) and so does
+every complete one below (`issue16038.pdf` −5.642, `issue14297.pdf` −1.135, `issue7821.pdf`
+−0.957, `jpx_smaskindata.pdf` −0.839, nothing past −0.535). The oracle's three counts are
+unchanged.
+
+**`issue16038.pdf` is not a defect, and the reading is now per square rather than per page.**
+ADR 0738 measured the page's whole ink against a closed form of 313.12 and concluded that the head
+of this ranking is the references' excess. Taken one level down: the page is two 28.3468-point
+squares filled with §8.7.3 uncoloured tiling patterns whose cell is one 0.3985-wide horizontal
+rule every 2.98883 units, so the interior coverage the document states is `0.3985 / 2.98883` =
+**0.13333**, twice over — the second pattern draws its rule as two halves on the cell's own
+`/BBox` edges, which §8.7.3.1's clip cuts and the neighbouring cell restores. Measured over the two
+squares' interiors at the page's own scale:
+
+```text
+                square 1   square 2      the document states 0.13333
+  ours            0.1301     0.1314      both within 2.4%
+  hayro           0.1262     0.1347
+  mupdf           0.1277     0.2087      the second cell's two halves counted twice
+  poppler         0.2946     0.0837      neither
+  ghostscript     0.3333     0.6667      exactly 1/3 and 2/3: one and two whole pixels of three
+```
+
+`ghostscript`'s two figures are the tell and they are not a spread: a 0.3985-point rule is 0.4 of
+a device pixel here, and one whole pixel in every three-pixel period is `1/3` exactly, two whole
+pixels `2/3`. **Ours and `hayro`'s are the only two columns on the clause's own arithmetic, and
+the only two that give the two patterns the same answer** — which is what §8.7.3.1's cell clip
+requires, since the two cells differ only in where the rule sits inside the `/BBox`. Nothing to
+fix; the negative gap is four renderers' scan conversion of a sub-pixel rule.
+
+**`issue14297.pdf` is not a defect either, and its note's two ladders reproduce today.** Taken
+with the gate's own arguments in this round: `poppler` 10.127 at 72 dpi and 8.760 at 576,
+`mupdf` 9.809 and 8.838, ours 8.711 at the page's own scale rising to 8.801 at eight times. The
+references *lose* 1.37 and 0.97 of 255 as the pixels arrive and ours *gains* 0.09, landing 0.05
+from `poppler`'s own limit — the references' 72-dpi ink is their scan conversion of five-point
+type, exactly as `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE` records. The side-by-side agrees: at four
+times, ours, `poppler` and `mupdf` set the same glyphs in the same places and differ only in
+weight, while `ghostscript` substitutes a heavier face and spaces it differently.
+
 **Re-run before and after in the nine-hundred-and-forty-third**, owed by §7 of `doc/todo/02`
 because the round before it implemented §12.5.6.22's `/FixedPrint` — and the sweep's job here is
 the one this file keeps saying it is, because that clause reaches no page of the gate corpus at
