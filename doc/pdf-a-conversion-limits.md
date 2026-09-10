@@ -1082,10 +1082,24 @@ set or the current PDF/A output intent carries a **CMYK** destination profile. A
 intent does not satisfy it.
 
 **The correct answer is your own profile.** A CMYK output intent is a statement about *which press
-the document was made for*, and nobody but the document's owner knows that. The press profiles
-that would be right (FOGRA, GRACoL, SWOP and the rest) are generally distributed under terms this
-project cannot assume permit redistribution — that has to be verified before anything is shipped,
-and the working assumption here is that it does not. So `--output-intent-profile <file>` is the
+the document was made for*, and nobody but the document's owner knows that.
+
+**The licence question was an assumption when this was written and has since been checked.** The
+ICC's own registry lists the registered CMYK output profiles — the ECI's `PSOcoated_v3` and
+`PSOuncoated_v3_FOGRA52`, Idealliance's CGATS, GRACoL and SWOP set, APTEC's offset and flexo set —
+and three things about that listing decide it. The copyright is held by those bodies rather than
+by the ICC, so the ICC's own permissive grant does not reach them; what the registry links for
+each is *characterization data*, a `.txt` of measurements, rather than a profile; and no
+redistribution terms are stated for any of them. So the working assumption was right, and it is
+now a finding rather than a caution.
+
+**Where an ICC profile's terms actually live, which is the more useful half.** The ICC's guidance
+is that a profile's copyright owner and terms of use are normally identified in the `Creator`
+field of its header and in its `cprt` tag. That is a rule a program can apply: a converter handed
+`--output-intent-profile` can read the profile's own `cprt` and put it in the report, so a user
+who embeds somebody's press profile is told whose it is. `data/icc/sRGB2014.icc`'s reads
+"Copyright International Color Consortium, 2015", which is what let its grant be established from
+the file rather than from a page about the file. So `--output-intent-profile <file>` is the
 interface, and for a print-origin archive it is mandatory rather than optional: the archive
 decides its house profile once.
 
