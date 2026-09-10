@@ -335,14 +335,155 @@ table of contents and clause 0's overview — and then it stops. Its own content
 ends long before either. So the profile header is not in it, the `Profile ID` field is not in it,
 and section 7.2.18's MD5 computation is not in it.
 
-**Three things therefore stay exactly where they were**, and their reasons in
-`crates/pdf-archive` now say that the preview was obtained and answers none of them:
-`graphics/destination-profile-conforms-to-an-icc-edition` and
-`graphics/icc-profiles-conform-to-a-permitted-edition` are still `Unchecked`, and the corpus
-witness `6-2-4-2-t03-fail-e` is still a miss — it turns on two profiles that differ in bytes and
-state the same MD5, which is the part of ISO 19005-4 section 6.2.4.2 that needs section 7.2.18's
-method and the field's position. What would close them is a full ICC.1 or ISO 15076-1 text, or
-ICC.2 for the iccMAX question; a preview of the front matter is not a step towards it.
+**What it does still answer is its own identity**, and that turned out to be the useful part. Its
+foreword states that ISO 15076-1 is technically identical to ICC.1:2010 at profile version
+4.3.0.0, and its introduction walks the chain before that: revision 4.2 was the first proposed as
+an International Standard and became ISO 15076-1:2005. Its contents list also puts clause 7 at the
+clause number ISO 19005-4 cites. Those are the two facts that let the ICC.1:2022 text below stand
+in for section 7.2.18 — an identification, not a substitution.
+
+**The cost of the preview is therefore smaller than it looked when this row was written.** The
+three things it could not answer were the two `Unchecked` graphics rows and the corpus miss
+`6-2-4-2-t03-fail-e`; the miss closed in the nine-hundred-and-fiftieth session on ICC.1:2022's and
+ICC.2:2023's statements of the same clause, and the rows were split rather than left whole. What
+this preview still cannot give is what a profile stating version 4.3.0.0 has to satisfy — every
+requirement of clause 7 onward — which is why a profile naming that edition is judged by nothing
+here.
+
+## ICC.1:2022, the ICC profile format — the whole text
+
+The owner downloaded it on 2026-09-10 as `doc/ICC.1-2022-05.pdf` — *Image technology colour
+management — Architecture, profile format, and data structure*, the International Color
+Consortium's own edition, profile version 4.4.0.0. `/doc/*.pdf` excludes it,
+`python3 tools/spec-md.py doc/ICC.1-2022-05.pdf` put its text under the ignored `doc/md/`, and the
+same licence position applies as to every specification here.
+
+**It is complete**: 126 pages, about 54 000 words, clause 1 through Annex G — the profile header
+field by field, the tag table, every tag and every tag type, and the required-tag lists of clause
+8. Not a preview.
+
+**Its redistribution terms are not established.** The ICC's specifications are free to obtain and
+that is not the same as free to redistribute, which is ADR 0187's distinction and the reason
+`doc/md/` is ignored. Nothing was found stating what may be republished, so it is treated exactly
+as `doc/pdfa/`'s two files are — **licensed to a single reader** — and **nothing in this tree
+quotes it**: cite and paraphrase, in the code as much as in the documents. Any code comment
+reproducing a sentence of it would be the thing this position exists to prevent.
+
+**What it answered**, in the nine-hundred-and-fiftieth session:
+
+- **Section 7.2.18, the `Profile ID` field.** Bytes 84 to 99, holding RFC 1321's MD5 over the
+  whole profile — as long as the header's size field says — with the profile flags, the rendering
+  intent and the field itself zeroed for the calculation, and a zero field meaning no identifier
+  has been calculated. That is `pdf_model::icc::computed_id`, and it closed the corpus miss
+  `6-2-4-2-t03-fail-e`, whose two profiles differ in exactly those sixteen bytes.
+- **Section 7.2.4, the profile version field.** Binary-coded decimal, byte 8 the major version and
+  byte 9 the minor and bug-fix versions in its two halves, the numbers set by the ICC, and 4.4.0.0
+  stated as the version consistent with this edition. That is what makes a version number identify
+  an *edition*, which is the premise
+  `crates/pdf-archive/src/table/graphics.rs`'s `IccEdition` rests on.
+- **Clause 8's required tags**, for the display and output classes a PDF/A destination profile may
+  be.
+- **That it stands in for ISO 15076-1:2010 on section 7.2.18, and why that is an identification
+  rather than an assumption.** Its foreword says it is an update to ICC.1:2010, that ICC.1:2010 and
+  ISO 15076-1:2010 are technically identical, and lists the technical changes it makes — none of
+  which touches the profile header or that calculation. ICC.2:2023 states the same method under its
+  own clause number, so two held texts agree.
+
+**What it does not answer.** ISO 19005-2 section 6.2.4.2 admits ICC.1:1998-09, ICC.1:2001-12,
+ICC.1:2003-09 and ISO 15076-1, and ICC.1:2022 is none of the four: it is a fifth text at a version
+later than any of them. Two of the four arrived separately and are recorded below; ICC.1:2003-09 is
+not obtainable — the ICC supplies its past specifications on request only — and ISO 15076-1:2010 is
+the preview above.
+
+**And the ICC publishes amendments and errata to its own specifications**, which is worth a line
+here because this project already treats approved errata as an input for ISO 19005
+(`doc/errata-read.md`). The ICC's v4 page links two amendments to ICC.1:2022 — an Adaptive Gain
+Curve tag and a CICP tag amendment — and lists errata for ICC.1:2010-12 and ICC.1:2004-10 without
+links. All of them amend texts at version 4.4 or later, which ISO 19005-2 does not name, so none
+bears on a row here today. A round that starts judging 4.3.0.0 or 4.4.0.0 profiles in earnest owes
+a look at them first.
+
+## ICC.2:2023, iccMAX — the whole text
+
+The owner downloaded it on 2026-09-10 as `doc/ICC.2-2023.pdf` — *Image technology colour
+management — Extensions to architecture, profile format, and data structure*, profile version
+5.0.0.0. Same treatment and the same unestablished terms as ICC.1:2022 above: `/doc/*.pdf`
+excludes it, its text is under the ignored `doc/md/`, it is treated as licensed to a single
+reader, and nothing in this tree quotes it.
+
+**It is complete**: 255 pages, about 90 000 words.
+
+**What it answered**, in the same session — and it answered the question this project had been
+unable to ask at all:
+
+- **A profile stating version 5.0.0.0 claims iccMAX**, by its section 7.2.6, and its section 1
+  places iccMAX beside ISO 15076-1 rather than inside it — a document based on ISO 15076-1 that
+  expands the profile specification, removing some of its types and adding others. So such a
+  profile does not claim any of ISO 19005-2's four texts, which is
+  `graphics/icc-profiles-claim-a-permitted-edition`.
+- **The corpus witness `6-2-3-t01-fail-d` is decided, and against the file.** It is an Adobe RGB
+  (1998) profile whose version field has been set to 5.0.0.0: a display profile carrying the v2
+  matrix and curve tags and nothing else. ICC.2 section 8.4 requires a display profile to carry one
+  or more of `AToB0Tag` to `AToB3Tag` or `DToB0Tag` to `DToB3Tag` and one or more of `BToA0Tag` to
+  `BToA3Tag` or `BToD0Tag` to `BToD3Tag`; it carries none of the sixteen, and iccMAX defines no
+  matrix-column or TRC tags at all. Its `Profile ID` field states a value that is not the one
+  section 7.2.20's method gives either. Both are now reported, and the miss is closed under both
+  parts.
+- **Section 7.2.20 is section 7.2.18 again**, word for word on the calculation, which is the second
+  held witness for the method ISO 19005-4 cites.
+
+**What it does not answer.** Everything about a profile stating any other version — and, for a
+version 5 profile, everything this project has not read of its clauses 9 and 10.
+
+## ICC.1:1998-09 and ICC.1:2001-12 — two of the four texts ISO 19005-2 names
+
+The owner downloaded both on 2026-09-10, as `doc/md/ICC-1_1998-09.md` (*File Format for Color
+Profiles*, profile version 2.2.0, 134 pages, about 56 000 words) and `doc/md/icc_1_2001-12.md`
+(*File Format for Color Profiles (Version 4.0.0)*, 126 pages, about 62 000 words). Both are
+complete texts rather than previews. Same treatment and the same unestablished terms as the two
+editions above: their PDFs and their markdown are ignored, they are treated as licensed to a single
+reader, and nothing in this tree quotes either.
+
+**They are the first two of ISO 19005-2 section 6.2.4.2's four**, which is what makes them
+different from ICC.1:2022 and ICC.2:2023. That clause's list now stands at ICC.1:1998-09 **held**,
+ICC.1:2001-12 **held**, ICC.1:2003-09 **not held**, ISO 15076-1 **preview only**.
+
+**The second file is prepared in a mixture of both page orders**, which its own header records. It
+is readable clause by clause all the same; a round quoting a line number from it should check the
+surrounding page markers rather than assume the file runs forwards.
+
+**What they answered**, in the nine-hundred-and-fiftieth session:
+
+- **Clause 6.3 of each, the required tags per profile class and form.** Both begin every
+  device-class table from `profileDescriptionTag`, `mediaWhitePointTag` and `copyrightTag` and then
+  add the transform the form is built on. That is
+  `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`, which judges every
+  `ICCBased` profile against both — a profile conforming to neither conforms to neither of the two
+  texts of the four this project can read.
+- **The version numbering, from the earliest end.** ICC.1:1998-09 section 6.1.3 states its own
+  number as 2.2.0 and says a major version change happens only for an incompatible change — new
+  required tags is its example — while a minor one carries compatible changes such as new optional
+  tags. Its Annex F then lists what each earlier revision changed. Together those say that nothing
+  *required* was added inside major version 2.
+- **That the shipped `data/icc/sRGB2014.icc` is admissible under ISO 19005-2 after all**, which was
+  an open question worth asking: the profile's header states 2.0.0, and ICC.1:1998-09 states its own
+  number as 2.2.0. Neither that text nor part 2 requires a profile to *state* the number of the
+  edition it conforms to — part 2's sentence is a disjunction over documents — and the profile
+  carries exactly the nine tags ICC.1:1998-09's Table 27 requires of an RGB display profile. Its
+  `Profile ID` at bytes 84 to 99 offends nothing either: that text's Table 9 gives bytes 84 to 127
+  to reserved expansion and, unlike its other reserved fields, states no requirement that they be
+  zero. `doc/adr/0950` records the reading and `data/icc/PROVENANCE.md` stands.
+- **That the `Profile ID` calculation is not edition-invariant.** ICC.1:2001-12 section 6.1.13 puts
+  the field at the same bytes and zeroes a *different* set of header fields for the digest — the
+  rendering intent, the device attributes and the field itself, where ICC.1:2022 and ICC.2:2023
+  zero the profile flags in the attributes' place — and it does not state the method at all, but
+  points at a technical note on the ICC's web site. So `pdf_model::icc::computed_id` is the later
+  method, which is the one ISO 19005-4 names, and `pdf_archive` does not apply it to a profile
+  claiming 4.0.0.
+
+**What they do not answer.** Everything about a profile claiming a version between them —
+2.1.0 above all, which is most of the profiles that exist — since neither text is the edition such
+a profile names, and everything of either document beyond clause 6.3's tag lists.
 
 ## The XMP Specification, read for a table of facts
 

@@ -351,8 +351,12 @@ fn a_document_that_already_conforms_is_not_rewritten() {
 #[test]
 fn the_same_input_twice_produces_identical_bytes() {
     // RFC 0002 section 9: "the same inputs produce the same bytes, with no flag needed". The
-    // conversion reads a clock, a path or an environment nowhere, so this is a test rather than
-    // a demo.
+    // conversion reads a path or an environment nowhere. It reads a *clock* in exactly one
+    // place — the `stEvt:when` of the `xmpMM:History` entry ISO 19005-2 section 6.6.6 asks of a
+    // recorded action, which is a fact about when the action happened and cannot be anything
+    // else — so this fixture is one no action is recorded for, and
+    // `a_device_cmyk_page_under_part_two_gets_the_devicen_default` is where that entry is
+    // checked instead.
     let source = Conforming {
         catalog: "/Requirements [<< /Type /Requirement /S /EnableJavaScripts >>]".to_owned(),
         ..Conforming::default()
@@ -1000,9 +1004,11 @@ fn a_device_rgb_page_gains_the_shipped_output_intent_and_the_report_says_what_th
 #[test]
 fn a_device_cmyk_page_is_refused_by_name_because_srgb_does_not_license_it() {
     // ISO 19005-4 section 6.2.4.3 licenses DeviceCMYK through a **CMYK** destination profile, and
-    // the profile this program ships is RGB. `doc/pdf-a-conversion-limits.md` section 10.1 is the
-    // whole of the answer: supply the press's profile, or wait for the DeviceN /DefaultCMYK
-    // construction that section states.
+    // the profile this program ships is RGB. **And part 4 has no second licence**: it states the
+    // sentence requiring a *device independent* DefaultCMYK where ISO 19005-2 states it admitting
+    // a DeviceN-based one, so the construction the test below writes for part 2 is not open here
+    // and the answer is the press's own profile. That is the standard's difference between the
+    // two parts rather than a gap in this converter.
     let source = Conforming {
         contents: Some(paints_in_device_cmyk()),
         ..Conforming::default()
@@ -1232,4 +1238,265 @@ fn document_packet(bytes: &[u8]) -> Vec<u8> {
         .decoded_stream_data(stream)
         .expect("the packet decodes")
         .to_vec()
+}
+
+/// The `/DefaultCMYK` a converted part-2 document states, resolved to its array.
+fn default_cmyk(document: &Document) -> Vec<pdf_syntax::Object> {
+    let page = pdf_model::Pages::new(document).get(0).expect("one page");
+    let resources = document
+        .get_key(&page.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .expect("the page's own resources");
+    let spaces = document
+        .get_key(&resources, "ColorSpace")
+        .as_dict()
+        .cloned()
+        .expect("a ColorSpace subdictionary");
+    document
+        .get_key(&spaces, "DefaultCMYK")
+        .as_array()
+        .map(<[pdf_syntax::Object]>::to_vec)
+        .expect("a DefaultCMYK colour space array")
+}
+
+#[test]
+fn a_device_cmyk_page_under_part_two_gets_the_devicen_default() {
+    // ISO 19005-2 section 6.2.4.3 admits a **DeviceN-based** DefaultCMYK beside a device
+    // independent one, and its NOTE 2 says why: such a space is subject to section 6.2.4.4 and is
+    // thereby device independent. `doc/questions/A48` allows writing one, on two conditions —
+    // that it is reported per document, and that it is recorded in xmpMM:History naming the
+    // clause. Both are asserted here, because the permission is the two of them together.
+    let (report, output) = converted_cmyk_page();
+    let decided = decision(
+        &report,
+        "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+    );
+    let Decision::Stated {
+        rewrite,
+        reinterprets,
+    } = decided
+    else {
+        panic!("the DeviceN default states an interpretation the standard defines: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::DefaultCmyk);
+    assert!(
+        reinterprets.contains("crude approximation"),
+        "§10.4.2.1's own word for what this costs is in the sentence: {reinterprets}"
+    );
+
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "the output is held to the target again:\n{}",
+        holds(&output, Target::Two(Level::B)).render()
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let space = default_cmyk(&document);
+
+    // §8.6.6.5's DeviceN: the family, the names, the alternate space and the tint transform.
+    assert_eq!(
+        space
+            .first()
+            .and_then(|first| first.as_name())
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"DeviceN".to_vec())
+    );
+    let names: Vec<Vec<u8>> = document
+        .resolve(space.get(1).expect("a names array"))
+        .as_array()
+        .expect("an array")
+        .iter()
+        .filter_map(|name| name.as_name().map(|name| name.as_bytes().to_vec()))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            b"Cyan".to_vec(),
+            b"Magenta".to_vec(),
+            b"Yellow".to_vec(),
+            b"Black".to_vec()
+        ],
+        "the four names §8.6.6.5 reserves to a CMYK device's process colourants, in order"
+    );
+    let alternate = document.resolve(space.get(2).expect("an alternate space"));
+    let alternate = alternate.as_array().expect("an ICCBased array");
+    assert_eq!(
+        alternate
+            .first()
+            .and_then(|first| first.as_name())
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"ICCBased".to_vec()),
+        "the alternate is a device independent space, which is what section 6.2.4.4 requires"
+    );
+
+    // §10.4.2.5: "red = 1.0 - min(1.0, cyan + black)", and the same for green from magenta and
+    // blue from yellow. The tint transform is that arithmetic and this is the check of it —
+    // written out here rather than trusted, because the operators §7.10.5.2 defines have no min.
+    let tint =
+        pdf_model::function::Function::parse(&document, space.get(3).expect("a tint transform"))
+            .expect("a type 4 function");
+    for cmyk in [
+        [0.0, 0.0, 0.0, 1.0],
+        [0.25, 0.0, 0.76, 0.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [0.6, 0.2, 0.1, 0.5],
+        [0.0, 0.0, 0.0, 0.0],
+    ] {
+        let [cyan, magenta, yellow, black] = cmyk;
+        let clause =
+            [cyan, magenta, yellow].map(|component| 1.0_f32 - 1.0_f32.min(component + black));
+        let evaluated = tint.eval(&cmyk);
+        for (index, expected) in clause.iter().enumerate() {
+            let got = evaluated.get(index).copied().unwrap_or(f32::NAN);
+            assert!(
+                (got - expected).abs() < 1e-6,
+                "{cmyk:?} component {index}: the clause says {expected}, the function says {got}"
+            );
+        }
+    }
+}
+
+/// A part-2 document whose one page paints in `DeviceCMYK`, converted.
+fn converted_cmyk_page() -> (Report, Vec<u8>) {
+    let source = Conforming {
+        contents: Some(paints_in_device_cmyk()),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    (report, output)
+}
+
+#[test]
+fn the_devicen_default_is_reported_and_recorded_in_the_files_own_history() {
+    // `doc/questions/A48` allows the construction on two conditions and this is both of them:
+    // reported per document, and recorded in the file's own xmpMM:History naming the clause.
+    // `doc/adr/0927`: what makes these permissions rather than a licence is that a reader can see
+    // what was done, so a converter that met the first and not the second would have taken a
+    // licence nobody granted.
+    let (report, output) = converted_cmyk_page();
+    let recorded = conversion(&report)
+        .recorded
+        .as_ref()
+        .expect("the report names what was written into the history");
+    assert!(
+        recorded.contains("10.4.2.5"),
+        "naming the clause: {recorded}"
+    );
+    let rendered = conversion(&report).render();
+    assert!(
+        rendered.contains("xmpMM:History"),
+        "and the report a person reads says where it went:\n{rendered}"
+    );
+
+    // Its second: the file's own provenance carries it, naming the clause.
+    let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+    assert!(
+        packet.contains("xmpMM:History"),
+        "the packet states a history:\n{packet}"
+    );
+    assert!(
+        packet.contains("clause 10.4.2.5"),
+        "and the entry names the clause that licensed the transform:\n{packet}"
+    );
+    let history = pdf_model::xmp::Xmp::parse_detail(packet.as_bytes()).expect("it parses");
+    let entry = history
+        .iter()
+        .find(|property| {
+            property.name.namespace == pdf_model::xmp::XMP_MM && property.name.local == "History"
+        })
+        .and_then(|property| property.value.array().and_then(<[_]>::first))
+        .expect("one recorded action");
+    for field in ["action", "parameters", "when"] {
+        assert!(
+            entry.field(pdf_model::xmp::RESOURCE_EVENT, field).is_some(),
+            "ISO 19005-2 section 6.6.6 asks a recorded action for its {field}"
+        );
+    }
+}
+
+/// An ICC profile header naming a CMYK output profile, and nothing else.
+///
+/// ISO 15076-1's header is 128 bytes at the front of every profile, and three of its fields are
+/// what ISO 19005-2 section 6.2.3 reads of a destination profile: the profile class at offset 12,
+/// the data colour space at offset 16, and the `acsp` signature at offset 36 that says the bytes
+/// are a profile at all. A tag count of zero follows it. That is a *fixture* rather than a usable
+/// profile — no press is described by it — and it is enough for the question this test asks,
+/// which is which of section 6.2.4.3's two licences a CMYK profile makes the converter take.
+fn cmyk_header() -> std::sync::Arc<[u8]> {
+    let mut out = vec![0u8; 132];
+    out.splice(12..16, *b"prtr");
+    out.splice(16..20, *b"CMYK");
+    out.splice(20..24, *b"XYZ ");
+    out.splice(36..40, *b"acsp");
+    // The size field the header opens with, which a reader uses to bound the tag table.
+    let size = u32::try_from(out.len()).unwrap_or(u32::MAX).to_be_bytes();
+    out.splice(0..4, size);
+    out.into()
+}
+
+/// Converts with a caller-supplied output intent profile.
+fn convert_with_profile(
+    bytes: &[u8],
+    target: Target,
+    profile: &std::sync::Arc<[u8]>,
+) -> (Report, Option<Vec<u8>>) {
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Archive(ArchivePlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+            target,
+            authorised: Authorisations::default(),
+            profile: Some(std::sync::Arc::clone(profile)),
+        }),
+        &[Source::new(bytes.to_vec())],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let output = sinks.into_outputs().pop().map(|(_, bytes)| bytes);
+    (report, output)
+}
+
+#[test]
+fn a_cmyk_profile_answers_the_clause_and_no_default_is_written() {
+    // The two licences ISO 19005-2 section 6.2.4.3 offers, and the ranking between them:
+    // `doc/pdf-a-conversion-limits.md` section 10.1 says the correct answer is the owner's own
+    // profile, so a supplied CMYK profile takes the output-intent route and the DeviceN default
+    // — an approximation §10.4.2.1 calls crude — is not written at all.
+    let source = Conforming {
+        contents: Some(paints_in_device_cmyk()),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert_with_profile(&source, Target::Two(Level::B), &cmyk_header());
+    let decided = decision(
+        &report,
+        "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+    );
+    assert_eq!(
+        decided.rewrite(),
+        Some(Rewrite::OutputIntent),
+        "a CMYK destination profile answers the clause outright: {decided:?}"
+    );
+    let output = output.expect("the document converts");
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let resources = document
+        .get_key(&page.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .expect("the page's resources");
+    assert!(
+        document.get_key(&resources, "ColorSpace").is_null(),
+        "nothing is changed that no failed requirement asked for"
+    );
+    assert!(
+        conversion(&report).recorded.is_none(),
+        "and nothing is recorded in the history, because nothing was interpreted"
+    );
 }

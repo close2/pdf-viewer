@@ -76,6 +76,19 @@ pub const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 /// Public for [`RDF`]'s reason: section 6.2 restricts it in the same sentence.
 pub const XML: &str = "http://www.w3.org/XML/1998/namespace";
 
+/// The XMP Media Management namespace, whose `History` property records what was done to a file.
+///
+/// Public because [`record`] writes into that property and a caller that reads the result back
+/// — `pdf_archive` is the one here — has to spell the same URI rather than the same prefix.
+pub const XMP_MM: &str = "http://ns.adobe.com/xap/1.0/mm/";
+
+/// The field namespace of ISO 16684-1's `ResourceEvent` value type.
+///
+/// `xmpMM:History` is an ordered array of `ResourceEvent` structures, and the fields an
+/// [`Event`] states — `action`, `parameters`, `when` — are that value type's rather than any
+/// one schema's, which is why they are in a namespace of their own.
+pub const RESOURCE_EVENT: &str = "http://ns.adobe.com/xap/1.0/sType/ResourceEvent#";
+
 /// The largest metadata stream this module will look at, decoded.
 ///
 /// The clause states no limit and a stream is arbitrary compressed data, so this is a
@@ -545,6 +558,20 @@ pub enum WriteError {
         /// How many were found.
         found: usize,
     },
+    /// The packet states an `xmpMM:History` this writer cannot append an event to.
+    ///
+    /// Never *replaced*: a history is the record of what was done to a file before this
+    /// conversion, and overwriting it would lose exactly the provenance the subclause that asks
+    /// for the new entry exists to keep. So a packet whose history is not one `rdf:Seq` this
+    /// writer can find the end of leaves the packet untouched and the caller saying so.
+    #[error(
+        "the packet states {found} xmpMM:History properties and none this writer can append an \
+         event to"
+    )]
+    NoPlaceForAnEvent {
+        /// How many were found.
+        found: usize,
+    },
     /// The packet nests deeper than [`MAX_DEPTH`].
     #[error("the packet nests deeper than this writer follows")]
     TooDeep,
@@ -641,6 +668,172 @@ pub fn restate(
     Ok(out.into_bytes())
 }
 
+/// One action recorded in `xmpMM:History`.
+///
+/// The three fields ISO 19005-2 section 6.6.6 names of a recorded action. ISO 19005-4 section
+/// 6.7.5 requires two of them and demotes `parameters` to a recommendation, so an event stating
+/// all three satisfies both parts and neither part's reader has to know which wrote it.
+///
+/// The strings are the caller's: this module writes what it is given, escaped, and decides
+/// nothing about what an action is called or when it happened. [`instant`] is what turns a
+/// [`std::time::SystemTime`] into the `when` field's form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Event<'a> {
+    /// What was done, in one word — the `stEvt:action` field.
+    pub action: &'a str,
+    /// What it was done with or to — the `stEvt:parameters` field.
+    pub parameters: &'a str,
+    /// When, as [`instant`] writes it — the `stEvt:when` field.
+    pub when: &'a str,
+}
+
+/// `bytes` with one more event appended to the packet's `xmpMM:History`.
+///
+/// **Appended, never replaced.** A history the producer wrote is a record of what happened to
+/// the file before this program saw it, and an entry added to the end is the only edit that
+/// leaves that record intact. Where the packet states no history at all, one is created holding
+/// this single event; where it states one this writer cannot find the end of, nothing is written
+/// and the caller is told — [`WriteError::NoPlaceForAnEvent`].
+///
+/// Every other byte of the packet crosses unchanged, for [`restate`]'s reason and by the same
+/// means: the spans are found by one pass of the tokenizer and the text is copied around them.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched.
+pub fn record(bytes: &[u8], event: &Event<'_>) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let edit = Editor::run(text, &[])?;
+    // A history whose sequence this writer found: the event goes at the end of that sequence,
+    // after every entry already in it.
+    let (at, whole) = match (edit.history_seq_end, edit.history_elements) {
+        (Some(at), 1) => (at, false),
+        (_, 0) => (
+            edit.inside_rdf.ok_or(WriteError::NoPlaceForADescription {
+                found: edit.rdf_elements,
+            })?,
+            true,
+        ),
+        (_, found) => return Err(WriteError::NoPlaceForAnEvent { found }),
+    };
+    let mut out = String::with_capacity(text.len().saturating_add(512));
+    out.push_str(text.get(..at).unwrap_or_default());
+    if whole {
+        history(event, &mut out);
+    } else {
+        item(event, &mut out);
+    }
+    out.push_str(text.get(at..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
+/// One whole `xmpMM:History`, in its own description, for a packet that states none.
+fn history(event: &Event<'_>, out: &mut String) {
+    out.push_str("<rdf:Description rdf:about=\"\" xmlns:rdf=\"");
+    escaped(RDF, out);
+    out.push_str("\" xmlns:xmpMM=\"");
+    escaped(XMP_MM, out);
+    out.push_str("\">\n<xmpMM:History><rdf:Seq>\n");
+    item(event, out);
+    out.push_str("</rdf:Seq></xmpMM:History>\n</rdf:Description>\n");
+}
+
+/// One `rdf:li` holding one `ResourceEvent`, with the two prefixes it uses declared on it.
+///
+/// Declared rather than inherited, for [`description`]'s reason: what `rdf` and `stEvt` are bound
+/// to where this is inserted is the producer's business, and an element carrying its own bindings
+/// means the same thing wherever it is put.
+fn item(event: &Event<'_>, out: &mut String) {
+    out.push_str("<rdf:li rdf:parseType=\"Resource\" xmlns:rdf=\"");
+    escaped(RDF, out);
+    out.push_str("\" xmlns:stEvt=\"");
+    escaped(RESOURCE_EVENT, out);
+    out.push_str("\">\n");
+    for (local, value) in [
+        ("action", event.action),
+        ("parameters", event.parameters),
+        ("when", event.when),
+    ] {
+        out.push_str("<stEvt:");
+        out.push_str(local);
+        out.push('>');
+        escaped(value, out);
+        out.push_str("</stEvt:");
+        out.push_str(local);
+        out.push_str(">\n");
+    }
+    out.push_str("</rdf:li>\n");
+}
+
+/// How many seconds a day holds on the clock `SystemTime` reports, which counts no leap second.
+const SECONDS_A_DAY: u64 = 86_400;
+
+/// The days from 1970-01-01 to 2000-03-01, the epoch the civil-date arithmetic below counts from.
+///
+/// Shifting the epoch to the day after a leap day makes February the last month of the year, so
+/// the leap day is the last day of it and no month length depends on the leap rule.
+const DAYS_TO_2000_03_01: i64 = 11_017;
+
+/// One instant as the `when` field of an [`Event`] states it.
+///
+/// ISO 16684-1 gives a date the form of a subset of ISO 8601, and `Z` is that form's spelling of
+/// UTC — which is what this writes, because a converter has no business claiming a time zone the
+/// file says nothing about. Seconds are whole: the field records when an action happened, and a
+/// fraction of a second is precision nobody asked for.
+///
+/// `None` for an instant before 1970, which a system clock reports only when it is wrong; a
+/// caller that gets one writes no event rather than a date it made up.
+#[must_use]
+pub fn instant(at: std::time::SystemTime) -> Option<String> {
+    let seconds = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    let (days, rest) = (seconds / SECONDS_A_DAY, seconds % SECONDS_A_DAY);
+    let (hour, minute, second) = (rest / 3_600, (rest / 60) % 60, rest % 60);
+    let (year, month, day) = civil(i64::try_from(days).ok()?);
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
+    ))
+}
+
+/// The Gregorian year, month and day `days` after 1970-01-01.
+///
+/// Howard Hinnant's `civil_from_days`, whose whole trick is the epoch shift [`DAYS_TO_2000_03_01`]
+/// names: with March first, the four hundred year cycle divides evenly and the arithmetic is
+/// exact integer division with no table of month lengths and no leap-year branch.
+///
+/// `days` is a whole number of days since 1970-01-01 and its one caller derives it from a
+/// `u64` count of seconds, so it is non-negative and at most `u64::MAX / 86 400`, which is under
+/// 2.2 × 10¹⁴. Every product below is bounded by that: `era` is at most that over 146 097,
+/// `day_of_era` is under 146 097 by construction, `year_of_era` is under 400 and `day_of_year`
+/// under 366 — so the largest value any expression here takes is `era * 400`, eleven decimal
+/// digits inside `i64`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "every term is bounded by the caller's range, stated in the paragraph above"
+)]
+fn civil(days: i64) -> (i64, i64, i64) {
+    let shifted = days - DAYS_TO_2000_03_01;
+    // The 400-year cycle holds 146 097 days, and `div_euclid` keeps that true before 2000 too.
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted.rem_euclid(146_097);
+    // The year within the era, by removing the leap days a 4-, 100- and 400-year rule adds.
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    // March is month 0 in this frame, and the 153-day five-month pattern gives the rest exactly.
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2) + 2_000;
+    (year, month, day)
+}
+
 /// One `rdf:Description` stating a schema's properties, with both prefixes it uses declared on it.
 ///
 /// Declared rather than inherited: what a prefix is bound to at the point this is inserted is the
@@ -697,8 +890,24 @@ struct Opened {
     removing: Option<usize>,
     /// Whether this element or an ancestor is being removed.
     doomed: bool,
-    /// Whether this element is the packet's `rdf:RDF`.
-    rdf: bool,
+    /// Which of the three elements a writer has to find this one is, where it is one of them.
+    landmark: Landmark,
+}
+
+/// An element one of the writers has to be able to find again, by its resolved name.
+///
+/// One field rather than three flags because they are mutually exclusive: no element is both the
+/// packet's `rdf:RDF` and a property of the media management schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Landmark {
+    /// Any other element, which is almost all of them.
+    Ordinary,
+    /// The packet's `rdf:RDF`, inside which a fresh `rdf:Description` goes.
+    Rdf,
+    /// An `xmpMM:History` property.
+    History,
+    /// The `rdf:Seq` that is one's value, at the end of which an event goes.
+    HistorySeq,
 }
 
 /// The spans one pass over a packet found.
@@ -712,6 +921,14 @@ struct Editor {
     inside_rdf: Option<usize>,
     /// How many `rdf:RDF` elements the packet stated.
     rdf_elements: usize,
+    /// The offset just before the `</rdf:Seq>` of the packet's one `xmpMM:History`.
+    ///
+    /// `None` where the packet states none, states more than one, or states one whose value is
+    /// not a single `rdf:Seq` with a close tag of its own — [`record`] tells those three apart by
+    /// reading [`Self::history_elements`] beside this.
+    history_seq_end: Option<usize>,
+    /// How many `xmpMM:History` properties the packet stated.
+    history_elements: usize,
 }
 
 impl Editor {
@@ -723,6 +940,8 @@ impl Editor {
             deletions: Vec::new(),
             inside_rdf: None,
             rdf_elements: 0,
+            history_seq_end: None,
+            history_elements: 0,
         };
         // An element's own prefix may be bound by an attribute of that same element, so nothing
         // is resolved until the element's attributes have all arrived — [`Reader::run`] takes
@@ -824,6 +1043,23 @@ impl Editor {
         if rdf {
             self.rdf_elements = self.rdf_elements.saturating_add(1);
         }
+        // ISO 16684-1 gives an ordered array the `rdf:Seq` spelling, so the sequence directly
+        // inside the property element is the one an event is appended to. A `Seq` deeper than
+        // that belongs to a field of some entry rather than to the history.
+        let in_history = self
+            .stack
+            .last()
+            .is_some_and(|open| open.landmark == Landmark::History);
+        let landmark = if rdf {
+            Landmark::Rdf
+        } else if namespace == XMP_MM && local == "History" {
+            self.history_elements = self.history_elements.saturating_add(1);
+            Landmark::History
+        } else if in_history && namespace == RDF && local == "Seq" {
+            Landmark::HistorySeq
+        } else {
+            Landmark::Ordinary
+        };
         if !inherited && !own {
             // ISO 16684-1 section 7.5's other spelling: a property stated as an attribute of the
             // description it belongs to. Removing the attribute removes the property, and the
@@ -839,7 +1075,7 @@ impl Editor {
             bindings,
             removing: (own && !inherited).then_some(*start),
             doomed: own || inherited,
-            rdf,
+            landmark,
         });
         Ok(())
     }
@@ -869,9 +1105,19 @@ impl Editor {
         if let Some(from) = open.removing {
             self.deletions.push((from, end));
         }
-        if open.rdf {
+        if open.landmark == Landmark::Rdf {
             self.inside_rdf = match (self.rdf_elements, content_ends) {
                 (1, Some(at)) => Some(at),
+                _ => None,
+            };
+        }
+        if open.landmark == Landmark::HistorySeq {
+            // The one history, with the one sequence in it, and neither written self-closing:
+            // anything else leaves this `None` and [`record`] refuses rather than guessing which
+            // of two sequences an event belongs at the end of.
+            self.history_seq_end = match (self.history_elements, self.history_seq_end, content_ends)
+            {
+                (1, None, Some(at)) => Some(at),
                 _ => None,
             };
         }
@@ -1578,7 +1824,10 @@ fn numeric(reference: &str) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DC, PDF, Schema, Value, WriteError, XMP, Xmp, XmpError, packet, restate};
+    use super::{
+        DC, Event, PDF, RESOURCE_EVENT, Schema, Value, WriteError, XMP, XMP_MM, Xmp, XmpError,
+        instant, packet, record, restate,
+    };
 
     /// The identification namespace, spelled as ISO 19005-4 section 6.7.3 prints it. Used here
     /// only as *a* namespace to restate: nothing in this module knows what PDF/A is.
@@ -1590,6 +1839,148 @@ mod tests {
     /// The schema the tests below write.
     fn identification(part: &str) -> Vec<(&'static str, String)> {
         vec![("part", part.to_owned()), ("rev", "2020".to_owned())]
+    }
+
+    /// The event the tests below record.
+    const CONVERTED: Event<'static> = Event {
+        action: "converted",
+        parameters: "a DeviceN DefaultCMYK stating ISO 32000-2 10.4.2.5's transform",
+        when: "2026-09-10T11:22:33Z",
+    };
+
+    /// The three fields of the one entry a packet's history holds, in that entry's order.
+    fn recorded(bytes: &[u8]) -> Vec<Vec<(String, String)>> {
+        let properties = Xmp::parse_detail(bytes).expect("the packet parses");
+        let mut out = Vec::new();
+        for property in &properties {
+            if property.name.namespace != XMP_MM || property.name.local != "History" {
+                continue;
+            }
+            for entry in property.value.array().unwrap_or_default() {
+                out.push(
+                    entry
+                        .fields()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|field| {
+                            (
+                                field.name.local.clone(),
+                                field.value.text().unwrap_or_default().to_owned(),
+                            )
+                        })
+                        .collect(),
+                );
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_packet_with_no_history_gains_one_holding_the_event() {
+        let before = packet(&Schema {
+            namespace: IDENTIFICATION,
+            prefix: "pdfaid",
+            properties: &identification("2"),
+        });
+        let after = record(&before, &CONVERTED).expect("a packet this module wrote takes an event");
+        let entries = recorded(&after);
+        assert_eq!(entries.len(), 1, "one entry: {entries:?}");
+        assert_eq!(
+            entries[0],
+            vec![
+                ("action".to_owned(), CONVERTED.action.to_owned()),
+                ("parameters".to_owned(), CONVERTED.parameters.to_owned()),
+                ("when".to_owned(), CONVERTED.when.to_owned()),
+            ]
+        );
+        // The identification schema the packet already stated is untouched by the recording.
+        let read = Xmp::parse(&after).expect("the packet parses");
+        assert_eq!(read.text(IDENTIFICATION, "part"), Some("2"));
+        assert_eq!(Xmp::rdf_elements(&after), Ok(1));
+        let fields = Xmp::parse_detail(&after).expect("the packet parses");
+        assert!(
+            fields.iter().any(|property| property
+                .value
+                .array()
+                .and_then(|items| items.first())
+                .and_then(|entry| entry.field(RESOURCE_EVENT, "when"))
+                .is_some()),
+            "the fields are in the ResourceEvent namespace"
+        );
+    }
+
+    /// ISO 19005-2 section 6.6.5's whole point: a history is the record of what happened before,
+    /// so an event is appended to it and the producer's entries stay where they were.
+    #[test]
+    fn an_event_is_appended_after_the_entries_a_producer_wrote() {
+        let before = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
+ xmlns:stEvt="http://ns.adobe.com/xap/1.0/sType/ResourceEvent#">
+<xmpMM:History><rdf:Seq>
+<rdf:li rdf:parseType="Resource">
+<stEvt:action>created</stEvt:action>
+<stEvt:parameters>by hand</stEvt:parameters>
+<stEvt:when>2016-04-05T13:19:21+01:00</stEvt:when>
+</rdf:li>
+</rdf:Seq></xmpMM:History>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+        let after = record(before, &CONVERTED).expect("a history takes another entry");
+        let entries = recorded(&after);
+        assert_eq!(entries.len(), 2, "both entries: {entries:?}");
+        assert_eq!(entries[0][0].1, "created", "the producer's entry is first");
+        assert_eq!(entries[1][0].1, "converted", "and ours is after it");
+        assert!(
+            String::from_utf8_lossy(&after).contains("2016-04-05T13:19:21+01:00"),
+            "the producer's own bytes cross unchanged"
+        );
+    }
+
+    /// A packet stating two histories is one this writer cannot append to without choosing which,
+    /// and choosing would be inventing where the event belongs.
+    #[test]
+    fn a_packet_stating_two_histories_is_refused_rather_than_edited() {
+        let before = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/">
+<xmpMM:History><rdf:Seq></rdf:Seq></xmpMM:History>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/">
+<xmpMM:History><rdf:Seq></rdf:Seq></xmpMM:History>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+        assert_eq!(
+            record(before, &CONVERTED),
+            Err(WriteError::NoPlaceForAnEvent { found: 2 })
+        );
+    }
+
+    /// The `when` field's form, at four instants the calendar's own rules pick out.
+    #[test]
+    fn an_instant_is_the_utc_calendar_date_of_the_seconds_since_the_epoch() {
+        let at = |seconds| {
+            instant(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+                .expect("an instant after the epoch")
+        };
+        assert_eq!(at(0), "1970-01-01T00:00:00Z");
+        // 2000-02-29, the leap day the four-hundred-year rule keeps.
+        assert_eq!(at(951_782_400), "2000-02-29T00:00:00Z");
+        // 2100 is a century that is not a leap year, so February ends on the 28th: the
+        // hundred-year rule takes that leap day away where the four-year rule would give it.
+        assert_eq!(at(4_107_542_399), "2100-02-28T23:59:59Z");
+        assert_eq!(at(1_767_225_599), "2025-12-31T23:59:59Z");
+        assert_eq!(
+            instant(std::time::UNIX_EPOCH - std::time::Duration::from_secs(1)),
+            None,
+            "a clock reporting a time before the epoch is one nothing here writes a date from"
+        );
     }
 
     #[test]

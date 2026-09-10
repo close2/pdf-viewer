@@ -382,6 +382,126 @@ impl Identification {
     }
 }
 
+/// ICC.1 section 7.2.18's `Profile ID` field, bytes 84 to 99, where it states one.
+///
+/// The clause makes a zero field mean *no identifier has been calculated* rather than an
+/// identifier that happens to be zero, so a field of sixteen zero bytes is `None` here and a
+/// caller that wants the profile's identifier anyway computes it with [`computed_id`].
+///
+/// The field sits at the same bytes in both ICC editions this project holds, under this clause
+/// number in ICC.1 and under section 7.2.20 in ICC.2, with the same meaning in each.
+#[must_use]
+pub fn stated_id(data: &[u8]) -> Option<[u8; 16]> {
+    let bytes: [u8; 16] = data.get(84..100)?.try_into().ok()?;
+    (bytes != [0; 16]).then_some(bytes)
+}
+
+/// ICC.1 section 7.2.18's calculation: the MD5 of the profile with three fields zeroed.
+///
+/// The clause states the method in one sentence, and every part of it is load-bearing — how much
+/// of the bytes is hashed, and which runs inside them are replaced by zeros first. The digest is
+/// RFC 1321's MD5. What is hashed is the whole profile, taken to be as long as the header's size
+/// field says rather than as long as the buffer happens to be. Zeroed for the calculation are
+/// three fields of the header: the profile flags at bytes 44 to 47, the rendering intent at bytes
+/// 64 to 67, and the `Profile ID` field itself at bytes 84 to 99. Those three are what a profile
+/// can be re-tagged in without becoming a different profile, which is why an identifier taken
+/// this way survives being re-tagged.
+///
+/// Paraphrased rather than quoted, and deliberately: `doc/third-party-data.md` records that
+/// neither ICC text's redistribution terms are established here, so this tree cites and
+/// paraphrases them and reproduces neither.
+///
+/// # Where the reading comes from, since ISO 19005-4 names a text this project does not hold
+///
+/// ISO 19005-4 section 6.2.4.2 asks for the methodology of ISO 15076-1:2010 section 7.2.18, and
+/// this project holds that document only as a front-matter preview. Two held texts state a method
+/// under that subject, at that clause number and at ICC.2's own, and the two agree sentence for
+/// sentence: ICC.1:2022 section 7.2.18 and ICC.2:2023 section 7.2.20. ICC.1:2022's foreword is
+/// what closes the gap rather than an assumption — it says outright that it is an update to
+/// ICC.1:2010, that ICC.1:2010 and ISO 15076-1:2010 are technically identical, and it lists the
+/// technical changes it makes, none of which touches the profile header or this calculation.
+///
+/// **The method is not edition-invariant, so this is the later one and not a general one.**
+/// ICC.1:2001-12 section 6.1.13 states a Profile ID at the same bytes and a different calculation:
+/// it zeroes the rendering intent, the *device attributes* and the Profile ID, where the later
+/// texts zero the profile *flags* in the attributes' place, and it does not state the method at all
+/// — it points at a technical note on the ICC's web site. A caller judging a profile against the
+/// edition that profile claims must therefore not apply this function to one claiming 4.0.0;
+/// `pdf_archive`'s `IccEdition::profile_id_clause` is where that distinction is kept.
+///
+/// `None` where the size field claims more bytes than the profile has, which is a profile whose
+/// header does not describe it; a caller comparing two profiles then has no value to compare and
+/// answers *not identical*, which is the direction of error a conformance check wants.
+#[must_use]
+pub fn computed_id(data: &[u8]) -> Option<[u8; 16]> {
+    let size = usize::try_from(u32_at(data, 0)?).ok()?;
+    if !(HEADER_LEN..=MAX_PROFILE).contains(&size) {
+        return None;
+    }
+    let profile = data.get(..size)?;
+    let mut hasher = crate::cms::Digest::Md5.hasher();
+    let zeros = [0u8; 16];
+    for piece in [
+        profile.get(..44)?,
+        &zeros[..4],
+        profile.get(48..64)?,
+        &zeros[..4],
+        profile.get(68..84)?,
+        &zeros[..16],
+        profile.get(100..)?,
+    ] {
+        hasher.update(piece);
+    }
+    hasher.finish().try_into().ok()
+}
+
+/// The sixteen bytes that identify a profile: the ones it states, or failing that the ones its
+/// own contents give.
+///
+/// ISO 19005-4 section 6.2.4.2 states this order for deciding whether two `ICCBased` colour
+/// spaces carry the same profile — the value of each profile's `Profile ID` field where it is
+/// present and not zero, and otherwise a value calculated by ICC.1 section 7.2.18's method. The
+/// order is the clause's rather than a preference: a profile that states an identifier is taken
+/// at its word.
+#[must_use]
+pub fn profile_id(data: &[u8]) -> Option<[u8; 16]> {
+    stated_id(data).or_else(|| computed_id(data))
+}
+
+/// Whether a profile's tag table names a tag, without reading what the tag holds.
+///
+/// The table is ISO 15076-1 section 7.3's — a count of entries at offset 128 and twelve bytes an
+/// entry, of which the first four are the signature — and this walks the signatures alone. What
+/// asks is a conformance check: ICC.1 clause 8 and ICC.2 clause 8 each list the tags a profile of
+/// a given class shall contain, and *presence* is the whole of that question.
+///
+/// `false` for a table this cannot read, which keeps a truncated profile from being reported as
+/// one that omits a required tag.
+#[must_use]
+pub fn has_tag(data: &[u8], signature: [u8; 4]) -> bool {
+    let Some(count) = u32_at(data, 128).and_then(|count| usize::try_from(count).ok()) else {
+        return false;
+    };
+    if count > MAX_TAGS {
+        return false;
+    }
+    (0..count).any(|index| {
+        132usize
+            .checked_add(index.saturating_mul(12))
+            .and_then(|at| signature_at(data, at))
+            .is_some_and(|found| found == signature)
+    })
+}
+
+/// The 128 bytes ICC.1 section 7.2.1 gives the profile header, before the tag table.
+const HEADER_LEN: usize = 128;
+
+/// The most tag table entries [`has_tag`] will walk.
+///
+/// The same bound [`Profile::parse`] puts on the table it walks, for the same reason: the count
+/// is untrusted and a profile's tag table is a table of contents rather than a data structure.
+const MAX_TAGS: usize = 1024;
+
 /// One four-character signature out of the header.
 fn signature_at(data: &[u8], at: usize) -> Option<[u8; 4]> {
     let bytes = data.get(at..at.checked_add(4)?)?;
@@ -410,7 +530,7 @@ fn signature_at(data: &[u8], at: usize) -> Option<[u8; 4]> {
 ///   with the Unicode and `ScriptCode` blocks that follow ignored.
 fn tag_text(data: &[u8], signature: [u8; 4]) -> Option<String> {
     let count = usize::try_from(u32_at(data, 128)?).ok()?;
-    if count > 1024 {
+    if count > MAX_TAGS {
         return None;
     }
     for index in 0..count {
@@ -511,7 +631,7 @@ impl Profile {
         let version_4 = data.get(8).copied().unwrap_or(2) >= 4;
 
         let count = usize::try_from(u32_at(data, 128)?).ok()?;
-        if count > 1024 {
+        if count > MAX_TAGS {
             return None;
         }
         let mut tags = Vec::with_capacity(count);
@@ -1727,6 +1847,104 @@ mod tests {
         let stated = Identification::read(&profile).expect("a profile");
         assert_eq!(stated.copyright.as_deref(), Some("Held by somebody"));
         assert_eq!(stated.description, None, "no desc tag was written");
+    }
+
+    /// ICC.1 section 7.2.18 read against a profile whose publisher applied the same clause.
+    ///
+    /// The ICC's own sRGB2014 profile states a `Profile ID`, which by that clause is the MD5 the
+    /// clause's method gives. Whoever wrote the profile ran the method; this runs it again and
+    /// the two are compared — the one form of check available for a calculation whose expected
+    /// value is defined by a procedure rather than stated as a number. `CLAUDE.md` principle 5's
+    /// direction of inference is the one that applies: agreement raises confidence that the
+    /// clause was read correctly.
+    #[test]
+    fn the_shipped_profile_states_the_identifier_the_clause_computes() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        let stated = super::stated_id(bytes).expect("the shipped profile states a Profile ID");
+        assert_eq!(
+            Some(stated),
+            super::computed_id(bytes),
+            "the stated identifier is the one section 7.2.18's method gives"
+        );
+        assert_eq!(
+            super::profile_id(bytes),
+            Some(stated),
+            "a profile that states an identifier is taken at its word"
+        );
+    }
+
+    /// The three fields the clause zeroes are the three a profile may be re-tagged in.
+    #[test]
+    fn re_tagging_a_profile_does_not_change_the_identifier_it_computes() {
+        let original: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        let mut retagged = original.to_vec();
+        // Profile flags (bytes 44 to 47), rendering intent (bytes 64 to 67) and the Profile ID
+        // field itself (bytes 84 to 99), each given a value the shipped profile does not have.
+        retagged[44..48].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        retagged[64..68].copy_from_slice(&3u32.to_be_bytes());
+        retagged[84..100].copy_from_slice(&[0xFF; 16]);
+        assert_eq!(
+            super::computed_id(&retagged),
+            super::computed_id(original),
+            "the calculation is blind to the three fields section 7.2.18 zeroes"
+        );
+        assert_eq!(
+            super::stated_id(&retagged),
+            Some([0xFF; 16]),
+            "the field itself is read as it stands"
+        );
+    }
+
+    /// A zero field means no identifier has been calculated, not an identifier of zero.
+    #[test]
+    fn a_zero_profile_id_field_states_no_identifier() {
+        let mut profile = profile_of(*b"CMYK", *b"Lab ", 2, &[]);
+        let size = u32::try_from(profile.len()).expect("small");
+        profile[0..4].copy_from_slice(&size.to_be_bytes());
+        assert_eq!(super::stated_id(&profile), None, "sixteen zero bytes");
+        assert_eq!(
+            super::profile_id(&profile),
+            super::computed_id(&profile),
+            "so the identifier is the computed one"
+        );
+        // Independently of this code: `md5sum` over the same 132 bytes.
+        let expected = "c02f685c5206b3059282c07b25ad43d1";
+        let computed = super::computed_id(&profile).expect("a profile whose size field fits");
+        let hex = computed.iter().fold(String::new(), |mut text, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+            text
+        });
+        assert_eq!(hex, expected, "RFC 1321's MD5 over the profile");
+    }
+
+    /// The size field decides how much is hashed, so one that overruns the bytes decides nothing.
+    #[test]
+    fn a_size_field_larger_than_the_profile_computes_no_identifier() {
+        let mut profile = profile_of(*b"CMYK", *b"Lab ", 2, &[]);
+        profile[0..4].copy_from_slice(&9999u32.to_be_bytes());
+        assert_eq!(super::computed_id(&profile), None);
+        assert_eq!(
+            super::profile_id(&profile),
+            None,
+            "and no identifier at all"
+        );
+    }
+
+    /// The tag table is walked by signature alone, which is what a required-tag rule asks.
+    #[test]
+    fn a_tag_table_is_searched_by_signature() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        assert!(super::has_tag(bytes, *b"desc"), "the profile names itself");
+        assert!(super::has_tag(bytes, *b"cprt"), "and states its terms");
+        assert!(
+            !super::has_tag(bytes, *b"A2B0"),
+            "a matrix profile carries no lookup table"
+        );
+        assert!(
+            !super::has_tag(b"not a profile", *b"desc"),
+            "a table that cannot be read names nothing"
+        );
     }
 
     /// A real CMYK profile, taken from the pdf.js corpus at test time.

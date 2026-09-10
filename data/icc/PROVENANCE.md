@@ -35,6 +35,35 @@ text on that list. Read out of the file rather than off a web page:
 ISO 19005-4 section 6.2.4.2 sends the same question to ISO 32000-2 §8.6.5.5, which admits this
 version too, so one file serves all six targets.
 
+## The conformance claim above, checked against the text rather than asserted
+
+**When this file was written ICC.1:1998-09 was not held, and the sentence "conforms to
+ICC.1:1998-09" was a claim nobody could check.** The text arrived in the nine-hundred-and-fiftieth
+session and the claim survives, on five things — the argument is `doc/adr/0950` section 6, and the
+summary is here so that a reader of this file need not go looking:
+
+- **2.0.0 is an earlier revision than the 2.2.0 that text states as its own**, and that does not
+  matter, because neither ISO 19005-2 nor ICC.1:1998-09 requires a profile to *state* the number of
+  the edition it conforms to. Part 2's sentence is a disjunction over documents; section 6.1.3
+  describes the version field and says what the current number is.
+- **Nothing required was added inside major version 2.** Section 6.1.3 makes a major version change
+  the one that carries incompatible changes — new required tags is its own example — and Annex F
+  lists what the 2.1.0 and 2.2.0 revisions actually changed: optional tags and clarifications.
+- **The nine tags Table 27 requires of an RGB display profile are all here** — `desc`, `rXYZ`,
+  `gXYZ`, `bXYZ`, `rTRC`, `gTRC`, `bTRC`, `wtpt`, `cprt` — and a test in
+  `crates/pdf-archive/src/table/graphics.rs` asserts it against these bytes, under ICC.1:2001-12's
+  Table 25 as well.
+- **The sixteen non-zero bytes at 84 to 99 offend nothing.** They are a `Profile ID`, a field ICC.1
+  did not define until version 4; that text's Table 9 gives bytes 84 to 127 to reserved expansion
+  and, unlike every other reserved field in the document, states no requirement that they be zero.
+- **The `chad` tag is not a defect either**, though ICC.1:1998-09 does not define
+  `chromaticAdaptationTag`: its clause 6.2 admits tags beyond the ones it defines, asking only that
+  each signature be registered with the ICC, and every tag type in this file — `desc`, `XYZ `,
+  `curv`, `meas`, `sig `, `text`, `sf32` — is one that text defines.
+
+What is *not* claimed is conformance in every respect: that would take reading the whole of
+ICC.1:1998-09 against these bytes rather than its clause 6.3.
+
 ## The licence, read first-hand
 
 The ICC's profile library states, for profiles it owns the copyright in:

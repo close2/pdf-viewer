@@ -77,6 +77,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::icc;
 use pdf_model::jpeg2000::{Channel, ColourSpecification, Headers};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, Stream};
 
@@ -140,6 +141,22 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.2.3", "6.2.3"),
         applies: Applies::Always,
         check: Check::Unchecked(DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT),
+    },
+    Requirement {
+        id: "graphics/destination-profile-states-a-correct-profile-id",
+        asks: "A destination profile that states a Profile ID shall state the MD5 the ICC \
+               edition its header names defines, taken over its own bytes.",
+        clauses: Clauses::both("6.2.3", "6.2.3"),
+        applies: Applies::Always,
+        check: Check::Implemented(destination_profile_states_a_correct_profile_id),
+    },
+    Requirement {
+        id: "graphics/destination-profile-carries-the-tags-its-class-requires",
+        asks: "A destination profile shall carry the tags the ICC edition its header names \
+               requires of a profile of its device class.",
+        clauses: Clauses::both("6.2.3", "6.2.3"),
+        applies: Applies::Always,
+        check: Check::Implemented(destination_profile_carries_the_tags_its_class_requires),
     },
     Requirement {
         id: "graphics/destination-profile-class-and-colour-space",
@@ -211,17 +228,51 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                the four ICC editions ISO 19005-2 names.",
         clauses: Clauses::only_two("6.2.4.2"),
         applies: Applies::Always,
+        check: Check::Unchecked(ICC_PERMITTED_EDITION_NEEDS_THE_TEXTS_IT_NAMES),
+    },
+    Requirement {
+        id: "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires",
+        asks: "The profile forming an ICCBased colour space's stream shall carry the tags one of \
+               the ICC editions ISO 19005-2 names requires of a profile of its device class.",
+        clauses: Clauses::only_two("6.2.4.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(icc_profiles_carry_the_tags_a_permitted_edition_requires),
+    },
+    Requirement {
+        id: "graphics/icc-profiles-claim-a-permitted-edition",
+        asks: "The profile forming an ICCBased colour space's stream shall not state a profile \
+               version number that names a specification outside the four ISO 19005-2 permits.",
+        clauses: Clauses::only_two("6.2.4.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(icc_profiles_claim_a_permitted_edition),
+    },
+    Requirement {
+        id: "graphics/icc-profiles-conform-to-the-version-they-name",
+        asks: "The profile forming an ICCBased colour space's stream shall conform to the \
+               specification version its own header states.",
+        clauses: Clauses::only_four("6.2.4.2"),
+        applies: Applies::Always,
         check: Check::Unchecked(
-            "part 2 names four ICC texts by their own designations, and this project holds none \
-             of them, so what it takes to conform to one of them is not readable here — \
-             `CLAUDE.md` principle 5 forbids implementing them from somebody else's reading. \
-             One of the four is ISO 15076-1:2010 and a copy of it arrived in the \
-             nine-hundred-and-forty-sixth session; it is a preview of the front matter that \
-             stops in the introduction, before clause 7's profile requirements, so the row is \
-             where it was. The profile version at header offset 8 would say which edition a \
-             profile *claims*, which is a different question from whether it conforms to that \
-             edition",
+            "part 4 sends this profile to ISO 32000 section 8.6.5.5 whole, and that clause closes \
+             by requiring a profile to conform to the specification version its header names — so \
+             which text decides is the profile's own choice. This project holds four of those \
+             texts, one for each of the versions 2.2.0, 4.0.0, 4.4.0.0 and 5.0.0.0, and the row \
+             below checks a profile naming any of them against that edition's required tags. What \
+             stays here is what that leaves, and it is most of the population and most of each \
+             document: a profile naming 2.1.0 — the commonest version there is — or 2.0.0, 2.3.0, \
+             2.4.0 or 4.1.0 to 4.3.0 names a text that is not here, and for the four that are, \
+             nothing beyond the tag lists is read. A `spac` profile is not judged even under a \
+             held edition, because its required-tag table is the one class this crate has not \
+             transcribed",
         ),
+    },
+    Requirement {
+        id: "graphics/icc-profiles-carry-the-tags-their-version-requires",
+        asks: "The profile forming an ICCBased colour space's stream shall carry the tags the ICC \
+               edition its own header names requires of a profile of its device class.",
+        clauses: Clauses::only_four("6.2.4.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(icc_profiles_carry_the_tags_their_version_requires),
     },
     Requirement {
         id: "graphics/icc-profiles-conform-to-the-base-standard",
@@ -697,33 +748,90 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
 ];
 
-/// Why the destination profile's *validity* is unchecked, where its class and space are not.
+/// What is left of the destination profile's *validity* once the two rows beside it are subtracted.
 ///
 /// Both parts require the `DestOutputProfile` value to be a valid ICC profile stream, and neither
 /// says what makes one valid; the base standard hands the format to §8.6.5.5, which hands it to
-/// the ICC specification itself. This project holds no edition of it, so the sentence bottoms out
-/// in a text that is not here — the same shape as
-/// `graphics/icc-profiles-conform-to-a-permitted-edition`, one clause over.
+/// the ICC specification itself. That sentence bottoms out in a text, and **which** text is the
+/// profile's own choice: §8.6.5.5 closes with "Profiles shall conform to the specification version
+/// indicated by the Profile version number in its header", so a profile stating 4.4.0.0 is judged
+/// by ICC.1:2022 and one stating 5.0.0.0 by ICC.2:2023 — the two this project now holds — while
+/// one stating 2.x, or 4.0 to 4.3, names a text that is still not here.
 ///
-/// The corpus's `6-2-3-t01-fail-d` is the witness that makes the gap concrete rather than
-/// theoretical, and it is the same file under both parts: an Adobe RGB (1998) profile whose header
-/// states specification version 5, which names ICC.2's iccMAX rather than any edition of ICC.1.
-/// Nothing this project holds forbids it — ISO 32000-2 §8.6.5.5 says a writer "may embed profiles
-/// conforming to an earlier or later ICC version", and ISO 32000-1 section 8.6.5.5 says the same of
-/// a later one — so the only sentence that could decide is §8.6.5.5's "Profiles shall conform to
-/// the specification version indicated by the Profile version number in its header", and answering
-/// it means reading ICC.2.
-const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require the destination profile to be a *valid* ICC profile stream and \
-     neither defines validity; the base standard sends the format to ISO 32000 section 8.6.5.5, \
-     which \
-     sends it to the ICC specification, and this project holds no edition of ICC.1 or ICC.2 and \
-     only a preview of ISO 15076-1:2010 — front matter that stops in the introduction, where \
-     section 7.2's profile header begins on page 19, so it answers none of this. What is \
-     readable here is checked under the rows beside this one — the profile \
-     decodes, carries the `acsp` signature, and states a device class and colour space each part \
-     admits. What is not is whether the profile conforms to the edition its own header's version \
-     number names: a header stating version 5 names iccMAX, and ISO 32000 permits a writer to \
-     embed a later ICC version outright, so nothing short of that text decides it";
+/// Four editions are now held and each states the version consistent with itself, so a profile
+/// stating 2.2.0, 4.0.0, 4.4.0.0 or 5.0.0.0 is judged by the text it names; one stating 2.0.0,
+/// 2.1.0, 2.3.0, 2.4.0 or 4.1.0 to 4.3.0 names a text that is not here.
+///
+/// So this row is the remainder rather than the whole question, and it is a real remainder in two
+/// directions:
+///
+/// - **A profile naming an edition this project does not hold** is not judged at all — and the
+///   commonest profile version in the wild, 2.1.0, is one of them.
+/// - **Even for a held edition, only two requirements are checked**: the `Profile ID` and the
+///   required tags of the profile's class. No edition's tag-type restrictions or encodings are, nor
+///   the rest of its header fields, and three slivers are worth naming because they *are* readable
+///   and are deliberately left out: ICC.2 section 8.2's `spectralWhitePointTag`, required where the
+///   spectral PCS field is not zero; ICC.2's `mediaWhitePointTag`, required where the PCS field is
+///   not zero; and the `chromaticAdaptationTag` the v4 texts require where the measurement
+///   illuminant was not D50. The first two would need this crate to read header bytes it does not;
+///   the third turns on a fact no byte of the profile states.
+///
+/// The corpus's `6-2-3-t01-fail-d` is what made the gap concrete, and it is the same file under
+/// both parts: an Adobe RGB (1998) profile whose header states version 5.0.0.0, which by ICC.2
+/// section 7.2.6 is iccMAX's own version. **ICC.2 decides it, and against the file.** ICC.2 section
+/// 8.4 requires a display profile to carry one or more of `AToB0Tag` to `AToB3Tag` or `DToB0Tag` to
+/// `DToB3Tag` and one or more of `BToA0Tag` to `BToA3Tag` or `BToD0Tag` to `BToD3Tag`; this profile
+/// carries none of the sixteen, only the matrix and curve tags of the v2 form, which ICC.2 does not
+/// define. Its `Profile ID` field states a value that is not the one section 7.2.20's method gives
+/// either. Both are reported by the rows beside this one, so the file is no longer a miss —
+/// what stays here is everything else validity means.
+const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require the destination profile to be a *valid* ICC profile stream and neither \
+     defines validity; the base standard sends the format to ISO 32000 section 8.6.5.5, which \
+     sends it to the ICC specification — and to a particular edition of it, since that clause \
+     requires a profile to conform to the version its own header states. This project holds four \
+     of those editions and each states its own version number: ICC.1:1998-09 (2.2.0), \
+     ICC.1:2001-12 (4.0.0), ICC.1:2022 (4.4.0.0) and ICC.2:2023 (5.0.0.0). It holds \
+     ISO 15076-1:2010 (4.3.0.0) only as a front-matter preview that stops before clause 7, and \
+     holds ICC.1:2003-09 (4.1.0) not at all. So a profile stating any other version — 2.1.0 \
+     above all, which is most of the profiles that exist — is judged by no text that is here. \
+     For the four that are, the required tags of the profile's class are checked by the row \
+     beside this one, and the `Profile ID` by the row beside that where the edition states a \
+     method (ICC.1:1998-09 has no such field; ICC.1:2001-12 has the field and sends the method \
+     to a web note). The rest of what those editions require of a profile is not checked, \
+     including ICC.2's two conditional white points and the v4 chromatic adaptation tag";
+
+/// Why conformance to one of ISO 19005-2's four ICC editions stays unchecked, and what replaced it.
+///
+/// ISO 19005-2 section 6.2.4.2 names ICC.1:1998-09, ICC.1:2001-12, ICC.1:2003-09 and ISO 15076-1.
+/// The last is undated in that part's clause 2, whose normative-reference boilerplate makes the
+/// latest edition apply, and its title line there pins the part to the one based on ICC.1:2010.
+/// This project holds none of the four: three are not here at all, and ISO 15076-1:2010 is a
+/// front-matter preview. Holding ICC.1:2022 does not substitute for any of them — it is a fifth
+/// text, profile version 4.4.0.0, and part 2 names no edition later than 4.3.0.0.
+///
+/// **A version number identifies which edition a profile claims**, and that was worth establishing
+/// rather than assuming. All four held editions say the major and minor versions are set by the ICC
+/// and each states the number consistent with its own text — 2.2.0, 4.0.0, 4.4.0.0, 5.0.0.0.
+/// ICC.1:2022's foreword walks the chain: ICC.1:2004-08 was proposed as ISO 15076-1:2005 at
+/// revision 4.2, ISO 15076-1:2010 and ICC.1:2010 are technically identical at 4.3.0.0, and 4.4 is
+/// that edition. ISO 19005-2's own NOTE 1 makes the same identification from the other side, calling
+/// ISO 15076-1 technically identical to the earlier texts in every respect relevant here *other than
+/// the value of the profile version number*.
+///
+/// **But a claim is not a conformance, and this clause asks for the second.** Part 2's sentence is a
+/// disjunction over documents and requires no profile to state any particular number; neither held
+/// text requires its own number of a profile either. So the row below judges every `ICCBased`
+/// profile against the two texts held of the four, whatever version it states, and this row keeps
+/// what that leaves: the rest of those two documents, and the two documents that are not here.
+const ICC_PERMITTED_EDITION_NEEDS_THE_TEXTS_IT_NAMES: &str = "part 2 names four ICC texts and this project now holds two of them: ICC.1:1998-09 and \
+     ICC.1:2001-12 arrived in the nine-hundred-and-fiftieth session, and the clause 6.3 \
+     required-tag lists of both are checked by the row below. ICC.1:2003-09 is not here — the \
+     ICC supplies its past specifications on request only — and ISO 15076-1:2010 is a preview of \
+     the front matter that stops before clause 7. What stays unchecked is therefore two things \
+     rather than one: everything the two held texts require beyond those tag lists, which is most \
+     of each document; and, for a profile that satisfies neither, whether one of the two texts \
+     not held would admit it all the same. `CLAUDE.md` principle 5 forbids closing either from \
+     somebody else's reading";
 
 /// Why the baseline-feature row is unchecked, where five rows beside it no longer are.
 ///
@@ -1107,6 +1215,322 @@ fn check_destination_profiles(
     }
 }
 
+/// An edition of the ICC specification this project holds, identified by the profile version it
+/// states as its own.
+///
+/// ISO 32000-2 §8.6.5.5 is what makes this the right key:
+///
+/// > Profiles shall conform to the specification version indicated by the Profile version number
+/// > in its header.
+///
+/// So the header's version at bytes 8 to 11 names the text a profile is to be judged by, and this
+/// enumerates the four texts that are here to judge with, each stating the version consistent with
+/// itself: ICC.1:1998-09 section 6.1.3 gives 2.2.0, ICC.1:2001-12 section 6.1.3 gives 4.0.0,
+/// ICC.1:2022 section 7.2.4 gives 4.4.0.0 and ICC.2:2023 section 7.2.6 gives 5.0.0.0. All four
+/// clauses put the major version in byte 8 and the minor and bug-fix versions in the two halves of
+/// byte 9, which is what `pdf_model::icc::Identification` reads.
+///
+/// **The match is exact rather than "4.4 or later" or "any version 2".** Each edition says which
+/// number is consistent with *it*, and nothing held says what a 2.1.0 or a 4.1.0 profile would have
+/// to satisfy — so those fall to the unchecked remainder rather than being judged by a neighbour.
+/// `icc_profiles_carry_the_tags_a_permitted_edition_requires` asks the *other* question, which is
+/// ISO 19005-2's own and not conditioned on the version at all.
+///
+/// The two bytes after the version are read by none of the four: the v2 and v4 texts reserve them
+/// and ICC.2 gives them to a profile sub-class whose own specification is a separate document, and
+/// a sub-class profile still owes everything ICC.2 requires, so ignoring them can only under-report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IccEdition {
+    /// ICC.1:1998-09, profile version 2.2.0.
+    Nineteen98,
+    /// ICC.1:2001-12, profile version 4.0.0.
+    TwoThousand1,
+    /// ICC.1:2022, profile version 4.4.0.0.
+    TwentyTwo,
+    /// ICC.2:2023 — iccMAX — profile version 5.0.0.0.
+    TwentyThree,
+}
+
+impl IccEdition {
+    /// The edition a header's version names, where this project holds it.
+    fn of(version: (u8, u8, u8)) -> Option<Self> {
+        match version {
+            (2, 2, 0) => Some(Self::Nineteen98),
+            (4, 0, 0) => Some(Self::TwoThousand1),
+            (4, 4, 0) => Some(Self::TwentyTwo),
+            (5, 0, 0) => Some(Self::TwentyThree),
+            _ => None,
+        }
+    }
+
+    /// How a finding names the edition, so that a reader can check the verdict against a copy.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Nineteen98 => "ICC.1:1998-09",
+            Self::TwoThousand1 => "ICC.1:2001-12",
+            Self::TwentyTwo => "ICC.1:2022",
+            Self::TwentyThree => "ICC.2:2023",
+        }
+    }
+
+    /// Which clause of that edition names the required tags of a profile class.
+    fn required_tag_clause(self) -> &'static str {
+        match self {
+            Self::Nineteen98 | Self::TwoThousand1 => "6.3",
+            Self::TwentyTwo | Self::TwentyThree => "8",
+        }
+    }
+
+    /// Which clause states the `Profile ID` field, where the edition states one this can compute.
+    ///
+    /// `None` for the two older texts, and for two different reasons that are both worth keeping:
+    ///
+    /// - **ICC.1:1998-09 has no such field.** Its Table 9 gives bytes 84 to 127 to "44 bytes
+    ///   reserved for future expansion", and — unlike the reserved fields elsewhere in that
+    ///   document, which say they must be set to zero — states no requirement on their contents at
+    ///   all. So a v2 profile carrying sixteen non-zero bytes there breaks nothing that text says.
+    /// - **ICC.1:2001-12 has the field and not the method.** Its section 6.1.13 puts the Profile ID
+    ///   at bytes 84 to 99, but hands the details of the MD5 fingerprinting method to a technical
+    ///   note on the ICC's web site rather than stating them, and the fields it names as zeroed for
+    ///   the calculation are not the ones the later editions name: the rendering intent, the
+    ///   *header attributes* and the Profile ID, where ICC.1:2022 and ICC.2:2023 zero the profile
+    ///   *flags* instead of the attributes. `pdf_model::icc::computed_id` implements the later
+    ///   method, which is the one ISO 19005-4 section 6.2.4.2 names — so applying it to a profile
+    ///   claiming 4.0.0 would be judging that profile by a calculation its own edition does not
+    ///   describe.
+    fn profile_id_clause(self) -> Option<&'static str> {
+        match self {
+            Self::Nineteen98 | Self::TwoThousand1 => None,
+            Self::TwentyTwo => Some("7.2.18"),
+            Self::TwentyThree => Some("7.2.20"),
+        }
+    }
+}
+
+/// ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3, the `Profile ID` half of validity.
+///
+/// Both parts require the destination profile to be a valid ICC profile stream; ISO 32000-2
+/// §8.6.5.5 sends validity to the edition the profile's own header names; and two of the four
+/// editions held state the same requirement of the same sixteen bytes. ICC.1 section 7.2.18 and
+/// ICC.2 section 7.2.20 each say that the field, if it is not zero, shall hold the Profile ID, and
+/// that the Profile ID is RFC 1321's MD5 taken over the whole profile with three header fields
+/// zeroed — which is `pdf_model::icc::computed_id`. A field that states something else is a profile
+/// asserting an identity its own bytes do not give.
+///
+/// The other two editions state no such requirement this crate can apply, and
+/// [`IccEdition::profile_id_clause`] says why for each.
+///
+/// A profile whose size field claims more bytes than the stream holds computes no identifier, and
+/// is not reported here: what that profile violates is section 7.2.2's requirement on the size
+/// field rather than this one, and section 7.2.2 belongs to the unchecked remainder.
+fn destination_profile_states_a_correct_profile_id(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+) {
+    for_each_destination_profile(exam.document, |place, edition, data| {
+        let Some(clause) = edition.profile_id_clause() else {
+            return;
+        };
+        let (Some(stated), Some(computed)) = (icc::stated_id(data), icc::computed_id(data)) else {
+            return;
+        };
+        if stated != computed {
+            findings.record(
+                place,
+                format!(
+                    "a destination profile states a Profile ID that is not the MD5 of its own \
+                     bytes, which {} section {clause} requires of a non-zero field",
+                    edition.name(),
+                ),
+            );
+        }
+    });
+}
+
+/// ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3, the required-tag half of validity.
+///
+/// Each held edition lists the tags a profile of a given class shall contain, and
+/// [`missing_required_tags`] is that list for the two classes a destination profile may be.
+fn destination_profile_carries_the_tags_its_class_requires(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+) {
+    for_each_destination_profile(exam.document, |place, edition, data| {
+        let Some((class, _)) = profile_header(data) else {
+            return;
+        };
+        for missing in missing_required_tags(edition, data, class) {
+            findings.record(
+                place.clone(),
+                format!(
+                    "a destination profile carries no {missing}, which {} clause {} requires of \
+                     a profile of its class",
+                    edition.name(),
+                    edition.required_tag_clause(),
+                ),
+            );
+        }
+    });
+}
+
+/// The six tags a three-component matrix-and-curve profile is built from.
+///
+/// Named `redMatrixColumnTag`, `greenMatrixColumnTag` and `blueMatrixColumnTag` from ICC.1:2001-12
+/// onward and `redColorantTag`, `greenColorantTag` and `blueColorantTag` in ICC.1:1998-09 — the
+/// same four-character signatures under two names, which is why one array serves both.
+const MATRIX_AND_CURVE_TAGS: [&[u8; 4]; 6] = [b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC"];
+
+/// What `edition` requires of a profile of `class` and this one does not carry.
+///
+/// The classes handled are the two ISO 19005 admits for a destination profile — `mntr` and `prtr`
+/// — and the input class an `ICCBased` colour space may also be; a profile of any other class is
+/// left to the row that reports the class itself.
+///
+/// # ICC.1:1998-09 and ICC.1:2001-12
+///
+/// Both state their required tags per class *and per form*, as a set of tables in clause 6.3, and
+/// both begin from the same three: `profileDescriptionTag`, `mediaWhitePointTag` and
+/// `copyrightTag` are in every device-class table of both documents. What the forms then add is
+/// the transform, and a profile that is none of the forms its class offers is not a profile of
+/// that class at all. ICC.1:2001-12 adds a `chromaticAdaptationTag` to each table on a condition —
+/// that the actual illumination source is not D50 — which the bytes do not state, so it is not
+/// among what is checked.
+///
+/// **The disjunction implemented is deliberately the weaker of the two documents' at each point**,
+/// so that a profile conforming to either passes: ICC.1:1998-09's Table 25 gives a display profile
+/// an `AToB0Tag` alone where ICC.1:2001-12's Table 26 wants a `BToA0Tag` beside it, and
+/// ICC.1:1998-09's Table 29 and ICC.1:2001-12's Table 28 both want seven lookup tags of a colour
+/// output profile where this asks for the first. Under-reporting is the standing direction of
+/// error here, and the row that asks *which* of the two a profile conforms to would have to be a
+/// different one.
+///
+/// # ICC.1:2022
+///
+/// Section 8.2 requires a `profileDescriptionTag`, a `copyrightTag` and a `mediaWhitePointTag` of
+/// every profile but a `DeviceLink`, and a `chromaticAdaptationTag` on the same unstatable
+/// condition. Section 8.4 then gives a display profile three forms and section 8.5 gives an output
+/// profile two, each with its own required tags. Section 8.5.2's `colorantTableTag` is required
+/// only for an xCLR data colour space, which a conforming destination profile cannot have, so it
+/// is not checked either.
+///
+/// # ICC.2:2023
+///
+/// Section 8.2 requires the same first two tags, a `mediaWhitePointTag` where the header's PCS
+/// field is not zero, and a `spectralWhitePointTag` where its spectral PCS field is not zero.
+/// Sections 8.4 and 8.5 state one requirement for both classes rather than a set of forms: one or
+/// more of the four `AToBx` or four `DToBx` tags, and one or more of the four `BToAx` or four
+/// `BToDx` tags. The v2 and v4 matrix-and-curve form is not among them and iccMAX defines no such
+/// tags, which is what the corpus's `6-2-3-t01-fail-d` turns on.
+fn missing_required_tags(edition: IccEdition, data: &[u8], class: &[u8]) -> Vec<&'static str> {
+    let has = |signature: &[u8; 4]| icc::has_tag(data, *signature);
+    let any = |signatures: &[[u8; 4]]| signatures.iter().any(&has);
+    let matrix = || MATRIX_AND_CURVE_TAGS.iter().all(|signature| has(signature));
+    let mut missing = Vec::new();
+    if !has(b"desc") {
+        missing.push("profileDescriptionTag");
+    }
+    if !has(b"cprt") {
+        missing.push("copyrightTag");
+    }
+    // Required outright by the three ICC.1 editions and conditionally by ICC.2, whose section 8.2
+    // asks for it only where the header's PCS field is not zero — a field this crate does not
+    // read, so a version 5 profile is not judged on it and the unchecked row says so.
+    if edition != IccEdition::TwentyThree && !has(b"wtpt") {
+        missing.push("mediaWhitePointTag");
+    }
+    match edition {
+        IccEdition::Nineteen98 | IccEdition::TwoThousand1 => {
+            // A monochrome form, a three-component matrix form, or a lookup-table form — the
+            // three shapes clause 6.3 gives an input or a display profile, and the two it gives
+            // an output profile.
+            let curves_or_table = has(b"kTRC") || has(b"A2B0");
+            match class {
+                b"scnr" | b"mntr" if !(curves_or_table || matrix()) => missing.push(
+                    "transform its class admits — a grayTRCTag, the six matrix and curve tags, \
+                     or an AToB0Tag",
+                ),
+                b"prtr" if !curves_or_table => {
+                    missing.push("transform its class admits — a grayTRCTag or an AToB0Tag");
+                }
+                _ => {}
+            }
+        }
+        IccEdition::TwentyTwo => {
+            // Section 8.4.2's N-component form, 8.4.3's three-component matrix form, 8.4.4's
+            // monochrome form.
+            let display = (has(b"A2B0") && has(b"B2A0")) || matrix() || has(b"kTRC");
+            // Section 8.5.2's N-component form and 8.5.3's monochrome form.
+            let output = [
+                b"A2B0", b"A2B1", b"A2B2", b"B2A0", b"B2A1", b"B2A2", b"gamt",
+            ]
+            .iter()
+            .all(|signature| has(signature))
+                || has(b"kTRC");
+            match class {
+                b"mntr" if !display => missing.push(
+                    "set of tags for any of section 8.4's three display profile forms — an \
+                     AToB0Tag with a BToA0Tag, the six matrix and curve tags, or a grayTRCTag",
+                ),
+                b"prtr" if !output => missing.push(
+                    "set of tags for either of section 8.5's two output profile forms — the six \
+                     AToBx and BToAx tags with a gamutTag, or a grayTRCTag",
+                ),
+                _ => {}
+            }
+        }
+        IccEdition::TwentyThree => {
+            if !any(&[*b"A2B0", *b"A2B1", *b"A2B2", *b"A2B3"])
+                && !any(&[*b"D2B0", *b"D2B1", *b"D2B2", *b"D2B3"])
+            {
+                missing.push(
+                    "transform to the connection space — one of AToB0Tag to AToB3Tag or \
+                     DToB0Tag to DToB3Tag",
+                );
+            }
+            if !any(&[*b"B2A0", *b"B2A1", *b"B2A2", *b"B2A3"])
+                && !any(&[*b"B2D0", *b"B2D1", *b"B2D2", *b"B2D3"])
+            {
+                missing.push(
+                    "transform from the connection space — one of BToA0Tag to BToA3Tag or \
+                     BToD0Tag to BToD3Tag",
+                );
+            }
+        }
+    }
+    missing
+}
+
+/// Every destination profile the document's own output intents state, judged by a held edition.
+///
+/// The population is `output_intent_arrays`', which is the document catalog's array — the same
+/// one `destination_profile_class_and_colour_space` reads, and for the same reason. A page's own
+/// array is the business of `graphics/page-output-intents-have-the-same-shape`.
+///
+/// The visitor is handed only the profiles whose header names an edition this project holds; the
+/// rest are the unchecked remainder and are not judged by a neighbouring text.
+fn for_each_destination_profile(
+    document: &Document,
+    mut visit: impl FnMut(Where, IccEdition, &[u8]),
+) {
+    for array in output_intent_arrays(document) {
+        for (place, intent) in array {
+            let Object::Stream(stream) = document.get_key(&intent, "DestOutputProfile") else {
+                continue;
+            };
+            let Some(data) = document.decoded_stream_data(&stream) else {
+                continue;
+            };
+            let Some(stated) = icc::Identification::read(&data) else {
+                continue;
+            };
+            let Some(edition) = IccEdition::of(stated.version) else {
+                continue;
+            };
+            visit(place.named("DestOutputProfile"), edition, &data);
+        }
+    }
+}
+
 /// The device classes ISO 32000-2 §8.6.5.5's Table 67 admits for an `ICCBased` colour space.
 ///
 /// An input, a display, an output and a colour space conversion profile. The classes it leaves
@@ -1142,13 +1566,168 @@ const ICC_COLOUR_SPACES: [(&[u8], i64); 4] =
 /// - its Table 67 lists the profile types a writer may use, by device class and data colour
 ///   space, and requires each field to hold one of the values listed for it.
 ///
-/// What is deliberately *not* read is the sentence asking a profile to conform to the
-/// specification version its own header names. That is the ICC texts again, and it belongs with
-/// the part 2 row rather than being half-answered here.
+/// What is deliberately *not* read here is the sentence asking a profile to conform to the
+/// specification version its own header names. That sentence has a row of its own —
+/// `graphics/icc-profiles-conform-to-the-version-they-name` — because answering it means opening
+/// whichever ICC edition the profile happens to name, and this row would otherwise half-answer it.
 ///
 /// A stream that does not decode, or that carries no ICC signature at offset 36, is passed over
 /// rather than reported. Whether a stream decodes is section 6.1.7's subject, and a filter this
 /// tree cannot yet decode would otherwise be announced to a user as a colour fault.
+/// ISO 19005-2 section 6.2.4.2, first sentence, the half a version number settles.
+///
+/// The clause admits four texts: ICC.1:1998-09, ICC.1:2001-12, ICC.1:2003-09 and ISO 15076-1.
+/// This project holds none of them, so *conformance* to one is the unchecked row above. What a
+/// profile's header does settle is which text it claims, and one claim is decidable against the
+/// texts that are here.
+///
+/// **A profile stating major version 5 claims ICC.2, and ICC.2 is not one of the four.** Its
+/// section 7.2.6 states that 5.0.0.0 is the version consistent with iccMAX, and its section 1
+/// places it beside ISO 15076-1 rather than inside it: a document based on ISO 15076-1 that
+/// describes an expanded profile specification permitting greater flexibility and functionality
+/// than ISO 15076-1, from which some types have been removed and to which others have been added.
+/// A profile conforming to that document is therefore not a profile conforming to ISO 15076-1,
+/// whatever edition of it part 2's undated reference reaches, nor to any of the three ICC.1 texts
+/// that precede it.
+///
+/// # Why 4.4.0.0 is not reported, though ICC.1:2022 is equally absent from the four
+///
+/// It would be one clause too many. Part 2's reference to ISO 15076-1 is undated, and its clause 2
+/// says an undated reference takes the latest edition of the referenced document; whether an
+/// edition of ISO 15076-1 based on ICC.1:2022 exists is a fact about ISO's catalogue rather than
+/// about any document this project holds. Version 5 needs no such fact, because ICC.2 is a
+/// different document rather than a later edition of the same one. The rest belongs to the
+/// unchecked row, which says so.
+/// ISO 19005-2 section 6.2.4.2, first sentence, the half two held editions decide.
+///
+/// The clause is a disjunction over four documents — ICC.1:1998-09, ICC.1:2001-12, ICC.1:2003-09
+/// and ISO 15076-1 — so a profile fails it only by conforming to *none* of them. Two of the four
+/// are held, and each states, in its clause 6.3, the tags a profile of a given class shall carry.
+/// A profile that carries neither text's list conforms to neither, and that is what is reported.
+///
+/// **The version number the profile states does not enter this row**, and that is the difference
+/// between it and the section 6.2.3 rows beside it. Part 2 asks for conformance to one of four
+/// documents; it does not ask a profile to *say* which. Nothing in either held text requires the
+/// version field to carry that text's own number — ICC.1:1998-09 section 6.1.3 and ICC.1:2001-12
+/// section 6.1.3 each state the number consistent with themselves and require nothing of a
+/// profile's field — so a profile labelled 2.0.0 or 2.1.0 that carries what ICC.1:1998-09 requires
+/// conforms to ICC.1:1998-09. That reading is what makes the shipped `data/icc/sRGB2014.icc`
+/// admissible, and `doc/adr/0950` records it as a finding rather than leaving it implicit.
+///
+/// What this therefore does *not* answer is whether such a profile conforms in every other
+/// respect, nor whether a profile failing both held texts might still conform to one of the two
+/// that are not held. The unchecked row above carries both.
+fn icc_profiles_carry_the_tags_a_permitted_edition_requires(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+) {
+    let document = exam.document;
+    for_each_colour_space(exam, b"ICCBased", |id, items| {
+        let Some(entry) = items.get(1) else {
+            return;
+        };
+        let Object::Stream(stream) = document.resolve(entry) else {
+            return;
+        };
+        let Some(data) = document.decoded_stream_data(&stream) else {
+            return;
+        };
+        let Some((class, _)) = profile_header(&data) else {
+            return;
+        };
+        let under_1998 = missing_required_tags(IccEdition::Nineteen98, &data, class);
+        if under_1998.is_empty()
+            || missing_required_tags(IccEdition::TwoThousand1, &data, class).is_empty()
+        {
+            return;
+        }
+        for missing in under_1998 {
+            findings.record(
+                Where::object(id).named("ICCBased"),
+                format!(
+                    "an ICCBased colour space's profile carries no {missing}, so it conforms to \
+                     neither ICC.1:1998-09 nor ICC.1:2001-12 — the two of this clause's four \
+                     editions this crate can read",
+                ),
+            );
+        }
+    });
+}
+
+/// ISO 19005-4 section 6.2.4.2, by way of ISO 32000-2 §8.6.5.5's closing sentence.
+///
+/// Part 4 states no list of admitted editions; it requires the profile to conform to
+/// ISO 32000-2 §8.6.5.5, and that clause requires a profile to conform to the specification version
+/// its own header names. So the version *selects* the text here, where under part 2 it selects
+/// nothing — which is why this row and the part 2 one beside it are two rows rather than one, and
+/// why they disagree about a profile stating 2.1.0: part 2 asks whether it conforms to one of four
+/// documents and this asks what its own edition requires, which for 2.1.0 is a text not held.
+fn icc_profiles_carry_the_tags_their_version_requires(
+    exam: &Examination<'_>,
+    findings: &mut Findings,
+) {
+    let document = exam.document;
+    for_each_colour_space(exam, b"ICCBased", |id, items| {
+        let Some(entry) = items.get(1) else {
+            return;
+        };
+        let Object::Stream(stream) = document.resolve(entry) else {
+            return;
+        };
+        let Some(data) = document.decoded_stream_data(&stream) else {
+            return;
+        };
+        let Some(stated) = icc::Identification::read(&data) else {
+            return;
+        };
+        let (Some(edition), Some((class, _))) =
+            (IccEdition::of(stated.version), profile_header(&data))
+        else {
+            return;
+        };
+        for missing in missing_required_tags(edition, &data, class) {
+            findings.record(
+                Where::object(id).named("ICCBased"),
+                format!(
+                    "an ICCBased colour space's profile carries no {missing}, which {} clause {} \
+                     requires of a profile of its class",
+                    edition.name(),
+                    edition.required_tag_clause(),
+                ),
+            );
+        }
+    });
+}
+
+fn icc_profiles_claim_a_permitted_edition(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_colour_space(exam, b"ICCBased", |id, items| {
+        let Some(entry) = items.get(1) else {
+            return;
+        };
+        let Object::Stream(stream) = document.resolve(entry) else {
+            return;
+        };
+        let Some(data) = document.decoded_stream_data(&stream) else {
+            return;
+        };
+        let Some(stated) = icc::Identification::read(&data) else {
+            return;
+        };
+        let (major, minor, bug_fix) = stated.version;
+        if major >= 5 {
+            findings.record(
+                Where::object(id).named("ICCBased"),
+                format!(
+                    "an ICCBased colour space's profile states version {major}.{minor}.{bug_fix}, \
+                     which names ICC.2's iccMAX — a specification beside the four this part \
+                     admits, not an edition of one of them",
+                ),
+            );
+        }
+    });
+}
+
 fn icc_profiles_conform_to_the_base_standard(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_colour_space(exam, b"ICCBased", |id, items| {
@@ -2647,6 +3226,10 @@ impl Candidate {
 struct Profiles {
     /// What each profile object decoded to, including the ones that refused to decode.
     read: BTreeMap<ObjectId, Option<Arc<[u8]>>>,
+    /// The MD5 each profile object is identified by, for the same reason and at a higher price:
+    /// the digest is taken over the whole profile, so a half-megabyte press profile compared
+    /// against three selections would otherwise be hashed three times.
+    identified: BTreeMap<ObjectId, Option<[u8; 16]>>,
 }
 
 impl Profiles {
@@ -2660,28 +3243,39 @@ impl Profiles {
             .or_insert_with(|| document.decoded_stream_data(&profile.stream))
             .clone()
     }
+
+    /// The sixteen bytes ISO 19005-4 section 6.2.4.2 compares two profiles by.
+    fn identity(&mut self, bytes: &[u8], profile: &Candidate) -> Option<[u8; 16]> {
+        let Some(id) = profile.id else {
+            return icc::profile_id(bytes);
+        };
+        *self
+            .identified
+            .entry(id)
+            .or_insert_with(|| icc::profile_id(bytes))
+    }
 }
 
 /// Whether ISO 19005-4 section 6.2.4.2's two stated tests make two profiles the same one.
 ///
-/// The clause states the first outright — the colour space and the other holder reaching one
-/// embedded stream by indirect reference — and states the second as equal MD5 hashes, read from
-/// each profile's own `Profile ID` field where it states a non-zero one and computed by ISO
-/// 15076-1:2010 section 7.2.18's method where it does not. **This project holds neither ICC text**,
-/// so neither the field's position nor the computation is readable here, and `CLAUDE.md` principle
-/// 5 forbids taking them from somebody else's implementation. A copy of ISO 15076-1:2010 arrived
-/// in the nine-hundred-and-forty-sixth session and does not change that: it is a preview carrying
-/// the front matter and stopping in the introduction, and section 7.2 begins on its page 19 — so
-/// the profile header, the `Profile ID` field and section 7.2.18's computation are all past its
-/// last page.
+/// The clause states both. The first is the colour space and the other holder reaching one
+/// embedded stream by indirect reference. The second is equal MD5 values, each read from that
+/// profile's own `Profile ID` field where it is present and not zero, and otherwise calculated by
+/// the methodology of ISO 15076-1:2010 section 7.2.18 — which is `pdf_model::icc::profile_id`,
+/// and that function's own comment says where the method is read from, since the document part 4
+/// names is held here only as a front-matter preview.
 ///
-/// What is decidable without them is the case where the two profiles decode to the same bytes:
-/// an MD5 is a function of the bytes it is taken over, and both routes the clause names take
-/// theirs over the profile, so equal profiles have equal hashes however the hash is defined.
-/// That is a sound half of the test and it under-reports rather than over-reports, which is the
-/// standing direction of error here. Two profiles that differ in bytes but hash the same — the
-/// corpus's `6-2-4-2-t03-fail-e`, one copy stating a computed MD5 and the other stating zero —
-/// are what the missing text would decide, and this answers *no* about them.
+/// **The clause conditions neither route on the profile's own version.** It says *each profile*,
+/// and the field it names sits at the same bytes of the header in every ICC edition this project
+/// holds — so a v2 profile stating a non-zero identifier is taken at its word exactly as a v4 one
+/// is. That is the reading the corpus's `6-2-4-2-t03-fail-e` turns on: two copies of one v2.1
+/// press profile, identical but for those sixteen bytes, one stating the identifier and the other
+/// stating zero. Reading the field alone would answer *different*, and computing alone would
+/// answer *same*; the clause's order — stated, else computed — answers *same* for both, which is
+/// what makes the pair one profile.
+///
+/// Equal bytes remain equal profiles, and that case is reached before either hash is taken: it is
+/// the cheap half, and an MD5 is a function of the bytes it is taken over.
 fn same_profile(
     document: &Document,
     read: &mut Profiles,
@@ -2693,13 +3287,25 @@ fn same_profile(
     {
         return true;
     }
-    let Some(left) = read.bytes(document, left) else {
+    let Some(left_bytes) = read.bytes(document, left) else {
         return false;
     };
-    let Some(right) = read.bytes(document, right) else {
+    let Some(right_bytes) = read.bytes(document, right) else {
         return false;
     };
-    left == right
+    if left_bytes == right_bytes {
+        return true;
+    }
+    // Two profiles with no identifier between them are not made identical by both failing to
+    // state one, which is why an absent value on either side is an answer of *no* rather than a
+    // comparison of `None` with `None`.
+    match (
+        read.identity(&left_bytes, left),
+        read.identity(&right_bytes, right),
+    ) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// The `DestOutputProfile` of one `OutputIntents` array's PDF/A entry.
@@ -3284,7 +3890,10 @@ mod tests {
     use crate::{Flavour, Target};
     use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-    use super::{BLEND_MODES, Position, Site, equivalent, is_halftone, profile_header};
+    use super::{
+        BLEND_MODES, IccEdition, Position, Site, equivalent, is_halftone, missing_required_tags,
+        profile_header,
+    };
     use crate::finding::Findings;
     use crate::table::requirements;
 
@@ -3363,6 +3972,113 @@ mod tests {
             "bytes that are not an ICC profile are not judged as one"
         );
         assert_eq!(profile_header(&header[..20]), None, "a truncated header");
+    }
+
+    /// A profile carrying `tags` and nothing else, for the required-tag rule.
+    ///
+    /// Positional, so it doubles as a statement of the layout: the 128-byte header, the tag count,
+    /// a twelve-byte entry per tag, and empty tag data.
+    fn profile_of(class: [u8; 4], tags: &[&[u8; 4]]) -> Vec<u8> {
+        let mut out = vec![0_u8; 128];
+        out[12..16].copy_from_slice(&class);
+        out[16..20].copy_from_slice(b"RGB ");
+        out[36..40].copy_from_slice(b"acsp");
+        out.extend_from_slice(&u32::try_from(tags.len()).expect("small").to_be_bytes());
+        for tag in tags {
+            out.extend_from_slice(*tag);
+            out.extend_from_slice(&0_u32.to_be_bytes());
+            out.extend_from_slice(&0_u32.to_be_bytes());
+        }
+        out
+    }
+
+    /// Each held edition states the one version number consistent with itself, and nothing states
+    /// what a version between or beyond them would owe.
+    #[test]
+    fn an_edition_is_the_version_number_its_own_text_states() {
+        assert_eq!(IccEdition::of((2, 2, 0)), Some(IccEdition::Nineteen98));
+        assert_eq!(IccEdition::of((4, 0, 0)), Some(IccEdition::TwoThousand1));
+        assert_eq!(IccEdition::of((4, 4, 0)), Some(IccEdition::TwentyTwo));
+        assert_eq!(IccEdition::of((5, 0, 0)), Some(IccEdition::TwentyThree));
+        assert_eq!(IccEdition::of((2, 1, 0)), None, "the commonest v2 revision");
+        assert_eq!(IccEdition::of((4, 1, 0)), None, "ICC.1:2003-09's version");
+        assert_eq!(
+            IccEdition::of((4, 3, 0)),
+            None,
+            "ISO 15076-1:2010's version"
+        );
+        assert_eq!(IccEdition::of((4, 4, 1)), None, "a bug-fix revision of 4.4");
+        assert_eq!(IccEdition::of((5, 1, 0)), None, "a later iccMAX");
+    }
+
+    /// The two v2-era texts state the field or the method or neither, and the row that reads a
+    /// `Profile ID` has to know which.
+    #[test]
+    fn only_the_two_later_editions_state_a_profile_id_this_can_compute() {
+        assert_eq!(IccEdition::Nineteen98.profile_id_clause(), None);
+        assert_eq!(IccEdition::TwoThousand1.profile_id_clause(), None);
+        assert_eq!(IccEdition::TwentyTwo.profile_id_clause(), Some("7.2.18"));
+        assert_eq!(IccEdition::TwentyThree.profile_id_clause(), Some("7.2.20"));
+    }
+
+    /// The profile this project ships is a version 2.0.0 RGB display profile, and ICC.1:1998-09 —
+    /// one of the four editions ISO 19005-2 names — requires of one exactly the nine tags it
+    /// carries. `doc/adr/0950` has why the version number it states is not the question.
+    #[test]
+    fn the_shipped_profile_carries_what_a_permitted_edition_requires() {
+        let profile: &[u8] = include_bytes!("../../../../data/icc/sRGB2014.icc");
+        assert!(
+            missing_required_tags(IccEdition::Nineteen98, profile, b"mntr").is_empty(),
+            "ICC.1:1998-09 Table 27's tags for an RGB display profile"
+        );
+        assert!(
+            missing_required_tags(IccEdition::TwoThousand1, profile, b"mntr").is_empty(),
+            "and ICC.1:2001-12 Table 25's, which are the same six plus the same three"
+        );
+    }
+
+    /// ICC.2 section 8.4 asks a display profile for a transform in each direction, and the v2
+    /// matrix-and-curve tags are not one — which is the corpus's `6-2-3-t01-fail-d`.
+    #[test]
+    fn a_matrix_profile_is_not_a_version_five_display_profile() {
+        let matrix = profile_of(
+            *b"mntr",
+            &[b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ"],
+        );
+        assert_eq!(
+            missing_required_tags(IccEdition::TwentyThree, &matrix, b"mntr").len(),
+            2,
+            "neither direction of transform is present"
+        );
+        let lut = profile_of(*b"mntr", &[b"desc", b"cprt", b"wtpt", b"A2B1", b"B2D3"]);
+        assert!(
+            missing_required_tags(IccEdition::TwentyThree, &lut, b"mntr").is_empty(),
+            "any one of each list satisfies the clause"
+        );
+    }
+
+    /// ICC.1 section 8.4 gives a display profile three forms, and the same profile that fails
+    /// ICC.2 satisfies the second of them.
+    #[test]
+    fn the_same_matrix_profile_is_one_of_icc_ones_three_display_forms() {
+        let matrix = profile_of(
+            *b"mntr",
+            &[
+                b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC",
+            ],
+        );
+        assert!(missing_required_tags(IccEdition::TwentyTwo, &matrix, b"mntr").is_empty());
+        assert_eq!(
+            missing_required_tags(IccEdition::TwentyTwo, &matrix, b"prtr").len(),
+            1,
+            "section 8.5 offers an output profile neither form"
+        );
+        let bare = profile_of(*b"mntr", &[]);
+        assert_eq!(
+            missing_required_tags(IccEdition::TwentyTwo, &bare, b"mntr").len(),
+            4,
+            "section 8.2's three tags and section 8.4's form"
+        );
     }
 
     /// `0` and `0.0` are one value, which is what keeps the Separation rule from inventing a

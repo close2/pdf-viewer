@@ -257,6 +257,14 @@ pub enum Rewrite {
     /// The document's XMP packet states the identification schema the target's part requires,
     /// and is created where the document had none.
     IdentificationSchema,
+    /// Every resource dictionary explicitly associated with a content stream gains §8.6.5.6's
+    /// `/DefaultCMYK`, written as a `DeviceN` over the four process colourants whose tint
+    /// transform is §10.4.2.5's.
+    ///
+    /// The second [`Decision::Stated`] of this verb, and the one `doc/questions/A48` answers.
+    /// **Nothing on any page moves**: the content stream still says what its producer wrote, and
+    /// a `/DefaultCMYK` only tells a reader how to read the four numbers already there.
+    DefaultCmyk,
 }
 
 impl Rewrite {
@@ -292,6 +300,11 @@ impl Rewrite {
                 "the document's XMP packet states this part's identification schema, and is \
                  created where the document had none"
             }
+            Self::DefaultCmyk => {
+                "every resource dictionary explicitly associated with a content stream states a \
+                 DefaultCMYK: a DeviceN over Cyan, Magenta, Yellow and Black whose tint \
+                 transform is ISO 32000-2 \u{a7}10.4.2.5's, over this file's ICC sRGB alternate"
+            }
         }
     }
 
@@ -313,6 +326,7 @@ impl Rewrite {
             Self::PresentationSteps => "presentation-steps",
             Self::OutputIntent => "output-intent",
             Self::IdentificationSchema => "identification-schema",
+            Self::DefaultCmyk => "default-cmyk",
         }
     }
 }
@@ -458,15 +472,36 @@ enum Answer {
     Stated(Option<DeviceFamily>, Rewrite, &'static str),
     /// A rewrite that loses something, which the caller must authorise.
     Loses(Loss, Rewrite),
+    /// ISO 19005-2 section 6.2.4.3's `DeviceCMYK` sentence, which admits two licences this verb
+    /// can reach and picks between them on the profile in hand.
+    ///
+    /// The only row of [`REMEDIES`] whose answer is not a rewrite, because the sentence itself
+    /// offers two: a PDF/A output intent holding a **CMYK** destination profile, which is the
+    /// right answer and needs a profile only the document's owner can supply, and a
+    /// **`DeviceN`-based** `/DefaultCMYK`, which the subclause's NOTE 2 makes device independent
+    /// and which needs nothing but the standard. [`decide`] takes the first where the profile in
+    /// hand is a CMYK one and the second otherwise; `doc/pdf-a-conversion-limits.md` section 10.1
+    /// is the reading, and `doc/questions/A48` the permission.
+    ///
+    /// **Part 4 states this sentence without the `DeviceN` half**, so its own row is an ordinary
+    /// [`Self::Stated`] naming the output intent and a document whose only failure is
+    /// `DeviceCMYK` under PDF/A-4 is refused unless a CMYK profile is supplied. That is the
+    /// standard's difference rather than this converter's.
+    CmykUnderPartTwo,
 }
 
 impl Answer {
-    /// The rewrite this answer performs, whatever the caller has authorised.
-    const fn rewrite(self) -> Rewrite {
+    /// Every rewrite this answer might perform, whatever the caller has authorised.
+    ///
+    /// Two rather than one because [`Self::CmykUnderPartTwo`] can be answered two ways and
+    /// [`Prepared`] has to build whichever [`decide`] turns out to choose — which it cannot know
+    /// before the constructions exist.
+    const fn rewrites(self) -> [Option<Rewrite>; 2] {
         match self {
             Self::Mechanical(rewrite) | Self::Stated(_, rewrite, _) | Self::Loses(_, rewrite) => {
-                rewrite
+                [Some(rewrite), None]
             }
+            Self::CmykUnderPartTwo => [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultCmyk)],
         }
     }
 }
@@ -501,6 +536,41 @@ const OUTPUT_INTENT_REINTERPRETS: &str = "a PDF/A output intent is what a confor
      have, and for content separated for a particular press the difference is real rather than \
      imperceptible — supply that press's profile with --output-intent-profile instead";
 
+/// What the `DeviceN` `/DefaultCMYK` asserts, which is `doc/questions/A48`'s condition on it.
+///
+/// `doc/adr/0927`: the sentence travels with the decision. What a reader is told afterwards is
+/// §8.6.5.6's remapping — "if such an entry is present, its value shall be used as the colour
+/// space for the operation currently being performed" — through a transform §10.4.2.5 states and
+/// §10.4.2.1 ranks below §10.3's ICC route in the same breath: "These algorithms are, however,
+/// very simple and as perceived by a human viewer they produce only crude approximations of the
+/// original colours."
+const DEFAULT_CMYK_REINTERPRETS: &str = "every DeviceCMYK value in this file is now read through \
+     ISO 32000-2 §10.4.2.5's conversion into this file's sRGB, because ISO 19005-2 section \
+     6.2.4.3's NOTE 2 makes a DeviceN-based DefaultCMYK device independent and that is the one \
+     licence the standard offers a file with no CMYK profile. The content stream still says what \
+     its producer wrote and nothing on any page moves; what changes is how the four numbers are \
+     read. §10.4.2.1 calls this family of conversions a crude approximation, which for a \
+     photograph separated for a press is a visible loss of fidelity and for a rule or a logo \
+     drawn in k is imperceptible — supply that press's profile with --output-intent-profile \
+     and the output intent answers the clause instead";
+
+/// The action this conversion records in `xmpMM:History` when it writes the `/DefaultCMYK`.
+///
+/// `doc/questions/A48` allows the construction on two conditions, and this is the second of them:
+/// the clause is named in the file's own provenance, so that a later reader knows precisely which
+/// approximation was applied and can undo the interpretation. ISO 19005-2 section 6.6.6 asks a
+/// recorded action for what was done, with what, and when; ISO 19005-4 section 6.7.5 asks for two
+/// of the three. All three are written, which answers both.
+const DEFAULT_CMYK_ACTION: &str = "converted";
+
+/// The `parameters` field of that action.
+///
+/// The clause is named in words rather than with a section sign, because this string is written
+/// into somebody else's file and the sign is this project's convention rather than the standard's.
+const DEFAULT_CMYK_PARAMETERS: &str = "a DeviceN DefaultCMYK was added over Cyan, Magenta, \
+     Yellow and Black, whose tint transform is the DeviceCMYK to DeviceRGB conversion of \
+     ISO 32000-2 clause 10.4.2.5, with this file's ICC sRGB profile as the alternate space";
+
 /// The one requirement identifier that will not fit beside its key inside 100 columns.
 const CMYK_UNDER_PART_FOUR: &str =
     "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent";
@@ -508,9 +578,30 @@ const CMYK_UNDER_PART_FOUR: &str =
 /// Why a colour requirement an output intent of another family answers is refused.
 const WRONG_FAMILY: &str = "this requirement is licensed by a destination profile of its own \
      colour family, and the profile this conversion has is of another. Supply the right one with \
-     --output-intent-profile; for CMYK with no profile to hand, \
-     doc/pdf-a-conversion-limits.md section 10.1 states the DeviceN /DefaultCMYK construction the \
-     standard's own §10.4.2.5 transform makes conforming, which this converter does not write yet";
+     --output-intent-profile. For DeviceCMYK with no CMYK profile to hand there is a second \
+     licence, and ISO 19005-2 states it where ISO 19005-4 does not: part 2's section 6.2.4.3 \
+     admits a DeviceN-based DefaultCMYK, and part 4's requires a device independent one, which \
+     is an ICC CMYK profile or nothing";
+
+/// Why the `DeviceN` `/DefaultCMYK` could not be built for this document.
+///
+/// §10.4.2.5's transform produces `DeviceRGB`, so the alternate space this construction needs is
+/// an **RGB** ICC profile: writing the transform's three numbers into a space of any other family
+/// would be asserting an arithmetic the clause does not state.
+const NO_RGB_ALTERNATE: &str = "the DeviceN DefaultCMYK this file needs states ISO 32000-2 \
+     §10.4.2.5's transform, whose result is RGB, so its alternate space has to be an RGB ICC \
+     profile — and the profile this conversion has is of another colour family";
+
+/// Why the `DeviceN` `/DefaultCMYK` was not written even though it could have been built.
+///
+/// `doc/questions/A48` allows the construction *on condition* that it is recorded in the file's
+/// own `xmpMM:History` naming the clause. So a document whose packet will not take that entry
+/// does not get the construction either: the permission and its condition are one thing, and a
+/// converter that kept the first while dropping the second would be helping itself to a licence
+/// it had not earned.
+const NO_PLACE_TO_RECORD: &str = "the DeviceN DefaultCMYK is allowed on condition that it is \
+     recorded in this file's own xmpMM:History naming the clause, and this document's XMP packet \
+     will not take that entry — so the construction is not written either";
 
 /// Every requirement this converter can answer, and how.
 ///
@@ -611,13 +702,12 @@ const REMEDIES: &[Remedy] = &[
             OUTPUT_INTENT_REINTERPRETS,
         ),
     },
+    // The one sentence of ISO 19005-2 section 6.2.4.3 that offers two licences rather than one,
+    // and the reason `Answer::CmykUnderPartTwo` exists: which of them this verb takes is decided
+    // per document, on the colour family of the profile in hand.
     Remedy {
         requirement: "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
-        answer: Answer::Stated(
-            Some(DeviceFamily::Cmyk),
-            Rewrite::OutputIntent,
-            OUTPUT_INTENT_REINTERPRETS,
-        ),
+        answer: Answer::CmykUnderPartTwo,
     },
     Remedy {
         requirement: CMYK_UNDER_PART_FOUR,
@@ -995,6 +1085,20 @@ struct Intent {
     reported: DestinationProfile,
 }
 
+/// The `/DefaultCMYK` a conversion is in a position to write, and the objects it needs.
+///
+/// ISO 19005-2 section 6.2.4.3's second licence, built from the standard and nothing else:
+/// §8.6.6.5's `DeviceN` over the four names that clause reserves for a CMYK device's process
+/// colourants, §7.10.5's PostScript calculator function stating §10.4.2.5's conversion, and the
+/// ICC sRGB profile the output intent would have named as the alternate space §8.6.6.4 says the
+/// tint transform's output is interpreted in.
+struct DefaultCmyk {
+    /// The colour space array, in the *source's* numbering.
+    space: ObjectId,
+    /// The two objects this conversion adds for it.
+    written: [(ObjectId, Object); 2],
+}
+
 /// The metadata stream a conversion is in a position to write.
 struct Metadata {
     /// The object the packet goes in, in the *source's* numbering.
@@ -1019,6 +1123,13 @@ struct Metadata {
 struct Prepared {
     /// The output intent to add, or why one cannot be.
     intent: Result<Intent, Because>,
+    /// The `/DefaultCMYK` to write, or why one cannot be.
+    ///
+    /// Prepared **after** the intent and **before** the metadata, because the three depend on
+    /// each other in that order: the default's alternate space is the profile the intent settled,
+    /// and the packet has to carry the `xmpMM:History` entry `doc/questions/A48` makes the
+    /// default conditional on.
+    default_cmyk: Result<DefaultCmyk, Because>,
     /// The metadata stream to write, or why one cannot be.
     metadata: Result<Metadata, Because>,
 }
@@ -1028,27 +1139,70 @@ impl Prepared {
     fn of(plan: &ArchivePlan, document: &Document, failed: &BTreeSet<&'static str>) -> Self {
         let wanted = |rewrite: Rewrite| {
             REMEDIES.iter().any(|remedy| {
-                failed.contains(remedy.requirement) && remedy.answer.rewrite() == rewrite
+                failed.contains(remedy.requirement)
+                    && remedy.answer.rewrites().contains(&Some(rewrite))
             })
         };
         let mut spare = Spare::of(document);
         let catalog = document.catalog().ok();
+        let intent = match (wanted(Rewrite::OutputIntent), catalog.as_ref()) {
+            (true, Some(catalog)) => prepare_intent(plan, document, catalog, &mut spare),
+            (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+            // Nothing failed that an output intent answers, so nothing is prepared and the
+            // reason is never read: `decide` consults this only for a requirement `wanted`
+            // has already found in the table.
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
+        // The `DeviceCMYK` sentence offers two licences and the output intent is the better one,
+        // so the default is prepared only where the profile in hand cannot answer the clause —
+        // which is `Answer::CmykUnderPartTwo`'s choice, taken here so that the packet knows
+        // whether it has an action to record.
+        let by_intent = intent
+            .as_ref()
+            .is_ok_and(|intent| intent.family == DeviceFamily::Cmyk);
+        let default_cmyk = match (wanted(Rewrite::DefaultCmyk) && !by_intent, intent.as_ref()) {
+            (true, Ok(intent)) => prepare_default_cmyk(document, intent, &mut spare),
+            (true, Err(because)) => Err(*because),
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
+        let when = default_cmyk
+            .is_ok()
+            .then(|| xmp::instant(std::time::SystemTime::now()))
+            .flatten();
+        let recorded = when.as_ref().map(|when| xmp::Event {
+            action: DEFAULT_CMYK_ACTION,
+            parameters: DEFAULT_CMYK_PARAMETERS,
+            when,
+        });
+        let metadata = match (
+            wanted(Rewrite::IdentificationSchema),
+            recorded.is_some(),
+            catalog.as_ref(),
+        ) {
+            (false, false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+            (_, _, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+            (schema, _, Some(catalog)) => prepare_metadata(
+                plan.target,
+                document,
+                catalog,
+                &mut spare,
+                schema,
+                recorded.as_ref(),
+            ),
+        };
+        // A48's permission and its condition are one thing: a construction whose entry was not
+        // written — because the packet would not take it, or because no clock answered — is
+        // withdrawn rather than left unrecorded. The test is on the *event*, not on the packet:
+        // a packet edited for the identification schema alone carries no action.
+        let recorded_it = recorded.is_some() && metadata.is_ok();
+        let default_cmyk = match default_cmyk {
+            Ok(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD)),
+            built => built,
+        };
         Self {
-            intent: match (wanted(Rewrite::OutputIntent), catalog.as_ref()) {
-                (true, Some(catalog)) => prepare_intent(plan, document, catalog, &mut spare),
-                (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
-                // Nothing failed that an output intent answers, so nothing is prepared and the
-                // reason is never read: `decide` consults this only for a requirement `wanted`
-                // has already found in the table.
-                (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
-            },
-            metadata: match (wanted(Rewrite::IdentificationSchema), catalog.as_ref()) {
-                (true, Some(catalog)) => {
-                    prepare_metadata(plan.target, document, catalog, &mut spare)
-                }
-                (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
-                (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
-            },
+            intent,
+            default_cmyk,
+            metadata,
         }
     }
 
@@ -1064,6 +1218,11 @@ impl Prepared {
             && let Some(object) = &metadata.written
         {
             out.insert(metadata.at, object.clone());
+        }
+        if let Ok(default) = &self.default_cmyk {
+            for (id, object) in &default.written {
+                out.insert(*id, object.clone());
+            }
         }
         out
     }
@@ -1273,6 +1432,103 @@ fn intent_dictionary(intent: &Intent) -> Dictionary {
     out
 }
 
+/// The four names §8.6.6.5 reserves for the subtractive process colourants of a CMYK device.
+///
+/// > The names Cyan , Magenta , Yellow and Black are reserved to name the subtractive process
+/// > colourants of a CMYK device.
+///
+/// So a `DeviceN` over exactly those four names the four components a `DeviceCMYK` value already
+/// has, in the order §8.6.4.4 gives them, and none of them is a spot colourant — which is why the
+/// space needs no `Colorants` entry under ISO 19005-2 section 6.2.4.4.
+const PROCESS_COLOURANTS: [&[u8]; 4] = [b"Cyan", b"Magenta", b"Yellow", b"Black"];
+
+/// A PostScript calculator function, of the kind §7.10.5 defines, stating one clause's arithmetic.
+///
+/// The clause is §10.4.2.5:
+///
+/// > The black component shall be added to each of the other components, which shall then be
+/// > converted to their complementary colours by subtracting them each from 1.0.
+///
+/// and its formula is `red = 1.0 - min(1.0, cyan + black)` with green from magenta and blue from
+/// yellow. The operator set of §7.10.5.2 has no `min`, so the clamp is the `dup 1 gt { pop 1 } if`
+/// each line ends its addition with — the same value by the operators that clause does define.
+///
+/// The stack begins as `c m y k` and each line rotates one component to the top, adds the `k`
+/// that is now one place further down, clamps, complements, and leaves the result behind; the
+/// last line rotates the spent `k` to the top and drops it, leaving `red green blue`.
+const CMYK_TO_RGB: &[u8] = b"{ 4 3 roll 1 index add dup 1 gt { pop 1 } if 1 exch sub\n\
+    4 3 roll 2 index add dup 1 gt { pop 1 } if 1 exch sub\n\
+    4 3 roll 3 index add dup 1 gt { pop 1 } if 1 exch sub\n\
+    4 3 roll pop }";
+
+/// Prepares the `DeviceN` `/DefaultCMYK`: the tint transform, and the space that names it.
+fn prepare_default_cmyk(
+    document: &Document,
+    intent: &Intent,
+    spare: &mut Spare,
+) -> Result<DefaultCmyk, Because> {
+    if intent.family != DeviceFamily::Rgb {
+        return Err(Because::NotBuiltYet(NO_RGB_ALTERNATE));
+    }
+    let missing = Because::NotBuiltYet(NO_SPARE_OBJECT);
+    let tint = spare.take(document).ok_or(missing)?;
+    let colour_space = spare.take(document).ok_or(missing)?;
+    Ok(DefaultCmyk {
+        space: colour_space,
+        written: [
+            (tint, tint_transform()),
+            (colour_space, device_n(tint, intent.destination)),
+        ],
+    })
+}
+
+/// The tint transform stream: §7.10.5's type 4 function over §10.4.2.5's arithmetic.
+///
+/// `/Domain` and `/Range` are §7.10.2's Table 38 entries, four in and three out, each component
+/// over the unit interval §8.6.4.4 gives a `DeviceCMYK` component and §8.6.4.3 an additive one.
+/// Written unfiltered, for the reason §14.3.2's metadata packet is: it is forty bytes of text,
+/// and a reader who opens the file with an editor can see what was asserted about their colours.
+fn tint_transform() -> Object {
+    let mut dict = Dictionary::new();
+    dict.insert(Name::new(&b"FunctionType"[..]), Object::Integer(4));
+    let unit_interval = |components: usize| {
+        Object::Array(
+            std::iter::repeat_with(|| [Object::Integer(0), Object::Integer(1)])
+                .take(components)
+                .flatten()
+                .collect(),
+        )
+    };
+    dict.insert(Name::new(&b"Domain"[..]), unit_interval(4));
+    dict.insert(Name::new(&b"Range"[..]), unit_interval(3));
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(CMYK_TO_RGB.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: CMYK_TO_RGB.to_vec().into(),
+        decryption_failed: false,
+    }))
+}
+
+/// The colour space array: §8.6.6.5's `DeviceN`, over §8.6.5.5's `ICCBased` alternate.
+fn device_n(tint: ObjectId, profile: ObjectId) -> Object {
+    let names = PROCESS_COLOURANTS
+        .into_iter()
+        .map(|name| Object::Name(Name::new(name)))
+        .collect();
+    Object::Array(vec![
+        Object::Name(Name::new(&b"DeviceN"[..])),
+        Object::Array(names),
+        Object::Array(vec![
+            Object::Name(Name::new(&b"ICCBased"[..])),
+            Object::Reference(profile),
+        ]),
+        Object::Reference(tint),
+    ])
+}
+
 /// Prepares the metadata stream: the packet, and the object it goes in.
 ///
 /// Two cases, and the difference between them is the whole of what makes this safe. A document
@@ -1287,6 +1543,8 @@ fn prepare_metadata(
     document: &Document,
     catalog: &Dictionary,
     spare: &mut Spare,
+    schema_wanted: bool,
+    recorded: Option<&xmp::Event<'_>>,
 ) -> Result<Metadata, Because> {
     let properties = identification_properties(target);
     let schema = Schema {
@@ -1294,22 +1552,36 @@ fn prepare_metadata(
         prefix: IDENTIFICATION_PREFIX,
         properties: &properties,
     };
+    // A recorded action is *appended*, so a packet may need editing for that alone — a document
+    // whose identification schema is already right and whose `DeviceCMYK` is not.
+    let record = |packet: Vec<u8>| match recorded {
+        None => Ok(packet),
+        Some(event) => {
+            xmp::record(&packet, event).map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))
+        }
+    };
     if let Some(at) = catalog.get("Metadata").and_then(Object::as_reference)
         && let Object::Stream(stream) = document.get(at)
         && let Some(bytes) = document.decoded_stream_data(&stream)
     {
-        let packet = xmp::restate(&bytes, &IDENTIFICATION_URIS, &schema)
-            .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?;
+        let restated = if schema_wanted {
+            xmp::restate(&bytes, &IDENTIFICATION_URIS, &schema)
+                .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?
+        } else {
+            bytes.to_vec()
+        };
         return Ok(Metadata {
             at,
             written: None,
-            packet,
+            packet: record(restated)?,
         });
     }
     let at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
-    let packet = xmp::packet(&schema);
+    // A document with no packet at all is one whose catalog states no metadata stream, which is
+    // a requirement of its own and therefore always among the failures when this line is reached.
+    let packet = record(xmp::packet(&schema))?;
     Ok(Metadata {
         at,
         written: Some(metadata_stream(&Dictionary::new(), &packet)),
@@ -1389,6 +1661,20 @@ fn decide(judgement: &Judgement, authorised: Authorisations, prepared: &Prepared
             Err(because) => Decision::Refused(*because),
         },
         Answer::Mechanical(rewrite) => Decision::Mechanical(rewrite),
+        // ISO 19005-2 section 6.2.4.3's `DeviceCMYK` sentence, whose two licences `Prepared` has
+        // already chosen between: a CMYK destination profile answers it outright, and where the
+        // profile in hand is of another family the DeviceN default is what NOTE 2 leaves.
+        Answer::CmykUnderPartTwo => match (&prepared.intent, &prepared.default_cmyk) {
+            (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
+                rewrite: Rewrite::OutputIntent,
+                reinterprets: OUTPUT_INTENT_REINTERPRETS,
+            },
+            (_, Ok(_)) => Decision::Stated {
+                rewrite: Rewrite::DefaultCmyk,
+                reinterprets: DEFAULT_CMYK_REINTERPRETS,
+            },
+            (_, Err(because)) => Decision::Refused(*because),
+        },
         Answer::Stated(family, Rewrite::OutputIntent, reinterprets) => match &prepared.intent {
             Err(because) => Decision::Refused(*because),
             // ISO 19005 section 6.2.4.3 licenses a device colour space through a destination
@@ -1494,7 +1780,19 @@ pub struct Conversion {
     /// report the condition on the permission: a conversion that adds an output intent has
     /// changed what every device colour in the file means to a conforming reader, and a user is
     /// entitled to be told which profile decided that and whose profile it is.
+    ///
+    /// **Named for either of the two rewrites that use it**: the output intent states it as its
+    /// destination profile, and the `/DefaultCMYK` states the same object as the alternate space
+    /// its tint transform's result is interpreted in.
     pub profile: Option<DestinationProfile>,
+    /// What this conversion wrote into the document's own `xmpMM:History`, where it wrote
+    /// anything.
+    ///
+    /// `doc/questions/A48`'s second condition, and the reason it is a field rather than a line of
+    /// prose: the permission to write a `/DefaultCMYK` is conditional on the clause being named
+    /// in the file's own provenance, so a report that could not say whether the entry was written
+    /// could not say whether the permission had been honoured. `doc/adr/0927` has the argument.
+    pub recorded: Option<String>,
 }
 
 impl Conversion {
@@ -1531,10 +1829,16 @@ impl Conversion {
                     .map_or(Value::Null, Achieved::to_json),
             ),
             (
-                "output_intent_profile".to_owned(),
+                "icc_profile".to_owned(),
                 self.profile
                     .as_ref()
                     .map_or(Value::Null, DestinationProfile::to_json),
+            ),
+            (
+                "recorded_in_xmp_history".to_owned(),
+                self.recorded
+                    .as_ref()
+                    .map_or(Value::Null, |action| Value::text(action.clone())),
             ),
         ])
     }
@@ -1578,7 +1882,7 @@ impl Conversion {
         if let Some(profile) = &self.profile {
             let _ = writeln!(
                 out,
-                "  the output intent's destination profile is {}{}, over {}",
+                "  the ICC profile this conversion states is {}{}, over {}",
                 profile.source.describe(),
                 profile
                     .describes
@@ -1589,6 +1893,12 @@ impl Conversion {
             if let Some(copyright) = &profile.copyright {
                 let _ = writeln!(out, "      its copyright tag says: {copyright}");
             }
+        }
+        if let Some(recorded) = &self.recorded {
+            let _ = writeln!(
+                out,
+                "  recorded in this file's own xmpMM:History: {recorded}"
+            );
         }
         if let Some(achieved) = &self.achieved {
             let verdict = if achieved.conforms {
@@ -1848,6 +2158,7 @@ fn decide_every_failure(
         not_checked: input.unchecked().map(NotChecked::of).collect(),
         achieved: None,
         profile: None,
+        recorded: None,
     };
     let failed: BTreeSet<&'static str> = input.failures().map(|judgement| judgement.id).collect();
     let prepared = Prepared::of(plan, document, &failed);
@@ -1913,10 +2224,16 @@ fn apply_the_decisions(
         .iter()
         .filter_map(|decided| decided.decision.rewrite())
         .collect();
-    if wanted.contains(&Rewrite::OutputIntent)
+    // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition
+    // and now two rewrites: the output intent names it as its destination profile, and the
+    // `/DefaultCMYK` names the same object as its alternate space.
+    if (wanted.contains(&Rewrite::OutputIntent) || wanted.contains(&Rewrite::DefaultCmyk))
         && let Ok(intent) = &prepared.intent
     {
         conversion.profile = Some(intent.reported.clone());
+    }
+    if wanted.contains(&Rewrite::DefaultCmyk) {
+        conversion.recorded = Some(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
     }
     let converted = convert(document, plan.target, &wanted, version, prepared)?;
     for decided in &mut conversion.decided {
@@ -2104,7 +2421,7 @@ fn convert(
     prepared: &Prepared,
 ) -> Result<Converted, Refusal> {
     let root = crate::optimize::catalog_of(document)?;
-    let sites = Sites::of(document, root);
+    let sites = Sites::of(document, root, wanted);
     let rewriter = Rewriter {
         document,
         target,
@@ -2113,6 +2430,7 @@ fn convert(
         added: prepared.added(),
         intent: prepared.intent.as_ref().ok(),
         metadata: prepared.metadata.as_ref().ok(),
+        default_cmyk: prepared.default_cmyk.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -2341,25 +2659,324 @@ struct Sites {
     names: Option<ObjectId>,
     /// Every page object §7.7.3's tree reaches.
     pages: BTreeSet<ObjectId>,
+    /// Where a `/DefaultCMYK` has to be written, where one is being written.
+    default_cmyk: CmykSites,
 }
 
 impl Sites {
     /// The positions, read off the document.
-    fn of(document: &Document, catalog: ObjectId) -> Self {
+    fn of(document: &Document, catalog: ObjectId, wanted: &BTreeSet<Rewrite>) -> Self {
         let names = document
             .get(catalog)
             .as_dict()
             .and_then(|dict| dict.get("Names").and_then(Object::as_reference));
         let tree = Pages::new(document);
-        let pages = (0..tree.len())
+        let pages: BTreeSet<ObjectId> = (0..tree.len())
             .filter_map(|index| tree.get(index).and_then(|page| page.id))
             .collect();
+        let default_cmyk = if wanted.contains(&Rewrite::DefaultCmyk) {
+            CmykSites::of(document, &tree)
+        } else {
+            // Nothing is walked that no failed requirement asked for, which is `doc/adr/0947`'s
+            // first rule applied to a *reading* rather than to a rewrite.
+            CmykSites::default()
+        };
         Self {
             catalog,
             names,
             pages,
+            default_cmyk,
         }
     }
+}
+
+/// Every dictionary a `/DefaultCMYK` has to reach, found once before the walk starts.
+///
+/// # Why this is a structural walk rather than a list of failures
+///
+/// `TechNote 0010`'s A028 resolves that ISO 19005-2 is read as if a default colour space had
+/// itself to be defined in the resources dictionary *explicitly associated* with the content
+/// stream, and A003 says which four dictionaries that names: a page's, a tiling pattern's, a form
+/// `XObject`'s and a Type 3 font's. So the sites are decided by the document's structure, not by
+/// where the validator happened to record a failure — and the validator's own list is capped,
+/// which would make a document failing in more places than the cap a document this rewrite
+/// silently half-finished.
+///
+/// **Every such dictionary, not only the ones whose stream paints in `DeviceCMYK`.** A
+/// `/DefaultCMYK` says how the four numbers of a `DeviceCMYK` value are to be read, and a file in
+/// which the same `0 0 0 1 k` meant one thing on one page and another on the next would be a
+/// worse file than the one that came in. Adding the entry where nothing selects `DeviceCMYK`
+/// changes no mark at all: §8.6.5.6's remapping happens when a device space is *used*.
+#[derive(Debug, Default)]
+struct CmykSites {
+    /// `/ColorSpace` subdictionaries reached by reference, which receive the entry themselves.
+    spaces: BTreeSet<ObjectId>,
+    /// Resource dictionaries reached by reference whose `/ColorSpace` is direct or absent.
+    resources: BTreeSet<ObjectId>,
+    /// Objects whose own `/Resources` is a direct dictionary with a direct or absent
+    /// `/ColorSpace`, so that the entry is written inside the object being rewritten anyway.
+    direct: BTreeSet<ObjectId>,
+    /// The `/Resources` value a page stating none of its own is to be given.
+    ///
+    /// A page with no `Resources` entry has no explicitly associated dictionary at all, so A028
+    /// leaves it no default whatever the page tree above it defines — and the requirement is
+    /// therefore asking for the entry the page does not have. What is written is what §7.7.3.3's
+    /// inheritance already puts in force: the reference the page inherits, where it inherits one
+    /// by reference, and a copy of the dictionary otherwise. Neither changes what any name on
+    /// that page resolves to.
+    pages: BTreeMap<ObjectId, Object>,
+}
+
+/// How many objects [`CmykSites`] visits before it stops.
+///
+/// A bound rather than a reading (principle 3): the walk follows a resource graph whose shape is
+/// the document's, and a file can nest form `XObject`s inside patterns inside forms as deep as it
+/// likes. Past this, the sites that were found are still written and the output's own verdict is
+/// what reports that the requirement is not met — which is the net `doc/adr/0947` built.
+const MAX_RESOURCE_SITES: usize = 65_536;
+
+impl CmykSites {
+    /// The four dictionaries A003 names, reached from every page.
+    fn of(document: &Document, tree: &Pages<'_>) -> Self {
+        let mut found = Self::default();
+        let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
+        let mut queue: VecDeque<Object> = VecDeque::new();
+        for index in 0..tree.len() {
+            let Some(page) = tree.get(index) else {
+                continue;
+            };
+            if let Some(id) = page.id {
+                found.holder(
+                    document,
+                    id,
+                    &page.dict,
+                    Some(&page.dict),
+                    &mut seen,
+                    &mut queue,
+                );
+            }
+            for appearance in appearance_streams(document, &page.dict) {
+                queue.push_back(appearance);
+            }
+        }
+        while let Some(object) = queue.pop_front() {
+            if seen.len() >= MAX_RESOURCE_SITES {
+                break;
+            }
+            let Some(id) = object.as_reference() else {
+                continue;
+            };
+            if !seen.insert(id) {
+                continue;
+            }
+            let resolved = document.get(id);
+            let dict = match &resolved {
+                Object::Stream(stream) => &stream.dict,
+                Object::Dictionary(dict) => dict,
+                _ => continue,
+            };
+            found.holder(document, id, dict, None, &mut seen, &mut queue);
+        }
+        found
+    }
+
+    /// One dictionary that carries an explicitly associated resources dictionary, or could.
+    ///
+    /// `page` is the page's own dictionary where this holder *is* a page, because only a page
+    /// inherits resources and only a page therefore gets one written for it.
+    fn holder(
+        &mut self,
+        document: &Document,
+        id: ObjectId,
+        dict: &Dictionary,
+        page: Option<&Dictionary>,
+        seen: &mut BTreeSet<ObjectId>,
+        queue: &mut VecDeque<Object>,
+    ) {
+        match dict.get("Resources") {
+            Some(Object::Reference(resources)) => {
+                let held = document.get(*resources);
+                if let Some(held) = held.as_dict() {
+                    self.resource_dictionary(document, Some(*resources), held, seen, queue);
+                }
+            }
+            Some(Object::Dictionary(resources)) => {
+                self.resource_dictionary(document, None, resources, seen, queue);
+                if !Self::spaces_are_indirect(resources) {
+                    self.direct.insert(id);
+                }
+            }
+            _ => {
+                if let Some(page) = page {
+                    self.inherited(document, id, page);
+                }
+            }
+        }
+    }
+
+    /// Whether a resource dictionary states its `/ColorSpace` as another object.
+    ///
+    /// Where it does, that object is what receives the entry and the dictionary holding it is
+    /// left exactly as its producer wrote it.
+    fn spaces_are_indirect(resources: &Dictionary) -> bool {
+        matches!(resources.get("ColorSpace"), Some(Object::Reference(_)))
+    }
+
+    /// One resource dictionary: where its `/DefaultCMYK` goes, and what it reaches.
+    ///
+    /// A dictionary shared by five hundred pages is read once, not five hundred times: the
+    /// entries it names are the same entries whichever page reached it.
+    fn resource_dictionary(
+        &mut self,
+        document: &Document,
+        id: Option<ObjectId>,
+        resources: &Dictionary,
+        seen: &mut BTreeSet<ObjectId>,
+        queue: &mut VecDeque<Object>,
+    ) {
+        if let Some(id) = id
+            && !seen.insert(id)
+        {
+            return;
+        }
+        match resources.get("ColorSpace") {
+            Some(Object::Reference(spaces)) => {
+                self.spaces.insert(*spaces);
+            }
+            _ => {
+                if let Some(id) = id {
+                    self.resources.insert(id);
+                }
+            }
+        }
+        // §7.8.3's categories, narrowed to the three that can hold a content stream of their own.
+        for (category, wanted) in [
+            ("XObject", Wanted::Form),
+            ("Pattern", Wanted::Tiling),
+            ("Font", Wanted::Type3),
+        ] {
+            let Some(entries) = document.get_key(resources, category).as_dict().cloned() else {
+                continue;
+            };
+            for (_, entry) in entries.iter() {
+                if wanted.matches(document, entry) {
+                    queue.push_back(entry.clone());
+                }
+            }
+        }
+    }
+
+    /// A page with no `Resources` entry of its own, given the one §7.7.3.3 already puts in force.
+    fn inherited(&mut self, document: &Document, id: ObjectId, page: &Dictionary) {
+        let mut node = page.clone();
+        for _ in 0..MAX_INHERITANCE_DEPTH {
+            let Some(parent) = node.get("Parent").and_then(Object::as_reference) else {
+                break;
+            };
+            let Some(above) = document.get(parent).as_dict().cloned() else {
+                break;
+            };
+            match above.get("Resources") {
+                // Inherited by reference: the page is given the same reference, so the dictionary
+                // is not copied and the entry is written into it once for every page that shares
+                // it. Nothing about what the page resolves changes.
+                Some(reference @ Object::Reference(resources)) => {
+                    self.resources.insert(*resources);
+                    self.pages.insert(id, reference.clone());
+                    return;
+                }
+                Some(Object::Dictionary(resources)) => {
+                    self.pages.insert(id, Object::Dictionary(resources.clone()));
+                    // The copy is the page's own object now, so the entry goes into it inline.
+                    self.direct.insert(id);
+                    return;
+                }
+                _ => node = above,
+            }
+        }
+        // No resources anywhere above it: the page gets one holding the default and nothing else,
+        // which is the smallest dictionary that makes the entry explicitly associated.
+        self.pages.insert(id, Object::Dictionary(Dictionary::new()));
+        self.direct.insert(id);
+    }
+}
+
+/// How far up §7.7.3.3's page tree a `Resources` entry is looked for.
+///
+/// `pdf_syntax::Limits::DEFAULT`'s `max_depth`, which is the depth the parser admitted the tree
+/// at: a `/Parent` chain longer than that is one no page in the document was read through.
+const MAX_INHERITANCE_DEPTH: usize = 256;
+
+/// Which kind of content-stream holder a resource entry has to be to matter.
+#[derive(Debug, Clone, Copy)]
+enum Wanted {
+    /// §8.10's form `XObject`, which is also what an annotation's appearance is.
+    Form,
+    /// §8.7.3.1's tiling pattern, whose `PatternType` is 1 and which is a stream.
+    Tiling,
+    /// §9.6.4's Type 3 font, whose glyph procedures are content streams.
+    Type3,
+}
+
+impl Wanted {
+    /// Whether this resource entry is one.
+    fn matches(self, document: &Document, entry: &Object) -> bool {
+        let resolved = document.resolve(entry);
+        let dict = match &resolved {
+            Object::Stream(stream) => &stream.dict,
+            Object::Dictionary(dict) => dict,
+            _ => return false,
+        };
+        let named = |key: &str, value: &[u8]| {
+            document
+                .get_key(dict, key)
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == value)
+        };
+        match self {
+            Self::Form => named("Subtype", b"Form"),
+            Self::Tiling => document.get_key(dict, "PatternType").as_integer() == Some(1),
+            Self::Type3 => named("Subtype", b"Type3"),
+        }
+    }
+}
+
+/// Every appearance stream §12.5.5 reaches from one page's annotations.
+///
+/// An annotation's appearance is a form `XObject` with resources of its own, so it is one of
+/// A003's four dictionaries — and nothing in a page's own `/Resources` reaches it.
+fn appearance_streams(document: &Document, page: &Dictionary) -> Vec<Object> {
+    let mut out = Vec::new();
+    let Some(annotations) = document
+        .get_key(page, "Annots")
+        .as_array()
+        .map(<[Object]>::to_vec)
+    else {
+        return out;
+    };
+    for annotation in &annotations {
+        let Some(appearances) = document
+            .resolve(annotation)
+            .as_dict()
+            .map(|dict| document.get_key(dict, "AP"))
+            .and_then(|ap| ap.as_dict().cloned())
+        else {
+            continue;
+        };
+        // §12.5.5's Table 168: each of `/N`, `/R` and `/D` is either a stream or a
+        // subdictionary of streams, one per appearance state.
+        for (_, state) in appearances.iter() {
+            match state {
+                Object::Reference(_) => out.push(state.clone()),
+                _ => {
+                    if let Some(states) = document.resolve(state).as_dict() {
+                        out.extend(states.iter().map(|(_, one)| one.clone()));
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// What became of one object on the way into the output.
@@ -2388,6 +3005,8 @@ struct Rewriter<'a> {
     intent: Option<&'a Intent>,
     /// The metadata stream to write, where one is being written.
     metadata: Option<&'a Metadata>,
+    /// The `/DefaultCMYK` to write, where one is being written.
+    default_cmyk: Option<&'a DefaultCmyk>,
 }
 
 impl Rewriter<'_> {
@@ -2435,7 +3054,66 @@ impl Rewriter<'_> {
             count(applied, Rewrite::PresentationSteps);
             changed = true;
         }
+        changed |= self.write_default_cmyk(id, &mut out, applied);
         changed.then_some(out)
+    }
+
+    /// §8.6.5.6's `/DefaultCMYK`, written wherever [`CmykSites`] found a place for it.
+    ///
+    /// Four places, and they are one rule read through four shapes a document can take: the
+    /// `/ColorSpace` subdictionary itself where it is an object, the resource dictionary where
+    /// that subdictionary is direct or absent, the holder where the resource dictionary itself is
+    /// direct, and a page that has no resource dictionary of its own at all.
+    ///
+    /// **An entry the producer already wrote is never replaced.** A `/DefaultCMYK` in the file is
+    /// the producer saying how their `DeviceCMYK` is to be read, and overwriting it would be
+    /// changing what the file says rather than adding what ISO 19005 requires it to say. Where
+    /// such an entry is one the clause does not license, the requirement stays failed and
+    /// `doc/adr/0947`'s third stage refuses to write the file.
+    fn write_default_cmyk(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(default) = self
+            .default_cmyk
+            .filter(|_| self.wants(Rewrite::DefaultCmyk))
+        else {
+            return false;
+        };
+        let sites = &self.sites.default_cmyk;
+        let written = if sites.spaces.contains(&id) {
+            with_default_cmyk(out, default.space).map(|spaces| {
+                *out = spaces;
+            })
+        } else if sites.resources.contains(&id) {
+            resources_with_default_cmyk(out, default.space).map(|resources| {
+                *out = resources;
+            })
+        } else {
+            // A page that states none of its own is given one first, and the entry then goes
+            // into that dictionary by the same rule as any other direct one.
+            if let Some(resources) = sites.pages.get(&id) {
+                out.insert(Name::new(&b"Resources"[..]), resources.clone());
+            }
+            sites
+                .direct
+                .contains(&id)
+                .then(|| out.get("Resources").and_then(Object::as_dict).cloned())
+                .flatten()
+                .and_then(|resources| resources_with_default_cmyk(&resources, default.space))
+                .map(|resources| {
+                    out.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
+                })
+        };
+        if written.is_some() {
+            count(applied, Rewrite::DefaultCmyk);
+            return true;
+        }
+        // A page given an inherited dictionary whose own `/ColorSpace` is another object has
+        // still been changed: the entry itself goes into that object.
+        sites.pages.contains_key(&id)
     }
 
     /// The catalog: §7.7.2's `/Requirements`, `/Version` and a direct `/Names`.
@@ -2477,7 +3155,7 @@ impl Rewriter<'_> {
             catalog.insert(Name::new(&b"OutputIntents"[..]), Object::Array(entries));
             changed = true;
         }
-        if self.wants(Rewrite::IdentificationSchema)
+        if self.wants_metadata()
             && let Some(metadata) = self.metadata
             && metadata.written.is_some()
         {
@@ -2514,7 +3192,7 @@ impl Rewriter<'_> {
         }
         // The producer's own packet, with the identification schema's properties cut out of it
         // and this target's put in — every other byte of it the producer's.
-        if self.wants(Rewrite::IdentificationSchema)
+        if self.wants_metadata()
             && let Some(metadata) = self.metadata
             && metadata.written.is_none()
             && metadata.at == id
@@ -2680,6 +3358,44 @@ impl Rewriter<'_> {
     fn wants(&self, rewrite: Rewrite) -> bool {
         self.wanted.contains(&rewrite)
     }
+
+    /// Whether the document's XMP packet is being written.
+    ///
+    /// Two rewrites reach it and they reach it for different reasons: the identification schema
+    /// is the file's claim about itself, and the `/DefaultCMYK` is an action `doc/questions/A48`
+    /// requires recorded in `xmpMM:History`. Either alone is enough to make the packet the
+    /// prepared one.
+    fn wants_metadata(&self) -> bool {
+        self.wants(Rewrite::IdentificationSchema) || self.wants(Rewrite::DefaultCmyk)
+    }
+}
+
+/// One `/ColorSpace` subdictionary with §8.6.5.6's `/DefaultCMYK` added.
+///
+/// `None` where it already states one, which is the producer's and stays theirs.
+fn with_default_cmyk(spaces: &Dictionary, space: ObjectId) -> Option<Dictionary> {
+    if spaces.get("DefaultCMYK").is_some() {
+        return None;
+    }
+    let mut out = spaces.clone();
+    out.insert(Name::new(&b"DefaultCMYK"[..]), Object::Reference(space));
+    Some(out)
+}
+
+/// One resource dictionary whose `/ColorSpace` states the default.
+///
+/// `None` where the entry is already there, and where `/ColorSpace` is another object — that
+/// object is [`CmykSites::spaces`]'s business and this dictionary is left alone.
+fn resources_with_default_cmyk(resources: &Dictionary, space: ObjectId) -> Option<Dictionary> {
+    let spaces = match resources.get("ColorSpace") {
+        None => Dictionary::new(),
+        Some(Object::Dictionary(spaces)) => spaces.clone(),
+        Some(_) => return None,
+    };
+    let spaces = with_default_cmyk(&spaces, space)?;
+    let mut out = resources.clone();
+    out.insert(Name::new(&b"ColorSpace"[..]), Object::Dictionary(spaces));
+    Some(out)
 }
 
 /// Counts one place a rewrite touched.
