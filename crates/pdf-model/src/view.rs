@@ -3497,39 +3497,10 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     let Some(content) = built.content else {
         return;
     };
-    let mut stream = Dictionary::new();
-    stream.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"XObject"[..])),
-    );
-    stream.insert(
-        Name::new(&b"Subtype"[..]),
-        Object::Name(Name::new(&b"Form"[..])),
-    );
-    stream.insert(
-        Name::new(&b"BBox"[..]),
-        Object::Array(
-            rect.iter()
-                .map(|edge| Object::Real(f64::from(*edge)))
-                .collect(),
-        ),
-    );
-    stream.insert(
-        Name::new(&b"Resources"[..]),
-        Object::Dictionary(built.resources),
-    );
-    stream.insert(
-        Name::new(&b"Length"[..]),
-        Object::Integer(i64::try_from(content.len()).unwrap_or(i64::MAX)),
-    );
     let id = update.allocate();
     update.put(
         id,
-        Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
-            dict: stream,
-            data: content.into(),
-            decryption_failed: false,
-        })),
+        crate::appearance::form_xobject(rect, built.resources, content),
     );
     let mut appearances = Dictionary::new();
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
@@ -3578,39 +3549,10 @@ fn write_retyped_appearance(
         .and_then(|appearances| appearances.get("N").cloned())
         .as_ref()
         .and_then(Object::as_reference);
-    let mut stream = Dictionary::new();
-    stream.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"XObject"[..])),
-    );
-    stream.insert(
-        Name::new(&b"Subtype"[..]),
-        Object::Name(Name::new(&b"Form"[..])),
-    );
-    stream.insert(
-        Name::new(&b"BBox"[..]),
-        Object::Array(
-            rect.iter()
-                .map(|edge| Object::Real(f64::from(*edge)))
-                .collect(),
-        ),
-    );
-    stream.insert(
-        Name::new(&b"Resources"[..]),
-        Object::Dictionary(built.resources),
-    );
-    stream.insert(
-        Name::new(&b"Length"[..]),
-        Object::Integer(i64::try_from(content.len()).unwrap_or(i64::MAX)),
-    );
     let id = existing.unwrap_or_else(|| update.allocate());
     update.put(
         id,
-        Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
-            dict: stream,
-            data: content.into(),
-            decryption_failed: false,
-        })),
+        crate::appearance::form_xobject(rect, built.resources, content),
     );
     let mut appearances = Dictionary::new();
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));

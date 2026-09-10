@@ -21,8 +21,8 @@ use crate::Refusal;
 
 use super::COMPRESSION_LEVEL;
 use super::prepare::{
-    DefaultCmyk, Intent, Metadata, Prepared, intent_dictionary, metadata_stream,
-    output_intent_entries,
+    Appearances, Cleaned, DefaultCmyk, Intent, Metadata, Prepared, intent_dictionary,
+    metadata_stream, output_intent_entries,
 };
 use super::to_unicode::DerivedMaps;
 
@@ -158,6 +158,39 @@ pub enum Rewrite {
     /// reasons it declines; **a code whose meaning is not derivable refuses the document** rather
     /// than being invented, which is `doc/pdf-a-conversion-limits.md` section 4.3's line.
     ToUnicode,
+    /// Every XMP packet loses the properties whose own predefined schema does not define them.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.1, and the one route of the three
+    /// `doc/pdf-a-conversion-limits.md` section 3.9 leaves open. `pdf_model::xmp::remove` cuts the
+    /// property out of the producer's own bytes by span, so **every other byte of the packet
+    /// crosses unchanged** — what goes is the property and nothing beside it.
+    PropertyOutsideItsSchema,
+    /// Every annotation but a `Popup` that states no `/F` is given one whose only set bit is
+    /// `Print`.
+    ///
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require the entry and require that
+    /// bit. §12.5.3's Table 167 numbers the flags from the low-order bit, and `Print` is bit
+    /// position 3, so the value is 4 — every other flag left clear, which is exactly what
+    /// §12.5.2's Table 166 already put in force by giving `/F` a default of 0. **The one bit that
+    /// changes is the one the requirement is about.**
+    AnnotationFlags,
+    /// Every annotation requiring an appearance dictionary and stating none gains an `/AP` whose
+    /// `/N` names a form `XObject` constructed from the annotation's own entries.
+    ///
+    /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require the dictionary, and
+    /// §12.5.2's Table 166 requires it of a writer in the base standard's own words:
+    ///
+    /// > A PDF writer shall include an appearance dictionary when writing or updating the PDF file
+    /// > except for the two cases listed below.
+    ///
+    /// So the construction is the standard's rather than this program's invention — §12.5.5 and
+    /// §12.7.4.3 name the operation, and each subtype's clause says what the marks are. The
+    /// *detail* is this renderer's, which is why the decision is a `Decision::Stated` carrying a
+    /// sentence saying so, and why `doc/questions/A21` makes reporting every one the condition.
+    ///
+    /// **Only `/N` is written**, which is what both parts' section 6.3.3 requires of an appearance
+    /// dictionary, so nothing here can create the `/R` or `/D` entry the same subclause forbids.
+    AppearanceDictionary,
 }
 
 impl Rewrite {
@@ -214,6 +247,18 @@ impl Rewrite {
                 "a font states a ToUnicode CMap derived from its own encoding, by ISO 32000-2 \
                  \u{a7}9.10.2's glyph-name route, over the codes its content streams showed"
             }
+            Self::PropertyOutsideItsSchema => {
+                "a metadata property whose predefined schema does not define the value it holds \
+                 is cut out of the packet, leaving every other byte of it as its producer wrote it"
+            }
+            Self::AnnotationFlags => {
+                "an annotation stating no /F is given one whose only set bit is Print, which is \
+                 the value the requirement asks for and the default in every other bit"
+            }
+            Self::AppearanceDictionary => {
+                "an annotation stating no appearance dictionary is given an /AP whose /N names a \
+                 form XObject constructed from the entries its own subtype clause states"
+            }
         }
     }
 
@@ -240,6 +285,9 @@ impl Rewrite {
             Self::AssociatedFileNames => "associated-file-names",
             Self::AssociatedFileRelationship => "associated-file-relationship",
             Self::ToUnicode => "to-unicode",
+            Self::PropertyOutsideItsSchema => "property-outside-its-schema",
+            Self::AnnotationFlags => "annotation-flags",
+            Self::AppearanceDictionary => "appearance-dictionary",
         }
     }
 }
@@ -280,6 +328,8 @@ pub(super) fn convert(
         metadata: prepared.metadata.as_ref().ok(),
         default_cmyk: prepared.default_cmyk.as_ref().ok(),
         to_unicode: prepared.to_unicode.as_ref().ok(),
+        cleaned: prepared.properties.as_ref().ok(),
+        appearances: prepared.appearances.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -333,6 +383,13 @@ pub(super) fn convert(
         if wanted.contains(&whole) {
             applied.insert(whole, 1);
         }
+    }
+    // The one rewrite whose places are properties rather than objects: a packet may lose six of
+    // them and a report saying "1 done" would be counting the stream instead of the loss.
+    if wanted.contains(&Rewrite::PropertyOutsideItsSchema)
+        && let Ok(cleaned) = &prepared.properties
+    {
+        applied.insert(Rewrite::PropertyOutsideItsSchema, cleaned.removed.len());
     }
     Ok(Converted { bytes, applied })
 }
@@ -508,6 +565,8 @@ struct Sites {
     names: Option<ObjectId>,
     /// Every page object §7.7.3's tree reaches.
     pages: BTreeSet<ObjectId>,
+    /// Every annotation object a page's `/Annots` names, except a `Popup`.
+    annotations: BTreeSet<ObjectId>,
     /// Where a `/DefaultCMYK` has to be written, where one is being written.
     default_cmyk: CmykSites,
 }
@@ -530,14 +589,66 @@ impl Sites {
             // first rule applied to a *reading* rather than to a rewrite.
             CmykSites::default()
         };
+        let annotations = if wanted.contains(&Rewrite::AnnotationFlags) {
+            annotation_objects(document, &tree)
+        } else {
+            BTreeSet::new()
+        };
         Self {
             catalog,
             names,
             pages,
+            annotations,
             default_cmyk,
         }
     }
 }
+
+/// Every annotation §12.5.2's page `/Annots` array names, except the subtype ISO 19005 exempts.
+///
+/// **A structural walk rather than the validator's list**, for [`CmykSites`]'s reason: a findings
+/// list is capped, and a document with more annotations than the cap is one this rewrite would
+/// otherwise half-finish. An annotation written directly into the array rather than as an object
+/// of its own is not reached — this walk rewrites objects — and the requirement then stays failed,
+/// which `doc/adr/0947`'s third stage refuses the file for.
+fn annotation_objects(document: &Document, tree: &Pages<'_>) -> BTreeSet<ObjectId> {
+    let mut out = BTreeSet::new();
+    for index in 0..tree.len() {
+        let Some(page) = tree.get(index) else {
+            continue;
+        };
+        let Some(annotations) = document
+            .get_key(&page.dict, "Annots")
+            .as_array()
+            .map(<[Object]>::to_vec)
+        else {
+            continue;
+        };
+        for entry in &annotations {
+            let Some(id) = entry.as_reference() else {
+                continue;
+            };
+            let resolved = document.get(id);
+            let Some(dict) = resolved.as_dict() else {
+                continue;
+            };
+            // §12.5.6.14's popup is the window belonging to some other annotation, and both
+            // parts' section 6.3.2 name it as the one subtype the entry is not required of.
+            if document
+                .get_key(dict, "Subtype")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Popup")
+            {
+                continue;
+            }
+            out.insert(id);
+        }
+    }
+    out
+}
+
+/// §12.5.3's Table 167 `Print` bit, at bit position 3 counted from the low-order bit.
+const PRINT: i64 = 4;
 
 /// Every dictionary a `/DefaultCMYK` has to reach, found once before the walk starts.
 ///
@@ -858,6 +969,10 @@ struct Rewriter<'a> {
     default_cmyk: Option<&'a DefaultCmyk>,
     /// The `/ToUnicode` `CMap` each font is to name, where any are being written.
     to_unicode: Option<&'a DerivedMaps>,
+    /// The packet each metadata stream is to carry, where properties are being removed.
+    cleaned: Option<&'a Cleaned>,
+    /// The appearance each annotation's `/AP` `/N` is to name, where any are being constructed.
+    appearances: Option<&'a Appearances>,
 }
 
 impl Rewriter<'_> {
@@ -903,6 +1018,32 @@ impl Rewriter<'_> {
             && out.remove("PresSteps").is_some()
         {
             count(applied, Rewrite::PresentationSteps);
+            changed = true;
+        }
+        if self.wants(Rewrite::AnnotationFlags)
+            && self.sites.annotations.contains(&id)
+            // §12.5.3 makes the entry "an integer interpreted as one-bit flags", so a value that
+            // is not one states no flags at all and is written over by the same rule as an absent
+            // entry. Where the annotation does state flags, they are its producer's and stay:
+            // the second sentence of section 6.3.2 is a row of its own and not this one.
+            && self.document.get_key(&out, "F").as_integer().is_none()
+        {
+            out.insert(Name::new(&b"F"[..]), Object::Integer(PRINT));
+            count(applied, Rewrite::AnnotationFlags);
+            changed = true;
+        }
+        if self.wants(Rewrite::AppearanceDictionary)
+            && let Some(stream) = self
+                .appearances
+                .and_then(|appearances| appearances.at.get(&id))
+        {
+            // Both parts' section 6.3.3 make `/N` the only key an appearance dictionary holds,
+            // and this annotation states no `/AP` at all — that is the population the preparation
+            // was built over — so the dictionary is written whole rather than added to.
+            let mut appearance = Dictionary::new();
+            appearance.insert(Name::new(&b"N"[..]), Object::Reference(*stream));
+            out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
+            count(applied, Rewrite::AppearanceDictionary);
             changed = true;
         }
         changed |= self.write_default_cmyk(id, &mut out, applied);
@@ -1126,13 +1267,22 @@ impl Rewriter<'_> {
             return Rewritten::Dropped;
         }
         // The producer's own packet, with the identification schema's properties cut out of it
-        // and this target's put in — every other byte of it the producer's.
+        // and this target's put in — every other byte of it the producer's. The removal of
+        // section 6.6.2.3.1's properties has already been folded into these bytes, because the
+        // catalog's packet is one of the packets it edits.
         if self.wants_metadata()
             && let Some(metadata) = self.metadata
             && metadata.written.is_none()
             && metadata.at == id
         {
             return Rewritten::Changed(metadata_stream(&stream.dict, &metadata.packet));
+        }
+        // Every *other* metadata stream a property was taken out of: an object's own packet is
+        // not the document's, and neither part restricts the requirement to the catalog's.
+        if self.wants(Rewrite::PropertyOutsideItsSchema)
+            && let Some(packet) = self.cleaned.and_then(|cleaned| cleaned.packets.get(&id))
+        {
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
         }
         let mut changed = false;
         let mut dict = match self.rewrite_dictionary(id, &stream.dict, applied) {
@@ -1296,12 +1446,15 @@ impl Rewriter<'_> {
 
     /// Whether the document's XMP packet is being written.
     ///
-    /// Two rewrites reach it and they reach it for different reasons: the identification schema
-    /// is the file's claim about itself, and the `/DefaultCMYK` is an action `doc/questions/A48`
-    /// requires recorded in `xmpMM:History`. Either alone is enough to make the packet the
-    /// prepared one.
+    /// Three rewrites reach it and they reach it for different reasons: the identification schema
+    /// is the file's claim about itself, the `/DefaultCMYK` is an action `doc/questions/A48`
+    /// requires recorded in `xmpMM:History`, and a removed property is both an edit to the packet
+    /// and `doc/pdf-a-conversion-limits.md` section 4.2's entry beside it. Any one alone is enough
+    /// to make the packet the prepared one.
     fn wants_metadata(&self) -> bool {
-        self.wants(Rewrite::IdentificationSchema) || self.wants(Rewrite::DefaultCmyk)
+        self.wants(Rewrite::IdentificationSchema)
+            || self.wants(Rewrite::DefaultCmyk)
+            || self.wants(Rewrite::PropertyOutsideItsSchema)
     }
 }
 

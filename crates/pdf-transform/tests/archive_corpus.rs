@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
-use pdf_transform::archive::{ArchivePlan, Authorisations, Decision};
+use pdf_transform::archive::{ArchivePlan, Authorisations, Decision, Loss};
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
 
 /// Every target, with the corpus directory whose documents were written for it.
@@ -59,6 +59,28 @@ const TARGETS: [(&str, Target); 6] = [
 /// Enough to see the shape of what is left and short enough to read; the tail is a long list of
 /// requirements one document each failed, which ranks nothing.
 const MOST_REFUSED: usize = 10;
+
+/// Every loss authorised, which is what makes one of this sweep's two runs a list of *gaps*.
+///
+/// A loss nobody authorised is a question put to a user rather than something the converter
+/// cannot do, and a run that left them unauthorised would rank
+/// `doc/pdf-a-conversion-limits.md`'s section 3 beside its section 5 — a document waiting for an
+/// answer beside one no answer reaches.
+///
+/// **Both runs are reported, because the two numbers answer different questions and one of them
+/// silently replacing the other would misstate the converter.** The authorised run says what this
+/// converter can reach; the default run says what a person who types the command and answers
+/// nothing actually gets, and that is the number a release note would have to carry. Session 952
+/// moved this sweep from the default to the authorised run and the converted count went from 98
+/// to 405 at PDF/A-2b — most of which is the *question* being answered rather than a gap being
+/// closed.
+fn authorise_everything() -> Authorisations {
+    let mut authorised = Authorisations::default();
+    for loss in Loss::ALL {
+        authorised.authorise(loss);
+    }
+    authorised
+}
 
 /// The corpus root, or `None` where the submodule is not checked out.
 fn corpus() -> Option<PathBuf> {
@@ -115,7 +137,7 @@ struct Tally {
 }
 
 /// Converts every corpus document under `part` to `target` and states the two properties.
-fn sweep(root: &Path, part: &str, target: Target) -> Tally {
+fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) -> Tally {
     let mut tally = Tally::default();
     for path in documents(root, part) {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -134,7 +156,7 @@ fn sweep(root: &Path, part: &str, target: Target) -> Tally {
                 source: 0,
                 names: "out.pdf".parse().expect("a pattern"),
                 target,
-                authorised: Authorisations::default(),
+                authorised,
                 profile: None,
             }),
             &[Source::new(bytes)],
@@ -204,12 +226,27 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
         return;
     };
     let mut converted = 0_usize;
+    let nothing_authorised = Authorisations::default();
+    let everything = authorise_everything();
     for (part, target) in TARGETS {
-        let tally = sweep(&root, part, target);
+        // Two runs, because they answer different questions. The default one is what a person who
+        // types the command and answers nothing gets; the authorised one is what this converter
+        // can reach, and only its refusals rank a *gap*.
+        let plain = sweep(&root, part, target, nothing_authorised);
+        let tally = sweep(&root, part, target, everything);
         println!(
             "archive {target}: {} conforming, {} of them still conforming after the conversion; \
              {} failing documents converted, {} refused by name, {} unreadable",
             tally.conforming, tally.stayed, tally.converted, tally.refused, tally.unreadable
+        );
+        println!(
+            "    answering nothing, which is what a user gets by default: {} converted, \
+             {} refused",
+            plain.converted, plain.refused
+        );
+        assert_eq!(
+            plain.conforming, plain.stayed,
+            "a conforming document stays conforming when no loss is authorised either"
         );
         assert_eq!(
             tally.conforming, tally.stayed,

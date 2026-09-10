@@ -1306,8 +1306,13 @@ archive:
                            become ones, because their text is not held and a requirement may not
                            be implemented from somebody else's reading of it
   --authorise <what>       may repeat. What the conversion may throw away: image-smoothing turns
-                           /Interpolate off, so a low-resolution image looks blockier. Anything
-                           not authorised stops the conversion instead of happening quietly
+                           /Interpolate off, so a low-resolution image looks blockier;
+                           metadata-property removes an XMP property whose own predefined schema
+                           does not define the value it holds, naming each one and what it held;
+                           annotation-printing gives an annotation that stated no flags the Print
+                           bit ISO 19005 requires, so one whose appearance never printed now
+                           prints. Anything not authorised stops the conversion instead of
+                           happening quietly
   --output-intent-profile <file>
                            the ICC profile a PDF/A output intent added by this conversion names
                            as its destination profile. The default is the sRGB profile this

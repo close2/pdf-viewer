@@ -631,6 +631,8 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
 
     let authorised = Authorisations {
         image_smoothing: true,
+        metadata_property: false,
+        annotation_printing: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -646,6 +648,221 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         Verdict::Conforms
     );
     assert!(String::from_utf8_lossy(&output).contains("/Interpolate false"));
+}
+
+#[test]
+fn an_annotation_with_no_appearance_is_given_the_one_its_clause_states() {
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require an appearance dictionary of
+    // every annotation but three subtypes and the degenerate rectangle. §12.5.2's Table 166
+    // requires the same of a writer, and §12.5.6.8 says what a square's marks are — its /IC
+    // interior and its border — so the construction is the standard's rather than this program's
+    // invention. doc/questions/A21 allows it on condition every one written is reported.
+    //
+    // The page paints in a device colour of its own, because the constructed stream paints in
+    // the annotation's: ISO 19005-4 section 6.2.4.3 licenses a device colour space through an
+    // output intent, and a document that had none of its own would need one added for marks the
+    // conversion itself wrote. Nothing is changed that no failed requirement asked for, so this
+    // conversion does not add one on its own account — the output's own verdict refuses such a
+    // file instead, which is the net doc/adr/0947 built.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F 4 /IC [0 0 1] >>".to_owned(),
+        ],
+        contents: Some(paints_in_device_rgb()),
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(
+            &report,
+            "annotations/appearance-dictionary-present-from-base-standard"
+        ),
+        Decision::Stated {
+            rewrite: Rewrite::AppearanceDictionary,
+            ..
+        }
+    ));
+    let output = output.expect("nothing is lost, so no authorisation is asked for");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let appearances = &conversion(&report).appearances;
+    assert_eq!(appearances.len(), 1, "one appearance: {appearances:?}");
+    let written = appearances.first().expect("the appearance written");
+    assert_eq!(written.subtype, "Square");
+    assert_eq!(written.page, 0);
+
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("/AP"), "the annotation names its appearance");
+    assert!(
+        text.contains("/Subtype /Form"),
+        "and §12.5.5 makes the thing it names a form XObject"
+    );
+    assert!(
+        text.contains("/BBox [10 10 90 90]"),
+        "whose box is the annotation rectangle §12.5.5 renders it inside"
+    );
+}
+
+#[test]
+fn an_annotation_whose_clause_states_no_artwork_refuses_rather_than_inventing_one() {
+    // §12.5.6.12's stamp displays an icon whose artwork no clause states: Table 184's names are
+    // legends rather than symbols, and the clause **recommends** rather than requires a
+    // predefined appearance. So there is nothing to construct, and constructing something would
+    // put a mark on the page the document never described — doc/questions/A48's line.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /Name /Approved >>"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "nothing derivable, so nothing is written");
+    assert_eq!(report.exit(false, false), Exit::Refused);
+    assert!(matches!(
+        decision(
+            &report,
+            "annotations/appearance-dictionary-present-from-base-standard"
+        ),
+        Decision::Refused(Because::TheFence(_))
+    ));
+}
+
+#[test]
+fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
+    // ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require every annotation but a
+    // Popup to state an /F, and require its Print bit set. §12.5.2's Table 166 defaults /F to 0,
+    // and §12.5.3's Table 167 says a clear Print bit means the annotation is never printed — so
+    // the entry the requirement asks for says the opposite of what the file said, which is why
+    // doc/pdf-a-conversion-limits.md section 3.7 makes this an Ask.
+    //
+    // A Link, because Table 166 exempts that subtype from needing an appearance dictionary: the
+    // fixture then fails this requirement and no other.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec!["<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] >>".to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, "annotations/flags-entry-present"),
+        Decision::Unauthorised {
+            loss: Loss::AnnotationPrinting,
+            rewrite: Rewrite::AnnotationFlags,
+        }
+    );
+
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: true,
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, "annotations/flags-entry-present"),
+        Decision::Authorised {
+            loss: Loss::AnnotationPrinting,
+            rewrite: Rewrite::AnnotationFlags,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        String::from_utf8_lossy(&output).contains("/F 4"),
+        "Table 167 numbers Print at bit position 3, so the value is 4 and every other flag is \
+         the default it already had"
+    );
+}
+
+#[test]
+fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation() {
+    // ISO 19005-2 section 6.6.2.3.1 requires every property to *use* the schema whose namespace
+    // it names, and a packet can name a predefined namespace without using it: the XMP basic
+    // schema defines `xmp:CreateDate` as a date, and this one states a sentence.
+    // doc/pdf-a-conversion-limits.md section 3.9 is the reading, and it closes two of the three
+    // routes out — correcting the value would be inventing content, and describing a predefined
+    // schema in section 6.6.2.3.2's extension container would misrepresent it in the file. What
+    // is left is removing the property, which is a loss and therefore an Ask.
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" ");
+    packet.push_str("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" ");
+    packet.push_str("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
+    packet.push_str("<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n");
+    packet.push_str("<xmp:CreateDate>the day we shipped it</xmp:CreateDate>\n");
+    packet.push_str("<pdf:Producer>Somebody's exporter</pdf:Producer>\n");
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    let source = Conforming {
+        metadata: Packet::Stated(packet),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(report.exit(false, false), Exit::Refused);
+    assert_eq!(
+        decision(&report, "metadata/properties-use-known-schemas"),
+        Decision::Unauthorised {
+            loss: Loss::MetadataProperty,
+            rewrite: Rewrite::PropertyOutsideItsSchema,
+        }
+    );
+
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: true,
+        annotation_printing: false,
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, "metadata/properties-use-known-schemas"),
+        Decision::Authorised {
+            loss: Loss::MetadataProperty,
+            rewrite: Rewrite::PropertyOutsideItsSchema,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    // section 3.9's condition: the report names the property, its namespace and what was there,
+    // because a removed property leaves nothing in the output to find it by.
+    let removed = &conversion(&report).removed;
+    assert_eq!(removed.len(), 1, "one property went: {removed:?}");
+    let gone = removed.first().expect("the property that went");
+    assert_eq!(gone.spelled, "xmp:CreateDate");
+    assert_eq!(gone.name.namespace, "http://ns.adobe.com/xap/1.0/");
+    assert_eq!(gone.stated, "the day we shipped it");
+
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("the day we shipped it"),
+        "the property is out of the packet, value and all"
+    );
+    assert!(
+        written.contains("Somebody's exporter"),
+        "and every other byte of the producer's packet crosses unchanged"
+    );
+    assert!(
+        written.contains("<stEvt:action>converted</stEvt:action>"),
+        "section 4.2: every Ask writes one xmpMM:History entry, which is the audit trail that \
+         makes it defensible"
+    );
 }
 
 #[test]

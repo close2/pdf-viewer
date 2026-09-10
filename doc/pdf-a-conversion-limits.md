@@ -390,6 +390,15 @@ where present its `Print` bit shall be 1 and its `Hidden`, `Invisible`, `ToggleN
 - **Default: remove, and report.** A hidden annotation was hidden on purpose — a review comment,
   a redaction marker's companion, a conditional stamp — and making it visible is the more
   surprising of the two outcomes. The user can ask for the other.
+- **The first half — the entry's mere presence — is built, and it is a smaller Ask than the
+  second.** An annotation stating no `/F` at all is not one somebody hid; Table 166 defaults the
+  entry to 0, and Table 167 makes a clear `Print` bit mean "never print the annotation, regardless
+  of whether it is rendered on the screen". So the file *does* say the annotation is not printed,
+  and the only `/F` the clause admits says the opposite: the converter writes `4` — bit 3 alone,
+  every other flag left at the default it already had — under `--authorise annotation-printing`.
+  What it costs is bounded by the same table's next sentence: an annotation with no appearance
+  stream ignores the flag entirely, so only one that *has* an appearance starts appearing on paper.
+  Removing an annotation, which is the second half's other future, is still not offered.
 
 ### 3.8 Optional content whose states were automatic
 
@@ -438,6 +447,16 @@ the value is not one the schema describes.
 - **The refusal stays the default.** A conversion run without the authorisation refuses and names
   the properties, because a document losing metadata silently is the failure this whole section is
   written against.
+- **Built, and this is how.** `--authorise metadata-property` turns it on.
+  `pdf_archive::properties_outside_their_schema` answers which properties the subclause rejects —
+  the same reading the requirement's own row is, so nothing the validator would have passed is
+  cut — and `pdf_model::xmp::remove` takes each out of the producer's own bytes by span, in both
+  of ISO 16684-1 section 7.5's spellings, leaving every other byte of the packet alone. A field of
+  some structured value that happens to share a property's name is not a property of the packet
+  and stays. The packet is then read back: one the cut left still holding such a property is
+  **half-edited**, and a half-edited packet refuses the document rather than being written. Every
+  removal is recorded in the file's own `xmpMM:History` naming the properties (§4.2's audit
+  trail), and a packet that will not take that entry does not get the removal either.
 
 ---
 
@@ -580,10 +599,23 @@ the paragraph following it. So a converter must not read part 4's silence as per
 changes between the parts is where the requirement is written, not whether it applies. Both parts
 require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
 
-- **Default: construct the missing appearance.** ISO 32000-2 §12.5.5 and §12.7.4.3 make the
-  appearance the standard's own construction rather than this program's invention, and
-  `pdf-model`'s `appearance.rs` and `variable_text.rs` already build them — which is why this sits
-  inside ADR 0816's fence rather than outside it.
+- **Default: construct the missing appearance**, and since session 952 it is built. ISO 32000-2
+  §12.5.5 and §12.7.4.3 make the appearance the standard's own construction rather than this
+  program's invention, and `pdf-model`'s `appearance.rs` and `variable_text.rs` already build them
+  — which is why this sits inside ADR 0816's fence rather than outside it. The stream is written
+  as §8.10's form `XObject` with the annotation's own `/Rect` as its `/BBox`, which is where
+  §12.5.5 renders it, and the `/AP` holds `/N` and nothing else, which is what both parts require.
+  **Four cases refuse rather than writing something weaker**: a subtype whose clause states no
+  artwork (a stamp's legend, a caret, an unapplied redaction, a printer's mark, 3D); a
+  construction this program can complete only in part, because a partial rendering frozen into an
+  archive is not the appearance the clauses state; a button field's widget, whose `/N` §12.7.5.2.3
+  makes a subdictionary of one appearance per state and whose states an absent `/AP` does not
+  name; and an annotation written inline into a page's `/Annots` rather than as an object.
+  **One interaction is worth knowing before running it**: a constructed appearance paints in the
+  annotation's own device colours, so a document that had no device colour of its own now needs
+  §4.1's output intent for marks the conversion itself wrote — and since nothing is changed that
+  no *failed* requirement asked for, the converter does not add one on that account. The output's
+  own verdict refuses such a file and names the colour requirement.
 - **Report every one written**, because a constructed appearance is *this program's* rendering of
   a field or a markup, and a different reader's would differ in detail. **`A21` confirms both
   halves**: constructed appearances are allowed, and every appearance written is reported — the
@@ -591,7 +623,11 @@ require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
   in the bytes.
 - **`NeedAppearances` true is the interesting case**: it means the producer deliberately left
   appearances to the reader. Turning it false without constructing appearances would blank the
-  form; constructing them freezes this program's rendering into the archive. **Ask.**
+  form; constructing them freezes this program's rendering into the archive. **Ask** — and no
+  interface exists to ask it, so such a document is refused. Nothing guards it in the converter and
+  nothing needs to: a document stating `NeedAppearances` true also fails the requirement that it be
+  absent or false, which the decision table answers with nothing, so the conversion stops before an
+  appearance is written.
 
 ### 4.5 Colour space bookkeeping
 

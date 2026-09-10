@@ -11,12 +11,12 @@
 //! for a person and for `--json` alike.
 use std::collections::BTreeSet;
 
-use pdf_archive::{Judgement, Outcome, Target};
+use pdf_archive::{Judgement, MisusedProperty, Outcome, Target};
 
 use crate::json::Value;
 
 use super::decision::Decision;
-use super::prepare::DestinationProfile;
+use super::prepare::{DestinationProfile, WrittenAppearance};
 
 /// One requirement the input failed, with what was decided and what was done about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +112,21 @@ pub struct Conversion {
     /// in the file's own provenance, so a report that could not say whether the entry was written
     /// could not say whether the permission had been honoured. `doc/adr/0927` has the argument.
     pub recorded: Option<String>,
+    /// Every metadata property this conversion removed, with the value that was there.
+    ///
+    /// `doc/pdf-a-conversion-limits.md` section 3.9's condition on the loss, and the reason it is
+    /// a list rather than a count: a property that is gone leaves nothing in the output to notice,
+    /// so the report is the only place a user can read what the file used to say — and it names
+    /// the namespace as well as the property, because two schemas may spell a local name the same
+    /// way. With those three a user can put the property back by hand, or go back to the source
+    /// and correct it there.
+    pub removed: Vec<MisusedProperty>,
+    /// Every annotation appearance this conversion constructed.
+    ///
+    /// `doc/questions/A21`'s condition on the permission, in the answer's own words: report every
+    /// appearance written, so the difference between the producer's file and ours is visible in
+    /// the report rather than only in the bytes.
+    pub appearances: Vec<WrittenAppearance>,
 }
 
 impl Conversion {
@@ -158,6 +173,19 @@ impl Conversion {
                 self.recorded
                     .as_ref()
                     .map_or(Value::Null, |action| Value::text(action.clone())),
+            ),
+            (
+                "removed_metadata_properties".to_owned(),
+                Value::Array(self.removed.iter().map(removed_to_json).collect()),
+            ),
+            (
+                "constructed_appearances".to_owned(),
+                Value::Array(
+                    self.appearances
+                        .iter()
+                        .map(WrittenAppearance::to_json)
+                        .collect(),
+                ),
             ),
         ])
     }
@@ -219,6 +247,7 @@ impl Conversion {
                 "  recorded in this file's own xmpMM:History: {recorded}"
             );
         }
+        out.push_str(&self.render_what_was_written());
         if let Some(achieved) = &self.achieved {
             let verdict = if achieved.conforms {
                 "conforms"
@@ -255,6 +284,65 @@ impl Conversion {
         }
         out
     }
+}
+
+impl Conversion {
+    /// The two lists the owner's conditions make part of the report rather than of a diff.
+    ///
+    /// `doc/questions/A21` asks for every appearance written and
+    /// `doc/pdf-a-conversion-limits.md` section 3.9 for every property removed, each named rather
+    /// than counted. They are one function because they are one obligation seen twice: what this
+    /// program wrote that the producer did not, and what it took away that the producer did.
+    fn render_what_was_written(&self) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+        if !self.appearances.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} appearance stream(s) constructed, each from the entries the annotation's \
+                 own subtype clause states:",
+                self.appearances.len()
+            );
+            for appearance in &self.appearances {
+                let _ = writeln!(
+                    out,
+                    "      a {} annotation on page {}",
+                    appearance.subtype,
+                    appearance.page.saturating_add(1)
+                );
+            }
+        }
+        if !self.removed.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} metadata propert(ies) removed, because the predefined schema each names \
+                 does not define the value it held:",
+                self.removed.len()
+            );
+            for property in &self.removed {
+                let _ = writeln!(
+                    out,
+                    "      {} in {} held {} — {}",
+                    property.spelled, property.name.namespace, property.stated, property.because
+                );
+            }
+        }
+        out
+    }
+}
+
+/// One removed property as JSON.
+fn removed_to_json(property: &MisusedProperty) -> Value {
+    Value::Object(vec![
+        ("property".to_owned(), Value::text(property.spelled.clone())),
+        (
+            "namespace".to_owned(),
+            Value::text(property.name.namespace.clone()),
+        ),
+        ("local".to_owned(), Value::text(property.name.local.clone())),
+        ("stated".to_owned(), Value::text(property.stated.clone())),
+        ("because".to_owned(), Value::text(property.because.clone())),
+    ])
 }
 
 /// One decision, worded for a person.

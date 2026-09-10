@@ -61,8 +61,8 @@ mod document_level;
 pub(crate) mod file_structure;
 mod fonts;
 mod graphics;
-mod interaction;
-mod metadata;
+pub(crate) mod interaction;
+pub(crate) mod metadata;
 
 /// The tranches, in clause order, each owning one area of clause 6.
 ///

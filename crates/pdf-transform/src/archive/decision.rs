@@ -31,17 +31,53 @@ pub enum Loss {
     /// blockier afterwards. Nothing is deleted and no mark moves; what changes is how a
     /// conforming reader is told to sample the image it already has.
     ImageSmoothing,
+    /// section 3.9: a metadata property its own predefined schema does not define, removed.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.1 requires every property to *use* the schema whose namespace
+    /// it names, and a packet can name a predefined namespace without using it — a value of one
+    /// type where the schema defines another. Three routes exist and two are closed: correcting
+    /// the value invents content, because a schema says what shape a value has and not what this
+    /// document meant, and describing a predefined schema in section 6.6.2.3.2's extension
+    /// container would misrepresent it in the file itself. What is left is removing the property,
+    /// which throws away what its producer wrote — so the report names every one, its namespace
+    /// and the value that was there, and a user can restore it by hand or supply a corrected
+    /// source.
+    MetadataProperty,
+    /// section 3.7: an annotation that stated no flags is made printable.
+    ///
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require every annotation but a
+    /// `Popup` to state an `/F`, and require its `Print` bit to be set. §12.5.2's Table 166 gives
+    /// `/F` a default of 0, so an annotation stating none has every flag clear — and §12.5.3's
+    /// Table 167 says what a clear `Print` bit means:
+    ///
+    /// > If clear, never print the annotation, regardless of whether it is rendered on the screen.
+    ///
+    /// So the file, read as the standard defines it, says this annotation is never printed, and
+    /// the only `/F` that satisfies the requirement says the opposite. Nothing is deleted and no
+    /// mark moves on screen; what is lost is the producer's statement about the printed page.
+    ///
+    /// **How much it costs depends on whether the annotation has an appearance**, and the same
+    /// table says so: "If the annotation does not contain any appearance streams this flag shall
+    /// be ignored." An annotation with no `/AP` therefore prints no differently for this; one
+    /// with an `/AP` now appears on paper where it did not.
+    AnnotationPrinting,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 1] = [Self::ImageSmoothing];
+    pub const ALL: [Self; 3] = [
+        Self::ImageSmoothing,
+        Self::MetadataProperty,
+        Self::AnnotationPrinting,
+    ];
 
     /// The word a caller authorises it by.
     #[must_use]
     pub const fn word(self) -> &'static str {
         match self {
             Self::ImageSmoothing => "image-smoothing",
+            Self::MetadataProperty => "metadata-property",
+            Self::AnnotationPrinting => "annotation-printing",
         }
     }
 
@@ -51,6 +87,14 @@ impl Loss {
         match self {
             Self::ImageSmoothing => {
                 "image smoothing is turned off, so a low-resolution image will look blockier"
+            }
+            Self::MetadataProperty => {
+                "a metadata property whose predefined schema does not define the value it holds \
+                 is removed from the packet, and what its producer wrote there is gone"
+            }
+            Self::AnnotationPrinting => {
+                "an annotation that stated no flags is given the Print flag ISO 19005 requires, \
+                 so one whose appearance never printed now prints"
             }
         }
     }
@@ -70,6 +114,10 @@ impl Loss {
 pub struct Authorisations {
     /// Whether [`Loss::ImageSmoothing`] was authorised.
     pub image_smoothing: bool,
+    /// Whether [`Loss::MetadataProperty`] was authorised.
+    pub metadata_property: bool,
+    /// Whether [`Loss::AnnotationPrinting`] was authorised.
+    pub annotation_printing: bool,
 }
 
 impl Authorisations {
@@ -78,6 +126,8 @@ impl Authorisations {
     pub const fn grants(self, loss: Loss) -> bool {
         match loss {
             Loss::ImageSmoothing => self.image_smoothing,
+            Loss::MetadataProperty => self.metadata_property,
+            Loss::AnnotationPrinting => self.annotation_printing,
         }
     }
 
@@ -85,6 +135,8 @@ impl Authorisations {
     pub const fn authorise(&mut self, loss: Loss) {
         match loss {
             Loss::ImageSmoothing => self.image_smoothing = true,
+            Loss::MetadataProperty => self.metadata_property = true,
+            Loss::AnnotationPrinting => self.annotation_printing = true,
         }
     }
 }
@@ -317,6 +369,21 @@ const DEFAULT_CMYK_REINTERPRETS: &str = "every DeviceCMYK value in this file is 
      photograph separated for a press is a visible loss of fidelity and for a rule or a logo \
      drawn in k is imperceptible — supply that press's profile with --output-intent-profile \
      and the output intent answers the clause instead";
+
+/// What a constructed appearance asserts, which is `doc/questions/A21`'s condition on allowing it.
+///
+/// `doc/adr/0927`: the sentence travels with the decision. What changes is not *whether* the
+/// annotation is drawn — a conforming reader constructs one either way, §12.7.4.3 says so — but
+/// that the construction is now fixed, in this program's version of it, and that §12.5.2 has a
+/// reader ignore the appearance characteristics the annotation states in favour of these bytes.
+const APPEARANCE_REINTERPRETS: &str = "an appearance stream this program constructed is now what \
+     every reader draws for these annotations. ISO 32000-2 Table 166 requires a writer to include \
+     an appearance dictionary and each subtype's own clause says what its marks are, so nothing \
+     here is invented — but the detail is this renderer's, and another reader constructing from \
+     the same entries would differ in line joins, in text metrics and in where a caption sits. \
+     §12.5.2 then has a reader ignore C, IC, Border, BS and the rest in favour of the stream, so \
+     an annotation whose look used to be recomputed from those entries is fixed as it is here. \
+     The report names every appearance written, with the page it is on";
 
 /// The one requirement identifier that will not fit beside its key inside 100 columns.
 const CMYK_UNDER_PART_FOUR: &str =
@@ -572,6 +639,38 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "logical-structure/mark-info-marked",
         answer: Answer::Mechanical(Rewrite::MarkInfo),
     },
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3, whose NOTE 1 attributes the rule
+    // to §12.5.2's Table 166 rather than restating it — hence the two identifiers for one
+    // construction, and the longer exempt list part 4's row reads off that table.
+    //
+    // `doc/pdf-a-conversion-limits.md` section 4.4's *interesting case* — a `NeedAppearances`
+    // of true, where the producer deliberately left the appearances to the reader — is an **Ask**
+    // and no interface exists to ask it. Nothing here has to guard it: that document also fails
+    // `forms/need-appearances-absent-or-false`, which this table answers with nothing, so the
+    // conversion is refused before an appearance is written.
+    Remedy {
+        requirement: "annotations/appearance-dictionary-present",
+        answer: Answer::Stated(None, Rewrite::AppearanceDictionary, APPEARANCE_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "annotations/appearance-dictionary-present-from-base-standard",
+        answer: Answer::Stated(None, Rewrite::AppearanceDictionary, APPEARANCE_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2, first sentence. The second sentence
+    // — the Print bit set and four others clear — is a separate row over annotations that *do*
+    // state flags, and `doc/pdf-a-conversion-limits.md` section 3.7's other future for those is
+    // removing the annotation, which this converter does not offer.
+    Remedy {
+        requirement: "annotations/flags-entry-present",
+        answer: Answer::Loses(Loss::AnnotationPrinting, Rewrite::AnnotationFlags),
+    },
+    // ISO 19005-2 section 6.6.2.3.1, and the only route of the three
+    // `doc/pdf-a-conversion-limits.md` section 3.9 leaves open — which is why it is a loss rather
+    // than a default.
+    Remedy {
+        requirement: "metadata/properties-use-known-schemas",
+        answer: Answer::Loses(Loss::MetadataProperty, Rewrite::PropertyOutsideItsSchema),
+    },
     // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9: the two file name keys, each written
     // from the other where the one that is there is ASCII.
     Remedy {
@@ -701,6 +800,14 @@ const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "embedded-files/associated-file-media-type",
         Because::NotBuiltYet(NO_MEDIA_TYPE_TO_DERIVE),
     ),
+    // ISO 19005-2 section 6.6.2.3.3's four tables, each of which names the fields an extension
+    // schema container's descriptions have to state. A description that states one wrongly is a
+    // different case from one that states nothing, and the corpus's witnesses are all the second:
+    // a schema with no `pdfaSchema:schema`, a property with no `pdfaProperty:category`.
+    (
+        "metadata/extension-schema-container-fields",
+        Because::NotBuiltYet(EXTENSION_FIELDS_ARE_NOT_DERIVABLE),
+    ),
     // ISO 19005-4 Annex B.2.2, the one requirement of the engineering annex that binds a file
     // rather than a processor and that a document can fail on its content.
     (
@@ -756,6 +863,30 @@ const NO_MEDIA_TYPE_TO_DERIVE: &str = "ISO 19005-4 section 6.9 asks the embedded
      a Subtype that is a MIME media type, and nothing in a file specification states one: a file \
      name's extension is a convention rather than a declaration, and reading it as one would be \
      this converter asserting what the bytes are";
+
+/// Why a missing field of an extension schema container's description is not supplied.
+///
+/// **Deliberately [`Because::NotBuiltYet`] rather than [`Because::TheFence`]**, and the
+/// distinction is the one `doc/adr/0948` insists on. Three of the four fields are prose or a
+/// claim about a property that only its producer holds — `pdfaSchema:schema` is what the schema
+/// is called, `pdfaProperty:description` says what a property means, and
+/// `pdfaProperty:category` asserts whether a value is derived from the document or supplied from
+/// outside it — so filling them in is `doc/questions/A48`'s forbidden half. But
+/// `doc/pdf-a-conversion-limits.md` section 4.2 already calls emitting an extension schema
+/// container a **Default** for the neighbouring row, "authoring in a small way", with an **Ask**
+/// where a value type cannot be determined; and `pdfaSchema:prefix` is *derivable*, because the
+/// packet itself binds that namespace to a prefix. So this is a question about how far that
+/// Default reaches, and a question nobody has answered is a gap rather than a fence.
+const EXTENSION_FIELDS_ARE_NOT_DERIVABLE: &str = "this document describes an extension schema \
+     whose description leaves out a field ISO 19005-2 section 6.6.2.3.3's tables require of it. \
+     What is missing is a name for the schema, a description of what a property means, or the \
+     category saying whether a property's value is derived from the document or supplied from \
+     outside it — none of which the file states anywhere, so supplying one would be this \
+     converter writing metadata about metadata that nobody produced. \
+     doc/pdf-a-conversion-limits.md section 4.2 permits emitting such a container for a property \
+     that has no description at all and calls it authoring in a small way; whether that \
+     permission reaches a description a producer wrote and left incomplete is a question for the \
+     document's owner, and no interface exists to ask it";
 
 /// Why a 3D stream in a format Annex B does not name is not converted.
 const THREE_DIMENSIONAL_FORMAT: &str = "ISO 19005-4 Annex B.2.2 admits a 3D stream whose Subtype \
@@ -871,13 +1002,22 @@ pub(super) fn decide(
             },
             Ok(_) => Decision::Refused(Because::NotBuiltYet(WRONG_FAMILY)),
         },
-        Answer::Stated(_, rewrite, reinterprets) => Decision::Stated {
-            rewrite,
-            reinterprets,
+        // Every other `Stated` row is decided by the requirement and the standard, and then by
+        // whether *this* document can take the rewrite — an appearance whose subtype clause
+        // states no artwork is the standing case, and the reason is the preparation's own.
+        Answer::Stated(_, rewrite, reinterprets) => prepared.obstacle(rewrite).map_or(
+            Decision::Stated {
+                rewrite,
+                reinterprets,
+            },
+            Decision::Refused,
+        ),
+        // A loss the document cannot take is refused rather than offered: telling a user that
+        // `--authorise` would allow something this file cannot have is worse than saying why.
+        Answer::Loses(loss, rewrite) => match prepared.obstacle(rewrite) {
+            Some(because) => Decision::Refused(because),
+            None if authorised.grants(loss) => Decision::Authorised { loss, rewrite },
+            None => Decision::Unauthorised { loss, rewrite },
         },
-        Answer::Loses(loss, rewrite) if authorised.grants(loss) => {
-            Decision::Authorised { loss, rewrite }
-        }
-        Answer::Loses(loss, rewrite) => Decision::Unauthorised { loss, rewrite },
     }
 }

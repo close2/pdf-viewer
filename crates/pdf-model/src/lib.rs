@@ -32,7 +32,7 @@
 pub mod accessibility;
 pub mod action;
 mod annotation;
-mod appearance;
+pub mod appearance;
 pub mod article;
 pub mod attachment;
 mod bigint;

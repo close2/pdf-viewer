@@ -121,7 +121,7 @@
 
 use std::collections::BTreeSet;
 
-use pdf_model::xmp::{Detail, Property as XmpProperty, RDF, Value, XML, Xmp};
+use pdf_model::xmp::{Detail, Name, Property as XmpProperty, RDF, Value, XML, Xmp};
 use pdf_syntax::{Document, Object, ObjectId, Stream};
 
 use crate::Examination;
@@ -1832,67 +1832,114 @@ fn spelled(property: &XmpProperty) -> String {
 fn properties_use_known_schemas(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_packet(exam, |id, properties| {
         for property in properties {
-            let Some(schema) = predefined(&property.name.namespace) else {
-                continue;
-            };
-            let Some((shape, lexical)) = schema.property(&property.name.local) else {
-                continue;
-            };
-            judge_against_schema(id, property, schema, shape, lexical, findings);
+            for complaint in judge_against_schema(property) {
+                findings.record(Where::object(id).named(spelled(property)), complaint);
+            }
         }
     });
 }
 
-/// One property held to the value type its predefined schema gives it.
-fn judge_against_schema(
-    id: ObjectId,
-    property: &XmpProperty,
-    schema: &Schema,
-    shape: Shape,
-    lexical: Lexical,
-    findings: &mut Findings,
-) {
-    let place = || Where::object(id).named(spelled(property));
-    if !shape.accepts(&property.value) {
-        findings.record(
-            place(),
-            format!(
-                "the {} schema defines {} as {}, and the packet states {}",
-                schema.name,
-                spelled(property),
-                shape.describe(),
-                shaped(&property.value)
-            ),
-        );
-        return;
+/// One property ISO 19005-2 section 6.6.2.3.1's predefined half rejects.
+///
+/// **The reading as a list rather than as a verdict**, because a converter has to act on it and
+/// `doc/pdf-a-conversion-limits.md` section 3.9's only open route is removing the property. The
+/// requirement's own row is [`properties_use_known_schemas`] and the judgement is one function
+/// for both, so a converter cannot cut a property this crate would have passed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MisusedProperty {
+    /// The property's name as ISO 16684-1 section 6.2 defines one: a namespace URI and a local
+    /// name, never a prefix.
+    pub name: Name,
+    /// How a report spells it — the predefined schema's own prefix, and the local name.
+    pub spelled: String,
+    /// What the packet stated for it, cut down to something a report can print.
+    pub stated: String,
+    /// Why the schema does not define that, in the words the requirement's own finding uses.
+    pub because: String,
+}
+
+/// Every property one XMP packet states that its own predefined schema does not define.
+///
+/// The population [`properties_use_known_schemas`] reports over, answered for one packet's bytes
+/// so that a caller holding a metadata stream can ask without a document. A packet that does not
+/// parse yields nothing: that is `metadata/xmp-packets-well-formed`'s finding rather than this
+/// subclause's, and a caller told nothing here is a caller whose file fails elsewhere.
+#[must_use]
+pub fn properties_outside_their_schema(packet: &[u8]) -> Vec<MisusedProperty> {
+    let Ok(properties) = Xmp::parse_detail(packet) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for property in &properties {
+        let mut complaints = judge_against_schema(property);
+        if complaints.is_empty() {
+            continue;
+        }
+        out.push(MisusedProperty {
+            name: property.name.clone(),
+            spelled: spelled(property),
+            stated: rendered(&property.value),
+            // The first is the one that decided it; the rest are the same property's other
+            // scalars, and a report that printed all of them would print a paragraph per value.
+            because: complaints.swap_remove(0),
+        });
     }
+    out
+}
+
+/// One property held to the value type its predefined schema gives it.
+///
+/// Empty for a property in a namespace no predefined schema owns — that half of the subclause is
+/// [`extension_schemas_embedded`]'s row — and for one whose local name [`PREDEFINED`] does not
+/// carry, which is the reading the row's own comment gives.
+fn judge_against_schema(property: &XmpProperty) -> Vec<String> {
+    let Some(schema) = predefined(&property.name.namespace) else {
+        return Vec::new();
+    };
+    let Some((shape, lexical)) = schema.property(&property.name.local) else {
+        return Vec::new();
+    };
+    if !shape.accepts(&property.value) {
+        return vec![format!(
+            "the {} schema defines {} as {}, and the packet states {}",
+            schema.name,
+            spelled(property),
+            shape.describe(),
+            shaped(&property.value)
+        )];
+    }
+    let mut out = Vec::new();
     if shape == Shape::Language
         && let Some(items) = property.value.alternatives()
         && items.iter().any(|(language, _)| language.is_none())
     {
-        findings.record(
-            place(),
-            format!(
-                "{} is a language alternative, whose items are each defined to carry an \
-                 xml:lang qualifier, and one of them states none",
-                spelled(property)
-            ),
-        );
+        out.push(format!(
+            "{} is a language alternative, whose items are each defined to carry an \
+             xml:lang qualifier, and one of them states none",
+            spelled(property)
+        ));
     }
     for text in scalars(&property.value) {
         if !lexical.accepts(text) {
-            findings.record(
-                place(),
-                format!(
-                    "the {} schema defines {} as {}, and the packet states {}",
-                    schema.name,
-                    spelled(property),
-                    lexical.describe(),
-                    short(text)
-                ),
-            );
+            out.push(format!(
+                "the {} schema defines {} as {}, and the packet states {}",
+                schema.name,
+                spelled(property),
+                lexical.describe(),
+                short(text)
+            ));
         }
     }
+    out
+}
+
+/// A value as a report prints it: its scalars where it has any, and its shape where it has none.
+fn rendered(value: &Detail) -> String {
+    let scalars = scalars(value);
+    if scalars.is_empty() {
+        return shaped(value).to_owned();
+    }
+    short(&scalars.join(", "))
 }
 
 /// What to call the shape a packet actually stated, for a finding.

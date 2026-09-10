@@ -202,6 +202,101 @@ pub(crate) struct Constructed {
     pub bounded: bool,
 }
 
+/// The appearance stream an annotation stating none would be given, as a form `XObject`.
+///
+/// §12.5.2's Table 166 makes this a *writer's* obligation rather than a courtesy:
+///
+/// > A PDF writer shall include an appearance dictionary when writing or updating the PDF file
+/// > except for the two cases listed below. Every annotation (including those whose Subtype value
+/// > is Widget , as used for form fields), except for the two cases listed below, shall have at
+/// > least one appearance dictionary.
+///
+/// and §12.5.5 says what the thing is — a form `XObject`, "a self-contained content stream that
+/// shall be rendered inside the annotation rectangle" — which is why the `/BBox` written here is
+/// the annotation's own `/Rect`: §12.5.5's
+/// algorithm then maps the box onto the rectangle as the identity, and the marks land exactly
+/// where this module drew them.
+///
+/// **`None` where there is no appearance to write**: an annotation with no readable `/Rect` or
+/// `/Subtype`, or one whose clause states no artwork — [`construct`]'s arms carry the reading for
+/// each of those. An annotation that legitimately draws *nothing* is not one of them: it gets an
+/// empty stream, because drawing nothing is what its own entries state and an empty form `XObject`
+/// says exactly that.
+///
+/// The report is [`Constructed::report`], and a caller writing this into a file is expected to
+/// act on it rather than only print it: a construction that could not be completed is a partial
+/// rendering, and freezing one into a document is not the same act as writing down what the
+/// clauses state.
+#[must_use]
+pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Written> {
+    let subtype = document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())?;
+    let rect = crate::annotation::rectangle(document, annotation, "Rect")?;
+    let built = construct(
+        document,
+        annotation,
+        &subtype,
+        crate::view::AnnotationView::default(),
+        rect,
+    );
+    Some(Written {
+        // An annotation that draws nothing gets an empty stream rather than none: drawing
+        // nothing is what its own entries state, and an empty form `XObject` says exactly that.
+        stream: form_xobject(rect, built.resources, built.content.unwrap_or_default()),
+        owed: built.report,
+    })
+}
+
+/// One annotation's constructed appearance, as an object a file can hold.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Written {
+    /// The form `XObject` an `/AP` `/N` entry would name.
+    pub stream: Object,
+    /// What the subtype's clause asks for and this module could not derive, where anything.
+    ///
+    /// A stream with something owed is a *partial* rendering of the annotation, which is a
+    /// different thing from the appearance the clauses state — so a caller writing one into a
+    /// file has a decision to take rather than a message to print.
+    pub owed: Option<String>,
+}
+
+/// One constructed appearance as the form `XObject` §12.5.5 makes it.
+///
+/// `content` is what [`construct`] drew, and an empty slice is the appearance of an annotation
+/// that draws nothing. §8.10.2's Table 95 requires `/BBox` and gives `/Matrix` a default of the
+/// identity, which is what leaves this stream in the annotation's own space.
+pub(crate) fn form_xobject(rect: [f32; 4], resources: Dictionary, content: Vec<u8>) -> Object {
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XObject"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Form"[..])),
+    );
+    dict.insert(
+        Name::new(&b"BBox"[..]),
+        Object::Array(
+            rect.iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        ),
+    );
+    dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(content.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+        dict,
+        data: content.into(),
+        decryption_failed: false,
+    }))
+}
+
 /// Whether Table 166's `/Rect` bounds the marks a subtype's own clause states.
 ///
 /// **Six subtypes state their geometry in default user space and are therefore not bounded by

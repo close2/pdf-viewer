@@ -36,9 +36,13 @@
 //!
 //! The mechanical rewrites of `doc/pdf-a-conversion-limits.md` section 4.7, the two section 4
 //! *defaults* without which almost no real document can be made to conform at all — **the output
-//! intent** (section 4.1) and **the identification schema** (section 4.2) — and, for the four
-//! targets past PDF/A-2b, everything each of them adds that the file itself already evidences:
+//! intent** (section 4.1) and **the identification schema** (section 4.2) — the appearance
+//! stream section 4.4 makes the third of them, and, for the four targets past PDF/A-2b,
+//! everything each of them adds that the file itself already evidences:
 //!
+//! - **Every target** (section 4.4): an `/AP` whose `/N` names a form `XObject` constructed from
+//!   the entries the annotation's own subtype clause states. `doc/questions/A21` allows it on
+//!   condition that every appearance written is reported, which [`Conversion::appearances`] is.
 //! - **Level U** (section 4.3): a `/ToUnicode` `CMap` derived from a font's own encoding, by
 //!   ISO 32000-2 §9.10.2's second method. [`to_unicode`].
 //! - **Level A** (section 5.1): `/MarkInfo` with `/Marked true`, where the file already carries
@@ -46,6 +50,13 @@
 //! - **PDF/A-4f and PDF/A-4e** (ISO 19005-4 section 6.9, Annexes A.2 and B.4): an embedded file's
 //!   `/F` and `/UF`, each written from the other, and its `/AFRelationship` written as §7.11.3's
 //!   Table 43 own default.
+//!
+//! **And two losses a caller authorises before the run** (section 3), because a batch tool has
+//! nobody to ask: `--authorise metadata-property` takes out an XMP property whose own predefined
+//! schema does not define the value it holds (section 3.9), and `--authorise annotation-printing`
+//! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7). Each
+//! names in the report exactly what it did — [`Conversion::removed`] and the flag's own count —
+//! because a loss nobody can see afterwards is the failure section 3 exists against.
 //!
 //! **Everything else is refused by name**: fonts (section 4.9), the structure tree and the role
 //! map (section 5.1), a `/ToUnicode` entry no code in the file evidences (section 4.3),
@@ -110,7 +121,7 @@ use crate::pattern::{Fill, Pattern};
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
-pub use prepare::{DestinationProfile, ProfileSource};
+pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
 pub use report::{Achieved, Conversion, Decided, NotChecked};
 pub use rewrite::Rewrite;
 
@@ -247,6 +258,8 @@ fn decide_every_failure(
         achieved: None,
         profile: None,
         recorded: None,
+        removed: Vec::new(),
+        appearances: Vec::new(),
     };
     let prepared = Prepared::of(plan, document, input);
     let mut version = None;
@@ -321,6 +334,20 @@ fn apply_the_decisions(
     }
     if wanted.contains(&Rewrite::DefaultCmyk) {
         conversion.recorded = Some(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
+    }
+    // A21's condition on the permission: every appearance written is named, with the page it is
+    // on, because a constructed appearance is this program's rendering rather than the file's.
+    if wanted.contains(&Rewrite::AppearanceDictionary)
+        && let Ok(appearances) = &prepared.appearances
+    {
+        conversion.appearances.clone_from(&appearances.constructed);
+    }
+    // section 3.9's condition on the loss: what went is named per property, because a removed
+    // property leaves nothing in the output for a user to find it by.
+    if wanted.contains(&Rewrite::PropertyOutsideItsSchema)
+        && let Ok(cleaned) = &prepared.properties
+    {
+        conversion.removed.clone_from(&cleaned.removed);
     }
     let converted = convert(document, plan.target, &wanted, version, prepared)?;
     for decided in &mut conversion.decided {

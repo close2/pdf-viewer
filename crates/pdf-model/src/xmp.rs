@@ -631,7 +631,7 @@ pub fn restate(
         return Err(WriteError::TooLarge { bytes: bytes.len() });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
-    let edit = Editor::run(text, namespaces)?;
+    let edit = Editor::run(text, Cut::Namespaces(namespaces))?;
     let Some(at) = edit.inside_rdf else {
         return Err(WriteError::NoPlaceForADescription {
             found: edit.rdf_elements,
@@ -665,6 +665,46 @@ pub fn restate(
         cut = at;
     }
     copy(&mut out, cut, text.len());
+    Ok(out.into_bytes())
+}
+
+/// `bytes` with each of `properties` gone, and every other byte of the packet unchanged.
+///
+/// The population is *properties of the packet* rather than every element that happens to carry
+/// one of these names: ISO 16684-1 section 7.4 puts a property directly inside an
+/// `rdf:Description` inside the packet's `rdf:RDF`, and a field of some structured value deeper
+/// down belongs to that value rather than to the document. Both of section 7.5's spellings go —
+/// the property element, and the attribute of the description standing for a simple value —
+/// because both state the same property.
+///
+/// **Removing a property is a loss, and this function does not decide that it is allowed.** It is
+/// the mechanism `doc/pdf-a-conversion-limits.md` section 3.9 chooses between three routes, two of
+/// which are closed; the caller is what asks whether it may be used.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched. `Ok` with nothing removed
+/// is not an error here: a caller that has to know whether the properties are gone reads the
+/// result back, which is what the packet says rather than what this writer intended.
+pub fn remove(bytes: &[u8], properties: &[Name]) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let edit = Editor::run(text, Cut::Properties(properties))?;
+    let mut out = String::with_capacity(text.len());
+    let mut cut = 0usize;
+    for (from, to) in edit.deletions {
+        // A deletion inside one already taken is covered by it; `Opened::removing` keeps nested
+        // elements from recording one, and this is the same rule for two properties that overlap
+        // in no other way than by the packet being malformed.
+        if from < cut {
+            continue;
+        }
+        out.push_str(text.get(cut..from).unwrap_or_default());
+        cut = to;
+    }
+    out.push_str(text.get(cut..).unwrap_or_default());
     Ok(out.into_bytes())
 }
 
@@ -706,7 +746,7 @@ pub fn record(bytes: &[u8], event: &Event<'_>) -> Result<Vec<u8>, WriteError> {
         return Err(WriteError::TooLarge { bytes: bytes.len() });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
-    let edit = Editor::run(text, &[])?;
+    let edit = Editor::run(text, Cut::Namespaces(&[]))?;
     // A history whose sequence this writer found: the event goes at the end of that sequence,
     // after every entry already in it.
     let (at, whole) = match (edit.history_seq_end, edit.history_elements) {
@@ -904,10 +944,37 @@ enum Landmark {
     Ordinary,
     /// The packet's `rdf:RDF`, inside which a fresh `rdf:Description` goes.
     Rdf,
+    /// An `rdf:Description` directly inside one, which is where ISO 16684-1 section 7.4 puts the
+    /// packet's own properties — so an element inside it is a property and one deeper is not.
+    Description,
     /// An `xmpMM:History` property.
     History,
     /// The `rdf:Seq` that is one's value, at the end of which an event goes.
     HistorySeq,
+}
+
+/// Whether one of the properties named for removal is this namespace and local name.
+///
+/// ISO 16684-1 section 6.2's own equivalence: two XMP names are the same when their namespace URI
+/// and their local name are identical, with no case folding and no normalisation.
+fn listed(properties: &[Name], namespace: &str, local: &str) -> bool {
+    properties
+        .iter()
+        .any(|wanted| wanted.namespace == namespace && wanted.local == local)
+}
+
+/// Which of a packet's properties an edit takes out.
+///
+/// Two populations rather than one predicate, because the two writers want genuinely different
+/// things: [`restate`] replaces a *schema*, so everything in its namespace goes wherever it sits,
+/// and [`remove`] takes named properties out of a schema that stays, so a field sharing a name
+/// with one deeper inside somebody else's value is not it.
+#[derive(Debug, Clone, Copy)]
+enum Cut<'a> {
+    /// Every element and attribute whose namespace is one of these, at any depth.
+    Namespaces(&'a [&'a str]),
+    /// Exactly these properties of the packet, and nothing nested inside another value.
+    Properties(&'a [Name]),
 }
 
 /// The spans one pass over a packet found.
@@ -933,7 +1000,7 @@ struct Editor {
 
 impl Editor {
     /// Walks the packet, recording what to cut and where to insert.
-    fn run(text: &str, namespaces: &[&str]) -> Result<Self, WriteError> {
+    fn run(text: &str, cut: Cut<'_>) -> Result<Self, WriteError> {
         let mut editor = Self {
             bindings: Vec::new(),
             stack: Vec::new(),
@@ -976,12 +1043,12 @@ impl Editor {
                 xmlparser::Token::ElementEnd { end, span } => match end {
                     xmlparser::ElementEnd::Open => {
                         let Some(open) = pending.take() else { continue };
-                        editor.open(&open, &attributes, namespaces)?;
+                        editor.open(&open, &attributes, cut)?;
                     }
                     xmlparser::ElementEnd::Empty => {
                         let Some(open) = pending.take() else { continue };
                         let tag = (open.0.clone(), open.1.clone());
-                        editor.open(&open, &attributes, namespaces)?;
+                        editor.open(&open, &attributes, cut)?;
                         // A self-closing element has no inside, so an `rdf:RDF` written this way
                         // is not a place a description can go: `closed` is told so.
                         editor.close(&tag, span.end(), None)?;
@@ -1021,7 +1088,7 @@ impl Editor {
         &mut self,
         (prefix, local, start): &(String, String, usize),
         attributes: &[(String, String, String, usize, usize)],
-        namespaces: &[&str],
+        cut: Cut<'_>,
     ) -> Result<(), WriteError> {
         if self.stack.len() >= MAX_DEPTH {
             return Err(WriteError::TooDeep);
@@ -1038,7 +1105,15 @@ impl Editor {
 
         let inherited = self.stack.last().is_some_and(|open| open.doomed);
         let namespace = self.namespace(prefix).to_owned();
-        let own = namespaces.contains(&namespace.as_str());
+        let under = self.stack.last().map(|open| open.landmark);
+        // A property is what sits directly inside a description; an attribute form sits *on* one.
+        let describes = namespace == RDF && local == "Description" && under == Some(Landmark::Rdf);
+        let own = match cut {
+            Cut::Namespaces(namespaces) => namespaces.contains(&namespace.as_str()),
+            Cut::Properties(properties) => {
+                under == Some(Landmark::Description) && listed(properties, &namespace, local)
+            }
+        };
         let rdf = namespace == RDF && local == "RDF";
         if rdf {
             self.rdf_elements = self.rdf_elements.saturating_add(1);
@@ -1046,12 +1121,11 @@ impl Editor {
         // ISO 16684-1 gives an ordered array the `rdf:Seq` spelling, so the sequence directly
         // inside the property element is the one an event is appended to. A `Seq` deeper than
         // that belongs to a field of some entry rather than to the history.
-        let in_history = self
-            .stack
-            .last()
-            .is_some_and(|open| open.landmark == Landmark::History);
+        let in_history = under == Some(Landmark::History);
         let landmark = if rdf {
             Landmark::Rdf
+        } else if describes {
+            Landmark::Description
         } else if namespace == XMP_MM && local == "History" {
             self.history_elements = self.history_elements.saturating_add(1);
             Landmark::History
@@ -1064,8 +1138,18 @@ impl Editor {
             // ISO 16684-1 section 7.5's other spelling: a property stated as an attribute of the
             // description it belongs to. Removing the attribute removes the property, and the
             // element it sat on is somebody else's.
-            for (prefix, _, _, from, to) in attributes {
-                if !prefix.is_empty() && namespaces.contains(&self.namespace(prefix)) {
+            for (prefix, local, _, from, to) in attributes {
+                if prefix.is_empty() {
+                    continue;
+                }
+                let attribute = self.namespace(prefix);
+                let matched = match cut {
+                    Cut::Namespaces(namespaces) => namespaces.contains(&attribute),
+                    Cut::Properties(properties) => {
+                        describes && listed(properties, attribute, local)
+                    }
+                };
+                if matched {
                     self.deletions.push((*from, *to));
                 }
             }
@@ -1825,8 +1909,8 @@ fn numeric(reference: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DC, Event, PDF, RESOURCE_EVENT, Schema, Value, WriteError, XMP, XMP_MM, Xmp, XmpError,
-        instant, packet, record, restate,
+        DC, Event, Name, PDF, RESOURCE_EVENT, Schema, Value, WriteError, XMP, XMP_MM, Xmp,
+        XmpError, instant, packet, record, remove, restate,
     };
 
     /// The identification namespace, spelled as ISO 19005-4 section 6.7.3 prints it. Used here
@@ -2046,6 +2130,90 @@ mod tests {
             String::from_utf8_lossy(&after).contains("<?xpacket end=\"w\"?>"),
             "the wrapper is the producer's, byte for byte"
         );
+    }
+
+    /// A packet stating a property twice — once as an element and once as an attribute — and a
+    /// field of a structured value that shares one of their local names.
+    const TWO_SPELLINGS: &[u8] = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+ xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" pdf:Keywords="one two">
+<pdf:Producer>Somebody's exporter</pdf:Producer>
+<xmpMM:History><rdf:Seq><rdf:li rdf:parseType="Resource">
+<pdf:Producer>a field that is not a property</pdf:Producer>
+</rdf:li></rdf:Seq></xmpMM:History>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+
+    #[test]
+    fn a_named_property_goes_in_both_its_spellings_and_a_field_of_that_name_stays() {
+        let after = remove(
+            TWO_SPELLINGS,
+            &[
+                Name {
+                    namespace: PDF.to_owned(),
+                    local: "Producer".to_owned(),
+                },
+                Name {
+                    namespace: PDF.to_owned(),
+                    local: "Keywords".to_owned(),
+                },
+            ],
+        )
+        .expect("a packet this writer can edit");
+        let read = Xmp::parse(&after).expect("the edited packet parses");
+        assert_eq!(
+            read.text(PDF, "Producer"),
+            None,
+            "the element spelling is cut"
+        );
+        assert_eq!(
+            read.text(PDF, "Keywords"),
+            None,
+            "and so is the attribute spelling of a simple value"
+        );
+        let history = recorded(&after);
+        assert_eq!(
+            history.len(),
+            1,
+            "the history entry stays: a field of a structured value is not a property of the \
+             packet, whatever it is called"
+        );
+        assert!(
+            String::from_utf8_lossy(&after).contains("a field that is not a property"),
+            "and neither is its value"
+        );
+    }
+
+    #[test]
+    fn a_property_no_packet_states_leaves_every_byte_alone() {
+        let after = remove(
+            TWO_SPELLINGS,
+            &[Name {
+                namespace: DC.to_owned(),
+                local: "title".to_owned(),
+            }],
+        )
+        .expect("a packet this writer can edit");
+        assert_eq!(
+            after, TWO_SPELLINGS,
+            "nothing named, nothing cut, and no byte rewritten on the way through"
+        );
+    }
+
+    #[test]
+    fn a_packet_whose_tags_do_not_nest_is_refused_rather_than_cut() {
+        assert!(matches!(
+            remove(
+                b"<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+                  <a></b></rdf:RDF>",
+                &[]
+            ),
+            Err(WriteError::Malformed { .. })
+        ));
     }
 
     #[test]

@@ -65,7 +65,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
-use crate::target::Flavour;
+use crate::target::{Flavour, Part, Target};
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
 pub(super) static REQUIREMENTS: &[Requirement] = &[
@@ -1022,18 +1022,71 @@ fn appearance_dictionary_present(
 ) {
     let document = exam.document;
     for_each_annotation(exam, |place, annotation| {
-        let subtype = name_at(document, annotation, "Subtype");
-        if subtype
-            .as_deref()
-            .is_some_and(|name| exempt.contains(&name))
-        {
-            return;
+        if wants_an_appearance(document, annotation, exempt) {
+            findings.record(place.clone().named("AP"), what);
         }
-        if rect_is_degenerate(document, annotation) || has_appearance(document, annotation) {
-            return;
-        }
-        findings.record(place.clone().named("AP"), what);
     });
+}
+
+/// Whether ISO 19005 requires an appearance dictionary of this annotation and it states none.
+fn wants_an_appearance(document: &Document, annotation: &Dictionary, exempt: &[&str]) -> bool {
+    if name_at(document, annotation, "Subtype")
+        .as_deref()
+        .is_some_and(|name| exempt.contains(&name))
+    {
+        return false;
+    }
+    !rect_is_degenerate(document, annotation) && !has_appearance(document, annotation)
+}
+
+/// The subtypes each part's section 6.3.3 exempts from needing an appearance dictionary.
+///
+/// Part 4's list is longer by `Projection`, which PDF 2.0 added and ISO 19005-2 could not have
+/// named — the difference [`appearance_dictionary_present_four`] exists for.
+const fn exempt_from_an_appearance(part: Part) -> &'static [&'static str] {
+    match part {
+        Part::Two => &["Popup", "Link"],
+        Part::Four => &["Popup", "Projection", "Link"],
+    }
+}
+
+/// One annotation ISO 19005 requires an appearance dictionary of, which states none.
+///
+/// **The reading as a population rather than as a verdict**, on the same footing as
+/// `crate::properties_outside_their_schema`: a converter that constructs the missing appearance
+/// has to be given exactly the annotations the requirement reported, and a findings list is
+/// capped where a document's annotations are not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingAppearance {
+    /// The object the annotation is, where it is an indirect one.
+    ///
+    /// `None` for an annotation written directly into a page's `/Annots` array, which nothing
+    /// that rewrites objects can reach.
+    pub at: Option<ObjectId>,
+    /// The zero-based page it is on.
+    pub page: usize,
+    /// Its `/Subtype`, where it states one.
+    pub subtype: Option<String>,
+}
+
+/// Every annotation the target's own section 6.3.3 requires an appearance dictionary of and which
+/// states none.
+#[must_use]
+pub fn annotations_without_an_appearance(
+    document: &Document,
+    target: Target,
+) -> Vec<MissingAppearance> {
+    let exam = Examination::new(document, target);
+    let exempt = exempt_from_an_appearance(target.part());
+    exam.annotations()
+        .iter()
+        .filter(|annotation| wants_an_appearance(document, &annotation.dict, exempt))
+        .map(|annotation| MissingAppearance {
+            at: annotation.id,
+            page: annotation.page,
+            subtype: name_at(document, &annotation.dict, "Subtype"),
+        })
+        .collect()
 }
 
 /// ISO 19005-2 section 6.3.3's first paragraph, whose exempt subtypes are `Popup` and `Link`.
@@ -1041,7 +1094,7 @@ fn appearance_dictionary_present_two(exam: &Examination<'_>, findings: &mut Find
     appearance_dictionary_present(
         exam,
         findings,
-        &["Popup", "Link"],
+        exempt_from_an_appearance(Part::Two),
         "an annotation has no appearance dictionary",
     );
 }
@@ -1057,7 +1110,7 @@ fn appearance_dictionary_present_four(exam: &Examination<'_>, findings: &mut Fin
     appearance_dictionary_present(
         exam,
         findings,
-        &["Popup", "Projection", "Link"],
+        exempt_from_an_appearance(Part::Four),
         "an annotation has no appearance dictionary",
     );
 }

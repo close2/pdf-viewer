@@ -51,6 +51,8 @@ pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, Where};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
+pub use crate::table::interaction::{MissingAppearance, annotations_without_an_appearance};
+pub use crate::table::metadata::{MisusedProperty, properties_outside_their_schema};
 pub use crate::target::{Flavour, Level, Part, Target};
 
 /// Holds one document to one target, and reports what it found.

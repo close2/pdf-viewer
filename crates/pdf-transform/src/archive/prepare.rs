@@ -11,11 +11,11 @@
 //! with. [`super::decision::decide`] reads those reasons; nothing here decides anything.
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_archive::Outcome;
 use pdf_archive::survey::DeviceFamily;
 use pdf_archive::{Flavour, Level, Target};
+use pdf_archive::{MisusedProperty, Outcome};
 use pdf_model::icc::Identification;
-use pdf_model::xmp::{self, Schema};
+use pdf_model::xmp::{self, Name as XmpName, Schema};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
@@ -116,6 +116,78 @@ const NO_STRUCTURE_TREE: &str = "ISO 19005-2 section 6.7.2.2's Marked flag says 
 const NO_PLACE_TO_RECORD: &str = "the DeviceN DefaultCMYK is allowed on condition that it is \
      recorded in this file's own xmpMM:History naming the clause, and this document's XMP packet \
      will not take that entry — so the construction is not written either";
+
+/// The action this conversion records in `xmpMM:History` when it removes a property.
+///
+/// `doc/pdf-a-conversion-limits.md` section 4.2: every **Ask** writes one entry, and the entry is
+/// the audit trail that makes the Asks defensible. A removed property is the one loss in this
+/// verb that a reader of the output cannot see the shape of — a deleted key leaves no hole — so
+/// the provenance is where the file itself says what it lost.
+pub(super) const REMOVED_PROPERTIES_ACTION: &str = "converted";
+
+/// How many removed properties the `xmpMM:History` entry names before it stops listing them.
+///
+/// A bound rather than a reading (principle 3): a packet may state hundreds of properties and the
+/// provenance entry is prose. The conversion report names every one of them whatever this is.
+const MOST_NAMED: usize = 16;
+
+/// Why a packet's properties could not be removed from it.
+const PACKET_NOT_CUTTABLE: &str = "this document states a metadata property in a predefined \
+     schema that does not define it, and the packet it is in cannot be edited in place — so the \
+     property cannot be removed without rewriting metadata its producer wrote. \
+     doc/pdf-a-conversion-limits.md section 3.9 is the reading";
+
+/// Why a property that survived the cut refuses the document.
+const PROPERTY_NOT_CUT: &str = "a metadata property this conversion removed is still in the \
+     packet afterwards, so the packet is half-edited rather than corrected, and a half-edited \
+     packet is not written at all — doc/pdf-a-conversion-limits.md section 3.9";
+
+/// Why a metadata stream that is not one is not cleaned.
+const NOT_A_PACKET: &str = "this document fails the schema requirement in an object that is not \
+     a stream this tree can decode, so there is no packet to take the property out of";
+
+/// Why the removal was withdrawn even though it could have been carried out.
+///
+/// `doc/pdf-a-conversion-limits.md` section 4.2 makes one `xmpMM:History` entry the audit trail of
+/// every **Ask**, and a removal is the loss whose trace is hardest to find afterwards: a property
+/// that is gone leaves nothing behind to notice. So a packet that will not take the entry does not
+/// get the removal either.
+const NO_PLACE_TO_RECORD_A_REMOVAL: &str = "removing a metadata property is recorded in this \
+     file's own xmpMM:History, and this document's XMP packet will not take that entry — so the \
+     properties are left where their producer wrote them and no file is written";
+
+/// Why an annotation's appearance could not be constructed.
+const APPEARANCE_NOT_DERIVABLE: &str = "this document holds an annotation with no appearance \
+     dictionary whose own subtype clause states no artwork for it — a stamp's legend, a caret, an \
+     unapplied redaction, a printer's mark, a trap network, 3D or rich media artwork, or an \
+     annotation stating no Subtype or no readable Rect at all. ISO 32000-2 Table 166 requires the \
+     dictionary and the subtype clause is what would say what goes in it, so constructing one \
+     here would be putting a mark on the page the document never described";
+
+/// Why a partly derivable appearance is not written either.
+const APPEARANCE_INCOMPLETE: &str = "this document holds an annotation whose appearance this \
+     program can construct only in part — a border style stating no highlight colour, a caption \
+     whose room the entry does not give, a field value that would not lay out. A partial \
+     rendering written into an archive is not the appearance the clauses state, and a conforming \
+     reader would then have nothing else to draw from, so it is refused rather than frozen";
+
+/// Why a button field's widget is not given a constructed appearance.
+const BUTTON_APPEARANCE_STATES: &str = "this document holds a widget of a button field with no \
+     appearance dictionary, and §12.7.5.2.3 makes such a widget's N entry a subdictionary of one \
+     appearance per state rather than a single stream. Which states the button has is what an \
+     absent appearance dictionary does not say, and naming them would be inventing the control's \
+     own vocabulary";
+
+/// Why an annotation the page states inline is not given one.
+const APPEARANCE_ON_A_DIRECT_ANNOTATION: &str = "this document writes an annotation directly into \
+     a page's Annots array rather than as an object of its own, and this verb rewrites objects — \
+     so there is nowhere to put the appearance stream the annotation would name";
+
+/// How far up a form field's `/Parent` chain the inheritable `/FT` is looked for.
+///
+/// `pdf_syntax::Limits::DEFAULT`'s `max_depth`, which is the depth the parser admitted the
+/// tree at: a `/Parent` chain longer than that is one no field in the document was read through.
+const MAX_FIELD_DEPTH: usize = 256;
 
 /// The two spellings the two parts print for the identification schema's namespace.
 ///
@@ -314,6 +386,62 @@ pub(super) struct DefaultCmyk {
     pub(super) written: [(ObjectId, Object); 2],
 }
 
+/// The packets a conversion is in a position to take a property out of.
+///
+/// ISO 19005-2 section 6.6.2.3.1 requires every property to *use* the schema it names, and
+/// `doc/pdf-a-conversion-limits.md` section 3.9 records why removal is the only open route: a
+/// corrected value would be content this converter invented, and an extension schema container
+/// describing a predefined schema would misrepresent it in the file itself.
+#[derive(Debug)]
+pub(super) struct Cleaned {
+    /// The packet each metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+    /// Every property removed, for the report, in the order the packets state them.
+    pub(super) removed: Vec<MisusedProperty>,
+}
+
+/// The appearances a conversion is in a position to construct.
+///
+/// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require an appearance dictionary of
+/// every annotation but three subtypes and the degenerate rectangle, and
+/// `doc/pdf-a-conversion-limits.md` section 4.4 records why constructing one is not invention:
+/// §12.5.5 and §12.7.4.3 make the appearance the standard's own construction out of entries the
+/// annotation already states. `doc/questions/A21` allows it on one condition, which is
+/// [`Self::constructed`].
+#[derive(Debug)]
+pub(super) struct Appearances {
+    /// The `/AP` `/N` object each annotation is to name, in the *source's* numbering.
+    pub(super) at: BTreeMap<ObjectId, ObjectId>,
+    /// The form `XObject`s this conversion adds.
+    pub(super) written: Vec<(ObjectId, Object)>,
+    /// Every appearance written, for the report.
+    pub(super) constructed: Vec<WrittenAppearance>,
+}
+
+/// One appearance this conversion constructed, as the report names it.
+///
+/// `doc/questions/A21`'s condition in one sentence: *report every appearance written, so the
+/// difference between the producer's file and ours is visible in the report rather than only in
+/// the bytes.* A count would not do it — which annotation on which page now draws this program's
+/// marks is the thing a user has to be able to check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrittenAppearance {
+    /// The zero-based page the annotation is on.
+    pub page: usize,
+    /// Its `/Subtype`, or `an annotation stating no subtype` where it states none.
+    pub subtype: String,
+}
+
+impl WrittenAppearance {
+    /// One constructed appearance as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("page".to_owned(), Value::count(self.page)),
+            ("subtype".to_owned(), Value::text(self.subtype.clone())),
+        ])
+    }
+}
+
 /// The metadata stream a conversion is in a position to write.
 pub(super) struct Metadata {
     /// The object the packet goes in, in the *source's* numbering.
@@ -349,6 +477,14 @@ pub(super) struct Prepared {
     pub(super) metadata: Result<Metadata, Because>,
     /// The `/ToUnicode` `CMaps` to write, or why none can be.
     pub(super) to_unicode: Result<DerivedMaps, Because>,
+    /// The appearances to construct, or why they cannot be.
+    pub(super) appearances: Result<Appearances, Because>,
+    /// The packets with their unusable properties taken out, or why they cannot be.
+    ///
+    /// Prepared **before** the metadata, because the catalog's own packet is one of these: the
+    /// identification schema is restated into the packet the removal already edited, so that a
+    /// document needing both edits gets one packet rather than two writers overwriting each other.
+    pub(super) properties: Result<Cleaned, Because>,
     /// Whether the file already carries the structure tree `/MarkInfo` would be a claim about.
     ///
     /// `Ok(())` where the catalog states a `/StructTreeRoot`, and the reason otherwise.
@@ -392,38 +528,47 @@ impl Prepared {
             (true, Err(because)) => Err(*because),
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
-        let when = default_cmyk
-            .is_ok()
-            .then(|| xmp::instant(std::time::SystemTime::now()))
-            .flatten();
-        let recorded = when.as_ref().map(|when| xmp::Event {
-            action: DEFAULT_CMYK_ACTION,
-            parameters: DEFAULT_CMYK_PARAMETERS,
-            when,
-        });
-        let metadata = match (
-            wanted(Rewrite::IdentificationSchema),
-            recorded.is_some(),
-            catalog.as_ref(),
-        ) {
-            (false, false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
-            (_, _, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
-            (schema, _, Some(catalog)) => prepare_metadata(
-                plan.target,
-                document,
-                catalog,
-                &mut spare,
-                schema,
-                recorded.as_ref(),
-            ),
+        // ISO 19005-2 section 6.6.2.3.1's removals are worked out before the packet is restated,
+        // because the catalog's packet is one of the ones they edit.
+        let properties = if wanted(Rewrite::PropertyOutsideItsSchema) {
+            prepare_properties(document, input)
+        } else {
+            Err(Because::NotBuiltYet(NOT_ASKED_FOR))
         };
+        let removals = properties
+            .as_ref()
+            .map(|cleaned| names_removed(&cleaned.removed))
+            .unwrap_or_default();
+        let now = xmp::instant(std::time::SystemTime::now());
+        let metadata = the_packet(
+            plan.target,
+            document,
+            catalog.as_ref(),
+            &mut spare,
+            Recording {
+                schema: wanted(Rewrite::IdentificationSchema),
+                when: now.as_deref(),
+                default_cmyk: default_cmyk.is_ok(),
+                removals: &removals,
+                cleaned: properties.as_ref().ok(),
+            },
+        );
         // A48's permission and its condition are one thing: a construction whose entry was not
         // written — because the packet would not take it, or because no clock answered — is
         // withdrawn rather than left unrecorded. The test is on the *event*, not on the packet:
         // a packet edited for the identification schema alone carries no action.
-        let recorded_it = recorded.is_some() && metadata.is_ok();
+        let recorded_it = now.is_some() && metadata.is_ok();
         let default_cmyk = match default_cmyk {
             Ok(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD)),
+            built => built,
+        };
+        // section 4.2's audit trail, on the same footing and for the sharper reason: a property
+        // that is gone leaves nothing in the file to notice, so a removal nobody could record is
+        // one this converter does not make.
+        let properties = match properties {
+            Ok(ref cleaned) if !cleaned.removed.is_empty() && !recorded_it => {
+                Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_REMOVAL))
+            }
             built => built,
         };
         // The fonts are the validator's own findings rather than a walk of this converter's:
@@ -434,6 +579,11 @@ impl Prepared {
         let to_unicode = if wanted(Rewrite::ToUnicode) {
             to_unicode::derive(document, &unicode_fonts(input), &mut spare)
                 .map_err(Because::NotBuiltYet)
+        } else {
+            Err(Because::NotBuiltYet(NOT_ASKED_FOR))
+        };
+        let appearances = if wanted(Rewrite::AppearanceDictionary) {
+            prepare_appearances(document, plan.target, &mut spare)
         } else {
             Err(Because::NotBuiltYet(NOT_ASKED_FOR))
         };
@@ -450,6 +600,8 @@ impl Prepared {
             default_cmyk,
             metadata,
             to_unicode,
+            appearances,
+            properties,
             structure,
         }
     }
@@ -466,6 +618,8 @@ impl Prepared {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
+            Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
+            Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
             _ => None,
@@ -492,6 +646,11 @@ impl Prepared {
         }
         if let Ok(maps) = &self.to_unicode {
             for (id, object) in &maps.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(appearances) = &self.appearances {
+            for (id, object) in &appearances.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -800,6 +959,249 @@ fn device_n(tint: ObjectId, profile: ObjectId) -> Object {
     ])
 }
 
+/// Constructs the appearance stream every annotation the requirement named would be given.
+///
+/// **Nothing is judged here either.** `pdf_archive::annotations_without_an_appearance` is the same
+/// reading the two requirement rows are, and `pdf_model::appearance` is the construction the
+/// viewer already draws from the annotation's own entries. What this decides is whether the
+/// construction may be *written down*, and it refuses three cases rather than writing something
+/// weaker than the clauses state.
+fn prepare_appearances(
+    document: &Document,
+    target: Target,
+    spare: &mut Spare,
+) -> Result<Appearances, Because> {
+    let mut at = BTreeMap::new();
+    let mut written = Vec::new();
+    let mut constructed = Vec::new();
+    for missing in pdf_archive::annotations_without_an_appearance(document, target) {
+        let annotation = missing
+            .at
+            .ok_or(Because::NotBuiltYet(APPEARANCE_ON_A_DIRECT_ANNOTATION))?;
+        let dict = document
+            .get(annotation)
+            .as_dict()
+            .cloned()
+            .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
+        if button_widget(document, &dict) {
+            return Err(Because::NotBuiltYet(BUTTON_APPEARANCE_STATES));
+        }
+        let built = pdf_model::appearance::for_annotation(document, &dict)
+            .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
+        if built.owed.is_some() {
+            return Err(Because::TheFence(APPEARANCE_INCOMPLETE));
+        }
+        let stream = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        at.insert(annotation, stream);
+        written.push((stream, built.stream));
+        constructed.push(WrittenAppearance {
+            page: missing.page,
+            subtype: missing
+                .subtype
+                .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
+        });
+    }
+    Ok(Appearances {
+        at,
+        written,
+        constructed,
+    })
+}
+
+/// Whether this annotation is the widget of a button field.
+///
+/// §12.7.4.1's Table 228 makes `/FT` inheritable, and `TechNote 0010`'s A023 resolves that an
+/// unmerged widget's field type is read from the form field dictionary above it — which is why
+/// this walks `/Parent` rather than reading the key off the annotation alone.
+fn button_widget(document: &Document, annotation: &Dictionary) -> bool {
+    if document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_none_or(|name| name.as_bytes() != b"Widget")
+    {
+        return false;
+    }
+    let mut node = annotation.clone();
+    for _ in 0..MAX_FIELD_DEPTH {
+        if let Some(kind) = document.get_key(&node, "FT").as_name() {
+            return kind.as_bytes() == b"Btn";
+        }
+        let Some(parent) = node.get("Parent").and_then(Object::as_reference) else {
+            return false;
+        };
+        let Some(above) = document.get(parent).as_dict().cloned() else {
+            return false;
+        };
+        node = above;
+    }
+    false
+}
+
+/// Every metadata stream the schema requirement was found to fail at.
+///
+/// The validator's own findings rather than a walk of this converter's, for
+/// [`unicode_fonts`]'s reason: which properties a predefined schema defines is `pdf_archive`'s
+/// reading. The *list* it names is capped, so a document failing at more streams than the cap
+/// leaves one uncleaned — and `doc/adr/0947`'s third stage refuses that file rather than this
+/// preparation half-finishing it.
+fn schema_packets(input: &pdf_archive::Report) -> Vec<ObjectId> {
+    let mut out: Vec<ObjectId> = input
+        .failures()
+        .filter(|judgement| judgement.id == SCHEMA_REQUIREMENT)
+        .filter_map(|judgement| match &judgement.outcome {
+            Outcome::Failed { places, .. } => Some(places),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|finding| finding.place.object)
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The requirement a removed property answers.
+const SCHEMA_REQUIREMENT: &str = "metadata/properties-use-known-schemas";
+
+/// Takes every property a predefined schema does not define out of the packets that state them.
+///
+/// **Nothing is judged here.** `pdf_archive::properties_outside_their_schema` is the same reading
+/// the requirement's own row is, asked of one packet's bytes, so a property this cuts is exactly a
+/// property that row reported. What this decides is only whether the cut can be made at all — and
+/// a packet left holding one afterwards refuses the document rather than leaving it half-edited,
+/// which is `doc/pdf-a-conversion-limits.md` section 3.9's line.
+fn prepare_properties(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<Cleaned, Because> {
+    let mut packets = BTreeMap::new();
+    let mut removed = Vec::new();
+    for at in schema_packets(input) {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let misused = pdf_archive::properties_outside_their_schema(&bytes);
+        if misused.is_empty() {
+            continue;
+        }
+        let names: Vec<XmpName> = misused
+            .iter()
+            .map(|property| property.name.clone())
+            .collect();
+        let cut =
+            xmp::remove(&bytes, &names).map_err(|_| Because::NotBuiltYet(PACKET_NOT_CUTTABLE))?;
+        // Read back rather than trusted: the writer says what it cut and the packet says what it
+        // holds, and only the second of those is what a validator will see.
+        if !pdf_archive::properties_outside_their_schema(&cut).is_empty() {
+            return Err(Because::NotBuiltYet(PROPERTY_NOT_CUT));
+        }
+        packets.insert(at, cut);
+        removed.extend(misused);
+    }
+    Ok(Cleaned { packets, removed })
+}
+
+/// The `parameters` field of the removal's recorded action: what went, by name.
+///
+/// Empty where nothing was removed, which is what keeps a document needing no removal from
+/// carrying an entry saying so.
+fn names_removed(removed: &[MisusedProperty]) -> String {
+    if removed.is_empty() {
+        return String::new();
+    }
+    let named: Vec<&str> = removed
+        .iter()
+        .take(MOST_NAMED)
+        .map(|property| property.spelled.as_str())
+        .collect();
+    let rest = removed.len().saturating_sub(named.len());
+    let tail = if rest == 0 {
+        String::new()
+    } else {
+        format!(", and {rest} more")
+    };
+    format!(
+        "these properties were removed because the predefined schema each names does not define \
+         the value it held, which ISO 19005-2 clause 6.6.2.3.1 requires: {}{tail}. The conversion \
+         report names each one, its namespace and the value that was there",
+        named.join(", ")
+    )
+}
+
+/// What the packet has to carry besides the producer's own bytes.
+///
+/// One argument rather than five, because every one of them is a fact about *this conversion*
+/// that only [`Prepared::of`] knows, and a function taking five booleans and two slices is one
+/// nobody can call correctly twice.
+#[derive(Debug, Clone, Copy)]
+struct Recording<'a> {
+    /// Whether the identification schema is being restated into the packet.
+    schema: bool,
+    /// The instant every recorded action carries, where a clock answered.
+    when: Option<&'a str>,
+    /// Whether the `/DefaultCMYK` is being written, which is one recorded action.
+    default_cmyk: bool,
+    /// The removal's own recorded action, empty where nothing was removed.
+    removals: &'a str,
+    /// The packets a removal has already edited, one of which may be the catalog's.
+    cleaned: Option<&'a Cleaned>,
+}
+
+/// The metadata stream this conversion writes, with every action it has to record in it.
+///
+/// ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5 ask a converter to record what it did,
+/// and `doc/pdf-a-conversion-limits.md` section 4.2 turns that into one entry per **Ask**. The
+/// entries are appended in the order they are built, so a packet already holding a producer's
+/// history keeps it and gains these after it.
+fn the_packet(
+    target: Target,
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    spare: &mut Spare,
+    recording: Recording<'_>,
+) -> Result<Metadata, Because> {
+    let mut events: Vec<xmp::Event<'_>> = Vec::new();
+    if let Some(when) = recording.when {
+        if recording.default_cmyk {
+            events.push(xmp::Event {
+                action: DEFAULT_CMYK_ACTION,
+                parameters: DEFAULT_CMYK_PARAMETERS,
+                when,
+            });
+        }
+        if !recording.removals.is_empty() {
+            events.push(xmp::Event {
+                action: REMOVED_PROPERTIES_ACTION,
+                parameters: recording.removals,
+                when,
+            });
+        }
+    }
+    // Nothing is prepared that no failed requirement asked for: a document needing neither the
+    // schema nor an entry does not have its packet read at all, and the reason is never shown —
+    // `decide` consults it only for a requirement the table answers with this rewrite.
+    let Some(catalog) = catalog else {
+        return Err(Because::NotBuiltYet(NO_CATALOG));
+    };
+    if !recording.schema && events.is_empty() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    prepare_metadata(
+        target,
+        document,
+        catalog,
+        spare,
+        recording.schema,
+        &events,
+        recording.cleaned,
+    )
+}
+
 /// Prepares the metadata stream: the packet, and the object it goes in.
 ///
 /// Two cases, and the difference between them is the whole of what makes this safe. A document
@@ -815,7 +1217,8 @@ fn prepare_metadata(
     catalog: &Dictionary,
     spare: &mut Spare,
     schema_wanted: bool,
-    recorded: Option<&xmp::Event<'_>>,
+    recorded: &[xmp::Event<'_>],
+    cleaned: Option<&Cleaned>,
 ) -> Result<Metadata, Because> {
     let properties = identification_properties(target);
     let schema = Schema {
@@ -825,21 +1228,26 @@ fn prepare_metadata(
     };
     // A recorded action is *appended*, so a packet may need editing for that alone — a document
     // whose identification schema is already right and whose `DeviceCMYK` is not.
-    let record = |packet: Vec<u8>| match recorded {
-        None => Ok(packet),
-        Some(event) => {
+    let record = |packet: Vec<u8>| {
+        recorded.iter().try_fold(packet, |packet, event| {
             xmp::record(&packet, event).map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))
-        }
+        })
     };
     if let Some(at) = catalog.get("Metadata").and_then(Object::as_reference)
         && let Object::Stream(stream) = document.get(at)
         && let Some(bytes) = document.decoded_stream_data(&stream)
     {
+        // The removal edited this packet already where it edited any, so the schema is restated
+        // into what that left rather than into the producer's original — two writers over one
+        // packet, in the order the second can see the first's work.
+        let held = cleaned
+            .and_then(|cleaned| cleaned.packets.get(&at).cloned())
+            .unwrap_or_else(|| bytes.to_vec());
         let restated = if schema_wanted {
-            xmp::restate(&bytes, &IDENTIFICATION_URIS, &schema)
+            xmp::restate(&held, &IDENTIFICATION_URIS, &schema)
                 .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?
         } else {
-            bytes.to_vec()
+            held
         };
         return Ok(Metadata {
             at,
