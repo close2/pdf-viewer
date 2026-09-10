@@ -407,6 +407,40 @@ carry a unique `/Name`, and an `/Order` array (where present) to reference every
 
 ---
 
+### 3.9 A metadata property its own schema does not define
+
+**The largest single thing between this converter and the corpus**, measured in session 949: of the
+PDF/A-2b documents the converter refuses, 273 are refused on this one requirement, and for 272 of
+them it is the only one.
+
+ISO 19005-2 section 6.6.2.3.1 requires every property an XMP packet states to *use* one of the
+predefined schemas — the XMP Specification's, ISO 19005-1's, this part's — or an extension schema
+complying with section 6.6.2.3.2. A packet can name a predefined schema's namespace and still not
+use it: `veraPDF test suite 6-6-2-3-1-t01-fail-a.pdf` states `xmpDM:projectRef` as a simple text
+value where the Dynamic Media schema defines it as a structured type. The namespace is right and
+the value is not one the schema describes.
+
+**Why this is a loss and not a default.** Three routes exist and two are closed:
+
+- *Correct the value to the type the schema defines* — but the schema says what shape a value has,
+  not what value this document meant, so a converter doing this is inventing content. `A48`'s line
+  forbids it: state an interpretation the standard defines; never fill in an absence.
+- *Declare the property in an extension schema container* — section 6.6.2.3.2's container is for
+  **extension** schemas, and `xmpDM` is not one. Describing a predefined schema as an extension
+  would misrepresent it in the file itself.
+- *Remove the property* — which loses what the producer wrote, and is therefore §3's kind of
+  answer rather than §4's.
+
+- **Class: Ask.** The report names each property removed, its namespace and the value that was
+  there, so a user can put it back by hand or supply a corrected source. Removing metadata is
+  cheap to describe and impossible to undo from the output alone, which is exactly the shape §3
+  exists for.
+- **The refusal stays the default.** A conversion run without the authorisation refuses and names
+  the properties, because a document losing metadata silently is the failure this whole section is
+  written against.
+
+---
+
 ## 4. Choices the source does not make, where a default is right
 
 This is the class the user's ICC example belongs to. Nothing is lost; something must be *chosen*,
