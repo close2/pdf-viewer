@@ -18,7 +18,14 @@ repository.workspace = true
 # rather than on anything hard (doc/third-party-data.md's rule). No serialisation dependency
 # either, for the same reason `pdf-retrieve` gives: the report is a fixed shape this crate writes
 # and never parses.
+#
+# `pdf-archive` is the one dependency here that is not a reader: it is the *judgement*. The
+# `archive` verb converts a document to a part and level of ISO 19005, and every decision it
+# takes is about a requirement that crate states, cites and checks — so a converter holding its
+# own copy of the rules would be a second reading of a standard `CLAUDE.md` principle 5 says has
+# one. It validates the input, decides one requirement at a time, and validates what it wrote.
 [dependencies]
+pdf-archive.workspace = true
 pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-syntax.workspace = true

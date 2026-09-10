@@ -50,6 +50,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod archive;
 pub mod attachments;
 pub mod images;
 pub mod json;
@@ -290,6 +291,14 @@ pub enum Plan {
     Pages(pages::PagesPlan),
     /// One document rewritten smaller — RFC 0002 section 6.5.
     Optimize(optimize::OptimizePlan),
+    /// One document converted to a stated part and level of ISO 19005 (PDF/A).
+    ///
+    /// `doc/questions/A22` names the verb; `doc/rfc/0006` argues the design, and
+    /// `doc/pdf-a-conversion-limits.md` is its specification of behaviour. The one verb of this
+    /// suite whose output is *judged* before it is written: [`archive`] validates what it
+    /// produced against the same target, and refuses to write a file that would fail a
+    /// requirement its source met.
+    Archive(archive::ArchivePlan),
     /// One document edited **in place**, by §7.5.6's incremental update: a page taken out, a
     /// document's pages carried in, or §14.3.3's entries set.
     ///
@@ -315,6 +324,7 @@ impl Plan {
             Self::Split(plan) => plan.source,
             Self::Pages(plan) => plan.source,
             Self::Optimize(plan) => plan.source,
+            Self::Archive(plan) => plan.source,
             Self::Update(plan) => plan.source,
             Self::Merge(plan) => plan.inputs.first().map_or(0, |input| input.source),
         }
@@ -392,9 +402,17 @@ impl Plan {
             // operation of its own — there is no bit for "make this smaller" — and answering
             // `None` would make the one verb whose whole output is a derived file the one verb
             // no policy is asked about.
-            Self::Split(_) | Self::Merge(_) | Self::Pages(_) | Self::Optimize(_) => {
-                Some(Operation::Assemble)
-            }
+            //
+            // **`archive` is the same answer again, and the sentence still fits**: a converted
+            // file is the document's own pages assembled into a new one, stated so that ISO
+            // 19005 admits it. There is no Table 22 bit for "make this archivable", and the
+            // conversion is a rewrite of the whole document, so bit 11 is the one it falls
+            // under for the reason the three verbs above it do.
+            Self::Split(_)
+            | Self::Merge(_)
+            | Self::Pages(_)
+            | Self::Optimize(_)
+            | Self::Archive(_) => Some(Operation::Assemble),
             // The same reading, applied in place: Table 22 bit 11 is "[a]ssemble the document
             // (insert, rotate, or delete pages …)", and two of this verb's three edits are the
             // first and the third of those words. The third edit writes §14.3.3's entries, which
@@ -751,6 +769,14 @@ pub struct Report {
     pub warnings: Vec<Warning>,
     /// Items this program declined, by name. Non-empty means [`Exit::Refused`].
     pub refused: Vec<Declined>,
+    /// What a conversion to ISO 19005 did, where the plan was one.
+    ///
+    /// **A first-class output rather than a log.** `doc/adr/0927`: the owner's four permissions
+    /// to write something a producer did not are all conditional on what was written being
+    /// *named in the report the conversion produces*, per document. So it is here beside the
+    /// outputs — present whether or not a file was written, because the interesting case is
+    /// often the one where none was.
+    pub archive: Option<archive::Conversion>,
 }
 
 /// One file written.
@@ -863,6 +889,20 @@ pub enum Origin {
         /// What the edit was, in a sentence.
         edit: String,
     },
+    /// One document converted to a part and level of ISO 19005 — `archive`'s output.
+    ///
+    /// What was *done* to it is [`Report::archive`], which is a report rather than an origin:
+    /// it exists for a refused conversion too, and no output would carry it.
+    Archived {
+        /// Which source.
+        source: usize,
+        /// The target it was converted to, as `pdf_archive::Target` spells it.
+        target: String,
+        /// How many pages it holds, which is how many the source held.
+        pages: usize,
+        /// How many of the target's requirements were reached by changing the document.
+        changed: usize,
+    },
     /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
     /// byte, and then what was added.
     Updated {
@@ -948,6 +988,12 @@ impl Report {
                         })
                         .collect(),
                 ),
+            ),
+            (
+                "archive".to_owned(),
+                self.archive
+                    .as_ref()
+                    .map_or(Value::Null, archive::Conversion::to_json),
             ),
             (
                 "refused".to_owned(),
@@ -1084,6 +1130,18 @@ impl Origin {
                 ("source".to_owned(), Value::count(*source)),
                 ("name".to_owned(), Value::text(name.clone())),
             ],
+            Self::Archived {
+                source,
+                target,
+                pages,
+                changed,
+            } => vec![
+                ("kind".to_owned(), Value::text("archived")),
+                ("source".to_owned(), Value::count(*source)),
+                ("target".to_owned(), Value::text(target.clone())),
+                ("pages".to_owned(), Value::count(*pages)),
+                ("changed".to_owned(), Value::count(*changed)),
+            ],
             Self::Updated { source, attached } => vec![
                 ("kind".to_owned(), Value::text("updated")),
                 ("source".to_owned(), Value::count(*source)),
@@ -1219,6 +1277,7 @@ pub fn apply_borrowed(
         Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
         Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, &mut report)?,
+        Plan::Archive(plan) => archive::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Update(plan) => update::run(plan, &wanted, &opened, sinks, &mut report)?,
     }
     Ok(report)

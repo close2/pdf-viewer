@@ -24,6 +24,8 @@
 //! pdf-transform pages       in.pdf --delete r1 --rotate +90:1-end -o out.pdf
 //! pdf-transform optimize    in.pdf -o out.pdf
 //! pdf-transform optimize    in.pdf --object-streams disable --recompress none -o out.pdf
+//! pdf-transform archive     in.pdf --to 4 -o out.pdf
+//! pdf-transform archive     in.pdf --to 2b --authorise image-smoothing -o out.pdf
 //! ```
 
 //!
@@ -51,6 +53,7 @@ use std::io::{BufRead as _, IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use pdf_transform::archive::{ArchivePlan, Authorisations, Loss};
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::merge::{Input, MergePlan};
@@ -203,6 +206,8 @@ const VALUED: &[&str] = &[
     "--recompress",
     "--compression-level",
     "--images",
+    "--to",
+    "--authorise",
 ];
 
 /// The flags whose value is optional and, when given, is written inline with `=`.
@@ -249,6 +254,8 @@ const KNOWN: &[&str] = &[
     "--compression-level",
     "--linearize",
     "--images",
+    "--to",
+    "--authorise",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -409,6 +416,11 @@ fn run() -> Result<Exit, Failure> {
     if json {
         print!("{}", report.to_json().render());
     } else if !to_stdout {
+        // The conversion's report is an output rather than a listing (`doc/adr/0927`), and it
+        // goes to stderr with the other diagnostics: stdout carries bytes or the JSON report.
+        if let Some(conversion) = &report.archive {
+            eprint!("{}", conversion.render());
+        }
         print_listing(&report);
     }
     Ok(report.exit(
@@ -496,6 +508,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
             arguments,
             names("optimize")?,
         )?)),
+        "archive" => Ok(Plan::Archive(archive_plan(arguments, names("archive")?)?)),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
             action: attachments_action(arguments, output)?,
@@ -503,6 +516,55 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
     }
+}
+
+/// `archive`: the target, and the losses the caller has authorised.
+///
+/// **`--to` has no default, deliberately.** Section 9 of `doc/pdf-a-conversion-limits.md` is
+/// the user
+/// whose deposit rule names one part and one level, for whom a converter guessing would be
+/// producing a file against a target nobody asked for; and section 1.1 is the user with a free
+/// choice, for whom the interesting sentence is "this cannot be PDF/A-2 and can be PDF/A-4f".
+/// Neither is served by a default.
+fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Failure> {
+    let Some(word) = arguments.value(&["--to"]) else {
+        return Err(Failure::Usage(
+            "archive needs --to <target>: 2b, 2u, 2a, 4, 4f or 4e. There is no default, because \
+             which part and level a document has to reach is the one thing this program cannot \
+             work out for you"
+                .to_owned(),
+        ));
+    };
+    let target = pdf_archive::Target::parse(word).ok_or_else(|| {
+        Failure::Usage(format!(
+            "--to {word:?}: the targets are 2b, 2u, 2a, 4, 4f and 4e. Parts 1 and 3 are not \
+             targets and will not become ones — doc/questions/A17"
+        ))
+    })?;
+    let mut authorised = Authorisations::default();
+    for (flag, value) in &arguments.flags {
+        if flag != "--authorise" {
+            continue;
+        }
+        let word = value.as_deref().unwrap_or_default();
+        let loss = Loss::parse(word).ok_or_else(|| {
+            Failure::Usage(format!(
+                "--authorise {word:?}: the losses this converter can be authorised are {}",
+                Loss::ALL
+                    .iter()
+                    .map(|loss| loss.word())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
+        authorised.authorise(loss);
+    }
+    Ok(ArchivePlan {
+        source: 0,
+        names,
+        target,
+        authorised,
+    })
 }
 
 /// `optimize`: the two knobs RFC 0002 section 6.5 names, and the one it defers.
@@ -1062,6 +1124,7 @@ verbs:
   merge        several documents into one    a.pdf b.pdf [--collate] -o out.pdf
   pages        one document's pages edited   --delete | --rotate | --move | --insert
   optimize     one document rewritten smaller, losslessly   -o out.pdf
+  archive      one document converted to ISO 19005 (PDF/A)   --to <target> -o out.pdf
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
@@ -1192,6 +1255,25 @@ optimize:
   have (RFC 0002 section 13's second question), and a downsampler without one would keep every
   image under qpdf's fails-to-shrink rule and do nothing while claiming to. Optimising an
   encrypted document produces an unencrypted one, and says so.
+
+archive:
+  --to <target>            2b, 2u, 2a (ISO 19005-2), 4, 4f, 4e (ISO 19005-4). Required: which
+                           part and level a document has to reach is the one thing this program
+                           cannot work out for you. Parts 1 and 3 are not targets and will not
+                           become ones, because their text is not held and a requirement may not
+                           be implemented from somebody else's reading of it
+  --authorise <what>       may repeat. What the conversion may throw away: image-smoothing turns
+                           /Interpolate off, so a low-resolution image looks blockier. Anything
+                           not authorised stops the conversion instead of happening quietly
+  the document is validated against the target, one decision is taken per requirement it fails,
+  and the rewrites those decisions call for are applied — then the output is validated again and
+  is **not written** if it fails a requirement the source met. The report says, per document,
+  what already conformed, what was changed and under which clause, what was refused and why, and
+  which requirements the verdict does not cover; --report=json carries all of it. This slice
+  performs the mechanical rewrites that need no resource this tree ships. Everything else — the
+  output intent and colour, fonts, metadata and the identification schema, the structure tree,
+  encryption, attachments — is refused **by name**, with the clause it could not meet, and no
+  file is written. doc/pdf-a-conversion-limits.md is the whole list.
 
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)

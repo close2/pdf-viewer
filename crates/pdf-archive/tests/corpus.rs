@@ -296,6 +296,34 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
          rule and its `corr` twin. `-pass-a` states `1:2007`, which is the form section 6.6.4 \
          describes; the value here was never the subject of the test.",
     ),
+    // ISO 19005-4 section 6.7.2.1, the witness that asks which standard states the encoding of an
+    // XMP packet. Session 941 left it open because neither part 4 nor ISO 32000-2 §14.3.2 named
+    // one and ISO 16684-1 was not held; a preview of that standard reaching its section 7.2
+    // arrived in the nine-hundred-and-forty-sixth session and settles the question in the
+    // direction nobody had checked — the standard the two others defer to declines the subject
+    // itself.
+    (
+        "veraPDF test suite 6-7-2-1-t01-fail-e.pdf",
+        Ruling::SpecAgainstTheCorpus,
+        "a metadata stream whose packet is UTF-16 with a byte-order mark, expected to fail \
+         ISO 19005-4 section 6.7.2.1 because it is not UTF-8. **Three documents were read and \
+         none of them states that rule.** ISO 16684-1 section 7.1 names UTF-8, UTF-16 and UTF-32 \
+         as the encodings serialised XMP may use, puts the choice between them beyond its own \
+         scope, and says an embedding or usage standard may specify one — so the standard part 4 \
+         defers to has declined the subject and pointed at whoever embeds the packet. The \
+         embedding standard here is ISO 32000-2, whose §14.3.2 sends the grammar of a metadata \
+         stream to ISO 16684-1 and states no encoding; its §7.9.2.2 does constrain an encoding, \
+         but its subject is the text string type, which is a string object and not a stream's \
+         contents. And ISO 19005-4 section 6.7.2.1 states none either: what it says about \
+         encoding is that the encoding *attribute* of a packet header shall not be used, which \
+         is a rule about the header rather than about the bytes and is checked under \
+         `metadata/xmp-packet-header-attributes`. Two further facts point the same way and \
+         neither is the reason: the deprecated attribute was how a packet used to declare \
+         UTF-16, so a ban on the attribute is not a ban on the encoding; and `pdf_model::xmp` \
+         decodes all three because section 7.1 names all three. Where a later round finds the \
+         sentence — an ISO 19005 part this project does not hold, or a document outside ISO — \
+         this row is the place to overturn.",
+    ),
     (
         "veraPDF test suite 6-2-4-3-t02-fail-a.pdf",
         Ruling::SpecAgainstTheCorpus,

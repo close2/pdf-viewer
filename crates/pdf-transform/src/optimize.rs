@@ -193,21 +193,7 @@ pub(crate) fn run(
         count: documents.len(),
     })?;
 
-    // §7.5.5's Table 15: `/Root` is "( Required; shall be an indirect reference ) The catalog
-    // dictionary for the PDF file". A trailer stating it any other way is a file this verb
-    // cannot rewrite without inventing the catalog's identity, so it says so.
-    let Some(root) = document
-        .trailer()
-        .get("Root")
-        .and_then(Object::as_reference)
-    else {
-        return Err(Refusal::Reconstructed(
-            "§7.5.5's Table 15 makes /Root \"( Required; shall be an indirect reference ) The \
-             catalog dictionary for the PDF file\", and this document's trailer does not state \
-             one"
-            .to_owned(),
-        ));
-    };
+    let root = catalog_of(document)?;
     refuse_a_document_only_recovery_reads(document, root)?;
 
     let mut assembly = Assembly::new(vec![document]);
@@ -297,9 +283,38 @@ pub(crate) fn run(
     Ok(())
 }
 
+/// The object §7.5.5's `/Root` names, or a refusal saying the trailer does not name one.
+///
+/// > ( Required; shall be an indirect reference ) The catalog dictionary for the PDF file
+///
+/// A trailer stating it any other way is a file no verb of this crate can rewrite without
+/// inventing the catalog's identity, so both of the verbs that rewrite a whole document —
+/// `optimize` and `archive` — ask this rather than each reading Table 15 for itself.
+///
+/// # Errors
+///
+/// [`Refusal::Reconstructed`], which is RFC 0002 section 4.4's exit 4: this program *reads* such
+/// a document, and it is the writer that declines.
+pub(crate) fn catalog_of(document: &Document) -> Result<ObjectId, Refusal> {
+    document
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .ok_or_else(|| {
+            Refusal::Reconstructed(
+                "§7.5.5's Table 15 makes /Root \"( Required; shall be an indirect reference ) The \
+                 catalog dictionary for the PDF file\", and this document's trailer does not \
+                 state one"
+                    .to_owned(),
+            )
+        })
+}
+
 /// Refuses a document whose structure this program reaches only by §C.4's recovery.
 ///
-/// **The one refusal this verb has, and the corpus walk is why it exists.** Four documents
+/// **The one refusal `optimize` has, and the corpus walk is why it exists**; `archive` asks it
+/// for the same reason, because a converted file has to be a file a producer could have
+/// written. Four documents
 /// rewrote into files with no page at all, and every one of them was a file this tree opens by
 /// *recovering* what its own trailer misstates: `poppler-742-0-fuzzed.pdf`, whose `/Root` names
 /// an object that is not there; `issue9418.pdf`, whose every object is misfiled so that `/Root`
@@ -323,7 +338,7 @@ pub(crate) fn run(
 /// [`Refusal::Reconstructed`], naming which of the two clauses the document does not satisfy —
 /// RFC 0002 section 4.4's exit 4 rather than its 2, because this tree reads and draws such a
 /// document and it is the *writer* that declines.
-fn refuse_a_document_only_recovery_reads(
+pub(crate) fn refuse_a_document_only_recovery_reads(
     document: &Document,
     root: ObjectId,
 ) -> Result<(), Refusal> {

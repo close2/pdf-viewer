@@ -3255,6 +3255,7 @@ dependencies = [
 name = "pdf-transform"
 version = "0.1.0"
 dependencies = [
+ "pdf-archive",
  "pdf-model",
  "pdf-render",
  "pdf-syntax",

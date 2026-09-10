@@ -65,10 +65,16 @@ pub const PDF: &str = "http://ns.adobe.com/pdf/1.3/";
 /// The XMP basic schema: `xmp:CreatorTool`, `xmp:CreateDate`, `xmp:ModifyDate`.
 pub const XMP: &str = "http://ns.adobe.com/xap/1.0/";
 /// The RDF syntax namespace, whose `Description`, `Alt`, `Seq`, `Bag` and `li` are the grammar.
-const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+///
+/// Public because ISO 16684-1 section 6.2 makes it a namespace a *property* may not be in, save
+/// for `rdf:type`, and a validator asking that has to spell the URI the same way this reader
+/// resolved it to.
+pub const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 /// The XML namespace, bound to the `xml` prefix by the XML specification itself and never
 /// declared. Its `lang` attribute is what makes an `rdf:Alt` a language alternative.
-const XML: &str = "http://www.w3.org/XML/1998/namespace";
+///
+/// Public for [`RDF`]'s reason: section 6.2 restricts it in the same sentence.
+pub const XML: &str = "http://www.w3.org/XML/1998/namespace";
 
 /// The largest metadata stream this module will look at, decoded.
 ///
@@ -110,7 +116,7 @@ pub enum XmpError {
         /// What the stream decoded to.
         bytes: usize,
     },
-    /// The bytes are not text in any encoding ISO 16684-1 section 7.3.2 permits.
+    /// The bytes are not text in any of the three encodings ISO 16684-1 section 7.1 names.
     #[error("the metadata stream is not UTF-8, UTF-16 or UTF-32 text")]
     NotText,
     /// The XML is malformed, at a line and column of the decoded packet.
@@ -328,6 +334,23 @@ impl Xmp {
         Ok(Reader::new(true).run(&text)?.details)
     }
 
+    /// How many top-level `rdf:RDF` elements a packet's bytes state.
+    ///
+    /// ISO 16684-1 section 7.1 requires a single XMP packet to be serialised using a single
+    /// `rdf:RDF` element, and neither [`Self::parse`] nor [`Self::parse_detail`] can be asked
+    /// how many there were: both hand back the properties, which two roots would merge into one
+    /// list. A validator has to be able to tell those apart, so the count is its own reading of
+    /// the same walk rather than a field on [`Xmp`] — an [`Xmp`] built by
+    /// [`Self::from_properties`] never saw a packet and could only lie about it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::parse`].
+    pub fn rdf_elements(bytes: &[u8]) -> Result<usize, XmpError> {
+        let text = text_of(bytes)?;
+        Ok(Reader::new(false).run(&text)?.rdf_elements)
+    }
+
     /// Every property, in the order the packet states them.
     #[must_use]
     pub fn properties(&self) -> &[(Name, Value)] {
@@ -372,7 +395,10 @@ impl Xmp {
             Value::Text(text) => Some(text.as_str()),
             Value::Alt(items) => items
                 .iter()
-                .find(|(lang, _)| lang.as_deref() == Some("x-default"))
+                .find(|(lang, _)| {
+                    lang.as_deref()
+                        .is_some_and(|lang| same_language(lang, "x-default"))
+                })
                 .or_else(|| items.first())
                 .map(|(_, text)| text.as_str()),
             Value::Seq(items) | Value::Bag(items) => items.first().map(String::as_str),
@@ -382,15 +408,18 @@ impl Xmp {
 
     /// One property in a particular language, where it is a language alternative that has it.
     ///
-    /// The match is on the exact `xml:lang` the packet wrote, not on RFC 4647's lookup: a
-    /// fallback from `en-GB` to `en` is a policy a *host* has, and inventing one here would put
-    /// it out of that host's reach.
+    /// The match is on the `xml:lang` the packet wrote, not on RFC 4647's lookup: a fallback
+    /// from `en-GB` to `en` is a policy a *host* has, and inventing one here would put it out of
+    /// that host's reach. Case is [`same_language`]'s business rather than the tag's.
     #[must_use]
     pub fn text_in(&self, namespace: &str, local: &str, language: &str) -> Option<&str> {
         match self.value(namespace, local)? {
             Value::Alt(items) => items
                 .iter()
-                .find(|(lang, _)| lang.as_deref() == Some(language))
+                .find(|(lang, _)| {
+                    lang.as_deref()
+                        .is_some_and(|lang| same_language(lang, language))
+                })
                 .map(|(_, text)| text.as_str()),
             _ => None,
         }
@@ -471,14 +500,33 @@ impl Xmp {
     }
 }
 
-/// The packet's bytes as text, in whichever of the three encodings ISO 16684-1 section 7.3.2
-/// permits — UTF-8, UTF-16 or UTF-32. Paraphrased rather than quoted, because a verbatim
-/// sentence in this tree is one the conformance checker verifies against `doc/md/`, and that
-/// directory holds ISO 32000-2 and not this standard.
+/// Whether two `xml:lang` values name the same language.
+///
+/// ISO 16684-1 section 6.4 requires every comparison of `xml:lang` values to be
+/// case-insensitive, and it says so by way of IETF RFC 3066, whose tags are ASCII throughout —
+/// so an ASCII fold is the whole of the rule rather than an approximation of it. This module
+/// compared the tags exactly until the nine-hundred-and-forty-sixth session, which made a packet
+/// writing `X-Default` or `EN-GB` a packet whose title this reader could not find: the sentence
+/// became readable when a copy of that standard reaching its section 7.2 arrived.
+fn same_language(one: &str, other: &str) -> bool {
+    one.eq_ignore_ascii_case(other)
+}
+
+/// The packet's bytes as text, in whichever of the three encodings ISO 16684-1 section 7.1 names
+/// — UTF-8, UTF-16 or UTF-32. Paraphrased rather than quoted, because a verbatim sentence in this
+/// tree is one the conformance checker verifies against `doc/md/`, and that directory holds
+/// ISO 32000-2 and not this standard.
+///
+/// **Section 7.1 puts the choice between the three beyond its own scope** and leaves it to
+/// whichever standard embeds the packet, so a reader that took one of them for the rule would be
+/// inventing one. §14.3.2 embeds packets in PDF and states no encoding either. This citation
+/// said section 7.3.2 until the nine-hundred-and-forty-sixth session, when a copy of the standard
+/// reaching section 7.2 arrived and the sentence turned out to be in section 7.1 saying rather
+/// less than the citation implied.
 ///
 /// UTF-8 is what every one of the 319 corpus streams uses and what the `<?xpacket>` header's
 /// `begin` attribute signals by carrying U+FEFF in the packet's own encoding. The other two are
-/// decoded here rather than refused, because refusing a spelling the clause permits is a gap
+/// decoded here rather than refused, because refusing a spelling the standard names is a gap
 /// dressed as a limit — and both are twenty lines.
 /// A packet's bytes as text, refusing one past [`MAX_BYTES`] before decoding it.
 fn text_of(bytes: &[u8]) -> Result<String, XmpError> {
@@ -623,6 +671,8 @@ struct Reader {
     /// properties are not, and bounding them together would make [`Xmp::parse`] refuse packets
     /// it accepts today.
     fields: usize,
+    /// How many top-level `rdf:RDF` elements the packet stated, for [`Xmp::rdf_elements`].
+    rdf_elements: usize,
 }
 
 impl Reader {
@@ -634,6 +684,7 @@ impl Reader {
             detailed,
             details: Vec::new(),
             fields: 0,
+            rdf_elements: 0,
         }
     }
 
@@ -750,6 +801,9 @@ impl Reader {
         let local = name.1.as_str();
         let parent = self.stack.last().map(|frame| &frame.kind);
         let kind = self.classify(&namespace, local, attributes, parent);
+        if kind == Kind::Rdf {
+            self.rdf_elements = self.rdf_elements.saturating_add(1);
+        }
 
         // §7.5's attribute form: every attribute of a description that is neither a namespace
         // declaration nor RDF's own is a simple property of it — of the packet where the
@@ -1477,6 +1531,45 @@ mod tests {
             items[1].0, None,
             "an item that states no language is reported without one rather than dropped"
         );
+    }
+
+    /// ISO 16684-1 section 6.4 makes every comparison of `xml:lang` values case-insensitive.
+    #[test]
+    fn a_language_tag_is_matched_without_regard_to_case() {
+        let packet = PACKET
+            .replace("x-default", "X-Default")
+            .replace("de-DE", "DE-de");
+        let xmp = Xmp::parse(packet.as_bytes()).expect("well-formed");
+        assert_eq!(
+            xmp.title(),
+            Some("Annual & final report"),
+            "the default alternative is found whatever case the packet wrote it in"
+        );
+        assert_eq!(xmp.text_in(DC, "title", "de-de"), Some("Jahresbericht"));
+        assert_eq!(
+            xmp.text_in(DC, "title", "fr"),
+            None,
+            "and nothing is invented"
+        );
+    }
+
+    /// ISO 16684-1 section 7.1 serialises one packet as one `rdf:RDF` element, and a validator
+    /// has to be able to see how many a stream states.
+    #[test]
+    fn the_rdf_roots_of_a_packet_are_counted() {
+        assert_eq!(
+            Xmp::rdf_elements(PACKET.as_bytes()).expect("well-formed"),
+            1
+        );
+
+        let two = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>\
+             </x:xmpmeta>";
+        assert_eq!(Xmp::rdf_elements(two.as_bytes()).expect("well-formed"), 2);
+
+        let none = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>";
+        assert_eq!(Xmp::rdf_elements(none.as_bytes()).expect("well-formed"), 0);
     }
 
     /// The `xmp:` accessors name the properties Table 349's NOTEs pair with the dictionary.

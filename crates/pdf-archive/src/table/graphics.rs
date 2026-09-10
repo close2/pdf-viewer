@@ -215,8 +215,12 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
             "part 2 names four ICC texts by their own designations, and this project holds none \
              of them, so what it takes to conform to one of them is not readable here — \
              `CLAUDE.md` principle 5 forbids implementing them from somebody else's reading. \
-             The profile version at header offset 8 would say which edition a profile *claims*, \
-             which is a different question from whether it conforms to that edition",
+             One of the four is ISO 15076-1:2010 and a copy of it arrived in the \
+             nine-hundred-and-forty-sixth session; it is a preview of the front matter that \
+             stops in the introduction, before clause 7's profile requirements, so the row is \
+             where it was. The profile version at header offset 8 would say which edition a \
+             profile *claims*, which is a different question from whether it conforms to that \
+             edition",
         ),
     },
     Requirement {
@@ -712,8 +716,10 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require the destination profile to be a *valid* ICC profile stream and \
      neither defines validity; the base standard sends the format to ISO 32000 section 8.6.5.5, \
      which \
-     sends it to the ICC specification, and this project holds no edition of ICC.1, ISO 15076-1 \
-     or ICC.2. What is readable here is checked under the rows beside this one — the profile \
+     sends it to the ICC specification, and this project holds no edition of ICC.1 or ICC.2 and \
+     only a preview of ISO 15076-1:2010 — front matter that stops in the introduction, where \
+     section 7.2's profile header begins on page 19, so it answers none of this. What is \
+     readable here is checked under the rows beside this one — the profile \
      decodes, carries the `acsp` signature, and states a device class and colour space each part \
      admits. What is not is whether the profile conforms to the edition its own header's version \
      number names: a header stating version 5 names iccMAX, and ISO 32000 permits a writer to \
@@ -2663,7 +2669,11 @@ impl Profiles {
 /// each profile's own `Profile ID` field where it states a non-zero one and computed by ISO
 /// 15076-1:2010 section 7.2.18's method where it does not. **This project holds neither ICC text**,
 /// so neither the field's position nor the computation is readable here, and `CLAUDE.md` principle
-/// 5 forbids taking them from somebody else's implementation.
+/// 5 forbids taking them from somebody else's implementation. A copy of ISO 15076-1:2010 arrived
+/// in the nine-hundred-and-forty-sixth session and does not change that: it is a preview carrying
+/// the front matter and stopping in the introduction, and section 7.2 begins on its page 19 — so
+/// the profile header, the `Profile ID` field and section 7.2.18's computation are all past its
+/// last page.
 ///
 /// What is decidable without them is the case where the two profiles decode to the same bytes:
 /// an MD5 is a function of the bytes it is taken over, and both routes the clause names take

@@ -1265,8 +1265,20 @@ fn parms_objects(dict: &Dictionary, filters: usize) -> Option<Vec<Object>> {
 
 /// §7.4.4.1's `FlateDecode`, on the way out: zlib's own container, at `level`.
 ///
+/// **Public because a caller may have to state the filter itself.** `pdf-transform`'s `archive`
+/// verb re-encodes a stream ISO 19005 forbids the filter of — its `LZWDecode` rewrite — and it
+/// has to do so whether or not the result is smaller, which is the one thing [`Streams`]'
+/// recompression will not do. A second encoder there would be a second set of zlib settings for
+/// one file format, so the writer's own is what it asks.
+///
 /// `None` where the encoder refuses, which for a `Vec` sink is a corrupt-state answer rather
 /// than a full disk; the callers turn it into a carried stream or a refusal.
+#[must_use]
+pub fn flate_encode(data: &[u8], level: u32) -> Option<Vec<u8>> {
+    deflate(data, level)
+}
+
+/// [`flate_encode`]'s body, which the whole module reaches without the `pub` path.
 fn deflate(data: &[u8], level: u32) -> Option<Vec<u8>> {
     let mut encoder = flate2::write::ZlibEncoder::new(
         Vec::with_capacity(data.len() / 2),

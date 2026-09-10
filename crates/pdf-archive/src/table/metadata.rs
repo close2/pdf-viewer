@@ -43,6 +43,36 @@
 //! - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
 //!   each spelled with the prefix its table requires.
 //!
+//! # The XMP standard, half held, and the four rows that came out of the half
+//!
+//! ISO 16684-1:2012 arrived in the nine-hundred-and-forty-sixth session as an iTeh preview: real
+//! clause text from its clause 1 to its section 7.2, and nothing after. That is enough for its
+//! conformance clause, its whole data model and the general part of its serialisation, and it
+//! stops exactly where the canonical RDF serialisation begins — sections 7.4 to 7.9. So the one
+//! row that used to stand for the whole of it is now five, and the split is where the preview's
+//! last page is: `metadata/xmp-packets-state-one-rdf-element` and
+//! `metadata/xmp-packets-meet-the-xmp-data-model` are checks, two rows name held sentences this
+//! reader cannot see (the `rdf:about` a description states, and where character data sat), and
+//! `metadata/xmp-packets-meet-the-xmp-serialisation` keeps what the preview does not reach.
+//!
+//! **One thing the preview withdraws rather than adds.** The old row's reason named an encoding —
+//! that a UTF-16 packet might not be XMP at all. Section 7.1 says the opposite: it names UTF-8,
+//! UTF-16 and UTF-32, puts the choice between them beyond that standard's scope, and leaves it to
+//! whichever standard embeds the packet. Neither ISO 19005 part states one and neither does
+//! ISO 32000-2 §14.3.2, so there is no such rule to check and the corpus witness built on it
+//! (`6-7-2-1-t01-fail-e`) is ruled against in `tests/corpus.rs`.
+//!
+//! **And the two parts do not ask the same thing of a packet**, which is why the data-model row
+//! is part 2's alone. Part 2 asks for two things — conformance to the XMP specification, and
+//! well-formedness under XML and RDF/XML — where part 4 asks for one, well-formedness as XMP
+//! defines it; and ISO 16684-1 defines well-formedness in section 7.1, by requiring serialised
+//! XMP to be well-formed XML and well-formed RDF. So part 4's sentence is part 2's second
+//! sentence with the reference indirected, and part 2's first sentence, the one asking for
+//! conformance, has no counterpart. Clause 6 is the abstract data model rather than the grammar,
+//! so it binds where conformance is asked for. The grammar reaches part 4 all the same, through
+//! that subclause's own first sentence and ISO 32000-2 §14.3.2 — which is why the `rdf:RDF` row
+//! binds both parts and the data-model row does not.
+//!
 //! # section 6.6.6 and section 6.7.5, one subclause each, and only one of them a check
 //!
 //! The provenance subclauses ask that each high-level action be recorded in `xmpMM:History` and
@@ -89,7 +119,9 @@
 //! binding wherever one is identified as required — which is what
 //! `metadata/identification-schema-prefix` rests on.
 
-use pdf_model::xmp::{Detail, Property as XmpProperty, Value, Xmp};
+use std::collections::BTreeSet;
+
+use pdf_model::xmp::{Detail, Property as XmpProperty, RDF, Value, XML, Xmp};
 use pdf_syntax::{Document, Object, ObjectId, Stream};
 
 use crate::Examination;
@@ -115,18 +147,65 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(xmp_packets_well_formed),
     },
     Requirement {
-        id: "metadata/xmp-packets-meet-the-xmp-serialisation",
-        asks: "Every XMP packet shall meet the XMP standard's own serialisation rules, which are \
-               more than being well-formed XML — its encoding among them.",
+        id: "metadata/xmp-packets-state-one-rdf-element",
+        asks: "Each XMP packet shall be serialised as a single rdf:RDF element.",
+        clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(xmp_packets_state_one_rdf_element),
+    },
+    Requirement {
+        id: "metadata/xmp-packets-meet-the-xmp-data-model",
+        asks: "Every XMP packet shall meet the XMP standard's data model: a property name \
+               unique within the packet and carrying a namespace, a field name unique within \
+               its structure, an array whose items are all one form, and neither the RDF nor \
+               the XML namespace borrowed for a property or a field.",
+        clauses: Clauses::only_two("6.6.2.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(xmp_packets_meet_the_xmp_data_model),
+    },
+    Requirement {
+        id: "metadata/xmp-packets-describe-one-resource",
+        asks: "All the properties one XMP packet states shall describe a single resource.",
+        clauses: Clauses::only_two("6.6.2.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "ISO 16684-1 section 6.1 states it and this reader cannot see it: `pdf_model::xmp` \
+             resolves every property to a name and a value and keeps no rdf:about attribute, \
+             which is the only thing in a packet that says which resource a description is \
+             about. Reading it means that reader keeping the subject of each description",
+        ),
+    },
+    Requirement {
+        id: "metadata/xmp-character-data-only-in-simple-values",
+        asks: "An XMP packet shall carry character data that is not white space only in the \
+               element content of the leaf elements standing for its simple values.",
         clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "the other half of the sentence the row above answers, and the half that needs ISO \
-             16684-1, which this project does not hold: what `well-formed as XMP defines it` adds \
-             to well-formed XML cannot be read from anything here. The visible consequence is an \
-             encoding — `pdf_model::xmp` decodes a UTF-16 or UTF-32 packet on purpose, which is a \
-             reader being lenient with a real file and not a finding that the packet is one XMP \
-             admits",
+            "ISO 16684-1 section 7.2 states it and this reader discards what would answer it: \
+             `pdf_model::xmp` accumulates an element's text wherever it sits and keeps it only \
+             where the element turns out to be a simple value, so character data under a \
+             description or a container leaves nothing behind to report. Reading it means that \
+             reader keeping where each run of character data sat",
+        ),
+    },
+    Requirement {
+        id: "metadata/xmp-packets-meet-the-xmp-serialisation",
+        asks: "Every XMP packet shall use the canonical RDF serialisation the XMP standard \
+               defines, and only those equivalent RDF forms it permits.",
+        clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "the canonical usage is ISO 16684-1 sections 7.4 to 7.8 and the equivalent forms it \
+             allows and prohibits are that standard's section 7.9, and the copy this project \
+             holds is a preview that stops after section 7.2 — so which RDF spellings a packet \
+             may use, and which it may not, still cannot be read here — and the same absence is \
+             what stops the RDF half of section 7.1's well-formedness being answered beside the \
+             XML half. What the held sections do state has moved to the four rows beside this \
+             one. **The encoding this reason used \
+             to name is not part of it**: section 7.1 puts the choice between UTF-8, UTF-16 and \
+             UTF-32 beyond that standard's own scope and leaves it to whichever standard embeds \
+             the packet, and neither ISO 19005 part nor ISO 32000-2 states one",
         ),
     },
     Requirement {
@@ -399,6 +478,14 @@ fn for_each_metadata_stream(exam: &Examination<'_>, mut visit: impl FnMut(Object
 /// RDF/XML; part 4 asks for well-formedness under ISO 16684-1. What `pdf_model::xmp` can answer
 /// is the well-formedness, which is the load-bearing half of both.
 ///
+/// **Half of a half, and the preview is what makes that sayable.** ISO 16684-1 section 7.1
+/// defines well-formed serialised XMP as well-formed XML *and* well-formed RDF, and this row is
+/// the first of the two: `xmlparser` decides the syntax and this module's own frame stack decides
+/// the tree, since a tokenizer does not notice that one element is closed by another's tag. The
+/// RDF half is not here, and it is not a separate debt either — which RDF a packet may be is
+/// ISO 16684-1 sections 7.4 to 7.9, held by nobody in this tree, and
+/// `metadata/xmp-packets-meet-the-xmp-serialisation` is the row that says so.
+///
 /// **A stream this reader could not get to is recorded too, and the message says which it was.**
 /// A packet past `pdf_model::xmp`'s decompression bound or behind a filter that would not decode
 /// has not been shown to be well-formed, and reporting the requirement as met over it would be
@@ -421,6 +508,188 @@ fn xmp_packets_well_formed(exam: &Examination<'_>, findings: &mut Findings) {
             );
         }
     });
+}
+
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
+///
+/// ISO 16684-1 section 7.1 requires one XMP packet to be serialised as one `rdf:RDF` element,
+/// which is a rule about the packet's *grammar* — so it reaches both parts, part 2 through its
+/// requirement that a metadata stream conform to the XMP specification and part 4 through the
+/// same subclause's first sentence, which makes the stream one as ISO 32000-2 §14.3.2 defines
+/// it:
+///
+/// > The contents of a metadata stream shall be the metadata represented in Extensible Markup
+/// > Language (XML) and the grammar of the XML representing the metadata shall be defined
+/// > according to the extensible metadata platform specification (ISO 16684-1).
+///
+/// **A stream stating no `rdf:RDF` element at all is not reported here**, and that is a reading
+/// rather than an oversight: the sentence says how a packet is serialised, so a stream carrying
+/// no packet has not broken it. Whether a metadata stream must carry a packet is a different
+/// sentence, and neither part states it of every stream — both state what the packets present in
+/// the file shall be.
+fn xmp_packets_state_one_rdf_element(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_metadata_stream(exam, |id, stream| {
+        let Some(bytes) = document.decoded_stream_data(stream) else {
+            return;
+        };
+        // A packet that will not parse is `xmp_packets_well_formed`'s finding, not this row's.
+        let Ok(roots) = Xmp::rdf_elements(&bytes) else {
+            return;
+        };
+        if roots > 1 {
+            findings.record(
+                Where::object(id),
+                format!(
+                    "a metadata stream states {roots} rdf:RDF elements, and the XMP standard \
+                     serialises one packet as one"
+                ),
+            );
+        }
+    });
+}
+
+/// ISO 19005-2 section 6.6.2.1.
+///
+/// # Why this row is part 2's alone
+///
+/// The two parts do not ask the same thing of a packet, and the difference is in the sentences
+/// rather than in their spirit. Part 2 states two obligations: that every metadata stream
+/// conform to the XMP specification, and that the content of every packet be well-formed under
+/// XML 1.0 and the RDF/XML syntax specification. Part 4 states one, that the content of every
+/// packet be well-formed as XMP defines well-formedness — and ISO 16684-1 defines it in section
+/// 7.1, by requiring serialised XMP to be well-formed XML and well-formed RDF. So part 4's
+/// sentence is part 2's second sentence with the reference indirected through the standard that
+/// names the two W3C specifications, and part 2's *first* sentence, the one asking for
+/// conformance rather than well-formedness, has no counterpart in part 4.
+///
+/// This row is that first sentence: ISO 16684-1's clause 6 is the abstract data model, not the
+/// grammar, so it binds a packet that has to *conform* and not one that only has to be
+/// well-formed. The reading is a reading and decays like any other — an erratum or a
+/// clarification saying part 4 meant the whole standard would move this row to both parts and
+/// change nothing else, because the predicate is already written for either.
+///
+/// # What of clause 6 a parsed packet shows
+///
+/// Section 6.1 makes a property name unique within its packet, section 6.2 requires every name
+/// to be an expanded name whose namespace URI is not empty and keeps properties and structure
+/// fields out of the RDF and XML namespaces save for `rdf:type`, section 6.3.3 makes a field
+/// name unique within its structure, and section 6.3.4 requires an array's items to share a
+/// data type. The last is checked as a shared *form* — text, structure or one of the three
+/// arrays — which is coarser than a type and therefore reports only what any reading of the
+/// sentence reports.
+///
+/// Two of clause 6's requirements are not here and each has a row of its own saying so: section
+/// 6.1's single-resource rule, which needs the `rdf:about` this reader drops, and section 6.4's
+/// qualifier names, which it drops for all but `xml:lang`.
+fn xmp_packets_meet_the_xmp_data_model(exam: &Examination<'_>, findings: &mut Findings) {
+    for_each_packet(exam, |id, properties| {
+        report_repeated_names(id, properties, "the packet", findings);
+        for property in properties {
+            judge_against_the_data_model(id, property, findings);
+        }
+    });
+}
+
+/// Reports every name two of these properties or fields share.
+fn report_repeated_names(
+    id: ObjectId,
+    properties: &[XmpProperty],
+    within: &str,
+    findings: &mut Findings,
+) {
+    let mut seen: BTreeSet<(&str, &str)> = BTreeSet::new();
+    for property in properties {
+        let name = (
+            property.name.namespace.as_str(),
+            property.name.local.as_str(),
+        );
+        if !seen.insert(name) {
+            findings.record(
+                Where::object(id).named(spelled(property)),
+                format!(
+                    "{within} states this name twice, and the XMP data model requires it to be \
+                     unique there"
+                ),
+            );
+        }
+    }
+}
+
+/// One property or one structure field, and everything its value contains.
+fn judge_against_the_data_model(id: ObjectId, property: &XmpProperty, findings: &mut Findings) {
+    let name = spelled(property);
+    let place = || Where::object(id).named(name.clone());
+    if property.name.namespace.is_empty() {
+        findings.record(
+            place(),
+            "the name states no namespace, and the XMP data model requires every name to carry \
+             one",
+        );
+    } else if property.name.namespace == XML
+        || (property.name.namespace == RDF && property.name.local != "type")
+    {
+        findings.record(
+            place(),
+            "the name is in the RDF or the XML namespace, which the XMP data model keeps for \
+             itself save for rdf:type",
+        );
+    }
+    judge_value_against_the_data_model(id, &name, &property.value, findings);
+}
+
+/// A value, its items and its fields, held to the shape rules of the data model.
+fn judge_value_against_the_data_model(
+    id: ObjectId,
+    name: &str,
+    value: &Detail,
+    findings: &mut Findings,
+) {
+    match value {
+        Detail::Text(_) => {}
+        Detail::Structure(fields) => {
+            report_repeated_names(id, fields, "a structure", findings);
+            for field in fields {
+                judge_against_the_data_model(id, field, findings);
+            }
+        }
+        Detail::Alt(items) => {
+            let forms: Vec<&Detail> = items.iter().map(|(_, item)| item).collect();
+            report_mixed_array(id, name, &forms, findings);
+            for item in forms {
+                judge_value_against_the_data_model(id, name, item, findings);
+            }
+        }
+        Detail::Seq(items) | Detail::Bag(items) => {
+            let forms: Vec<&Detail> = items.iter().collect();
+            report_mixed_array(id, name, &forms, findings);
+            for item in forms {
+                judge_value_against_the_data_model(id, name, item, findings);
+            }
+        }
+    }
+}
+
+/// Reports an array whose items are not all the same form.
+///
+/// Reported once for the array rather than once for each item that differs from the first: the
+/// requirement is a property of the array, and an eight-item array with one odd item would
+/// otherwise read as seven failures or as one, depending on which item came first.
+fn report_mixed_array(id: ObjectId, name: &str, items: &[&Detail], findings: &mut Findings) {
+    let Some(first) = items.first() else {
+        return;
+    };
+    let form = shaped(first);
+    if let Some(other) = items.iter().find(|item| shaped(item) != form) {
+        findings.record(
+            Where::object(id).named(name.to_owned()),
+            format!(
+                "an array holds {form} beside {}, and the XMP data model gives every item of \
+                 an array the same type",
+                shaped(other)
+            ),
+        );
+    }
 }
 
 /// How much of a metadata stream is scanned for the packet header.
@@ -1479,6 +1748,12 @@ static PREDEFINED: &[Schema] = &[
 ];
 
 /// The schema a namespace URI names, where the XMP Specification predefines one.
+///
+/// The comparison is `==` over the URI, and that is the standard's own rule rather than a
+/// convenience: ISO 16684-1 section 6.2 makes two XMP names equivalent exactly when their
+/// namespace URIs and their local names are identical, byte for byte in one Unicode encoding,
+/// and forbids any other processing — Unicode normalisation named among it. So a lookup that
+/// folded case or normalised would be answering a question the data model does not ask.
 fn predefined(namespace: &str) -> Option<&'static Schema> {
     PREDEFINED.iter().find(|schema| schema.uri == namespace)
 }
@@ -2049,6 +2324,7 @@ mod tests {
         identification_part_four, identification_part_two, identification_revision_year,
         identification_states_no_flavour, packet_header, properties_use_known_schemas,
         provenance_recorded_action_fields_four, states_attribute, xmp_packet_header_attributes,
+        xmp_packets_meet_the_xmp_data_model, xmp_packets_state_one_rdf_element,
         xmp_packets_well_formed,
     };
     use super::{declared_target, identification_schema_prefix};
@@ -2168,6 +2444,117 @@ mod tests {
              {properties}\n\
              </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
         )
+    }
+
+    /// An XMP packet whose `rdf:RDF` element holds the descriptions given.
+    ///
+    /// Separate from [`schema_packet`] because the data-model rows are about names and shapes
+    /// rather than about one schema: the bindings are declared on the root so that a description
+    /// can be written as one line.
+    fn model_packet(descriptions: &str) -> String {
+        format!(
+            "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\n\
+               xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n\
+               xmlns:xe=\"http://ns.example.test/1.0/\">\n\
+             {descriptions}\n\
+             </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+        )
+    }
+
+    /// One `rdf:Description` holding `properties`.
+    fn described(properties: &str) -> String {
+        format!("<rdf:Description rdf:about=\"\">\n{properties}\n</rdf:Description>")
+    }
+
+    /// ISO 19005-2 section 6.6.2.1, through ISO 16684-1's clause 6: the data-model rules a
+    /// parsed packet shows, each against a packet built to break it.
+    ///
+    /// One packet per rule, because a packet breaking two of them would not say which predicate
+    /// found which — and trap 13 is that a sweep is believed only after it has been run against
+    /// the defect it looks for.
+    #[test]
+    fn the_data_model_rules_a_parsed_packet_shows_are_each_reported() {
+        for (why, properties, expected) in [
+            (
+                "a name stated twice in one packet",
+                described("<dc:format>application/pdf</dc:format>")
+                    + &described("<dc:format>application/pdf</dc:format>"),
+                1,
+            ),
+            (
+                "a property with no namespace at all",
+                described("<format>application/pdf</format>"),
+                1,
+            ),
+            (
+                "a property in the RDF namespace that is not rdf:type",
+                described("<rdf:value>borrowed</rdf:value>"),
+                1,
+            ),
+            (
+                "rdf:type, which the sentence exempts",
+                described("<rdf:type>http://ns.example.test/kind</rdf:type>"),
+                0,
+            ),
+            (
+                "a structure stating one field name twice",
+                described(
+                    "<xe:size rdf:parseType=\"Resource\"><xe:w>1</xe:w><xe:w>2</xe:w></xe:size>",
+                ),
+                1,
+            ),
+            (
+                "an array holding a simple value beside a structure",
+                described(
+                    "<dc:subject><rdf:Bag><rdf:li>one</rdf:li>\
+                     <rdf:li rdf:parseType=\"Resource\"><xe:w>1</xe:w></rdf:li>\
+                     </rdf:Bag></dc:subject>",
+                ),
+                1,
+            ),
+            (
+                "a packet that breaks none of them",
+                described(
+                    "<dc:format>application/pdf</dc:format>\
+                     <dc:subject><rdf:Bag><rdf:li>one</rdf:li><rdf:li>two</rdf:li></rdf:Bag>\
+                     </dc:subject>\
+                     <xe:size rdf:parseType=\"Resource\"><xe:w>1</xe:w><xe:h>2</xe:h></xe:size>",
+                ),
+                0,
+            ),
+        ] {
+            let file = document(&model_packet(&properties));
+            assert_eq!(
+                found(xmp_packets_meet_the_xmp_data_model, &file),
+                expected,
+                "{why}"
+            );
+        }
+    }
+
+    /// ISO 16684-1 section 7.1 serialises one packet as one `rdf:RDF` element.
+    ///
+    /// A stream stating none is not a finding, for the reason the predicate's comment gives: the
+    /// sentence says how a packet is serialised and a stream with no packet has not broken it.
+    #[test]
+    fn a_second_rdf_element_in_one_stream_is_reported_and_none_is_not() {
+        let one = document(&model_packet(&described(
+            "<dc:format>application/pdf</dc:format>",
+        )));
+        assert_eq!(found(xmp_packets_state_one_rdf_element, &one), 0);
+
+        let two = document(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>\n\
+             </x:xmpmeta>",
+        );
+        assert_eq!(found(xmp_packets_state_one_rdf_element, &two), 1);
+
+        let none = document("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>");
+        assert_eq!(found(xmp_packets_state_one_rdf_element, &none), 0);
     }
 
     /// The Dublin Core schema is `dc`, and the packet's own prefix for it makes no difference.

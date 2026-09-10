@@ -322,6 +322,28 @@ a meaning where I.5.3.3 says the field shall be zero and readers shall ignore it
 rule implemented is ISO 19005's, and each constant in `crates/pdf-archive/src/table/graphics.rs`
 says so above itself.
 
+## ISO 15076-1:2010, the ICC profile format — a preview, and what it cannot answer
+
+The owner downloaded it on 2026-09-10 as `doc/ISO-15076-1-2010.pdf` — *Image technology colour
+management — Architecture, profile format and data structure — Part 1: Based on ICC.1:2010*.
+`/doc/*.pdf` excludes it, `python3 tools/spec-md.py doc/ISO-15076-1-2010.pdf` put its text under
+the ignored `doc/md/`, and the same licence position applies as to every specification here.
+
+**It is an iTeh STANDARD PREVIEW and it reaches the introduction.** Title page, foreword, the
+table of contents and clause 0's overview — and then it stops. Its own contents list puts clause 7
+*Profile requirements* on page 18 and section 7.2 *Profile header* on page 19, and the preview
+ends long before either. So the profile header is not in it, the `Profile ID` field is not in it,
+and section 7.2.18's MD5 computation is not in it.
+
+**Three things therefore stay exactly where they were**, and their reasons in
+`crates/pdf-archive` now say that the preview was obtained and answers none of them:
+`graphics/destination-profile-conforms-to-an-icc-edition` and
+`graphics/icc-profiles-conform-to-a-permitted-edition` are still `Unchecked`, and the corpus
+witness `6-2-4-2-t03-fail-e` is still a miss — it turns on two profiles that differ in bytes and
+state the same MD5, which is the part of ISO 19005-4 section 6.2.4.2 that needs section 7.2.18's
+method and the field's position. What would close them is a full ICC.1 or ISO 15076-1 text, or
+ICC.2 for the iccMAX question; a preview of the front matter is not a step towards it.
+
 ## The XMP Specification, read for a table of facts
 
 ISO 19005-2 §6.6.2.3.1 requires every XMP property to come from a predefined schema, and deciding
@@ -349,6 +371,47 @@ Two readings came out of it and both are recorded where they act:
 - **A property whose local name the table does not carry is not judged.** Later editions add
   properties — `photoshop` 14 to 20, `xmpDM` 57 to 66 between 2005 and 2017 — so refusing an
   unknown name would fail conforming files over nothing but the age of the transcription.
+
+## ISO 16684-1:2012, the XMP specification — a preview that reaches section 7.2
+
+The owner downloaded it on 2026-09-10 as `doc/ISO-16684-1-2012.pdf` — *Graphic technology —
+Extensible metadata platform (XMP) specification — Part 1: Data model, serialization and core
+properties*. `/doc/*.pdf` excludes it, `python3 tools/spec-md.py doc/ISO-16684-1-2012.pdf` put its
+text under the ignored `doc/md/`, and the same licence position applies as to every specification
+here. It is licensed to a single reader like `doc/pdfa/`'s two files, so nothing in this tree
+quotes it: cite and paraphrase.
+
+**It is an iTeh STANDARD PREVIEW too, and this one carries real clause text.** Clause 1 through
+section 7.2 — the scope, the normative references, the terms, the notations, clause 5's
+conformance, the whole of clause 6's data model, and the general and equivalent-forms preamble of
+clause 7's serialisation. It stops there. Sections 7.4 to 7.8, which are the canonical RDF
+serialisation, and section 7.9, which says which equivalent RDF forms are allowed and prohibited,
+are **not** in it; neither is clause 8's core properties, whose tables this tree reads from Adobe's
+own edition instead (the section above).
+
+**What it settled**, in the nine-hundred-and-forty-sixth session:
+
+- ISO 19005-2 section 6.6.2.1's and ISO 19005-4 section 6.7.2.1's one `Unchecked` serialisation
+  row became five rows — two checks over the data model and the single `rdf:RDF` element, two
+  naming held sentences `pdf_model::xmp` cannot see, and one keeping what the preview does not
+  reach. `crates/pdf-archive/src/table/metadata.rs`'s module comment has the split and the reason
+  the data-model row binds part 2 alone.
+- **The encoding of an XMP packet is nobody's rule.** Section 7.1 names UTF-8, UTF-16 and UTF-32,
+  puts the choice between them beyond its own scope, and leaves it to whichever standard embeds
+  the packet — and neither ISO 19005 part nor ISO 32000-2 §14.3.2 states one. That closed the
+  corpus miss `6-7-2-1-t01-fail-e`, whose expectation is that a packet not encoded as UTF-8
+  fails; `crates/pdf-archive/tests/corpus.rs` carries the ruling and names the three documents
+  read.
+- **A comparison of `xml:lang` values is case-insensitive** (section 6.4, by way of IETF RFC
+  3066), and `pdf_model::xmp` compared them exactly — so a packet writing `X-Default` had no
+  title this reader could find. Fixed where it acts.
+- A citation was wrong and is corrected: `pdf_model::xmp` attributed the three permitted encodings
+  to a section 7.3.2, and the sentence is section 7.1's, saying rather less than the citation
+  implied.
+
+**What it cannot answer.** Which RDF spellings a packet may use and which it may not — that is
+sections 7.4 to 7.9 — so `metadata/xmp-packets-meet-the-xmp-serialisation` stays `Unchecked` with
+that as its reason. A round wanting it needs the full text; the preview will not grow.
 
 ## PDF Association TechNote 0010, and a licence that could not be confirmed
 
