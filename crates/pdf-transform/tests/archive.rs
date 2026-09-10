@@ -29,6 +29,7 @@
 use std::fmt::Write as _;
 
 use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
+use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{ArchivePlan, Authorisations, Because, Decision, Loss, Rewrite};
 use pdf_transform::{Budget, Exit, MemorySinks, Plan, Policy, Report, Source, apply};
@@ -84,6 +85,12 @@ struct Conforming {
     resources: String,
     /// Objects 6 and up, each written as its body.
     objects: Vec<String>,
+    /// Objects after those, each written as its body, for one that is not text.
+    ///
+    /// An embedded font program is bytes rather than a string, and splicing it into the built
+    /// file afterwards would leave every cross-reference offset past it wrong. So it is a body
+    /// like any other and the offsets are taken once, after everything is in place.
+    binary_objects: Vec<Vec<u8>>,
     /// The page's content stream, dictionary and data.
     contents: Option<(String, Vec<u8>)>,
     /// What §14.3.2's metadata stream holds, and whether the catalog names it.
@@ -116,6 +123,7 @@ impl Default for Conforming {
             page: String::new(),
             resources: String::new(),
             objects: Vec::new(),
+            binary_objects: Vec::new(),
             contents: None,
             header: None,
             metadata: Packet::Identification,
@@ -175,6 +183,7 @@ impl Conforming {
         for object in &self.objects {
             bodies.push(object.clone().into_bytes());
         }
+        bodies.extend(self.binary_objects.iter().cloned());
 
         let mut out: Vec<u8> = Vec::new();
         out.extend_from_slice(self.header.unwrap_or("%PDF-2.0").as_bytes());
@@ -785,6 +794,15 @@ fn every_requirement_the_decision_table_answers_is_one_the_validator_states() {
         assert!(
             stated.contains(&answered),
             "{answered} is answered by the converter and stated by no requirement"
+        );
+    }
+    // The same trap, one table over: a refusal keyed by a name no requirement carries is a
+    // refusal nobody ever reads, and the document gets the generic "a later slice owes this"
+    // instead of the argument that was written for it.
+    for refused in pdf_transform::archive::refused_by_name() {
+        assert!(
+            stated.contains(&refused),
+            "{refused} is refused by name and stated by no requirement"
         );
     }
 }
@@ -1499,4 +1517,288 @@ fn a_cmyk_profile_answers_the_clause_and_no_default_is_written() {
         conversion(&report).recorded.is_none(),
         "and nothing is recorded in the history, because nothing was interpreted"
     );
+}
+
+/// The TrueType program the Unicode tests embed.
+///
+/// A real font is needed rather than a plausible one, because the derivation refuses a font
+/// `pdf-font` had to substitute for: the glyph names would then be the substitute's, and what
+/// ISO 32000-2 §9.10.2's second method asks for is the name *this file's* font selects.
+/// `data/standard-fonts/PROVENANCE.md` and `/NOTICE` record the licence, which is the SIL OFL
+/// 1.1 and permits embedding.
+const LIBERATION_SANS: &[u8] =
+    include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
+
+/// A PDF/A-2 fixture whose one font states the `/Encoding` and the `/ToUnicode` `CMap` given.
+///
+/// Non-symbolic, and drawing the single code 0x41. That flag is ISO 19005-2 section
+/// 6.2.11.7.2's fourth exemption, so `fonts/to-unicode-present` does not bind the font — which
+/// leaves the *values* rule, the one sentence of the subclause stated with no exemption at all,
+/// as the only thing the fixture fails.
+///
+/// The page selects a `CalGray` before it shows the text: §8.6.5.2 makes that colour space
+/// device independent, so the fixture does not trip section 6.2.4.3's rule about `DeviceGray`
+/// and the conversion has exactly one requirement to answer.
+fn a_font_whose_cmap_states(encoding: &str, mapping: &str) -> Vec<u8> {
+    let cmap = format!(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CMapName /Test def\n/CMapType 2 def\n\
+         1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+         1 beginbfchar\n{mapping}\nendbfchar\n\
+         endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    );
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 65 \
+                 /LastChar 65 /Widths [667] /FontDescriptor 7 0 R /Encoding {encoding} \
+                 /ToUnicode 8 0 R >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 9 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(&format!("/Length {}", cmap.len()), cmap.as_bytes()),
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_placeholder_unicode_value_is_replaced_by_the_one_the_encoding_derives() {
+    // ISO 19005-2 section 6.2.11.7.2's last sentence: the values a `/ToUnicode` CMap states
+    // "shall all be greater than zero (0), but not equal to either U+FEFF or U+FFFE". This
+    // fixture writes U+0000 for the one code it draws, and the derivation answers it the way
+    // §9.10.2's second method does — `/WinAnsiEncoding` names code 0x41 `A`, and the Adobe Glyph
+    // List makes that U+0041. Nothing is guessed: both halves are tables the standard prints.
+    let source = a_font_whose_cmap_states("/WinAnsiEncoding", "<41> <0000>");
+    let (report, output) = convert(&source, Target::Two(Level::U), Authorisations::default());
+    let decided = decision(&report, "fonts/to-unicode-values-are-usable");
+    assert_eq!(
+        decided.rewrite(),
+        Some(Rewrite::ToUnicode),
+        "a code the font's own encoding names is a code the CMap can be derived for: {decided:?}"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::U)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    let derived = derived_cmap(&output);
+    assert!(
+        derived.contains("<41>") && derived.contains("<0041>"),
+        "the derived CMap maps the drawn code to the character its glyph name stands for: \
+         {derived}"
+    );
+}
+
+#[test]
+fn a_usable_value_the_producer_wrote_is_kept_rather_than_re_derived() {
+    // The producer's own statement about their own file, which this converter has no better
+    // evidence than. `/WinAnsiEncoding` would derive U+0041 for code 0x41; the fixture says the
+    // code means U+00C4 instead, which is a usable value, so the derived CMap carries it across
+    // unchanged and only the *second* code — the one whose value is a placeholder — is answered
+    // from the encoding.
+    let source = a_font_whose_cmap_states("/WinAnsiEncoding", "<41> <00C4>");
+    let (report, output) = convert(&source, Target::Two(Level::U), Authorisations::default());
+    assert!(
+        conversion(&report)
+            .decided
+            .iter()
+            .all(|decided| decided.requirement != "fonts/to-unicode-values-are-usable"),
+        "a usable value fails nothing, so nothing is decided about it"
+    );
+    let output = output.expect("the document converts");
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let font = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    assert!(
+        matches!(
+            held.get_key(&font, "ToUnicode"),
+            pdf_syntax::Object::Stream(_)
+        ),
+        "the producer's own CMap is still the one the font names"
+    );
+}
+
+#[test]
+fn a_code_whose_glyph_name_is_nobodys_refuses_rather_than_inventing_a_meaning() {
+    // `doc/pdf-a-conversion-limits.md` section 4.3: a code whose meaning is not derivable is a
+    // refusal, not an invention. The fixture's `/Differences` gives code 0x41 a subsetter's
+    // private label, which is in neither list ISO 19005-2 section 6.2.11.7.2's second exemption
+    // names — so the name says which glyph was drawn and not which character it stands for.
+    let source = a_font_whose_cmap_states(
+        "<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [65 /g4711] >>",
+        "<41> <0000>",
+    );
+    let (report, output) = convert(&source, Target::Two(Level::U), Authorisations::default());
+    let decided = decision(&report, "fonts/to-unicode-values-are-usable");
+    assert!(
+        matches!(decided, Decision::Refused(Because::NotBuiltYet(_))),
+        "a private glyph name derives nothing: {decided:?}"
+    );
+    assert!(
+        output.is_none(),
+        "and no file is written wearing a claim it has not earned"
+    );
+}
+
+/// The `/ToUnicode` `CMap` the font in a converted output names, as text.
+fn derived_cmap(output: &[u8]) -> String {
+    let held = Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("it opens");
+    let mut fonts = Vec::new();
+    for id in held.xref().object_numbers() {
+        let object = held.get(ObjectId::new(id, 0));
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        if held
+            .get_key(dict, "Type")
+            .as_name()
+            .map(pdf_syntax::Name::as_bytes)
+            == Some(b"Font")
+            && let pdf_syntax::Object::Stream(stream) = held.get_key(dict, "ToUnicode")
+            && let Some(data) = held.decoded_stream_data(&stream)
+        {
+            fonts.push(String::from_utf8_lossy(&data).into_owned());
+        }
+    }
+    fonts
+        .pop()
+        .expect("the converted font names a ToUnicode CMap")
+}
+
+#[test]
+fn a_tagged_source_is_declared_level_a_and_an_untagged_one_is_refused() {
+    // `doc/pdf-a-conversion-limits.md` section 5.1: the converter will not invent a structure
+    // tree, **and that is not the same as refusing PDF/A-2a**. ISO 19005-2 section 6.7.2.2 asks
+    // the catalog for `/MarkInfo` with `/Marked true`, and a file that already states a
+    // `/StructTreeRoot` has demonstrated the conventions the flag claims — so the flag is
+    // written down rather than made up. A file with no tree gets the sentence instead.
+    let tagged = Conforming {
+        catalog: "/StructTreeRoot 6 0 R".to_owned(),
+        objects: vec!["<< /Type /StructTreeRoot /K [] >>".to_owned()],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&tagged, Target::Two(Level::A), Authorisations::default());
+    assert_eq!(
+        decision(&report, "logical-structure/mark-info-marked").rewrite(),
+        Some(Rewrite::MarkInfo),
+        "the tree is there and the flag is not"
+    );
+    let output = output.expect("a tagged document converts to Level A");
+    assert_eq!(
+        holds(&output, Target::Two(Level::A)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to Level A again"
+    );
+
+    let untagged = Conforming::part_two().build();
+    let (report, output) = convert(&untagged, Target::Two(Level::A), Authorisations::default());
+    assert!(
+        matches!(
+            decision(&report, "logical-structure/mark-info-marked"),
+            Decision::Refused(Because::TheFence(_))
+        ),
+        "and a file with no tree is not told the flag will arrive in a later slice"
+    );
+    assert!(
+        output.is_none(),
+        "no file wearing a claim it has not earned"
+    );
+}
+
+#[test]
+fn an_embedded_files_specification_gains_the_two_keys_its_own_entries_derive() {
+    // ISO 19005-4 section 6.9 requires `/F`, `/UF` and `/AFRelationship` of every embedded
+    // file's specification, and Annex A keeps all three for PDF/A-4f. Both rewrites write down
+    // something already stated: §7.11.3's Table 43 makes `/F` and `/UF` the same file name in
+    // two types, and gives `/AFRelationship` the default `Unspecified` — so a specification
+    // without the entry already relates to the document in exactly the way the name records.
+    let source = Conforming {
+        catalog: "/Names << /EmbeddedFiles << /Names [(note.txt) 6 0 R] >> >>".to_owned(),
+        objects: vec!["<< /Type /Filespec /F (note.txt) /EF << /F 7 0 R >> >>".to_owned()],
+        binary_objects: vec![stream(
+            "/Type /EmbeddedFile /Subtype /text#2Fplain /Length 5",
+            b"hello",
+        )],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Four(Flavour::F), Authorisations::default());
+    assert_eq!(
+        decision(&report, "embedded-files/file-and-unicode-names").rewrite(),
+        Some(Rewrite::AssociatedFileNames),
+        "the name is in one key and the other's value is that same name"
+    );
+    assert_eq!(
+        decision(&report, "embedded-files/relationship-stated").rewrite(),
+        Some(Rewrite::AssociatedFileRelationship),
+        "and Table 43's own default is what the absent entry already meant"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::F)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to PDF/A-4f again"
+    );
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    // The output is a fresh file, so the specification is found by what it is rather than by the
+    // number the source gave it.
+    let spec = held
+        .xref()
+        .object_numbers()
+        .filter_map(|number| held.get(ObjectId::new(number, 0)).as_dict().cloned())
+        .find(|dict| !held.get_key(dict, "EF").is_null())
+        .expect("the file specification");
+    assert_eq!(
+        held.get_key(&spec, "UF").as_string().map(<[u8]>::to_vec),
+        Some(b"note.txt".to_vec()),
+        "the Unicode name is the one the byte string already held"
+    );
+    assert_eq!(
+        held.get_key(&spec, "AFRelationship")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Unspecified".to_vec()),
+        "and the relationship is the entry's own default rather than a guess"
+    );
+}
+
+#[test]
+fn a_document_with_nothing_embedded_cannot_be_told_it_will_be_pdfa_four_f_later() {
+    // ISO 19005-4 Annex A.2 makes the `/EmbeddedFiles` key required, which is the one
+    // requirement in either part a document can fail by holding nothing at all. Attaching a file
+    // would be adding content no source states, so the answer is `NotThisTarget` — the class
+    // `doc/pdf-a-conversion-limits.md` section 2.0 exists to keep apart from "not yet", because
+    // a user told the second comes back tomorrow for the same answer.
+    let source = Conforming::default().build();
+    let (report, output) = convert(&source, Target::Four(Flavour::F), Authorisations::default());
+    assert!(
+        matches!(
+            decision(&report, "embedded-files/pdfa-4f-carries-embedded-files"),
+            Decision::Refused(Because::NotThisTarget(_))
+        ),
+        "the target is what is wrong, and PDF/A-4 is what this document is for"
+    );
+    assert!(output.is_none(), "and no file is written");
 }

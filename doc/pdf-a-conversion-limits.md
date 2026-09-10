@@ -545,12 +545,24 @@ ISO 19005-4 §6.2.10.7 states the same rule with the same four exemptions as a *
 not itself contain PUA values.
 
 - **PDF/A-2b: Mechanical** (the requirement does not apply).
-- **PDF/A-2u: Ask.** The converter can synthesise `ToUnicode` from a font's `cmap` or its glyph
-  names for many fonts, and for a symbolic subset font with private-use glyph names it cannot —
-  there is no evidence in the file for what those codes *mean*, and manufacturing one would be
-  manufacturing the evidence the level exists to require. Where that happens, -2u is unreachable
-  and -2b is; the report names the fonts. **§2.1 is the same case seen from the font's side**, and
-  it is the clearest example of a document that is archivable while a claim about it is not.
+- **PDF/A-2u: Ask, and since session 951 it is built.** The converter synthesises a `ToUnicode`
+  CMap from a font's own encoding — ISO 32000-2 §9.10.2's second method, the glyph name the
+  encoding selected looked up in the Adobe Glyph List and, for `ZapfDingbats`, in Annex D.6 — over
+  the codes the content streams actually showed, and it keeps every usable value the producer's
+  own CMap already stated rather than overwriting it. For a symbolic subset font with private-use
+  glyph names it cannot: there is no evidence in the file for what those codes *mean*, and
+  manufacturing one would be manufacturing the evidence the level exists to require. **A font with
+  one such code produces no CMap at all**, because a table written over a prefix of the codes says
+  the rest mean nothing. Where that happens, -2u is unreachable and -2b is; the report names the
+  font and which of six reasons stopped it. **§2.1 is the same case seen from the font's side**,
+  and it is the clearest example of a document that is archivable while a claim about it is not.
+
+  One thing measured rather than assumed, and it is worth knowing before reading a corpus result:
+  the eight veraPDF `PDF_A-2u` documents that fail this clause are *all* of the underivable kind,
+  by construction — the second exemption excuses a Type 1 or Type 3 font whose names are all
+  listed, so a Type 1 font that **fails** the rule is one whose names are not. The derivation is
+  therefore for real files rather than for that suite: a symbolic TrueType with a `/Differences`
+  of ordinary names, and any font whose producer left a placeholder where a character belonged.
 - **PDF/A-4: Mechanical**, because the requirement is a recommendation. A conversion to PDF/A-4
   never fails on text extraction, which is worth knowing when a document's text matters less than
   its survival.
@@ -832,7 +844,10 @@ can report the gap without failing the file.)
    each: `/MarkInfo /Marked true` where the tree is there and the flag is not; a `ToUnicode` CMap
    derived from a font's own `cmap` (§6.2.11.7's `shall`, which applies to U and A alike);
    a malformed `/Lang` repaired to a valid identifier. Each of these writes down something the
-   file already demonstrates.
+   file already demonstrates. **Two of the three are built as of session 951** — the flag, and the
+   CMap of §4.3 — and the `/Lang` repair is not: repairing a malformed language identifier means
+   deciding what the producer meant by it, and removing one means throwing away a claim they made,
+   so it waits on §3's authorisation machinery rather than on a slice of code.
 3. **The source is tagged and a `shall` needs a judgement.** An unmapped non-standard structure
    type is the one that occurs in practice, and it is **Ask**: the converter lists each unmapped
    type with the elements that use it and the standard types it could map to, and the user says
@@ -1083,7 +1098,37 @@ Everything in §9.2, plus: **-2u fails on any font whose codes cannot be mapped 
 word boundaries, and on an unmapped non-standard structure type** (§5.1). Neither gap can be
 filled by this converter without manufacturing the evidence the level exists to require.
 
-### 9.4 What a fixed target changes about the report
+### 9.4 What each of the six now costs, and the command that says so
+
+**All six targets are exercised as of session 951**, against the veraPDF corpus directory written
+for each — `crates/pdf-transform/tests/archive_corpus.rs`, which sweeps every one of them, states
+the two properties over each, and prints the requirements that stopped a conversion in rank order:
+
+```sh
+cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
+```
+
+No number from that sweep is written down here, which is `CLAUDE.md`'s rule about derived facts:
+the command counts them, and a table of them in this file would be a table nobody re-ran. What is
+worth writing down is the *shape* the sweep showed, because it is a fact about the standard rather
+than about a run:
+
+- **PDF/A-4e adds almost nothing a converter can do.** Annex B is mostly relaxation — it admits 3D
+  and `RichMedia` annotations, `SetOCGState` and `GoTo3DView` actions, and an embedded file of any
+  type — and what it *adds* is B.2.2's rule that a 3D stream's `Subtype` be `U3D` or `PRC`, plus
+  requirements addressed to a processor. So a document that fails 4e fails it on 3D artwork in
+  another format, and translating that is a media engine: `CLAUDE.md` excludes clause 13 by name.
+- **PDF/A-4f can be unreachable for a reason no other target has.** Annex A.2 makes the
+  `EmbeddedFiles` key **required**, which is the only requirement in either part that a document
+  fails by holding nothing at all. Attaching a file to satisfy it would be adding content no
+  source states, so the answer is "not this target" rather than "not yet" — and the target that
+  document wants is plain PDF/A-4.
+- **PDF/A-2a's remaining refusals are the tree and the page, not the level.** A tagged source
+  converts. What stops the rest is a structure tree nobody produced, a role map entry that needs a
+  judgement about what the producer's own type meant, an `/ActualText` that would have to be
+  written into a content stream, and a `/Lang` that would have to be guessed at or thrown away.
+
+### 9.5 What a fixed target changes about the report
 
 One consequence for the verb rather than the file: with a free choice, the useful report says
 *"this cannot be -2, can be -4f"*. With a fixed target it must instead say **"to reach the target

@@ -31,12 +31,34 @@
               properties must fail loudly when a corpus document breaks one"
 )]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
-use pdf_transform::archive::{ArchivePlan, Authorisations};
+use pdf_transform::archive::{ArchivePlan, Authorisations, Decision};
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
+
+/// Every target, with the corpus directory whose documents were written for it.
+///
+/// **All six, and the four small ones are the point.** A target nothing exercises is a target
+/// whose refusals nobody has seen: `PDF_A-4f` holds eleven documents and `PDF_A-2a` twenty-seven,
+/// which is few enough to prove nothing statistically and enough to catch a panic, an `Err`, or a
+/// conforming document this verb quietly breaks. The directory names are veraPDF's own.
+const TARGETS: [(&str, Target); 6] = [
+    ("PDF_A-2b", Target::Two(Level::B)),
+    ("PDF_A-2u", Target::Two(Level::U)),
+    ("PDF_A-2a", Target::Two(Level::A)),
+    ("PDF_A-4", Target::Four(Flavour::Plain)),
+    ("PDF_A-4f", Target::Four(Flavour::F)),
+    ("PDF_A-4e", Target::Four(Flavour::E)),
+];
+
+/// How many of a target's refused requirements the sweep prints.
+///
+/// Enough to see the shape of what is left and short enough to read; the tail is a long list of
+/// requirements one document each failed, which ranks nothing.
+const MOST_REFUSED: usize = 10;
 
 /// The corpus root, or `None` where the submodule is not checked out.
 fn corpus() -> Option<PathBuf> {
@@ -83,6 +105,13 @@ struct Tally {
     refused: usize,
     /// Documents whose bytes this tree does not open at all, which is not this verb's business.
     unreadable: usize,
+    /// For each requirement that stopped a conversion, how many documents it stopped.
+    ///
+    /// **The next slice's work list, counted rather than guessed.** A refusal is by name, so the
+    /// name is what says where the converter's remaining gaps are and how much each is worth;
+    /// `CLAUDE.md`'s rule about derived facts is why this is printed by the sweep rather than
+    /// written down anywhere.
+    refusals: BTreeMap<&'static str, usize>,
 }
 
 /// Converts every corpus document under `part` to `target` and states the two properties.
@@ -149,7 +178,19 @@ fn sweep(root: &Path, part: &str, target: Target) -> Tally {
                 path.display()
             ),
             (false, Some(_)) => tally.converted = tally.converted.saturating_add(1),
-            (false, None) => tally.refused = tally.refused.saturating_add(1),
+            (false, None) => {
+                tally.refused = tally.refused.saturating_add(1);
+                let conversion = report.archive.as_ref().expect("a conversion is reported");
+                for decided in &conversion.decided {
+                    if matches!(
+                        decided.decision,
+                        Decision::Refused(_) | Decision::Unauthorised { .. }
+                    ) {
+                        let seen = tally.refusals.entry(decided.requirement).or_default();
+                        *seen = seen.saturating_add(1);
+                    }
+                }
+            }
         }
     }
     tally
@@ -162,10 +203,8 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
         println!("doc/veraPDF-corpus is not here; nothing to sweep");
         return;
     };
-    for (part, target) in [
-        ("PDF_A-4", Target::Four(Flavour::Plain)),
-        ("PDF_A-2b", Target::Two(Level::B)),
-    ] {
+    let mut converted = 0_usize;
+    for (part, target) in TARGETS {
         let tally = sweep(&root, part, target);
         println!(
             "archive {target}: {} conforming, {} of them still conforming after the conversion; \
@@ -176,9 +215,15 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
             tally.conforming, tally.stayed,
             "every document that conformed before the conversion conforms after it"
         );
-        assert!(
-            tally.converted > 0,
-            "the corpus holds documents this slice's rewrites fix, and none was fixed"
-        );
+        let mut ranked: Vec<_> = tally.refusals.iter().collect();
+        ranked.sort_by_key(|(id, count)| (std::cmp::Reverse(**count), **id));
+        for (id, count) in ranked.iter().take(MOST_REFUSED) {
+            println!("    {count:>4} refused on {id}");
+        }
+        converted = converted.saturating_add(tally.converted);
     }
+    assert!(
+        converted > 0,
+        "the corpus holds documents these rewrites fix, and none was fixed"
+    );
 }

@@ -24,8 +24,15 @@ repository.workspace = true
 # takes is about a requirement that crate states, cites and checks — so a converter holding its
 # own copy of the rules would be a second reading of a standard `CLAUDE.md` principle 5 says has
 # one. It validates the input, decides one requirement at a time, and validates what it wrote.
+#
+# `pdf-font` is here for one thing and it is the same argument one crate over: converting a
+# document to Level U means writing a `/ToUnicode` CMap derived from a font's own encoding, and
+# what a character code selects — ISO 32000-2 §9.6.5's encoding, §9.10.2's
+# glyph-name route to a character — is a reading this tree has already made once. A
+# converter deriving it a second time would be a second reading of the same clauses.
 [dependencies]
 pdf-archive.workspace = true
+pdf-font.workspace = true
 pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-syntax.workspace = true
