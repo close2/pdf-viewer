@@ -163,12 +163,40 @@
 //!   is missing here is section 6.2.2's *published* exemption rather than A010, which only narrows
 //!   it; and exempting an object requires proving it is reachable no other way, which no fact this
 //!   crate holds today can decide. Getting that wrong withdraws real failures in silence, which is
-//!   the one direction a validator may not move by accident.
+//!   the one direction a validator may not move by accident. **Session 944 measured how much is
+//!   being deferred**, and the answer is `doc/todo/62` with `examples/unreferenced.rs` as the
+//!   command that recounts it. What it found: over `doc/veraPDF-corpus`'s six targets, every
+//!   document whose verdict turns on an object this exemption reaches fails under a clause the
+//!   applicable carve-out **keeps** — part 4's own published sections 6.1.6 to 6.1.9, and part
+//!   2's under A010. So the exemption *with* A010 moves nothing here, and part 2's published
+//!   sentence *without* it would withdraw failures this crate and the corpus agree on. **A010 is
+//!   what makes the exemption safe rather than a refinement to add after it**, which reverses the
+//!   order ADR 0935 proposed. ADR 0941.
 //!
-//! One item is a validator rule this crate has no row for at all: **A014** makes a font or
-//! `CIDFont` program whose `Subtype` the applicable PDF specification does not define a failure
-//! in parts 1 to 3. `fonts/font-programs-conform-to-their-own-specifications` is the
-//! neighbourhood; the rule is not that row's.
+//! **Reaching no part this crate targets.** One item is left, and it is recorded here rather
+//! than passed over so that the next round does not have to re-derive it:
+//!
+//! - **A014** — its `Pertaining` line names ISO 19005-1 section 6.3.4 alone, and part 1 is not a
+//!   target (`doc/questions/A17`). What makes it worth an entry is the paragraph above its
+//!   resolution, headed for validators of parts 1, 2 and 3, which would fail any ISO 19005
+//!   document holding a font or `CIDFont` program whose `Subtype` the applicable PDF
+//!   specification does not support. **That paragraph is the case rather than the verdict**, and
+//!   the note's own shape says so: A012, A020 and A029 each carry a `PDF Validation TWG proposal`
+//!   whose adoption their resolution states in as many words — the three parts should be read as
+//!   if the proposal above were part of the specification — and that is the sentence by which
+//!   this crate acts on their validator paragraphs. A014 has no proposal heading at all, and its
+//!   resolution states one thing: OpenType is not recognised in the PDF 1.4 Reference and
+//!   therefore produces an ISO 19005-1 validation error. Condition 3 above decides it.
+//!   **A second reading reaches the same place from the other side**, and is worth having because
+//!   it does not depend on how the note is laid out: the paragraph's rule is stated against *the
+//!   applicable PDF specification*, and for part 2 that is ISO 32000-1 and for part 4
+//!   ISO 32000-2, whose §9.9 and §9.9.1 respectively name `OpenType` as one of the three
+//!   `/FontFile3` subtypes and then specify the format in full — so the ambiguity A014 exists to
+//!   resolve is one only the PDF 1.4 Reference has. Nothing is owed.
+//!   The residue is real and belongs elsewhere: a `/FontFile3` whose `/Subtype` names none of the
+//!   three the base standard defines goes unreported here, and that is
+//!   `conformance/adheres-to-the-base-standard`'s `Unchecked` — a decision this crate has already
+//!   argued — rather than a font row nobody wrote. ADR 0941.
 
 use crate::target::Part;
 

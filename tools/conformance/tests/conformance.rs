@@ -287,6 +287,13 @@ fn every_table_reference_names_a_table_the_standard_has() {
     let scanned = conformance::scan_tree(&root).expect("the tree's sources");
 
     let mut wrong = String::new();
+    // Which files cite each table, so the listing below can be read as a *pairing* rather than
+    // as an inventory. The title alone would have caught session 944's error in one glance —
+    // "Table 128 — Entries in a Type 1 halftone dictionary" cited by a module about embedded
+    // font programs — but only for a reader who already suspected that module. Printing the
+    // citer beside the title is what makes the mismatch legible without adding the stronger
+    // rule this test's own documentation measured and rejected.
+    let mut citers: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
     let mut cited: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
     let mut elsewhere: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (path, scan) in &scanned {
@@ -298,6 +305,10 @@ fn every_table_reference_names_a_table_the_standard_has() {
                         .entry(reference.table)
                         .or_default()
                         .insert(title.to_owned());
+                    citers
+                        .entry(reference.table)
+                        .or_default()
+                        .insert(path.display().to_string());
                 }
                 None => {
                     let _ = writeln!(
@@ -321,6 +332,11 @@ fn every_table_reference_names_a_table_the_standard_has() {
     for (number, titles) in &cited {
         for title in titles {
             println!("  Table {number} — {title}");
+        }
+        if let Some(files) = citers.get(number) {
+            for file in files {
+                println!("      cited by {file}");
+            }
         }
     }
     println!("and the tables of other documents, which nothing here can check:");

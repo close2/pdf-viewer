@@ -392,9 +392,15 @@ fn descriptor(document: &Document, font: &Dictionary) -> Option<Dictionary> {
 
 /// Whether a font descriptor carries an embedded font program.
 ///
-/// ISO 32000-2 §9.9's Table 128 gives the three keys — `/FontFile` for Type 1, `/FontFile2` for
-/// TrueType, `/FontFile3` for the CFF and `OpenType` shapes — and a descriptor states at most
-/// one of them.
+/// ISO 32000-2 §9.8.1's Table 120 gives the three keys — `/FontFile` for Type 1, `/FontFile2`
+/// for TrueType, `/FontFile3` for the CFF and `OpenType` shapes — and the sentence under that
+/// table is where "at most, only one of the FontFile , FontFile2 , and FontFile3 entries shall
+/// be present" is stated. Which *format* each holds is §9.9's Table 124.
+///
+/// This cited §9.9's Table 128 until session 944, and **Table 128 is "Entries in a Type 1
+/// halftone dictionary"** — a real table, in a different clause, about something else. It
+/// passed `tools/conformance` because that checker asks whether a cited table exists, not
+/// whether it is the one the sentence is about.
 ///
 /// # Why the value is resolved rather than the key counted
 ///
