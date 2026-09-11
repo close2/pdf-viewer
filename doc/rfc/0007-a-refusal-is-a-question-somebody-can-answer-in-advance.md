@@ -494,6 +494,91 @@ whether it verified — and that statement can be written on a page even though 
 cannot survive. And **a font has no remedy**: §2.1 already argues that substituting a face whose
 glyphs are wrong is not a repair, and no external program changes that.
 
+## 5a. Shipped configurations, which are the feature most operators will actually use
+
+Proposed by the owner on 2026-09-11:
+
+> I also think that we will provide different configurations for different use cases:
+> `as-if-printed.conf` (which just archives as if the user printed it and ignores any loss which
+> would have been lost, if the user printed the file), `only-meta-info-loss.conf` …
+
+**These need no new mechanism**, which is the strongest thing about the idea. A profile is a
+configuration file this project ships; §3's format is already the whole of it. What they add is
+that almost nobody wants to answer a hundred and fifty questions, and almost everybody can say
+which of half a dozen sentences describes their archive.
+
+### 5a.1 `as-if-printed` is derivable, not a taste
+
+Most policies would be somebody's opinion about what matters. This one is not, and that is what
+makes it the best of the proposed profiles: **the standard states what a printed page shows**, so
+the profile's content can be read out of clauses rather than argued.
+
+- §12.5.3's Table 167, bit 3: "If set, print the annotation when the page is printed unless the
+  Hidden flag is also set. If clear, never print the annotation, regardless of whether it is
+  rendered on the screen." So an annotation the file marks unprinted is, under this profile,
+  something the user already accepted losing.
+- The same row's next sentence bounds it: "If the annotation does not contain any appearance
+  streams this flag shall be ignored."
+- §8.11.4.4's usage application dictionary takes an `Event` of `View`, `Print` or `Export`, and a
+  group's `Usage` may carry a `Print` dictionary whose `PrintState` "shall be either ON or OFF,
+  indicating that the group shall be set to that state when the document is printed". So optional
+  content that does not print is likewise already-accepted loss.
+- And everything that reaches no printed page at all — attachments, JavaScript, multimedia
+  streams, the metadata packet, the document's own restrictions — is loss the user accepted the
+  moment they pressed print.
+
+The profile's sentence is therefore short and checkable: **discard what printing would not have
+carried; touch nothing that it would.**
+
+### 5a.2 And it interacts with the target, which is the part to get right
+
+`as-if-printed` is *incoherent* with two of the six targets, and saying so is more useful than
+shipping a file that quietly under-delivers:
+
+- **PDF/A-2a** is Level A: it requires the logical structure that describes the content. Printing
+  carries none of it. A profile that discards what printing loses would discard the very thing
+  that target is for.
+- **PDF/A-2u** requires every text-showing operation to map to Unicode. A printed page carries the
+  glyphs and not the mapping.
+
+So a shipped profile declares the targets it is coherent with, and using it against another is an
+error naming both — the same rule §4.6 already sets for a remedy the target does not admit. This
+is the second time that pair has turned out to be the unit rather than the site.
+
+### 5a.3 The profiles worth shipping, and what each says in one sentence
+
+| profile | its sentence | coherent with |
+|---|---|---|
+| `refuse-any-loss` | every site `stop`; today's behaviour, named so an operator can state it deliberately | all six |
+| `as-if-printed` | discard what printing would not have carried; touch nothing it would | 2b, 4, 4f, 4e |
+| `only-metadata-loss` | nothing may be lost but metadata; everything else `stop` | all six |
+| `keep-everything` | prefer `preserve` wherever it exists, then `derive`, never `discard`; `stop` rather than lose | all six |
+
+`keep-everything` is the one that most needs §4.6.1's finding — appending is available under every
+target, so "keep it somewhere" is nearly always possible — and it is the profile an operator
+reaches for when the archive matters more than its tidiness.
+
+### 5a.4 Shipping conversion programs beside them
+
+> we could even provide conversion program, which for instance convert embedded files
+
+Worth doing and worth keeping separate from the profiles, because it is a **packaging and licence**
+question rather than a design one. The lesson is a week old and cost a round: shipping
+`data/icc/sRGB2014.icc` needed a first-hand reading of the ICC's terms, a provenance file with a
+hash, and a `/NOTICE` section — and the obvious download turned out to be the wrong file.
+
+Two shapes, and the second is much cheaper:
+
+- **ship a program** — a converter binary or script this project distributes. Every dependency it
+  has becomes ours to license, notice and keep working;
+- **ship a tool *declaration*** — the `[tool.…]` block for a program the operator already has, so
+  `soffice`, `ffmpeg` or `pandoc` can be configured correctly without the operator working out the
+  argument order. That is a text file, carries no third-party bytes, and is where the real
+  friction is anyway.
+
+The second should come first, and the profiles should reference tools by name so that a declaration
+can be dropped in beside them.
+
 ## 6. Easy and difficult, against this tree
 
 **Easy**, because the architecture already has the seams:
