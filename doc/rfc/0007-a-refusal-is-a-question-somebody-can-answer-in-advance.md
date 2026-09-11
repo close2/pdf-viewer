@@ -402,6 +402,72 @@ complementary rather than alternatives: part 3 is the right answer for an operat
 invoice case supported, and departures are the only route for one whose archive mandates PDF/A-2
 itself, or who wants a permission narrower than any part grants.
 
+### 4.7.5 One departure was discussed; every requirement needs the same consideration
+
+Stated by the owner on 2026-09-11:
+
+> note, that we have just discussed this single possible exclusion of the spec. There are probably
+> a lot others where different ways of "ignoring" the spec make sense. We need to think in every
+> case, what could make sense.
+
+The XML attachment is one instance and it is not special. **Every requirement a target binds is a
+candidate for a departure, and each needs its own consideration of what departing would mean** —
+exactly as §5 says every refusal needs its own consideration of remedies.
+
+That was not a tractable sentence a week ago. It is now, because session 955 built
+`crates/pdf-transform/src/archive/census.rs`: for the first time there is a **complete enumeration**
+of what every target is held to, 151 to 167 requirements each, with none reaching a catch-all. A
+departure catalogue can be built against that list rather than against whatever a corpus happened
+to raise.
+
+#### The method, and one third of it the census can compute
+
+Sorting a requirement by **what departing from it costs** gives three kinds, and the first is
+objective rather than a judgement:
+
+**A — another part of ISO 19005 already relaxes it.** The census knows which requirements bind
+which targets, so it can answer this mechanically: ISO 19005-2 section 6.1.13's ten implementation
+limits bind part 2 and **part 4 states none of them**; part 4 removes `/Info`; part 2 and part 4
+differ on `/DefaultCMYK`, on associated files, on what an embedded file may be. A departure here
+has precedent inside the standard itself — the committee has already judged, somewhere, that a
+conforming file need not have this. That is the strongest ground a departure can stand on, and it
+is free to compute.
+
+**B — no part relaxes it, and departing still leaves an archive.** A judgement, argued per
+requirement. The XML attachment is here: no part of ISO 19005 expresses "PDF/A-2 plus exactly XML",
+but a file that is PDF/A-2 in every other respect and carries one XML attachment is plainly still
+an archival document. Most of the interesting cases will be of this kind and each one is a small
+argument rather than a lookup.
+
+**C — departing defeats what the format is for.** PDF/A exists so a file renders the same in
+decades, and some requirements are load-bearing for exactly that. **Font embedding** is the
+clearest: a file whose fonts are not embedded may not render at all in twenty years, which is the
+whole thing being prevented. **Encryption** is another — an archive nobody can decrypt is not an
+archive. **A stream whose data is in an external file** is a third. A departure here does not
+produce a slightly different archive; it produces something that is not one.
+
+This project should say so rather than offering the switch and letting an operator discover it.
+The catalogue's entry for a kind-C requirement is *no departure, and here is why* — which is the
+same shape as `REFUSED_BY_NAME`'s fence rows, and for the same reason: a refusal with an argument
+is finished work.
+
+#### And the second axis: can it be narrowed?
+
+Cutting across those three is whether a departure admits a **predicate**. The owner's "(and only
+xml)" is the model, and it is what makes a departure safer than retargeting — but not every
+requirement has a natural narrowing. "The file shall have a conforming header" is all or nothing.
+A requirement that cannot be narrowed is a blunter instrument and its catalogue entry should say
+so, because an operator choosing between two departures should be able to see which one is
+narrower.
+
+#### What this means for the work
+
+The catalogue is the bulk of this feature, not the mechanism. There are 107 requirements the census
+newly enumerated plus the 40-odd already answered, and each needs a sentence about departure even
+where the sentence is "no". That is several rounds of reading, and it is the same reading the
+remedy table needs — which argues for doing them together, requirement by requirement, rather than
+as two passes over the same clauses.
+
 ## 5. Per-site remedies, first pass
 
 **Read every cell below as "for the targets that admit it"** — §4.6 is why, and the embedded-file
