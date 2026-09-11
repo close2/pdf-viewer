@@ -29,9 +29,21 @@ Parts 2 and 4 are targets; part 3 is not, and a non-PDF attachment leaves exactl
 `doc/pdf-a-conversion-limits.md` §3.1 names — retarget to PDF/A-4f, or drop it. RFC 0007 proposes a
 third, and this question asks whether the third should instead be a fourth target.
 
+## The correction that sharpens this
+
+The owner noted on 2026-09-11 that part 3 admits **all** attachments, not only the XML the invoice
+case needs — the same breadth PDF/A-4f already has. *(Recorded as the owner's reading; part 3 is
+not held, so this project has not checked the clause.)*
+
+That matters for what buying it would and would not buy. It answers the ZUGFeRD case completely: a
+Factur-X invoice becomes a target rather than a departure, and the file conforms and says so. It
+does **not** answer the request that raised it, because "and only xml" is the request, and no part
+of ISO 19005 expresses a permission that narrow. Part 3 and PDF/A-4f would each also admit a
+spreadsheet or a video.
+
 ## Recommendation
 
-Obtain it if the invoice case is real for you, and treat the departure mechanism as worth building
-regardless — it answers the general problem, and part 3 answers only this instance of it. The two
-are not alternatives: an operator whose archive mandates PDF/A-2 specifically is not helped by a
-PDF/A-3 file, and departures remain the only route for them.
+Obtain it if the invoice case is real for you — it is the honest answer there, and a conforming
+file always beats a departed one. Build departures regardless: they answer the general problem and
+part 3 answers one instance of it, and an operator whose archive mandates PDF/A-2 itself, or who
+wants a permission narrower than any part grants, has no other route.

@@ -317,10 +317,21 @@ would make the configuration's most important distinction invisible.
 ### 4.7.1 Why it is a real request rather than a shortcut
 
 `doc/pdf-a-conversion-limits.md` §3.1 says of a non-PDF attachment that there are "exactly two
-honest answers — retarget to PDF/A-4f, or drop the attachment. There is no third one." That
-sentence is true about the *standard* and it is why this is worth building: the third answer the
-standard offers is **PDF/A-3**, whose associated files exist precisely for this, and this project
-cannot target it because part 3 was never bought (`A17`).
+honest answers — retarget to PDF/A-4f, or drop the attachment. There is no third one." A third
+exists in the standard — **PDF/A-3** — and this project cannot target it because part 3 was never
+bought (`A17`).
+
+**But retargeting is not the same request, and the owner's correction on 2026-09-11 is why.** Part
+3 is understood to relax the embedding rule for **any** file, as PDF/A-4f does; neither is a
+narrowing. *(Understood rather than read: part 3 is not held here, so this RFC records it as the
+owner's reading and the common account rather than as a clause this project has checked.)*
+
+So an operator who wants *PDF/A-2's discipline plus exactly XML* cannot get it from any target.
+PDF/A-3 and PDF/A-4f would both also admit a spreadsheet, an executable, or a video — and an
+archive that asked for PDF/A-2 has a policy about what may be in its files that "any attachment"
+does not honour. **A departure can be narrower than any target**, and that is the strongest
+argument for building it: retargeting trades one rule for a weaker one, where a departure keeps
+every rule but the one it names, for only the class of file it names.
 
 The concrete case is current. ZUGFeRD and Factur-X — the same specification since 2020, with a
 German mandate arriving in 2026 — embed a machine-readable invoice as `factur-x.xml` in a
@@ -380,11 +391,16 @@ makes a conforming file, and this one does not.
 
 ### 4.7.4 The question underneath it
 
-If an operator needs PDF/A-2 plus an XML attachment, what they are describing is **PDF/A-3**. The
-departure is this project routing around a gap of its own — a part nobody bought — and it is worth
-saying so plainly rather than presenting a departure as the natural answer. `doc/questions/Q60`
-asks whether part 3 should be obtained, because if it were, this particular case stops being a
-departure and becomes a target.
+**Part 3 would answer the ZUGFeRD case and not the general one**, and the difference is worth
+keeping straight. A Factur-X invoice is a PDF with one XML attached, so a PDF/A-3 target holds it
+and says so — no departure, no omitted identification, a file that conforms. That is the better
+outcome whenever it is available, and `doc/questions/Q60` asks whether to obtain part 3 for it.
+
+It does not answer the owner's request, because *and only xml* is the request. Part 3 and PDF/A-4f
+both admit any embedded file; neither expresses "these and nothing else". So the two are
+complementary rather than alternatives: part 3 is the right answer for an operator who wants the
+invoice case supported, and departures are the only route for one whose archive mandates PDF/A-2
+itself, or who wants a permission narrower than any part grants.
 
 ## 5. Per-site remedies, first pass
 

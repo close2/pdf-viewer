@@ -269,13 +269,18 @@ The decision tree, in the order a converter should try it:
    impossible with it, and the standard offers exactly two honest answers: **retarget to
    PDF/A-4f**, or **drop the attachment**. This is the case the user's own example named.
 
-   **This paragraph used to end "There is no third one", and that was true about the standard and
-   false about this project.** The standard has a third answer — **PDF/A-3**, whose associated
-   files exist for precisely this, and which is what ZUGFeRD and Factur-X specify — and the only
-   reason it is unavailable here is that part 3 was never bought (`A17`, `doc/questions/Q60`). A
-   fourth answer is the operator's rather than the standard's: to depart from the clause
+   **This paragraph used to end "There is no third one".** The standard has one — **PDF/A-3**,
+   which ZUGFeRD and Factur-X specify — and the only reason it is unavailable here is that part 3
+   was never bought (`A17`, `doc/questions/Q60`).
+
+   But it is a *wider* permission rather than a narrower one: part 3 is understood to admit any
+   embedded file, as PDF/A-4f does. **So none of the three targets expresses "PDF/A-2's discipline
+   plus exactly XML"** — each of them would equally admit a spreadsheet or a video. That is the
+   fourth answer, and it is the operator's rather than the standard's: depart from the clause
    deliberately, by name, for a narrowed class of file, in a document that does not then claim the
-   target. The owner asked for that on 2026-09-11 and `doc/rfc/0007` §4.7 is the design.
+   target. The owner asked for it on 2026-09-11; `doc/rfc/0007` §4.7 is the design. *(Part 3's rule
+   is recorded here as the owner's reading and the common account, not as a clause this project has
+   checked — it is not held.)*
 3. **Dropping is Ask, always**, listing every file dropped by name and size, and recording the
    removal in `xmpMM:History` — which ISO 19005-2 §6.6.6 explicitly asks a converter to do, its
    own example of a thing to record being objects that were not retained.
