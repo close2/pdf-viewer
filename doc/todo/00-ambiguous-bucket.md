@@ -541,11 +541,25 @@ sat at 0.85 with a quarter of its marks absent. What sees it is one number over 
 already on disk — **our ink minus the lightest reference's** — and the sweep costs three minutes
 because nothing has to be rendered again:
 
-```python
-# for every ambiguous page, over <target>/tmp/oracle/<stem>/p<n>/
-live = [ink(r) for r in (poppler, mupdf, ghostscript, hayro) if ink(r) > 0]
-gap  = ink(ours) - min(live)
+**It is a program now, and the recipe above is what it replaces** (ADR 0985). The
+nine-hundred-and-seventy-fourth session rebuilt this sweep by hand — as at least fifteen rounds had
+before it — and measured 775 of the 838 pages it listed, where the gate had printed 839. The 63 it
+silently lost were the whole `doc/corpora/pdfbox` population: the gate *prints* `pdfbox/cweb.pdf
+page 10` and *writes* `pdfbox/cweb/p10/…`, so the corpus label is a directory in the path and not
+part of the file's name. Every printed row looked as it always had. Two commands, in this order:
+
+```sh
+cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture | tee <log>
+cargo run --release -p pdfref --bin undrawn -- <log>
 ```
+
+It reads its population **and its exclusions** off that log rather than assembling either, compiles
+the ink measurement in so no round can take it a different way, prints the denominator, and exits
+non-zero on a page it cannot measure instead of dropping the row. It **reports** the alarm and does
+not ratchet it: the groups live in the gate and a note is a person's (trap 39).
+
+The one thing it will not tell you is which page to open — that is still this file's job, and the
+head is where to start.
 
 sorted ascending. A large negative gap is content we are not drawing; a large positive one is
 content nobody else is.

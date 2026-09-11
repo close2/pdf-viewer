@@ -228,6 +228,26 @@ pub enum Rewrite {
     /// outline changes: what is rewritten is `hmtx` for an sfnt and the leading width operand of
     /// a charstring for a CFF.
     RestateFontMetrics,
+    /// Every embedded font program whose stated advance *heights* disagree with the `/DW2` and
+    /// `/W2` of the `CIDFont` dictionary that shows it vertically has the program's restated.
+    ///
+    /// ISO 19005-4 section 6.2.10.5's third paragraph, and part 2 states no such rule — which is
+    /// why this is a rewrite of its own rather than the one above: at a part 2 target no
+    /// requirement asks for it, and `doc/adr/0947`'s first rule is that nothing else may happen.
+    ///
+    /// The direction is the same and the reason is stronger. §9.2.4's inference is what makes
+    /// restating `/Widths` the forbidden half of the horizontal case; here §9.9.1 says it
+    /// outright:
+    ///
+    /// > The "vhea" and "vmtx" tables that specify vertical metrics shall never be used by a PDF
+    /// > processor. The only way to specify vertical metrics in PDF shall be by means of the DW2
+    /// > and W2 entries in a CIDFont dictionary.
+    ///
+    /// So rewriting `vmtx` changes nothing any conforming processor does, by the clause's own
+    /// words, and rewriting `/DW2` or `/W2` would move every glyph on a vertical line on the
+    /// authority of a table no reader may consult. **No mark moves and no outline changes**:
+    /// what is rewritten is the advance field of `vmtx`, in place.
+    RestateVerticalFontMetrics,
     /// Every graphics state's `/RI` and image dictionary's `/Intent` that names an intent the
     /// base standard does not define is restated as `RelativeColorimetric`.
     ///
@@ -525,6 +545,12 @@ impl Rewrite {
                 "an embedded font program's stated advances are restated to the widths the font \
                  dictionary already states, which is the one of the two that does not move a mark"
             }
+            Self::RestateVerticalFontMetrics => {
+                "an embedded font program's vmtx is restated to the advance heights the CIDFont \
+                 dictionary's DW2 and W2 already state — which ISO 32000-2 \u{a7}9.9.1 makes the \
+                 only vertical metrics a PDF processor may use, the vmtx being a table it says \
+                 shall never be used, so no conforming reader can observe the change"
+            }
             Self::RenderingIntent => {
                 "a graphics state's RI or an image's Intent that names no intent ISO 32000-2 \
                  defines is restated as RelativeColorimetric, which \u{a7}8.6.5.8 is what a \
@@ -620,6 +646,7 @@ impl Rewrite {
             Self::AppearanceDictionary => "appearance-dictionary",
             Self::SubstituteFontProgram => "substitute-font-program",
             Self::RestateFontMetrics => "restate-font-metrics",
+            Self::RestateVerticalFontMetrics => "restate-vertical-font-metrics",
             Self::RenderingIntent => "rendering-intent",
             Self::BlendModeNormal => "blend-mode-normal",
             Self::NormalAppearanceFromState => "normal-appearance-from-state",
@@ -2201,11 +2228,25 @@ impl Rewriter<'_> {
         }
         // The font program itself, restated: a whole new stream rather than a dictionary edit,
         // because its bytes, its `/Length` and its `/Length1` all change together.
-        if self.wants(Rewrite::RestateFontMetrics)
-            && let Some(restated) = self.metrics.and_then(|metrics| metrics.at.get(&id))
+        // One stream whichever of the two requirements asked for it, and counted under each
+        // that did: a font whose dictionary disagrees with its program in both directions is
+        // restated twice into one set of bytes, and writing it twice would drop the first.
+        if let Some(metrics) = self.metrics
+            && let Some(restated) = metrics.at.get(&id)
         {
-            count(applied, Rewrite::RestateFontMetrics);
-            return Rewritten::Changed(restated.clone());
+            let horizontal =
+                self.wants(Rewrite::RestateFontMetrics) && metrics.horizontal.contains(&id);
+            let vertical =
+                self.wants(Rewrite::RestateVerticalFontMetrics) && metrics.vertical.contains(&id);
+            if horizontal {
+                count(applied, Rewrite::RestateFontMetrics);
+            }
+            if vertical {
+                count(applied, Rewrite::RestateVerticalFontMetrics);
+            }
+            if horizontal || vertical {
+                return Rewritten::Changed(restated.clone());
+            }
         }
         // The JPEG 2000 data itself, with the colour specification boxes the part directs a
         // processor to ignore taken out: the bytes and the `/Length` change together, so it is a

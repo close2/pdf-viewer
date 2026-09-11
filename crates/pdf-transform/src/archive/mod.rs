@@ -384,7 +384,8 @@ fn apply_the_decisions(
             substituted_fonts_recorded(&substitutes.done)
         ));
     }
-    if wanted.contains(&Rewrite::RestateFontMetrics)
+    if (wanted.contains(&Rewrite::RestateFontMetrics)
+        || wanted.contains(&Rewrite::RestateVerticalFontMetrics))
         && let Ok(metrics) = &prepared.metrics
     {
         conversion.restated.clone_from(&metrics.done);

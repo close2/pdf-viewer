@@ -143,9 +143,10 @@ For calibration, the same command over three of ours — `pdf-syntax`, `pdf-rend
 
 Four readings of the table, each of which is the *cost* rather than the number:
 
-- **1 073 `arithmetic_side_effects` and 1 118 cast warnings** are not style. `CLAUDE.md` names
-  them: "[a]rithmetic on untrusted input is a correctness and DoS concern, not a style one".
-  Every one of those sites is a question about what a hostile document can do, and answering
+- **1 073 `arithmetic_side_effects` and 1 118 cast warnings** are not style. They are principle
+  3's subject: "[m]emory safety is not enough. Explicit memory and time budgets guard against
+  decompression bombs, xref cycles, and pathological content — Rust does not prevent resource
+  exhaustion." Every one of those sites is a question about what a hostile document can do, and answering
   2 191 of them *is* the merge rather than a tidy-up before it.
 - **154 missing-doc sites**, 145 of them in `hayro-syntax`, plus two crate-level
   `#![allow(missing_docs)]` opt-outs. `#![warn(missing_docs)]` is enforced here.

@@ -32,6 +32,26 @@
 //!    writes a `/Widths`, a `/W` or a `/DW`, which is what makes that true by construction rather
 //!    than by care.
 //!
+//! # The same agreement going down the page
+//!
+//! ISO 19005-4 section 6.2.10.5's third paragraph asks it again of a composite font shown in
+//! writing mode 1, between §9.7.4.3's `/DW2` and `/W2` and the program's `vmtx`. Part 2 states no
+//! such rule, so the two are separate `Rewrite`s: at a PDF/A-2 target nothing asks for the
+//! vertical one and `doc/adr/0947`'s first rule is that nothing else may happen.
+//!
+//! **Route 3 is forbidden there by a clause rather than by an inference.** §9.9.1:
+//!
+//! > The "vhea" and "vmtx" tables that specify vertical metrics shall never be used by a PDF
+//! > processor. The only way to specify vertical metrics in PDF shall be by means of the DW2 and
+//! > W2 entries in a CIDFont dictionary.
+//!
+//! So restating the program is unobservable to any conforming reader, and restating the
+//! dictionary would move every glyph on a vertical line on the authority of a table nothing may
+//! consult. **Both restatements replace the same stream**, which is why [`Metrics`] holds one
+//! replacement per program object and a set per requirement saying which asked for it: a font
+//! disagreeing in both directions is restated twice into one set of bytes, and a map per rewrite
+//! would drop the second write in silence.
+//!
 //! # Why the face is the compiled-in one and never the machine's
 //!
 //! [`pdf_font::standard::shipped_face`] rather than `pdf_font::substitute::find`, and the
@@ -45,8 +65,8 @@
 //! guess", which is also section 2.1's line about a substitution that answers *what does this
 //! glyph look like* being unable to answer *which character is this code*.
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::survey::{SelectedFont, Survey};
 use pdf_font::standard::ShippedFace;
@@ -129,6 +149,12 @@ pub struct RestatedFont {
     pub requested: String,
     /// How many of the program's glyphs had their advance restated.
     pub glyphs: usize,
+    /// How many had their `vmtx` advance height restated, going down the page.
+    ///
+    /// ISO 19005-4 section 6.2.10.5's third paragraph, and zero for every font a page does not
+    /// set vertically — which is nearly all of them. The two counts are separate because the
+    /// two requirements are: a document can fail either without the other.
+    pub heights: usize,
 }
 
 /// The font programs to embed, and the fonts they belong to.
@@ -143,12 +169,35 @@ pub(super) struct Substitutes {
 }
 
 /// The font programs to replace, by the stream object each is.
+///
+/// **One replacement per program object, whichever of the two requirements asked for it.** A
+/// font whose dictionary disagrees with its program in both directions is one stream, restated
+/// twice, and two maps keyed by the same object would have let the second rewrite be dropped
+/// silently. The two sets say which requirement each replacement answers, so the report counts
+/// them apart without the rewriter having to write the stream twice.
 #[derive(Debug, Default)]
 pub(super) struct Metrics {
     /// The replacement stream for each font program object.
     pub(super) at: BTreeMap<ObjectId, Object>,
+    /// The programs whose `/Widths`, `/W` or `/DW` disagreement was answered.
+    pub(super) horizontal: BTreeSet<ObjectId>,
+    /// The programs whose `/DW2` or `/W2` disagreement was answered.
+    pub(super) vertical: BTreeSet<ObjectId>,
     /// What was done, per font.
     pub(super) done: Vec<RestatedFont>,
+}
+
+/// Which of ISO 19005-4 section 6.2.10.5's two disagreements a conversion was asked to answer.
+///
+/// **Both are asked separately and neither implies the other**, which is `doc/adr/0947`'s first
+/// rule: a part 2 target states no vertical requirement at all, so restating a `vmtx` there
+/// would be changing a program nothing had asked to be changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Directions {
+    /// Whether `fonts/widths-agree-with-the-program` failed.
+    pub(super) widths: bool,
+    /// Whether `fonts/vertical-metrics-agree-with-the-program` failed.
+    pub(super) vertical: bool,
 }
 
 /// One `/FontFile` entry a font descriptor gains.
@@ -180,7 +229,11 @@ struct Embedded {
 /// tree reads, and whose dictionary states a width for a shown code that the program does not
 /// state within [`CONSISTENT`]. Nothing else is touched — a program that already agrees crosses
 /// the conversion byte for byte, which is `doc/adr/0947`'s first rule.
-pub(super) fn restate_metrics(document: &Document, survey: &Survey) -> Result<Metrics, Because> {
+pub(super) fn restate_metrics(
+    document: &Document,
+    survey: &Survey,
+    wants: Directions,
+) -> Result<Metrics, Because> {
     let mut metrics = Metrics::default();
     for used in survey.fonts() {
         if !used.rendered {
@@ -194,12 +247,28 @@ pub(super) fn restate_metrics(document: &Document, survey: &Survey) -> Result<Me
         // whose two statements already agree asked for nothing. A glyph the program states no
         // advance for is left alone too — that answer is a fact about this reader rather than
         // about the file, and `pdf_archive` passes over the same case for the same reason.
-        let wanted: BTreeMap<u16, f32> = shown_widths(&font, used)?
-            .into_iter()
-            .filter(|(_, (width, program))| program.is_some_and(|own| disagrees(*width, own)))
-            .map(|(glyph, (width, _))| (glyph, width))
-            .collect();
-        if wanted.is_empty() {
+        let widths: BTreeMap<u16, f32> = if wants.widths {
+            shown_widths(&font, used)?
+                .into_iter()
+                .filter(|(_, (width, program))| program.is_some_and(|own| disagrees(*width, own)))
+                .map(|(glyph, (width, _))| (glyph, width))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+        // The same question going down the page, asked only of a font a `CMap` sets vertically:
+        // §9.7.5.1's `/WMode` is what [`pdf_font::LoadedFont::is_vertical`] answers, and it is
+        // the condition ISO 19005-4 section 6.2.10.5's third paragraph states.
+        let heights: BTreeMap<u16, f32> = if wants.vertical && font.is_vertical() {
+            shown_heights(&font, used)?
+                .into_iter()
+                .filter(|(_, (stated, program))| program.is_some_and(|own| disagrees(*stated, own)))
+                .map(|(glyph, (stated, _))| (glyph, stated))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+        if widths.is_empty() && heights.is_empty() {
             continue;
         }
         let bytes = document
@@ -207,8 +276,17 @@ pub(super) fn restate_metrics(document: &Document, survey: &Survey) -> Result<Me
             .as_stream()
             .and_then(|stream| document.decoded_stream_data(stream))
             .ok_or(Because::NotBuiltYet(PROGRAM_NOT_DECODED))?;
-        let restated = pdf_font::restate::with_widths(&bytes, embedded.format, &wanted)
-            .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
+        let mut restated = bytes.to_vec();
+        if !widths.is_empty() {
+            restated = pdf_font::restate::with_widths(&restated, embedded.format, &widths)
+                .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
+        }
+        if !heights.is_empty() {
+            restated =
+                pdf_font::restate::with_vertical_advances(&restated, embedded.format, &heights)
+                    .map_err(|_| Because::NotBuiltYet(VERTICAL_NOT_RESTATABLE))?;
+        }
+        proves(&restated, embedded.format, &widths, &heights)?;
         let Object::Stream(stream) = document.get(embedded.at) else {
             return Err(Because::NotBuiltYet(PROGRAM_NOT_DECODED));
         };
@@ -217,16 +295,91 @@ pub(super) fn restate_metrics(document: &Document, survey: &Survey) -> Result<Me
             program_stream(Some(&stream.dict), &restated, embedded.length1)
                 .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?,
         );
+        if !widths.is_empty() {
+            metrics.horizontal.insert(embedded.at);
+        }
+        if !heights.is_empty() {
+            metrics.vertical.insert(embedded.at);
+        }
         metrics.done.push(RestatedFont {
             resource: used.name.clone(),
             requested: base_font(document, &used.dict),
-            glyphs: wanted.len(),
+            glyphs: widths.len(),
+            heights: heights.len(),
         });
     }
     if metrics.at.is_empty() {
         return Err(Because::NotBuiltYet(NO_PROGRAM_TO_RESTATE));
     }
     Ok(metrics)
+}
+
+/// Reads the rewritten program back, and refuses it unless every glyph named actually moved.
+///
+/// **Session 971's rule, and it is a rule because a rewrite that silently missed a site would
+/// convert a document into one that still fails the requirement it was converted for.** The
+/// program is asked, through the same two readers a caller holding nothing but bytes has, what
+/// it now states for each glyph the restatement named; a number that is not the one asked for
+/// stops the conversion rather than reaching a file.
+fn proves(
+    program: &[u8],
+    format: Format,
+    widths: &BTreeMap<u16, f32>,
+    heights: &BTreeMap<u16, f32>,
+) -> Result<(), Because> {
+    for (glyph, width) in widths {
+        let stated = pdf_font::restate::advance(program, format, *glyph)
+            .ok_or(Because::NotBuiltYet(RESTATEMENT_NOT_PROVED))?;
+        if disagrees(stated, *width) {
+            return Err(Because::NotBuiltYet(RESTATEMENT_NOT_PROVED));
+        }
+    }
+    for (glyph, displacement) in heights {
+        let stated = pdf_font::restate::vertical_advance(program, format, *glyph)
+            .ok_or(Because::NotBuiltYet(RESTATEMENT_NOT_PROVED))?;
+        if disagrees(stated, *displacement) {
+            return Err(Because::NotBuiltYet(RESTATEMENT_NOT_PROVED));
+        }
+    }
+    Ok(())
+}
+
+/// The vertical displacement the dictionary states and the one the program states, per glyph.
+///
+/// [`shown_widths`]'s counterpart for ISO 19005-4 section 6.2.10.5's third paragraph, keyed by
+/// glyph for the same reason and refusing two disagreeing statements for one glyph for the same
+/// reason: `vmtx` holds one advance height per glyph, so a dictionary asking for two of them is
+/// a document no rewrite of the program can satisfy.
+///
+/// Only §9.7.4.3's displacement `w1` is compared, and deliberately not its position vector `v`:
+/// `vmtx` states the first outright and derives nothing about the second, which is the same
+/// reading `pdf_archive`'s own rule makes and the reason the two agree about which files fail.
+fn shown_heights(
+    font: &LoadedFont,
+    used: &SelectedFont,
+) -> Result<BTreeMap<u16, (f32, Option<f32>)>, Because> {
+    let mut heights: BTreeMap<u16, (f32, Option<f32>)> = BTreeMap::new();
+    for text in used.shown.keys() {
+        for code in font.decode(text) {
+            let Some(glyph) = font.glyph_index(code) else {
+                continue;
+            };
+            let (displacement, _) = font.vertical_metrics(code);
+            let Some(stated) = displacement.get(1).copied() else {
+                continue;
+            };
+            match heights.entry(glyph) {
+                Entry::Vacant(slot) => {
+                    slot.insert((stated, font.program_vertical_advance(code)));
+                }
+                Entry::Occupied(held) if disagrees(held.get().0, stated) => {
+                    return Err(Because::TheFence(TWO_HEIGHTS_FOR_ONE_GLYPH));
+                }
+                Entry::Occupied(_) => {}
+            }
+        }
+    }
+    Ok(heights)
 }
 
 /// The width the dictionary states and the one the program states, per glyph of a shown code.
@@ -584,11 +737,35 @@ const PROGRAM_NOT_RESTATABLE: &str = "this font's embedded program states a glyp
 const PROGRAM_NOT_ENCODED: &str = "the font program this conversion built is longer than a \
      stream's /Length can state";
 
+/// Why a program whose vertical advances are stated where this does not rewrite is not restated.
+const VERTICAL_NOT_RESTATABLE: &str = "this font's embedded program states the advance height \
+     this conversion would have to restate somewhere it cannot be overwritten in place — a bare \
+     CFF program, which carries no vmtx at all, or a glyph in the tail of a vmtx whose advance \
+     the table states only by inheritance from the last of its long vertical metrics. Giving \
+     that glyph an advance of its own means lengthening the table, which would restate every \
+     other glyph in the tail at the same time and none of those was asked for. The alternative \
+     is restating /DW2 and /W2 to match the program, and ISO 32000-2 §9.9.1 forbids it outright: \
+     a PDF processor shall never use vhea and vmtx, so a dictionary rewritten to agree with them \
+     would move every glyph on a vertical line on the authority of a table no reader may read";
+
+/// Why a restatement that did not land where it said it would is withdrawn.
+const RESTATEMENT_NOT_PROVED: &str = "the font program this conversion restated does not read \
+     back stating the advance it was given for every glyph named, so the rewrite is withdrawn \
+     rather than written: a program that missed a site would leave the document failing the \
+     requirement it was converted for, and saying nothing about it";
+
 /// Why a document whose dictionary asks two widths of one glyph is refused.
 const TWO_WIDTHS_FOR_ONE_GLYPH: &str = "two of this font's codes reach the same glyph and its \
      dictionary states different widths for them. A font program states one advance per glyph, \
      so no program can satisfy both — and the only remedy left would be restating /Widths, which \
      doc/pdf-a-conversion-limits.md section 4.9 forbids because it is what positions the glyphs";
+
+/// Why a document whose dictionary asks two vertical displacements of one glyph is refused.
+const TWO_HEIGHTS_FOR_ONE_GLYPH: &str = "two of this font's codes reach the same glyph and its \
+     DW2 or W2 entries displace them differently going down the page. A font program states one \
+     advance height per glyph, so no program can satisfy both — and the only remedy left would \
+     be restating DW2 and W2, which ISO 32000-2 §9.7.4.3 makes what positions a glyph on a \
+     vertical line";
 
 /// Why a composite font is not given a substitute.
 const COMPOSITE_NOT_SUBSTITUTED: &str = "this document renders a composite font it does not \

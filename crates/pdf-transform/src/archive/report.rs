@@ -364,8 +364,9 @@ impl Conversion {
             for font in &self.restated {
                 let _ = writeln!(
                     out,
-                    "      {} (resource {}): {} glyph(s) restated, no outline changed",
-                    font.requested, font.resource, font.glyphs
+                    "      {} (resource {}): {} glyph(s) restated across the page and {} down \
+                     it, no outline changed",
+                    font.requested, font.resource, font.glyphs, font.heights
                 );
             }
         }
@@ -404,6 +405,7 @@ fn restated_to_json(font: &RestatedFont) -> Value {
         ("resource".to_owned(), Value::text(font.resource.clone())),
         ("base_font".to_owned(), Value::text(font.requested.clone())),
         ("glyphs".to_owned(), Value::count(font.glyphs)),
+        ("vertical_glyphs".to_owned(), Value::count(font.heights)),
     ])
 }
 

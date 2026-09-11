@@ -2,18 +2,29 @@
 //!
 //! # What this is for, and what it is not
 //!
-//! `CLAUDE.md` excludes *authoring* a document: linearisation, object-stream packing, and
-//! everything else whose requirements fall on a generator. It permits exactly one kind of
-//! writing, and this is it — §7.5.6's incremental update, which appends what a person did to
-//! the file they did it to:
+//! `CLAUDE.md` excludes *authoring content from nothing* — "[n]o clause whose subject is
+//! deciding what marks a page should contain falls on this project" — and it permits two kinds
+//! of writing, not one. This is the first: §7.5.6's incremental update, which appends what a
+//! person did to the file they did it to. [`crate::serialize`] is the second, which derives a
+//! new file from documents that already exist.
+//!
+//! What §7.5.6 states, and what this half writes:
 //!
 //! > The contents of a PDF file can be updated incrementally without rewriting the entire file.
 //! > When updating a PDF file incrementally, changes shall be appended to the end of the file,
 //! > leaving its original contents intact.
 //!
 //! The producer's bytes stay in the file, byte for byte, under whatever was added. That is what
-//! makes this the one form of writing this tree is placed to get right: nothing here decides how
-//! a document should be laid out, only how to say "this object now reads like this".
+//! makes this the one form of writing that touches a file somebody already has open: nothing
+//! here decides how a document should be laid out, only how to say "this object now reads like
+//! this".
+//!
+//! **This section named a third thing for ninety-two sessions, and the third thing was wrong.**
+//! It said the exclusion covered "linearisation, object-stream packing, and everything else
+//! whose requirements fall on a generator", quoting a sentence `CLAUDE.md` stopped containing
+//! on 2026-09-03 (RFC 0002 section 11.1, ADR 0816) — while [`crate::serialize`], in this crate,
+//! had been generating ISO 32000-2 §7.5.7's object streams since the nine-hundredth session.
+//! ADR 0989.
 //!
 //! # The two halves
 //!

@@ -7,6 +7,28 @@ anything this tree says about itself. `doc/ledger-and-claims.md` is where a fals
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A reason that says a row is "one predicate away" is a claim about the *clause* as well as about
+  the tree, and the clause half is the one nobody re-reads.** The route is greppable and so it gets
+  checked; the reading sits in a licensed document and so it does not. Two signature rows were
+  recorded as one predicate away by two separate ADRs, and neither was: the annex's "entire file" is
+  about the moment of signing, so every signature but the newest in an incrementally updated file
+  reads as uncovered — and a predicate written before that sentence was settled would have failed
+  conforming documents on *our* reading (ADR 0986). **When a reason prices work, check what it
+  prices the work against.**
+
+- **A ledger note that is boilerplate multiplies whatever is wrong with it by the size of the clause
+  family.** One paragraph written once became 22 copies of a retired quotation of `CLAUDE.md` in a
+  single sitting, and they outlived the sentence they quoted by 92 sessions (ADR 0989). The
+  quotation gate could not see them because it reports quotations that match *a specification* and
+  then diverge — and a quotation of this project's own documents matches nothing, which is
+  indistinguishable from not being a quotation at all.
+
+- **Naming a module is not naming a writer.** A catalogue entry said a rewrite waited on
+  `pdf_font::restate`, "which rewrites an sfnt's `hmtx`" — true of the module's subject, false of
+  its code: the splice, the directory update and the checksums live in `sfnt.rs`. **Three rounds
+  were blocked on the wrong file name** (ADR 0988). An entry naming where work belongs is a claim
+  about the tree and decays exactly like a claim about the standard.
+
 - **An instrument's stated limit is a claim, and a claim about what *cannot* be done is the most
   expensive kind to inherit.** A limit written into an instrument is read by every later round as
   settled, because it looks like the work of somebody who tried — so nobody tries again, and the

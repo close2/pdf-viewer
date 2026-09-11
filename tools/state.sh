@@ -64,7 +64,7 @@ section_ledger() {
 
 section_conformance() {
     run "conformance (citations, quotations, tables, ledger rows)" \
-        '^[0-9]+ (citations|quotations)|owe a review|^conformance ledger|^  (implemented|partial|reported|silent|inapplicable|writer-side|out-of-scope) |name .* distinct tables|name a test file' \
+        '^[0-9]+ (citations|quotations)|naming a section of one of this|owe a review|^conformance ledger|^  (implemented|partial|reported|silent|inapplicable|writer-side|out-of-scope) |name .* distinct tables|name a test file' \
         cargo test -p conformance -- --nocapture
 }
 
@@ -246,6 +246,18 @@ section_annex_o() {
 
 # The other populations a document used to state. Each is a `find` or a `ls`, which is the
 # whole point: the answer is on the disk rather than in a sentence about the disk.
+section_governing() {
+    heading "quotations of CLAUDE.md, against CLAUDE.md" \
+        "tools/governing-quotations.py"
+    # The other half of `--bin quotations`. That one reads a quotation against `doc/md/` and
+    # reports the ones that match a specification and then diverge, so a quotation of this
+    # project's *own* governing document matches nothing and is invisible to it. Twenty-three
+    # ledger rows quoted a retired sentence of CLAUDE.md for ninety-two sessions on that
+    # account (ADR 0989). It reports rather than fails: attribution is a proximity rule, so
+    # part of what it prints is correct prose saying what CLAUDE.md *used* to state.
+    python3 tools/governing-quotations.py || status=1
+}
+
 section_counts() {
     heading "populations on disk" "find / ls"
     printf 'fuzz targets:        %s\n' "$(ls fuzz/fuzz_targets/*.rs 2>/dev/null | wc -l)"
@@ -514,8 +526,8 @@ section_disk() {
     fi
 }
 
-all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer vfs launch dates xmp jpeg2000"
-quick="ledger conformance annex-o counts hosts windows binaries disk"
+all="ledger conformance annex-o governing counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer vfs launch dates xmp jpeg2000"
+quick="ledger conformance annex-o governing counts hosts windows binaries disk"
 
 case ${1-} in
 --list) printf '%s\n' $all; exit 0 ;;
@@ -547,6 +559,7 @@ for section in $sections; do
     xmp) section_xmp ;;
     jpeg2000) section_jpeg2000 ;;
     annex-o) section_annex_o ;;
+    governing) section_governing ;;
     counts) section_counts ;;
     hosts) section_hosts ;;
     windows) section_windows ;;

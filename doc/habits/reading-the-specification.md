@@ -7,6 +7,17 @@ reading into; `doc/errata-read.md` is what an erratum has moved.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A clause's neighbour can answer a question the entry never asked.** Reading §9.9.1's *preceding*
+  sentence — the TrueType tables that "shall always be present if present in the original TrueType
+  font program", which lists `head`, `hhea`, `loca`, `maxp`, `cvt `, `prep`, `glyf`, `hmtx` and
+  `fpgm` and does **not** list `vhea` or `vmtx` — showed that the standard declines to require those
+  two tables one sentence before it forbids their use, so removing them is as lossless as restating
+  them (ADR 0988). Three readings of that row had asked only *which side may be rewritten*. The
+  method has now overturned four catalogue entries, and once the deciding neighbour was **in another
+  standard entirely**: ISO/IEC 15444-1:2000 I.5.3.3 sets `APPROX` to zero and tells conforming
+  readers to ignore it, which is why a JP2 written as that part requires is precisely the file that
+  fails ISO 19005 (ADR 0982). **Read the paragraph, then the one before it.**
+
 - **"Our vocabulary cannot express this" is a claim about the vocabulary, and it decays like a
   claim about the specification does.** Three places in this tree said a §12.4.4 transition was
   "an animation between two pages, which a display list cannot express", and it was false when it

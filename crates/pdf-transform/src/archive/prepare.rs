@@ -23,7 +23,7 @@ use pdf_syntax::serialize::flate_encode;
 use crate::json::Value;
 
 use super::decision::{Because, REMEDIES};
-use super::fonts::{self, Metrics, Substitutes};
+use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
 use super::rewrite::Rewrite;
 use super::sites::{
@@ -607,7 +607,7 @@ impl Prepared {
             document,
             &mut spare,
             wanted(Rewrite::SubstituteFontProgram),
-            wanted(Rewrite::RestateFontMetrics),
+            metric_directions(&failed),
             survey.as_ref(),
         );
         let now = xmp::instant(std::time::SystemTime::now());
@@ -686,7 +686,9 @@ impl Prepared {
             Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
-            Rewrite::RestateFontMetrics => self.metrics.as_ref().err().copied(),
+            Rewrite::RestateFontMetrics | Rewrite::RestateVerticalFontMetrics => {
+                self.metrics.as_ref().err().copied()
+            }
             Rewrite::RenderingIntent => self.owed.rendering_intents.as_ref().err().copied(),
             Rewrite::BlendModeNormal => self.owed.blend_modes.as_ref().err().copied(),
             Rewrite::NormalAppearanceFromState => {
@@ -893,12 +895,25 @@ pub(super) struct Already<'a> {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 4] = [
+const SURVEYED: [Rewrite; 5] = [
     Rewrite::SubstituteFontProgram,
     Rewrite::RestateFontMetrics,
+    Rewrite::RestateVerticalFontMetrics,
     Rewrite::SymbolicTrueTypeEncodingRemoved,
     Rewrite::StandardTrueTypeEncoding,
 ];
+
+/// Which of the two metric restatements a document's failures ask for.
+///
+/// Separate questions rather than one, because the two requirements are separate: ISO 19005-2
+/// states only the horizontal one, so a part 2 target must leave a disagreeing `vmtx` exactly
+/// where its producer left it.
+fn metric_directions(failed: &BTreeSet<&'static str>) -> Directions {
+    Directions {
+        widths: wanted_by(failed, Rewrite::RestateFontMetrics),
+        vertical: wanted_by(failed, Rewrite::RestateVerticalFontMetrics),
+    }
+}
 
 /// Whether any requirement the document failed is answered by this rewrite.
 fn wanted_by(failed: &BTreeSet<&'static str>, rewrite: Rewrite) -> bool {
@@ -1444,7 +1459,7 @@ fn prepare_fonts(
     document: &Document,
     spare: &mut Spare,
     wants_substitutes: bool,
-    wants_metrics: bool,
+    wants_metrics: Directions,
     survey: Option<&Survey>,
 ) -> PreparedFonts {
     let substitutes = match (wants_substitutes, survey) {
@@ -1452,8 +1467,8 @@ fn prepare_fonts(
         (true, Some(survey)) => fonts::embed_faces(document, survey, spare),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
-    let metrics = match (wants_metrics, survey) {
-        (true, Some(survey)) => fonts::restate_metrics(document, survey),
+    let metrics = match (wants_metrics.widths || wants_metrics.vertical, survey) {
+        (true, Some(survey)) => fonts::restate_metrics(document, survey, wants_metrics),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
     let recorded = substitutes

@@ -433,10 +433,15 @@ Not one API name comes from there.
 
 ### How a round cites it, so that the instruments stay honest
 
-`§` in this tree means *a clause of ISO 32000-2* and nothing else — that is what makes every one of
-them checkable, and `tools/conformance/src/citation.rs` says so in the doc comment on its
-`ForeignCitation`, which exists for the one failure that matters here: a *readable* citation of
-something else, which "checks as ISO 32000-2's §5.2, which exists, so it passes in silence". Taking a
+**A `§` this tree does not put a document in front of** means *a clause of ISO 32000-2* — that is
+what makes every one of them checkable, and `tools/conformance/src/citation.rs` says so in the doc
+comment on its `ForeignCitation`, which exists for the one failure that matters here: a *readable*
+citation of something else, which "checks as ISO 32000-2's §5.2, which exists, so it passes in
+silence". (**This sentence said "and nothing else" until the nine-hundred-and-seventy-seventh
+session, and the tree had never obeyed it**: `` `doc/todo/02` §2 `` and `doc/oracle-and-corpus.md`
+§3d are how this project cites *itself*, across the crates and the ledger's notes alike, and every
+one of them was being resolved against ISO 32000-2 and passing by landing on a clause. They are now classified as
+`citation::ProjectSection` — counted and printed, checked against nothing. ADR 0987.) Taking a
 second and a third source therefore has an instrument cost, and this round priced it by running the
 scanner rather than by reasoning about it (trap 13). Each line below was fed to
 `conformance::citation::scan` and its verdict read off, with the clause index asked whether the

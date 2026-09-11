@@ -333,14 +333,21 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("B.1"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "unimplemented, and closable without cryptography: \
-             `pdf_model::signature::Signature::coverage` already answers exactly this question, \
-             reporting `Coverage::WholeFile` for a ByteRange that runs from byte zero to the end \
-             of the file with the single gap where the value sits. What stops it being a \
-             predicate here is that it would be this crate's first row whose check the \
-             converter's decision tables have no answer for \
-             (`crates/pdf-transform/tests/archive_unconsidered.txt`), which is a second crate's \
-             row to write",
+            "unimplemented, and **not** one predicate away, which two earlier rounds recorded \
+             that it was (ADRs 0972 and 0981). The route is real: \
+             `pdf_model::signature::Signature::coverage` reports `Coverage::WholeFile` for a \
+             ByteRange running from byte zero to the end of the file with the single gap where \
+             the value sits. What those rounds priced was the converter's census row \
+             (`crates/pdf-transform/tests/archive_unconsidered.txt`), which is still owed. What \
+             neither priced is a **reading**, and it is the blocker: the annex says the digest \
+             is computed over the entire file, which is a statement about the moment of \
+             signing, and every signature but the newest in an incrementally updated file gives \
+             `Coverage::Unsigned` instead. Either the annex forbids a conforming file from \
+             carrying an update after a signature — which is what its own NOTE 2 says the rule \
+             ensures — or it does not, and a predicate written before that is decided fails \
+             documents on this crate's reading rather than on the file. \
+             `pdf_model::signature::Signature::must_cover_whole_file` records the base \
+             standard's answer, which is the opposite one and binds two sub-filters only",
         ),
     },
     Requirement {
@@ -352,11 +359,29 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Unchecked(
             "unimplemented, and closable from what this tree already reads: \
              `pdf_model::cms::SignedData` states `signers` and the entries of `certificates`, \
-             and failing to parse at all is its `CmsError`. Held back for the same reason as the \
-             row above — a new predicate is a new row of the converter's census — and the \
-             annex's reference is to RFC 2315 rather than to RFC 5652, which is a narrower \
-             object than the one that reader accepts and is the part of the sentence that would \
-             need deciding before a verdict is issued",
+             and failing to parse at all is its `CmsError`. **One thing that used to be part of \
+             this row's reason is now the row below**: the annex's reference to RFC 2315 is a \
+             requirement of its own sentence, and folding it in here made a row that could not \
+             be closed without settling a question the countable half does not depend on. What \
+             is left owed is a predicate and the converter's census row \
+             (`crates/pdf-transform/tests/archive_unconsidered.txt`), which is a second crate's \
+             commit in the same breath",
+        ),
+    },
+    Requirement {
+        id: "signatures/signature-object-conforms-to-pkcs7",
+        asks: "The signature value shall be a PKCS#7 object conforming to the specification the \
+               annex names.",
+        clauses: Clauses::only_two("B.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented, and a separate sentence of the annex from the single-signer one \
+             above — split out of that row's reason so that the half this tree can count is not \
+             held hostage to the half it cannot. The annex names **RFC 2315**, which is a \
+             narrower object than the RFC 5652 `SignedData` `pdf_model::cms` reads, and nothing \
+             in this tree holds that document; judging a signature against the later RFC and \
+             citing the annex would be this crate deciding the two are the same object, which \
+             is the claim that would have to be argued first",
         ),
     },
     Requirement {
@@ -852,6 +877,10 @@ fn push_additional_actions(
 }
 
 /// §12.6.4.17's document-level scripts, which are action dictionaries in a name tree.
+///
+/// The row this serves binds both parts, and the subclause is **12.6.4.16** in
+/// ISO 32000-1:2008 — the edition PDF/A-2 adheres to, which calls the action JavaScript rather
+/// than ECMAScript. The two editions describe the same name tree under `/JavaScript`.
 fn push_document_scripts(
     document: &Document,
     catalog: &Dictionary,
@@ -1299,8 +1328,9 @@ fn appearance_dictionary_holds_only_normal(exam: &Examination<'_>, findings: &mu
 /// ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3: what the `/N` entry's value has to be.
 ///
 /// A button field's widget needs the subdictionary of appearance states ISO 32000-2 §12.7.5.2.3
-/// describes, one per value the button takes; every other annotation has one appearance and
-/// therefore a stream. `/FT` is inheritable, so the field type is looked up through `/Parent`.
+/// describes — **12.7.4.2.3 in ISO 32000-1:2008**, which is the edition a PDF/A-2 file adheres
+/// to and in which the field-type subclauses are one level up — one per value the button takes;
+/// every other annotation has one appearance and therefore a stream. `/FT` is inheritable, so the field type is looked up through `/Parent`.
 ///
 /// # Two clarifications, both of which this row already satisfies
 ///
@@ -1849,7 +1879,9 @@ mod tests {
         assert_eq!(faults(&file, subtype_permitted_by_part_four), 1);
     }
 
-    /// §6.3.2 exempts a popup from stating flags and nothing else.
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 exempt a popup from stating
+    /// flags and nothing else. (A `§` here would name ISO 32000-2, whose own 6.3.2 is about
+    /// what makes a PDF processor conforming.)
     #[test]
     fn only_a_popup_may_omit_its_flags() {
         let file = with_annotations(&[

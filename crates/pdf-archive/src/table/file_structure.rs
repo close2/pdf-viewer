@@ -1837,13 +1837,14 @@ const TAIL_WINDOW: usize = 512;
 /// object, and those stand between the last `endobj` and the end of the file.
 const LAST_TAIL_WINDOW: usize = 4096;
 
-/// ISO 32000-2 §7.2.3's white-space characters.
+/// ISO 32000-2 §7.2.3's white-space characters — ISO 32000-1:2008, 7.2.2 at a part 2 target,
+/// where 7.2.3 is *Comments* and the character set is one subclause earlier.
 const fn is_white_space(byte: u8) -> bool {
     matches!(byte, 0 | 9 | 10 | 12 | 13 | 32)
 }
 
-/// One byte of ISO 32000-2 §7.2.3's end-of-line marker, which is a carriage return, a line feed,
-/// or the two together.
+/// One byte of ISO 32000-2 §7.2.3's end-of-line marker — ISO 32000-1:2008, 7.2.2 at a part 2
+/// target — which is a carriage return, a line feed, or the two together.
 const fn is_end_of_line(byte: u8) -> bool {
     matches!(byte, b'\r' | b'\n')
 }
@@ -2167,7 +2168,9 @@ fn stated_trailer(document: &Document) -> Dictionary {
 /// ISO 19005-2 section 6.1.4, ISO 19005-4 section 6.1.4.
 ///
 /// Both parts state the rule in the same words and neither defines the marker itself: that is the
-/// base standard's, and ISO 32000-2 §7.2.3 makes it one of three byte sequences —
+/// base standard's, and ISO 32000-2 §7.2.3 makes it one of three byte sequences. **The
+/// subclause is 7.2.2 in ISO 32000-1:2008**, which is the base standard a PDF/A-2 file adheres
+/// to, and whose 7.2.3 is *Comments*; both editions state the sentence below in the same words —
 ///
 /// > The CARRIAGE RETURN (0Dh) and LINE FEED (0Ah) characters, also called newline characters,
 /// > shall be treated as end-of-line (EOL) markers. The combination of a CARRIAGE RETURN followed

@@ -1999,6 +1999,160 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
 const LIBERATION_SANS: &[u8] =
     include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
 
+/// Liberation Sans with a `vhea` and a `vmtx` added, stating `advance` for its first glyphs.
+///
+/// **A real program rather than a plausible one**, for [`a_vertical_font_stating`]'s reason: the
+/// conversion loads the font, restates its `vmtx` and then reads the result back through
+/// `skrifa`, so a fixture that was not a font would test the fixture. Liberation Sans carries no
+/// vertical metrics of its own — few faces do, which is exactly why ISO 19005-4 section 6.2.10.5
+/// states its vertical requirement conditionally — so the two tables are added here in the shape
+/// ISO/IEC 14496-22 gives them: `pairs` advance-and-bearing pairs, then a top side bearing
+/// apiece for every glyph past them.
+fn with_vertical_metrics(program: &[u8], pairs: u16, advance: u16) -> Vec<u8> {
+    let word = |at: usize| {
+        u32::from_be_bytes(
+            program
+                .get(at..at.saturating_add(4))
+                .expect("a field")
+                .try_into()
+                .expect("four bytes"),
+        )
+    };
+    let half = |at: usize| {
+        u16::from_be_bytes(
+            program
+                .get(at..at.saturating_add(2))
+                .expect("a field")
+                .try_into()
+                .expect("two bytes"),
+        )
+    };
+    let count = usize::from(half(4));
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = Vec::new();
+    let mut glyphs = 0u16;
+    for index in 0..count {
+        let entry = 12usize.saturating_add(index.saturating_mul(16));
+        let tag: [u8; 4] = program
+            .get(entry..entry.saturating_add(4))
+            .expect("a tag")
+            .try_into()
+            .expect("four bytes");
+        let at = usize::try_from(word(entry.saturating_add(8))).expect("an offset");
+        let length = usize::try_from(word(entry.saturating_add(12))).expect("a length");
+        let bytes = program
+            .get(at..at.saturating_add(length))
+            .expect("a table")
+            .to_vec();
+        if &tag == b"maxp" {
+            glyphs = u16::from_be_bytes([
+                *bytes.get(4).expect("numGlyphs"),
+                *bytes.get(5).expect("numGlyphs"),
+            ]);
+        }
+        tables.push((tag, bytes));
+    }
+    assert!(pairs > 0 && pairs <= glyphs, "a plausible vmtx");
+    // `vhea` is `hhea`'s layout field for field, so `numOfLongVerMetrics` is its last field.
+    let mut vhea = vec![0u8; 36];
+    vhea.get_mut(0..4)
+        .expect("a version")
+        .copy_from_slice(&0x0001_1000u32.to_be_bytes());
+    vhea.get_mut(34..36)
+        .expect("numOfLongVerMetrics")
+        .copy_from_slice(&pairs.to_be_bytes());
+    let mut vmtx = Vec::new();
+    for _ in 0..pairs {
+        vmtx.extend_from_slice(&advance.to_be_bytes());
+        vmtx.extend_from_slice(&0i16.to_be_bytes());
+    }
+    for _ in pairs..glyphs {
+        vmtx.extend_from_slice(&0i16.to_be_bytes());
+    }
+    tables.push((*b"vhea", vhea));
+    tables.push((*b"vmtx", vmtx));
+    tables.sort_by_key(|(tag, _)| *tag);
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&word(0).to_be_bytes());
+    out.extend_from_slice(
+        &u16::try_from(tables.len())
+            .expect("a few tables")
+            .to_be_bytes(),
+    );
+    for _ in 0..3 {
+        out.extend_from_slice(&0u16.to_be_bytes());
+    }
+    let directory = 12usize.saturating_add(16usize.saturating_mul(tables.len()));
+    let mut offset = directory;
+    let mut body = Vec::new();
+    for (tag, data) in &tables {
+        out.extend_from_slice(tag);
+        out.extend_from_slice(&0u32.to_be_bytes());
+        out.extend_from_slice(&u32::try_from(offset).expect("a small file").to_be_bytes());
+        out.extend_from_slice(
+            &u32::try_from(data.len())
+                .expect("a small table")
+                .to_be_bytes(),
+        );
+        body.extend_from_slice(data);
+        while !body.len().is_multiple_of(4) {
+            body.push(0);
+        }
+        offset = directory.saturating_add(body.len());
+    }
+    out.extend_from_slice(&body);
+    out
+}
+
+/// A PDF/A-4 fixture showing one glyph of a composite font down the page.
+///
+/// `widths` is the glyph's *horizontal* advance, which the face states as zero: a fixture
+/// passing `"0"` leaves `fonts/widths-agree-with-the-program` satisfied so that the vertical
+/// requirement is the only thing the conversion has to answer, and one passing anything else
+/// fails both at once — which is
+/// [`one_program_disagreeing_in_both_directions_is_restated_in_both`]'s subject.
+///
+/// `/Identity-V` is §9.7.5.2's Table 116 vertical twin of `Identity-H`, so §9.7.5.1's `/WMode`
+/// makes this writing mode 1 — which is the condition ISO 19005-4 section 6.2.10.5's third
+/// paragraph states before it asks anything. `/W2` states the displacement of CID 1, and the
+/// embedded program's `vmtx` states `program` design units for the same glyph; where the two
+/// disagree, the requirement fails and the program is the side that may move.
+fn a_vertical_font_stating(
+    displacement: &str,
+    program: u16,
+    widths: &str,
+    base: Conforming,
+) -> Vec<u8> {
+    let face = with_vertical_metrics(LIBERATION_SANS, 8, program);
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <0001> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-V \
+             /DescendantFonts [7 0 R] >>"
+                .to_owned(),
+            format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans \
+                 /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+                 /FontDescriptor 8 0 R /DW 1000 /W [1 [{widths}]] /DW2 [880 -1000] \
+                 /W2 [1 [{displacement} 500 880]] /CIDToGIDMap /Identity >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 9 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(&format!("/Length {}", face.len()), &face)],
+        ..base
+    }
+    .build()
+}
+
 /// A PDF/A-2 fixture whose one font states the `/Encoding` and the `/ToUnicode` `CMap` given.
 ///
 /// Non-symbolic, and drawing the single code 0x41. That flag is ISO 19005-2 section
@@ -3191,4 +3345,159 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         "there is no other box for a processor to fall back to and none to remove"
     );
     assert!(output.is_none(), "and a refusal writes no file");
+}
+
+#[test]
+fn a_programs_vertical_metrics_are_restated_and_the_dictionarys_are_not() {
+    // ISO 19005-4 section 6.2.10.5's third paragraph: where a composite font is shown in
+    // vertical writing mode and its program states vertical metrics, they shall agree with the
+    // `/DW2` and `/W2` of the `CIDFont` dictionary. This fixture states −900 thousandths for
+    // CID 1 and embeds a `vmtx` saying a whole em of a 2048-unit face, so the two disagree by
+    // a tenth of an em — and the remedy is the program's number, never the file's.
+    //
+    // **ISO 32000-2 §9.9.1 is why that direction is not a judgement call**, and it is stronger
+    // than §9.2.4's argument for the horizontal case: "The "vhea" and "vmtx" tables that specify
+    // vertical metrics shall never be used by a PDF processor. The only way to specify vertical
+    // metrics in PDF shall be by means of the DW2 and W2 entries in a CIDFont dictionary." A
+    // conforming reader is forbidden to read the table this rewrites.
+    let source = a_vertical_font_stating("-900", 2048, "0", Conforming::default());
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(&report, "fonts/vertical-metrics-agree-with-the-program");
+    assert_eq!(
+        decided.rewrite(),
+        Some(Rewrite::RestateVerticalFontMetrics),
+        "restating a program's vmtx loses nothing and moves no mark: {decided:?}"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    assert_eq!(
+        stated_vertical_metrics(&output),
+        stated_vertical_metrics(&source),
+        "the dictionary's DW2 and W2 are untouched, which is what positions a vertical glyph"
+    );
+    let restated = &conversion(&report).restated;
+    assert_eq!(
+        restated
+            .first()
+            .map(|font| (font.requested.as_str(), font.glyphs, font.heights)),
+        Some(("LiberationSans", 0, 1)),
+        "and the report counts the two directions apart: {restated:?}"
+    );
+}
+
+#[test]
+fn a_vertical_font_whose_two_statements_already_agree_is_left_alone() {
+    // The complement, and `doc/adr/0947`'s first rule: a font whose `vmtx` already states what
+    // its `/W2` does asks for nothing, so nothing about it is rewritten. −900 thousandths of an
+    // em is 1843 units of a 2048-unit em, to within the thousandth both parts allow.
+    let source = a_vertical_font_stating("-900", 1843, "0", Conforming::default());
+    let target = Target::Four(Flavour::Plain);
+    assert_eq!(
+        holds(&source, target).verdict(),
+        Verdict::Conforms,
+        "the fixture conforms, so the conversion has nothing to decide"
+    );
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(
+        conversion(&report).restated.is_empty(),
+        "a font that already agrees was restated anyway: {:?}",
+        conversion(&report).restated
+    );
+    assert!(output.is_some(), "and the document still converts");
+}
+
+/// One `CIDFont` dictionary's `/DW2` and `/W2`, read out of a converted file.
+///
+/// The vertical counterpart of [`stated_widths`], and the assertion it serves is the same one:
+/// §9.7.4.3 makes these the numbers a reader positions a vertical glyph by, so a conversion that
+/// changed them would move every mark on the line and the report would say nothing about it.
+fn stated_vertical_metrics(bytes: &[u8]) -> Vec<String> {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let font = held
+        .get(ObjectId::new(7, 0))
+        .as_dict()
+        .cloned()
+        .expect("the CIDFont object");
+    ["DW", "DW2", "W", "W2"]
+        .iter()
+        .map(|key| format!("{key}={:?}", held.resolve(&held.get_key(&font, key))))
+        .collect()
+}
+
+#[test]
+fn a_part_two_target_leaves_a_disagreeing_vmtx_exactly_where_it_was() {
+    // ISO 19005-2 states no vertical metrics requirement at all — the rule is part 4's section
+    // 6.2.10.5 and has no part 2 counterpart — so at a PDF/A-2 target nothing asks for this
+    // program to be rewritten, and `doc/adr/0947`'s first rule is that nothing else may happen.
+    // The same document that has its `vmtx` restated for PDF/A-4 keeps it byte for byte here.
+    let source = a_vertical_font_stating("-900", 2048, "0", Conforming::part_two());
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(
+        conversion(&report).restated.is_empty(),
+        "a program was restated for a requirement this target does not state: {:?}",
+        conversion(&report).restated
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        embedded_program(&output),
+        embedded_program(&source),
+        "the embedded program's bytes are the producer's"
+    );
+}
+
+/// The one embedded font program's decoded bytes, read out of a converted file.
+fn embedded_program(bytes: &[u8]) -> Vec<u8> {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let stream = held
+        .get(ObjectId::new(9, 0))
+        .as_stream()
+        .cloned()
+        .expect("the font program object");
+    held.decoded_stream_data(&stream)
+        .expect("the program decodes")
+        .to_vec()
+}
+
+#[test]
+fn one_program_disagreeing_in_both_directions_is_restated_in_both() {
+    // ISO 19005-2 section 6.2.11.5 and ISO 19005-4 section 6.2.10.5's first and third
+    // paragraphs are separate requirements over one set of bytes, and a font can fail both:
+    // this fixture's `/W` says 500 where the face says 0, and its `/W2` says −900 thousandths
+    // where the program's `vmtx` says a whole em. **One stream is replaced, restated twice** —
+    // a rewrite that kept a replacement map of its own per requirement would write one of the
+    // two and drop the other in silence, which is the failure this test exists for.
+    let source = a_vertical_font_stating("-900", 2048, "500", Conforming::default());
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    for requirement in [
+        "fonts/widths-agree-with-the-program",
+        "fonts/vertical-metrics-agree-with-the-program",
+    ] {
+        assert!(
+            matches!(decision(&report, requirement), Decision::Mechanical(_)),
+            "{requirement} was not answered mechanically"
+        );
+    }
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again, which needs both restatements"
+    );
+    assert_eq!(
+        stated_vertical_metrics(&output),
+        stated_vertical_metrics(&source),
+        "and neither the widths nor the vertical displacements the dictionary states moved"
+    );
+    let restated = &conversion(&report).restated;
+    assert_eq!(
+        restated.first().map(|font| (font.glyphs, font.heights)),
+        Some((1, 1)),
+        "the report counts one glyph restated in each direction: {restated:?}"
+    );
 }

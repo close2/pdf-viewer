@@ -67,6 +67,22 @@
 //! is [`Applies::Always`]. Nothing in Annex B binds a *file's* colour, which is why that row is a
 //! processor obligation rather than a check.
 //!
+//! # The two base standards number the halftone subclause differently
+//!
+//! Every `§` in this file is an ISO 32000-2 number, and **PDF/A-2's base standard is
+//! ISO 32000-1:2008**, where clause 10.6 is 10.5 throughout. The three halftone rows here bind
+//! both parts, so a reader checking them against the edition a PDF/A-2 file adheres to needs:
+//!
+//! | ISO 32000-2 | ISO 32000-1:2008 | subject |
+//! |---|---|---|
+//! | §10.6.5 | 10.5.5 | halftone dictionaries (ISO 32000-1's own 10.6.5 is *Automatic stroke adjustment*) |
+//! | §10.6.5.6 | 10.5.5.6 | type 5 halftones, whose table is 134 there and 132 here |
+//!
+//! The rules themselves are the same in both editions — the same two categories of colourant, the
+//! same requirement that a `Default` halftone carry a transfer function where any nonprimary
+//! colourant is present — which was checked rather than assumed. Every other clause this file
+//! cites carries the same number and title in both editions.
+//!
 //! # Recommendations are not rows
 //!
 //! ISO 19005-2 section 6.2.4.4's closing sentence about `Colorants` consistency is a *should*. This
@@ -735,6 +751,22 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              their question of the page set it produces. ISO 19005-4 states no method of its \
              own and its base standard's Annex Q states this one word for word, so the same \
              walk serves both parts",
+        ),
+    },
+    Requirement {
+        id: "graphics/output-intent-is-the-default-blending-space",
+        asks: "A conforming processor shall take the PDF/A output intent in force as the \
+               default blending colour space.",
+        clauses: Clauses::both("6.2.10", "6.2.9"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the sentence binds what a processor blends with, and no document can fail it: the \
+             file's half of the same paragraph is the row below, which asks a page for a Group \
+             where there is no output intent to supply one. Held apart from that row rather \
+             than folded into it because the two have different subjects and only one of them \
+             is checkable — part 2 says the document's output intent and part 4 the current \
+             one, which its page-level array can change per page, and what this program does \
+             about either is `doc/PLAN.md` section 5a's ledger to record",
         ),
     },
     Requirement {

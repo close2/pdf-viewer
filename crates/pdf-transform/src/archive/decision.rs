@@ -817,6 +817,18 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/widths-agree-with-the-program",
         answer: Answer::Mechanical(Rewrite::RestateFontMetrics),
     },
+    // ISO 19005-4 section 6.2.10.5's third paragraph, which part 2 does not state: the same
+    // agreement going down the page, between §9.7.4.3's `/DW2` and `/W2` and the program's
+    // `vmtx`. The direction is the row above's and the argument for it is stronger — §9.2.4 is
+    // an inference about which statement positions a glyph, while §9.9.1 says outright that the
+    // "vhea" and "vmtx" tables "shall never be used by a PDF processor" and that `/DW2` and
+    // `/W2` are the only way to specify vertical metrics in PDF. So restating the program is a
+    // change no conforming reader can observe, and restating the dictionary would move every
+    // glyph on a vertical line on the authority of a table nothing may read.
+    Remedy {
+        requirement: "fonts/vertical-metrics-agree-with-the-program",
+        answer: Answer::Mechanical(Rewrite::RestateVerticalFontMetrics),
+    },
     // ISO 19005-2 section 6.7.2.2, and Level A only. Answered where the file already carries the
     // structure tree the flag is a claim about, and refused with `NO_STRUCTURE_TREE` where it
     // does not — which is `Prepared::obstacle`'s gate rather than a second row.
@@ -1373,11 +1385,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/embedded-cmap-states-its-own-write-mode",
         Because::NotBuiltYet(WRITE_MODE_DISAGREEMENT),
     ),
-    // ISO 19005-4 section 6.2.10.5.
-    (
-        "fonts/vertical-metrics-agree-with-the-program",
-        Because::NotBuiltYet(VERTICAL_METRICS_NOT_RESTATED),
-    ),
     // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
     (
         "forms/no-xfa-key",
@@ -1844,30 +1851,6 @@ const WRITE_MODE_DISAGREEMENT: &str = "this CMap stream's WMode entry and the wr
      statements its producer meant, which changes either the writing direction a reader lays the \
      text out in or the program's own bytes. That is a question for the document's owner, and no \
      interface exists to ask it";
-
-/// Why vertical metrics are not restated the way horizontal advances already are.
-///
-/// **The direction matters and `doc/pdf-a-mitigations.md` had it the wrong way round.** That
-/// entry proposed restating `/DW2` and `/W2` from the program, "on the same argument that
-/// already justifies the horizontal case" — but the horizontal case restates the *program*, and
-/// for exactly the reason that makes the other direction unsafe: §9.2.4 makes the font
-/// dictionary's numbers what a processor positions glyphs by without looking inside the program,
-/// and §9.7.4.3 gives `/DW2` and `/W2` that role in vertical writing. Restating them would move
-/// every glyph on a vertical line; restating the program's `vmtx` moves nothing.
-///
-/// What this waits on is therefore the *writer* rather than the reader:
-/// `pdf_font::LoadedFont::program_vertical_advance` already hands the program's number back, and
-/// `pdf_font::restate` rewrites an sfnt's `hmtx` and a charstring's leading width and nothing
-/// vertical.
-const VERTICAL_METRICS_NOT_RESTATED: &str = "doc/pdf-a-conversion-limits.md section 4.9's \
-     restatement, in the other writing direction, and it is the program that would be restated \
-     rather than the dictionary. §9.2.4 makes the font dictionary's numbers what positions a \
-     glyph without looking inside the program, and §9.7.4.3 gives DW2 and W2 that role going \
-     down the page — so rewriting them would move every glyph on a vertical line, and rewriting \
-     the program's own vmtx moves nothing. This tree's font reader already states the program's \
-     vertical advance; what it cannot yet do is write one, which is where pdf_font::restate \
-     rewrites an sfnt's hmtx and nothing vertical. That writer is what this requirement waits \
-     on";
 
 /// Why `/XFA` is not removed.
 ///

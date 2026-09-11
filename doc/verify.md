@@ -16,6 +16,31 @@ and is in `doc/environment.md`.
 
 ```sh
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
+tools/governing-quotations.py              # or `tools/state.sh governing`
+  # **The other half of `--bin quotations`.** That one reads every quotation in this project's
+  # prose against the specification Markdown in `doc/md/` and reports the ones that match a
+  # specification and then diverge — so a quotation of the *other* document this tree quotes
+  # verbatim, `CLAUDE.md` itself, matches nothing, and matching nothing is indistinguishable
+  # from not being a quotation at all. Twenty-three conformance-ledger rows and one module
+  # header in `pdf-syntax` quoted a sentence `CLAUDE.md` retired on 2026-09-03 for ninety-two
+  # sessions on that account, and the sentence named §7.5.7's object-stream packing as out of
+  # scope while the module next door generated object streams (ADR 0989). It **reports and does
+  # not fail**, for `--bin quotations`' own reason: attribution here is a proximity rule, so the
+  # residue includes correct prose — a note quoting its own earlier wording, a document saying
+  # what `CLAUDE.md` *used to* state. `doc/adr/`, `doc/history/` and `doc/rfc/` are printed
+  # apart, because a record quoting the sentence it retired is quoting it correctly. Seconds.
+cargo run --release -p pdfref --bin undrawn -- <the oracle gate's log>
+  # **`doc/todo/00` step 7, which was a recipe for seven hundred sessions.** Our ink minus the
+  # lightest reference's, over the artefacts the oracle gate already left on disk — the one defect
+  # a distance cannot name, because a page drawing less than everybody is not necessarily far from
+  # anybody. It reads its population *and* its exclusions off that log rather than assembling
+  # either, which is the whole point: the fifteenth hand rebuild measured 775 of the 838 pages it
+  # listed where the gate had printed 839, having silently dropped the entire `doc/corpora/pdfbox`
+  # population, because the gate prints `pdfbox/cweb.pdf page 10` and writes
+  # `pdfbox/cweb/p10/…` — the corpus label is a directory, not part of the name (ADR 0985, and
+  # trap 25's mirror). It prints the denominator and exits non-zero on a page it cannot measure
+  # rather than dropping the row; it **reports** the alarm and does not ratchet it, because the
+  # groups live in the gate and a note is a person's (trap 39). ~3 min, renders nothing.
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
 # The two platforms without a confinement, checked the way CI checks them. **`RUSTFLAGS` is not
 # optional**: the workspace's lints are `warn` so that a local build stays usable and CI turns them

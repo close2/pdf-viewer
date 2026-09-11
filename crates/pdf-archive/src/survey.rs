@@ -31,6 +31,24 @@
 //! nor an output intent, so reaching one without exempting it would turn today's silence into a
 //! false failure. `crate::table::graphics`'s `device_gray_under_part_two` carries the reading.
 //!
+//! # Two clause numbers this file uses that the two base standards disagree about
+//!
+//! Every `§` here is an ISO 32000-2 number, and this walk serves rows that bind a **PDF/A-2**
+//! target, whose base standard is ISO 32000-1:2008. Two of the numbers below resolve in that
+//! edition to a different subclause, which is worse than not resolving at all:
+//!
+//! - **§14.7.5.4**, *finding structure elements from content items* — the `/MCID` route this
+//!   file walks for `/ActualText` — is **14.7.4.4** in ISO 32000-1:2008, whose own 14.7.5.4 is
+//!   *User properties*.
+//! - **§9.6.4**, *Type 3 fonts*, is **9.6.5** there, whose own 9.6.4 is *Font subsets*.
+//!
+//! `crate::table::fonts`'s module comment carries the whole of clause 9.6's mapping and why it
+//! shifted. Everything else this file cites agrees in both editions, with one exception that is
+//! not an error: **§Q.2 has no counterpart in ISO 32000-1:2008 at all**, which is precisely why
+//! ISO 19005-2 states the transparency method in an Annex A of its own and why
+//! `graphics/transparency-determined-by-the-parts-own-method` cites that annex rather than this
+//! one (ADR 0972).
+//!
 //! # What it costs, and where the fix landed
 //!
 //! **A survey is one pass over the document's content, and it used to be walked once per
@@ -1758,7 +1776,12 @@ impl Walk<'_> {
         Some(dict)
     }
 
-    /// ISO 32000-2 §9.6.5: a Type 3 font's glyphs are content streams of their own.
+    /// ISO 32000-2 §9.6.4: a Type 3 font's glyphs are content streams of their own.
+    ///
+    /// **The number used to be §9.6.5, which is a subclause of both editions and is neither of
+    /// the ones meant.** It is *Type 3 fonts* in ISO 32000-1:2008 — the edition PDF/A-2 adheres
+    /// to — and *Character encoding* in ISO 32000-2, whose Type 3 subclause is §9.6.4;
+    /// `crate::table::fonts`'s module comment carries the whole mapping.
     ///
     /// Annex Q.5 says the same thing for transparency, and section 6.2.4.3's corpus says it for
     /// colour: what a glyph procedure paints is painted on the page that showed the glyph.
@@ -1770,7 +1793,7 @@ impl Walk<'_> {
         {
             return;
         }
-        // §9.6.5.4: a Type 3 font's own `/Resources` are what its glyph procedures are read
+        // §9.6.4: a Type 3 font's own `/Resources` are what its glyph procedures are read
         // against, and a font that states none falls back on the invoking stream's.
         let own = self.document.get_key(font, "Resources");
         let stated = own.as_dict().is_some();

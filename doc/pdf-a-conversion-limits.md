@@ -767,6 +767,17 @@ believing it is easy.
   3. **Rewrite `/Widths` to match the substitute.** **Never**: `/Widths` is what positions the
      glyphs, so this one *does* move the text.
   The converter does 1 where it can and 2 otherwise, and reports which.
+- **The same agreement is required going down the page, and it is a separate requirement with a
+  separate answer.** ISO 19005-4 §6.2.10.5's third paragraph — part 2 has no counterpart — makes a
+  composite font shown in vertical writing mode agree with its program's `vmtx`, and §9.7.4.3's
+  `/DW2` and `/W2` are the dictionary's side of it. **Route 3 is forbidden here by a clause rather
+  than by an inference**: §9.9.1 says the `vhea` and `vmtx` tables "shall never be used by a PDF
+  processor" and that `/DW2` and `/W2` are the only way to state vertical metrics in PDF, so
+  rewriting the dictionary would move every glyph on a vertical line on the authority of a table
+  no reader may consult, while rewriting the program is unobservable to any conforming reader.
+  **Built, by overwriting the advance in place**: nothing else in the program moves, and a glyph
+  whose advance the table states only by inheritance — the tail past `numOfLongVerMetrics` — is
+  refused by name rather than given one at the cost of restating every other glyph in that tail.
 - **The substitute must itself be legally embeddable** (§6.2.11.4.1). That rules out most fonts
   installed on the machine: a system Arial's OS/2 `fsType` bits usually permit preview and print
   rather than the unlimited universal embedding the clause requires. So the substitute has to come

@@ -120,6 +120,22 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// row arriving with a file for evidence now fails the build rather than raising a number.
 const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 
+/// How many `§` name a section of a document their line does not identify.
+///
+/// **This number may only fall.** A `§3a` is a section of *something* — the letter suffix is
+/// proof it is not a clause of ISO 32000-2, whose numbered headings carry no letter but an
+/// annex's opening one — and nothing else on the line says of what. It is the one shape in this
+/// population that cannot be checked by anything, and the fix is one edit: name the document in
+/// front of the sign, the way the several hundred `` `doc/todo/NN` §N `` citations beside them
+/// already do.
+///
+/// It starts where the nine-hundred-and-seventy-seventh session found it, which is nearly all
+/// `doc/oracle-and-corpus.md` §3a in `pdf-model`'s oracle — one document, cited by its section
+/// alone, a hundred lines below the last mention of its name. A ceiling rather than zero
+/// because the sites are in three crates this round did not own, and a ratchet rather than a
+/// count because the cheapest moment to name the document is the round that writes the comment.
+const UNNAMED_SECTION_CEILING: usize = 46;
+
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
 /// **The rule is that a clause the code cites may not be `unreviewed`** — code that names a
@@ -152,7 +168,28 @@ fn every_citation_names_a_clause_that_exists() {
 
     let mut wrong = String::new();
     let mut citations = 0usize;
+    // The sections of this project's own documents, which are not citations of the standard and
+    // were counted as citations of it until the nine-hundred-and-seventy-seventh session. Per
+    // document, and separately the ones no line names a document for.
+    let mut sections: BTreeMap<String, usize> = BTreeMap::new();
+    let mut resolved = 0usize;
+    let mut unattributed = 0usize;
     for (path, scan) in &scanned {
+        for section in &scan.sections {
+            if section
+                .would_resolve_as()
+                .is_some_and(|number| index.contains(&number))
+            {
+                resolved = resolved.saturating_add(1);
+            }
+            match &section.document {
+                Some(document) => {
+                    let count: &mut usize = sections.entry(document.clone()).or_default();
+                    *count = count.saturating_add(1);
+                }
+                None => unattributed = unattributed.saturating_add(1),
+            }
+        }
         for citation in &scan.citations {
             citations = citations.saturating_add(1);
             if !index.contains(&citation.number) {
@@ -188,12 +225,40 @@ fn every_citation_names_a_clause_that_exists() {
         }
     }
 
+    // The inventory is printed before the verdict, and for two reasons. It is what the citation
+    // count below has to be read against — the count fell by this population's size in the
+    // nine-hundred-and-seventy-seventh session, which is a reclassification rather than a tree
+    // that stopped citing the standard — and a gate failing on one line should still say what it
+    // read on all the others.
+    let total: usize = sections
+        .values()
+        .sum::<usize>()
+        .saturating_add(unattributed);
+    println!(
+        "{total} `\u{a7}` naming a section of one of this project's own documents rather than a \
+         clause, {resolved} of which resolve against ISO 32000-2 and were counted as citations \
+         of it until the classification existed:"
+    );
+    for (document, count) in &sections {
+        println!("  {count:4} {document}");
+    }
+    println!(
+        "  {unattributed:4} (no document named on the line, and the number proves it is not a \
+         clause)"
+    );
+
     assert!(
         citations > 100,
         "only {citations} citations found: the scan is not reaching the tree"
     );
     assert!(wrong.is_empty(), "\n{wrong}");
     println!("{citations} citations, all naming clauses the standard has");
+    assert!(
+        unattributed <= UNNAMED_SECTION_CEILING,
+        "{unattributed} `\u{a7}` name a section of a document nothing on their line identifies, \
+         over a ceiling of {UNNAMED_SECTION_CEILING}. Name the document in front of the sign: \
+         nothing can check `\u{a7}3a`, and only its letter suffix says it is not clause 3."
+    );
 }
 
 /// Every rustdoc blockquote is the standard's own words, within the clause it cites.
@@ -554,10 +619,16 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
 
     let mut wrong = String::new();
     let mut citations = 0usize;
+    let mut sections = 0usize;
     let mut tables: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
     for row in &ledger.rows {
         let Some(note) = &row.note else { continue };
         let scan = conformance::citation::scan_prose(note);
+        // A note cites this project's own documents as freely as the code does — `doc/todo/10`
+        // §3's residue, `doc/todo/02` §2's line — and every one of those was counted as a
+        // citation of a clause until the nine-hundred-and-seventy-seventh session. They are
+        // counted here rather than reported, for `citation::ProjectSection`'s reason.
+        sections = sections.saturating_add(scan.sections.len());
         for citation in &scan.citations {
             citations = citations.saturating_add(1);
             if !index.contains(&citation.number) {
@@ -614,7 +685,8 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
 
     assert!(wrong.is_empty(), "\n{wrong}");
     println!(
-        "the ledger's notes name {citations} clauses and {} distinct tables, all of which exist:",
+        "the ledger's notes name {citations} clauses and {} distinct tables, all of which exist, \
+         and {sections} sections of this project's own documents:",
         tables.len()
     );
     // The *titles*, for the reason the tree's own table references are printed with theirs (the

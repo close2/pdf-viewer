@@ -552,6 +552,23 @@ instead of its scope, and trap 24's with a list instead of a corpus. So:
   `sed -n '3,20p'`, four lines past the header block it meant, printing `set -euo pipefail` at a
   reader. Every edit above a hard-coded range invalidates it, and nothing says so.
 
+**And it has a mirror image, which is worse because the sweep looks busy.** A hand-written
+population can also *omit* something that does exist, and a page it never named reads exactly like a
+page that was clean. `doc/todo/00`'s step 7 had been a recipe since the two-hundred-and-sixty-fifth
+session, rebuilt by hand at least fifteen times; the nine-hundred-and-seventy-fourth session's
+rebuild measured 775 of the 838 pages it listed, and the gate had printed 839. The 63 it silently
+lost were the whole `doc/corpora/pdfbox` population — the gate *prints* a page as
+`pdfbox/cweb.pdf page 10` and *writes* it to `pdfbox/cweb/p10/…`, so the corpus label is a
+directory in the path and not part of the file's name. The head, the alarm count and every printed
+row looked exactly as they always had, and five rounds of that sweep's "null" were right answers
+over an unstated denominator.
+
+The defence is the same one in both directions and it is one line: **print the denominator, and
+make a member the sweep cannot measure a non-zero exit rather than a row it quietly drops.** That
+is what `cargo run --release -p pdfref --bin undrawn` does, reading its population *and* its
+exclusions off the gate's own report rather than assembling either (ADR 0985).
+
+
 ### 27. An assertion on a substring passes for every answer that shares it
 
 Trap 11 on the other side of the wire. A report is only as good as the condition it fires on; an

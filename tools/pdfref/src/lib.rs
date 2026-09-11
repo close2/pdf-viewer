@@ -77,6 +77,7 @@ pub mod normalise;
 pub mod png_io;
 pub mod reference;
 pub mod report;
+pub mod undrawn;
 
 use std::path::PathBuf;
 

@@ -38,6 +38,30 @@
 //! part 2 wants one or more non-symbolic subtables, part 4 names (3,1) or (1,0) — but they are one
 //! rule stated twice and are cited as such.
 //!
+//! # The two base standards number these subclauses differently, and one number is a trap
+//!
+//! **PDF/A-2 adheres to ISO 32000-1:2008 and PDF/A-4 to ISO 32000-2**, and every `§` in this file
+//! is an ISO 32000-2 number (`doc/habits.md`'s convention). Across clause 9.6 the two editions do
+//! not merely renumber: ISO 32000-2 removed *Font subsets* as a subclause of its own and
+//! everything after it moved up one. So a reader checking a claim below against the edition a
+//! PDF/A-2 file actually adheres to needs this table, and **the first row is the trap** — 9.6.4 is
+//! a real subclause in both editions and a different one in each, so the wrong number resolves
+//! silently instead of failing to resolve:
+//!
+//! | ISO 32000-2 | ISO 32000-1:2008 | subject |
+//! |---|---|---|
+//! | §9.6.4 | 9.6.5 | Type 3 fonts (ISO 32000-1's own 9.6.4 is *Font subsets*) |
+//! | §9.6.5 | 9.6.6 | character encoding |
+//! | §9.6.5.1 | 9.6.6.1 | general |
+//! | §9.6.5.2 | 9.6.6.2 | encodings for Type 1 fonts |
+//! | §9.6.5.4 | 9.6.6.4 | encodings for TrueType fonts |
+//! | §14.7.5.4 | 14.7.4.4 | finding structure elements from content items |
+//!
+//! Everything else this file cites carries the same number and the same title in both editions,
+//! which was checked rather than assumed: clause 7.3's object syntax, 7.9.2.2's text strings,
+//! 9.6.2.1, 9.6.3, the whole of 9.7's `CIDFont` subclauses, 9.8's descriptors, 9.9's embedded
+//! programs, 9.10's Unicode mapping, 14.9.4's replacement text and Annex D's character sets.
+//!
 //! # Two populations, and why they are not the same one
 //!
 //! Almost every rule here is about *a font dictionary*, so its population is **every
@@ -194,6 +218,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.2.11.4.1", "6.2.10.4.1"),
         applies: Applies::Always,
         check: Check::Implemented(embedded_programs_define_every_glyph_shown),
+    },
+    Requirement {
+        id: "fonts/embedded-programs-are-what-a-processor-renders",
+        asks: "A conforming processor shall render from the embedded font programs rather than \
+               from a locally resident, substituted or simulated face.",
+        clauses: Clauses::both("6.2.11.4.1", "6.2.10.4.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the last sentence of the embedding subclause, and the one that says what the four \
+             sentences before it are for: a file that carries every program it uses proves \
+             nothing if the program reading it reaches for a system face instead. No document \
+             can fail it — it is an obligation on this program, which `doc/PLAN.md` section \
+             5a's ledger is where a claim about our own font loading belongs",
+        ),
     },
     Requirement {
         id: "fonts/charset-lists-every-glyph-in-the-program",
@@ -1081,7 +1119,8 @@ const EMBEDDING_PERMISSION_IS_A_LICENCE: &str = "the clause states a condition o
 /// Both parts close their character-encoding subclause with the same requirement: for a TrueType
 /// font that is to be rendered, a character code has to reach its glyph by the base standard's own
 /// procedure, with no non-standard mapping the conforming processor chose. Part 2 cites ISO 32000-1
-/// Section 9.6.6.4 and part 4 ISO 32000-2 §9.6.5, which are the same subclause under two numbers.
+/// Section 9.6.6.4 and part 4 ISO 32000-2 9.6.5, whose 9.6.5.4 is that same subclause under the
+/// later edition's numbering (the module comment's table).
 ///
 /// # Why the base standard leaves a processor anything to choose
 ///
@@ -1881,8 +1920,10 @@ fn name_is_in_either_list(name: &str) -> bool {
 ///
 /// # How the name is obtained, and why the two subtypes take different routes
 ///
-/// - **A Type 3 font's names are in the file.** ISO 32000-2 §9.6.4 requires its `/Encoding` to
-///   state the whole encoding in a `/Differences` array, so the array *is* the code-to-name table.
+/// - **A Type 3 font's names are in the file.** This row binds a PDF/A-2 target alone, so the
+///   edition that governs it is ISO 32000-1:2008, whose 9.6.5 (ISO 32000-2 §9.6.4) requires a
+///   Type 3 font's `/Encoding` to state the whole encoding in a `/Differences` array, so the
+///   array *is* the code-to-name table.
 /// - **A Type 1 font's may not be.** With no `/Encoding` the names are the font program's own
 ///   built-in encoding, which is `pdf-font`'s to read.
 ///   [`LoadedFont::selected_glyph_name`] is that table, and it is the *name* rather than a

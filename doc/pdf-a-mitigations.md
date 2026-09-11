@@ -955,7 +955,8 @@ ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechani
 - **Departure** — **A**, confirmed, and pointless given two lossless remedies.
 
 #### `fonts/vertical-metrics-agree-with-the-program`
-ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · today `not-built-yet` · **corrected in session 962**
+ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · **built in session 976** (`Mechanical`) · corrected in
+sessions 962, 966 and 976
 
 - **Mitigation** — the limits document's section 4.9 restatement in the other writing direction,
   **and this entry had the direction backwards** (ADR 0965). It proposed restating `/DW2` and `/W2`
@@ -980,12 +981,30 @@ ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · today `not-built-yet` · **corrected 
   `/CharSet`, and the reason those two are deprecated rather than tightened. Worth carrying,
   because it predicts which way *every* agree-with-the-program row should be rewritten.
 
-  **Owed, not
-  optional**, and what it waits on is the *writer* rather than the reader:
-  `pdf_font::LoadedFont::program_vertical_advance` already states the program's number and
-  `pdf_font::restate` rewrites an sfnt's `hmtx` and nothing vertical.
+  **And the sentence *before* §9.9.1's answers a question this entry never asked either.** The
+  paragraph above it lists the TrueType tables that "shall always be present if present in the
+  original TrueType font program" — `head`, `hhea`, `loca`, `maxp`, `cvt `, `prep`, `glyf`,
+  `hmtx`, `fpgm` — and `vhea` and `vmtx` are **not** among them. So the standard declines to
+  require their preservation in the sentence before it forbids their use, which makes **removing
+  them as lossless as restating them**: this row has the same two routes `/CIDSet` and `/CharSet`
+  have. The route taken is *restate*, and for the opposite of the usual reason — removal is the
+  **harder** build, a directory record cannot be dropped without rebuilding the directory, while
+  an advance already has a field to be written in.
+
+  **Built in session 976** (ADR 0988), and the entry was wrong a third time on the way: it said
+  the row waits on `pdf_font::restate`, "which rewrites an sfnt's `hmtx` and nothing vertical".
+  That is true of the module's subject and false of its code — `restate.rs` owns the units and the
+  tolerance, and the byte surgery is `sfnt.rs`'s, which the round did not hold. What came of the
+  constraint is a *better* rewrite: `with_vertical_advances` overwrites the advance field where it
+  already is, changing no offset, no length and no outline, and adjusts the two checksums the edit
+  invalidates by an exactly computed delta rather than recomputing them — so a program whose
+  producer's checksums were already wrong keeps precisely the error it arrived with.
+  **What is refused by name** is a glyph in the `vmtx` tail past `numOfLongVerMetrics`, whose
+  advance the table states only by inheritance: giving it one of its own means lengthening the
+  table and restating every other glyph in the tail with it, and none of those was asked for.
 - **By target** — part 2 states no vertical rule (confirmed **A**), so a PDF/A-2 target converts
-  unchanged.
+  unchanged — and that is enforced rather than assumed: the rewrite is its own `Rewrite`, so
+  `wanted_by` can ask whether a *failed* requirement called for it.
 - **From a configuration** — nothing.
 - **Departure** — **A**, and unnecessary.
 
@@ -1842,18 +1861,29 @@ asked whether a box could go, and the sentence that answers it is the one after 
 parts. So this list is unchanged, and what changed is §4.5's own four answers: two of them said
 *none* and *nothing* where the truthful pair is *`discard`* and *authorise it*.
 
-**One remains owed**, and it is code rather than a decision:
-`fonts/vertical-metrics-agree-with-the-program`, whose entry §13.3.1 corrects and whose rewrite
-belongs in `pdf_font::restate` beside the `hmtx` one.
+**The last one was built in the nine-hundred-and-seventy-sixth session** (ADR 0988), and is struck
+here as it was struck from `REFUSED_BY_NAME`:
+
+- `fonts/vertical-metrics-agree-with-the-program` — `Mechanical`, by overwriting the program's
+  `vmtx` advance field where it already sits. **The list is now empty, and the entry was wrong a
+  third time on the way out**: it named `pdf_font::restate` as the writer the row waited on, and
+  that module owns the units and the tolerance while the byte surgery is `sfnt.rs`'s. §13.3.1 has
+  the correction and the reading of §9.9.1's *preceding* sentence, which turns out to make
+  *removing* `vhea` and `vmtx` as lossless as restating them.
 
 **This is the catalogue's most actionable output for the converter itself.** Nearly a fifth of the
 refusals were lossless rewrites nobody had written, and every one of them converts documents that
-had stopped — with the correction three rounds of building it produced: **of the twenty-two,
-seventeen were waiting on code, four were waiting on a decision after all, and one is still waiting
-on code.** A claim that a refusal is only unwritten work is itself a claim, and it decays the way a
-ledger row's does — **and so does a claim that it is not**, which is what the spot-colourant row is
-now the standing example of: it was moved out of this list by argument and came back into it by a
-better one.
+had stopped — with the correction four rounds of building it produced: **of the twenty-two,
+eighteen were waiting on code and four were waiting on a decision after all.** A claim that a
+refusal is only unwritten work is itself a claim, and it decays the way a ledger row's does —
+**and so does a claim that it is not**, which is what the spot-colourant row is now the standing
+example of: it was moved out of this list by argument and came back into it by a better one.
+
+**Nothing on this list was ranked by the corpus, and the last one could not have been.** The
+veraPDF corpus's conversion figures did not move by a single document when the vertical rewrite
+landed: no file in it sets a composite font vertically with a `vmtx` that disagrees. A round
+waiting for the corpus to ask would still be waiting, which is `CLAUDE.md`'s two denominators
+stated as a fact about this list rather than as a principle.
 
 #### 13.3.1 What building them corrected in this catalogue
 
@@ -1931,6 +1961,29 @@ about this catalogue's own habits:
   three cases, and in the third the ISO 19005 clause was doing the work all along. What was wrong
   was the reason written down, which is the thing this catalogue exists to keep. ADR 0973 has all
   three and what each now says.
+
+Three more, from the nine-hundred-and-seventy-sixth session (ADR 0988). One is about the standard,
+one about this catalogue's own habit of naming files, and one about the code a rewrite lands in:
+
+- **A clause's neighbour can answer a question the entry did not think to ask.** This row was read
+  three times for *which side may move* and never for *whether the table has to be there at all*.
+  The paragraph immediately before §9.9.1's vertical sentence lists the TrueType tables that shall
+  always be present if the original had them, and `vhea` and `vmtx` are not in it — so the standard
+  declines to require their preservation one sentence before it forbids their use, and **remove**
+  is a second lossless route this row had beside **restate** the whole time. The entry had even
+  predicted it, in the words "it predicts which way *every* agree-with-the-program row should be
+  rewritten"; what it did not do was look.
+- **Naming a module is not naming a writer.** The entry said `pdf_font::restate` "rewrites an
+  sfnt's `hmtx`", which is true of the module's subject and false of its code: the splice, the
+  directory update and the checksums are `sfnt.rs`'s, and a round given `restate.rs` alone was
+  given the policy and not the mechanism. A catalogue entry that names where work belongs is
+  making a claim about the tree, and that claim decays exactly the way a reading of the standard
+  does.
+- **A rewrite that reaches an object another rewrite already replaces is not a competitor.** Both
+  metric restatements replace the same font program stream, and a font disagreeing in both
+  directions has to be restated twice into one set of bytes. One replacement map per rewrite
+  cannot express that, and the loss is silent — the second write simply never happens. What
+  expresses it is one replacement per object plus a set per requirement saying which asked.
 
 Three more, from the nine-hundred-and-seventy-first session (ADR 0982). Two are about this
 catalogue's habits and one settles a question it had left open:

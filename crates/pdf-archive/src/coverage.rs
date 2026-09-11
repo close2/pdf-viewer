@@ -36,10 +36,15 @@
 //! directions.
 //!
 //! **The frontier is computed rather than claimed**: [`frontier`] lists every subclause with text
-//! in it that no reading has reached. The region read sentence by sentence in the session that
-//! built this layer is clause 5, clause 6.1 and the normative annexes of both parts — the
-//! structural prefix, plus the annexes, which is where the subclause-level pass had found its
-//! largest hole. Everything from clause 6.2 onwards is still judged at subclause level only.
+//! in it that no reading has reached, and `cargo run -p pdf-archive --example frontier` prints it
+//! — which is where the size of it belongs rather than in this sentence. What a *document* can
+//! say, because it is a shape rather than a number, is the shape of the region read: it is a
+//! **prefix of each part in that part's own order**, plus the normative annexes, so that a
+//! reviewer with their copy open reads straight down the page and can see that nothing was
+//! skipped. Clause 5, clause 6.1 and the annexes were the first pass; clause 6.2 — graphics,
+//! colour, images, `XObject`s, transparency and the whole of the font subclauses — is the
+//! second.
+//! Everything after it is still judged at subclause level only.
 //!
 //! A [`Binding::Container`] heading is not in the frontier: it states no text. Everything else is,
 //! including the subclauses this audit records as scoping or as stating no requirement — because
@@ -1941,6 +1946,845 @@ static READINGS: &[Reading] = &[
     },
     Reading {
         part: Part::Two,
+        clause: "6.2.1",
+        sentences: &[
+            Sentence {
+                says: "the restrictions this part places on graphical elements, on files and on \
+                       readers alike, are stated in the subclauses that follow",
+                carried: Carried::Scoping(
+                    "it says where the graphics rules are, and the table honours it by citing \
+                     those subclauses rather than this one",
+                ),
+            },
+            Sentence {
+                says: "a conforming reader renders those graphical elements onto their pages as \
+                       the base standard requires, as this part modifies it",
+                carried: Carried::By(&[
+                    "graphics/graphical-elements-rendered-as-the-base-standard-defines",
+                ]),
+            },
+            Sentence {
+                says: "an interactive reader may put its own user interface elements around, \
+                       above or below the page's graphical elements",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the reader, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "those interface elements may present other PDF objects or things that \
+                       are not PDF objects at all",
+                carried: Carried::StatesNoRequirement(
+                    "descriptive: what a reader's own interface may be made of",
+                ),
+            },
+            Sentence {
+                says: "in no case are a reader's interface elements or their contents required \
+                       to meet the graphics subclauses",
+                carried: Carried::Scoping(
+                    "it exempts a population that is not the file, which the table honours by \
+                     judging documents rather than readers",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.2",
+        sentences: &[
+            Sentence {
+                says: "a content stream uses no operator the base standard does not define, \
+                       even between the compatibility brackets",
+                carried: Carried::By(&["graphics/only-operators-the-base-standard-defines"]),
+            },
+            Sentence {
+                says: "use of the rendering intent operator meets the rendering intent \
+                       subclause's requirements",
+                carried: Carried::Restated(
+                    "section 6.2.6, where the table carries both intent rows",
+                ),
+            },
+            Sentence {
+                says: "use of the flatness operator meets the flatness subclause's requirements",
+                carried: Carried::Restated(
+                    "section 6.2.7, where the table carries the flatness row",
+                ),
+            },
+            Sentence {
+                says: "a content stream that names other objects has a resources dictionary \
+                       explicitly associated with it",
+                carried: Carried::By(&[
+                    "graphics/content-streams-have-an-explicit-resources-dictionary",
+                ]),
+            },
+            Sentence {
+                says: "a named resource the associated content stream never references is not \
+                       used for rendering and is exempt from every requirement of this part",
+                carried: Carried::Scoping(
+                    "it narrows the population every other row reaches, which the table honours \
+                     in each predicate rather than in a row",
+                ),
+            },
+            Sentence {
+                says: "not part 2's own sentence: TechNote 0010 A002 extends part 4's rule \
+                       that the associated resources dictionary defines every named resource the \
+                       stream references to a PDF/A-2 file as well",
+                carried: Carried::By(&["graphics/named-resources-are-defined"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.3",
+        sentences: &[
+            Sentence {
+                says: "a conforming file may state the colour characteristics of its intended \
+                       device by carrying a PDF/A output intent",
+                carried: Carried::StatesNoRequirement(
+                    "a permission; what makes an output intent necessary is section 6.2.4.3's \
+                     device colour rules rather than this sentence",
+                ),
+            },
+            Sentence {
+                says: "a PDF/A output intent is an output intent dictionary in the file's \
+                       OutputIntents array",
+                carried: Carried::Scoping(
+                    "it says which dictionaries the rows below are about, which the table \
+                     honours in each predicate's population",
+                ),
+            },
+            Sentence {
+                says: "it states GTS_PDFA1 as its S key and a valid ICC profile stream as its \
+                       DestOutputProfile",
+                carried: Carried::By(&[
+                    "graphics/pdfa-output-intent-states-a-destination-profile",
+                    "graphics/destination-profile-conforms-to-an-icc-edition",
+                    "graphics/destination-profile-states-a-correct-profile-id",
+                    "graphics/destination-profile-carries-the-tags-its-class-requires",
+                ]),
+            },
+            Sentence {
+                says: "no PDF/X output intent states the DestOutputProfileRef key",
+                carried: Carried::By(&[
+                    "graphics/no-destination-profile-reference-in-a-pdfx-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "where the OutputIntents array holds more than one entry, every entry \
+                       stating a DestOutputProfile states the same indirect object, which is a \
+                       valid ICC profile stream",
+                carried: Carried::By(&[
+                    "graphics/one-destination-profile-per-output-intents-array",
+                ]),
+            },
+            Sentence {
+                says: "the destination profile is either an output profile or a monitor profile",
+                carried: Carried::By(&["graphics/destination-profile-class-and-colour-space"]),
+            },
+            Sentence {
+                says: "its colour space is grey, RGB or CMYK",
+                carried: Carried::By(&["graphics/destination-profile-class-and-colour-space"]),
+            },
+            Sentence {
+                says: "a conforming reader ignores an Alternate key the destination profile \
+                       stream object states",
+                carried: Carried::By(&["graphics/destination-profile-alternate-ignored"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.4.1",
+        sentences: &[
+            Sentence {
+                says: "every colour is specified device-independently, directly by a \
+                       device-independent colour space or indirectly through the PDF/A output \
+                       intent's destination profile",
+                carried: Carried::By(&["graphics/colour-is-specified-device-independently"]),
+            },
+            Sentence {
+                says: "a conforming file may use any colour space the base standard specifies, \
+                       except as the four colour space subclauses restrict it",
+                carried: Carried::Scoping(
+                    "it says the restrictions are the subclauses that follow, which is where the \
+                     table's colour rows are cited",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.4.2",
+        sentences: &[
+            Sentence {
+                says: "the profile forming an ICCBased colour space's stream conforms to one of \
+                       the four ICC editions this part names",
+                carried: Carried::By(&[
+                    "graphics/icc-profiles-conform-to-a-permitted-edition",
+                    "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires",
+                    "graphics/icc-profiles-claim-a-permitted-edition",
+                ]),
+            },
+            Sentence {
+                says: "a conforming reader renders an ICCBased space through its profile and \
+                       never through the Alternate space the profile stream dictionary names",
+                carried: Carried::By(&["graphics/icc-alternate-space-not-used-for-rendering"]),
+            },
+            Sentence {
+                says: "overprint mode is not 1 while an ICCBased CMYK space is in use and \
+                       stroking or filling overprint is on",
+                carried: Carried::By(&["graphics/no-overprint-mode-one-under-icc-cmyk"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.4.3",
+        sentences: &[
+            Sentence {
+                says: "DeviceRGB is used only under a device-independent DefaultRGB or where \
+                       the file's PDF/A output intent holds an RGB destination profile",
+                carried: Carried::By(&[
+                    "graphics/device-rgb-needs-a-default-or-an-rgb-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "DeviceCMYK is used only under a device-independent or DeviceN-based \
+                       DefaultCMYK, or where the file's PDF/A output intent holds a CMYK \
+                       destination profile",
+                carried: Carried::By(&[
+                    "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "DeviceGray is used only under a device-independent DefaultGray or where \
+                       the file states a PDF/A output intent at all",
+                carried: Carried::By(&["graphics/device-gray-needs-a-default-or-an-output-intent"]),
+            },
+            Sentence {
+                says: "a conforming reader renders a DeviceRGB or DeviceCMYK colour that no \
+                       matching default space replaces through the output intent's profile as \
+                       the source space",
+                carried: Carried::By(&["graphics/device-colours-render-through-the-output-intent"]),
+            },
+            Sentence {
+                says: "a conforming reader renders a DeviceGray colour that no DefaultGray \
+                       replaces through the output intent's grey profile, or converts it to RGB \
+                       or to CMYK by the base standard's own method and uses that profile",
+                carried: Carried::By(&["graphics/device-colours-render-through-the-output-intent"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.4.4",
+        sentences: &[
+            Sentence {
+                says: "a conforming reader treats a Separation or DeviceN space whose colourants \
+                       are all process inks as components of the output intent's CMYK profile",
+                carried: Carried::By(&[
+                    "graphics/process-colourants-render-through-the-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "the alternate space of a Separation or DeviceN space obeys the ICCBased \
+                       and device colour space restrictions",
+                carried: Carried::By(&[
+                    "graphics/separation-alternate-spaces-obey-the-colour-rules",
+                ]),
+            },
+            Sentence {
+                says: "every spot colour a DeviceN or NChannel space uses has an entry in that \
+                       space's Colorants dictionary",
+                carried: Carried::By(&[
+                    "graphics/spot-colourants-appear-in-the-colorants-dictionary",
+                ]),
+            },
+            Sentence {
+                says: "a Separation space written inside a Colorants dictionary obeys the same \
+                       restrictions as any other",
+                carried: Carried::Scoping(
+                    "it widens the population the Separation rows reach, which each predicate \
+                     honours by walking the Colorants dictionaries too",
+                ),
+            },
+            Sentence {
+                says: "every Separation array in the file naming the same colourant states the \
+                       same alternate space and the same tint transform",
+                carried: Carried::By(&["graphics/separations-of-one-name-agree"]),
+            },
+            Sentence {
+                says: "equivalence is decided by comparing the PDF objects rather than what \
+                       using them computes",
+                carried: Carried::By(&["graphics/separations-of-one-name-agree"]),
+            },
+            Sentence {
+                says: "compression, and whether an object is direct or indirect, are set aside \
+                       in that comparison",
+                carried: Carried::By(&["graphics/separations-of-one-name-agree"]),
+            },
+            Sentence {
+                says: "the Separation arrays in a Colorants dictionary should agree with the \
+                       DeviceN or NChannel space's own alternate space and tint transform",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; a table of requirements that admitted one would make a \
+                     failed verdict say something the standard does not",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.4.5",
+        sentences: &[
+            Sentence {
+                says: "Indexed and Pattern colour spaces specify colour indirectly",
+                carried: Carried::StatesNoRequirement(
+                    "a definition, which is what makes the sentence after it reach further than \
+                     the space itself",
+                ),
+            },
+            Sentence {
+                says: "every requirement of the colour space subclauses applies to the space \
+                       underlying an Indexed or Pattern space",
+                carried: Carried::By(&[
+                    "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules",
+                ]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.5",
+        sentences: &[
+            Sentence {
+                says: "a graphics state parameter dictionary states neither TR nor HTP",
+                carried: Carried::By(&[
+                    "graphics/no-transfer-function-in-a-graphics-state",
+                    "graphics/no-halftone-phase-in-a-graphics-state",
+                ]),
+            },
+            Sentence {
+                says: "it states TR2 only with the value Default",
+                carried: Carried::By(&["graphics/second-transfer-function-is-default"]),
+            },
+            Sentence {
+                says: "a conforming reader may ignore any HT key in a graphics state parameter \
+                       dictionary",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the reader, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "a halftone dictionary states a TransferFunction only where the base \
+                       standard requires one",
+                carried: Carried::By(&["graphics/halftone-transfer-function-only-where-required"]),
+            },
+            Sentence {
+                says: "every halftone states a HalftoneType of 1 or 5",
+                carried: Carried::By(&["graphics/halftone-type-is-one-or-five"]),
+            },
+            Sentence {
+                says: "no halftone states a HalftoneName key",
+                carried: Carried::By(&["graphics/no-halftone-name"]),
+            },
+            Sentence {
+                says: "use of the RI key meets the rendering intent subclause's requirements",
+                carried: Carried::Restated(
+                    "section 6.2.6, where the table carries both intent rows",
+                ),
+            },
+            Sentence {
+                says: "use of the FL key meets the flatness subclause's requirements",
+                carried: Carried::Restated(
+                    "section 6.2.7, where the table carries the flatness row",
+                ),
+            },
+            Sentence {
+                says: "a conforming reader ignores the BG, BG2, UCR and UCR2 functions when it \
+                       renders",
+                carried: Carried::By(&[
+                    "graphics/black-generation-and-undercolour-removal-ignored",
+                ]),
+            },
+            Sentence {
+                says: "a conforming reader respects the OP, op and OPM entries as the base \
+                       standard describes them",
+                carried: Carried::By(&["graphics/overprint-entries-respected"]),
+            },
+            Sentence {
+                says: "rendering to a device that does not natively carry every colourant, a \
+                       conforming reader simulates the overprinting as though it did",
+                carried: Carried::By(&["graphics/overprint-entries-respected"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.6",
+        sentences: &[Sentence {
+            says: "where a rendering intent is specified, its value is one of the four the base \
+                   standard defines",
+            carried: Carried::By(&[
+                "graphics/rendering-intent-entries-name-one-of-four",
+                "graphics/rendering-intent-operator-names-one-of-four",
+            ]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.7",
+        sentences: &[
+            Sentence {
+                says: "a conforming reader ignores the flatness value a graphics state or the \
+                       flatness operator states",
+                carried: Carried::By(&["graphics/flatness-value-ignored"]),
+            },
+            Sentence {
+                says: "it chooses instead a value that renders efficiently without visible \
+                       artefacts",
+                carried: Carried::By(&["graphics/flatness-value-ignored"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.8.1",
+        sentences: &[
+            Sentence {
+                says: "an image dictionary states neither Alternates nor OPI",
+                carried: Carried::By(&["graphics/no-image-alternates-or-opi"]),
+            },
+            Sentence {
+                says: "where an image dictionary states Interpolate, its value is false",
+                carried: Carried::By(&["graphics/image-interpolation-is-off"]),
+            },
+            Sentence {
+                says: "an inline image's I key has the value false",
+                carried: Carried::By(&["graphics/inline-image-interpolation-is-off"]),
+            },
+            Sentence {
+                says: "use of the Intent key meets the rendering intent subclause's requirements",
+                carried: Carried::Restated(
+                    "section 6.2.6, whose entries row reaches an image dictionary's Intent",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.8.2",
+        sentences: &[Sentence {
+            says: "a conforming reader never renders a page from a thumbnail image, wherever in \
+                   the file that thumbnail came from",
+            carried: Carried::By(&["graphics/thumbnails-never-stand-in-for-a-page"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.8.3",
+        sentences: &[
+            Sentence {
+                says: "JPEG 2000 compression is used as the base standard specifies it",
+                carried: Carried::By(&["graphics/jpeg2000-uses-the-baseline-feature-set"]),
+            },
+            Sentence {
+                says: "only the JPX baseline feature set is used, as the base standard and this \
+                       subclause restrict and extend it",
+                carried: Carried::By(&["graphics/jpeg2000-uses-the-baseline-feature-set"]),
+            },
+            Sentence {
+                says: "the data has 1, 3 or 4 colour channels",
+                carried: Carried::By(&["graphics/jpeg2000-channel-count"]),
+            },
+            Sentence {
+                says: "where the data states more than one colour space specification, exactly \
+                       one is marked as the best approximation available",
+                carried: Carried::By(&["graphics/jpeg2000-one-best-colour-space-specification"]),
+            },
+            Sentence {
+                says: "where that specification uses an ICC profile, the profile meets what the \
+                       base standard requires of an ICCBased space's profile",
+                carried: Carried::By(&["graphics/jpeg2000-one-best-colour-space-specification"]),
+            },
+            Sentence {
+                says: "the colour box states a colour specification method of 1, 2 or 3",
+                carried: Carried::By(&["graphics/jpeg2000-colour-specification-method"]),
+            },
+            Sentence {
+                says: "a conforming reader uses only that colour space and ignores every other \
+                       specification the data states",
+                carried: Carried::By(&["graphics/jpeg2000-best-colour-space-specification-used"]),
+            },
+            Sentence {
+                says: "the enumerated CIEJab colour space is not used",
+                carried: Carried::By(&["graphics/jpeg2000-no-ciejab-colour-space"]),
+            },
+            Sentence {
+                says: "the enumerated CMYK colour space, which is JPX but not JPX baseline, may \
+                       be used",
+                carried: Carried::StatesNoRequirement(
+                    "a permission that widens the baseline restriction above rather than adding \
+                     a rule of its own",
+                ),
+            },
+            Sentence {
+                says: "where the image effectively uses a device colour space, whether by its \
+                       ColorSpace entry or by the definition inside the data, the device colour \
+                       space requirements apply",
+                carried: Carried::By(&[
+                    "graphics/jpeg2000-device-colour-the-image-dictionary-states",
+                    "graphics/jpeg2000-device-colour-the-codestream-defines",
+                ]),
+            },
+            Sentence {
+                says: "the bit depth is between 1 and 38",
+                carried: Carried::By(&["graphics/jpeg2000-bit-depth"]),
+            },
+            Sentence {
+                says: "every colour channel has the same bit depth",
+                carried: Carried::By(&["graphics/jpeg2000-bit-depth"]),
+            },
+            Sentence {
+                says: "images compressed this way are created and read as the extensions part of \
+                       the JPEG 2000 standard describes",
+                carried: Carried::By(&["graphics/jpeg2000-uses-the-baseline-feature-set"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.9.1",
+        sentences: &[Sentence {
+            says: "a form XObject dictionary states none of OPI, a Subtype2 of PS, and PS",
+            carried: Carried::By(&[
+                "graphics/no-form-xobject-opi",
+                "graphics/no-postscript-passthrough-in-a-form-xobject",
+            ]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.9.2",
+        sentences: &[Sentence {
+            says: "the file contains no reference XObject",
+            carried: Carried::By(&["graphics/no-reference-xobjects"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.9.3",
+        sentences: &[Sentence {
+            says: "the file contains no PostScript XObject",
+            carried: Carried::By(&["graphics/no-postscript-xobjects"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.10",
+        sentences: &[
+            Sentence {
+                says: "transparency may be used in a PDF/A-2 file",
+                carried: Carried::StatesNoRequirement(
+                    "a permission; what it costs a file is the blending space sentence below",
+                ),
+            },
+            Sentence {
+                says: "the method a conforming reader should use to decide whether a page \
+                       contains transparency is the one Annex A states",
+                carried: Carried::Restated(
+                    "Annex A, where the table carries the method as one row",
+                ),
+            },
+            Sentence {
+                says: "a conforming reader uses the document's PDF/A output intent as the \
+                       default blending colour space",
+                carried: Carried::By(&["graphics/output-intent-is-the-default-blending-space"]),
+            },
+            Sentence {
+                says: "where the document states no PDF/A output intent, every page containing \
+                       transparency states a Group whose attribute dictionary states a CS to \
+                       blend in",
+                carried: Carried::By(&["graphics/a-transparent-page-has-a-blending-space"]),
+            },
+            Sentence {
+                says: "any transparency group attribute dictionary's CS obeys the colour space \
+                       restrictions",
+                carried: Carried::By(&[
+                    "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
+                ]),
+            },
+            Sentence {
+                says: "a graphics state's BM names only a blend mode the base standard specifies",
+                carried: Carried::By(&["graphics/graphics-state-blend-modes-are-defined"]),
+            },
+            Sentence {
+                says: "a conforming reader processes those blend modes as the base standard and \
+                       its supplement describe them",
+                carried: Carried::By(&[
+                    "graphics/blend-modes-processed-as-the-base-standard-defines",
+                ]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.1",
+        sentences: &[
+            Sentence {
+                says: "the font subclauses exist so that the file's text renders glyph for glyph \
+                       as it was created and, where possible, so that each character's semantics \
+                       can be recovered",
+                carried: Carried::StatesNoRequirement(
+                    "a statement of intent; what binds a file is the subclauses it introduces",
+                ),
+            },
+            Sentence {
+                says: "unless a requirement says it binds only text a reader would render, the \
+                       font requirements reach every font, including one used only with text \
+                       rendering mode 3",
+                carried: Carried::Scoping(
+                    "it sets the population every font row reaches, which each predicate honours \
+                     rather than a row of its own",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.2",
+        sentences: &[
+            Sentence {
+                says: "every font and font program in the file, whatever its rendering mode, \
+                       conforms to the base standard's two font clauses and to the format \
+                       specifications those clauses refer to",
+                carried: Carried::By(&["fonts/font-programs-conform-to-their-own-specifications"]),
+            },
+            Sentence {
+                says: "a multiple master font is a special case of a Type 1 font, and every \
+                       requirement stated of a Type 1 font binds it too",
+                carried: Carried::Scoping(
+                    "it widens the population the Type 1 rules reach rather than stating a rule \
+                     of its own",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.3.1",
+        sentences: &[
+            Sentence {
+                says: "where a Type 0 font's Encoding is one of the two identity CMaps, the \
+                       CIDFont's CIDSystemInfo may state any registry, ordering and supplement",
+                carried: Carried::Scoping(
+                    "it exempts a population from the sentence below, which the row's predicate \
+                     honours by skipping an identity encoding",
+                ),
+            },
+            Sentence {
+                says: "otherwise the registry and ordering strings agree between the CIDFont's \
+                       and the CMap's CIDSystemInfo, and the CIDFont's supplement is at least the \
+                       CMap's",
+                carried: Carried::By(&["fonts/cid-system-info-agrees-with-the-cmap"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.3.2",
+        sentences: &[Sentence {
+            says: "an embedded Type 2 CIDFont's dictionary states a CIDToGIDMap that is either a \
+                   stream mapping CIDs to glyph indices or the name Identity",
+            carried: Carried::By(&["fonts/cid-to-gid-map-present"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.3.3",
+        sentences: &[
+            Sentence {
+                says: "every CMap the file uses that the base standard does not predefine is \
+                       embedded in the file as the base standard describes",
+                carried: Carried::By(&["fonts/cmap-embedded-or-predefined"]),
+            },
+            Sentence {
+                says: "an embedded CMap's WMode entry is the same integer as the write mode the \
+                       CMap stream itself states",
+                carried: Carried::By(&["fonts/embedded-cmap-states-its-own-write-mode"]),
+            },
+            Sentence {
+                says: "a CMap references no CMap other than the ones the base standard predefines",
+                carried: Carried::By(&["fonts/cmap-uses-only-predefined-cmaps"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.4.1",
+        sentences: &[
+            Sentence {
+                says: "the font program of every font used for rendering is embedded in the file",
+                carried: Carried::By(&["fonts/font-programs-embedded"]),
+            },
+            Sentence {
+                says: "a font counts as used where at least one of its glyphs is referenced from \
+                       a content stream",
+                carried: Carried::Scoping(
+                    "it defines the population the embedding rules reach, which the predicate \
+                     honours by taking the survey's shown glyphs",
+                ),
+            },
+            Sentence {
+                says: "only a font program that may lawfully be embedded for unlimited, \
+                       universal rendering is used",
+                carried: Carried::By(&["fonts/font-programs-embeddable-without-permission"]),
+            },
+            Sentence {
+                says: "an embedded font defines every glyph the file references for rendering",
+                carried: Carried::By(&["fonts/embedded-programs-define-every-glyph-shown"]),
+            },
+            Sentence {
+                says: "a conforming reader renders with the embedded fonts rather than with a \
+                       locally resident, substituted or simulated face",
+                carried: Carried::By(&["fonts/embedded-programs-are-what-a-processor-renders"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.4.2",
+        sentences: &[
+            Sentence {
+                says: "the base standard permits a subset of a font program to be embedded",
+                carried: Carried::StatesNoRequirement(
+                    "a restatement of a permission the base standard grants, which is what the \
+                     two rules below then qualify",
+                ),
+            },
+            Sentence {
+                says: "where an embedded Type 1 font's descriptor states a CharSet string, it \
+                       names every glyph present in the font program and not only the ones the \
+                       file uses",
+                carried: Carried::By(&["fonts/charset-lists-every-glyph-in-the-program"]),
+            },
+            Sentence {
+                says: "where an embedded CID font's descriptor states a CIDSet stream, it \
+                       identifies every CID present in the font program and not only the ones the \
+                       file uses",
+                carried: Carried::By(&["fonts/cidset-lists-every-cid-in-the-program"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.5",
+        sentences: &[
+            Sentence {
+                says: "for every font embedded and used for rendering, the glyph widths the font \
+                       dictionary states and the embedded program's own are consistent",
+                carried: Carried::By(&["fonts/widths-agree-with-the-program"]),
+            },
+            Sentence {
+                says: "consistent means a difference of no more than a thousandth of a unit",
+                carried: Carried::By(&["fonts/widths-agree-with-the-program"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.6",
+        sentences: &[
+            Sentence {
+                says: "a non-symbolic TrueType font used for rendering has an embedded program \
+                       carrying one or more non-symbolic cmap entries through which every needed \
+                       glyph lookup can be made",
+                carried: Carried::By(&["fonts/non-symbolic-truetype-program-maps-every-code"]),
+            },
+            Sentence {
+                says: "a non-symbolic TrueType font names MacRomanEncoding or WinAnsiEncoding, \
+                       as its Encoding entry or as its encoding dictionary's BaseEncoding",
+                carried: Carried::By(&["fonts/non-symbolic-truetype-uses-a-standard-encoding"]),
+            },
+            Sentence {
+                says: "a non-symbolic TrueType font states a Differences array only where every \
+                       name in it is in the Adobe Glyph List and the embedded program carries at \
+                       least the Microsoft Unicode cmap subtable",
+                carried: Carried::By(&[
+                    "fonts/non-symbolic-truetype-differences-are-listed-names",
+                    "fonts/non-symbolic-truetype-differences-need-the-unicode-cmap",
+                ]),
+            },
+            Sentence {
+                says: "a symbolic TrueType font states no Encoding entry, and its embedded \
+                       program's cmap table holds exactly one encoding or at least the Microsoft \
+                       Symbol one",
+                carried: Carried::By(&[
+                    "fonts/symbolic-truetype-states-no-encoding",
+                    "fonts/symbolic-truetype-program-has-a-usable-cmap",
+                ]),
+            },
+            Sentence {
+                says: "in every case, a rendered TrueType font's character codes reach their \
+                       glyphs by the base standard's own procedure, without a non-standard \
+                       mapping the reader chose",
+                carried: Carried::By(&["fonts/truetype-codes-reach-glyphs-by-the-standard-route"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.7.1",
+        sentences: &[
+            Sentence {
+                says: "the Unicode character map subclause binds only a file meeting Level A or \
+                       Level U conformance",
+                carried: Carried::Scoping(
+                    "the exemption `Applies::FromLevel` carries on both rows below",
+                ),
+            },
+            Sentence {
+                says: "for Level B conformance a conforming writer may ignore it",
+                carried: Carried::Scoping("the same exemption said from the writer's side"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.7.2",
+        sentences: &[
+            Sentence {
+                says: "every font dictionary, whatever its rendering mode, states a ToUnicode \
+                       CMap stream mapping the codes of at least the referenced glyphs to \
+                       Unicode, unless the font falls under one of four named exemptions",
+                carried: Carried::By(&["fonts/to-unicode-present"]),
+            },
+            Sentence {
+                says: "every Unicode value a ToUnicode CMap states is greater than zero and is \
+                       neither U+FEFF nor U+FFFE",
+                carried: Carried::By(&["fonts/to-unicode-values-are-usable"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.7.3",
+        sentences: &[Sentence {
+            says: "for Level A only, a character mapped to the Unicode Private Use Area is \
+                   covered by an ActualText entry, alone or as part of a sequence",
+            carried: Carried::By(&["fonts/actual-text-covers-private-use-characters"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.2.11.8",
+        sentences: &[Sentence {
+            says: "no text-showing operator in any content stream references the .notdef glyph, \
+                   whatever the rendering mode",
+            carried: Carried::By(&["fonts/no-notdef-glyph-shown"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
         clause: "A.1",
         sentences: &[Sentence {
             says: "a conforming reader uses the method this annex describes to decide whether a \
@@ -2041,8 +2885,8 @@ static READINGS: &[Reading] = &[
                 carried: Carried::By(&["signatures/signature-is-a-single-signer-cms-object"]),
             },
             Sentence {
-                says: "that PKCS#7 object conforms to RFC 2315",
-                carried: Carried::By(&["signatures/signature-is-a-single-signer-cms-object"]),
+                says: "that PKCS#7 object conforms to the specification the annex names",
+                carried: Carried::By(&["signatures/signature-object-conforms-to-pkcs7"]),
             },
             Sentence {
                 says: "it carries at least the signer's X.509 certificate and exactly one signer",
@@ -2327,6 +3171,848 @@ static READINGS: &[Reading] = &[
                 carried: Carried::By(&["file-structure/catalog-version-key"]),
             },
         ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.1",
+        sentences: &[
+            Sentence {
+                says: "the restrictions this document places on graphical elements, on files and \
+                       on processors alike, are stated in the subclauses that follow",
+                carried: Carried::Scoping(
+                    "it says where the graphics rules are, and the table honours it by citing \
+                     those subclauses rather than this one",
+                ),
+            },
+            Sentence {
+                says: "a conforming processor renders those graphical elements onto their pages \
+                       as the base standard requires, as this document modifies it",
+                carried: Carried::By(&[
+                    "graphics/graphical-elements-rendered-as-the-base-standard-defines",
+                ]),
+            },
+            Sentence {
+                says: "an interactive processor may choose to put its own user interface \
+                       elements around, above or below the page's graphical elements",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the processor, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "those interface elements may present other PDF objects or things that are \
+                       not PDF objects at all",
+                carried: Carried::StatesNoRequirement(
+                    "descriptive: what a processor's own interface may be made of",
+                ),
+            },
+            Sentence {
+                says: "in no case are a processor's interface elements or their contents \
+                       required to meet the graphics subclauses",
+                carried: Carried::Scoping(
+                    "it exempts a population that is not the file, which the table honours by \
+                     judging documents rather than processors",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.2",
+        sentences: &[
+            Sentence {
+                says: "a content stream uses no operator the base standard does not define, even \
+                       between the compatibility brackets",
+                carried: Carried::By(&["graphics/only-operators-the-base-standard-defines"]),
+            },
+            Sentence {
+                says: "a content stream that names other objects has a resources dictionary \
+                       explicitly associated with it",
+                carried: Carried::By(&[
+                    "graphics/content-streams-have-an-explicit-resources-dictionary",
+                ]),
+            },
+            Sentence {
+                says: "such a resources dictionary defines every named resource that content \
+                       stream references",
+                carried: Carried::By(&["graphics/named-resources-are-defined"]),
+            },
+            Sentence {
+                says: "a named resource the associated content stream never references is not \
+                       used for rendering and is exempt from every requirement of this document \
+                       but the four object-syntax subclauses",
+                carried: Carried::Scoping(
+                    "it narrows the population every other row reaches, which the table honours \
+                     in each predicate rather than in a row",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.3",
+        sentences: &[
+            Sentence {
+                says: "a conforming file may state the colour characteristics of its intended \
+                       device by carrying a PDF/A output intent",
+                carried: Carried::StatesNoRequirement(
+                    "a permission; what makes an output intent necessary is section 6.2.4.3's \
+                     device colour rules rather than this sentence",
+                ),
+            },
+            Sentence {
+                says: "a PDF/A output intent is an output intent dictionary stating GTS_PDFA1 as \
+                       its S key and a valid ICC profile stream as its DestOutputProfile",
+                carried: Carried::By(&[
+                    "graphics/pdfa-output-intent-states-a-destination-profile",
+                    "graphics/destination-profile-conforms-to-an-icc-edition",
+                    "graphics/destination-profile-states-a-correct-profile-id",
+                    "graphics/destination-profile-carries-the-tags-its-class-requires",
+                ]),
+            },
+            Sentence {
+                says: "it may sit in the document catalog's OutputIntents array or in a page \
+                       dictionary's",
+                carried: Carried::By(&["graphics/page-output-intents-have-the-same-shape"]),
+            },
+            Sentence {
+                says: "a document may hold one in the catalog and a different one for certain \
+                       pages",
+                carried: Carried::StatesNoRequirement(
+                    "descriptive: it says the two places may both be used, which the sentence \
+                     defining the current output intent then resolves",
+                ),
+            },
+            Sentence {
+                says: "no output intent dictionary states the DestOutputProfileRef key",
+                carried: Carried::By(&["graphics/no-destination-profile-reference"]),
+            },
+            Sentence {
+                says: "where the document states no document-level PDF/A output intent, every \
+                       page whose contents are not wholly device-independent states an \
+                       OutputIntents array of its own holding one",
+                carried: Carried::By(&[
+                    "graphics/a-device-dependent-page-carries-an-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "a page-level PDF/A output intent is the current one while that page is \
+                       processed, and the document-level one otherwise",
+                carried: Carried::Scoping(
+                    "it defines the current output intent every other part 4 colour row reads, \
+                     which `crate::survey` resolves per page rather than a row",
+                ),
+            },
+            Sentence {
+                says: "where any OutputIntents array holds more than one entry, every entry \
+                       stating a DestOutputProfile states the same indirect object, which is a \
+                       valid ICC profile stream",
+                carried: Carried::By(&[
+                    "graphics/one-destination-profile-per-output-intents-array",
+                ]),
+            },
+            Sentence {
+                says: "the destination profile is either an output device profile or a monitor \
+                       profile",
+                carried: Carried::By(&["graphics/destination-profile-class-and-colour-space"]),
+            },
+            Sentence {
+                says: "its colour space is grey, RGB or CMYK",
+                carried: Carried::By(&["graphics/destination-profile-class-and-colour-space"]),
+            },
+            Sentence {
+                says: "a conforming processor ignores an Alternate key the destination profile \
+                       stream object states",
+                carried: Carried::By(&["graphics/destination-profile-alternate-ignored"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.4.1",
+        sentences: &[
+            Sentence {
+                says: "every colour is specified device-independently, directly by a \
+                       device-independent colour space or indirectly through the PDF/A output \
+                       intent's destination profile",
+                carried: Carried::By(&["graphics/colour-is-specified-device-independently"]),
+            },
+            Sentence {
+                says: "a conforming file may use any colour space the base standard specifies, \
+                       except as the four colour space subclauses restrict it",
+                carried: Carried::Scoping(
+                    "it says the restrictions are the subclauses that follow, which is where the \
+                     table's colour rows are cited",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.4.2",
+        sentences: &[
+            Sentence {
+                says: "the profile forming an ICCBased colour space's stream conforms to what \
+                       the base standard requires of one",
+                carried: Carried::By(&[
+                    "graphics/icc-profiles-conform-to-the-version-they-name",
+                    "graphics/icc-profiles-carry-the-tags-their-version-requires",
+                    "graphics/icc-profiles-conform-to-the-base-standard",
+                ]),
+            },
+            Sentence {
+                says: "a conforming processor renders an ICCBased space through its profile and \
+                       never through the Alternate space the profile stream dictionary names",
+                carried: Carried::By(&["graphics/icc-alternate-space-not-used-for-rendering"]),
+            },
+            Sentence {
+                says: "overprint mode is not 1 while an ICCBased CMYK space is in use and \
+                       stroking or filling overprint is on",
+                carried: Carried::By(&["graphics/no-overprint-mode-one-under-icc-cmyk"]),
+            },
+            Sentence {
+                says: "an ICCBased space is not used where its profile is a CMYK destination \
+                       profile identical to the current PDF/A output intent's or to the current \
+                       transparency blending space's",
+                carried: Carried::By(&[
+                    "graphics/no-icc-space-duplicating-the-output-intent-profile",
+                ]),
+            },
+            Sentence {
+                says: "two profiles count as identical where the two spaces reference one \
+                       embedded stream, or where their profile identifiers agree — computed by \
+                       the ICC method where a profile states none",
+                carried: Carried::By(&[
+                    "graphics/no-icc-space-duplicating-the-output-intent-profile",
+                ]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.4.3",
+        sentences: &[
+            Sentence {
+                says: "DeviceRGB is used only under a device-independent DefaultRGB, or where \
+                       the current transparency blending space is a device-independent RGB-based \
+                       space, or where the current PDF/A output intent holds an RGB destination \
+                       profile",
+                carried: Carried::By(&[
+                    "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "DeviceCMYK is used only under a device-independent DefaultCMYK, or where \
+                       the current transparency blending space is a device-independent \
+                       CMYK-based space, or where the current PDF/A output intent holds a CMYK \
+                       destination profile",
+                carried: Carried::By(&[
+                    "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "DeviceGray is used only under a device-independent DefaultGray or where a \
+                       PDF/A output intent is in effect",
+                carried: Carried::By(&[
+                    "graphics/device-gray-needs-a-default-or-a-current-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "a conforming processor renders a DeviceRGB or DeviceCMYK colour that no \
+                       matching default space replaces through the current output intent's \
+                       profile as the source space",
+                carried: Carried::By(&["graphics/device-colours-render-through-the-output-intent"]),
+            },
+            Sentence {
+                says: "a conforming processor renders a DeviceGray colour that no DefaultGray \
+                       replaces through the current output intent's grey profile, or converts it \
+                       to RGB or to CMYK by the base standard's own method and uses that profile",
+                carried: Carried::By(&["graphics/device-colours-render-through-the-output-intent"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.4.4",
+        sentences: &[
+            Sentence {
+                says: "a conforming processor treats a Separation or DeviceN space whose \
+                       colourants are all process inks or None as components of the current \
+                       output intent's CMYK profile",
+                carried: Carried::By(&[
+                    "graphics/process-colourants-render-through-the-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "the alternate space of a Separation or DeviceN space obeys the ICCBased \
+                       and device colour space restrictions",
+                carried: Carried::By(&[
+                    "graphics/separation-alternate-spaces-obey-the-colour-rules-of-part-four",
+                    "graphics/separation-alternate-space-does-not-duplicate-a-current-profile",
+                ]),
+            },
+            Sentence {
+                says: "every spot colour a DeviceN or NChannel space uses has an entry in that \
+                       space's Colorants dictionary",
+                carried: Carried::By(&[
+                    "graphics/spot-colourants-appear-in-the-colorants-dictionary",
+                ]),
+            },
+            Sentence {
+                says: "a Separation space written inside a Colorants dictionary obeys the same \
+                       restrictions as any other",
+                carried: Carried::Scoping(
+                    "it widens the population the Separation rows reach, which each predicate \
+                     honours by walking the Colorants dictionaries too",
+                ),
+            },
+            Sentence {
+                says: "every Separation array in the file naming the same colourant states the \
+                       same alternate space and the same tint transform",
+                carried: Carried::By(&["graphics/separations-of-one-name-agree"]),
+            },
+            Sentence {
+                says: "equivalence is decided by comparing the PDF objects rather than what \
+                       using them computes",
+                carried: Carried::By(&["graphics/separations-of-one-name-agree"]),
+            },
+            Sentence {
+                says: "compression, and whether an object is direct or indirect, are set aside \
+                       in that comparison",
+                carried: Carried::By(&["graphics/separations-of-one-name-agree"]),
+            },
+            Sentence {
+                says: "the Separation arrays in a Colorants dictionary should agree with the \
+                       DeviceN or NChannel space's own alternate space and tint transform",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; a table of requirements that admitted one would make a \
+                     failed verdict say something the standard does not",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.4.5",
+        sentences: &[
+            Sentence {
+                says: "Indexed and Pattern colour spaces specify colour indirectly",
+                carried: Carried::StatesNoRequirement(
+                    "a definition, which is what makes the sentence after it reach further than \
+                     the space itself",
+                ),
+            },
+            Sentence {
+                says: "every requirement of the colour space subclauses applies to the space \
+                       underlying an Indexed or Pattern space",
+                carried: Carried::By(&[
+                    "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules-of-part-four",
+                ]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.5",
+        sentences: &[
+            Sentence {
+                says: "a graphics state parameter dictionary states neither TR nor HTO",
+                carried: Carried::By(&[
+                    "graphics/no-transfer-function-in-a-graphics-state",
+                    "graphics/no-halftone-origin-in-a-graphics-state",
+                ]),
+            },
+            Sentence {
+                says: "it states TR2 only with the value Default",
+                carried: Carried::By(&["graphics/second-transfer-function-is-default"]),
+            },
+            Sentence {
+                says: "a conforming processor may ignore any HT key in a graphics state \
+                       parameter dictionary",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the processor, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "a halftone dictionary states a TransferFunction only where the base \
+                       standard requires one",
+                carried: Carried::By(&["graphics/halftone-transfer-function-only-where-required"]),
+            },
+            Sentence {
+                says: "every halftone states a HalftoneType of 1 or 5",
+                carried: Carried::By(&["graphics/halftone-type-is-one-or-five"]),
+            },
+            Sentence {
+                says: "no halftone states a HalftoneName key",
+                carried: Carried::By(&["graphics/no-halftone-name"]),
+            },
+            Sentence {
+                says: "use of the FL key meets the flatness subclause's requirements",
+                carried: Carried::Restated(
+                    "section 6.2.6, where the table carries the flatness row",
+                ),
+            },
+            Sentence {
+                says: "a conforming processor ignores the BG, BG2, UCR and UCR2 functions a \
+                       graphics state parameter dictionary may state when it renders",
+                carried: Carried::By(&[
+                    "graphics/black-generation-and-undercolour-removal-ignored",
+                ]),
+            },
+            Sentence {
+                says: "a conforming processor respects the OP, op and OPM entries as the base \
+                       standard and the ICCBased subclause describe them",
+                carried: Carried::By(&["graphics/overprint-entries-respected"]),
+            },
+            Sentence {
+                says: "rendering to a device that does not natively carry every colourant, a \
+                       conforming processor simulates the overprinting as though it did",
+                carried: Carried::By(&["graphics/overprint-entries-respected"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.6",
+        sentences: &[
+            Sentence {
+                says: "a conforming processor ignores the flatness value a graphics state or the \
+                       flatness operator states",
+                carried: Carried::By(&["graphics/flatness-value-ignored"]),
+            },
+            Sentence {
+                says: "it chooses instead a value that renders efficiently without visible \
+                       artefacts",
+                carried: Carried::By(&["graphics/flatness-value-ignored"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.7.1",
+        sentences: &[
+            Sentence {
+                says: "an image dictionary states neither Alternates nor OPI",
+                carried: Carried::By(&["graphics/no-image-alternates-or-opi"]),
+            },
+            Sentence {
+                says: "where an image dictionary states Interpolate, its value is false",
+                carried: Carried::By(&["graphics/image-interpolation-is-off"]),
+            },
+            Sentence {
+                says: "where an inline image states the I key, its value is false",
+                carried: Carried::By(&["graphics/inline-image-interpolation-is-off"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.7.2",
+        sentences: &[Sentence {
+            says: "a conforming processor never renders a page from a thumbnail image, wherever \
+                   in the file that thumbnail came from",
+            carried: Carried::By(&["graphics/thumbnails-never-stand-in-for-a-page"]),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.7.3",
+        sentences: &[
+            Sentence {
+                says: "where it is used, JPEG 2000 compression is used as the base standard \
+                       specifies it",
+                carried: Carried::By(&["graphics/jpeg2000-uses-the-baseline-feature-set"]),
+            },
+            Sentence {
+                says: "only the JPX baseline feature set is used, as the base standard and this \
+                       subclause restrict and extend it",
+                carried: Carried::By(&["graphics/jpeg2000-uses-the-baseline-feature-set"]),
+            },
+            Sentence {
+                says: "the data has 1, 3 or 4 colour channels",
+                carried: Carried::By(&["graphics/jpeg2000-channel-count"]),
+            },
+            Sentence {
+                says: "where the data states more than one colour space specification, exactly \
+                       one is marked as the best approximation available",
+                carried: Carried::By(&["graphics/jpeg2000-one-best-colour-space-specification"]),
+            },
+            Sentence {
+                says: "where that specification uses an ICC profile, the profile meets what the \
+                       base standard requires of an ICCBased space's profile",
+                carried: Carried::By(&["graphics/jpeg2000-one-best-colour-space-specification"]),
+            },
+            Sentence {
+                says: "the colour box states a colour specification method of 1, 2 or 3",
+                carried: Carried::By(&["graphics/jpeg2000-colour-specification-method"]),
+            },
+            Sentence {
+                says: "a conforming processor uses only that colour space and ignores every \
+                       other specification the data states",
+                carried: Carried::By(&["graphics/jpeg2000-best-colour-space-specification-used"]),
+            },
+            Sentence {
+                says: "the enumerated CIEJab colour space is not used",
+                carried: Carried::By(&["graphics/jpeg2000-no-ciejab-colour-space"]),
+            },
+            Sentence {
+                says: "the enumerated CMYK colour space, which is JPX but not JPX baseline, may \
+                       be used",
+                carried: Carried::StatesNoRequirement(
+                    "a permission that widens the baseline restriction above rather than adding \
+                     a rule of its own",
+                ),
+            },
+            Sentence {
+                says: "where the image effectively uses a device colour space, whether by its \
+                       ColorSpace entry or by the definition inside the data, the device colour \
+                       space requirements apply",
+                carried: Carried::By(&[
+                    "graphics/jpeg2000-device-colour-the-image-dictionary-states",
+                    "graphics/jpeg2000-device-colour-the-codestream-defines",
+                ]),
+            },
+            Sentence {
+                says: "the bit depth is between 1 and 38",
+                carried: Carried::By(&["graphics/jpeg2000-bit-depth"]),
+            },
+            Sentence {
+                says: "every colour channel has the same bit depth",
+                carried: Carried::By(&["graphics/jpeg2000-bit-depth"]),
+            },
+            Sentence {
+                says: "images compressed this way are created and read as the extensions part of \
+                       the JPEG 2000 standard describes",
+                carried: Carried::By(&["graphics/jpeg2000-uses-the-baseline-feature-set"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.8.1",
+        sentences: &[Sentence {
+            says: "a form XObject dictionary states no OPI key",
+            carried: Carried::By(&["graphics/no-form-xobject-opi"]),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.8.2",
+        sentences: &[Sentence {
+            says: "the file contains no reference XObject",
+            carried: Carried::By(&["graphics/no-reference-xobjects"]),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.9",
+        sentences: &[
+            Sentence {
+                says: "transparency may be used in a conforming PDF/A-4 file",
+                carried: Carried::StatesNoRequirement(
+                    "a permission; what it costs a file is the blending space sentence below",
+                ),
+            },
+            Sentence {
+                says: "a conforming processor uses the current PDF/A output intent as the \
+                       default blending colour space",
+                carried: Carried::By(&["graphics/output-intent-is-the-default-blending-space"]),
+            },
+            Sentence {
+                says: "where the document states no PDF/A output intent, every page containing \
+                       transparency states either a page-level output intent or a Group whose \
+                       attribute dictionary states a CS to blend in",
+                carried: Carried::By(&[
+                    "graphics/a-transparent-page-has-a-blending-space-or-an-output-intent",
+                ]),
+            },
+            Sentence {
+                says: "any transparency group attribute dictionary's CS obeys the colour space \
+                       restrictions",
+                carried: Carried::By(&[
+                    "graphics/transparency-group-colour-spaces-obey-the-colour-rules-of-part-four",
+                ]),
+            },
+            Sentence {
+                says: "a graphics state's BM and an annotation dictionary's BM name only blend \
+                       modes the base standard specifies",
+                carried: Carried::By(&[
+                    "graphics/graphics-state-blend-modes-are-defined",
+                    "graphics/annotation-blend-modes-are-defined",
+                ]),
+            },
+            Sentence {
+                says: "a conforming processor processes those blend modes as the base standard \
+                       describes them",
+                carried: Carried::By(&[
+                    "graphics/blend-modes-processed-as-the-base-standard-defines",
+                ]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.1",
+        sentences: &[
+            Sentence {
+                says: "the font subclauses exist so that the file's text renders glyph for glyph \
+                       as it was created and, where possible, so that each character's semantics \
+                       can be recovered",
+                carried: Carried::StatesNoRequirement(
+                    "a statement of intent; what binds a file is the subclauses it introduces",
+                ),
+            },
+            Sentence {
+                says: "unless a requirement says it binds only text a processor would render, \
+                       the font requirements reach every font, including one used only with text \
+                       rendering mode 3",
+                carried: Carried::Scoping(
+                    "it sets the population every font row reaches, which each predicate honours \
+                     rather than a row of its own",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.2",
+        sentences: &[
+            Sentence {
+                says: "every font and font program in the file, whatever its rendering mode, \
+                       conforms to the base standard's two font clauses and to the format \
+                       specifications those clauses refer to",
+                carried: Carried::By(&["fonts/font-programs-conform-to-their-own-specifications"]),
+            },
+            Sentence {
+                says: "a multiple master font is a special case of a Type 1 font, and every \
+                       requirement stated of a Type 1 font binds it too",
+                carried: Carried::Scoping(
+                    "it widens the population the Type 1 rules reach rather than stating a rule \
+                     of its own",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.3.1",
+        sentences: &[
+            Sentence {
+                says: "where a Type 0 font's Encoding is one of the two identity CMaps, the \
+                       CIDFont's CIDSystemInfo may state any registry, ordering and supplement",
+                carried: Carried::Scoping(
+                    "it exempts a population from the sentence below, which the row's predicate \
+                     honours by skipping an identity encoding",
+                ),
+            },
+            Sentence {
+                says: "otherwise the registry and ordering values agree between the CIDFont's \
+                       and the CMap's CIDSystemInfo, and the CIDFont's supplement is at least the \
+                       CMap's",
+                carried: Carried::By(&["fonts/cid-system-info-agrees-with-the-cmap"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.3.2",
+        sentences: &[Sentence {
+            says: "an embedded Type 2 CIDFont's dictionary states a CIDToGIDMap that is either a \
+                   stream mapping CIDs to glyph indices or the name Identity",
+            carried: Carried::By(&["fonts/cid-to-gid-map-present"]),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.3.3",
+        sentences: &[
+            Sentence {
+                says: "every CMap the file uses that the base standard does not predefine is \
+                       embedded in the file as the base standard describes",
+                carried: Carried::By(&["fonts/cmap-embedded-or-predefined"]),
+            },
+            Sentence {
+                says: "an embedded CMap's WMode entry is the same integer as the write mode the \
+                       CMap stream itself states",
+                carried: Carried::By(&["fonts/embedded-cmap-states-its-own-write-mode"]),
+            },
+            Sentence {
+                says: "a CMap references no CMap other than the ones the base standard predefines",
+                carried: Carried::By(&["fonts/cmap-uses-only-predefined-cmaps"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.4.1",
+        sentences: &[
+            Sentence {
+                says: "the font program of every font used for rendering is embedded in the file",
+                carried: Carried::By(&["fonts/font-programs-embedded"]),
+            },
+            Sentence {
+                says: "a font counts as used where at least one of its glyphs is referenced from \
+                       a content stream",
+                carried: Carried::Scoping(
+                    "it defines the population the embedding rules reach, which the predicate \
+                     honours by taking the survey's shown glyphs",
+                ),
+            },
+            Sentence {
+                says: "only a font program that may lawfully be embedded for unlimited, \
+                       universal rendering is used",
+                carried: Carried::By(&["fonts/font-programs-embeddable-without-permission"]),
+            },
+            Sentence {
+                says: "an embedded font defines every glyph the file references for rendering",
+                carried: Carried::By(&["fonts/embedded-programs-define-every-glyph-shown"]),
+            },
+            Sentence {
+                says: "a conforming processor renders with the embedded fonts rather than with a \
+                       locally resident, substituted or simulated face",
+                carried: Carried::By(&["fonts/embedded-programs-are-what-a-processor-renders"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.4.2",
+        sentences: &[Sentence {
+            says: "the base standard's two font clauses permit a subset of a font program to be \
+                   embedded",
+            carried: Carried::StatesNoRequirement(
+                "a restatement of a permission the base standard grants; unlike part 2's \
+                 subclause of the same name it adds no CharSet or CIDSet rule of its own",
+            ),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.5",
+        sentences: &[
+            Sentence {
+                says: "for every font embedded in the file, the glyph widths the font dictionary \
+                       states and the embedded program's own are consistent for every glyph \
+                       referenced for rendering",
+                carried: Carried::By(&["fonts/widths-agree-with-the-program"]),
+            },
+            Sentence {
+                says: "a glyph referenced only with rendering mode 3 is exempt",
+                carried: Carried::Scoping(
+                    "it narrows the population the width rule reaches, which the predicate \
+                     honours by taking the survey's rendered glyphs",
+                ),
+            },
+            Sentence {
+                says: "where a Type 3 font is used for rendering, each glyph procedure's d0 or \
+                       d1 operands agree with the glyph's width",
+                carried: Carried::By(&["fonts/type3-glyph-procedures-state-their-width"]),
+            },
+            Sentence {
+                says: "where a composite font is rendered in vertical writing mode and its \
+                       embedded program carries vertical metrics, those agree with the DW2 and \
+                       W2 entries",
+                carried: Carried::By(&["fonts/vertical-metrics-agree-with-the-program"]),
+            },
+            Sentence {
+                says: "consistent means a difference of no more than a thousandth of a unit in \
+                       text space",
+                carried: Carried::By(&[
+                    "fonts/widths-agree-with-the-program",
+                    "fonts/type3-glyph-procedures-state-their-width",
+                    "fonts/vertical-metrics-agree-with-the-program",
+                ]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.6",
+        sentences: &[
+            Sentence {
+                says: "a non-symbolic TrueType font used for rendering has an embedded program \
+                       carrying at least the Microsoft Unicode or the Macintosh Roman cmap \
+                       subtable, through which every needed glyph lookup can be made",
+                carried: Carried::By(&["fonts/non-symbolic-truetype-program-maps-every-code"]),
+            },
+            Sentence {
+                says: "a non-symbolic TrueType font names MacRomanEncoding or WinAnsiEncoding, \
+                       as its Encoding entry or as its encoding dictionary's BaseEncoding",
+                carried: Carried::By(&["fonts/non-symbolic-truetype-uses-a-standard-encoding"]),
+            },
+            Sentence {
+                says: "a non-symbolic TrueType font states a Differences array only where every \
+                       name in it is in the Adobe Glyph List and the embedded program carries at \
+                       least the Microsoft Unicode cmap subtable",
+                carried: Carried::By(&[
+                    "fonts/non-symbolic-truetype-differences-are-listed-names",
+                    "fonts/non-symbolic-truetype-differences-need-the-unicode-cmap",
+                ]),
+            },
+            Sentence {
+                says: "a symbolic TrueType font states no Encoding entry, and its embedded \
+                       program's cmap subtable holds the Microsoft Symbol or the Mac Roman \
+                       encoding",
+                carried: Carried::By(&[
+                    "fonts/symbolic-truetype-states-no-encoding",
+                    "fonts/symbolic-truetype-program-has-a-usable-cmap",
+                ]),
+            },
+            Sentence {
+                says: "in every case, a rendered TrueType font's character codes reach their \
+                       glyphs by the base standard's own procedure, without a non-standard \
+                       mapping the processor chose",
+                carried: Carried::By(&["fonts/truetype-codes-reach-glyphs-by-the-standard-route"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.7",
+        sentences: &[
+            Sentence {
+                says: "every font dictionary, whatever its rendering mode, should state a \
+                       ToUnicode CMap stream mapping the codes of at least the referenced glyphs \
+                       to Unicode, unless the font meets one of four named conditions",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation, and the sharpest sentence-level difference between the \
+                     two parts: ISO 19005-2 section 6.2.11.7.2 writes this with shall, which is \
+                     why `fonts/to-unicode-present` is a part 2 row alone",
+                ),
+            },
+            Sentence {
+                says: "where a ToUnicode CMap is present, every Unicode value it states is \
+                       greater than zero and is neither U+FEFF nor U+FFFE",
+                carried: Carried::By(&["fonts/to-unicode-values-are-usable"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.8",
+        sentences: &[
+            Sentence {
+                says: "a character mapped to the Unicode Private Use Area should be covered by \
+                       an ActualText entry, alone or as part of a sequence",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation where ISO 19005-2 section 6.2.11.7.3 states a Level A \
+                     requirement, which is why `fonts/actual-text-covers-private-use-characters` \
+                     is a part 2 row alone",
+                ),
+            },
+            Sentence {
+                says: "an ActualText entry states no Private Use Area value of its own",
+                carried: Carried::By(&["fonts/actual-text-states-no-private-use"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.2.10.9",
+        sentences: &[Sentence {
+            says: "no text-showing operator in any content stream references the .notdef glyph, \
+                   whatever the rendering mode",
+            carried: Carried::By(&["fonts/no-notdef-glyph-shown"]),
+        }],
     },
     Reading {
         part: Part::Four,
@@ -2870,9 +4556,13 @@ mod tests {
         for (part, clause) in [
             (Part::Two, "5.1"),
             (Part::Two, "6.1.13"),
+            (Part::Two, "6.2.1"),
+            (Part::Two, "6.2.11.8"),
             (Part::Two, "B.2"),
             (Part::Four, "5.2"),
             (Part::Four, "6.1.12"),
+            (Part::Four, "6.2.1"),
+            (Part::Four, "6.2.10.9"),
             (Part::Four, "B.5"),
         ] {
             assert!(
