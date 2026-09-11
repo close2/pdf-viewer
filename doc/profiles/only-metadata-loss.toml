@@ -1,0 +1,84 @@
+# only-metadata-loss — nothing may be lost but metadata.
+#
+# doc/rfc/0007 section 5a.3's third profile. The archive keeps every mark, every attachment, every
+# annotation and every behaviour it can, and accepts losing properties of the document *about*
+# itself where those are what stand between the file and its target.
+#
+# Works with all six targets. Every answer below leaves the output conforming to the target asked
+# for; a site this profile does not name stops, exactly as it does today.
+#
+# What an operator is agreeing to, in one sentence: a reader's File -> Properties panel, and any
+# indexing built on the producer's metadata, may show less than the source did. Nothing on any
+# page changes.
+
+[profile]
+name = "only-metadata-loss"
+sentence = "Metadata may be lost. Nothing else may be."
+catalogue = "doc/pdf-a-mitigations.md"
+default = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# The XMP packet itself. `preserve` is chosen over `discard` wherever the catalogue found a way to
+# keep the producer's bytes: the original packet is kept as content, and a fresh conforming packet
+# is written beside it. That is a loss of metadata *as metadata*, which is what this profile
+# permits, and not a loss of the information.
+# ---------------------------------------------------------------------------------------------
+
+[site."metadata/xmp-packets-well-formed"]
+remedy = "preserve"
+original = "page"          # all six targets admit a page; "attach" would be 4f/4e only
+fresh-packet = true
+
+[site."metadata/xmp-packets-well-formed".target."4f"]
+remedy = "preserve"
+original = "attach"        # 4f holds the original packet as a file, which is tidier than a page
+fresh-packet = true
+
+[site."metadata/xmp-packets-state-one-rdf-element"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+# ---------------------------------------------------------------------------------------------
+# Properties and schemas. The extension-schema container is emitted where the packet supplies
+# enough to describe the property; where it does not, the property is dropped, which is section
+# 3.9 of doc/pdf-a-conversion-limits.md and is the loss this profile is named for.
+# ---------------------------------------------------------------------------------------------
+
+[site."metadata/extension-schemas-embedded"]
+remedy = "preserve"
+undeterminable = "discard"
+
+[site."metadata/extension-schema-container-fields"]
+remedy = "discard"         # the container goes, and the properties it described go with it
+
+[site."metadata/identification-amendment-form"]
+remedy = "discard"         # an amendment identifier that is malformed claims nothing recoverable
+
+[site."metadata/xmp-packet-header-attributes"]
+remedy = "discard"         # deprecated framing attributes; nothing a reader of the packet uses
+
+[site."metadata/provenance-recorded-action-fields-four"]
+remedy = "stop"
+# Deliberately `stop` rather than `discard`, against the profile's own sentence. An incomplete
+# history entry is still evidence, and deleting a step of a document's provenance is the one
+# metadata loss an archive is least likely to want. The catalogue's entry recommends a departure
+# here instead, and a departure is not a profile's to make.
+
+# ---------------------------------------------------------------------------------------------
+# The document information dictionary, which is metadata in the oldest sense. Only part 4 targets
+# raise this refusal at all; a PDF/A-2 target carries the dictionary through untouched.
+# ---------------------------------------------------------------------------------------------
+
+[site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
+remedy = "preserve"        # the values move into the XMP packet, which loses nothing
+unmapped = "discard"       # a custom key XMP has no home for is dropped and named in the report
+
+[site."file-structure/document-information-dictionary-needs-piece-info"]
+remedy = "preserve"
+unmapped = "discard"

@@ -1,0 +1,331 @@
+# keep-everything — prefer `preserve` wherever it exists, then `derive`, and never `discard`.
+#
+# doc/rfc/0007 section 5a.3's fourth profile, and the one an operator reaches for when the archive
+# matters more than its tidiness. Its rule is an order rather than a list: keep the information in
+# place if the target allows; else keep it somewhere the target does allow; else make a
+# representation of it with a declared tool; and where none of those is possible, stop rather than
+# lose. It works with all six targets — section 4.6.1 of the RFC is why: appending content as
+# pages is available under every one of them, so "keep it somewhere" is nearly always possible.
+#
+# READ THIS BEFORE THE FILE: **this profile is not expressible in doc/rfc/0007 section 3's format
+# as proposed**, and that is a finding rather than a defect in the profile. See
+# doc/pdf-a-mitigations.md section 14, point 6. The mechanism that preserves differs per target —
+# attach unchanged at 4f, attach a derived PDF/A at 4, append as pages anywhere — so written in
+# the format as it stands, every site below needs one target-qualified block per target, and the
+# shipped file would be several hundred lines of repetition that no operator would read or
+# maintain. It is written here the short way, with `prefer`, and every use of that key is marked
+# NOT-YET-IN-FORMAT. The short way is one defaulting rule, not a new mechanism: take the first
+# listed mechanism the target admits.
+
+[profile]
+name = "keep-everything"
+sentence = "Keep it in place, else keep it somewhere, else derive it, else stop. Never discard."
+catalogue = "doc/pdf-a-mitigations.md"
+default = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Attachments — the site the whole ordering was designed around.
+# ---------------------------------------------------------------------------------------------
+
+[site."embedded-files/embedded-file-is-itself-pdfa"]
+remedy = "preserve"
+prefer = ["attach-unchanged", "attach-converted", "append-pages"]   # NOT-YET-IN-FORMAT
+tool = "office-to-pdf"     # used only by attach-converted and append-pages
+on-failure = "stop"        # never `discard`: that is what this profile is
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
+remedy = "preserve"
+prefer = ["attach-unchanged", "attach-converted", "append-pages"]   # NOT-YET-IN-FORMAT
+tool = "office-to-pdf"
+on-failure = "stop"
+
+[site."embedded-files/associated-file-media-type"]
+remedy = "supply"          # NOT-YET-IN-FORMAT: `supply` is a fifth remedy kind (section 14, 2)
+media-types = { ".xml" = "application/xml", ".csv" = "text/csv", ".pdf" = "application/pdf" }
+unlisted = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Annotations. The annotation cannot stay; what it carried can.
+# ---------------------------------------------------------------------------------------------
+
+[site."annotations/subtype-defined-in-iso-32000-1"]
+remedy = "preserve"
+keep = ["appearance-as-page", "media-as-attachment"]                # NOT-YET-IN-FORMAT
+on-failure = "stop"
+
+[site."annotations/subtype-defined-in-iso-32000-2"]
+remedy = "preserve"
+keep = ["appearance-as-page", "media-as-attachment"]                # NOT-YET-IN-FORMAT
+on-failure = "stop"
+
+[site."annotations/three-dimensional-stream-format"]
+remedy = "derive"
+tool = "3d-transcode"
+on-failure = ["preserve", "stop"]   # NOT-YET-IN-FORMAT: a chain (section 14, point 5). Attach the
+                                    # original 3D stream, which Annex B admits, before giving up.
+
+[site."annotations/file-attachment-only-in-embedded-file-files"]
+remedy = "preserve"
+keep-attachment = true     # the file stays in the name tree; only the on-page marker goes
+
+[site."annotations/printable-and-visible"]
+remedy = "preserve"        # un-hide rather than remove: this profile keeps marks, even hidden ones
+# The cost is the surprising one and an operator of this profile has to accept it: review comments
+# and conditional stamps the producer hid become visible and printable.
+
+[site."annotations/appearance-dictionary-holds-only-normal"]
+remedy = "preserve"
+keep = ["attach"]          # 4f/4e only; elsewhere this site stops, which is the profile's rule
+on-failure = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Behaviour. The standard's own archival route for form logic is an embedded XFDF file, which only
+# PDF/A-4f can hold (ISO 19005-4 section 6.4.1, and section 6.9 for why it is 4f alone).
+# ---------------------------------------------------------------------------------------------
+
+[site."forms/no-action-on-widget-or-field"]
+remedy = "preserve"
+as = "xfdf"                # an error naming both site and target under 2b/2u/2a/4/4e
+on-failure = "stop"
+
+[site."forms/no-xfa-key"]
+remedy = "preserve"
+keep-xfa = "attach"        # the XFA packet is XML; 4f and 4e can hold it
+dynamic = "stop"
+on-failure = "stop"
+
+[site."forms/no-needs-rendering"]
+remedy = "discard"
+# The one `discard` in this file, and it is not a loss: the key is a request to a reader to
+# generate pages, and it is removed only once /XFA has been preserved elsewhere.
+
+# ---------------------------------------------------------------------------------------------
+# The document's own statements — encryption, signatures, colour destinations, screening.
+# ---------------------------------------------------------------------------------------------
+
+[site."file-structure/no-encryption"]
+remedy = "preserve"
+record = ["report", "history", "page"]   # the permission set the producer asserted, written down
+on-missing-password = "stop"
+
+[site."file-structure/permissions-dictionary-keys"]
+remedy = "preserve"
+record = ["report", "history", "page"]
+attach-source = true       # 4f/4e: the signed original, which is the only way cryptography keeps
+
+[site."file-structure/document-signature-states-no-digest"]
+remedy = "preserve"
+record = ["report", "history", "page"]
+
+[site."graphics/destination-profile-class-and-colour-space"]
+remedy = "preserve"
+replacement = "supplied"
+keep-rejected = "attach"   # 4f/4e; "report" elsewhere
+
+[site."graphics/destination-profile-carries-the-tags-its-class-requires"]
+remedy = "preserve"
+replacement = "supplied"
+keep-rejected = "attach"
+
+[site."graphics/destination-profile-states-a-correct-profile-id"]
+remedy = "preserve"
+replacement = "supplied"
+keep-rejected = "attach"
+
+[site."graphics/icc-profiles-claim-a-permitted-edition"]
+remedy = "preserve"
+via = "alternate"          # Table 65's own fallback for a profile a processor cannot use
+keep-rejected = "attach"
+
+[site."graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires"]
+remedy = "preserve"
+via = "alternate"
+keep-rejected = "attach"
+
+[site."graphics/icc-profiles-carry-the-tags-their-version-requires"]
+remedy = "preserve"
+via = "alternate"
+keep-rejected = "attach"
+
+[site."graphics/icc-profiles-conform-to-the-base-standard"]
+remedy = "preserve"
+via = "alternate"
+keep-rejected = "attach"
+
+[site."graphics/no-transfer-function-in-a-graphics-state"]
+remedy = "preserve"
+keep = "attach"            # the function is data; 4f/4e keep it, elsewhere this stops
+evidence = "always"        # render the page both ways and show whether anything changed
+on-failure = "stop"
+
+[site."graphics/second-transfer-function-is-default"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/halftone-transfer-function-only-where-required"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/halftone-type-is-one-or-five"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/no-halftone-name"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/no-halftone-phase-in-a-graphics-state"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/no-halftone-origin-in-a-graphics-state"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Data that can be moved rather than lost.
+# ---------------------------------------------------------------------------------------------
+
+[site."file-structure/no-external-stream-data"]
+remedy = "preserve"
+tool = "resolve-external"  # reads the file specification on stdin; nothing document-derived in args
+on-failure = "stop"
+
+[site."graphics/no-destination-profile-reference"]
+remedy = "preserve"
+tool = "resolve-external"
+on-failure = "stop"
+
+[site."graphics/no-destination-profile-reference-in-a-pdfx-output-intent"]
+remedy = "preserve"
+tool = "resolve-external"
+on-failure = "stop"
+
+[site."graphics/no-reference-xobjects"]
+remedy = "preserve"        # keep the proxy the containing form already draws (ISO 32000-2 8.10.4)
+
+[site."graphics/jpeg2000-bit-depth"]
+remedy = "preserve"
+codec = "flate"
+max-growth = "4x"
+on-failure = "stop"
+
+[site."graphics/jpeg2000-channel-count"]
+remedy = "preserve"
+codec = "flate"
+max-growth = "4x"
+on-failure = "stop"
+
+[site."graphics/jpeg2000-no-ciejab-colour-space"]
+remedy = "preserve"
+codec = "flate"
+max-growth = "4x"
+on-failure = "stop"
+
+[site."metadata/xmp-packets-well-formed"]
+remedy = "preserve"
+prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
+fresh-packet = true
+
+[site."metadata/xmp-packets-state-one-rdf-element"]
+remedy = "preserve"
+prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
+fresh-packet = true
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model"]
+remedy = "preserve"
+prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
+fresh-packet = true
+
+[site."metadata/extension-schemas-embedded"]
+remedy = "preserve"
+undeterminable = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Facts only the operator holds. `supply` is how this profile keeps information that is not in the
+# document at all — and every one of these must appear in the report and in xmpMM:History as
+# having come from this file rather than from the source.
+# ---------------------------------------------------------------------------------------------
+
+[site."logical-structure/role-map-terminates-at-a-standard-type"]
+remedy = "supply"          # NOT-YET-IN-FORMAT
+role-map = { }             # fill in with your own producer's types; an empty map stops
+unlisted = "stop"
+
+[site."logical-structure/catalog-language-identifier"]
+remedy = "supply"          # NOT-YET-IN-FORMAT
+language = ""              # e.g. "de-DE"; empty stops rather than guessing
+only-when = "malformed"
+
+[site."logical-structure/element-and-property-list-language-identifiers"]
+remedy = "supply"          # NOT-YET-IN-FORMAT
+language = ""
+only-when = "malformed"
+
+[site."graphics/separations-of-one-name-agree"]
+remedy = "supply"          # NOT-YET-IN-FORMAT
+colourants = { }           # name the definition that wins, per ink; empty stops
+unlisted = "stop"
+
+[site."fonts/embedded-cmap-states-its-own-write-mode"]
+remedy = "supply"          # NOT-YET-IN-FORMAT
+write-mode = "program"     # or "stream"; the file's two statements disagree and a person decides
+
+[site."fonts/cmap-embedded-or-predefined"]
+remedy = "preserve"
+source = "shipped-cmaps"   # embed the published Adobe CMap the file names, from data/cmaps/
+on-missing = "stop"
+
+[site."fonts/cmap-uses-only-predefined-cmaps"]
+remedy = "preserve"
+source = "shipped-cmaps"
+on-missing = "stop"
+
+[site."metadata/extension-schema-container-fields"]
+remedy = "supply"          # NOT-YET-IN-FORMAT
+schemas = { }              # your own namespaces and their missing fields; empty stops
+unlisted = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Sites this profile deliberately leaves at `stop`, because keeping the information is not
+# possible and this profile stops rather than losing: every font refusal whose remedy would be a
+# wrong glyph, the content-stream fence, ISO 19005-2's implementation limits, and
+# metadata/provenance-recorded-action-fields-four. doc/pdf-a-mitigations.md section 13.2 is the
+# list and the argument for each.
+#
+# Sites it does not name because no operator should be asked: doc/pdf-a-mitigations.md section
+# 13.3, the twenty-two refusals whose right answer loses nothing and is owed code.
+# ---------------------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------------------------
+# Tool declarations. Named here so the profile is self-contained; an operator edits the paths.
+# Every one of these runs YOUR program on an UNTRUSTED document (doc/rfc/0007 section 4.5).
+# ---------------------------------------------------------------------------------------------
+
+[tool.office-to-pdf]
+program = "/usr/bin/soffice"
+args = ["--headless", "--convert-to", "pdf", "--outdir", "{out}", "{in}"]
+expects = "application/pdf"
+timeout = "60s"
+output-limit = "256MiB"
+
+[tool.resolve-external]
+program = "/usr/local/bin/fetch-referenced-file"
+args = []                  # the file specification arrives on stdin; never in args
+expects = "application/octet-stream"
+timeout = "30s"
+output-limit = "64MiB"
+
+[tool.3d-transcode]
+program = "/usr/local/bin/3d-to-prc"
+args = ["{in}", "{out}"]
+expects = "model/prc"
+timeout = "300s"
+output-limit = "512MiB"

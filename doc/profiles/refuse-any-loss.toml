@@ -1,0 +1,30 @@
+# refuse-any-loss — every refusal keeps its default, stated deliberately.
+#
+# doc/rfc/0007 section 5a.3's first profile. It is what the converter does today with no
+# configuration at all, written down so that an operator can *state* the policy rather than
+# inherit it — which matters in an archive that has to show an auditor what its pipeline was
+# told to do.
+#
+# Every profile in this directory answers refusals and speaks nowhere else. A requirement the
+# document does not fail raises no refusal, so nothing here can remove anything from a file that
+# was already conforming. Every answer a profile may give leaves the output conforming to the
+# target that was asked for; departures (doc/rfc/0007 section 4.7) are the one exception and no
+# shipped profile contains one.
+#
+# Works with all six targets: PDF/A-2b, 2u, 2a, 4, 4f, 4e.
+#
+# doc/pdf-a-mitigations.md is the catalogue this profile's answers are drawn from.
+
+[profile]
+name = "refuse-any-loss"
+sentence = "Every site stops. Nothing is lost, moved or derived without a later, explicit choice."
+catalogue = "doc/pdf-a-mitigations.md"
+
+# FINDING (doc/pdf-a-mitigations.md section 14, point 9): this key is not in the RFC's format.
+# Without it, "refuse any loss" is the empty file — indistinguishable from having no configuration
+# at all — so an operator cannot state today's behaviour deliberately, which is the whole purpose
+# of this profile. A `default` that may only be "stop" costs nothing and makes the statement
+# expressible.
+default = "stop"
+
+# No [site] tables. A site absent from a configuration behaves as it does today, which is `stop`.

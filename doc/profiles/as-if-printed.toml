@@ -1,0 +1,201 @@
+# as-if-printed — archive what a printed copy would have carried.
+#
+# doc/rfc/0007 section 5a.3's second profile, and the project owner's own motivation for it:
+#
+#   this is a replacement for a previous paper archive. The logical structure is a nice to have,
+#   but I would rather lose information I wouldn't have had as paper archive anyway, if this means
+#   that I can convert this input file.
+#
+# Read that beside what a profile *is*, because the two together are the whole design. A profile
+# is a list of refusal sites with an answer beside each — nothing more. It is not a mode in which
+# the converter inspects each annotation's Print flag or each optional-content group's PrintState
+# and decides per document what paper would have shown; that would be new behaviour. The printing
+# question is the *author's yardstick*, asked once per class of thing while writing this file:
+# would printing have lost this anyway? Attachments, scripts, multimedia, the metadata packet —
+# each answered once, written down, and thereafter the converter does what it does for any other
+# configuration.
+#
+# So the two choices compose rather than conflict. Choosing PDF/A-2a says: I want the logical
+# structure where it exists. Choosing this profile says: do not refuse the whole document over
+# something paper would have lost anyway. **It works with all six targets**, because every answer
+# below leaves the output conforming to the target asked for, and because nothing here removes
+# anything a document was not already being refused over.
+#
+# What is deliberately NOT here, and is a known, declined refinement: a narrowing predicate in
+# doc/rfc/0007 section 4.7.2's sense — "discard only the annotations whose Print flag is clear".
+# That is per-document behaviour. It belongs after the mechanism exists and somebody has asked.
+
+[profile]
+name = "as-if-printed"
+sentence = "Discard what printing would not have carried; touch nothing it would."
+catalogue = "doc/pdf-a-mitigations.md"
+default = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Attachments. Paper carries none. Note that the answer is still `preserve` wherever preserving is
+# free: a PDF attachment that converts costs nothing to keep, and this profile is about not being
+# stopped, not about throwing things away.
+# ---------------------------------------------------------------------------------------------
+
+[site."embedded-files/embedded-file-is-itself-pdfa"]
+remedy = "discard"
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
+remedy = "discard"
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile".target."4f"]
+remedy = "preserve"        # 4f holds the original unchanged; nothing is lost, so nothing is
+                           # discarded, and the yardstick never comes into it
+
+[site."embedded-files/associated-file-media-type"]
+remedy = "discard"         # an associated file with no declared type; paper had no attachments
+
+# ---------------------------------------------------------------------------------------------
+# Annotations. Table 167 bit 3 is the anchor: an annotation the file marks unprinted is something
+# the user already accepted losing when they pressed print. Applied here once, per class.
+# ---------------------------------------------------------------------------------------------
+
+[site."annotations/subtype-defined-in-iso-32000-1"]
+remedy = "discard"
+
+[site."annotations/subtype-defined-in-iso-32000-2"]
+remedy = "discard"
+
+[site."annotations/three-dimensional-only-in-engineering-files"]
+remedy = "discard"
+
+[site."annotations/file-attachment-only-in-embedded-file-files"]
+remedy = "discard"
+keep-attachment = true     # the paperclip goes; a conforming attachment stays in the name tree
+
+[site."annotations/printable-and-visible"]
+remedy = "discard"
+# The profile's clearest case. A hidden or non-printing annotation is exactly what paper lost.
+
+[site."annotations/appearance-dictionary-holds-only-normal"]
+remedy = "discard"
+# Rollover and pressed appearances never reached paper and never will reach an archive reader.
+
+# ---------------------------------------------------------------------------------------------
+# Behaviour. None of it prints.
+# ---------------------------------------------------------------------------------------------
+
+[site."forms/no-action-on-widget-or-field"]
+remedy = "discard"
+
+[site."forms/need-appearances-absent-or-false"]
+remedy = "discard"
+construct = true           # build the field appearances first, so the file shows what it shows;
+                           # a printed form showed the reader's generated appearances
+
+[site."forms/no-xfa-key"]
+remedy = "discard"
+dynamic = "stop"           # a dynamic form's pages are generated; paper had pages, and we do not
+
+[site."forms/no-needs-rendering"]
+remedy = "discard"
+
+[site."actions/no-launch-multimedia-or-form-actions"]
+remedy = "discard"
+
+[site."actions/no-deprecated-set-state-or-no-op-actions"]
+remedy = "discard"
+
+[site."actions/no-javascript-action"]
+remedy = "discard"
+
+[site."actions/no-optional-content-or-view-action"]
+remedy = "discard"
+
+[site."actions/optional-content-or-view-action-only-in-engineering-files"]
+remedy = "discard"
+
+[site."actions/named-action-is-page-navigation"]
+remedy = "discard"
+
+[site."actions/no-additional-actions-dictionary"]
+remedy = "discard"
+
+[site."actions/additional-actions-outside-widgets-hold-only-annotation-triggers"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# The document's own restrictions. A printed page carries no encryption and asserts no
+# permissions. The password is not expressible here (doc/pdf-a-mitigations.md section 14, point
+# 8): this site needs a per-document input, so it stops when one is not supplied.
+# ---------------------------------------------------------------------------------------------
+
+[site."file-structure/no-encryption"]
+remedy = "discard"
+on-missing-password = "stop"
+
+[site."file-structure/crypt-filter-is-identity"]
+remedy = "discard"
+
+[site."file-structure/permissions-dictionary-keys"]
+remedy = "discard"
+
+[site."file-structure/document-signature-states-no-digest"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# Metadata. A printed page carries none of it. `preserve` is still chosen where it is free.
+# ---------------------------------------------------------------------------------------------
+
+[site."metadata/xmp-packets-well-formed"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/xmp-packets-state-one-rdf-element"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/extension-schemas-embedded"]
+remedy = "preserve"
+undeterminable = "discard"
+
+[site."metadata/extension-schema-container-fields"]
+remedy = "discard"
+
+[site."metadata/identification-amendment-form"]
+remedy = "discard"
+
+[site."metadata/xmp-packet-header-attributes"]
+remedy = "discard"
+
+[site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
+remedy = "preserve"
+unmapped = "discard"
+
+[site."file-structure/document-information-dictionary-needs-piece-info"]
+remedy = "preserve"
+unmapped = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# Optional content. What printed is one state, and the document keeps the default configuration
+# both parts require a reader to render anyway.
+# ---------------------------------------------------------------------------------------------
+
+[site."optional-content/no-automatic-states"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# What this profile deliberately leaves at `stop`, because printing WOULD have carried it:
+#
+#   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
+#   halftone-*                     a press applies these; an archived print master is kept for it
+#   graphics/rendering-intent-*    decides printed colour
+#   graphics/destination-profile-* the output intent is the statement of what was printed to
+#   fonts/*                        a printed page carried glyphs; every font refusal stays
+#   graphics/jpeg2000-*            the image printed
+#   annotations/normal-appearance-shape   with no /AS, nothing says which state printed
+#
+# And the entries that need no answer at all, because their right answer loses nothing and is
+# owed code rather than a choice: doc/pdf-a-mitigations.md section 13.3.
