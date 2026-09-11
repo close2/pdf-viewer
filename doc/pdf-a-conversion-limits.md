@@ -266,9 +266,16 @@ The decision tree, in the order a converter should try it:
    the target. *(Cost: the attachment is now a different byte string, which matters if anything
    signed or hashed it.)*
 2. **The attachment is not a PDF, or does not convert.** Then PDF/A-2 and plain PDF/A-4 are both
-   impossible with it, and there are exactly two honest answers: **retarget to PDF/A-4f**, or
-   **drop the attachment**. There is no third one, and this is the case the user's own example
-   named.
+   impossible with it, and the standard offers exactly two honest answers: **retarget to
+   PDF/A-4f**, or **drop the attachment**. This is the case the user's own example named.
+
+   **This paragraph used to end "There is no third one", and that was true about the standard and
+   false about this project.** The standard has a third answer — **PDF/A-3**, whose associated
+   files exist for precisely this, and which is what ZUGFeRD and Factur-X specify — and the only
+   reason it is unavailable here is that part 3 was never bought (`A17`, `doc/questions/Q60`). A
+   fourth answer is the operator's rather than the standard's: to depart from the clause
+   deliberately, by name, for a narrowed class of file, in a document that does not then claim the
+   target. The owner asked for that on 2026-09-11 and `doc/rfc/0007` §4.7 is the design.
 3. **Dropping is Ask, always**, listing every file dropped by name and size, and recording the
    removal in `xmpMM:History` — which ISO 19005-2 §6.6.6 explicitly asks a converter to do, its
    own example of a thing to record being objects that were not retained.

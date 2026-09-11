@@ -303,6 +303,89 @@ target a specific level and we need to document the limitations* — and an arch
 PDF/A-4 is not served by being handed a 4f file. But an operator who learns, once, that their queue
 would lose nothing at 4f can change their own policy, and that is a decision only they can make.
 
+## 4.7 Departures — going against the standard, on purpose and by name
+
+Asked for by the owner on 2026-09-11:
+
+> I would also like the option, to go against the spec and for instance accept xml (and only xml)
+> attachments when targeting pdf/a 2.
+
+**This is not a remedy and must not be modelled as one.** Every remedy in §2 produces a file that
+conforms to the target; a departure produces one that does not. Putting them in the same table
+would make the configuration's most important distinction invisible.
+
+### 4.7.1 Why it is a real request rather than a shortcut
+
+`doc/pdf-a-conversion-limits.md` §3.1 says of a non-PDF attachment that there are "exactly two
+honest answers — retarget to PDF/A-4f, or drop the attachment. There is no third one." That
+sentence is true about the *standard* and it is why this is worth building: the third answer the
+standard offers is **PDF/A-3**, whose associated files exist precisely for this, and this project
+cannot target it because part 3 was never bought (`A17`).
+
+The concrete case is current. ZUGFeRD and Factur-X — the same specification since 2020, with a
+German mandate arriving in 2026 — embed a machine-readable invoice as `factur-x.xml` in a
+**PDF/A-3** with `/AFRelationship /Alternative`. An operator whose archive mandates PDF/A-2 and
+whose invoices carry that XML has a genuine conflict that no remedy resolves: dropping the XML
+loses the invoice's machine-readable half, and retargeting is not theirs to decide. *(That is
+evidence about demand and convention, which the RFC conventions admit as its own register; it says
+nothing about what any clause requires.)*
+
+### 4.7.2 The three properties that make a departure honest
+
+**It is named, per requirement, and never blanket.** There is no "ignore errors" and no severity
+threshold. A configuration departs from `attachments/embedded-file-is-itself-pdfa` or it does not,
+and a requirement it does not name is enforced exactly as today.
+
+**It carries a narrowing predicate, and the owner's "(and only xml)" is precisely that.** A
+departure is not permission to embed anything; it is permission to embed what the operator named.
+The predicate's shape is departure-specific, like a remedy's keys:
+
+```toml
+[depart."attachments/embedded-file-is-itself-pdfa"]
+media-type = ["application/xml", "text/xml"]
+relationship = ["Alternative"]           # the ZUGFeRD shape, narrowed further
+reason = "Factur-X invoices; our archive accepts them"
+```
+
+`reason` is required and is copied into the report. A departure nobody wrote a reason for is one
+nobody will be able to explain in two years.
+
+**And the output does not claim what it has not earned.** This is the load-bearing property. A
+file that states `pdfaid:part 2` while carrying a forbidden attachment is *asserting something
+false about itself* — and this converter's existing discipline is that no file is written "wearing
+a claim it has not earned". So by default a departed conversion **omits the PDF/A identification
+schema**, and the report says so in those words: the output is a PDF that meets PDF/A-2 in every
+respect but the ones listed, and it does not claim to be PDF/A-2.
+
+Whether an operator may demand the claim anyway is `doc/questions/Q59`, and it is the sharpest
+question in this proposal — because a validator downstream will fail the file either way, and the
+difference is only whether the file *lied* before it failed.
+
+### 4.7.3 What does not change
+
+Stage three's net still runs, and is not switched off. It re-opens the output, holds it to the
+target, and reports every requirement it fails — the departed ones **by name, as departures**, and
+anything else as the failure it is. A departure narrows what counts as success; it does not stop
+the converter checking.
+
+Every departure is reported per document and recorded in the file's own `xmpMM:History`, so the
+archive carries the fact rather than relying on a report nobody kept.
+
+And the invocation has to say so. A configuration file can be inherited, copied between teams or
+written by somebody who has left; **the verb refuses a departing configuration unless the command
+line also carries `--depart-from-the-standard`**, whose only job is to put the operator's intent at
+the call site rather than only in a file. That is a deliberate exception to §3's rule that the
+configuration is the whole answer, and it is worth the exception: every other entry in that file
+makes a conforming file, and this one does not.
+
+### 4.7.4 The question underneath it
+
+If an operator needs PDF/A-2 plus an XML attachment, what they are describing is **PDF/A-3**. The
+departure is this project routing around a gap of its own — a part nobody bought — and it is worth
+saying so plainly rather than presenting a departure as the natural answer. `doc/questions/Q60`
+asks whether part 3 should be obtained, because if it were, this particular case stops being a
+departure and becomes a target.
+
 ## 5. Per-site remedies, first pass
 
 **Read every cell below as "for the targets that admit it"** — §4.6 is why, and the embedded-file
