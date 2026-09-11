@@ -31,15 +31,16 @@ else.
 vocabulary, a reason that names an architecture, a capability that arrived and announced nothing,
 a capability that reached the crate and never reached the program, a row that would have
 survived the capability arriving, and a row *corrected* by naming the capability that arrived while
-the entry it turns on stayed unread — are in [`../habits.md`](../habits.md)'s ledger section, beside
-the sweeps that find each. They are the highest-yield reading this project has.
+the entry it turns on stayed unread — are in
+[`doc/habits/the-ledger-and-claims-about-this-tree.md`](../habits/the-ledger-and-claims-about-this-tree.md),
+beside the sweeps that find each. They are the highest-yield reading this project has.
 
 ## 2. Run the gates that can see what you touched
 
-**The whole sequence is below, and the map after it says which of it a given change needs.** Two
-rules bound the map and are the whole of its safety: **the full sequence runs every fifth round,
-and on any round that can change a pixel**; and the merge rule two paragraphs down is not relaxed
-at all. `tools/round.sh` says whether this is a fifth round.
+**The whole sequence is below, and the map after it says which of it a given change needs** — a
+rule first, a lookup second, and most rounds never reach the lookup. **Its rules 3, 4 and 5 are
+the whole of the map's safety** and none of them is relaxed by anything here.
+`tools/round.sh` says whether this is a fifth round.
 
 ```sh
 cargo fmt --all --check
@@ -95,25 +96,56 @@ one command is how they drift, so one owns it.
 
 ### The change → gate map
 
-**The first four lines are the core and every round runs them**, whatever it touched — they are
-about a tenth of the sequence's cost and they are the only thing that sees a lint, a broken
-doctest or a test somewhere else in the workspace. **One of them now carries a cost floor as well**:
+**The rule is first and settles most rounds; the table after it is a lookup for the change it
+does not settle.** Read the six, apply them, and open the table only if none of them answered.
+
+**1. The core is every round's**, whatever it touched — the first four lines of the sequence,
+**and the two `fuzz/` lines with them**. The first four are about a tenth of the sequence's cost
+and they are the only thing that sees a lint, a broken doctest or a test somewhere else in the
+workspace. **One of them now carries a cost floor as well**:
 `cargo nextest run --workspace` runs `pdf-vfs`'s `tests/a_face.rs`, which walks three documents'
 whole trees twice and fails if any generator ran twice for one subject (ADR 0894). It is there
 rather than in a corpus line because a cost defect found by a walk has already been merged, and it
-is affordable there because it is a *count* — ten seconds, and no clock to be wrong about. Since
-the nine-hundred-and-twenty-ninth session `tools/pdfref/tests/end_to_end.rs` carries the second
+is affordable there because it is a *count* — ten seconds, and no clock to be wrong about.
+`tools/pdfref/tests/end_to_end.rs` carries the second
 one, on the same rules: a page asked for three times from two work directories runs one renderer,
 and it fails naming the key if a second spawn was not excused by the first having been kept
-nowhere (ADR 0898). **The two `fuzz/` lines are core as well**, and
-this sentence said "the first four" for as long as either of them has existed: `--all` and
+nowhere (ADR 0898). **The `fuzz/` pair is part of the core and this line said "the first four"
+for as long as either of them has existed**: `--all` and
 `--workspace` mean *every package in **this** workspace*, so not one of the four reads a line of
-`fuzz/`, and what covers it has to name its manifest. The rest is chosen by
-what the change can reach, and *reach* is the crate graph rather than the file's own crate:
+`fuzz/`, and what covers it has to name its manifest.
+
+**2. Seven crates are under everything**, and this is the rule that answers most rounds — it was
+the map's *first row*, which is what a round's own record usually calls it.
+`pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-spec`, `pdf-sandbox` and `render-cpu`
+are what draws the page and what every corpus-scale gate rasterises with, so a change in any of
+them runs **the whole sequence** and there is nothing to look up.
+
+**3. A round that can change a pixel runs everything.** That is any change to the crates in rule
+2, and it is not a judgement about how small the diff looked: trap 1's whole subject is that a
+change nobody expected to draw differently did.
+
+**4. Every fifth round runs everything**, whatever it touched, because a map is a claim about the
+crate graph and a claim decays. `tools/round.sh` says which round this is.
+
+**5. A merge runs everything, always**, and the paragraph below the table is not relaxed by any of
+this.
+
+**6. A documents-only change** — `doc/`, `CLAUDE.md`, a `tools/*.sh` — is under nothing the gates
+rasterise: run the core, **and `cargo test -p conformance`**, which reads citations and quotations
+out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or
+a pointer.
+
+**What none of the six settled is in the table**, and *reach* there is the crate graph rather than
+the file's own crate.
+
+#### The lookup
+
+Rules 2 and 6 were this table's first and last rows and are stated above instead; that is the
+whole of the reordering (ADR 0983).
 
 | a change in | is under | so run, beyond the core |
 |---|---|---|
-| `pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-spec`, `pdf-sandbox`, `render-cpu` | everything | **everything** — these are what draws the page and what every gate rasterises with |
 | `render-raster` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path |
 | `render-gpu` | no gate at all | the workspace tests are the only judge (`headless_gpu`); say so, and consider `doc/verify.md`'s cross-backend runs |
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
@@ -122,16 +154,6 @@ what the change can reach, and *reach* is the crate graph rather than the file's
 | `pdf-transform` | the transform gate, and the five writers' walks | `cargo test --profile gates -p pdf-transform --test gate`, which carries RFC 0002 section 12's perf floor and holds the verbs' inventories to the document; it needs the sandbox worker beside it like the rest. And the six corpus walks named in the sequence above — `writer_corpus`, `split_corpus`, `merge_corpus`, `pages_corpus`, `optimize_corpus` and `foreign_corpus`. **What each of them asserts is in its own `//!` header and not here**: every one of the six opens with the clauses it holds its output to, the layer of RFC 0002 section 9 it is, and what it does when the programs it needs are not installed. `foreign_corpus` is the only one that asks **somebody else** — qpdf, poppler and mupdf over each of the five writers' output, every foreign reading compared with that *same* reader's reading of the source page and never with ours. All six are corpus walks, so they run under `tools/bounded.sh` (`doc/environment.md`) |
 | `pdf-vfs` | both sides' walks | `--test write_corpus`, which drives RFC 0003 section 5.2's five verbs over every corpus document the core opens, and `--test read_corpus`, which lists, `stat`s and reads the whole of section 4's layout through the **confined** worker over `doc/pdf.js` whole plus a class-balanced sample of every other corpus on the disk. **What each holds its answers to is in its own `//!` header**, including the cost floors, which are *counts* rather than clocks (`Vfs::questions`, `Vfs::forgotten` — trap 33) so that a neighbouring round's load cannot fail them. Both are corpus walks, so they run under `tools/bounded.sh`. **The `--bins` line above them is not optional and is trap 10**, on a distinction worth keeping: `cargo nextest run --workspace` and `cargo test -p pdf-vfs` both build a package's bin targets, so under those the `pdf-vfs-worker` beside the test binary is this build's; a `--profile gates --test` line builds **one test target and nothing else**, as it does for `pdf-sandbox`, so under that line the worker would be whatever an earlier round left. This crate's own tests are `cargo nextest run -p pdf-vfs`, which the workspace line already runs: `tests/a_face.rs`, `tests/a_write.rs` and `tests/confined.rs`, the last of which re-executes itself under the confinement to check that a forbidden system call kills — and that a font looked for on the machine does *not* (trap 31). A **death** — `killed by signal N` — fails a walk wherever the sentence appears |
 | `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's. **`pdfref` reaches three gate lines rather than one**, and it carries their cost floor: `pdfref::Runs` counts how many times a reference renderer or an extractor was actually *spawned*, how many of those were for a key the run had already run, and how many produced something the cache kept nowhere — and `oracle`, `text_extraction` and `selection_census` each fail on a repeat the ceiling does not excuse. It is a count and not a clock, for trap 33's reason: `Statistics`'s hits and misses cannot see a lookup that never reached the cache, nor tell a second miss on one key from a first miss on another |
-| **documents only** (`doc/`, `CLAUDE.md`, a `tools/*.sh`) | nothing the gates rasterise | the core, **and `cargo test -p conformance`**, which reads citations and quotations out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or a pointer |
-
-Three things the map does not license:
-
-- **A round that can change a pixel runs everything.** That is any change to the crates in the
-  first row, and it is not a judgement about how small the diff looked: trap 1's whole subject is
-  that a change nobody expected to draw differently did.
-- **Every fifth round runs everything**, whatever it touched, because a map is a claim about the
-  crate graph and a claim decays. `tools/round.sh` says which round this is.
-- **A merge runs everything, always**, and the paragraph below is not relaxed by any of this.
 
 **A merge is a round of its own, and it runs this sequence on `main`.** Green in a worktree
 establishes nothing about `main`: a parallel round's gates are the truth about a tree that

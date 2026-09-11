@@ -365,6 +365,19 @@ mod tests {
                     crate::cff::units_per_em(bytes).expect("a compiled-in CFF face parses");
                 }
             }
+            // **And no reader but the one claimed for it can have them.** ADR 0971's habit
+            // asks of a carried datum which parsers read it, and this one was said to have
+            // three — `sfnt`, `cff` and `type1`. It has two: the ten `.pfb` files are bare
+            // CFF programs under a Type 1 file *extension*, which is Foxit's naming rather
+            // than their format, so [`crate::type1`] never sees them. A file swapped for a
+            // real Type 1 program while its [`Format`] stayed `BareCff` would be handed to
+            // the wrong parser, and this is what says so. The refusal is not vacuous:
+            // `crates/pdf-model/tests/type1.rs` parses the corpus's embedded programs
+            // through the same entry point.
+            assert!(
+                crate::type1::Program::parse(bytes).is_err(),
+                "a compiled-in face parses as a bare Type 1 program, so its Format is wrong"
+            );
             checked += 1;
         }
         assert_eq!(checked, 14, "§9.6.2.2's fourteen");
@@ -451,6 +464,80 @@ mod tests {
                 seen.dedup();
                 assert_eq!(seen.len(), 4, "{family:?}");
             }
+        }
+    }
+
+    /// Every name Annex D.5 and D.6 state has a glyph in the face this binary carries for it.
+    ///
+    /// **The census row for `data/standard-fonts/` that ADR 0971 measured and did not assert**,
+    /// and it is the one place where a carried *table* and a carried *face* have to agree. The
+    /// two symbolic faces are reached by glyph name and by nothing else —
+    /// [`crate::substituted`]'s bare-CFF route looks the encoding's name up in the program's
+    /// charset, because Table D.6's `a1` and `a192` are in no Unicode mapping worth trusting —
+    /// so a name the table states and the face does not hold is a code that draws nothing, with
+    /// the page reporting it one code at a time rather than as a face that cannot answer.
+    ///
+    /// Measured: Table D.5 names 189 of the 256 codes and `FoxitSymbol` holds every one of them,
+    /// Table D.6 names 188 and `FoxitDingbats` holds every one. The faces hold one and fourteen
+    /// glyphs besides `.notdef` that the tables do not name, which is the direction that costs
+    /// nothing.
+    ///
+    /// **The second half is what makes it a gate rather than a formality**: a name is followed
+    /// through to an outline with contours in it, so a charset read as all-zero glyph indices —
+    /// which `by_name` would still answer for every name — fails here.
+    #[test]
+    fn every_name_annex_d_states_has_a_glyph_in_the_face_carried_for_it() {
+        use crate::cff::CodeToGlyph;
+        use crate::encoding::SymbolicEncoding;
+
+        for (family, table, stated) in [
+            (Family::Symbol, SymbolicEncoding::Symbol, 189),
+            (Family::ZapfDingbats, SymbolicEncoding::ZapfDingbats, 188),
+        ] {
+            let (bytes, format) = face(Request {
+                family,
+                bold: false,
+                italic: false,
+                standard: true,
+            });
+            assert_eq!(format, Format::BareCff, "{family:?} is a bare CFF program");
+            let CodeToGlyph::Named(keyed) =
+                CodeToGlyph::read(bytes).expect("a compiled-in CFF face parses")
+            else {
+                panic!("no compiled-in face is CID-keyed");
+            };
+            let named: Vec<&str> = (0..=255_u8)
+                .map(|code| table.glyph_name(code))
+                .filter(|name| !name.is_empty())
+                .collect();
+            assert_eq!(
+                named.len(),
+                stated,
+                "how many codes {family:?}'s annex assigns"
+            );
+            let missing: Vec<&str> = named
+                .iter()
+                .copied()
+                .filter(|name| !keyed.by_name.contains_key(*name))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{family:?}: the carried face has no glyph for {missing:?}"
+            );
+        }
+
+        // Followed through to an outline, one name from each annex: `universal` is Table D.5's
+        // \u{2200} and `a1` is Table D.6's \u{2701}, and neither is a code either face could
+        // answer by accident.
+        for (name, code) in [("Symbol", 0o042_u8), ("ZapfDingbats", 0o041)] {
+            let font = crate::LoadedFont::standard(name).expect("one of the fourteen");
+            let outline = font
+                .outline(crate::Code::single_byte(code))
+                .unwrap_or_else(|| panic!("{name} draws the glyph its annex puts at {code:o}"));
+            assert!(
+                outline.signed_area().abs() > 0.0,
+                "{name}: the glyph at {code:o} has no contours"
+            );
         }
     }
 }

@@ -2451,4 +2451,93 @@ mod tests {
         damaged[128..132].copy_from_slice(&999u32.to_be_bytes());
         assert!(Profile::parse(&damaged).is_none());
     }
+
+    /// No bound in this module cuts the profile this program ships.
+    ///
+    /// **The first of ADR 0971's four measured-but-unasserted census rows.** `data/icc/` holds
+    /// one file and this module is the only reader of it, so the question ADR 0963 asks — does a
+    /// datum this binary already carries exceed a compiled-in constant? — is arithmetic with no
+    /// document in it. The measurement was written into that ADR and nothing failed when it went
+    /// stale; this is the walk.
+    ///
+    /// What the bounds are against, measured off `data/icc/sRGB2014.icc` itself: 3 024 bytes
+    /// against [`MAX_PROFILE`]'s 16 MiB, a tag table of 16 entries against [`MAX_TAGS`]'s 1 024,
+    /// and text tags of 45 and 8 characters against [`MAX_TAG_TEXT`]'s 4 096; the largest thing
+    /// the file asks to be read at all is `bTRC`'s 2 060-byte tone curve. Clear by three orders
+    /// of magnitude, which is not the point: the point is that a later edition of the ICC's own
+    /// file crossing one of them would be read short in silence, because every one of these
+    /// bounds answers `None` rather than reporting.
+    ///
+    /// **[`MAX_CLUT`], [`MAX_INPUTS`] and [`MAX_OUTPUTS`] are not asserted here and that is
+    /// honest rather than an omission**: they bound a lookup table, and this profile is the
+    /// matrix-and-curve form — `a_tag_table_is_searched_by_signature` asserts it carries no
+    /// `A2B0` at all. A carried datum that never reaches a bound cannot say anything about it.
+    #[test]
+    fn no_bound_in_this_module_cuts_the_shipped_profile() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+
+        // The header's own size field, which is what `computed_id` hashes and what a bound
+        // above the file's length would let through while the parse read less.
+        let stated = usize::try_from(super::u32_at(bytes, 0).expect("a header")).expect("fits");
+        assert_eq!(stated, bytes.len(), "the header describes the whole file");
+        assert!(
+            bytes.len() <= super::MAX_PROFILE,
+            "the shipped profile is {} bytes against MAX_PROFILE's {}",
+            bytes.len(),
+            super::MAX_PROFILE
+        );
+
+        let tags = usize::try_from(super::u32_at(bytes, 128).expect("a tag table")).expect("fits");
+        assert!(
+            tags <= super::MAX_TAGS,
+            "the shipped profile states {tags} tags against MAX_TAGS' {}",
+            super::MAX_TAGS
+        );
+        assert!(tags > 0, "a profile with no tags would assert nothing here");
+
+        // The second half, and it is what makes this a gate rather than a count: each bound is
+        // followed through to the value it guards, so a bound raised only far enough to stop a
+        // `None` while the read still lost the tail fails here. Both strings are the file's own.
+        let read = Identification::read(bytes).expect("the shipped profile is a profile");
+        assert_eq!(read.description.as_deref(), Some("sRGB2014"));
+        assert_eq!(
+            read.copyright.as_deref(),
+            Some("Copyright International Color Consortium, 2015")
+        );
+        // **`MAX_TAG_TEXT` has no margin assertion of its own, deliberately**: a text longer
+        // than it makes `ascii_text` and `multi_localized` answer `None`, so the two assertions
+        // above are what fire and a `text.len() <= MAX_TAG_TEXT` beside them could never fail.
+        // What is measured instead is the file's own tag table — every tag lies inside the
+        // profile, and the widest of them is `bTRC`'s 2 060-byte `curv`, a tone curve rather
+        // than text and so not this bound's business. It is the largest single thing the shipped
+        // profile asks any reader here to hold.
+        let mut widest = 0usize;
+        for index in 0..tags {
+            let at = 132usize
+                .checked_add(index.checked_mul(12).expect("16 entries"))
+                .expect("a small offset");
+            let offset = usize::try_from(
+                super::u32_at(bytes, at.checked_add(4).expect("fits")).expect("an offset"),
+            )
+            .expect("fits");
+            let length = usize::try_from(
+                super::u32_at(bytes, at.checked_add(8).expect("fits")).expect("a length"),
+            )
+            .expect("fits");
+            assert!(
+                offset
+                    .checked_add(length)
+                    .is_some_and(|end| end <= bytes.len()),
+                "tag {index} claims bytes {offset}..{} of a {}-byte profile",
+                offset.saturating_add(length),
+                bytes.len()
+            );
+            widest = widest.max(length);
+        }
+        assert_eq!(widest, 2060, "the widest tag the shipped profile carries");
+        assert!(
+            Profile::parse(bytes).is_some(),
+            "and the whole profile builds a transform"
+        );
+    }
 }

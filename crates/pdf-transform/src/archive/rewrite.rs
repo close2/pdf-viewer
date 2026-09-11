@@ -21,6 +21,7 @@ use crate::Refusal;
 
 use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
+use super::jpeg2000::Specifications;
 use super::prepare::{
     Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, intent_dictionary,
     metadata_stream, output_intent_entries,
@@ -424,6 +425,21 @@ pub enum Rewrite {
     /// way to call another: the one-input transform could only be a *sample* of the producer's,
     /// and an archive would carry an approximation written as though it were their definition.
     SpotColorantEntry,
+    /// A `JPXDecode` image keeps only the colour space specification box the standards' own
+    /// sentences make the used one.
+    ///
+    /// ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 require exactly one
+    /// specification to be marked as the best available where the data states several, and
+    /// require the method a colour box states to be one of three. Every *value* this converter
+    /// could write into such a box is a choice — which is `doc/pdf-a-mitigations.md` section
+    /// 4.5's finding and stands — and the route that chooses nothing is removal: the sentence
+    /// after the method's, in both parts, says a conforming processor shall use only the selected
+    /// colour space and shall ignore all the other specifications.
+    ///
+    /// [`super::jpeg2000`] is the whole reading: which box the two standards select, why a file
+    /// neither of them settles stays refused, why the loss is the §7.4.9 fallback chain rather
+    /// than any pixel, and what shapes of JP2 structure this declines to shift bytes inside.
+    Jpeg2000ColourSpecifications,
 }
 
 impl Rewrite {
@@ -568,6 +584,11 @@ impl Rewrite {
                  it uses was missing, which is the Separation array this file already states for \
                  that colourant and which ISO 19005 section 6.2.4.4 requires it to agree with"
             }
+            Self::Jpeg2000ColourSpecifications => {
+                "a JPXDecode image keeps only the colour space specification ISO 19005 makes the \
+                 used one, the boxes it directs a processor to ignore going with the rest; not a \
+                 sample of the image is touched"
+            }
         }
     }
 
@@ -612,6 +633,7 @@ impl Rewrite {
             Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
             Self::SharedDestinationProfile => "shared-destination-profile",
             Self::SpotColorantEntry => "spot-colorant-entry",
+            Self::Jpeg2000ColourSpecifications => "jpeg2000-colour-specifications",
         }
     }
 }
@@ -668,6 +690,7 @@ pub(super) fn convert(
         standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
         shared_profile: prepared.owed.shared_profile.as_ref().ok(),
         colorants: prepared.owed.colorants.as_ref().ok(),
+        specifications: prepared.owed.specifications.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1332,6 +1355,8 @@ struct Rewriter<'a> {
     shared_profile: Option<&'a SharedProfile>,
     /// The `/Colorants` entries each `DeviceN` colour space is to gain, where any are written.
     colorants: Option<&'a ColorantEntries>,
+    /// The `JPXDecode` images whose colour specification boxes are reduced, where any are.
+    specifications: Option<&'a Specifications>,
 }
 
 impl Rewriter<'_> {
@@ -2181,6 +2206,17 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::RestateFontMetrics);
             return Rewritten::Changed(restated.clone());
+        }
+        // The JPEG 2000 data itself, with the colour specification boxes the part directs a
+        // processor to ignore taken out: the bytes and the `/Length` change together, so it is a
+        // whole stream for the same reason the font program above is.
+        if self.wants(Rewrite::Jpeg2000ColourSpecifications)
+            && let Some(reduced) = self
+                .specifications
+                .and_then(|specifications| specifications.at.get(&id))
+        {
+            count(applied, Rewrite::Jpeg2000ColourSpecifications);
+            return Rewritten::Changed(reduced.clone());
         }
         let mut changed = false;
         let mut dict = match self.rewrite_dictionary(id, &stream.dict, applied) {

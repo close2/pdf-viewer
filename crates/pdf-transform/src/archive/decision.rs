@@ -61,14 +61,33 @@ pub enum Loss {
     /// be ignored." An annotation with no `/AP` therefore prints no differently for this; one
     /// with an `/AP` now appears on paper where it did not.
     AnnotationPrinting,
+    /// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: the colour space specifications
+    /// a JPEG 2000 image states beside the one it uses, removed.
+    ///
+    /// Both parts require exactly one specification to be marked as the best available where the
+    /// data states several, and require the method a colour box states to be one of three. The
+    /// route that restates nothing is **removal**, because the sentence after the method's says a
+    /// conforming processor shall use only the selected colour space and shall ignore all the
+    /// others — so what goes is what the target itself directs a processor to ignore.
+    ///
+    /// What it costs is one sentence of ISO 32000-2 §7.4.9:
+    ///
+    /// > If the colour space is given by an unsupported ICC profile, the next lower colour space,
+    /// > in terms of precedence and approximation value, shall be used.
+    ///
+    /// The removed specifications are that fallback chain. A processor that can use the kept
+    /// specification sees no difference at all; one that cannot now falls back to a device space
+    /// rather than to the producer's second choice. Not one image sample is touched either way.
+    Jpeg2000ColourFallback,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
+        Self::Jpeg2000ColourFallback,
     ];
 
     /// The word a caller authorises it by.
@@ -78,6 +97,7 @@ impl Loss {
             Self::ImageSmoothing => "image-smoothing",
             Self::MetadataProperty => "metadata-property",
             Self::AnnotationPrinting => "annotation-printing",
+            Self::Jpeg2000ColourFallback => "jpeg2000-colour-fallback",
         }
     }
 
@@ -96,6 +116,11 @@ impl Loss {
                 "an annotation that stated no flags is given the Print flag ISO 19005 requires, \
                  so one whose appearance never printed now prints"
             }
+            Self::Jpeg2000ColourFallback => {
+                "a JPEG 2000 image keeps only the colour space specification it uses, so a \
+                 processor that cannot use that one falls back to a device space rather than to \
+                 the producer's next specification. No image sample is touched"
+            }
         }
     }
 
@@ -111,6 +136,13 @@ impl Loss {
 /// One field per [`Loss`] rather than a set, so that adding a loss to the table is a compile
 /// error everywhere it has to be answered rather than a word nobody matched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the field-per-loss shape is the decision the comment above states, and the lint's \
+              remedy — a set — is exactly what it declines: a caller could then hold a word no \
+              arm of `grants` answers. Each flag is a separate question a person answered, not a \
+              state machine's state"
+)]
 pub struct Authorisations {
     /// Whether [`Loss::ImageSmoothing`] was authorised.
     pub image_smoothing: bool,
@@ -118,6 +150,8 @@ pub struct Authorisations {
     pub metadata_property: bool,
     /// Whether [`Loss::AnnotationPrinting`] was authorised.
     pub annotation_printing: bool,
+    /// Whether [`Loss::Jpeg2000ColourFallback`] was authorised.
+    pub jpeg2000_colour_fallback: bool,
 }
 
 impl Authorisations {
@@ -128,6 +162,7 @@ impl Authorisations {
             Loss::ImageSmoothing => self.image_smoothing,
             Loss::MetadataProperty => self.metadata_property,
             Loss::AnnotationPrinting => self.annotation_printing,
+            Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback,
         }
     }
 
@@ -137,6 +172,7 @@ impl Authorisations {
             Loss::ImageSmoothing => self.image_smoothing = true,
             Loss::MetadataProperty => self.metadata_property = true,
             Loss::AnnotationPrinting => self.annotation_printing = true,
+            Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback = true,
         }
     }
 }
@@ -530,6 +566,26 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "graphics/image-interpolation-is-off",
         answer: Answer::Loses(Loss::ImageSmoothing, Rewrite::InterpolationOff),
+    },
+    // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3. The two colour-box rows, answered
+    // by removing specifications rather than by writing one: the sentence after the method's says
+    // a conforming processor shall use only the selected colour space and shall ignore all the
+    // others, so what goes is what the part itself directs a processor to ignore. `super::jpeg2000`
+    // has the whole reading, including which box the standards' own sentences select and which
+    // shapes stay refused because nothing selects one.
+    Remedy {
+        requirement: "graphics/jpeg2000-one-best-colour-space-specification",
+        answer: Answer::Loses(
+            Loss::Jpeg2000ColourFallback,
+            Rewrite::Jpeg2000ColourSpecifications,
+        ),
+    },
+    Remedy {
+        requirement: "graphics/jpeg2000-colour-specification-method",
+        answer: Answer::Loses(
+            Loss::Jpeg2000ColourFallback,
+            Rewrite::Jpeg2000ColourSpecifications,
+        ),
     },
     Remedy {
         requirement: "graphics/no-image-alternates-or-opi",
@@ -1410,16 +1466,10 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/second-transfer-function-is-default",
         Because::NotBuiltYet(TRANSFER_FUNCTION_NOT_REMOVED),
     ),
-    // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: section 4.10's table, split by
-    // whether the offending field is in the JP2 wrapper or in the codestream.
-    (
-        "graphics/jpeg2000-one-best-colour-space-specification",
-        Because::NotBuiltYet(JPEG2000_BOX_NOT_REWRITTEN),
-    ),
-    (
-        "graphics/jpeg2000-colour-specification-method",
-        Because::NotBuiltYet(JPEG2000_BOX_NOT_REWRITTEN),
-    ),
+    // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: section 4.10's table. The two
+    // rows whose field is in the JP2 wrapper are `REMEDIES`' now — a colour specification box can
+    // be removed where it cannot be written — and what stays here is the three whose subject is
+    // the codestream's own samples.
     (
         "graphics/jpeg2000-bit-depth",
         Because::NotBuiltYet(JPEG2000_SAMPLES_NOT_RE_ENCODED),
@@ -1918,19 +1968,6 @@ const TRANSFER_FUNCTION_NOT_REMOVED: &str = "ISO 19005 forbids a TR entry in a g
      rewrite are both owed; where the function is the identity the removal is silent and safe, \
      and even that is not built";
 
-/// Why a JP2 wrapper box is not rewritten.
-const JPEG2000_BOX_NOT_REWRITTEN: &str = "doc/pdf-a-conversion-limits.md section 4.10: this \
-     field is in the JP2 wrapper rather than the codestream — the colour specification box's \
-     method, and which specification is marked best available — so meeting the clause is byte \
-     surgery on a hundred-odd bytes and touches no sample. **What the cost does not settle is \
-     the value.** A method outside the three the part admits describes this image's colour in a \
-     way the part does not read, so writing one of the three in its place states a colour space \
-     the box did not; and marking exactly one specification as the best available, where the \
-     file marks none, ranks two of the producer's own specifications against each other on \
-     evidence the file does not carry. Dropping the others instead throws one of them away. \
-     Every route is a choice rather than a restatement, which is why this is refused rather \
-     than merely unwritten";
-
 /// Why JPEG 2000 samples are not re-encoded.
 const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
      bit depth and the channel count are stated in the codestream's own SIZ marker, and the \
@@ -1942,20 +1979,31 @@ const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md se
      as opacity leaves one colour channel without a sample being touched";
 
 /// Why an `ICCBased` space duplicating the output intent's profile is not collapsed.
+///
+/// **Re-examined in the nine-hundred-and-seventy-first session against the machinery that had
+/// arrived since**, because `Rewrite::SpotColorantEntry` was the first rewrite to reach an object
+/// that is a colour space array and the question was whether it settled the siting half. It does
+/// not, and the reason is worth stating once: that rewrite is sited from the object its finding
+/// *names*, and these findings name the content stream that **used** the space rather than the
+/// array that states it. The second half is now stronger rather than weaker, because §8.6.5.7
+/// says outright whose decision the substitution would be taking.
 const DUPLICATE_PROFILE_NOT_COLLAPSED: &str = "ISO 19005-4 forbids an ICCBased space, or a \
      Separation's alternate space, from carrying a CMYK destination profile identical to the one \
      the output intent or the blending space already supplies, and naming DeviceCMYK in its \
      place looks mechanical: the identical profile is already the file's, and ISO 19005-4 \
      section 6.2.4.3 licenses that device space through that very intent. **Two things stop it, \
-     and the first is decisive.** The rule binds a space that is *used*, so the failure is \
-     reported where the content stream selected it — a page, with no object — and the array to \
-     rewrite sits in a resource dictionary no finding names; siting the rewrite would mean \
-     walking the content streams a second time to decide which space was used, which is the \
-     validator's reading made again in this crate. And even sited it would not be a restatement: \
-     §8.6.7 applies non-zero overprint mode only where the current space is DeviceCMYK \
-     or is implicitly converted to it, so the substitution can decide a composite that \
-     §8.6.5.7 left open — which is the ambiguity section 6.2.4.2's own NOTE 2 names as the \
-     reason for the prohibition";
+     and neither is the want of a rewrite that can reach an array.** The rule binds a space that \
+     is *used*, so the witness a finding carries is the content stream that selected it — this \
+     crate's colourant rewrite reaches an array only because its own finding names that array's \
+     object, and these findings name the stream instead. The array to rewrite sits in a resource \
+     dictionary nothing points at, so siting would mean walking the content streams a second \
+     time to decide which space was used, which is the validator's reading made again in this \
+     crate. And even sited it would not be a restatement. §8.6.7 applies non-zero overprint mode \
+     only where the current colour space is DeviceCMYK or is implicitly converted to it, and \
+     §8.6.5.7 says of that conversion that the conditions under which it is done cannot be \
+     specified in PDF and that it is completely hidden by the processor — so writing DeviceCMYK \
+     takes a decision the base standard leaves to the processor and settles it in the file, \
+     which is the ambiguity section 6.2.4.2's own NOTE 2 names as the reason for the prohibition";
 
 /// Why overprint mode is not changed.
 const OVERPRINT_MODE_NOT_CHANGED: &str = "this file sets overprint mode 1 while an ICCBased CMYK \

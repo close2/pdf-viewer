@@ -59,10 +59,12 @@
 //!   the whole corpus that no width ever changed. [`fonts`] is both halves, and
 //!   `--no-substitute` is section 4.9's flag for the curator who would rather be told.
 //!
-//! **And two losses a caller authorises before the run** (section 3), because a batch tool has
+//! **And three losses a caller authorises before the run** (section 3), because a batch tool has
 //! nobody to ask: `--authorise metadata-property` takes out an XMP property whose own predefined
-//! schema does not define the value it holds (section 3.9), and `--authorise annotation-printing`
-//! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7). Each
+//! schema does not define the value it holds (section 3.9), `--authorise annotation-printing`
+//! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7), and
+//! `--authorise jpeg2000-colour-fallback` keeps only the colour space specification a JPEG 2000
+//! image uses, dropping the ones the part directs a processor to ignore ([`jpeg2000`]). Each
 //! names in the report exactly what it did — [`Conversion::removed`] and the flag's own count —
 //! because a loss nobody can see afterwards is the failure section 3 exists against.
 //!
@@ -119,6 +121,7 @@
 mod census;
 mod decision;
 mod fonts;
+mod jpeg2000;
 mod prepare;
 mod report;
 mod rewrite;

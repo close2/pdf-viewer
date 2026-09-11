@@ -635,6 +635,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         image_smoothing: true,
         metadata_property: false,
         annotation_printing: false,
+        jpeg2000_colour_fallback: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -769,6 +770,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         image_smoothing: false,
         metadata_property: false,
         annotation_printing: true,
+        jpeg2000_colour_fallback: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -830,6 +832,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         image_smoothing: false,
         metadata_property: true,
         annotation_printing: false,
+        jpeg2000_colour_fallback: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -2517,6 +2520,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         image_smoothing: false,
         metadata_property: false,
         annotation_printing: true,
+        jpeg2000_colour_fallback: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -2937,6 +2941,254 @@ fn a_spot_colourant_the_file_never_defines_stays_refused() {
             Decision::Refused(Because::NotBuiltYet(_))
         ),
         "nothing in the file states what this ink is on its own"
+    );
+    assert!(output.is_none(), "and a refusal writes no file");
+}
+
+// ----------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: the two JP2 colour-box requirements.
+// ----------------------------------------------------------------------------------------------
+
+/// A JP2 box: `LBox`, `TBox`, payload. ISO/IEC 15444-1:2000 I.4, Table I-1.
+fn jp2_box(kind: [u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut bytes = u32::try_from(payload.len().saturating_add(8))
+        .expect("a fixture box fits in LBox")
+        .to_be_bytes()
+        .to_vec();
+    bytes.extend_from_slice(&kind);
+    bytes.extend_from_slice(payload);
+    bytes
+}
+
+/// A `colr` box, I.5.3.3: `METH`, `PREC`, `APPROX`, and whatever the method puts after them.
+fn jp2_colour(method: u8, approximation: u8, tail: &[u8]) -> Vec<u8> {
+    let mut payload = vec![method, 0, approximation];
+    payload.extend_from_slice(tail);
+    jp2_box(*b"colr", &payload)
+}
+
+/// A `colr` box stating `METH` 1 and an enumerated colour space, Table I-9.
+fn jp2_enumerated(approximation: u8, space: u32) -> Vec<u8> {
+    jp2_colour(1, approximation, &space.to_be_bytes())
+}
+
+/// A whole JP2 file over three eight-bit components, carrying the given colour specifications.
+///
+/// Signature, file type, a `jp2h` holding `ihdr` and the boxes, and a codestream whose `SIZ`
+/// marker segment states the same three components: I.5, I.5.3.1 and A.5.1.
+fn jp2_file(colour: &[Vec<u8>]) -> Vec<u8> {
+    let mut header = 1u32.to_be_bytes().to_vec();
+    header.extend_from_slice(&1u32.to_be_bytes());
+    header.extend_from_slice(&3u16.to_be_bytes());
+    header.extend_from_slice(&[7, 7, 0, 0]);
+    let mut inner = jp2_box(*b"ihdr", &header);
+    for box_bytes in colour {
+        inner.extend_from_slice(box_bytes);
+    }
+
+    let mut parameters = 0u16.to_be_bytes().to_vec();
+    for value in [1u32, 1, 0, 0, 1, 1, 0, 0] {
+        parameters.extend_from_slice(&value.to_be_bytes());
+    }
+    parameters.extend_from_slice(&3u16.to_be_bytes());
+    for _ in 0..3 {
+        parameters.extend_from_slice(&[7, 1, 1]);
+    }
+    let mut codestream = vec![0xFF, 0x4F, 0xFF, 0x51];
+    codestream.extend_from_slice(
+        &u16::try_from(parameters.len().saturating_add(2))
+            .expect("a fixture SIZ segment fits")
+            .to_be_bytes(),
+    );
+    codestream.extend_from_slice(&parameters);
+
+    let mut bytes = jp2_box(*b"jP  ", &[0x0D, 0x0A, 0x87, 0x0A]);
+    bytes.extend_from_slice(&jp2_box(*b"ftyp", b"jp2 \0\0\0\0jp2 "));
+    bytes.extend_from_slice(&jp2_box(*b"jp2h", &inner));
+    bytes.extend_from_slice(&jp2_box(*b"jp2c", &codestream));
+    bytes
+}
+
+/// A PDF/A-4 fixture whose only offence is the colour specifications of one `JPXDecode` image.
+fn a_jpx_image_with(colour: &[Vec<u8>]) -> Vec<u8> {
+    let data = jp2_file(colour);
+    Conforming {
+        resources: "/XObject << /Im0 6 0 R >>".to_owned(),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Image /Width 1 /Height 1 /Filter /JPXDecode /Length {}",
+                data.len()
+            ),
+            &data,
+        )],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// Every `colr` box the JPEG 2000 data in a converted file states, as `(METH, APPROX)`.
+fn colour_specifications(bytes: &[u8]) -> Vec<(u8, u8)> {
+    let document =
+        Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("the output opens");
+    for number in document.xref().object_numbers() {
+        let pdf_syntax::object::Object::Stream(stream) = document.get(ObjectId::new(number, 0))
+        else {
+            continue;
+        };
+        if document
+            .get_key(&stream.dict, "Filter")
+            .as_name()
+            .and_then(|name| name.as_str().map(str::to_owned))
+            != Some("JPXDecode".to_owned())
+        {
+            continue;
+        }
+        let headers =
+            pdf_model::jpeg2000::Headers::parse(&stream.data).expect("the data still parses");
+        return headers
+            .colour
+            .iter()
+            .map(|colour| (colour.method, colour.approximation))
+            .collect();
+    }
+    panic!("the converted file still holds the JPXDecode image");
+}
+
+#[test]
+fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() {
+    // ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 admit a METH of 0x01, 0x02 or
+    // 0x03 and no other, and the sentence beside it says a conforming processor shall use only
+    // the selected colour space and shall ignore all the other specifications. So the box that
+    // fails here is one the part itself directs a processor to ignore, and removing it is the
+    // route that writes no value of this converter's — which is what doc/pdf-a-mitigations.md
+    // section 4.5 had not asked.
+    //
+    // Exactly one specification carries the APPROX of 0x01 both parts' NOTE 2 makes the mark of
+    // the best available, so the one-best rule passes and this fixture fails the method rule
+    // alone.
+    let source = a_jpx_image_with(&[
+        jp2_enumerated(1, 16),
+        jp2_colour(4, 2, b"a vendor colour method"),
+    ]);
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "graphics/jpeg2000-colour-specification-method"),
+        Decision::Unauthorised {
+            loss: Loss::Jpeg2000ColourFallback,
+            rewrite: Rewrite::Jpeg2000ColourSpecifications,
+        }
+    );
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: true,
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, "graphics/jpeg2000-colour-specification-method"),
+        Decision::Authorised {
+            loss: Loss::Jpeg2000ColourFallback,
+            rewrite: Rewrite::Jpeg2000ColourSpecifications,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(
+        colour_specifications(&output),
+        vec![(1, 1)],
+        "the specification the part makes the used one stays, and it alone"
+    );
+}
+
+#[test]
+fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
+    // ISO/IEC 15444-1:2000 I.5.3.3 reserves APPROX, requires it to be zero and has a conforming
+    // reader ignore its value — and says in the same clause that a conforming JP2 reader ignores
+    // every colour specification box after the first. So a file written to that edition marks
+    // none of its specifications best available, fails ISO 19005's one-best rule for exactly
+    // that reason, and the box a reader uses is nevertheless settled: the first.
+    let source = a_jpx_image_with(&[
+        jp2_enumerated(0, 16),
+        jp2_colour(4, 0, b"a vendor colour method"),
+    ]);
+    let target = Target::Four(Flavour::Plain);
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: true,
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(
+            &report,
+            "graphics/jpeg2000-one-best-colour-space-specification"
+        ),
+        Decision::Authorised {
+            loss: Loss::Jpeg2000ColourFallback,
+            rewrite: Rewrite::Jpeg2000ColourSpecifications,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(
+        colour_specifications(&output),
+        vec![(1, 0)],
+        "one specification left, so the rule whose condition is more than one no longer applies"
+    );
+}
+
+#[test]
+fn two_specifications_marked_best_stay_refused() {
+    // The half of doc/pdf-a-mitigations.md section 4.5 that is unchanged: where the file ranks
+    // its own specifications ambiguously, choosing between them ranks two of the producer's
+    // statements on evidence the file does not carry. Neither ISO 19005's APPROX sentence nor
+    // ISO/IEC 15444-1:2000 I.5.3.3's first-box rule selects one here, so the refusal stands.
+    let source = a_jpx_image_with(&[jp2_enumerated(1, 16), jp2_enumerated(1, 17)]);
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: true,
+    };
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert!(
+        matches!(
+            decision(
+                &report,
+                "graphics/jpeg2000-one-best-colour-space-specification"
+            ),
+            Decision::Refused(Because::NotBuiltYet(_))
+        ),
+        "two boxes marked best available, and nothing in either standard says which wins"
+    );
+    assert!(output.is_none(), "and a refusal writes no file");
+}
+
+#[test]
+fn one_specification_with_a_method_the_part_forbids_stays_refused() {
+    // The other half that is unchanged, and the sharper one: with a single colour specification
+    // there is nothing to remove, and the only route left writes one of the three admitted
+    // methods in its place — which states a colour space the box did not.
+    let source = a_jpx_image_with(&[jp2_colour(4, 1, b"a vendor colour method")]);
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: true,
+    };
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert!(
+        matches!(
+            decision(&report, "graphics/jpeg2000-colour-specification-method"),
+            Decision::Refused(Because::NotBuiltYet(_))
+        ),
+        "there is no other box for a processor to fall back to and none to remove"
     );
     assert!(output.is_none(), "and a refusal writes no file");
 }

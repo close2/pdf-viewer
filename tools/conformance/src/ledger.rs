@@ -1,4 +1,4 @@
-//! The conformance ledger: one row per subclause of the standard's technical clauses.
+//! The conformance ledger: one row per subclause of the standard's normative clauses.
 //!
 //! # What it is for
 //!
@@ -31,8 +31,40 @@ use crate::citation::Citation;
 use crate::clause::{ClauseIndex, ClauseNumber};
 use crate::toml_subset::{self, Value};
 
-/// The technical clauses the ledger covers: syntax through document interchange.
-pub const TECHNICAL_CLAUSES: std::ops::RangeInclusive<u16> = 7..=14;
+/// The clauses of the standard's body the ledger covers: conformance through document
+/// interchange.
+///
+/// **This was `TECHNICAL_CLAUSES: 7..=14` until the nine-hundred-and-seventy-third session**,
+/// and clause 6 is what it gained. Clause 6 states eleven `shall`s and every one of them is
+/// addressed to a PDF file or to a PDF processor — §6.3.2.2's three obligations on a processor
+/// that renders a page are the ranking `CLAUDE.md`'s *what done means* is written around, and
+/// this tree cited that subclause forty-seven times across five crates while the ledger had no
+/// row for it at all. ADR 0984.
+///
+/// The list is a checked claim rather than a constant: [`check`] reads every clause of the
+/// standard and reports one that states a `shall` and appears in neither this list nor
+/// [`EXCLUDED_CLAUSES`].
+pub const NORMATIVE_CLAUSES: [u16; 9] = [6, 7, 8, 9, 10, 11, 12, 13, 14];
+
+/// A clause of the body that states a `shall` and carries no row, with the reason.
+///
+/// One entry, and it is clause 4. Its nineteen `shall`s bind how *this document* is written
+/// and read rather than what a processor does: §4.1's requires the standard's own prose to
+/// name a token character "by their INCITS 4-1986 (R2017) (ASCII 7-bit USA codes) character
+/// name written in upper case", and §4.2's eighteen are all of the form "[a]ny use of the term
+/// X throughout this document shall be inferred as referring to" some other standard. The
+/// second eighteen do bind this program — they decide which edition of IEC 61966-2-1 `sRGB`
+/// means, which of ISO/IEC 10918 `JPEG` means, which Adobe character collection
+/// `Adobe-Japan1` means — but never at a site of their own: each is discharged in the clause
+/// that uses the term, and a row here would be a second place to keep that in step. ADR 0984.
+///
+/// [`check`] reports an entry whose clause states no `shall`, so the list cannot go stale by
+/// naming a clause that has stopped needing the excuse (trap 25).
+pub const EXCLUDED_CLAUSES: [(u16, &str); 1] = [(
+    4,
+    "its `shall`s bind the notation of the standard's own prose and the terms it uses, and \
+     each term binding is discharged in the clause that uses the term",
+)];
 
 /// The standard's normative annexes, which the ledger covers for the same reason.
 ///
@@ -44,6 +76,20 @@ pub const TECHNICAL_CLAUSES: std::ops::RangeInclusive<u16> = 7..=14;
 /// A, B, C, G, H, J, M, N and P are informative and stay out: they state no requirement.
 /// ADR 0206.
 pub const NORMATIVE_ANNEXES: [char; 8] = ['D', 'E', 'F', 'I', 'K', 'L', 'O', 'Q'];
+
+/// The standard's informative annexes, which carry no row and are cited freely.
+///
+/// The list exists so that [`check`] can tell an annex nobody has classified from one this
+/// project decided about. Three of these do print the word `shall` — Annex J twenty times,
+/// Annex N twice — and that is not a finding: ISO/IEC Directives Part 2 makes an informative
+/// annex a place for information, so a `shall` there restates a requirement clause 7 or
+/// clause 10 already states, which is exactly how J.3.1 writes it — "[c]lause 7.3.2, "Boolean
+/// objects" clearly states that the keywords shall be true and false". The rows those
+/// sentences belong to are clause 7's and clause 10's.
+///
+/// A, B, C, G, H, J, M, N and P, and with [`NORMATIVE_ANNEXES`] that is every letter the
+/// standard prints; [`check`] reports an annex in neither list.
+pub const INFORMATIVE_ANNEXES: [char; 9] = ['A', 'B', 'C', 'G', 'H', 'J', 'M', 'N', 'P'];
 
 /// What is known about one subclause.
 ///
@@ -244,10 +290,11 @@ impl FromStr for Exclusion {
     }
 }
 
-/// Every number the ledger is responsible for: the eight technical clauses' subclauses and
-/// the normative annexes.
+/// Every number the ledger is responsible for: the normative clauses' subclauses and the
+/// normative annexes.
 fn covered(index: &ClauseIndex) -> impl Iterator<Item = ClauseNumber> + use<'_> {
-    TECHNICAL_CLAUSES
+    NORMATIVE_CLAUSES
+        .into_iter()
         .flat_map(|clause| index.subclauses_of(clause))
         .chain(
             NORMATIVE_ANNEXES
@@ -584,6 +631,29 @@ pub enum Problem {
         /// Why it could not be found.
         why: String,
     },
+    /// A clause of the standard states a requirement and the ledger's population excludes it.
+    ///
+    /// The population used to be a constant nothing read the standard against, so a clause
+    /// outside it was invisible to every instrument here: no row, and therefore no
+    /// [`Problem::MissingRow`] and no [`Problem::CitedButUnreviewed`] either, both of which
+    /// walk the covered numbers. That is how clause 6's eleven `shall`s went unrecorded while
+    /// §6.3.2.2 was cited forty-seven times (ADR 0984).
+    UnrecordedRequirement {
+        /// The clause number or annex letter, as the standard writes it.
+        clause: String,
+        /// How many times `shall` appears under it.
+        shalls: usize,
+    },
+    /// An entry of [`EXCLUDED_CLAUSES`] whose clause states no requirement to excuse.
+    ///
+    /// Trap 25: a hand-written population can name a thing that never existed, and finding
+    /// nothing there reads as a pass.
+    StaleExclusion {
+        /// The clause the list names.
+        clause: u16,
+        /// Why the list says it has no row.
+        reason: String,
+    },
     /// The code cites a clause whose row says nobody has read it.
     CitedButUnreviewed {
         /// The clause cited.
@@ -626,6 +696,17 @@ impl fmt::Display for Problem {
             Self::MissingSite { clause, site, why } => {
                 write!(f, "§{clause}: {site} — {why}")
             }
+            Self::UnrecordedRequirement { clause, shalls } => write!(
+                f,
+                "§{clause} states `shall` {shalls} time(s) and the ledger covers none of it; \
+                 add it to `NORMATIVE_CLAUSES`/`NORMATIVE_ANNEXES` or say why in \
+                 `EXCLUDED_CLAUSES`/`INFORMATIVE_ANNEXES`"
+            ),
+            Self::StaleExclusion { clause, reason } => write!(
+                f,
+                "`EXCLUDED_CLAUSES` excuses §{clause} — {reason} — but §{clause} states no \
+                 `shall`, so the excuse is about a clause that no longer needs one"
+            ),
             Self::CitedButUnreviewed {
                 clause,
                 first_site,
@@ -729,7 +810,99 @@ pub fn check(
         }
     }
 
+    problems.extend(check_population(index));
+
     problems
+}
+
+/// The ledger's population, read against the standard rather than against itself.
+///
+/// Every top-level clause and every annex is sorted into one of four lists — covered
+/// ([`NORMATIVE_CLAUSES`], [`NORMATIVE_ANNEXES`]) or excused by argument
+/// ([`EXCLUDED_CLAUSES`], [`INFORMATIVE_ANNEXES`]) — and a clause that states `shall` and is
+/// in none of them is the finding. An annex in none of them is a finding whether it states a
+/// `shall` or not: an annex letter nobody has classified is a letter no instrument here can
+/// see, which is the state all seventeen of them were in before ADR 0206.
+fn check_population(index: &ClauseIndex) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    let groups = requirements_by_group(index);
+    for (group, shalls) in groups.clone() {
+        let covered = match group.parse::<u16>() {
+            Ok(top) => NORMATIVE_CLAUSES.contains(&top),
+            Err(_) => group
+                .chars()
+                .next()
+                .is_some_and(|letter| NORMATIVE_ANNEXES.contains(&letter)),
+        };
+        if covered {
+            continue;
+        }
+        let excused = match group.parse::<u16>() {
+            Ok(top) => {
+                shalls == 0
+                    || EXCLUDED_CLAUSES
+                        .iter()
+                        .any(|(excluded, _)| *excluded == top)
+            }
+            Err(_) => group
+                .chars()
+                .next()
+                .is_some_and(|letter| INFORMATIVE_ANNEXES.contains(&letter)),
+        };
+        if !excused {
+            problems.push(Problem::UnrecordedRequirement {
+                clause: group,
+                shalls,
+            });
+        }
+    }
+    for (clause, reason) in EXCLUDED_CLAUSES {
+        let shalls = groups
+            .iter()
+            .find(|(group, _)| group.parse::<u16>() == Ok(clause))
+            .map_or(0, |(_, shalls)| *shalls);
+        if shalls == 0 {
+            problems.push(Problem::StaleExclusion {
+                clause,
+                reason: reason.to_owned(),
+            });
+        }
+    }
+    problems
+}
+
+/// How many times `shall` appears under each top-level clause and each annex, in the order
+/// the standard states them.
+///
+/// A heading's own span includes its subclauses', so counting over those would count a
+/// sentence once per level it sits under. What is counted here is the text from each numbered
+/// heading to the next one, which partitions the document exactly once.
+fn requirements_by_group(index: &ClauseIndex) -> Vec<(String, usize)> {
+    let headings = index.headings();
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for (position, heading) in headings.iter().enumerate() {
+        let end = headings
+            .get(position.saturating_add(1))
+            .map_or(heading.span.end, |next| next.span.start);
+        let text = index.text_in(heading.span.start..end);
+        let shalls = text
+            .split_whitespace()
+            .filter(|word| {
+                word.trim_matches(|character: char| !character.is_ascii_alphabetic())
+                    .eq_ignore_ascii_case("shall")
+            })
+            .count();
+        let group = match heading.number.annex() {
+            Some(letter) => letter.to_string(),
+            None => heading.number.clause().unwrap_or_default().to_string(),
+        };
+        if let Some(entry) = groups.iter_mut().find(|(name, _)| *name == group) {
+            entry.1 = entry.1.saturating_add(shalls);
+        } else {
+            groups.push((group, shalls));
+        }
+    }
+    groups
 }
 
 fn check_evidence(row: &Row) -> Vec<Problem> {
@@ -960,6 +1133,81 @@ mod tests {
             problems.first(),
             Some(Problem::CitedButUnreviewed { .. })
         ));
+    }
+
+    /// Trap 13: the sweep is run against the defect it looks for before it is believed. The
+    /// defect is clause 6's — a clause of the body that states a requirement and that the
+    /// population's constant does not name — so the fixture is one of those.
+    #[test]
+    fn a_clause_outside_the_population_that_states_a_requirement_is_a_finding() {
+        let standard = ClauseIndex::parse(
+            "## 5 Version designations\nA PDF processor shall do the thing.\n\n\
+             ## 8 Graphics\nx\n\n## 8.1 General\ny\n\n## 8.2 Graphics objects\nz\n"
+                .to_owned(),
+        );
+        let problems = check(&Ledger::default(), &standard, &[], Path::new("."));
+        let found = problems.iter().find_map(|problem| match problem {
+            Problem::UnrecordedRequirement { clause, shalls } => Some((clause.as_str(), *shalls)),
+            _ => None,
+        });
+        assert_eq!(found, Some(("5", 1)));
+    }
+
+    /// The other half of trap 13: the same clause, stating nothing, is not a finding. Without
+    /// this the check would pass for every clause of the standard and mean nothing.
+    #[test]
+    fn a_clause_outside_the_population_that_states_nothing_is_not_a_finding() {
+        let standard = ClauseIndex::parse(
+            "## 5 Version designations\nHow the versions are named.\n\n\
+             ## 8 Graphics\nx\n\n## 8.1 General\ny\n"
+                .to_owned(),
+        );
+        let problems = check(&Ledger::default(), &standard, &[], Path::new("."));
+        assert!(
+            !problems
+                .iter()
+                .any(|problem| matches!(problem, Problem::UnrecordedRequirement { .. }))
+        );
+    }
+
+    /// An annex nobody has sorted into normative or informative is a finding whatever it
+    /// states: a letter no list names is a letter no instrument here can see, which is where
+    /// all seventeen of them were before ADR 0206.
+    #[test]
+    fn an_annex_in_neither_list_is_a_finding() {
+        let standard = ClauseIndex::parse(
+            "## Annex R (normative) Something new\nR states nothing at all.\n".to_owned(),
+        );
+        let problems = check(&Ledger::default(), &standard, &[], Path::new("."));
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            Problem::UnrecordedRequirement { clause, .. } if clause == "R"
+        )));
+    }
+
+    /// Trap 25 the other way round: an excuse for a clause that has stopped needing one reads
+    /// as a pass, because the sweep it silences finds nothing there either.
+    #[test]
+    fn an_excuse_for_a_clause_that_states_no_requirement_is_stale() {
+        let standard = ClauseIndex::parse("## 8 Graphics\nx\n\n## 8.1 General\ny\n".to_owned());
+        let problems = check(&Ledger::default(), &standard, &[], Path::new("."));
+        assert!(
+            problems
+                .iter()
+                .any(|problem| matches!(problem, Problem::StaleExclusion { clause: 4, .. }))
+        );
+    }
+
+    /// A heading's span covers its subclauses', so counting over spans would count one
+    /// sentence once per level it sits under. Clause 8 states one `shall`, in §8.1.
+    #[test]
+    fn a_requirement_is_counted_once_rather_than_once_per_level() {
+        let standard =
+            ClauseIndex::parse("## 8 Graphics\nx\n\n## 8.1 General\nIt shall be so.\n".to_owned());
+        assert_eq!(
+            requirements_by_group(&standard),
+            vec![("8".to_owned(), 1usize)]
+        );
     }
 
     #[test]

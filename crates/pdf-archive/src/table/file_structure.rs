@@ -46,7 +46,7 @@ use pdf_syntax::{Dictionary, Document, Lexer, Location, Name, Object, ObjectId, 
 
 use crate::Examination;
 use crate::table::states_name;
-use crate::target::Part;
+use crate::target::{Flavour, Part};
 
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
@@ -83,15 +83,23 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_four("5.1"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "unimplemented, and the route to it is in this tree: `pdf_spec`'s Arlington-derived \
-             model states `deprecated_in` for a key and for a type, so the population is every \
-             key a document states whose entry names a version at or below 2.0. What stops it \
-             being written here is that `deprecated` in the model is per *key of a dictionary*, \
-             while the clause's subject is a *feature*, and ISO 32000-2 deprecates whole \
-             constructs — a filter, an action, a security handler — that no single key stands \
-             for. Reporting the keys alone would under-report by an amount nobody has measured, \
-             and calling that the clause would be this crate deciding what a feature is. Part 2 \
-             states no equivalent sentence",
+            "unimplemented, and the route this reason used to name is both further away and \
+             wronger than it said. `pdf_spec`'s Arlington-derived model carries `deprecated_in` \
+             on 419 of its 3983 key rows, 372 of them at 2.0 — but the field is per *key of a \
+             named object type*, and asking it about a document's dictionary needs a resolver \
+             from that dictionary to its Arlington object, which no crate in this tree has: \
+             `pdf_spec::object` takes Arlington's own name, and the one consumer that walks the \
+             model (`pdf-model`'s `integer_entry_census`) iterates the whole table rather than \
+             resolving a document's objects against it. So the blocker is a type inference, not \
+             a field. And the population would be wrong even with one, on the part's own \
+             evidence: ISO 32000-2 marks `UR3` deprecated in PDF 2.0, while ISO 19005-4 \
+             section 6.1.11 names `UR3` as one of the only two keys a permissions dictionary may \
+             hold — a mechanical per-key reading of section 5.1 would make that sentence forbid \
+             two keys and permit none. The clause's subject is a *feature*, and ISO 32000-2 \
+             deprecates constructs no single key stands for: encryption revisions 2 to 4, the \
+             `adbe.x509.rsa_sha1` and `adbe.pkcs7.sha1` subfilters, SHA-1 as a digest, an array \
+             of blend mode names, two character collections. Part 2 states no equivalent \
+             sentence",
         ),
     },
     Requirement {
@@ -111,15 +119,87 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     Requirement {
         id: "conformance/processor-behaviour",
         asks: "A conforming processor shall meet every requirement this part states about \
-               processor behaviour, shall render as the base standard defines, and shall ignore \
-               features the base standard does not describe.",
+               processor behaviour, and shall render and otherwise process a conforming file as \
+               the base standard defines.",
         clauses: Clauses::both("5.5", "5.2"),
         applies: Applies::Always,
         check: Check::Processor(
             "the subclause that makes every other processor row of this table binding on a \
              program, and it is the one place ISO 19005 says what a conforming reader *is*. \
              Nothing in a document bears on it; what this project's own reading of it amounts \
-             to is `doc/PLAN.md` section 5a's ledger",
+             to is `doc/PLAN.md` section 5a's ledger. This row carried a third clause — that a \
+             processor ignores features the base standard does not describe — until the \
+             sentence-level reading in `crate::coverage` found that part 4 states that one as a \
+             recommendation and part 2 as a requirement; it is now \
+             `conformance/undescribed-features-are-ignored`, which binds part 2 alone",
+        ),
+    },
+    Requirement {
+        id: "conformance/undescribed-features-are-ignored",
+        asks: "A conforming reader shall ignore features described in PDF specifications that \
+               the base standard does not describe.",
+        clauses: Clauses::only_two("5.5"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "an obligation on the program. Part 2's section 5.5 states it with `shall` and part \
+             4's section 5.2 states the same thing with `should`, so it is a requirement of one \
+             part and a recommendation of the other — which is why this row cites part 2 alone \
+             rather than both. Distinct from \
+             `file-structure/undescribed-data-never-renders`, whose subject is *data carried in \
+             the file* rather than a feature some other specification describes",
+        ),
+    },
+    Requirement {
+        id: "conformance/processor-reads-every-conforming-file",
+        asks: "A conforming processor shall read and appropriately process every file that \
+               conforms to this part.",
+        clauses: Clauses::both("5.5", "5.2"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the sentence that makes a conforming processor's *coverage* an obligation rather \
+             than its behaviour on the files it happens to open: a program that declines a \
+             conforming file is not a conforming processor, whatever it does with the rest. \
+             Nothing in a document bears on it, and what this project can claim under it is \
+             `doc/PLAN.md` section 5a's ledger",
+        ),
+    },
+    Requirement {
+        id: "conformance/a-part-two-reader-also-reads-part-one",
+        asks: "A conforming PDF/A-2 reader shall also read and appropriately process every \
+               PDF/A-1 file.",
+        clauses: Clauses::only_two("5.5"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "an obligation on the program, and the one sentence of either part that reaches \
+             outside the two this crate holds: a PDF/A-2 conforming reader owes ISO 19005-1 as \
+             well. Part 4 states no equivalent. It bears on no document, and it is worth a row \
+             because a claim to be a conforming PDF/A-2 reader is a claim about part 1 too — \
+             while `doc/questions/A17` settles that part 1 is not a *target* of this crate, \
+             which is a different question and does not discharge this one",
+        ),
+    },
+    Requirement {
+        id: "conformance/an-embedded-files-processor-reads-the-plain-profile",
+        asks: "A PDF/A-4f conforming processor shall read and appropriately process every \
+               PDF/A-4f file, and every file a PDF/A-4 conforming processor is required to read.",
+        clauses: Clauses::only_four("A.1"),
+        applies: Applies::Flavours(&[Flavour::F]),
+        check: Check::Processor(
+            "an obligation on the program, stated by the annex that defines the flavour rather \
+             than by clause 5, which is why the subclause-level audit recorded ISO 19005-4 \
+             Annex A.1 as scoping and no row reached its processor sentences",
+        ),
+    },
+    Requirement {
+        id: "conformance/an-engineering-processor-reads-the-plain-profile",
+        asks: "A PDF/A-4e conforming processor shall read and appropriately process every \
+               PDF/A-4e file, and every file a PDF/A-4 conforming processor is required to read.",
+        clauses: Clauses::only_four("B.1"),
+        applies: Applies::Flavours(&[Flavour::E]),
+        check: Check::Processor(
+            "the same obligation as `conformance/an-embedded-files-processor-reads-the-plain-\
+             profile`, stated separately by the engineering annex. Two rows rather than one \
+             because a row cites one clause per part and these are two clauses of the same part",
         ),
     },
     Requirement {

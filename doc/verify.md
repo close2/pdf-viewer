@@ -732,7 +732,7 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
 
 ```sh
 # What it would cost to check this project's citations against the PDF instead of `doc/md/`.
-# `doc/todo/48`'s item 5 and `doc/todo/36`'s success condition, with a number instead of a
+# `doc/todo/48`'s item 5 and `doc/todo/63`'s success condition, with a number instead of a
 # fear: it asks `tools/conformance`'s own two questions of both substrates and prints where
 # they disagree. ~7 s. Its output is counts and clause numbers and no sentence of the
 # standard, which is why the numbers may be written down (ADR 0187, ADR 0257).

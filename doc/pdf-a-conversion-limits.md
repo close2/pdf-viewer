@@ -810,8 +810,8 @@ decoding and re-encoding.
 
 | restriction | clause | where the field lives | cost of the fix |
 |---|---|---|---|
-| exactly one colour specification marked best | -2 §6.2.8.3, -4 §6.2.7.3 | wrapper (`colr` `APPROX`) | **Mechanical** — mark one, drop the rest |
-| colour specification method is one of the three permitted | same | wrapper (`colr` `METH`) | **Mechanical** where a permitted method describes the same colour; otherwise Ask |
+| exactly one colour specification marked best | -2 §6.2.8.3, -4 §6.2.7.3 | wrapper (`colr` `APPROX`) | **Ask** — drop all but the one the standards select; *marking* one would state what the file does not |
+| colour specification method is one of the three permitted | same | wrapper (`colr` `METH`) | **Ask** by the same route, and a refusal where the offending box is the selected one or the only one |
 | not the enumerated CIEJab colour space | same | wrapper (`colr` `EnumCS` 19) | **Ask** — the samples mean CIEJab, so replacing the box relabels them and changes the picture |
 | 1, 3 or 4 colour channels | same | wrapper (`ihdr` `NC`, `cdef`) or codestream (`SIZ` `Csiz`) | **depends, and this is the interesting one** — see below |
 | bit depth 1 to 38, the same on every colour channel | same | codestream (`SIZ` `Ssiz`), mirrored in the wrapper | **Re-encode** |
@@ -825,7 +825,20 @@ channel and a conforming image, without a sample being touched. That is not a tr
 records a fact about the data, and it is only available when the fact is true. Where the second
 channel is genuinely a second colour, no box can say otherwise and the image must be re-encoded.
 
-- **Class: Mechanical for the two wrapper rows above, Ask for the rest.**
+**Both colour-specification rows were called *Mechanical* here until the nine-hundred-and-seventy-first
+session, and both were wrong in the same way.** Writing a value into a `colr` box states a colour
+space the box did not — session 962 found that, and it stands. What neither reading had asked is
+whether a box can **go**, and the sentence immediately after the method's, in both parts, is what
+answers it: a conforming processor shall use only the selected colour space and shall ignore all the
+other specifications. So the remedy is *removal* of what the part already directs a processor to
+ignore, which chooses no value at all. It is an Ask rather than Mechanical because §7.4.9 makes the
+removed boxes a **fallback chain** — "[i]f the colour space is given by an unsupported ICC profile,
+the next lower colour space, in terms of precedence and approximation value, shall be used" — so a
+processor that cannot use the box that stays now falls back to a device space instead of to the
+producer's next specification. `--authorise jpeg2000-colour-fallback`, and ADR 0982 has the whole
+reading including which box the two standards select and which shapes stay refused.
+
+- **Class: Ask for the two colour-specification rows above, and for the rest.**
 - **The universal fallback is transcoding to `FlateDecode`**, and it means JPEG 2000 is never a
   hard refusal. The decoded samples are what any renderer would show, so re-encoding them
   losslessly loses nothing that was visible — at a large cost in file size, often ten times. It

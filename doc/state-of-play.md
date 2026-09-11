@@ -308,7 +308,7 @@ it saved** — against that table's own NOTE — and no longer does: `save` writ
 nor the appearance for such a field and reports each one it withheld. ADR 0247.
 
 **And a *program* can ask it questions.** `tools/pdf-retrieve` is JSON on stdout over the readers
-this tree already had, and what it adds is the three joins between them `doc/todo/36` named:
+this tree already had, and what it adds is the three joins between them `doc/todo/63` named:
 §12.3.3's outline turned into the range of pages a section occupies, the text cut at that section's
 own two headings, and §12.5.6.10's `/QuadPoints` deciding which *section* an annotation belongs to
 rather than which page. **Its default answer is `Interpretation::text` byte for byte**, which a

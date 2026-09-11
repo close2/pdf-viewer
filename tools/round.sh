@@ -41,6 +41,9 @@ pass() { printf '  ✓ %s\n' "$1"; }
 # The trap column names the group **file** and never its trap numbers. It listed them until session
 # 967, and every one of the five lists had gone stale as traps were added — doc/HANDOVER.md's table
 # is where a group's numbers live, and a second copy of them here was a copy nothing checked.
+#
+# The habits are named the same way, one file per kind of work rather than doc/habits.md plus the
+# title of a section inside it, which is what this script could say before ADR 0983 split that file.
 kinds="pixels oracle parsers loop instruments clause measure host dependency docs"
 
 kind_reading() {
@@ -52,7 +55,7 @@ kind_reading() {
     oracle)
         printf 'doc/traps/oracle-and-references.md       the group for a verdict, a reference or a tolerance\n'
         printf 'doc/oracle-and-corpus.md                 the instrument itself\n'
-        printf 'doc/habits.md                            "Judging against other implementations"\n'
+        printf 'doc/habits/judging-against-other-implementations.md  what an agreement is evidence of\n'
         printf 'doc/todo/00-ambiguous-bucket.md          the bucket and step 7\n' ;;
     parsers)
         printf 'doc/traps/parsers-and-streams.md         the group for a parser, a filter, a font or a codec\n'
@@ -64,14 +67,15 @@ kind_reading() {
         printf 'doc/environment.md                       the Xvfb recipe — the only way to drive the loop\n' ;;
     instruments)
         printf 'doc/traps/instruments-and-reports.md     the group for a gate, a number or a report\n'
-        printf 'doc/habits.md                            "Tests, gates and reports"\n' ;;
+        printf 'doc/habits/tests-gates-and-reports.md     what discriminates, and what a ratchet says\n' ;;
     clause)
-        printf 'doc/habits.md                            "Reading the specification" and "The ledger"\n'
+        printf 'doc/habits/reading-the-specification.md   modal verbs, silences, and what doc/md/ is\n'
+        printf 'doc/habits/the-ledger-and-claims-about-this-tree.md  how a row or a reason goes stale\n'
         printf 'doc/ledger-and-claims.md                 where a false row hides\n'
         printf 'doc/errata-read.md                       what an erratum has moved\n'
         printf 'doc/todo/01-ledger-partial-rows.md       the sweeps, as commands\n' ;;
     measure)
-        printf 'doc/habits.md                            "Measuring"\n'
+        printf 'doc/habits/measuring.md                  A/B in one sitting, and which number to quote\n'
         printf 'doc/performance.md                       the timeline and what is already known\n'
         printf 'doc/traps/instruments-and-reports.md     what a gate is about to lie to you about\n'
         printf 'doc/todo/02-every-round.md               §5 — the binaries, which a measurement owes first\n' ;;

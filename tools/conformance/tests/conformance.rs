@@ -517,7 +517,7 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
 /// The per-clause breakdown, which is what says where the debt is rather than how much.
 fn by_clause(ledger: &Ledger) -> String {
     let mut out = String::from("  clause  rows  unreviewed\n");
-    for clause in ledger::TECHNICAL_CLAUSES {
+    for clause in ledger::NORMATIVE_CLAUSES {
         let rows: Vec<_> = ledger
             .rows
             .iter()

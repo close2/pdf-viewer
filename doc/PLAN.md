@@ -417,6 +417,16 @@ K, L, O and Q say **normative** on their own title lines. `ClauseNumber` could n
 so a citation to one was malformed, a quotation from one was uncheckable and a row for one was
 unwritable — the instrument's silence was total rather than partial. ADR 0206.
 
+**And, since the nine-hundred-and-seventy-third session, clause 6.** The population was the
+constant `TECHNICAL_CLAUSES: 7..=14` and nothing read it against the standard, so clause 6's
+eleven `shall`s — every one of them addressed to a PDF file or a PDF processor, including
+§6.3.2.2's three obligations on one that renders a page — had no row, and no instrument could say
+that they had none: `MissingRow` and `CitedButUnreviewed` both walk the covered numbers, which is
+the ledger's own output. §6.3.2.2 was cited forty-seven times across five crates in that state.
+The population is now a **checked** claim: `check` counts `shall` under every clause and annex of
+the standard and reports one covered by neither the population nor an argued exclusion, so the
+next clause to be left out is a build failure rather than a silence. ADR 0984.
+
 | Status | Means |
 |---|---|
 | `implemented` | Every normative requirement in the clause is executed. Names the code site and the test. |

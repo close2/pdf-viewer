@@ -330,6 +330,8 @@ fn ucs2_cache() -> &'static Ucs2Cache {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{cid_to_unicode, cmap, exists, names, used_by};
 
     /// §9.10.2 step (e), on the collection its own example names: CID 1 of Adobe-Japan1 is the
@@ -488,5 +490,82 @@ mod tests {
             Some("90ms-RKSJ-H".to_owned())
         );
         assert_eq!(used_by(b"/CMapName /H def\nbegincidrange"), None);
+    }
+
+    /// No carried `CMap`'s `usecmap` chain is cut by [`MAX_DEPTH`], and none dangles.
+    ///
+    /// **The third of `cmap.rs`'s and `tounicode.rs`'s siblings, over the third bound the same
+    /// 239 files pass through** (ADR 0971's census). Adobe's half-width and vertical variants
+    /// state only their differences and name the file they differ from, which [`resolve`] and
+    /// [`resolve_unicode`] follow by name — and both stop at [`MAX_DEPTH`] by returning `None`
+    /// for the base. A `CMap` built on `None` is one whose inherited mappings are simply absent,
+    /// with §9.7.6.2's lookup answering nothing for every code the base stated, so this bound is
+    /// the one place in the module where being cut says nothing at all.
+    ///
+    /// What makes that silence safe is arithmetic over the data rather than a comment: the
+    /// deepest chain Adobe publishes is **two** — `ETenms-B5-V` on `ETenms-B5-H` on `ETen-B5-H`
+    /// — against a bound of four. This walks every carried file and fails the day a later
+    /// edition crosses it.
+    ///
+    /// **Two more things are checked here because nothing else asks them.** A file may name a
+    /// base this binary does not carry, which would build a `CMap` missing an unknown share of
+    /// its codes with no report; and the deepest chain is followed *through* to a CID only the
+    /// last file in it states, so a chain cut anywhere fails rather than merely a chain counted
+    /// wrongly.
+    #[test]
+    fn no_carried_cmap_chain_is_cut_by_the_depth_bound() {
+        let mut bases: HashMap<&'static str, Option<String>> = HashMap::new();
+        for name in names() {
+            let source = super::inflate(name).unwrap_or_else(|| panic!("/{name} inflates"));
+            let _ = bases.insert(name, used_by(&source));
+        }
+
+        let mut deepest = (0u32, "");
+        let mut chained = 0u32;
+        for name in names() {
+            let mut depth = 0u32;
+            let mut at = name;
+            while let Some(next) = bases.get(at).and_then(Option::as_deref) {
+                let (carried, _) = bases.get_key_value(next).unwrap_or_else(|| {
+                    panic!("/{name}'s chain names /{next}, which is not carried")
+                });
+                depth = depth.saturating_add(1);
+                // Also what stops a cycle: two files naming each other reach the bound and fail
+                // here rather than looping, which is the same property `resolve` relies on.
+                assert!(
+                    depth <= super::MAX_DEPTH,
+                    "/{name}'s usecmap chain is deeper than MAX_DEPTH, so its base is dropped"
+                );
+                at = carried;
+            }
+            if depth > 0 {
+                chained = chained.saturating_add(1);
+            }
+            if depth > deepest.0 {
+                deepest = (depth, name);
+            }
+        }
+        assert!(chained > 50, "only {chained} carried CMaps name a base");
+        assert_eq!(
+            deepest,
+            (2, "ETenms-B5-V"),
+            "the deepest chain Adobe publishes has moved"
+        );
+
+        // The second half, which is what makes this a gate rather than a count. `<c6e0> <c6fe>
+        // 13754` is a line of data/cmaps/ETen-B5-H and appears in neither file above it, so
+        // only a chain followed two deep answers it; `<20> <7e> 1` is ETenms-B5-H's own
+        // restatement of ETen-B5-H's `<20> <7e> 13648`, so the nearer file has to win.
+        let eten = cmap("ETenms-B5-V").expect("ETenms-B5-V is carried");
+        assert_eq!(
+            eten.cid(eten.next_code(b"\xc6\xe0")),
+            Some(13754),
+            "the CID only the far end of the chain states"
+        );
+        assert_eq!(
+            eten.cid(eten.next_code(b"\x20")),
+            Some(1),
+            "and the nearer file's restatement of a code the far end also states"
+        );
     }
 }

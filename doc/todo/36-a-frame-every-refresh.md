@@ -9,7 +9,10 @@ reprojection composed against the last *rendering*, a late frame re-bases, and a
 presents nothing and spends no processor time. The trace's summary carries the two claims rule 6
 asks for: the interval distribution, and what share of the presents were the page rather than a
 picture of it moved.
-Priority: 36 — the first item in this tree whose acceptance was a *rate*, and the rate is now
+Priority: 36 — **and `36` is this file alone since ADR 0983**, which moved the other item that
+carried the number to `doc/todo/63-a-retrieval-api.md`; a citation of `doc/todo/36` that is about
+a retrieval CLI or a `Query` for a page's text means that file rather than this one.
+The first item in this tree whose acceptance was a *rate*, and the rate is now
 whatever the owner's own run says it is rather than whatever a synchronous renderer permitted.
 Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The A/B that
 proves the trigger is on `doc/PDF20_AN001-BPC.pdf`, which is.

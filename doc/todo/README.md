@@ -12,7 +12,7 @@ an item; open the file to take it.
 
 ## Sorting
 
-The number prefix **is** the priority, and `ls` sorts by it:
+The number prefix **is** the priority wherever the band has room, and `ls` sorts by it:
 
 | band | means |
 |---|---|
@@ -24,6 +24,12 @@ The number prefix **is** the priority, and `ls` sorts by it:
 | `50`–`59` | **blocked** on a dependency, a decision or an infrastructure this program does not have |
 | `_`-prefixed | not a todo: shared background several items refer to |
 
+**A band holds ten numbers and can fill, and then the prefix stops being the priority** — the
+header block's `Priority:` line takes over, and `ls` sorts those items last rather than by
+priority. `60`, `61` and `62` are 50-band items and `63` is a 30-band one, each because its band
+was full when the file was written. The sentence above carried no such qualification and had been
+wrong since the first of the four (ADR 0983).
+
 **A number a deleted item used to have is not free.** A todo file is deleted when its item is
 done, and the ADRs that argued it go on citing `doc/todo/NN` — so writing a new file at that
 number makes every one of those citations resolve, silently, to an item about something else.
@@ -31,19 +37,38 @@ number makes every one of those citations resolve, silently, to an item about so
 regression. Grep `doc/` and `crates/` for the number before naming the file; the
 seven-hundred-and-ninety-sixth session took `17` and had to give it back (ADR 0730).
 
-**And three numbers are live duplicates right now**, which is the same defect without a deletion in
-front of it: `36` is both `36-a-retrieval-api.md` and `36-a-frame-every-refresh.md`, `46` is both
-`46-a-wheel-tick-that-interprets.md` and `46-the-kernel-floor.md`, and `47` is both
-`47-the-encode-term.md` and `47-the-resize-frames.md`. Every ADR that cites `doc/todo/36`, `46` or
-`47` resolves to whichever of the pair a reader opens first, and `--bin pointers` cannot see it at
-all — both files exist, so every pointer is *live*. That is worse than the deletion case above,
-where at least the count of findings moves.
+**A number two live files share is the same defect without a deletion in front of it**, and it is
+worse: both files exist, so every pointer is *live* and `--bin pointers` cannot see it at all —
+where a deleted number at least moves the count of findings. `ls doc/todo/ | grep -oE '^[0-9]+' |
+sort | uniq -d` is the sweep, and what it prints today is the number to trust: the round that found
+these found two of the three by reading and the third only once that command was run (ADR 0974's
+postscript), which is why the command is written here rather than its answer.
 
-**It is not fixed here and renaming is not the fix to reach for**: a rename breaks the citations it
-is trying to repair, so the round that does it owes the grep across `doc/` and `crates/` first, and
-owes a sentence in each item file saying what it used to be called. Found by the compaction of the
-nine-hundred-and-sixty-seventh session (ADR 0974), which reported two of the three — the sweep was
-`uniq -d` over the prefixes, and the number to trust is whatever that command prints today.
+**`36` was resolved and `46` and `47` were not** (ADR 0983). `36` was both a retrieval API and a
+frame cadence; the grep across `doc/` and `crates/` settled it, because nearly every citation of
+`doc/todo/36` — and every one written from `crates/` — is about the cadence. The frame item keeps
+the number and the retrieval API is [`63`](63-a-retrieval-api.md), which says in its own header what
+it used to be called.
+
+**`46` and `47` keep their duplicates, because the rename costs more than the ambiguity.** All four
+files are cited **by full filename** from `doc/adr/` and `doc/history/`, and those are not edited to
+follow a file that moved underneath them (ADR 0232 §2) — so moving either half turns live pointers
+into absent ones in files nothing may repair. What is available instead is a disambiguation by
+subject, and the subjects are disjoint:
+
+| a citation of | about | means |
+|---|---|---|
+| `doc/todo/46` | the compute kernels, the zoom step's floor, flatten-from-quadratics | [`46-the-kernel-floor.md`](46-the-kernel-floor.md) |
+| `doc/todo/46` | §12.5.3, the annotation pass, the seam in `content.rs` | [`46-a-wheel-tick-that-interprets.md`](46-a-wheel-tick-that-interprets.md) |
+| `doc/todo/47` | `encode`, the record-replay seam, host work per zoom step | [`47-the-encode-term.md`](47-the-encode-term.md) |
+| `doc/todo/47` | a window drag, `WindowEvent::Resized`, the two arms of a resize | [`47-the-resize-frames.md`](47-the-resize-frames.md) |
+
+**And each of the three numbers has a *third* referent that no longer exists**, which is the
+paragraph above happening rather than this one: a `doc/todo/47` written before ADR 0335 is the cold
+document-wide search that ADR deleted, a `doc/todo/46` in ADR 0373 is the region item it deleted,
+and a `doc/todo/36` in ADRs 0200 and 0202 is an item about a collection's ordering.
+`grep -rn 'todo/36\|todo/4[67]' doc/ crates/` is the population; the sentence around the citation is
+what resolves it.
 
 Within a band the number is a rough order, not a queue. `CLAUDE.md`'s two tracks still decide:
 take from the *demand-driven* side (10–29, what the corpus and oracle name) **and** the
@@ -85,7 +110,6 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [33](33-annotation-editing.md) | Editing a free text annotation the *file* states — built, with `LockedContents` read through the restriction policy, Table 177's `/CL` callout line drawn and §12.5.4's border with it. What is left is bit 8's `Locked`, which waits on deleting or moving an annotation |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser — built, drawing real pages behind seccomp, answering every question, stoppable, and shipping marks to a host that holds the device. What the marks arm leaves a host is in [15](15-ship-the-confinement.md) |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out |
-| [36](36-a-retrieval-api.md) | Retrieve the standard from the standard. The CLI is built and all three joins are closed; what is left is one `Query` variant for a page's text on the confined pipe, and the substitution itself |
 | [36](36-a-frame-every-refresh.md) | A frame every refresh — the owner wants 60 Hz as the floor and 120 Hz as the target, reprojecting when a correct frame is missed and re-basing on a late one; the unsettled half is where the pixels come from in 8.3 ms, which is probably an ask to quorra |
 | [37](37-a-frame-that-says-it-is-stale.md) | A frame that says it is stale — built for both windows and the same arrangement on both, with each of the five rules enforced by a test, a type or the structure. Nothing this item names is owed |
 | [38](38-a-documents-restrictions-have-levels.md) | A document's restrictions are the reader's to set: every Table 22 bit named, five operations, the four levels and the verdict in one module asked once, with the events a window receives for *ask* and *warn*; what is left is a way for a person to choose a level and a dialogue to answer the question with |
@@ -114,6 +138,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [60](60-paths-a-document-names.md) | **Paths a document names** — §7.11.3's `/F` and §7.3.8.2's external streams, which are the *other* half of the resource question and are the half that must **ask**: a resource the document names is not a resource the reader's machine offers, so [59](59-the-resource-port.md)'s port is the wrong shape for it and `doc/todo/38`'s four levels are the right one. Accepted, not started |
 | [61](61-what-a-library-asks-the-machine.md) | **What a library asks the machine** — confined-worker deaths on a system call no document caused, and the rule that keeps them from becoming permissions: a *probe* is answered before the lockdown, while a **precondition** the standard library checks on a resource the worker was *given* is not a probe. `doc/questions/Q26` asks whether the second answer was a round's to give |
 | [62](62-the-exemption-no-row-states.md) | **The exemption no row states** — both target parts of ISO 19005 exempt a named resource whose name the associated content stream never references, and `pdf-archive` states neither. Measured rather than estimated, and the exemption moves the corpus nothing. Blocked on a reachability answer `Examination` does not have |
+| [63](63-a-retrieval-api.md) | Retrieve the standard from the standard — a 30-band item, and `doc/todo/36` until ADR 0983. The CLI is built and all three joins are closed; what is left is one `Query` variant for a page's text on the confined pipe, and the substitution itself |
 | — | [`_scan-conversion.md`](_scan-conversion.md) — shared: §10.7.4, what this tree departs from and why |
 | — | [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) — shared: the three sandboxed codecs are already pure safe Rust, what the sandbox is really for, and what a subset would and would not buy |
 

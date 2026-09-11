@@ -4,8 +4,15 @@ Note from the human after this file had been created: ignore the rest-api!
 
 Status: **the CLI is built and the three joins are closed** — session 421, ADR 0257. What is left is
 one message on the pipe and the substitution itself, both below with their measured sizes.
-Priority: 36 — capability. It was the last consumer `viewer-core` was built for and had never had:
-not a person, not a toolkit, but a program asking a document questions.
+Priority: 30-band — capability. It was the last consumer `viewer-core` was built for and had never
+had: not a person, not a toolkit, but a program asking a document questions. **This file was
+`doc/todo/36`, as `36-a-retrieval-api.md`,** until ADR 0983, which resolved a live duplicate: `36`
+was also `36-a-frame-every-refresh.md`, and that one keeps the number because the grep across
+`doc/` and `crates/` found the overwhelming majority of citations of `doc/todo/36` to be about the
+frame cadence — including every one of them written from `crates/`. So **an ADR citing
+`doc/todo/36` for the retrieval CLI, the three joins or the `Query` for a page's text means this
+file**; ADR 0257 is the one that does. The number is 63 rather than a free slot in the 30s
+because that band is full, which is the same reason `60`–`62` are 50-band items.
 Corpus: —, the first consumer is the fourteen documents under `doc/`
 Code: `tools/pdf-retrieve` (built), `crates/pdf-model/src/retrieval.rs` (built),
 `crates/viewer-core`, `tools/spec-errata`, `tools/conformance`

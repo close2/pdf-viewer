@@ -116,6 +116,30 @@ impl StandardFont {
             .and_then(|index| table.get(index))
             .map(|(_, width)| f32::from(*width))
     }
+
+    /// The glyph names this face's table states, for a walk that has to ask a font program
+    /// whether it holds them.
+    ///
+    /// The names alone rather than the pairs, because the question these are put to is about a
+    /// *charset* and never about a width. `Courier` answers with `Helvetica`'s list for the
+    /// reason [`Self::width`] gives: one number covers every glyph of a fixed-pitch face, and
+    /// the list is still what says which glyphs it has.
+    #[cfg(test)]
+    pub(crate) fn glyph_names(self) -> Vec<&'static str> {
+        let table: &[(&str, u16)] = match self {
+            Self::Courier | Self::Helvetica => &HELVETICA_WIDTHS,
+            Self::HelveticaBold => &HELVETICABOLD_WIDTHS,
+            Self::HelveticaOblique => &HELVETICAOBLIQUE_WIDTHS,
+            Self::HelveticaBoldOblique => &HELVETICABOLDOBLIQUE_WIDTHS,
+            Self::TimesRoman => &TIMESROMAN_WIDTHS,
+            Self::TimesBold => &TIMESBOLD_WIDTHS,
+            Self::TimesItalic => &TIMESITALIC_WIDTHS,
+            Self::TimesBoldItalic => &TIMESBOLDITALIC_WIDTHS,
+            Self::Symbol => &SYMBOL_WIDTHS,
+            Self::ZapfDingbats => &ZAPFDINGBATS_WIDTHS,
+        };
+        table.iter().map(|(name, _)| *name).collect()
+    }
 }
 
 /// Advance widths for `Helvetica`, sorted by glyph name.
@@ -1039,5 +1063,193 @@ mod tests {
         } else {
             println!("compared {compared} advances against installed metric clones");
         }
+    }
+
+    /// Whether the Adobe Glyph List gives this name a character inside Latin-1.
+    fn inside_latin_1(name: &str) -> bool {
+        read_fonts::ps::agl::name_to_char(name).is_some_and(|character| character <= '\u{ff}')
+    }
+
+    /// Counts the segments an outline draws, which is all a walk needs to know it drew one.
+    #[derive(Default)]
+    struct Segments(u32);
+
+    impl skrifa::outline::OutlinePen for Segments {
+        fn move_to(&mut self, _x: f32, _y: f32) {
+            self.0 = self.0.saturating_add(1);
+        }
+        fn line_to(&mut self, _x: f32, _y: f32) {
+            self.0 = self.0.saturating_add(1);
+        }
+        fn quad_to(&mut self, _a: f32, _b: f32, _x: f32, _y: f32) {
+            self.0 = self.0.saturating_add(1);
+        }
+        fn curve_to(&mut self, _a: f32, _b: f32, _c: f32, _d: f32, _x: f32, _y: f32) {
+            self.0 = self.0.saturating_add(1);
+        }
+        fn close(&mut self) {}
+    }
+
+    /// The glyph each name reaches in a face, by the route that face's format is addressed
+    /// through: a bare CFF by glyph name, an `sfnt` by the character the Adobe Glyph List gives
+    /// the name. A name the face does not answer is absent from the map.
+    fn reached_glyphs(
+        bytes: &'static [u8],
+        format: crate::substitute::Format,
+        named: &[&'static str],
+    ) -> std::collections::BTreeMap<&'static str, u16> {
+        use crate::cff::CodeToGlyph;
+        use crate::substitute::Format;
+
+        match format {
+            Format::BareCff => {
+                let CodeToGlyph::Named(keyed) =
+                    CodeToGlyph::read(bytes).expect("a compiled-in CFF face parses")
+                else {
+                    panic!("no compiled-in face is CID-keyed");
+                };
+                named
+                    .iter()
+                    .filter_map(|name| Some((*name, *keyed.by_name.get(*name)?)))
+                    .collect()
+            }
+            Format::Sfnt => {
+                use skrifa::MetadataProvider as _;
+                let face =
+                    skrifa::raw::FontRef::new(bytes).expect("a compiled-in sfnt face parses");
+                let charmap = face.charmap();
+                named
+                    .iter()
+                    .filter_map(|name| {
+                        let character = read_fonts::ps::agl::name_to_char(name)?;
+                        let glyph = charmap.map(character)?;
+                        Some((*name, u16::try_from(glyph.to_u32()).ok()?))
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// How many segments a glyph of a face draws, through that face's own reader.
+    fn segments_drawn(bytes: &[u8], format: crate::substitute::Format, glyph: u16) -> u32 {
+        use crate::substitute::Format;
+
+        let mut pen = Segments::default();
+        match format {
+            Format::BareCff => crate::cff::draw(bytes, glyph, &mut pen).expect("a glyph draws"),
+            Format::Sfnt => {
+                use skrifa::MetadataProvider as _;
+                let face = skrifa::raw::FontRef::new(bytes).expect("a compiled-in sfnt parses");
+                if let Some(outline) = face.outline_glyphs().get(skrifa::GlyphId::from(glyph)) {
+                    outline
+                        .draw(skrifa::instance::Size::unscaled(), &mut pen)
+                        .expect("a glyph draws");
+                }
+            }
+        }
+        pen.0
+    }
+
+    /// Every name these tables state whose character is inside Latin-1 has a glyph in every
+    /// carried face, and the ones with no glyph are all outside it.
+    ///
+    /// **The last of ADR 0971's four measured-but-unasserted census rows**, and the one where
+    /// the measurement is not "nothing is missing". [`crate::standard`]'s ten Foxit faces are
+    /// bare CFF programs whose charsets hold the standard Latin character set and nothing more,
+    /// so 86 of `Times-Roman`'s 315 names and 84 of `Courier`'s reach no glyph in them — the
+    /// Latin Extended-A letters and eight mathematical signs. That is not a defect: ADR 0270's
+    /// [`crate::substituted::substitute_face`] replaces such a face with a wider one of the same
+    /// family where the document's codes need it, and `pdf-model`'s interpreter counts a code
+    /// that reached no glyph, so the population is spoken for twice over.
+    ///
+    /// What had never been asserted is the **line** between the two halves, and it is a fact
+    /// about two carried things rather than a clause: a name whose Adobe Glyph List character is
+    /// U+00FF or below has a glyph in every one of the fourteen, and every name that has none is
+    /// above it or is not in that list at all. A face swapped for one that lost `eacute` fails
+    /// here; one that gained `Abreve` does not, which is the direction that costs nothing.
+    ///
+    /// `commaaccent` is the single name the Adobe Glyph List gives no character, which puts it
+    /// on the far side of the line for the `sfnt` faces — [`crate::substituted`] reaches those by
+    /// character — and it is why Liberation Sans has one absence of its own.
+    ///
+    /// **The second half is the same one its siblings carry**, and here it is two assertions: the
+    /// names reach *distinct* glyphs, and every one of them draws contours bar the space. A
+    /// charset read as all-zero would satisfy the half above and neither of these.
+    #[test]
+    fn every_latin_1_name_these_tables_state_has_a_glyph_in_every_carried_face() {
+        use std::collections::BTreeSet;
+
+        use crate::substitute::{Family, Request};
+
+        // How many of each table's names the Adobe Glyph List puts inside Latin-1. The three
+        // Latin tables state the same 315 names and 189 of them are in it; `Symbol`'s names are
+        // that list's own — `alpha`, `universal` — of which 39 are, and `ZapfDingbats`'s are
+        // `a1` to `a202`, which the list does not hold at all, leaving its `space`.
+        let mut faces = 0u32;
+        for (family, font, holds) in [
+            (Family::Serif, StandardFont::TimesRoman, 189),
+            (Family::Monospace, StandardFont::Courier, 189),
+            (Family::SansSerif, StandardFont::Helvetica, 189),
+            (Family::Symbol, StandardFont::Symbol, 39),
+            (Family::ZapfDingbats, StandardFont::ZapfDingbats, 1),
+        ] {
+            let named = font.glyph_names();
+            let inside: BTreeSet<&str> = named
+                .iter()
+                .copied()
+                .filter(|name| inside_latin_1(name))
+                .collect();
+            assert_eq!(
+                inside.len(),
+                holds,
+                "how many of {family:?}'s names Latin-1 holds"
+            );
+            for (bold, italic) in [(false, false), (true, false), (false, true), (true, true)] {
+                let (bytes, format) = crate::standard::face(Request {
+                    family,
+                    bold,
+                    italic,
+                    standard: true,
+                });
+                let reached = reached_glyphs(bytes, format, &named);
+                let cut: Vec<&str> = inside
+                    .iter()
+                    .copied()
+                    .filter(|name| !reached.contains_key(name))
+                    .collect();
+                assert!(
+                    cut.is_empty(),
+                    "{family:?} bold={bold} italic={italic}: the carried face has no glyph for \
+                     {cut:?}, which this table states and Latin-1 holds"
+                );
+
+                // **The second half, and it is the one a wrongly built charset fails.** Distinct
+                // names reach distinct glyphs — a charset read as all-zero would satisfy the
+                // half above and nothing else — and each of them draws something, bar the space.
+                let distinct: BTreeSet<u16> = inside
+                    .iter()
+                    .filter_map(|name| reached.get(name).copied())
+                    .collect();
+                assert_eq!(
+                    distinct.len(),
+                    inside.len(),
+                    "{family:?} bold={bold} italic={italic}: {} names share {} glyphs",
+                    inside.len(),
+                    distinct.len()
+                );
+                let blank: Vec<&str> = inside
+                    .iter()
+                    .copied()
+                    .filter(|name| segments_drawn(bytes, format, reached[name]) == 0)
+                    .collect();
+                assert_eq!(
+                    blank,
+                    ["space"],
+                    "{family:?} bold={bold} italic={italic}: the glyphs with no contours"
+                );
+                faces = faces.saturating_add(1);
+            }
+        }
+        assert_eq!(faces, 20, "five families in four styles");
     }
 }

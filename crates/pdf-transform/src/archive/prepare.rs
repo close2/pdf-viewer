@@ -24,6 +24,7 @@ use crate::json::Value;
 
 use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Metrics, Substitutes};
+use super::jpeg2000::{self, Specifications};
 use super::rewrite::Rewrite;
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
@@ -704,6 +705,9 @@ impl Prepared {
             }
             Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
             Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
+            Rewrite::Jpeg2000ColourSpecifications => {
+                self.owed.specifications.as_ref().err().copied()
+            }
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
             _ => None,
@@ -788,6 +792,8 @@ pub(super) struct Owed {
     pub(super) shared_profile: Result<SharedProfile, Because>,
     /// The `/Colorants` entries each `DeviceN` colour space gains, or why none are written.
     pub(super) colorants: Result<ColorantEntries, Because>,
+    /// The `JPXDecode` images whose colour specification boxes are reduced, or why none are.
+    pub(super) specifications: Result<Specifications, Because>,
 }
 
 impl Owed {
@@ -844,6 +850,9 @@ impl Owed {
             }),
             colorants: asked(wanted(Rewrite::SpotColorantEntry), || {
                 sites::colorant_entries(document, input)
+            }),
+            specifications: asked(wanted(Rewrite::Jpeg2000ColourSpecifications), || {
+                jpeg2000::reduce_specifications(document, input)
             }),
         }
     }

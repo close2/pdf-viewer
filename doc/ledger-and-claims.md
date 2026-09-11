@@ -31,8 +31,14 @@ past its role map stopped doing so (ADR 0214).
 fifty-sixth session — **and, since the three-hundred-and-sixtieth, every number of the standard's
 eight normative annexes**, which no instrument in this project could previously name: `ClauseNumber`
 was a list of integers, so `§K.2` was a malformed citation and Annex O could not have a row. ADR
-0206. Counts come from `cargo run -p conformance --bin ledger`, which prints them
-— **not** from arithmetic in this file, which has been wrong about them twice.
+0206. **And, since the nine-hundred-and-seventy-third, clause 6**, which states eleven `shall`s on
+a PDF file and a PDF processor and had no row for any of them — §6.3.2.2's three obligations on a
+processor that renders a page are what `CLAUDE.md`'s *what done means* ranks by, and the tree cited
+that subclause forty-seven times while nothing here recorded it. The population is a checked claim
+now rather than a constant: a clause of the standard that states `shall` and is covered by neither
+the population nor an argued exclusion fails `cargo test -p conformance`. ADR 0984. Counts come
+from `cargo run -p conformance --bin ledger`, which prints them — **not** from arithmetic in this
+file, which has been wrong about them twice.
 
 **`silent` is the status worth hunting**: it means a requirement this program fails without saying
 so. Every other status names what it owes, and all eight are defined at the top of
@@ -100,7 +106,9 @@ owner split the scope line rather than dropping it, and the clause is implemente
 Between that round and the eight-hundred-and-eleventh there was no requirement in the standard —
 the eight technical clauses or the eight normative annexes — that this program failed without
 saying so, and the sentence stating it stood here for four hundred rounds before a row moved
-underneath it. That was a narrow claim: `partial` and `reported` are the largest
+underneath it. **Clause 6 was not in that denominator and is now**, which does not change the
+sentence: its eight rows came out `implemented`, `writer-side` and one `partial`, and the
+`partial` is §6.3.2.1's security `shall`, which §7.6.4.1's row already owed out loud. That was a narrow claim: `partial` and `reported` are the largest
 populations in the ledger after `implemented` and each row of both names what it owes. **The
 number that used to stand in that sentence was arithmetic on the table above** — the two figures
 added together — which is the shape `tools/state.sh` refuses for exactly this reason: a sum beside

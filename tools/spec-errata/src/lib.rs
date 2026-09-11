@@ -910,7 +910,7 @@ pub fn structural(notes: &[Note]) -> Vec<Structural> {
 ///
 /// An instruction writes "subclause 14.7.5.1.1" rather than a citation, so the SECTION SIGN scanner the rest
 /// of this tree uses finds nothing here. A number needs at least one full stop and a first
-/// component inside [`conformance::ledger::TECHNICAL_CLAUSES`]: `PDF 1.7`, `Table 24` and
+/// component inside [`conformance::ledger::NORMATIVE_CLAUSES`]: `PDF 1.7`, `Table 24` and
 /// `ISO 32000-2` are all excluded by that alone, which is why there is no word list.
 #[must_use]
 pub fn clauses_named(text: &str) -> Vec<conformance::clause::ClauseNumber> {
@@ -927,7 +927,7 @@ pub fn clauses_named(text: &str) -> Vec<conformance::clause::ClauseNumber> {
         };
         if number
             .clause()
-            .is_some_and(|clause| conformance::ledger::TECHNICAL_CLAUSES.contains(&clause))
+            .is_some_and(|clause| conformance::ledger::NORMATIVE_CLAUSES.contains(&clause))
             && !found.contains(&number)
         {
             found.push(number);

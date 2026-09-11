@@ -1313,8 +1313,11 @@ archive:
                            does not define the value it holds, naming each one and what it held;
                            annotation-printing gives an annotation that stated no flags the Print
                            bit ISO 19005 requires, so one whose appearance never printed now
-                           prints. Anything not authorised stops the conversion instead of
-                           happening quietly
+                           prints; jpeg2000-colour-fallback keeps only the colour space
+                           specification a JPEG 2000 image uses, so a processor that cannot use
+                           that one falls back to a device space rather than to the producer's
+                           next specification, no image sample being touched. Anything not
+                           authorised stops the conversion instead of happening quietly
   --output-intent-profile <file>
                            the ICC profile a PDF/A output intent added by this conversion names
                            as its destination profile. The default is the sRGB profile this

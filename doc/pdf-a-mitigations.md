@@ -508,7 +508,7 @@ ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · today `not-built-yet`
 #### `graphics/no-icc-space-duplicating-the-output-intent-profile`
 #### `graphics/separation-alternate-space-does-not-duplicate-a-current-profile`
 ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · today `the-fence` in its siting ·
-**corrected in session 962**
+**corrected in session 962, re-examined and held in session 971**
 
 - **Mitigation** — **none, and this entry was wrong twice** (ADR 0965; §13.3.1). It read: mechanical
   and lossless, name `DeviceCMYK` where the duplicate profile was, which ISO 19005-4 6.2.4.3
@@ -520,6 +520,21 @@ ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · today `the-fence` in its s
   restatement: §8.6.7 applies non-zero overprint mode only where the current space is `DeviceCMYK`
   or is implicitly converted to it, so the substitution can decide a composite §8.6.5.7 leaves
   open — the very ambiguity 6.2.4.2's NOTE 2 gives as the reason for the prohibition.
+- **Session 971 asked whether `SpotColorantEntry` had changed the siting half, and it has not**
+  (ADR 0982). That rewrite was the first to reach an object that is a colour space array, so the
+  question was fair; the answer is that it reaches one **because its own finding names that array's
+  object**, and these findings name the content stream that *used* the space. Run against the
+  corpus witness the finding reads `page 1, ICCBased: a colour space operator uses an ICCBased CMYK
+  colour space whose profile is the profile in the PDF/A output intent then current` — a page, a
+  name of `ICCBased`, and no object at all. The array is still in a resource dictionary nothing
+  points at.
+- **The value half is stronger than it was written, not weaker.** §8.6.5.7 says of the implicit
+  conversion outright that *"[t]he conditions under which such implicit conversion is done cannot be
+  specified in PDF"* and that it *"is completely hidden by the PDF processor and plays no part in
+  the interpretation of PDF colour spaces"*. So whether an `ICCBased` CMYK space behaves as
+  `DeviceCMYK` — and therefore whether non-zero overprint mode applies to it — is the processor's
+  decision by the base standard's own words. Writing `/DeviceCMYK` into the file takes that decision
+  away from the processor and settles it. That is not a restatement under any reading.
 - **By target** — part 2 states neither rule, so a PDF/A-2 target never asks (kind A, confirmed).
 - **From a configuration** — nothing, by design.
 - **Departure** — **A**, and pointless: the remedy loses nothing.
@@ -670,22 +685,47 @@ ISO 19005-2 6.2.6 · PDF/A-2b, 2u, 2a · today `the-fence`
 
 #### `graphics/jpeg2000-colour-specification-method`
 #### `graphics/jpeg2000-one-best-colour-space-specification`
-ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · today `not-built-yet` ·
-**corrected in session 962**
+ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **built in session 971** (`discard`, an
+authorised loss); the shapes below keep their refusal · **corrected in session 962 and again in
+session 971**
 
-- **Mitigation** — **none that restates anything.** The limits document's section 4.10 finding
-  stands and is about the *cost*: these two fields live in the **JP2 wrapper** rather than the
-  codestream, so the rewrite is a hundred-odd bytes and touches no sample. It settles nothing about
-  the *value* (ADR 0965). A `METH` outside the three the part admits describes this image's colour
-  in a way the part does not read, so writing one of the three states a colour space the box did
-  not; and marking exactly one specification as the best available, where the file marks none, ranks
-  two of the producer's own specifications against each other on evidence the file does not carry —
-  dropping the others throws one away instead. The second row is also not only a box rewrite: its
-  second sentence requires the *selected* specification's ICC profile to conform to the base
-  standard, which is the profile-replacement case.
+- **Mitigation** — **`discard`, and this entry was wrong about there being none.** Both earlier
+  readings — the original, and session 962's correction of it — asked what value could be
+  *written* into a `colr` box, and both were right that every one of them is a choice: a `METH`
+  outside the three the part admits describes this image's colour in a way the part does not read,
+  so writing one of the three states a colour space the box did not, and marking one specification
+  best available where the file marks none ranks two of the producer's statements on evidence the
+  file lacks. **What neither asked is whether a box can go.** The sentence immediately after the
+  method's, in both parts, is the answer: a conforming processor shall use only the selected colour
+  space and shall ignore all the other colour space specifications. So the boxes this removes are
+  the ones the target's own subclause directs a processor to ignore, and no value of this
+  converter's is written anywhere.
+- **Which box is selected is the standards' own, in two sentences.** Where exactly one
+  specification carries an `APPROX` of `0x01`, both parts' NOTE 2 makes it the best available and
+  §7.4.9 sends a processor to the same box — *"a PDF processor should attempt to use the one with
+  the highest precedence and best approximation value"*. Where **every** specification states an
+  `APPROX` of zero, ISO/IEC 15444-1:2000 I.5.3.3 reserves that field, requires it to be zero, has a
+  reader ignore its value, and says a conforming JP2 reader ignores every colour specification box
+  after the first — so the first box is the used one by the core part's own rule, and a file
+  written to that edition is exactly the file that fails ISO 19005's *exactly one marked best* for
+  no other reason. Any other shape — two marked best, or a mixture — is refused, because that is
+  the ranking session 962 refused and it stays refused.
+- **What it costs, and why it is an Ask rather than owed.** §7.4.9 makes the removed boxes a
+  fallback chain: *"[i]f the colour space is given by an unsupported ICC profile, the next lower
+  colour space, in terms of precedence and approximation value, shall be used."* A processor that
+  can use the box that stays sees no difference at all — the corpus witness renders byte for byte
+  identically — and one that cannot now falls back to a device space rather than to the producer's
+  second choice. That is small, real and nameable, so it is a loss an operator authorises.
+- **Two shapes keep the refusal and their sentences are now their own**: a file whose *only*
+  specification states a forbidden method, where there is nothing to remove and nothing for a
+  processor to fall back to; and the second row's second sentence, which requires the *selected*
+  specification's ICC profile to conform to the base standard — the profile-replacement case, not
+  a box removal.
 - **By target** — none.
-- **From a configuration** — nothing.
-- **Departure** — **B**, and pointless once the rewrite exists.
+- **From a configuration** — `remedy = "discard"`, and the operator needs one sentence: a reader
+  that cannot use this image's best colour specification no longer has the producer's others to
+  try. `--authorise jpeg2000-colour-fallback` is that key today.
+- **Departure** — **B**, and pointless for the shapes the rewrite reaches.
 
 #### `graphics/jpeg2000-bit-depth`
 #### `graphics/jpeg2000-channel-count`
@@ -1625,7 +1665,7 @@ ISO 19005-2 6.9 · PDF/A-2b, 2u, 2a · today `not-built-yet`
 
 ### 13.1 Mitigations nobody in this project had written down
 
-Fifteen, in rough order of how much they unblock. Each is argued at its own entry.
+Sixteen, in rough order of how much they unblock. Each is argued at its own entry.
 
 1. **The 4f preserve** (section 1.2). Under PDF/A-4f — and, for its own material, 4e — *anything
    this converter would otherwise delete as a byte string can stay in the file as an attachment*: a
@@ -1669,6 +1709,11 @@ Fifteen, in rough order of how much they unblock. Each is argued at its own entr
     `not-this-target` into a document that keeps its artwork.
 15. **Removing `/CharSet` and `/CIDSet` rather than recomputing them** (section 5): the base
     standard makes both optional, so the lighter of the two lossless routes was available all along.
+16. **Removing a JPEG 2000 colour specification rather than writing one** (section 4.5), found in
+    the nine-hundred-and-seventy-first session after two rounds had answered *none*. The sentence
+    beside the rule says a conforming processor shall use only the selected colour space and shall
+    ignore all the others, so the boxes that fail are the ones the part itself directs a processor
+    to ignore; what it costs is §7.4.9's fallback chain and nothing on the page.
 
 ### 13.2 Where the answer is honestly *none*
 
@@ -1785,6 +1830,18 @@ as they were struck from `REFUSED_BY_NAME`:
   defines the ink, the entry is *determined* rather than chosen. The sampled route stays owed for a
   file that defines the ink nowhere else.
 
+**Two of the five that were moved out came back, and the second is the nine-hundred-and-seventy-first
+session's** (ADR 0982). The two JPEG 2000 box rows —
+`graphics/jpeg2000-colour-specification-method` and
+`graphics/jpeg2000-one-best-colour-space-specification` — are **not** back on this list, because
+they were never owed: they are a `discard` an operator authorises, which is exactly what §0.2 says
+this list must not contain. What came back is the *catalogue entry*, which had said **none** where
+the honest answer was **an authorised loss nobody had offered**. §4.5 carries the reading; the short
+form is that both previous readings asked what value could be written into a `colr` box and neither
+asked whether a box could go, and the sentence that answers it is the one after the method's in both
+parts. So this list is unchanged, and what changed is §4.5's own four answers: two of them said
+*none* and *nothing* where the truthful pair is *`discard`* and *authorise it*.
+
 **One remains owed**, and it is code rather than a decision:
 `fonts/vertical-metrics-agree-with-the-program`, whose entry §13.3.1 corrects and whose rewrite
 belongs in `pdf_font::restate` beside the `hmtx` one.
@@ -1874,6 +1931,29 @@ about this catalogue's own habits:
   three cases, and in the third the ISO 19005 clause was doing the work all along. What was wrong
   was the reason written down, which is the thing this catalogue exists to keep. ADR 0973 has all
   three and what each now says.
+
+Three more, from the nine-hundred-and-seventy-first session (ADR 0982). Two are about this
+catalogue's habits and one settles a question it had left open:
+
+- **"There is no mitigation" and "there is no *lossless* mitigation" are different claims, and this
+  catalogue conflated them twice on one entry.** The JPEG 2000 colour-box rows were argued through
+  two rounds entirely inside the question *what value could be written here* — and every answer to
+  that question is a choice, which is true and was never the whole question. Removing what the
+  clause itself directs a processor to ignore writes no value at all, and RFC 0007 section 2's
+  `discard` had been in the vocabulary the whole time. **An entry whose four answers include *From a
+  configuration — nothing* should be read again, because that line is where this mistake shows.**
+- **The used box is named by two clauses, one of which is not ISO 19005's.** ISO/IEC 15444-1:2000
+  I.5.3.3 — reserve `APPROX`, set it to zero, ignore its value, and ignore every colour
+  specification box after the first — is what makes a part-1-era JP2 file's *first* box the used
+  one. That file is precisely the file that fails ISO 19005's *exactly one marked best*, so the
+  clause that makes the row fail and the clause that makes it fixable are in different documents.
+  `CLAUDE.md`'s rule about reading a clause's neighbours extends one step further than it says: the
+  neighbour can be in the standard the clause delegates to.
+- **The duplicate-profile pair was re-examined against machinery that had arrived since, and held**
+  — see §4.2. A rewrite reaching an object of a new *shape* does not site a failure reported
+  somewhere else; what sites a rewrite is the finding naming the object. And §8.6.5.7 turns out to
+  say outright that the implicit conversion "cannot be specified in PDF", which makes writing
+  `/DeviceCMYK` a decision taken away from the processor rather than one restated from the file.
 
 ---
 

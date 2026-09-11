@@ -23,11 +23,14 @@
 use std::process::ExitCode;
 
 use conformance::clause::ClauseIndex;
-use conformance::ledger::{Exclusion, Ledger, NORMATIVE_ANNEXES, Row, Status, TECHNICAL_CLAUSES};
+use conformance::ledger::{Exclusion, Ledger, NORMATIVE_ANNEXES, NORMATIVE_CLAUSES, Row, Status};
 
 /// Written above the rows, as `#` comments, every time the file is generated.
 const PREAMBLE: &str = "\
-The conformance ledger: one row per subclause of ISO 32000-2's technical clauses.
+The conformance ledger: one row per subclause of ISO 32000-2's normative clauses — 6 to 14,
+and the eight normative annexes. What decides that population is not this list but the
+standard: `cargo test -p conformance` reports a clause that states `shall` and is covered by
+neither the population nor an argued exclusion in `conformance::ledger`.
 
 GENERATED — the set of rows is. Their statuses are not: a status is a claim a person makes
 after reading the clause against this code, and `cargo run -p conformance --bin ledger`
@@ -76,7 +79,8 @@ fn main() -> ExitCode {
         Ledger::default()
     };
 
-    let mut clauses: Vec<_> = TECHNICAL_CLAUSES
+    let mut clauses: Vec<_> = NORMATIVE_CLAUSES
+        .into_iter()
         .flat_map(|clause| index.subclauses_of(clause))
         .chain(
             NORMATIVE_ANNEXES

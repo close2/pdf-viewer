@@ -8,7 +8,7 @@ what puts the binaries where a person can reach them; `doc/verify.md` is the ins
 
 **One of the six binaries `doc/todo/02` §5 installs is not a viewer at all**: `target/quorra-retrieve`
 answers a *program*'s questions about a document as JSON on stdout — a page, a section addressed by
-its clause number, and the annotations over either — and nothing here applies to it. `doc/todo/36`
+its clause number, and the annotations over either — and nothing here applies to it. `doc/todo/63`
 and ADR 0257 are its two files, and `pdf-retrieve` with no arguments prints what it takes.
 
 ```sh
@@ -163,9 +163,8 @@ structure. Try `doc/PDF-Declarations.pdf` for two embedded files,
 88 233 bytes. ADR 0223.
 
 **And rebuild before saying anything about speed**: `cargo test` only ever builds the *debug*
-binaries. The hundred-and-forty-second session was reported as "still lags" against a binary three
-hours and six commits old, one of which was the 40× page-turn fix. A stale executable is a
-measurement of the past.
+binaries, and a stale executable is a measurement of the past. `doc/todo/02` §5 owns that rule and
+the incident it is argued from; this was a second copy of both.
 
 **`p` runs §12.4.4's presentation**: the window drives the clock, a page with a `/Dur` advances by
 itself, and the page arrived at has its `/Trans` **drawn** — seven of Table 164's twelve styles,
