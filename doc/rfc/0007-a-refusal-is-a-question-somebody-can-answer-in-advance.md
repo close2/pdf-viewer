@@ -641,6 +641,81 @@ Two shapes, and the second is much cheaper:
 The second should come first, and the profiles should reference tools by name so that a declaration
 can be dropped in beside them.
 
+## 5b. What writing the catalogue changed about this proposal
+
+`doc/pdf-a-mitigations.md` works every one of the 118 refused requirements through §2's vocabulary.
+Doing that found four things the design above had wrong, and they are recorded here rather than
+quietly fixed because the shape of a proposal's errors is worth as much as the proposal.
+
+### 5b.1 `supply` is a fifth remedy kind, and twelve entries need it
+
+§2's four kinds cover what happens to information the document **has**. Twelve refusals are
+unblocked only by the operator stating a fact the document does **not** have: which role map entry
+a non-standard type means, what language the text is in, which of two `Separation` spaces wins, an
+attachment's media type, a CMap's write mode.
+
+That is neither `discard`, `preserve` nor `derive` — nothing is lost, nothing moves, nothing is
+computed from existing content. **The operator is the source.** It is also the one kind that
+cannot be got wrong by the converter and *can* be got wrong by the person: a role map entry
+supplied incorrectly is a lie about the document that this program would then write into an
+archive. So `supply` carries an obligation the other four do not — the report states the supplied
+value beside the requirement it answered, and `xmpMM:History` records that a human, not the
+document, is its source.
+
+### 5b.2 A site is finer than a requirement
+
+The configuration was keyed by requirement identifier. Seven refusals turn out to need two
+different answers under one identifier, and the distinction is never cosmetic:
+
+- a blend mode stated as an **array** has §11.6.3's fallback; a bare **name** has nothing — one is
+  a `Stated` rewrite and the other is A48's forbidden half;
+- an inline image's `LZWDecode` and its `Crypt` filter fail the same row for opposite reasons;
+- resources missing from a **page** and from a **form XObject** are different repairs;
+- `/CIDToGIDMap` has a default under part 2's base edition and none under part 4's.
+
+So a site key needs a **shape** qualifier beside §4.6's target qualifier. That is the second time
+the unit has turned out to be finer than it looked, and it is the last place to discover it cheaply
+— once a configuration format ships, a key is an interface.
+
+### 5b.3 Kind A is computable and the computation over-reports
+
+§4.7.5 claimed the census could answer "another part of ISO 19005 relaxes this" mechanically and
+for free. It can compute it; the answer needs reading. Of **57** candidates only **43** are
+genuine: renumbered siblings across parts, superseded keys, and flavour-entry conditions all look
+like relaxations and are not.
+
+And A had to be separated from *advice*. A requirement can be genuinely relaxed by another part and
+still carry **do not depart** — the structure tree at Level A is the case, where the honest answer
+is to retarget rather than to depart, because a departure there produces a file whose own claim to
+be Level A is the thing that is false.
+
+### 5b.4 Twenty-two refusals are not configurable, and saying so is the point
+
+Twenty-two of the 118 are **lossless rewrites nobody has written yet** — owed work rather than
+decisions. Offering an operator a configuration entry for one of those would be selling a permanent
+hole in somebody's archive to get past an afternoon of ours. They are marked *owed, not optional*
+in the catalogue and must not appear in `--remedy-sites` as anything but that.
+
+This is `REFUSED_BY_NAME`'s distinction arriving one level up: session 951 separated a fence from a
+gap so that "a later slice owes this" could not masquerade as a decision, and the same separation
+has to survive into the configuration or it is undone.
+
+### 5b.5 What the profiles could not express
+
+Two of the four fit §3 as proposed. The other two are findings:
+
+- **`refuse-any-loss` is the empty file.** Today's behaviour is every site's default, so a profile
+  stating it explicitly is byte-identical to no configuration at all — and an operator who has
+  deliberately chosen "refuse any loss" should be able to see that they chose it. The format needs
+  a `default` key.
+- **`keep-everything` needs four things the format lacks**: a `prefer` ordering, `supply`, a
+  bounded `on-failure` chain, and per-site `keep` lists. Without `prefer` it is one
+  target-qualified block per target per site — several hundred lines nobody would maintain, which
+  is a format failing rather than a profile failing.
+
+Every line of the drafts that names something unbuildable is marked `NOT-YET-IN-FORMAT`, so the
+files are a specification of what the format still owes rather than a promise it can keep.
+
 ## 6. Easy and difficult, against this tree
 
 **Easy**, because the architecture already has the seams:
