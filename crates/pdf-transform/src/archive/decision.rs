@@ -846,6 +846,30 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/cid-to-gid-map-present",
         answer: Answer::Stated(None, Rewrite::CidToGidIdentity, CID_TO_GID_REINTERPRETS),
     },
+    // ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
+    Remedy {
+        requirement: "metadata/xmp-packet-header-attributes",
+        answer: Answer::Mechanical(Rewrite::PacketHeaderAttributes),
+    },
+    // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2 — the second sentence of the pair.
+    // The first, `forms/no-xfa-key`, is still refused, which is what makes this one lossless:
+    // a document whose form dictionary still states an `/XFA` never reaches a written file.
+    Remedy {
+        requirement: "forms/no-needs-rendering",
+        answer: Answer::Mechanical(Rewrite::NeedsRendering),
+    },
+    // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6 — the two rows of that
+    // subclause whose subject is the font dictionary rather than the program. Each is mechanical
+    // only where `super::sites` has proved the glyph every code reaches is unchanged, and refused
+    // by that preparation where it is not.
+    Remedy {
+        requirement: "fonts/symbolic-truetype-states-no-encoding",
+        answer: Answer::Mechanical(Rewrite::SymbolicTrueTypeEncodingRemoved),
+    },
+    Remedy {
+        requirement: "fonts/non-symbolic-truetype-uses-a-standard-encoding",
+        answer: Answer::Mechanical(Rewrite::StandardTrueTypeEncoding),
+    },
     // ISO 19005-2 section 6.4.3, ISO 19005-4 section 6.5.1: the annotation rules, asked again of
     // a signature field's widget. Nothing of its own to do — the three rows it names are what
     // answer a widget as they answer any other annotation.
@@ -1269,16 +1293,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/embedded-cmap-states-its-own-write-mode",
         Because::NotBuiltYet(WRITE_MODE_DISAGREEMENT),
     ),
-    // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6: the two rows of that subclause
-    // whose subject is the font dictionary rather than the program.
-    (
-        "fonts/non-symbolic-truetype-uses-a-standard-encoding",
-        Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_COMPARED),
-    ),
-    (
-        "fonts/symbolic-truetype-states-no-encoding",
-        Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_COMPARED),
-    ),
     // ISO 19005-4 section 6.2.10.5.
     (
         "fonts/vertical-metrics-agree-with-the-program",
@@ -1287,10 +1301,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
     (
         "forms/no-xfa-key",
-        Because::NotBuiltYet(XFA_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "forms/no-needs-rendering",
         Because::NotBuiltYet(XFA_REMOVAL_NOT_BUILT),
     ),
     // ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1.
@@ -1451,10 +1461,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "metadata/xmp-packets-meet-the-xmp-data-model",
         Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
-    ),
-    (
-        "metadata/xmp-packet-header-attributes",
-        Because::NotBuiltYet(XMP_HEADER_ATTRIBUTES_NOT_REMOVED),
     ),
     (
         "metadata/xmp-character-data-only-in-simple-values",
@@ -1773,26 +1779,39 @@ const WRITE_MODE_DISAGREEMENT: &str = "this CMap stream's WMode entry and the wr
      text out in or the program's own bytes. That is a question for the document's owner, and no \
      interface exists to ask it";
 
-/// Why a TrueType font's stated encoding is neither written nor removed.
-const TRUETYPE_ENCODING_NOT_COMPARED: &str = "a non-symbolic TrueType font here names neither \
-     MacRomanEncoding nor WinAnsiEncoding, or a symbolic one names an encoding at all. The \
-     failing entry is in the font dictionary rather than the program, so no fence stands in the \
-     way — but §9.6.5.4 makes the encoding what decides which cmap subtable a character code is \
-     looked up through, so writing one or taking one away moves glyphs unless the program's own \
-     tables already agree. Establishing that they do, per font and per code, is the reading this \
-     needs and it is not built";
-
 /// Why vertical metrics are not restated the way horizontal advances already are.
+///
+/// **The direction matters and `doc/pdf-a-mitigations.md` had it the wrong way round.** That
+/// entry proposed restating `/DW2` and `/W2` from the program, "on the same argument that
+/// already justifies the horizontal case" — but the horizontal case restates the *program*, and
+/// for exactly the reason that makes the other direction unsafe: §9.2.4 makes the font
+/// dictionary's numbers what a processor positions glyphs by without looking inside the program,
+/// and §9.7.4.3 gives `/DW2` and `/W2` that role in vertical writing. Restating them would move
+/// every glyph on a vertical line; restating the program's `vmtx` moves nothing.
+///
+/// What this waits on is therefore the *writer* rather than the reader:
+/// `pdf_font::LoadedFont::program_vertical_advance` already hands the program's number back, and
+/// `pdf_font::restate` rewrites an sfnt's `hmtx` and a charstring's leading width and nothing
+/// vertical.
 const VERTICAL_METRICS_NOT_RESTATED: &str = "doc/pdf-a-conversion-limits.md section 4.9's \
-     restatement, in the other writing direction. This converter already restates an embedded \
-     program's horizontal advances into a font dictionary that disagrees with them, on the \
-     argument that the program is the file's own; §9.7.4.3's DW2 and W2 are the vertical \
-     equivalent, and the vertical metrics of an embedded program are what this tree's font \
-     reader does not yet hand back. That reading is what this requirement waits on";
+     restatement, in the other writing direction, and it is the program that would be restated \
+     rather than the dictionary. §9.2.4 makes the font dictionary's numbers what positions a \
+     glyph without looking inside the program, and §9.7.4.3 gives DW2 and W2 that role going \
+     down the page — so rewriting them would move every glyph on a vertical line, and rewriting \
+     the program's own vmtx moves nothing. This tree's font reader already states the program's \
+     vertical advance; what it cannot yet do is write one, which is where pdf_font::restate \
+     rewrites an sfnt's hmtx and nothing vertical. That writer is what this requirement waits \
+     on";
 
-/// Why `/XFA` and `/NeedsRendering` are not removed.
+/// Why `/XFA` is not removed.
+///
+/// **The pair this used to answer is now one row.** ISO 19005-2 section 6.4.2 forbids two
+/// entries and the catalog's `/NeedsRendering` is the half whose answer the base standard prints
+/// — §7.7.2's Table 29 deprecates it and gives it a default of `false` — so it is a
+/// `Rewrite::NeedsRendering` and no longer waits on this. What is left here is the half that
+/// genuinely needs a judgement about the producer's pipeline.
 const XFA_REMOVAL_NOT_BUILT: &str = "both parts forbid an XFA entry in the interactive form \
-     dictionary and a NeedsRendering entry in the catalog. doc/pdf-a-conversion-limits.md \
+     dictionary. doc/pdf-a-conversion-limits.md \
      section 3.4's default is to keep the AcroForm's data and drop the XFA key — ISO 32000-2 \
      Annex K requires a conforming hybrid file's AcroForm entries to be consistent with the XFA \
      information, so for a static form the AcroForm is the form — and to refuse a dynamic one \
@@ -1872,8 +1891,14 @@ const TRANSFER_FUNCTION_NOT_REMOVED: &str = "ISO 19005 forbids a TR entry in a g
 const JPEG2000_BOX_NOT_REWRITTEN: &str = "doc/pdf-a-conversion-limits.md section 4.10: this \
      field is in the JP2 wrapper rather than the codestream — the colour specification box's \
      method, and which specification is marked best available — so meeting the clause is byte \
-     surgery on a hundred-odd bytes and touches no sample. Mechanical where a permitted method \
-     describes the same colour, and not built: nothing in this tree writes a JP2 box";
+     surgery on a hundred-odd bytes and touches no sample. **What the cost does not settle is \
+     the value.** A method outside the three the part admits describes this image's colour in a \
+     way the part does not read, so writing one of the three in its place states a colour space \
+     the box did not; and marking exactly one specification as the best available, where the \
+     file marks none, ranks two of the producer's own specifications against each other on \
+     evidence the file does not carry. Dropping the others instead throws one of them away. \
+     Every route is a choice rather than a restatement, which is why this is refused rather \
+     than merely unwritten";
 
 /// Why JPEG 2000 samples are not re-encoded.
 const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
@@ -1888,12 +1913,18 @@ const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md se
 /// Why an `ICCBased` space duplicating the output intent's profile is not collapsed.
 const DUPLICATE_PROFILE_NOT_COLLAPSED: &str = "ISO 19005-4 forbids an ICCBased space, or a \
      Separation's alternate space, from carrying a CMYK destination profile identical to the one \
-     the output intent or the blending space already supplies. The remedy is the cheap one — the \
-     identical profile is already in the file, so naming DeviceCMYK in the space's place leaves \
-     every colour where it was, because ISO 19005-4 section 6.2.4.3 licenses that device space \
-     very intent. What the rewrite has to establish first is that every use of the space can \
-     take the substitution, since an ICCBased space also fixes a component count and a range, \
-     and it is not built";
+     the output intent or the blending space already supplies, and naming DeviceCMYK in its \
+     place looks mechanical: the identical profile is already the file's, and ISO 19005-4 \
+     section 6.2.4.3 licenses that device space through that very intent. **Two things stop it, \
+     and the first is decisive.** The rule binds a space that is *used*, so the failure is \
+     reported where the content stream selected it — a page, with no object — and the array to \
+     rewrite sits in a resource dictionary no finding names; siting the rewrite would mean \
+     walking the content streams a second time to decide which space was used, which is the \
+     validator's reading made again in this crate. And even sited it would not be a restatement: \
+     §8.6.7 applies non-zero overprint mode only where the current space is DeviceCMYK \
+     or is implicitly converted to it, so the substitution can decide a composite that \
+     §8.6.5.7 left open — which is the ambiguity section 6.2.4.2's own NOTE 2 names as the \
+     reason for the prohibition";
 
 /// Why overprint mode is not changed.
 const OVERPRINT_MODE_NOT_CHANGED: &str = "this file sets overprint mode 1 while an ICCBased CMYK \
@@ -1914,10 +1945,17 @@ const SEPARATIONS_NOT_RECONCILED: &str = "two Separation arrays here name the sa
 /// Why a `/Colorants` entry is not synthesised.
 const COLORANTS_NOT_SYNTHESISED: &str = "every spot colour a DeviceN or NChannel space uses \
      needs an entry in that space's Colorants dictionary, which the base standard leaves \
-     optional. doc/pdf-a-conversion-limits.md section 4.5 calls this a Default and a mechanical \
-     one, synthesised from the space's own alternate space and tint transform so that nothing is \
-     invented and no mark changes. How a single colourant's transform is derived from an \
-     N-input one is the part the rewrite has to settle, and it is not built";
+     optional. doc/pdf-a-conversion-limits.md section 4.5 calls this a Default, synthesised from \
+     the space's own alternate space and tint transform so that nothing is invented and no mark \
+     changes — and the entry it would write is a Separation, whose tint transform §8.6.6.4 makes \
+     a function of *one* input where the DeviceN's is a function of N. **That derivation is not \
+     arithmetic, because §7.10 gives a PDF function no way to call another.** The general route \
+     is to sample the producer's function along the one axis, which is an approximation of it \
+     rather than a restatement, and an approximation written into an archive as though it were \
+     the producer's definition is a loss wearing a mechanical's clothes. One shape could be \
+     exact and is the thing to build first: a §7.10.2 sampled transform already states its \
+     values on a grid, and the samples along one axis are the producer's own numbers rather \
+     than a re-approximation of them";
 
 /// Why a reference `XObject`'s `/Ref` is not dropped in favour of its proxy.
 const REFERENCE_XOBJECT_NOT_PROXIED: &str = "doc/pdf-a-conversion-limits.md section 2.3's one \
@@ -1946,14 +1984,6 @@ const XMP_PACKET_NOT_REBUILT: &str = "this file's metadata packet does not parse
      producer recorded, which is section 3's kind of loss; repairing it would be this converter \
      deciding what a malformed packet meant, which is doc/questions/A48's forbidden half. \
      Neither is built, and the first is the one a later slice can offer";
-
-/// Why a deprecated packet header attribute is not removed.
-const XMP_HEADER_ATTRIBUTES_NOT_REMOVED: &str = "this packet's header states the bytes or the \
-     encoding attribute, both of which the XMP standard deprecates and ISO 19005 forbids. Taking \
-     an attribute out of the processing instruction is byte surgery of exactly the kind \
-     pdf_model::xmp already does for a property — doc/pdf-a-conversion-limits.md section 3.9's \
-     removal by span — and it loses nothing a reader of the packet uses, since both attributes \
-     describe the packet's own framing. Nothing in this tree does it yet";
 
 /// Why character data outside a simple value is left where it is.
 ///

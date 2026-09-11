@@ -1,6 +1,6 @@
 # 0962 — A gitignored directory is part of the oracle's population, and a neighbour writes into it
 
-Status: accepted. Session 945.
+Status: accepted. Session 959 — recorded as 945 when written, which is ADR 0963.
 Context: `crates/pdf-model/tests/oracle.rs`, `doc/traps/oracle-and-references.md` trap 9,
 ISO 32000-2 §9.5 NOTE 5 and §9.8.1.
 

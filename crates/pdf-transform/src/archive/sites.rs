@@ -28,7 +28,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use pdf_archive::survey::Survey;
 use pdf_archive::{Outcome, Part, Target};
+use pdf_font::LoadedFont;
 use pdf_model::Pages;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
@@ -688,5 +690,204 @@ fn order_references(order: &[Object], depth: usize, into: &mut BTreeSet<ObjectId
             }
             _ => {}
         }
+    }
+}
+
+/// Why a deprecated XMP packet header attribute could not be cut out.
+const PACKET_HEADER_NOT_CUTTABLE: &str = "an XMP packet in this file states the deprecated bytes \
+     or encoding attribute in its header, and the header is not one this conversion can edit — \
+     the finding names no object, or the stream it names holds no readable packet, or the \
+     attribute is written in a shape whose value has no delimiter to cut to. Both attributes \
+     describe the packet's own framing, so removing one loses nothing a reader of the packet \
+     uses; what is refused here is guessing where one ends";
+
+/// Every metadata stream whose packet header is to lose a deprecated attribute.
+///
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1. The findings name the stream, and
+/// both attributes are reported at it — so a packet stating both is one object here rather than
+/// two, which is what [`Sites`] is a set for.
+pub(super) fn packet_headers(input: &pdf_archive::Report) -> Result<Sites, Because> {
+    let (at, elsewhere) = objects_named(input, &["metadata/xmp-packet-header-attributes"]);
+    if elsewhere {
+        return Err(Because::NotBuiltYet(PACKET_HEADER_NOT_CUTTABLE));
+    }
+    Ok(Sites { at })
+}
+
+/// Why a TrueType font's encoding entry is left as its producer wrote it.
+const TRUETYPE_ENCODING_NOT_PROVEN: &str = "a TrueType font in this file states an encoding \
+     ISO 19005 does not admit for it, and the entry cannot be changed without changing what a \
+     code draws. §9.6.5.4 makes the encoding decide which cmap subtable a code is looked up \
+     through, so this conversion proves the change first: the font is loaded as the file states \
+     it and again as it would be written, and every code its content streams actually showed has \
+     to reach the same glyph both ways. This font either failed that comparison, or embeds no \
+     program of its own — in which case what its codes draw is not a fact about the document at \
+     all — or showed more text than the survey kept, so that *every* is a word nothing here can \
+     say";
+
+/// Whether two readings of one font dictionary select the same glyph for every code shown.
+///
+/// **The codes the content streams drew, rather than every code a byte could be**, and the
+/// choice is this tree's own precedent read twice over: `super::fonts` restates the advances of
+/// the glyphs a font *showed*, and `super::to_unicode` derives a `CMap` over the codes a content
+/// stream *showed*. A code no operator ever passed to this font draws nothing, so no mark moves
+/// when the glyph it would have reached changes — and holding the rewrite to all 256 would
+/// refuse almost every real font, because a full Latin face resolves the upper half of
+/// `StandardEncoding` and `WinAnsiEncoding` to different glyphs by construction.
+///
+/// `None` where the survey kept only a prefix of what was drawn: `shown_complete` is
+/// `pdf_archive`'s own warning that a rule asking whether *every* shown code is sound may not
+/// read this list, and this is exactly such a rule.
+fn selects_the_same_glyphs(
+    shown: &[Vec<u8>],
+    complete: bool,
+    before: &LoadedFont,
+    after: &LoadedFont,
+) -> Option<bool> {
+    if !complete {
+        return None;
+    }
+    Some(shown.iter().all(|text| {
+        before
+            .decode(text)
+            .into_iter()
+            .all(|code| before.glyph_index(code) == after.glyph_index(code))
+    }))
+}
+
+/// The distinct strings one font object drew, and whether that list is all of them.
+///
+/// A font the survey never reached drew nothing, which is a complete list of no strings: the
+/// rewrite is then free, because no operator in the file passes a code to this font at all.
+fn shown_by(survey: &Survey, font: ObjectId) -> (Vec<Vec<u8>>, bool) {
+    let mut strings = Vec::new();
+    let mut complete = true;
+    for selected in survey.fonts() {
+        if selected.id != Some(font) {
+            continue;
+        }
+        complete &= selected.shown_complete;
+        strings.extend(selected.shown.keys().cloned());
+    }
+    (strings, complete)
+}
+
+/// One font dictionary, loaded as this file states it, for a comparison to be made against.
+///
+/// `None` where the font cannot be read at all, and where it carries **no program of its own**:
+/// a font whose face this program chose has no appearance the document determines, so a glyph
+/// comparison over it would be comparing this reader's substitution with itself rather than
+/// proving anything about the file.
+fn loaded_as_stated(document: &Document, dict: &Dictionary) -> Option<LoadedFont> {
+    let font = LoadedFont::load(document, dict, "").ok()?;
+    (!font.is_substituted()).then_some(font)
+}
+
+/// Every symbolic TrueType font whose `/Encoding` is to be removed.
+///
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6. Which fonts are symbolic is the
+/// validator's reading of the descriptor's flags rather than a second one made here; what this
+/// adds is the proof that the entry can go without moving a mark.
+pub(super) fn symbolic_truetype_encodings(
+    document: &Document,
+    input: &pdf_archive::Report,
+    survey: &Survey,
+) -> Result<Sites, Because> {
+    let (named, elsewhere) = objects_named(input, &["fonts/symbolic-truetype-states-no-encoding"]);
+    if elsewhere {
+        return Err(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN));
+    }
+    let mut at = BTreeSet::new();
+    for id in named {
+        let resolved = document.get(id);
+        let dict =
+            dictionary_of(&resolved).ok_or(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN))?;
+        let before = loaded_as_stated(document, dict)
+            .ok_or(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN))?;
+        let mut candidate = dict.clone();
+        candidate.remove("Encoding");
+        let after = LoadedFont::load(document, &candidate, "")
+            .map_err(|_| Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN))?;
+        let (shown, complete) = shown_by(survey, id);
+        if selects_the_same_glyphs(&shown, complete, &before, &after) != Some(true) {
+            return Err(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN));
+        }
+        at.insert(id);
+    }
+    Ok(Sites { at })
+}
+
+/// The two names ISO 19005 admits as a non-symbolic TrueType font's encoding, in the order they
+/// are tried.
+///
+/// An order rather than a preference: a font that passes the proof under either name draws the
+/// same glyphs under both, so which one is written is settled by nothing and is therefore settled
+/// here.
+const STANDARD_TRUETYPE_ENCODINGS: [&[u8]; 2] = [b"WinAnsiEncoding", b"MacRomanEncoding"];
+
+/// The `/Encoding` value each non-symbolic TrueType font is to state.
+#[derive(Debug, Default)]
+pub(super) struct StandardEncodings {
+    /// The value to write, per font object, in the source's numbering.
+    pub(super) at: BTreeMap<ObjectId, Object>,
+}
+
+/// Every non-symbolic TrueType font that is to be given one of §9.6.5.1's two admitted names.
+///
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6. **The value written keeps the
+/// producer's own dictionary where they wrote one**: §9.6.5.1 lets `/Encoding` be a name or a
+/// dictionary whose `/BaseEncoding` names one, and this requirement is about which name — so a
+/// `/Differences` array beside it is left exactly as it was.
+pub(super) fn standard_truetype_encodings(
+    document: &Document,
+    input: &pdf_archive::Report,
+    survey: &Survey,
+) -> Result<StandardEncodings, Because> {
+    let (named, elsewhere) = objects_named(
+        input,
+        &["fonts/non-symbolic-truetype-uses-a-standard-encoding"],
+    );
+    if elsewhere {
+        return Err(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN));
+    }
+    let mut found = StandardEncodings::default();
+    for id in named {
+        let resolved = document.get(id);
+        let dict =
+            dictionary_of(&resolved).ok_or(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN))?;
+        let before = loaded_as_stated(document, dict)
+            .ok_or(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN))?;
+        let (shown, complete) = shown_by(survey, id);
+        let written = STANDARD_TRUETYPE_ENCODINGS
+            .into_iter()
+            .find_map(|name| {
+                let value = standard_encoding_value(document, dict, name);
+                let mut candidate = dict.clone();
+                candidate.insert(Name::new(&b"Encoding"[..]), value.clone());
+                let after = LoadedFont::load(document, &candidate, "").ok()?;
+                (selects_the_same_glyphs(&shown, complete, &before, &after) == Some(true))
+                    .then_some(value)
+            })
+            .ok_or(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN))?;
+        found.at.insert(id, written);
+    }
+    Ok(found)
+}
+
+/// The `/Encoding` value a font stating this base encoding would have.
+///
+/// A bare name where the font states none or states one, and the producer's own encoding
+/// dictionary with its `/BaseEncoding` restated where they wrote a dictionary — which is the
+/// shape §9.6.5.1 gives the two spellings.
+fn standard_encoding_value(document: &Document, font: &Dictionary, base: &[u8]) -> Object {
+    match document.get_key(font, "Encoding") {
+        Object::Dictionary(mut stated) => {
+            stated.insert(
+                Name::new(&b"BaseEncoding"[..]),
+                Object::Name(Name::new(base)),
+            );
+            Object::Dictionary(stated)
+        }
+        _ => Object::Name(Name::new(base)),
     }
 }

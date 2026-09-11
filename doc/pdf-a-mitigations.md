@@ -488,24 +488,36 @@ ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · today `not-built-yet`
 
 #### `graphics/no-icc-space-duplicating-the-output-intent-profile`
 #### `graphics/separation-alternate-space-does-not-duplicate-a-current-profile`
-ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · today `not-built-yet`
+ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · today `the-fence` in its siting ·
+**corrected in session 962**
 
-- **Mitigation** — mechanical and lossless: name `DeviceCMYK` where the duplicate profile was, which
-  ISO 19005-4 6.2.4.3 licenses exactly because the identical profile is already the file's. Every
-  colour stays where it was. **Owed, not optional** — the only work is establishing that each use of
-  the space can take the substitution, since an `ICCBased` space also fixes a component count and a
-  range.
+- **Mitigation** — **none, and this entry was wrong twice** (ADR 0965; §13.3.1). It read: mechanical
+  and lossless, name `DeviceCMYK` where the duplicate profile was, which ISO 19005-4 6.2.4.3
+  licenses exactly because the identical profile is already the file's. Two things stop it. The rule
+  binds a space that is *used*, so the failure is reported where the content stream selected it — a
+  page, with no object — and the colour space array sits in a resource dictionary no finding names;
+  siting the rewrite means walking the content streams a second time to decide which space was used,
+  which is the validator's reading made again in the converter. And even sited it would not be a
+  restatement: §8.6.7 applies non-zero overprint mode only where the current space is `DeviceCMYK`
+  or is implicitly converted to it, so the substitution can decide a composite §8.6.5.7 leaves
+  open — the very ambiguity 6.2.4.2's NOTE 2 gives as the reason for the prohibition.
 - **By target** — part 2 states neither rule, so a PDF/A-2 target never asks (kind A, confirmed).
 - **From a configuration** — nothing, by design.
 - **Departure** — **A**, and pointless: the remedy loses nothing.
 
 #### `graphics/spot-colourants-appear-in-the-colorants-dictionary`
-ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · today `not-built-yet`
+ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · today `not-built-yet` ·
+**corrected in session 962**
 
 - **Mitigation** — synthesise each missing entry from the space's own alternate space and tint
-  transform, which is the limits document's section 4.5 Default and invents nothing. **Owed, not
-  optional**; the open question is how a single colourant's transform is derived from an *N*-input
-  one, and that is arithmetic rather than policy.
+  transform, which is the limits document's section 4.5 Default and invents nothing. This entry then
+  said the open question — how a single colourant's transform is derived from an *N*-input one — was
+  "arithmetic rather than policy", and **it is not** (ADR 0965): §7.10 gives a PDF function no way
+  to call another, so the §8.6.6.4 `Separation` this would write needs a one-input function the
+  general route can only obtain by *sampling* the producer's, which is an approximation written into
+  an archive as though it were their definition. One shape could be exact and is the thing to build
+  first: a §7.10.2 sampled transform already states its values on a grid, so the samples along one
+  axis are the producer's own numbers.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B**, and unnecessary. A `/Colorants` dictionary is what lets a reader render one
@@ -626,12 +638,19 @@ ISO 19005-2 6.2.6 · PDF/A-2b, 2u, 2a · today `the-fence`
 
 #### `graphics/jpeg2000-colour-specification-method`
 #### `graphics/jpeg2000-one-best-colour-space-specification`
-ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · today `not-built-yet`
+ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · today `not-built-yet` ·
+**corrected in session 962**
 
-- **Mitigation** — mechanical: the limits document's section 4.10 finding is that these two fields
-  live in the **JP2 wrapper** rather than the codestream, so meeting the clause is a rewrite of a
-  hundred-odd bytes that touches no sample. **Owed, not optional**; nothing in this tree writes a
-  JP2 box yet.
+- **Mitigation** — **none that restates anything.** The limits document's section 4.10 finding
+  stands and is about the *cost*: these two fields live in the **JP2 wrapper** rather than the
+  codestream, so the rewrite is a hundred-odd bytes and touches no sample. It settles nothing about
+  the *value* (ADR 0965). A `METH` outside the three the part admits describes this image's colour
+  in a way the part does not read, so writing one of the three states a colour space the box did
+  not; and marking exactly one specification as the best available, where the file marks none, ranks
+  two of the producer's own specifications against each other on evidence the file does not carry —
+  dropping the others throws one away instead. The second row is also not only a box rewrite: its
+  second sentence requires the *selected* specification's ICC profile to conform to the base
+  standard, which is the profile-replacement case.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B**, and pointless once the rewrite exists.
@@ -864,12 +883,35 @@ ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechani
 - **Departure** — **A**, confirmed, and pointless given two lossless remedies.
 
 #### `fonts/vertical-metrics-agree-with-the-program`
-ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · today `not-built-yet`
+ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · today `not-built-yet` · **corrected in session 962**
 
-- **Mitigation** — the limits document's section 4.9 restatement in the other writing direction:
-  restate `/DW2` and `/W2` from the embedded program's own vertical metrics, on the same argument
-  that already justifies the horizontal case — the program is the file's own. **Owed, not
-  optional**; what it waits on is this tree's font reader handing back vertical metrics.
+- **Mitigation** — the limits document's section 4.9 restatement in the other writing direction,
+  **and this entry had the direction backwards** (ADR 0965). It proposed restating `/DW2` and `/W2`
+  from the embedded program, "on the same argument that already justifies the horizontal case" — and
+  the horizontal case restates the **program**, for the reason that makes the other direction
+  unsafe: §9.2.4 makes the font dictionary's numbers what positions a glyph without looking inside
+  the program, and §9.7.4.3 gives `/DW2` and `/W2` that role going down the page, so restating them
+  moves every glyph on a vertical line. Restating the program's `vmtx` moves nothing.
+
+  **And §9.9.1 says so outright, which is stronger than the inference above and was not found when
+  this entry was corrected:** "The "vhea" and "vmtx" tables that specify vertical metrics shall
+  never be used by a PDF processor. The only way to specify vertical metrics in PDF shall be by
+  means of the DW2 and W2 entries in a CIDFont dictionary." So the direction is not a judgement
+  about which side is authoritative — the standard forbids a processor from reading the program's
+  side at all. Rewriting `vmtx` to agree with `/DW2` and `/W2` changes nothing any conforming
+  processor does, by the clause's own words, and rewriting the dictionary to agree with `vmtx`
+  would move marks on the authority of a table the standard says shall never be used.
+
+  **It also says what this PDF/A requirement is *for*, which the entry never asked.** If no
+  processor may read `vmtx`, the requirement cannot be about rendering: it is about the archive
+  being internally consistent for a reader that is not this one — the same motive as `/CIDSet` and
+  `/CharSet`, and the reason those two are deprecated rather than tightened. Worth carrying,
+  because it predicts which way *every* agree-with-the-program row should be rewritten.
+
+  **Owed, not
+  optional**, and what it waits on is the *writer* rather than the reader:
+  `pdf_font::LoadedFont::program_vertical_advance` already states the program's number and
+  `pdf_font::restate` rewrites an sfnt's `hmtx` and nothing vertical.
 - **By target** — part 2 states no vertical rule (confirmed **A**), so a PDF/A-2 target converts
   unchanged.
 - **From a configuration** — nothing.
@@ -889,14 +931,19 @@ ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · today `the-fence`
 
 #### `fonts/non-symbolic-truetype-uses-a-standard-encoding`
 #### `fonts/symbolic-truetype-states-no-encoding`
-ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · today `not-built-yet`
+ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built in session 962**
 
 - **Mitigation** — the failing entry is in the font dictionary rather than the program, so no fence
   stands in the way: write `WinAnsiEncoding` or `MacRomanEncoding`, or take the symbolic font's
-  `/Encoding` away. What makes it unbuilt rather than easy is that §9.6.5.4 makes the encoding
+  `/Encoding` away. What made it unbuilt rather than easy is that §9.6.5.4 makes the encoding
   decide which `cmap` subtable a code is looked up through, so the rewrite owes a **proof, per font
-  and per code used**, that the program's own tables already agree. That proof is code, not policy:
-  **owed, not optional.**
+  and per code used**, that the program's own tables already agree. **That proof is now made, by
+  loading the font twice** — once as the file states it and once as it would be written, comparing
+  the glyph every shown code reaches (ADR 0965). A font whose program the file does not carry, or
+  whose shown strings outran the survey's budget, is refused instead. The *per code used* half of
+  this entry turned out to be load-bearing rather than a convenience: over all 256 codes,
+  `StandardEncoding` and `WinAnsiEncoding` reach different glyphs at 80 of them in a full Latin
+  face, so a proof over the whole domain would never once have fired.
 - **By target** — none.
 - **From a configuration** — nothing, deliberately. An operator authorising *"write WinAnsiEncoding
   anyway"* would be authorising moved glyphs they cannot see.
@@ -1144,8 +1191,14 @@ ISO 19005-2 6.4.1, ISO 19005-4 6.4.1 · all six · today `not-built-yet`
 
 #### `forms/no-xfa-key`
 #### `forms/no-needs-rendering`
-ISO 19005-2 6.4.2, ISO 19005-4 6.4.2 · all six · today `not-built-yet`
+ISO 19005-2 6.4.2, ISO 19005-4 6.4.2 · all six · `forms/no-needs-rendering`
+**built in session 962**, `forms/no-xfa-key` today `not-built-yet`
 
+- **The two are not one question**, which is what building the second half showed (ADR 0965).
+  §7.7.2's Table 29 deprecates `/NeedsRendering` in PDF 2.0, names the XFA form as its subject and
+  gives it a default of `false`, so removing it states what an absent entry states — and a document
+  still holding an `/XFA` fails the row beside it and is refused, so no file the removal reaches had
+  a form for any reader to regenerate. The `/XFA` half keeps its refusal and its entry:
 - **Mitigation** — the limits document's section 3.4 default: keep the AcroForm's data and drop the
   `/XFA` key, which for a **static** form loses nothing, because ISO 32000-2 Annex K requires a
   conforming hybrid file's AcroForm entries to be consistent with the XFA information.
@@ -1286,12 +1339,16 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · `n
   (confirmed **A**), which gives an operator a cheaper route than departing.
 
 #### `metadata/xmp-packet-header-attributes`
-ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six · today `not-built-yet`
+ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six · **built in session 962**
 
 - **Mitigation** — remove the deprecated `bytes` or `encoding` attribute from the processing
   instruction: byte surgery of exactly the kind `pdf_model::xmp` already does for a property, losing
   nothing a reader of the packet uses, because both attributes describe the packet's own framing.
-  **Owed, not optional.**
+  Built in `pdf-transform` rather than in `pdf-model` — the change→gate map makes a `pdf-model` edit
+  cost every gate in the tree, and the cut is the converter's business (ADR 0965). Three shapes are
+  declined rather than guessed at: no `<?xpacket` in the window the validator searches, a header
+  padded with the NUL bytes one of ISO 16684-1's wide encodings writes, and a value with no
+  quotation marks to cut to.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B**, and pointless.
@@ -1646,22 +1703,48 @@ and are struck from the list here as they were struck from `decision.rs`'s `REFU
   needed a fifth kind of answer in the decision table rather than a rewrite: `Answer::AsUnderlying`
   takes the compound row's decision from the three annotation rows it names.
 
-**Eleven remain**, and each is where its own entry left it:
+**Four more were built in the nine-hundred-and-sixty-second session** (ADR 0965), and are struck
+here as they were struck from `REFUSED_BY_NAME`:
 
-`graphics/one-destination-profile-per-output-intents-array`, `graphics/no-icc-space-duplicating-the-
-output-intent-profile`, `graphics/separation-alternate-space-does-not-duplicate-a-current-profile`,
-`graphics/spot-colourants-appear-in-the-colorants-dictionary`,
-`graphics/jpeg2000-colour-specification-method`,
-`graphics/jpeg2000-one-best-colour-space-specification`,
-`fonts/vertical-metrics-agree-with-the-program`, `fonts/non-symbolic-truetype-uses-a-standard-
-encoding`, `fonts/symbolic-truetype-states-no-encoding`, `metadata/xmp-packet-header-attributes`,
-and `forms/no-needs-rendering` once `/XFA` is gone.
+- `metadata/xmp-packet-header-attributes` — `Mechanical`. Byte surgery on the `<?xpacket … ?>`
+  processing instruction, declining three shapes rather than guessing at them: no header in the
+  window the validator searches, a header padded with one of ISO 16684-1's wide encodings' NUL
+  bytes, and a value with no quotation marks to cut to.
+- `forms/no-needs-rendering` — `Mechanical`, and **on the refusal of the requirement beside it**.
+  §7.7.2's Table 29 deprecates the key, names XFA as its subject and gives it a default of
+  `false`; a document still stating an `/XFA` fails `forms/no-xfa-key` and is refused, so no file
+  this rewrite reaches had a form for any reader to regenerate.
+- `fonts/symbolic-truetype-states-no-encoding` and
+  `fonts/non-symbolic-truetype-uses-a-standard-encoding` — `Mechanical`, **with the proof this
+  entry asked for**: the font is loaded as the file states it and again as it would be written,
+  and every code the content streams showed has to reach the same glyph both ways. A font whose
+  program the file does not carry, or whose shown strings outran the survey's budget, is refused.
+
+**Five turned out not to be losslessly buildable at all.** They keep their refusal and lose their
+debt: each now carries an argument for why the right answer is a *choice* rather than an unwritten
+afternoon, and §13.3.1 has all five — the two duplicate-profile rows
+(`graphics/no-icc-space-duplicating-the-output-intent-profile`,
+`graphics/separation-alternate-space-does-not-duplicate-a-current-profile`), the two JPEG 2000 box
+rows (`graphics/jpeg2000-colour-specification-method`,
+`graphics/jpeg2000-one-best-colour-space-specification`), and
+`graphics/spot-colourants-appear-in-the-colorants-dictionary`.
+
+**Two remain owed**, and both are code rather than a decision:
+`fonts/vertical-metrics-agree-with-the-program`, whose entry §13.3.1 corrects and whose rewrite
+belongs in `pdf_font::restate` beside the `hmtx` one; and
+`graphics/one-destination-profile-per-output-intents-array`, untouched, and the one to take next —
+its findings name the offending output intent's object, so unlike the duplicate-profile pair it is
+sited, and the only question it has to answer is whether two entries' destination profiles are the
+same bytes.
 
 **This is the catalogue's most actionable output for the converter itself.** Nearly a fifth of the
 refusals were lossless rewrites nobody had written, and every one of them converts documents that
-had stopped.
+had stopped — with the correction two rounds of building it produced: **of the twenty-two, fifteen
+were waiting on code, five were waiting on a decision after all, and two are still waiting on
+code.** A claim that a refusal is only unwritten work is itself a claim, and it decays the way a
+ledger row's does.
 
-#### 13.3.1 What building eleven of them corrected in this catalogue
+#### 13.3.1 What building them corrected in this catalogue
 
 Two entries above were wrong about the work and one about the standard, and the corrections belong
 here rather than in a session note:
@@ -1678,6 +1761,43 @@ here rather than in a session note:
 - **`/CharSet` is deprecated too**, not only `/CIDSet`. The entry gave the part 4 preference for
   removal on `/CIDSet`'s deprecation alone; §9.8.1's Table 122 deprecates both in PDF 2.0, which
   makes *remove* the better of the two lossless routes at every target rather than at one.
+
+Four more, from the four built in session 962 and the five refused there (ADR 0965). Two are
+about the standard and two about the work, and the first would have written a wrong file:
+
+- **The vertical metrics entry had the writing direction backwards.** It proposed restating
+  `/DW2` and `/W2` from the program "on the same argument that already justifies the horizontal
+  case" — and the horizontal case restates the **program**, for the reason that makes the other
+  direction unsafe: §9.2.4 makes the font dictionary's numbers what positions a glyph without
+  looking inside the program, and §9.7.4.3 gives `/DW2` and `/W2` that role going down the page.
+  Restating them moves every glyph on a vertical line. The entry was also wrong about what the row
+  waits on: `pdf_font::LoadedFont::program_vertical_advance` already states the program's number —
+  the validator's own predicate is built on it — and what is missing is the *writer*,
+  `pdf_font::restate`, which rewrites an sfnt's `hmtx` and nothing vertical.
+- **The two duplicate-profile rows are neither mechanical nor sited.** ISO 19005-4 6.2.4.2's last
+  requirement binds a space that is *used*, so the failure is reported where the content stream
+  selected it — a page, with no object — and the colour space array sits in a resource dictionary
+  no finding names; siting the rewrite means walking the content streams a second time to decide
+  which space was used, which is the validator's reading made again in the converter. And even
+  sited it would not be a restatement: §8.6.7 applies non-zero overprint mode only where the
+  current space is `DeviceCMYK` or is implicitly converted to it, so the substitution can decide a
+  composite §8.6.5.7 leaves open — the very ambiguity 6.2.4.2's NOTE 2 gives as the reason for the
+  prohibition.
+- **The JPEG 2000 entry was right about the cost and silent about the value.** These two fields do
+  live in the JP2 wrapper, and the rewrite is a hundred-odd bytes that touches no sample — but
+  every value it could write is a choice. A `METH` outside the three the part admits describes the
+  colour in a way the part does not read, so writing one of the three states a colour space the
+  box did not; and marking exactly one specification best available, where the file marks none,
+  ranks two of the producer's own specifications on evidence the file does not carry. The entry
+  also missed the row's second sentence, which requires the *selected* specification's ICC profile
+  to conform — the profile-replacement case, not byte surgery.
+- **A PDF function cannot call another one.** The colourants entry called deriving a single
+  colourant's transform from an *N*-input one "arithmetic rather than policy"; §7.10 gives no way
+  to compose functions, so the §8.6.6.4 `Separation` this would write needs a one-input function
+  that the general route can only obtain by **sampling** the producer's — an approximation written
+  into an archive as though it were their definition. One shape could be exact and is the thing to
+  build first: a §7.10.2 sampled transform already states its values on a grid, so the samples
+  along one axis are the producer's own numbers.
 
 ---
 

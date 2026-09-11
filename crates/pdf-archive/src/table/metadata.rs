@@ -371,10 +371,18 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              crate is handed a single document with no earlier state, was wrong. What is still \
              out of reach is the clause's *condition*: whether an `xmpMM:History` entry was \
              **added** is a comparison of two revisions' metadata packets, and resolving the \
-             earlier one's `/Metadata` needs an object resolved as of an earlier section, which \
-             `pdf_syntax` does not offer. A check firing on the trailers alone would report a \
-             revision that added no history entry, which section 6.6.5 does not bind at all \
-             (`doc/adr/0929`)",
+             earlier one's `/Metadata` needs an object resolved as of an earlier section. The \
+             route that exists is §7.5.6's own prefix property, which `pdf-transform` and \
+             `pdf-vfs` already read off a file: bytes 0 to the end of an earlier revision are \
+             themselves a document, so `Document::open` over that prefix would resolve its \
+             catalog and its `/Metadata` with no new resolver at all. What blocks it is one \
+             number. `pdf_syntax::xref::SectionRecord` states where a section *begins* and not \
+             where its revision ends, and the end is what a prefix has to be cut at — so \
+             unblocking this row is a field on that record (or the scan for the `%%EOF` after \
+             the section's own `startxref`) rather than a resolver keyed on revisions. A check \
+             firing on the trailers alone would report a revision that added no history entry, \
+             which section 6.6.5 does not bind at all (`doc/adr/0929`, and ADR 0964 for the \
+             prefix route)",
         ),
     },
     Requirement {

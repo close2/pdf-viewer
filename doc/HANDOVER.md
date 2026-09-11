@@ -68,9 +68,9 @@ meant to be.
 |---|---|---|
 | [`doc/traps/pixels-and-rasterisers.md`](traps/pixels-and-rasterisers.md) | can change a pixel — the interpreter's marks, any rasteriser, colour, a cross-backend scene | 1, 2, 6, 12b, 12c, 14 |
 | [`doc/traps/oracle-and-references.md`](traps/oracle-and-references.md) | reads a verdict, diagnoses a page, invokes another renderer, or moves a tolerance | 3, 9, 12, 26 |
-| [`doc/traps/parsers-and-streams.md`](traps/parsers-and-streams.md) | touches `pdf-syntax`, a filter, a font program, an image codec, or decides what to do with input it cannot fully handle | 4, 5, 8, 28 |
+| [`doc/traps/parsers-and-streams.md`](traps/parsers-and-streams.md) | touches `pdf-syntax`, a filter, a font program, an image codec, or decides what to do with input it cannot fully handle | 4, 5, 8, 28, 38 |
 | [`doc/traps/the-interactive-loop.md`](traps/the-interactive-loop.md) | turns a press into a command, converts between the page's space, the display list's and the raster's, answers the core about a render, waits on a toolkit's loop, or writes that a toolkit cannot do something | 12a, 17, 19, 20, 21, 22 |
-| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect, puts a process under a limit — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 10b, 11, 13, 15, 16, 18, 23, 24, 25, 27, 29, 30, 31, 32, 33, 34, 35 |
+| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect, puts a process under a limit — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 10b, 11, 13, 15, 16, 18, 23, 24, 25, 27, 29, 30, 31, 32, 33, 34, 35, 36, 37, 39 |
 
 **Two of them are not optional for the round they are about.** If this round can change a pixel,
 **trap 1** — *the metrics lie, look at the page* — is the one that has paid every session since the
@@ -128,6 +128,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 35 | A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident | instruments |
 | 36 | A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask | instruments |
 | 37 | A digest of the artefact cannot see a change in the *diagnosis* | instruments |
+| 38 | A resource bound can sit below what the standard's own data states | parsers |
 
 ---
 

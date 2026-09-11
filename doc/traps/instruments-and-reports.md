@@ -714,6 +714,38 @@ count that is nearby and cheaper to reach.
 It is trap 25's shape one level in: there the population was wrong, here the *event* is, and both
 fail by returning a clean answer to a question nobody asked.
 
+### 39. A signal that always fires has stopped being a signal, and it looks like caution
+
+`tools/round.sh` prints whether this is a **fifth round** — the round that runs `doc/todo/02`'s
+whole gate sequence whatever it touched, because a change→gate map is a claim about the crate graph
+and a claim decays. It computed that from the session number, and it took the session number from
+the branch name, which on a campaign branch is the number the *campaign* started at. On
+`round-945/the-fifth-round` it printed `session 945` for fourteen rounds, and because 945 divides by
+five it printed **a fifth round** for all fourteen (ADR 0969).
+
+Nothing broke. The full sequence ran where the core four were owed, which costs minutes and hides
+nothing, and that is exactly why nobody looked: **the failure was in the safe direction, so it read
+as caution rather than as a defect.** It was found by a round writing the `doc/history/` files it
+owed, which is the only job that reads the session number and the directory it is derived from in
+the same minute.
+
+What was actually lost is the distinction the signal exists to make. A periodic unconditional check
+and a targeted one are different claims about a round, and fourteen rounds now have no record of
+which they were — including the three that genuinely were fifth rounds.
+
+This is trap 11's other failure mode and it is the harder one to see. **Trap 11 is a report that
+fires on the wrong condition; this is a report whose condition is a constant.** A gate that always
+passes is the shape everybody watches for. A gate that always fires is the same defect wearing the
+reassuring half, and the only way to catch it is to ask an instrument, once, *has this ever answered
+the other way* — which for a periodic signal means checking that the period is real and not that the
+signal is on.
+
+The fix generalises past this script. The wrong number came from a **hard-coded preference between
+two sources of a fact**, each of which goes stale in its own direction; the comment defending it
+said the branch name "cannot go stale". Where two sources are both floors, take the later of the two
+and print which one won — then nobody has to remember which to trust, and a workflow that has
+outgrown one of them is visible in the place every round already looks.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic

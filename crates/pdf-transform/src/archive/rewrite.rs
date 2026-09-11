@@ -22,12 +22,12 @@ use crate::Refusal;
 use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
 use super::prepare::{
-    Appearances, Cleaned, DefaultCmyk, Intent, Metadata, Prepared, intent_dictionary,
+    Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, intent_dictionary,
     metadata_stream, output_intent_entries,
 };
 use super::sites::{
     self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, RELATIVE_COLORIMETRIC,
-    RENDERING_INTENTS,
+    RENDERING_INTENTS, StandardEncodings,
 };
 use super::to_unicode::DerivedMaps;
 
@@ -331,8 +331,60 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 forbid both. Each describes
     /// the packet's own framing rather than anything inside it, so the attribute is cut out of
     /// the processing instruction and every other byte of the producer's packet crosses
-    /// unchanged — `pdf_model::xmp::without_deprecated_header_attributes`.
+    /// unchanged — `super::prepare::without_deprecated_header_attributes` is the cut.
+    ///
+    /// **The edit is the last of the three a packet can take.** A property removal and the
+    /// identification schema both rewrite the RDF the header wraps, so the attributes come off
+    /// the bytes those left rather than off the producer's original — which is why the
+    /// preparation is threaded through them rather than applied beside them.
     PacketHeaderAttributes,
+    /// The catalog's `/NeedsRendering` is removed.
+    ///
+    /// ISO 19005-2 section 6.4.2 and ISO 19005-4 section 6.4.2 forbid the key. §7.7.2's Table 29
+    /// says what it is, and every clause of the sentence is why removing it loses nothing:
+    ///
+    /// > ( Optional; deprecated in PDF 2.0 ) A flag used to expedite the display of PDF documents
+    /// > containing XFA forms. It specifies whether the document shall be regenerated when the
+    /// > document is first opened. See Annex K, ' XFA forms ' . Default value: false .
+    ///
+    /// So the entry is deprecated, its subject is the XFA form, and the value an absent entry
+    /// states is `false` — the file goes on saying what it said to every reader that had no XFA
+    /// engine.
+    ///
+    /// **What makes it lossless rather than nearly so is the requirement beside it.** A document
+    /// whose form dictionary still states an `/XFA` fails `forms/no-xfa-key`, which this
+    /// converter refuses, so no file this rewrite reaches is one where a reader had a form to
+    /// regenerate. The two are one clause and this half is the half whose answer the standard
+    /// prints.
+    NeedsRendering,
+    /// Every symbolic TrueType font that states an `/Encoding` loses it, where no code it could
+    /// show reaches a different glyph without it.
+    ///
+    /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 forbid the entry on a
+    /// symbolic font. The entry is in the font dictionary rather than in the program, so ADR
+    /// 0816's fence does not stand in the way — but §9.6.5.4 makes the encoding decide which
+    /// `cmap` subtable a code is looked up through, so taking it away can change which glyph a
+    /// code draws. **The proof is what makes this mechanical**: the font is loaded as the file
+    /// states it and again with the entry gone, and every one of the 256 codes a simple font can
+    /// show has to reach the same glyph in both. A single disagreement refuses the document
+    /// rather than moving a mark.
+    SymbolicTrueTypeEncodingRemoved,
+    /// Every non-symbolic TrueType font whose encoding is neither `MacRomanEncoding` nor
+    /// `WinAnsiEncoding` is given whichever of the two leaves every code on the glyph it already
+    /// reached.
+    ///
+    /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 require one of the two
+    /// names. [`Self::SymbolicTrueTypeEncodingRemoved`]'s proof, in the other direction: the
+    /// candidate is written into a copy of the font dictionary, the font is loaded both ways, and
+    /// the name is used only where all 256 codes reach the glyph they reached before.
+    /// `WinAnsiEncoding` is tried first and `MacRomanEncoding` second, which is an order rather
+    /// than a preference — a font that passes under either is unchanged by the choice, and one
+    /// that passes under neither is refused.
+    ///
+    /// **A `/Differences` array is left exactly as its producer wrote it.** §9.6.5.1 makes the
+    /// base encoding and the differences two entries of one dictionary, and this requirement is
+    /// about the first; the rows about the second are their own.
+    StandardTrueTypeEncoding,
 }
 
 impl Rewrite {
@@ -452,6 +504,19 @@ impl Rewrite {
                 "an XMP packet header loses the deprecated bytes or encoding attribute, leaving \
                  every other byte of the packet as its producer wrote it"
             }
+            Self::NeedsRendering => {
+                "the catalog's NeedsRendering goes, which ISO 32000-2 deprecates and whose \
+                 absence states the false its own table gives as the default"
+            }
+            Self::SymbolicTrueTypeEncodingRemoved => {
+                "a symbolic TrueType font's Encoding entry goes, where every one of the 256 codes \
+                 it could show reaches the same glyph without it"
+            }
+            Self::StandardTrueTypeEncoding => {
+                "a non-symbolic TrueType font is given WinAnsiEncoding or MacRomanEncoding, \
+                 whichever leaves every one of the 256 codes it could show on the glyph it \
+                 already reached"
+            }
         }
     }
 
@@ -491,6 +556,9 @@ impl Rewrite {
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::PacketHeaderAttributes => "packet-header-attributes",
+            Self::NeedsRendering => "needs-rendering",
+            Self::SymbolicTrueTypeEncodingRemoved => "symbolic-truetype-encoding-removed",
+            Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
         }
     }
 }
@@ -542,6 +610,9 @@ pub(super) fn convert(
         page_resources: prepared.owed.page_resources.as_ref().ok(),
         descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
         cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
+        packet_headers: prepared.owed.packet_headers.as_ref().ok(),
+        symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
+        standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1196,6 +1267,12 @@ struct Rewriter<'a> {
     descriptor_sets: Option<&'a DescriptorSets>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
     cid_to_gid: Option<&'a sites::Sites>,
+    /// The packets whose header loses a deprecated attribute, where any do.
+    packet_headers: Option<&'a Headers>,
+    /// The symbolic TrueType fonts whose `/Encoding` goes.
+    symbolic_encodings: Option<&'a sites::Sites>,
+    /// The `/Encoding` each non-symbolic TrueType font is to state.
+    standard_encodings: Option<&'a StandardEncodings>,
 }
 
 impl Rewriter<'_> {
@@ -1343,6 +1420,48 @@ impl Rewriter<'_> {
         changed |= self.attach_page_resources(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
+        changed |= self.restate_truetype_encoding(id, out, applied);
+        changed
+    }
+
+    /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6's two font-dictionary rows,
+    /// written at the fonts [`super::sites`] proved the change safe for.
+    ///
+    /// **Nothing is decided here.** Which fonts are symbolic is the validator's reading of the
+    /// descriptor's flags, and whether the new value leaves every code on the glyph it already
+    /// reached was settled by the preparation — a font that failed that comparison never reaches
+    /// this walk, because the requirement is refused and no file is written.
+    ///
+    /// The value written for a non-symbolic font is the producer's own encoding dictionary where
+    /// they wrote one, with its `/BaseEncoding` restated. An encoding dictionary the file held
+    /// indirectly is written directly into this font, which changes the object graph and not one
+    /// name a code resolves through: another font sharing that object goes on sharing it, and
+    /// this one now states the same entries with one name corrected.
+    fn restate_truetype_encoding(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self.wants(Rewrite::SymbolicTrueTypeEncodingRemoved)
+            && self
+                .symbolic_encodings
+                .is_some_and(|sites| sites.at.contains(&id))
+            && out.remove("Encoding").is_some()
+        {
+            count(applied, Rewrite::SymbolicTrueTypeEncodingRemoved);
+            changed = true;
+        }
+        if self.wants(Rewrite::StandardTrueTypeEncoding)
+            && let Some(value) = self
+                .standard_encodings
+                .and_then(|encodings| encodings.at.get(&id))
+        {
+            out.insert(Name::new(&b"Encoding"[..]), value.clone());
+            count(applied, Rewrite::StandardTrueTypeEncoding);
+            changed = true;
+        }
         changed
     }
 
@@ -1749,6 +1868,10 @@ impl Rewriter<'_> {
             count(applied, Rewrite::RequirementsDictionary);
             changed = true;
         }
+        if self.wants(Rewrite::NeedsRendering) && catalog.remove("NeedsRendering").is_some() {
+            count(applied, Rewrite::NeedsRendering);
+            changed = true;
+        }
         if self.wants(Rewrite::CatalogVersion) && catalog.get("Version").is_some() {
             // ISO 19005-4 section 6.1.12 fixes the shape of this value; §7.7.2's Table 28 gives
             // the entry its meaning, "[t]he version of the PDF specification to which this
@@ -1839,6 +1962,16 @@ impl Rewriter<'_> {
             count(applied, Rewrite::PostScriptXObject);
             return Rewritten::Dropped;
         }
+        // **Three writers over one packet, and the last of them is what counts the first two's
+        // work.** `super::prepare` folds the header cut into the bytes the property removal
+        // starts from and those into the bytes the identification schema is restated into, so
+        // whichever of the three branches below writes this stream is writing every edit — and a
+        // rewrite that happened has to be counted wherever it is carried, not only where it is
+        // the sole reason the stream changed.
+        let header_cut = self.wants(Rewrite::PacketHeaderAttributes)
+            && self
+                .packet_headers
+                .is_some_and(|headers| headers.packet(id).is_some());
         // The producer's own packet, with the identification schema's properties cut out of it
         // and this target's put in — every other byte of it the producer's. The removal of
         // section 6.6.2.3.1's properties has already been folded into these bytes, because the
@@ -1848,6 +1981,9 @@ impl Rewriter<'_> {
             && metadata.written.is_none()
             && metadata.at == id
         {
+            if header_cut {
+                count(applied, Rewrite::PacketHeaderAttributes);
+            }
             return Rewritten::Changed(metadata_stream(&stream.dict, &metadata.packet));
         }
         // Every *other* metadata stream a property was taken out of: an object's own packet is
@@ -1855,6 +1991,18 @@ impl Rewriter<'_> {
         if self.wants(Rewrite::PropertyOutsideItsSchema)
             && let Some(packet) = self.cleaned.and_then(|cleaned| cleaned.packets.get(&id))
         {
+            if header_cut {
+                count(applied, Rewrite::PacketHeaderAttributes);
+            }
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
+        // And a packet whose *only* edit is the header's, which is the common case: neither
+        // attribute has anything to do with the RDF, so a file whose metadata is otherwise
+        // conforming fails this requirement on its own.
+        if header_cut
+            && let Some(packet) = self.packet_headers.and_then(|headers| headers.packet(id))
+        {
+            count(applied, Rewrite::PacketHeaderAttributes);
             return Rewritten::Changed(metadata_stream(&stream.dict, packet));
         }
         // The font program itself, restated: a whole new stream rather than a dictionary edit,

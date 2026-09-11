@@ -38,9 +38,14 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             format!("part of the page's content is missing: {issue:?}")
         }
         Unsupported::Annotation { detail } => format!("an annotation was not drawn: {detail}"),
-        Unsupported::LimitReached { limit } => {
-            format!("the page reached this program's {limit} bound and was not drawn to the end")
-        }
+        // Worded as *something is missing* rather than as *the page stopped*, because both
+        // shapes reach here: `MAX_OPERATIONS` does end the run, while `max_clips` and
+        // `max_cmap_ranges` leave the page drawn to its end with a clip unapplied or a code
+        // sent to CID 0 (ADR 0963). The old sentence claimed the first of those for every
+        // bound, which is trap 11 in a message rather than in a condition.
+        Unsupported::LimitReached { limit } => format!(
+            "the page reached this program's {limit} bound, so part of what the document asked              for is not on it"
+        ),
         // Both of these are drawn — they say the picture is *nearly* right, which is a
         // different sentence from the ones above and has to read like one.
         Unsupported::TextKnockout { glyphs } => format!(

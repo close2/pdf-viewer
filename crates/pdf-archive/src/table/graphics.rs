@@ -86,7 +86,7 @@ use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 use crate::survey::{DefaultSpace, DeviceColour, DeviceFamily, IccProfile, Route, SpaceKind};
 use crate::table::{name_of, states, states_name};
-use crate::target::Flavour;
+use crate::target::{Flavour, Part};
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
 pub(super) static REQUIREMENTS: &[Requirement] = &[
@@ -750,12 +750,13 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 /// What is left of the destination profile's *validity* once the two rows beside it are subtracted.
 ///
 /// Both parts require the `DestOutputProfile` value to be a valid ICC profile stream, and neither
-/// says what makes one valid; the base standard hands the format to §8.6.5.5, which hands it to
-/// the ICC specification itself. That sentence bottoms out in a text, and **which** text is the
-/// profile's own choice: §8.6.5.5 closes with "Profiles shall conform to the specification version
-/// indicated by the Profile version number in its header", so a profile stating 4.4.0.0 is judged
-/// by ICC.1:2022 and one stating 5.0.0.0 by ICC.2:2023 — the two this project now holds — while
-/// one stating 2.x, or 4.0 to 4.3, names a text that is still not here.
+/// says what makes one valid; the base standard hands the format to the ICC specification itself.
+/// That sentence bottoms out in a text, and **which** text is the profile's own choice: a profile
+/// stating 4.4.0.0 is judged by ICC.1:2022 and one stating 5.0.0.0 by ICC.2:2023, while one
+/// stating 2.x, or 4.0 to 4.3, names a text that is still not here. [`IccEdition`] carries what
+/// makes the header's version the key, and it is **two** grounds rather than one: §8.6.5.5's
+/// closing sentence for a part 4 file, and — because ISO 32000-1:2008, 8.6.5.5 states no such
+/// sentence — each ICC edition's own account of its version field for a part 2 one.
 ///
 /// Four editions are now held and each states the version consistent with itself, so a profile
 /// stating 2.2.0, 4.0.0, 4.4.0.0 or 5.0.0.0 is judged by the text it names; one stating 2.0.0,
@@ -785,9 +786,11 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 /// either. Both are reported by the rows beside this one, so the file is no longer a miss —
 /// what stays here is everything else validity means.
 const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require the destination profile to be a *valid* ICC profile stream and neither \
-     defines validity; the base standard sends the format to ISO 32000 section 8.6.5.5, which \
-     sends it to the ICC specification — and to a particular edition of it, since that clause \
-     requires a profile to conform to the version its own header states. This project holds four \
+     defines validity; the base standard sends the format to the ICC specification — and to a \
+     particular edition of it, which the profile's own header names. Under part 4 ISO 32000-2 \
+     section 8.6.5.5 says so outright; under part 2 it does not, and what selects the edition \
+     there is each ICC text's own statement that its version field identifies the edition a \
+     profile conforms to. This project holds four \
      of those editions and each states its own version number: ICC.1:1998-09 (2.2.0), \
      ICC.1:2001-12 (4.0.0), ICC.1:2022 (4.4.0.0) and ICC.2:2023 (5.0.0.0). It holds \
      ISO 15076-1:2010 (4.3.0.0) only as a front-matter preview that stops before clause 7, and \
@@ -1271,6 +1274,19 @@ fn check_destination_profiles(
 /// ICC.1:2022 section 7.2.4 gives 4.4.0.0 and ICC.2:2023 section 7.2.6 gives 5.0.0.0. All four
 /// clauses put the major version in byte 8 and the minor and bug-fix versions in the two halves of
 /// byte 9, which is what `pdf_model::icc::Identification` reads.
+///
+/// **That sentence is ISO 32000-2's and is not in ISO 32000-1:2008**, whose own 8.6.5.5 maps the
+/// *PDF* version to an ICC version in its Table 67 and says a reader shall process an embedded
+/// profile according to the PDF version being processed — a rule about the reader. So a part 2
+/// verdict cannot rest on it, and the rows that judge a part 2 file by this key rest on the ICC
+/// texts instead: each of the four says its version field identifies the edition the profile
+/// conforms to, ICC.1:2022 section 7.2.4 and ICC.2:2023 section 7.2.6 in those words and the two
+/// older ones by saying the revision numbers match the editions of the specification. A profile
+/// stating 5.0.0.0 therefore claims iccMAX whichever part is asking, and failing iccMAX's
+/// requirements is what makes it not a valid ICC profile under ISO 19005-2 section 6.2.3's own
+/// undefined word. **This comment cited §8.6.5.5 for both parts until the nine-hundred-and-sixty-
+/// first session**, which was a reading of ISO 32000-2 applied to a file whose base standard is
+/// ISO 32000-1 — `Part::Two`'s standing caveat, met in the concrete. ADR 0964.
 ///
 /// **The match is exact rather than "4.4 or later" or "any version 2".** Each edition says which
 /// number is consistent with *it*, and nothing held says what a 2.1.0 or a 4.1.0 profile would have
@@ -3637,18 +3653,43 @@ fn jpeg2000_channel_count(exam: &Examination<'_>, findings: &mut Findings) {
 /// `APPROX` field; and where *that* specification — the selected one — uses an ICC profile, the
 /// profile shall meet what the base standard requires of one.
 ///
-/// **The ICC half is read as far as ISO 32000-2 §8.6.5.5's Table 67 goes and no further**, which
-/// is the boundary [`icc_profiles_conform_to_the_base_standard`] already draws for the same
-/// clause: the profile's device class and data colour space are checked against that table,
-/// while Table 65's `N` has no counterpart here — a profile inside a `colr` box sits in no PDF
-/// dictionary to disagree with — and the sentence asking a profile to conform to the ICC
-/// specification its own header names needs the ICC texts, which this project does not hold.
+/// # How far the ICC half is read, and why the two parts differ
+///
+/// Table 67's two header fields are checked for both parts — the profile's device class and its
+/// data colour space — which is the boundary [`icc_profiles_conform_to_the_base_standard`] draws
+/// for an `ICCBased` space. Table 65's `N` has no counterpart here at all: a profile inside a
+/// `colr` box sits in no PDF dictionary to disagree with.
+///
+/// **Beyond that the two parts do not send the profile to the same document, and the difference
+/// decides a whole sentence.** ISO 19005-4 section 6.2.7.3 sends it to ISO 32000-2 §8.6.5.5, which
+/// closes with
+///
+/// > Profiles shall conform to the specification version indicated by the Profile version number
+/// > in its header.
+///
+/// so the header's version selects the text that judges the profile, exactly as it does for the
+/// `ICCBased` spaces [`icc_profiles_carry_the_tags_their_version_requires`] and the destination
+/// profiles [`destination_profile_carries_the_tags_its_class_requires`] judge. ISO 19005-2
+/// section 6.2.8.3 sends it to ISO 32000-1:2008, 8.6.5.5 instead, and **that clause states no such
+/// sentence**: its Table 67 maps the *PDF* version to an ICC specification version and tells a
+/// reader to process an embedded profile according to the PDF version being processed, which is a
+/// rule about the reader and not a conformance a profile's own header claims. So the edition check
+/// below is asked of part 4 alone, and a part 2 file's `colr` profile is held to Table 68's two
+/// fields and nothing more.
+///
+/// **This used to say the sentence "needs the ICC texts, which this project does not hold".** Four
+/// of those editions arrived — ICC.1:1998-09 and ICC.1:2001-12 in the nine-hundred-and-fiftieth
+/// session, ICC.1:2022 and ICC.2:2023 before them — and [`missing_required_tags`] and
+/// [`IccEdition::profile_id_clause`] have judged `ICCBased` and destination profiles against them
+/// since. Nothing announced that the same judge could reach a profile inside a `colr` box, which
+/// is `doc/habits.md`'s third shape: a capability that arrived and said nothing. ADR 0964.
 ///
 /// Only a `METH` of 2 yields profile bytes to read. ISO/IEC 15444-1:2000 Table I-9 defines the
 /// embedded profile for that method alone and reserves every other value, so a `METH` of 3 —
 /// which ISO 19005 permits and part 1 does not describe — carries bytes this tree cannot claim
 /// to be reading correctly, and they are left alone rather than guessed at.
 fn jpeg2000_one_best_colour_space_specification(exam: &Examination<'_>, findings: &mut Findings) {
+    let part = exam.target.part();
     for_each_jpeg2000(exam, |id, headers| {
         let best: Vec<&ColourSpecification<'_>> = headers
             .colour
@@ -3698,7 +3739,66 @@ fn jpeg2000_one_best_colour_space_specification(exam: &Examination<'_>, findings
                  colour space the base standard does not admit for a colour space",
             );
         }
+        if part == Part::Four {
+            jpeg2000_profile_conforms_to_its_own_edition(id, profile, class, findings);
+        }
     });
+}
+
+/// What the edition a `colr` profile's header names requires of it, for the editions held.
+///
+/// Split out of [`jpeg2000_one_best_colour_space_specification`] rather than written inline
+/// because it is the *same* two questions the `ICCBased` and destination-profile rows already ask
+/// — the required tags of the profile's class, and the `Profile ID` where the edition states a
+/// method this crate can compute — reached through a third route. Keeping them in one place is
+/// what stops the three routes drifting apart; [`IccEdition`] is where the reading of each edition
+/// lives, and neither table is restated here.
+///
+/// A profile whose header states a version none of the four held editions claims is not judged at
+/// all, and that is most of the profiles that exist: [`IccEdition::of`] answers `None` for 2.1.0
+/// above all. `DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT` is where that remainder is named
+/// for the clause that owns it.
+fn jpeg2000_profile_conforms_to_its_own_edition(
+    id: ObjectId,
+    profile: &[u8],
+    class: &[u8],
+    findings: &mut Findings,
+) {
+    let Some(stated) = icc::Identification::read(profile) else {
+        return;
+    };
+    let Some(edition) = IccEdition::of(stated.version) else {
+        return;
+    };
+    for missing in missing_required_tags(edition, profile, class) {
+        findings.record(
+            jpeg2000_site(id),
+            format!(
+                "the ICC profile in the selected JPEG 2000 colour specification carries no \
+                 {missing}, which {} clause {} requires of a profile of its class",
+                edition.name(),
+                edition.required_tag_clause(),
+            ),
+        );
+    }
+    let Some(clause) = edition.profile_id_clause() else {
+        return;
+    };
+    let (Some(claimed), Some(computed)) = (icc::stated_id(profile), icc::computed_id(profile))
+    else {
+        return;
+    };
+    if claimed != computed {
+        findings.record(
+            jpeg2000_site(id),
+            format!(
+                "the ICC profile in the selected JPEG 2000 colour specification states a Profile \
+                 ID that is not the MD5 of its own bytes, which {} section {clause} requires of a \
+                 non-zero field",
+                edition.name(),
+            ),
+        );
+    }
 }
 
 /// ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: `METH` shall be 0x01, 0x02 or 0x03.
@@ -3931,12 +4031,12 @@ fn group_colour_spaces_obey_the_colour_rules_under_part_four(
 #[cfg(test)]
 mod tests {
     use crate::Examination;
-    use crate::{Flavour, Target};
+    use crate::{Flavour, Level, Target};
     use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
     use super::{
-        BLEND_MODES, IccEdition, Position, Site, equivalent, is_halftone, missing_required_tags,
-        profile_header,
+        BLEND_MODES, IccEdition, Position, Site, equivalent, icc, is_halftone,
+        missing_required_tags, profile_header,
     };
     use crate::finding::Findings;
     use crate::table::requirements;
@@ -4448,6 +4548,140 @@ mod tests {
         assert_eq!(found(&with(&[1, 1]), rule), 1);
     }
 
+    /// A `colr` payload of `METH` 2 carrying `profile`, I.5.3.3 Table I-9.
+    fn jp2_icc_colour(approximation: u8, profile: &[u8]) -> Vec<u8> {
+        let mut payload = vec![2, 0, approximation];
+        payload.extend_from_slice(profile);
+        payload
+    }
+
+    /// [`profile_of`]'s output with a version number, a size field and a `Profile ID`.
+    ///
+    /// The three are what the edition rules read and what `profile_of` leaves at zero: the version
+    /// at bytes 8 and 9 selects the edition, the size at bytes 0 to 3 is how much of the buffer
+    /// [`icc::computed_id`] hashes, and bytes 84 to 99 are the field it is compared against.
+    fn versioned_profile(mut profile: Vec<u8>, version: (u8, u8), id: Option<[u8; 16]>) -> Vec<u8> {
+        let size = u32::try_from(profile.len()).expect("small");
+        profile[0..4].copy_from_slice(&size.to_be_bytes());
+        profile[8] = version.0;
+        profile[9] = version.1;
+        if let Some(id) = id {
+            profile[84..100].copy_from_slice(&id);
+        }
+        profile
+    }
+
+    /// What one predicate found, for a target the caller names.
+    fn found_for(
+        document: &Document,
+        target: Target,
+        predicate: fn(&Examination<'_>, &mut Findings),
+    ) -> usize {
+        let mut findings = Findings::default();
+        let exam = Examination::new(document, target);
+        predicate(&exam, &mut findings);
+        findings.seen()
+    }
+
+    /// A document whose JPEG 2000 image carries one `colr` box of `METH` 2 over `profile`.
+    fn jpx_with_profile(profile: &[u8]) -> Document {
+        let header = vec![
+            jp2_box(*b"ihdr", &jp2_image_header(3, 7)),
+            jp2_box(*b"colr", &jp2_icc_colour(0, profile)),
+        ];
+        jpx_document(&jp2_file(&header, 3))
+    }
+
+    /// ISO 19005-4 section 6.2.7.3 sends the selected specification's profile to ISO 32000-2
+    /// §8.6.5.5 entire, so the edition its header names judges its tags; ISO 19005-2 section
+    /// 6.2.8.3 sends it to ISO 32000-1:2008, 8.6.5.5, which states no such sentence.
+    #[test]
+    fn a_colr_profile_is_judged_by_its_own_edition_under_part_four_only() {
+        // ICC.1:2022 section 8.4 gives a display profile three forms; a profile carrying none of
+        // the three, and neither of section 8.2's two universal tags, is short of both.
+        let bare = versioned_profile(profile_of(*b"mntr", &[]), (4, 0x40), None);
+        let document = jpx_with_profile(&bare);
+        let rule = super::jpeg2000_one_best_colour_space_specification;
+        assert!(
+            found_for(&document, Target::Four(Flavour::Plain), rule) > 0,
+            "a part 4 target reads ISO 32000-2 §8.6.5.5's version sentence"
+        );
+        assert_eq!(
+            found_for(&document, Target::Two(Level::B), rule),
+            0,
+            "a part 2 target reaches ISO 32000-1:2008, 8.6.5.5, which states none"
+        );
+
+        // The same profile with ICC.1:2022 section 8.2's two tags and section 8.4's matrix form.
+        let complete = versioned_profile(
+            profile_of(
+                *b"mntr",
+                &[
+                    b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC",
+                ],
+            ),
+            (4, 0x40),
+            None,
+        );
+        assert_eq!(
+            found_for(
+                &jpx_with_profile(&complete),
+                Target::Four(Flavour::Plain),
+                rule
+            ),
+            0
+        );
+
+        // A version no held edition claims is judged by no text that is here.
+        let unheld = versioned_profile(profile_of(*b"mntr", &[]), (2, 0x10), None);
+        assert_eq!(
+            found_for(
+                &jpx_with_profile(&unheld),
+                Target::Four(Flavour::Plain),
+                rule
+            ),
+            0,
+            "2.1.0 names a text this project does not hold"
+        );
+    }
+
+    /// ICC.1:2022 section 7.2.18 requires a non-zero `Profile ID` field to hold the MD5 of the
+    /// profile's own bytes, and the JPEG 2000 route reaches that requirement like the other two.
+    #[test]
+    fn a_colr_profiles_stated_identifier_is_checked_against_its_own_bytes() {
+        let complete = profile_of(
+            *b"mntr",
+            &[
+                b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC",
+            ],
+        );
+        let rule = super::jpeg2000_one_best_colour_space_specification;
+        let lying = versioned_profile(complete.clone(), (4, 0x40), Some([0xAB; 16]));
+        assert_eq!(
+            found_for(
+                &jpx_with_profile(&lying),
+                Target::Four(Flavour::Plain),
+                rule
+            ),
+            1
+        );
+
+        let sized = versioned_profile(complete, (4, 0x40), None);
+        let truthful = versioned_profile(
+            sized.clone(),
+            (4, 0x40),
+            Some(icc::computed_id(&sized).expect("a sized profile computes one")),
+        );
+        assert_eq!(
+            found_for(
+                &jpx_with_profile(&truthful),
+                Target::Four(Flavour::Plain),
+                rule
+            ),
+            0
+        );
+    }
+
     /// Enumerated space 19 is forbidden by name; 12 is permitted by name in the sentence beside
     /// it, and 16 is what a conforming witness states.
     #[test]
@@ -4820,7 +5054,7 @@ mod tests {
             crate::table::binding(target)
                 .any(|row| row.id == "graphics/named-resources-are-defined")
         };
-        assert!(bound(Target::Two(crate::Level::B)));
+        assert!(bound(Target::Two(Level::B)));
         assert!(bound(Target::Four(Flavour::Plain)));
         assert_eq!(
             crate::clarification::clarifying(

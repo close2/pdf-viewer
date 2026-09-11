@@ -400,9 +400,18 @@ static PERMITTED_IN_PART_FOUR: &[&str] = &[
 /// The two subtypes ISO 32000-2 Table 171 marks `(PDF 2.0)`, and which ISO 32000-1 therefore
 /// does not define.
 ///
-/// This is how ISO 19005-2 section 6.3.1's set is derived without reading ISO 32000-1, which this
-/// project does not hold (`Part::Two`'s note): the later table says of each row which edition
-/// introduced it, so subtracting the PDF 2.0 rows from it leaves the earlier edition's set.
+/// Subtracting them from [`PERMITTED_IN_PART_FOUR`] is how ISO 19005-2 section 6.3.1's set is
+/// obtained: the later table says of each row which edition introduced it, so what is left is the
+/// earlier edition's set.
+///
+/// **This comment used to call that a derivation made "without reading ISO 32000-1, which this
+/// project does not hold", and cited `Part::Two`'s note for it — a note that has said the opposite
+/// since the owner obtained ISO 32000-1:2008 on 2026-09-07** (`doc/questions/A49`; the text is
+/// `doc/PDF32000_2008.pdf` and `doc/md/ISO_32000-1_2008.md`). So the derivation is no longer the
+/// only route to the set, and [`the_part_two_subtypes_are_the_ones_iso_32000_1_defines`] now holds
+/// it to the table itself, spelled out from that edition's 12.5.6.1. It agrees, which is worth
+/// having recorded: a subtraction that has been checked against the document it stands in for is a
+/// different claim from one that has not. ADR 0964.
 static ADDED_BY_ISO_32000_2: &[&str] = &["Projection", "RichMedia"];
 
 /// The subtype ISO 19005-2 section 6.3.1 strikes and ISO 19005-4 section 6.3.1 only confines to
@@ -1464,6 +1473,7 @@ fn additional_actions_hold_only_annotation_triggers(
 #[cfg(test)]
 mod tests {
     use crate::Examination;
+    use std::collections::BTreeSet;
     use std::fmt::Write as _;
 
     use pdf_syntax::Document;
@@ -1532,6 +1542,59 @@ mod tests {
         let exam = Examination::new(document, Target::Four(Flavour::Plain));
         predicate(&exam, &mut findings);
         findings.seen()
+    }
+
+    /// ISO 32000-1:2008, 12.5.6.1, Table 169, in that table's own order, less the three both
+    /// parts strike by name.
+    ///
+    /// Transcribed from the edition ISO 19005-2 section 5.1 names rather than derived from the
+    /// later one, which is the whole point of the test below: [`ADDED_BY_ISO_32000_2`] claims that
+    /// subtracting ISO 32000-2 Table 171's two PDF 2.0 rows leaves exactly this, and a claim about
+    /// a document is checked against the document.
+    static ISO_32000_1_TABLE_169_LESS_THE_THREE_STRUCK: &[&str] = &[
+        "Text",
+        "Link",
+        "FreeText",
+        "Line",
+        "Square",
+        "Circle",
+        "Polygon",
+        "PolyLine",
+        "Highlight",
+        "Underline",
+        "Squiggly",
+        "StrikeOut",
+        "Stamp",
+        "Caret",
+        "Ink",
+        "Popup",
+        "FileAttachment",
+        "Widget",
+        "PrinterMark",
+        "TrapNet",
+        "Watermark",
+        "3D",
+        "Redact",
+    ];
+
+    /// ISO 19005-2 section 6.3.1 admits what ISO 32000-1 defines, less `3D`, `Sound`, `Screen` and
+    /// `Movie` — and the set this crate reaches by subtraction is that set.
+    #[test]
+    fn the_part_two_subtypes_are_the_ones_iso_32000_1_defines() {
+        let derived: BTreeSet<&str> = super::PERMITTED_IN_PART_FOUR
+            .iter()
+            .copied()
+            .filter(|subtype| !super::ADDED_BY_ISO_32000_2.contains(subtype))
+            .collect();
+        let transcribed: BTreeSet<&str> = ISO_32000_1_TABLE_169_LESS_THE_THREE_STRUCK
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(
+            derived, transcribed,
+            "subtracting Table 171's PDF 2.0 rows gives ISO 32000-1's Table 169 less the three \
+             section 6.3.1 strikes"
+        );
     }
 
     /// ISO 19005-4 section 6.3.1 admits the two subtypes PDF 2.0 added; ISO 19005-2 section 6.3.1

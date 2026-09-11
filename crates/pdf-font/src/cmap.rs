@@ -42,13 +42,52 @@ use pdf_syntax::{Lexer, Token};
 const MAX_CODE_BYTES: usize = 4;
 
 /// Bounds the individually-listed mappings one `CMap` may contribute, per code length.
+///
+/// A two-byte `CMap` cannot state more than this many distinct codes, so the bound can only
+/// cut a file whose codes are three or four bytes long. Reaching it is recorded — see
+/// [`CMap::truncated`].
 const MAX_SINGLES: usize = 1 << 16;
 
-/// Bounds the ranges, which are cheap individually but not unbounded.
-const MAX_RANGES: usize = 1 << 14;
+/// Bounds the ranges, per code length, which are cheap individually but not unbounded.
+///
+/// **Its floor is the standard's, and this constant sat below that floor.**
+/// §9.7.5.2's Table 116 names the predefined `CMap`s a reader resolves by name, Adobe publishes
+/// their files, and this binary carries 239 of them (`data/cmaps/`). The largest of them,
+/// `UniCNS-UCS2-H`, states **16 418** `cidrange` entries, every one of them a two-byte code —
+/// so a bound of `1 << 14` dropped its last 34 ranges, which are U+FF02 to U+FFE4: the
+/// fullwidth digits, the fullwidth Latin letters and most of the fullwidth punctuation of the
+/// Adobe-CNS1 collection. `no_registered_cmap_is_cut_by_these_bounds` is the measurement, taken
+/// over every `CMap` this binary carries rather than over the one that was found; ADR 0963 has
+/// the finding.
+///
+/// `1 << 15` is that figure with a little under a factor of two to spare, and what raising it
+/// costs against a hostile file is priced rather than assumed. A range is three `u32`s, so a
+/// mapping that reaches this bound holds 384 KiB and a `CMap` whose eight mappings all do holds
+/// 3 MiB — twice what the old constant admitted. [`Mapping::get`] scans ranges linearly, so a
+/// lookup on such a mapping also costs twice what it did; that scan is a property of this
+/// representation rather than of the bound, and a file able to pay it at `1 << 14` was already
+/// able to.
+const MAX_RANGES: usize = 1 << 15;
 
 /// Bounds the codespace ranges, which are scanned per code decoded.
+///
+/// No registered `CMap` comes near it — the largest states five — and reaching it is recorded.
 const MAX_CODESPACE: usize = 1 << 8;
+
+/// What [`CMap::truncated`] answers when [`MAX_RANGES`] dropped a `cidrange` or `notdefrange`.
+///
+/// These four are the words a report carries, so they are spelled as the bound a reader would
+/// grep for rather than as prose.
+pub const CUT_BY_RANGES: &str = "max_cmap_ranges";
+
+/// What [`CMap::truncated`] answers when [`MAX_SINGLES`] dropped a `cidchar` or `notdefchar`.
+pub const CUT_BY_SINGLES: &str = "max_cmap_singles";
+
+/// What [`CMap::truncated`] answers when [`MAX_CODESPACE`] dropped a codespace range.
+pub const CUT_BY_CODESPACE: &str = "max_cmap_codespace";
+
+/// What [`CMap::truncated`] answers when one section's operands outran the buffer.
+pub const CUT_BY_OPERANDS: &str = "max_cmap_operands";
 
 /// A character code taken from a string shown by a text operator.
 ///
@@ -243,6 +282,15 @@ pub struct CMap {
     /// `/UseCMap` as well, so this is what lets the loader notice a file whose mappings are
     /// incomplete because the `CMap` it builds on was never identified.
     references_another: bool,
+    /// Which of this module's bounds dropped something this file stated, if one did.
+    ///
+    /// §9.7.6.2 makes the lookup a `shall` — "[t]he code extracted from the string shall be
+    /// looked up in the character code mappings for codes of that length" — and a mapping a
+    /// bound of ours discarded is one the lookup cannot find, so the code takes §9.7.6.3's
+    /// substitute and the page draws the wrong glyph. That is a bound stopping a reading part
+    /// of the way through, which this project reports rather than absorbs; see
+    /// [`CMap::truncated`]. The first bound to cut is kept, because a report names one limit.
+    truncated: Option<&'static str>,
 }
 
 impl CMap {
@@ -267,6 +315,7 @@ impl CMap {
             notdef: Default::default(),
             wmode: 0,
             references_another: false,
+            truncated: None,
         }
     }
 
@@ -357,6 +406,8 @@ impl CMap {
                     expecting_wmode = false;
                     if operands.len() < MAX_SINGLES.saturating_mul(4) {
                         operands.push(other);
+                    } else {
+                        own.cut_by(CUT_BY_OPERANDS);
                     }
                 }
             }
@@ -376,18 +427,35 @@ impl CMap {
             notdef: Default::default(),
             wmode: 0,
             references_another: false,
+            truncated: None,
         }
+    }
+
+    /// Records that a bound discarded something the file stated.
+    ///
+    /// Called with the entry already in hand and nowhere to put it, never on reaching a count:
+    /// the difference is a file whose last entry lands exactly on the bound, which lost
+    /// nothing and has nothing to report (`doc/traps/instruments-and-reports.md` trap 11).
+    fn cut_by(&mut self, bound: &'static str) {
+        self.truncated.get_or_insert(bound);
     }
 
     /// Puts this file's entries in front of whatever it inherited.
     fn absorb(&mut self, own: Self) {
         self.wmode = own.wmode;
         self.references_another = own.references_another;
+        // A `CMap` inherits what the one it builds on lost as well as what it holds: the
+        // mappings are consulted together, so an answer missing from either is missing.
+        if let Some(bound) = own.truncated {
+            self.cut_by(bound);
+        }
         // Codespace ranges are scanned by length rather than in order, so appending is
         // enough; a shorter code is always tried first (§9.7.6.2).
         for range in own.codespace {
             if self.codespace.len() < MAX_CODESPACE {
                 self.codespace.push(range);
+            } else {
+                self.cut_by(CUT_BY_CODESPACE);
             }
         }
         for (into, from) in self.mappings.iter_mut().zip(own.mappings) {
@@ -427,6 +495,7 @@ impl CMap {
                 continue;
             }
             if self.codespace.len() >= MAX_CODESPACE {
+                self.cut_by(CUT_BY_CODESPACE);
                 return;
             }
             let mut range = Codespace {
@@ -483,6 +552,8 @@ impl CMap {
             };
             if mapping.singles.len() < MAX_SINGLES {
                 mapping.singles.insert(code, cid);
+            } else {
+                self.cut_by(CUT_BY_SINGLES);
             }
         }
     }
@@ -509,6 +580,8 @@ impl CMap {
             };
             if mapping.ranges.len() < MAX_RANGES {
                 mapping.ranges.push((low_code, high_code, cid));
+            } else {
+                self.cut_by(CUT_BY_RANGES);
             }
         }
     }
@@ -639,6 +712,21 @@ impl CMap {
     #[must_use]
     pub fn references_another(&self) -> bool {
         self.references_another
+    }
+
+    /// Which of this module's bounds discarded a mapping this `CMap` stated, if one did.
+    ///
+    /// `None` for every `CMap` that was read whole, which is every registered one and every
+    /// embedded one any corpus on this disk carries. `Some` names the bound, in the words
+    /// [`CUT_BY_RANGES`] and its three neighbours use, and means the answer to some code is
+    /// missing: §9.7.6.2 requires the lookup and §9.7.6.3 substitutes CID 0 where it fails, so
+    /// the page draws `.notdef` for a code the producer mapped to a glyph. A caller that draws
+    /// is expected to say so — `pdf_model`'s interpreter raises `Unsupported::LimitReached`
+    /// with this string — because a bound reached in silence is indistinguishable from a
+    /// document that never stated the mapping.
+    #[must_use]
+    pub fn truncated(&self) -> Option<&'static str> {
+        self.truncated
     }
 
     /// Whether any codespace range was stated, without which no code can be extracted.

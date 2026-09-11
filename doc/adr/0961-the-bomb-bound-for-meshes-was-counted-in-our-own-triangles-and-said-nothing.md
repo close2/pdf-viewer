@@ -1,6 +1,6 @@
 # 0961 — The bomb bound for meshes was counted in our own triangles, and said nothing
 
-Status: accepted. Session 945.
+Status: accepted. Session 959 — recorded as 945 when written, which is ADR 0963.
 Context: `crates/pdf-model/src/mesh.rs`, ISO 32000-2 §8.7.4.5.5 to §8.7.4.5.8 and §10.7.3,
 `doc/todo/01`'s `partial` rows, `doc/traps/instruments-and-reports.md` trap 5 and trap 11.
 

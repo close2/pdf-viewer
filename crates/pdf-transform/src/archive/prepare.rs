@@ -11,7 +11,7 @@
 //! with. [`super::decision::decide`] reads those reasons; nothing here decides anything.
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_archive::survey::DeviceFamily;
+use pdf_archive::survey::{DeviceFamily, Survey};
 use pdf_archive::{Flavour, Level, Target};
 use pdf_archive::{MisusedProperty, Outcome};
 use pdf_model::icc::Identification;
@@ -25,7 +25,10 @@ use crate::json::Value;
 use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Metrics, Substitutes};
 use super::rewrite::Rewrite;
-use super::sites::{self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, Sites};
+use super::sites::{
+    self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, Sites,
+    StandardEncodings,
+};
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
 
@@ -571,13 +574,25 @@ impl Prepared {
             (true, Err(because)) => Err(*because),
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
+        // **One survey, for every preparation that asks what the pages actually drew.** The
+        // walk reads every content stream, so a second one would double the cost of converting a
+        // large document to answer the same question twice — and four rewrites ask it: the two
+        // that read a font's advances and the two that prove a change of encoding moves no mark.
+        let survey = SURVEYED
+            .iter()
+            .any(|rewrite| wanted(*rewrite))
+            .then(|| Survey::of(document));
+        // ISO 19005-2 section 6.6.2.1's header attributes are cut before either of the two
+        // writers that follow, because both of them rewrite the RDF this header wraps and the
+        // cut has to be made on the bytes the file holds rather than on the bytes they leave.
+        let headers = asked(wanted(Rewrite::PacketHeaderAttributes), || {
+            prepare_headers(document, input)
+        });
         // ISO 19005-2 section 6.6.2.3.1's removals are worked out before the packet is restated,
         // because the catalog's packet is one of the ones they edit.
-        let properties = if wanted(Rewrite::PropertyOutsideItsSchema) {
-            prepare_properties(document, input)
-        } else {
-            Err(Because::NotBuiltYet(NOT_ASKED_FOR))
-        };
+        let properties = asked(wanted(Rewrite::PropertyOutsideItsSchema), || {
+            prepare_properties(document, input, headers.as_ref().ok())
+        });
         let removals = properties
             .as_ref()
             .map(|cleaned| names_removed(&cleaned.removed))
@@ -592,6 +607,7 @@ impl Prepared {
             &mut spare,
             wanted(Rewrite::SubstituteFontProgram),
             wanted(Rewrite::RestateFontMetrics),
+            survey.as_ref(),
         );
         let now = xmp::instant(std::time::SystemTime::now());
         let metadata = the_packet(
@@ -605,7 +621,10 @@ impl Prepared {
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
                 substituted: &font_history,
-                cleaned: properties.as_ref().ok(),
+                edited: Edited {
+                    headers: headers.as_ref().ok(),
+                    cleaned: properties.as_ref().ok(),
+                },
             },
         );
         let recorded_it = now.is_some() && metadata.is_ok();
@@ -625,24 +644,17 @@ impl Prepared {
         // fonts that need a CMap is the set it named. A findings list is capped, and a document
         // failing at more fonts than the cap is one `doc/adr/0947`'s third stage refuses rather
         // than one this rewrite half-finishes.
-        let to_unicode = if wanted(Rewrite::ToUnicode) {
+        let to_unicode = asked(wanted(Rewrite::ToUnicode), || {
             to_unicode::derive(document, &unicode_fonts(input), &mut spare)
                 .map_err(Because::NotBuiltYet)
-        } else {
-            Err(Because::NotBuiltYet(NOT_ASKED_FOR))
-        };
-        let appearances = if wanted(Rewrite::AppearanceDictionary) {
+        });
+        let appearances = asked(wanted(Rewrite::AppearanceDictionary), || {
             prepare_appearances(document, plan.target, &mut spare)
-        } else {
-            Err(Because::NotBuiltYet(NOT_ASKED_FOR))
-        };
-        let structure = match (wanted(Rewrite::MarkInfo), catalog.as_ref()) {
-            (true, Some(catalog)) if !document.get_key(catalog, "StructTreeRoot").is_null() => {
-                Ok(())
-            }
-            (true, Some(_)) => Err(Because::TheFence(NO_STRUCTURE_TREE)),
-            (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
-            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        });
+        let structure = structure_tree(wanted(Rewrite::MarkInfo), document, catalog.as_ref());
+        let already = Already {
+            packet_headers: headers,
+            survey: survey.as_ref(),
         };
         Self {
             intent,
@@ -654,7 +666,7 @@ impl Prepared {
             substitutes,
             metrics,
             structure,
-            owed: Owed::of(plan, document, input, &mut spare, &failed),
+            owed: Owed::of(plan, document, input, &mut spare, &failed, already),
         }
     }
 
@@ -683,6 +695,13 @@ impl Prepared {
             Rewrite::PageResources => self.owed.page_resources.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
+            Rewrite::PacketHeaderAttributes => self.owed.packet_headers.as_ref().err().copied(),
+            Rewrite::SymbolicTrueTypeEncodingRemoved => {
+                self.owed.symbolic_encodings.as_ref().err().copied()
+            }
+            Rewrite::StandardTrueTypeEncoding => {
+                self.owed.standard_encodings.as_ref().err().copied()
+            }
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
             _ => None,
@@ -753,18 +772,33 @@ pub(super) struct Owed {
     pub(super) descriptor_sets: Result<DescriptorSets, Because>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
     pub(super) cid_to_gid: Result<Sites, Because>,
+    /// The packets whose header loses a deprecated attribute, or why none do.
+    ///
+    /// **Prepared by [`Prepared::of`] rather than here**, and the reason is the one the field
+    /// above it does not have: a packet takes up to three edits and this is the first of them, so
+    /// it has to exist before the property removal and the identification schema are worked out.
+    pub(super) packet_headers: Result<Headers, Because>,
+    /// The symbolic TrueType fonts whose `/Encoding` goes, or why none do.
+    pub(super) symbolic_encodings: Result<Sites, Because>,
+    /// The non-symbolic TrueType fonts given one of the two admitted names, or why none are.
+    pub(super) standard_encodings: Result<StandardEncodings, Because>,
 }
 
 impl Owed {
-    /// Each of the seven, where a failed requirement asked for it.
+    /// Each of them, where a failed requirement asked for it.
     pub(super) fn of(
         plan: &ArchivePlan,
         document: &Document,
         input: &pdf_archive::Report,
         spare: &mut Spare,
         failed: &BTreeSet<&'static str>,
+        already: Already<'_>,
     ) -> Self {
         let wanted = |rewrite: Rewrite| wanted_by(failed, rewrite);
+        let Already {
+            packet_headers,
+            survey,
+        } = already;
         Self {
             rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
                 sites::rendering_intents(input)
@@ -787,9 +821,60 @@ impl Owed {
             cid_to_gid: asked(wanted(Rewrite::CidToGidIdentity), || {
                 sites::cid_to_gid_maps(document, input, plan.target)
             }),
+            packet_headers,
+            symbolic_encodings: asked(wanted(Rewrite::SymbolicTrueTypeEncodingRemoved), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                sites::symbolic_truetype_encodings(document, input, survey)
+            }),
+            standard_encodings: asked(wanted(Rewrite::StandardTrueTypeEncoding), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                sites::standard_truetype_encodings(document, input, survey)
+            }),
         }
     }
 }
+
+/// Whether the file already carries the structure tree a `/MarkInfo` would be a claim about.
+///
+/// `doc/pdf-a-conversion-limits.md` section 5.1: the converter will not invent a structure tree,
+/// and writing `/Marked true` over a file that has none would be the same act in one key — a
+/// claim that the file follows §14.8's conventions, made by the converter rather than
+/// demonstrated by the file. So this is the fence rather than a debt, and says so.
+fn structure_tree(
+    wanted: bool,
+    document: &Document,
+    catalog: Option<&Dictionary>,
+) -> Result<(), Because> {
+    match (wanted, catalog) {
+        (true, Some(catalog)) if !document.get_key(catalog, "StructTreeRoot").is_null() => Ok(()),
+        (true, Some(_)) => Err(Because::TheFence(NO_STRUCTURE_TREE)),
+        (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+        (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+    }
+}
+
+/// What [`Prepared::of`] has already worked out by the time the owed rewrites are prepared.
+///
+/// Two things rather than seven arguments, and each is here because its *order* matters: the
+/// header cut has to exist before the two writers that edit the same packets, and the survey has
+/// to be made once for the four preparations that ask what the pages drew.
+pub(super) struct Already<'a> {
+    /// The packets whose header attributes were cut, or why none were.
+    packet_headers: Result<Headers, Because>,
+    /// The one content-stream survey, where any preparation asked for one.
+    survey: Option<&'a Survey>,
+}
+
+/// The rewrites whose preparation reads what the pages drew.
+///
+/// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
+/// streams — so the walk is made once where any of them is wanted and not at all where none is.
+const SURVEYED: [Rewrite; 4] = [
+    Rewrite::SubstituteFontProgram,
+    Rewrite::RestateFontMetrics,
+    Rewrite::SymbolicTrueTypeEncodingRemoved,
+    Rewrite::StandardTrueTypeEncoding,
+];
 
 /// Whether any requirement the document failed is answered by this rewrite.
 fn wanted_by(failed: &BTreeSet<&'static str>, rewrite: Rewrite) -> bool {
@@ -1224,6 +1309,7 @@ const SCHEMA_REQUIREMENT: &str = "metadata/properties-use-known-schemas";
 fn prepare_properties(
     document: &Document,
     input: &pdf_archive::Report,
+    headers: Option<&Headers>,
 ) -> Result<Cleaned, Because> {
     let mut packets = BTreeMap::new();
     let mut removed = Vec::new();
@@ -1234,6 +1320,11 @@ fn prepare_properties(
         let Some(bytes) = document.decoded_stream_data(&stream) else {
             return Err(Because::NotBuiltYet(NOT_A_PACKET));
         };
+        // The header cut edited this packet already where it edited any, so the properties come
+        // out of what that left rather than out of the producer's original.
+        let bytes = headers
+            .and_then(|headers| headers.packet(at).cloned())
+            .unwrap_or_else(|| bytes.to_vec());
         let misused = pdf_archive::properties_outside_their_schema(&bytes);
         if misused.is_empty() {
             continue;
@@ -1330,15 +1421,14 @@ fn prepare_fonts(
     spare: &mut Spare,
     wants_substitutes: bool,
     wants_metrics: bool,
+    survey: Option<&Survey>,
 ) -> PreparedFonts {
-    let survey =
-        (wants_substitutes || wants_metrics).then(|| pdf_archive::survey::Survey::of(document));
-    let substitutes = match (wants_substitutes, survey.as_ref()) {
+    let substitutes = match (wants_substitutes, survey) {
         (true, _) if !plan.substitute_fonts => Err(Because::Declined(SUBSTITUTION_DECLINED)),
         (true, Some(survey)) => fonts::embed_faces(document, survey, spare),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
-    let metrics = match (wants_metrics, survey.as_ref()) {
+    let metrics = match (wants_metrics, survey) {
         (true, Some(survey)) => fonts::restate_metrics(document, survey),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
@@ -1406,8 +1496,32 @@ struct Recording<'a> {
     removals: &'a str,
     /// The substitution's own recorded action, empty where no face was embedded.
     substituted: &'a str,
-    /// The packets a removal has already edited, one of which may be the catalog's.
+    /// What the writers before this one left in each packet, one of which may be the catalog's.
+    edited: Edited<'a>,
+}
+
+/// The edits a metadata packet has already taken, newest first.
+///
+/// **Three writers over one packet**, and the order is the whole of what this type carries: ISO
+/// 19005-2 section 6.6.2.1's header attributes come off first, section 6.6.2.3.1's misused
+/// properties come out of what that left, and section 6.6.4's identification schema is restated
+/// into what *that* left. A writer reading the producer's original instead would silently undo
+/// the writer before it.
+#[derive(Debug, Clone, Copy, Default)]
+struct Edited<'a> {
+    /// The packets whose header attributes have been cut.
+    headers: Option<&'a Headers>,
+    /// The packets a property removal has already edited.
     cleaned: Option<&'a Cleaned>,
+}
+
+impl Edited<'_> {
+    /// What one stream's packet holds after every edit made before the caller's.
+    fn packet(self, at: ObjectId) -> Option<Vec<u8>> {
+        self.cleaned
+            .and_then(|cleaned| cleaned.packets.get(&at).cloned())
+            .or_else(|| self.headers.and_then(|headers| headers.packet(at).cloned()))
+    }
 }
 
 /// The metadata stream this conversion writes, with every action it has to record in it.
@@ -1463,7 +1577,7 @@ fn the_packet(
         spare,
         recording.schema,
         &events,
-        recording.cleaned,
+        recording.edited,
     )
 }
 
@@ -1483,7 +1597,7 @@ fn prepare_metadata(
     spare: &mut Spare,
     schema_wanted: bool,
     recorded: &[xmp::Event<'_>],
-    cleaned: Option<&Cleaned>,
+    edited: Edited<'_>,
 ) -> Result<Metadata, Because> {
     let properties = identification_properties(target);
     let schema = Schema {
@@ -1505,9 +1619,9 @@ fn prepare_metadata(
         // The removal edited this packet already where it edited any, so the schema is restated
         // into what that left rather than into the producer's original — two writers over one
         // packet, in the order the second can see the first's work.
-        let held = cleaned
-            .and_then(|cleaned| cleaned.packets.get(&at).cloned())
-            .unwrap_or_else(|| bytes.to_vec());
+        // The schema is restated into what the two writers before it left rather than into the
+        // producer's original — `Edited` is that order.
+        let held = edited.packet(at).unwrap_or_else(|| bytes.to_vec());
         let restated = if schema_wanted {
             xmp::restate(&held, &IDENTIFICATION_URIS, &schema)
                 .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?
@@ -1568,4 +1682,195 @@ pub(super) fn metadata_stream(from: &Dictionary, packet: &[u8]) -> Object {
         data: packet.to_vec().into(),
         decryption_failed: false,
     }))
+}
+
+/// Why a packet header this conversion could not edit refuses the document.
+const HEADER_NOT_EDITABLE: &str = "an XMP packet in this file states the deprecated bytes or \
+     encoding attribute in its header, and this conversion cannot cut it out: the packet is not \
+     one this tree can decode, its header is written in one of the wide encodings ISO 16684-1 \
+     admits — where a byte-level cut would leave the padding it does not understand — or the \
+     attribute's value has no quotation marks to cut to. Both attributes describe the packet's \
+     own framing, so a cut that could be made would lose nothing at all";
+
+/// Why a header that still states an attribute afterwards refuses the document.
+const HEADER_NOT_CUT: &str = "a deprecated XMP packet header attribute this conversion removed is \
+     still in the header afterwards, so the packet is half-edited rather than corrected — and a \
+     half-edited packet is not written at all, which is the rule the property removal beside it \
+     already follows";
+
+/// How far into a packet the header is looked for.
+///
+/// `pdf_archive`'s own figure, and it has to be: a header this preparation did not find in the
+/// window the validator searched is a header whose attribute the output's verdict would still
+/// report.
+const HEADER_SCAN: usize = 4096;
+
+/// The XMP packets whose headers lose a deprecated attribute.
+///
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1. **Prepared before every other edit
+/// to a packet**, because the other two rewrite the RDF this header wraps and the cut has to be
+/// made once, on bytes the later writers then carry: `prepare_properties` starts from what this
+/// left and [`the_packet`] from what that left in turn.
+#[derive(Debug, Default)]
+pub(super) struct Headers {
+    /// The packet each metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+}
+
+impl Headers {
+    /// The edited packet for one stream, where this preparation edited it.
+    pub(super) fn packet(&self, at: ObjectId) -> Option<&Vec<u8>> {
+        self.packets.get(&at)
+    }
+}
+
+/// Cuts the deprecated attributes out of every packet header the validator reported one in.
+///
+/// **Nothing is judged here.** Which streams state one is `pdf_archive`'s finding; what this
+/// decides is only whether the cut can be made, and a header still holding an attribute
+/// afterwards refuses the document rather than leaving it half-edited.
+fn prepare_headers(document: &Document, input: &pdf_archive::Report) -> Result<Headers, Because> {
+    let sites = sites::packet_headers(input)?;
+    let mut packets = BTreeMap::new();
+    for at in sites.at {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(HEADER_NOT_EDITABLE));
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            return Err(Because::NotBuiltYet(HEADER_NOT_EDITABLE));
+        };
+        let cut = without_deprecated_header_attributes(&bytes)
+            .ok_or(Because::NotBuiltYet(HEADER_NOT_EDITABLE))?;
+        // Read back rather than trusted, which is `prepare_properties`'s rule: the writer says
+        // what it cut and the packet says what it holds, and only the second is what a validator
+        // sees.
+        if states_a_deprecated_header_attribute(&cut) {
+            return Err(Because::NotBuiltYet(HEADER_NOT_CUT));
+        }
+        packets.insert(at, cut);
+    }
+    Ok(Headers { packets })
+}
+
+/// The two attributes ISO 16684-1 deprecates and ISO 19005 forbids in a packet header.
+const DEPRECATED_HEADER_ATTRIBUTES: [&[u8]; 2] = [b"bytes", b"encoding"];
+
+/// A packet with the deprecated `bytes` and `encoding` attributes cut out of its header.
+///
+/// `None` where the cut cannot be made, and the three cases are the whole of what this declines:
+/// a packet stating no `<?xpacket` header in the window the validator searches, a header padded
+/// with the NUL bytes one of ISO 16684-1's wide encodings writes — where a byte-level cut would
+/// leave half a character behind — and an attribute whose value is not delimited by quotation
+/// marks, where there is nothing to cut to.
+///
+/// Every byte outside the attribute and the white space in front of it crosses unchanged, which
+/// is what makes this lossless: both attributes describe the packet's own framing rather than
+/// anything a reader of the metadata uses.
+pub(super) fn without_deprecated_header_attributes(packet: &[u8]) -> Option<Vec<u8>> {
+    let window = packet.get(..HEADER_SCAN.min(packet.len()))?;
+    let start = find(window, b"<?xpacket")?;
+    let instruction = window.get(start..)?;
+    let end = start.checked_add(find(instruction, b"?>")?)?;
+    let header = packet.get(start..end)?;
+    if header.contains(&0) {
+        return None;
+    }
+    let mut out = header.to_vec();
+    for name in DEPRECATED_HEADER_ATTRIBUTES {
+        while let Some(span) = attribute_span(&out, name) {
+            if span.1 > out.len() {
+                return None;
+            }
+            out.drain(span.0..span.1);
+        }
+    }
+    let mut whole = packet.get(..start)?.to_vec();
+    whole.extend_from_slice(&out);
+    whole.extend_from_slice(packet.get(end..)?);
+    Some(whole)
+}
+
+/// Whether a packet's header still states either of the deprecated attributes.
+fn states_a_deprecated_header_attribute(packet: &[u8]) -> bool {
+    let Some(window) = packet.get(..HEADER_SCAN.min(packet.len())) else {
+        return false;
+    };
+    let Some(start) = find(window, b"<?xpacket") else {
+        return false;
+    };
+    let Some(instruction) = window.get(start..) else {
+        return false;
+    };
+    let Some(end) = find(instruction, b"?>") else {
+        return false;
+    };
+    let Some(header) = instruction.get(..end) else {
+        return false;
+    };
+    DEPRECATED_HEADER_ATTRIBUTES
+        .into_iter()
+        .any(|name| attribute_span(header, name).is_some())
+}
+
+/// The half-open range one attribute occupies in a header, white space in front of it included.
+///
+/// The name has to be preceded by white space and followed by an equals sign, which is
+/// `pdf_archive`'s own test for the same thing: without it a value that happens to contain the
+/// word would read as the attribute. The range then runs to the closing quotation mark, so the
+/// value's own white space and any equals sign inside it are cut with it rather than read.
+fn attribute_span(header: &[u8], name: &[u8]) -> Option<(usize, usize)> {
+    let (at, _) = header
+        .windows(name.len())
+        .enumerate()
+        .find(|(at, window)| {
+            *window == name
+                && *at > 0
+                && header
+                    .get(at.saturating_sub(1))
+                    .is_some_and(u8::is_ascii_whitespace)
+        })?;
+    let after = at.checked_add(name.len())?;
+    let equals = after.checked_add(
+        header
+            .get(after..)?
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())?,
+    )?;
+    if header.get(equals) != Some(&b'=') {
+        return None;
+    }
+    let value = equals.checked_add(1)?;
+    let quote_at = value.checked_add(
+        header
+            .get(value..)?
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())?,
+    )?;
+    let quote = *header.get(quote_at)?;
+    if quote != b'"' && quote != b'\'' {
+        return None;
+    }
+    let opened = quote_at.checked_add(1)?;
+    let close = opened.checked_add(
+        header
+            .get(opened..)?
+            .iter()
+            .position(|byte| *byte == quote)?,
+    )?;
+    let mut from = at;
+    while from > 0
+        && header
+            .get(from.checked_sub(1)?)
+            .is_some_and(u8::is_ascii_whitespace)
+    {
+        from = from.checked_sub(1)?;
+    }
+    Some((from, close.checked_add(1)?))
+}
+
+/// The offset of `needle` in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }

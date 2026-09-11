@@ -879,6 +879,76 @@ fn what_a_screen_reader_is_told_about_every_document() {
 /// unchecked has 14. Comparing a smaller population against these would fail for the one reason
 /// that is not a regression, so the floors are skipped and the skip says so — which is the same
 /// guard ADR 0421 put under the selection verdict's judged set.
+/// Every page the whole-tree fallback answers nothing for, by name.
+///
+/// Held as names rather than as a count because the population is not fixed: see `ratchet`. A name
+/// absent from a run is not a failure — the specifications under `doc/` are gitignored and a fresh
+/// clone has none of them. A page *not* in this list is, and has to be argued for.
+const NO_PARENT_KEY_SILENT: &[&str] = &[
+    "bug1365930.pdf p1",
+    "bug1755507.pdf p1",
+    "bug1978317.pdf p1",
+    "bug816075.pdf p1",
+    "comments.pdf p1",
+    "comments.pdf p10",
+    "comments.pdf p11",
+    "comments.pdf p12",
+    "comments.pdf p13",
+    "comments.pdf p14",
+    "comments.pdf p2",
+    "comments.pdf p3",
+    "comments.pdf p4",
+    "comments.pdf p5",
+    "comments.pdf p7",
+    "comments.pdf p8",
+    "comments.pdf p9",
+    "issue17671.pdf p1",
+    "tracemonkey_with_annotations.pdf p10",
+    "tracemonkey_with_annotations.pdf p11",
+    "tracemonkey_with_annotations.pdf p12",
+    "tracemonkey_with_annotations.pdf p13",
+    "tracemonkey_with_annotations.pdf p14",
+    "tracemonkey_with_annotations.pdf p2",
+    "tracemonkey_with_annotations.pdf p3",
+    "tracemonkey_with_annotations.pdf p4",
+    "tracemonkey_with_annotations.pdf p5",
+    "tracemonkey_with_annotations.pdf p6",
+    "tracemonkey_with_annotations.pdf p7",
+    "tracemonkey_with_annotations.pdf p8",
+    "tracemonkey_with_annotations.pdf p9",
+    "tracemonkey_with_editable_annotations.pdf p1",
+    "tracemonkey_with_editable_annotations.pdf p10",
+    "tracemonkey_with_editable_annotations.pdf p11",
+    "tracemonkey_with_editable_annotations.pdf p12",
+    "tracemonkey_with_editable_annotations.pdf p14",
+    "tracemonkey_with_editable_annotations.pdf p2",
+    "tracemonkey_with_editable_annotations.pdf p3",
+    "tracemonkey_with_editable_annotations.pdf p4",
+    "tracemonkey_with_editable_annotations.pdf p5",
+    "tracemonkey_with_editable_annotations.pdf p6",
+    "tracemonkey_with_editable_annotations.pdf p7",
+    "tracemonkey_with_editable_annotations.pdf p8",
+    "tracemonkey_with_editable_annotations.pdf p9",
+    // The specifications under `doc/`, which `.gitignore` excludes: present on this
+    // machine, absent in a fresh clone, and named here for the same reason (ADR 0962).
+    "ISO-14289-2-2024-sponsored.pdf p50",
+    "ISO-TS-32004-2024_sponsored.pdf p24",
+    "ISO-TS-32004-2024_sponsored.pdf p7",
+    "ISO-TS-32005-2023-sponsored.pdf p48",
+    "ISO-TS-32005-2023-sponsored.pdf p7",
+    "ISO_32000-2_sponsored_EC3.pdf p1002",
+    "ISO_32000-2_sponsored_EC3.pdf p1020",
+    "ISO_TS_32001-2022_sponsored_EC3.pdf p13",
+    "ISO_TS_32001-2022_sponsored_EC3.pdf p8",
+    "ISO_TS_32002-2022_sponsored_EC3.pdf p13",
+    "ISO_TS_32002-2022_sponsored_EC3.pdf p8",
+    "ISO_TS_32003-2023_sponsored.pdf p7",
+    "icc_1_2001-12.pdf p4",
+    "icc_1_2001-12.pdf p5",
+    "icc_1_2001-12.pdf p6",
+    "icc_1_2001-12.pdf p7",
+];
+
 fn ratchet(census: &Census, files: usize) {
     /// How many documents the floors below were measured over.
     const POPULATION: usize = 988;
@@ -931,10 +1001,27 @@ fn ratchet(census: &Census, files: usize) {
         0,
     );
     ceiling("answers cut at the node bound", &census.at_bound, 0);
-    ceiling(
-        "pages with no /StructParents whose fallback answered nothing",
-        &census.no_parent_key_silent,
-        56,
+    // **This one is held by name rather than by count, and the count is why.** Its population is
+    // `population()`'s `read_dir` of `doc/`, which holds the specifications this project has
+    // bought — and those are gitignored, so a neighbouring round that downloads one changes this
+    // number without touching a line of code. Sixteen of the entries below are such files. The
+    // literal here was 56 and had been moved by downloads more than once before anybody noticed;
+    // what failed the run that found it was four pages of a profile specification fetched the day
+    // before, which is ADR 0962's subject arriving at a *ceiling* instead of at a floor.
+    //
+    // A count over a population two things can change is not a ratchet. A **set of names** is:
+    // a page that joins the class has to be argued for, and a name that is simply *absent* — the
+    // fresh clone, which has none of `doc/`'s specifications — proves nothing and fails nothing.
+    // That is the shape the oracle's contradicted pages already use.
+    let unnamed: Vec<_> = census
+        .no_parent_key_silent
+        .iter()
+        .filter(|(where_, _)| !NO_PARENT_KEY_SILENT.contains(&where_.as_str()))
+        .collect();
+    assert!(
+        unnamed.is_empty(),
+        "pages with no /StructParents whose fallback answered nothing, and which are not in \
+         `NO_PARENT_KEY_SILENT`: {unnamed:?}"
     );
     ceiling("documents that would not open", &census.refused_open, 2);
 }

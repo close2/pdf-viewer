@@ -2533,3 +2533,203 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
     let held = holds(&output, Target::Four(Flavour::Plain));
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
 }
+
+// ---------------------------------------------------------------------------------------------
+// `doc/pdf-a-mitigations.md` section 13.3's *owed, not optional*, session 962's four.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_catalogs_needs_rendering_is_removed() {
+    // ISO 19005-2 section 6.4.2 and ISO 19005-4 section 6.4.2 forbid the key. §7.7.2's Table 29
+    // is why removing it loses nothing: the entry is deprecated in PDF 2.0, its subject is the
+    // XFA form, and its "Default value: false" is what an absent entry states. This fixture
+    // states no /XFA, which is the other half of the same subclause and is still refused — so
+    // there is no form for any reader to regenerate.
+    let source = Conforming {
+        catalog: "/NeedsRendering true".to_owned(),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "forms/no-needs-rendering"),
+        Decision::Mechanical(Rewrite::NeedsRendering)
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(
+        !String::from_utf8_lossy(&output).contains("NeedsRendering"),
+        "the key is gone from the file and not only from the verdict"
+    );
+}
+
+#[test]
+fn a_packet_header_loses_its_deprecated_attributes_and_every_other_byte_crosses() {
+    // ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 forbid the `bytes` and
+    // `encoding` attributes of the packet's own processing instruction. Each describes the
+    // packet's framing rather than anything inside it, so what has to be true afterwards is
+    // both that they are gone and that the RDF the producer wrote is byte for byte what it was.
+    let packet = identification(Target::Four(Flavour::Plain)).replace(
+        "id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+        "id=\"W5M0MpCehiHzreSzNTczkc9d\" bytes=\"1234\" encoding=\"UTF-8\"?>",
+    );
+    let source = Conforming {
+        metadata: Packet::Stated(packet),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "metadata/xmp-packet-header-attributes"),
+        Decision::Mechanical(Rewrite::PacketHeaderAttributes)
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        !written.contains("bytes=") && !written.contains("encoding="),
+        "both attributes are cut out of the processing instruction"
+    );
+    assert!(
+        written.contains("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"),
+        "and the rest of the header is the producer's, with the white space in front of each \
+         cut attribute taken with it"
+    );
+    assert!(
+        written.contains("<pdfaid:part>4</pdfaid:part>"),
+        "the RDF the header wrapped is untouched"
+    );
+}
+
+/// A PDF/A-2 fixture whose one embedded TrueType font states `flags` and `encoding`, drawing
+/// `text`.
+///
+/// The same shape as [`a_font_stating`], with the two entries the encoding rules turn on made
+/// the test's: §9.8.1's Table 122 bit 3 is the symbolic flag — 4 set, 32 for non-symbolic — and
+/// §9.6.5.1's `/Encoding` is the entry ISO 19005 restricts. The program is the real Liberation
+/// Sans, because a substituted face is one the preparation declines to reason about.
+///
+/// `draws` is `None` for a font the file carries and no content stream shows anything with,
+/// which is a shape both encoding rules still bind: they walk the *font objects*, and a font
+/// nothing draws with is one whose encoding no mark depends on.
+fn a_truetype_font(flags: &str, encoding: &str, draws: Option<&str>) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            draws.map_or_else(Vec::new, |text| {
+                format!("/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td ({text}) Tj ET").into_bytes()
+            }),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 0 \
+                 /LastChar 255 /Widths [{}] /FontDescriptor 7 0 R {encoding} >>",
+                vec!["667"; 256].join(" ")
+            ),
+            format!(
+                "<< /Type /FontDescriptor /FontName /LiberationSans /Flags {flags} \
+                 /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+                 /CapHeight 716 /StemV 80 /FontFile2 8 0 R >>"
+            ),
+        ],
+        binary_objects: vec![stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// One font dictionary's `/Encoding`, read out of a converted file as it is written.
+fn stated_encoding(bytes: &[u8]) -> Option<String> {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let font = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    held.resolve(font.get("Encoding")?)
+        .as_name()
+        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+}
+
+#[test]
+fn a_symbolic_truetype_fonts_encoding_is_removed_where_no_shown_code_moves() {
+    // ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 forbid a symbolic TrueType
+    // font from stating an `/Encoding` at all. §9.6.5.4 makes the entry decide which `cmap`
+    // subtable a code is looked up through, so the removal is mechanical only once the glyph
+    // every shown code reaches has been shown to be the same without it.
+    //
+    // **The fixture's font draws nothing**, and that is the face's doing rather than the
+    // rewrite's: the same subclause requires a *rendered* symbolic font's program to carry a
+    // `cmap` subtable of the kind the part names, Liberation Sans carries the Microsoft Unicode
+    // one and not that, and that rule is behind ADR 0816's fence — so a rendered symbolic
+    // fixture built from this face is refused before this row is reached. What is left is the
+    // case the proof answers vacuously and correctly: a font the file carries whose encoding no
+    // mark on any page depends on.
+    let source = a_truetype_font("4", "/Encoding /WinAnsiEncoding", None);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert_eq!(
+        decision(&report, "fonts/symbolic-truetype-states-no-encoding"),
+        Decision::Mechanical(Rewrite::SymbolicTrueTypeEncodingRemoved)
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert_eq!(
+        stated_encoding(&output),
+        None,
+        "the entry is gone from the font dictionary"
+    );
+}
+
+#[test]
+fn a_non_symbolic_truetype_font_is_given_a_name_the_part_admits() {
+    // The same subclause's other row: a non-symbolic TrueType font's encoding shall be
+    // `MacRomanEncoding` or `WinAnsiEncoding`. This one states `StandardEncoding` and draws the
+    // single code 0x41, which all three encodings name `A` — so the proof passes and the first
+    // of the two admitted names is written.
+    let source = a_truetype_font("32", "/Encoding /StandardEncoding", Some("A"));
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert_eq!(
+        decision(
+            &report,
+            "fonts/non-symbolic-truetype-uses-a-standard-encoding"
+        ),
+        Decision::Mechanical(Rewrite::StandardTrueTypeEncoding)
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert_eq!(
+        stated_encoding(&output).as_deref(),
+        Some("WinAnsiEncoding"),
+        "the name written is one of the two the part admits"
+    );
+}
+
+#[test]
+fn a_non_symbolic_truetype_font_whose_shown_code_would_move_is_refused() {
+    // The proof is what makes the row above mechanical, so it has to bite. Code 0xE9 is `eacute`
+    // under `WinAnsiEncoding` and `Odieresis` under `StandardEncoding`, and Liberation Sans has
+    // both glyphs — so writing either admitted name over this file's encoding would change what
+    // the page draws, and `doc/adr/0947`'s first rule makes that a refusal rather than a plan.
+    let source = a_truetype_font("32", "/Encoding /StandardEncoding", Some("\\351"));
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let decided = decision(
+        &report,
+        "fonts/non-symbolic-truetype-uses-a-standard-encoding",
+    );
+    assert!(
+        matches!(decided, Decision::Refused(Because::NotBuiltYet(_))),
+        "a rewrite that would move a mark is refused with the preparation's own sentence: \
+         {decided:?}"
+    );
+    assert!(output.is_none(), "and no file claims a conformance");
+}

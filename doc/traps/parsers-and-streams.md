@@ -265,6 +265,36 @@ session paid for that too: the first fix made `len()` follow the recovery even w
 found nothing, which turned *this reader could not read the pages* into *the file says it has none*
 and left a §7.5.7 refusal with no page to be reported on.
 
+### 38. A resource bound can sit below what the standard's own data states
+
+`CLAUDE.md` principle 3 asks for explicit bounds against pathological input, and a bound picked
+from what real files do is the usual way to pick one. **Where the standard *publishes data* a
+reader is required to resolve, that data is a floor and the bound has to be checked against it.**
+`pdf-font`'s `MAX_RANGES` was 16 384 ranges per code length; §9.7.5.2's Table 116 names the
+predefined `CMap`s, this binary carries all 239 of Adobe's files, and `UniCNS-UCS2-H` states
+16 418 — so the parse dropped its last 34 `cidrange` lines, which are the fullwidth digits,
+letters and punctuation of Adobe-CNS1, and §9.7.6.3 then drew CID 0 for every one of them
+(ADR 0963).
+
+Three things make it worth a number of its own rather than a line under trap 5:
+
+- **No corpus can find it.** Not one document on this disk names that `CMap`, so every gate was
+  green and stayed green after the fix. It was found by counting the standard's own data against a
+  constant in a source file — trap 8 in its other direction.
+- **Raising the bound is not the whole fix, and doing only that is the shape to avoid.** The
+  bound is still real and a hostile file still reaches it; what was wrong *twice* was that it cut
+  in silence. The gate has to hold both halves — that no published file is cut, and that a file
+  which is cut says so by name.
+- **A bound with a floor has a gate nobody has to remember to run.** `no_registered_cmap_is_cut_by_these_bounds`
+  walks the whole shipped population and then checks the specific mappings against the file's own
+  CIDs, so a bound raised just far enough to silence the flag still fails.
+
+The general question to ask of any bound: **does the standard, or data the standard requires a
+reader to carry, state a number this has to be at least as large as?** For a bound on a document's
+own numbers the answer is usually no, and Annex C.1 says so. For a bound on what a *reader* must
+hold, it is often yes.
+
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

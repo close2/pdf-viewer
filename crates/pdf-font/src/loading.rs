@@ -1615,6 +1615,24 @@ impl LoadedFont {
         })
     }
 
+    /// Which of `pdf-font`'s `CMap` bounds discarded a mapping this font's `CMap` stated.
+    ///
+    /// `None` for every simple font, which has no `CMap`, and for every composite font whose
+    /// `CMap` was read whole. `Some` names the bound in [`crate::cmap::CUT_BY_RANGES`]'s
+    /// vocabulary and means §9.7.6.2's lookup — "[t]he code extracted from the string shall be
+    /// looked up in the character code mappings for codes of that length" — will fail for codes
+    /// the producer mapped, so §9.7.6.3's CID 0 is drawn in their place. It is a fact about the
+    /// font rather than about a code, which is why it is asked once where the font is loaded.
+    #[must_use]
+    pub fn cmap_truncated(&self) -> Option<&'static str> {
+        match &self.mapping {
+            CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
+                cmap.truncated()
+            }
+            CodeMapping::Named(_) => None,
+        }
+    }
+
     /// Whether this font is shown in §9.2.4's writing mode 1, one glyph below the next.
     ///
     /// Set by the `CMap`'s `/WMode` (§9.7.5.1) and available only to a composite font, which
@@ -2308,6 +2326,58 @@ impl OutlinePen for PathPen {
 mod tests {
     use super::{CidToGlyph, Code, CodeMapping, LoadedFont, MAX_ADDRESSABLE_CODES, Program};
     use pdf_syntax::{Dictionary, Document};
+
+    /// No registered `CMap` loses a mapping to one of `cmap.rs`'s bounds, in either direction.
+    ///
+    /// §9.7.5.2's Table 116 names the `CMap`s a reader resolves by name; Adobe publishes their
+    /// files and this binary carries them, so a bound of ours below what one of them states is a
+    /// reader that answers §9.7.6.2's lookup wrongly for codes the standard's own data defines.
+    /// One was: `UniCNS-UCS2-H` states 16 418 `cidrange` entries of two-byte codes and
+    /// `MAX_RANGES` was 16 384, so its last 34 — U+FF02 to U+FFE4, the fullwidth digits, Latin
+    /// letters and punctuation of Adobe-CNS1 — were dropped in silence (ADR 0963).
+    ///
+    /// **The second half is what makes it a gate rather than a formality**: the fullwidth
+    /// letters are checked against the CIDs Adobe's own file gives them, so a bound raised far
+    /// enough to stop the flag firing while the parse still lost them would fail here. The CIDs
+    /// are read off `data/cmaps/UniCNS-UCS2-H`, which is the file this binary compiles in, and
+    /// are not a second implementation's output.
+    #[test]
+    fn no_registered_cmap_is_cut_by_these_bounds() {
+        let mut counted = 0_u32;
+        for name in crate::predefined::names() {
+            let Some(cmap) = crate::predefined::cmap(name) else {
+                panic!("/{name} is listed and does not parse");
+            };
+            assert_eq!(
+                cmap.truncated(),
+                None,
+                "the registered /{name} lost a mapping to one of cmap.rs's bounds"
+            );
+            counted = counted.saturating_add(1);
+        }
+        assert!(counted > 200, "only {counted} registered CMaps were walked");
+
+        let cns = crate::predefined::cmap("UniCNS-UCS2-H").expect("UniCNS-UCS2-H is carried");
+        // `<ff10> <ff19> 333`, `<ff21> <ff3a> 365` and `<ff41> <ff5a> 391` are the last three
+        // runs of data/cmaps/UniCNS-UCS2-H, and `<ff01> <ff01> 108` is the entry that sat one
+        // inside the old bound — the control that says the CMap was being read at all.
+        for (code, cid) in [
+            ([0xff, 0x01], 108),
+            ([0xff, 0x10], 333),
+            ([0xff, 0x19], 342),
+            ([0xff, 0x21], 365),
+            ([0xff, 0x3a], 390),
+            ([0xff, 0x41], 391),
+            ([0xff, 0x5a], 416),
+        ] {
+            let read = cns.next_code(&code);
+            assert_eq!(
+                cns.cid(read),
+                Some(cid),
+                "UniCNS-UCS2-H maps {code:02x?} to CID {cid} and this reader disagrees"
+            );
+        }
+    }
 
     /// Every registered `CMap` this binary carries can be inverted, which is the bound's evidence.
     ///

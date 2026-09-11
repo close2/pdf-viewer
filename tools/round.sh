@@ -116,11 +116,24 @@ fi
 session=$((last + 1))
 from=doc/history/
 
-# **A parallel round's branch outranks `doc/history/`, and that is not a preference.** A worktree is
-# branched before its neighbours have written their files, so `ls doc/history/` there is a count of
-# the rounds that finished *before this batch started* — which told the six-hundred-and-eighty-seventh
-# and the six-hundred-and-ninety-first that they were session 685, and told both they owed a fifth
-# round's obligations they did not owe. The branch name is the assignment itself and cannot go stale.
+# **Neither source outranks the other; the later of the two is the answer.** Each is a floor that
+# goes stale in its own direction, and taking either alone has now been wrong here twice.
+#
+# `ls doc/history/` is too low in a parallel worktree, which is branched before its neighbours have
+# written their files — it told the six-hundred-and-eighty-seventh and the six-hundred-and-ninety-first
+# that they were session 685, and told both they owed a fifth round's obligations they did not owe.
+#
+# **The branch name is too low the moment a branch carries more than one round**, which is what this
+# project actually does — `round-945/the-fifth-round` carried sessions 946 to 959. The comment here
+# used to say the branch "cannot go stale"; it went stale for fourteen rounds, wrote "Session 945"
+# into two ADRs beside a `doc/history/945-` file about something else, and — because 945 divides by
+# five — printed **a fifth round** every single round, which is the worse half. An always-yes signal
+# is not a conservative failure. It over-runs the gates, so nothing breaks, and it destroys the one
+# thing the signal exists to say (ADR 0963).
+#
+# So: the maximum. A worktree branched as `round-960/…` takes 960 over a `doc/history/` that stops
+# at 954; the fourteenth round on `round-945/…` takes `doc/history/` over the branch. Neither case
+# is stale, and neither needs anybody to remember which source to trust.
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 case "$branch" in
     round-[0-9]*)
@@ -129,10 +142,15 @@ case "$branch" in
         # after `round-` gave `940/pdf-a-validator`, and the first arithmetic on it — the fifth
         # round test below — failed with `pdf: unbound variable` under `set -u`, which is the
         # round opener refusing to open a round.
-        session=${branch#round-}
-        session=${session%%[!0-9]*}
-        last=$((session - 1))
-        from="the branch name"
+        assigned=${branch#round-}
+        assigned=${assigned%%[!0-9]*}
+        if [ -n "$assigned" ] && [ "$assigned" -gt "$session" ]; then
+            session=$assigned
+            last=$((session - 1))
+            from="the branch name"
+        else
+            from="doc/history/, over a branch name that has carried $((session - assigned)) rounds"
+        fi
         ;;
 esac
 

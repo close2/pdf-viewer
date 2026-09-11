@@ -773,3 +773,91 @@ fn an_image_stating_a_predictor_row_wider_than_its_data_still_draws() {
     );
     assert!(commands(&document) >= 1, "the image draws");
 }
+
+/// A composite font whose embedded `CMap` states `ranges` `cidrange` entries of two-byte codes.
+///
+/// No `/FontFile`, so the descendant is substituted — which is beside the point here: what the
+/// fixture is about is the `CMap`, and `CodeMapping::Substituted` carries one exactly as
+/// `CodeMapping::Composite` does. The ranges are one code each and consecutive, so `ranges` of
+/// them fit inside a two-byte codespace for any count this fixture uses.
+fn composite_font_stating_ranges(ranges: usize) -> Document {
+    let mut cmap = String::from(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+         /CMapName /Test def /CMapType 1 def /WMode 0 def\n\
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> def\n\
+         1 begincodespacerange\n<0000> <ffff>\nendcodespacerange\n",
+    );
+    for start in (0..ranges).step_by(100) {
+        let count = 100.min(ranges - start);
+        let _ = writeln!(cmap, "{count} begincidrange");
+        for index in start..start + count {
+            let _ = writeln!(cmap, "<{index:04x}> <{index:04x}> {}", index + 1);
+        }
+        cmap.push_str("endcidrange\n");
+    }
+    cmap.push_str("endcmap CMapName currentdict /CMap defineresource pop end end\n");
+    let extra = format!(
+        "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding 6 0 R \
+         /DescendantFonts [7 0 R] >>\nendobj\n\
+         6 0 obj\n<< /Type /CMap /CMapName /Test /WMode 0 \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> \
+         /Length {} >>\nstream\n{cmap}endstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Test \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> \
+         /FontDescriptor 8 0 R /DW 1000 >>\nendobj\n\
+         8 0 obj\n<< /Type /FontDescriptor /FontName /Test /Flags 4 /ItalicAngle 0 \
+         /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 \
+         /FontBBox [0 -200 1000 800] >>\nendobj\n",
+        cmap.len()
+    );
+    page(
+        "BT /F1 24 Tf 50 700 Td <0001> Tj ET",
+        "<< /Font << /F1 5 0 R >> >>",
+        &extra,
+    )
+}
+
+/// A `CMap` stating one `cidrange` more than the bound holds says which bound dropped it.
+///
+/// ISO 32000-2 §9.7.6.2: "The code extracted from the string shall be looked up in the character
+/// code mappings for codes of that length." A mapping one of `pdf-font`'s bounds discarded is not
+/// there to be looked up, so §9.7.6.3 substitutes CID 0 and the page draws `.notdef` where the
+/// producer put a glyph — and until ADR 0963 nothing said so. The bound itself is licensed by
+/// Annex C.1, quoted at the head of this file; what was not licensed was its silence.
+///
+/// The control below is the other half, and it is the half that matters: a report that fires on
+/// every embedded `CMap` would say nothing at all. `32_768` is `MAX_RANGES` and is stated here
+/// rather than imported, because `pdf-font` keeps it private and a fixture that read the
+/// constant would agree with a wrong one.
+#[test]
+fn a_cmap_past_the_range_bound_is_reported_by_name() {
+    let document = composite_font_stating_ranges(32_769);
+    let reported = reported(&document);
+    assert!(
+        reported.contains("max_cmap_ranges"),
+        "the CMap lost its last range and the page owes that sentence: {reported}"
+    );
+    assert!(
+        commands(&document) >= 1,
+        "the fixture has to draw, or it is a font that failed to load wearing a bound's name"
+    );
+}
+
+/// A `CMap` stating exactly as many `cidrange` entries as the bound holds reports nothing.
+///
+/// The bound is tested with the next entry already read rather than on reaching a count, so a
+/// file whose last range lands exactly on it lost nothing — `doc/traps/instruments-and-reports.md`
+/// trap 11, and the same property ADR 0961 gave the mesh bound.
+#[test]
+fn a_cmap_exactly_on_the_range_bound_reports_nothing_about_it() {
+    let document = composite_font_stating_ranges(32_768);
+    let reported = reported(&document);
+    assert!(
+        !reported.contains("max_cmap_"),
+        "nothing was dropped, so no bound is owed a sentence: {reported}"
+    );
+    assert!(
+        commands(&document) >= 1,
+        "the control has to draw, or it reports nothing by loading nothing"
+    );
+}

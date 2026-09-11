@@ -688,6 +688,7 @@ impl Interpreter<'_> {
         // page drawing part of a damaged `/CharProcs` in silence is trap 5's own failure, and it
         // is the level above that keeps it from firing once per `Tf`.
         self.note_char_procs_damage(&font, name);
+        self.note_cmap_truncation(&font);
         self.fonts.insert(key.clone(), Some(font.clone()));
         Some(Some(font))
     }
@@ -703,6 +704,21 @@ impl Interpreter<'_> {
         {
             let detail = damage.detail(name);
             self.note(Unsupported::Font { detail });
+        }
+    }
+
+    /// Says which of `pdf-font`'s `CMap` bounds cut this font's mapping short.
+    ///
+    /// ADR 0963: a bound that discards a mapping the file stated makes §9.7.6.2's lookup fail
+    /// for codes the producer mapped, and §9.7.6.3 then draws CID 0 — so the page shows
+    /// `.notdef` where a glyph belongs and nothing else in the answer says why. Raised as a
+    /// bound rather than as a font fault because the font loaded: what is missing is a limit
+    /// this program set, which is what `Unsupported::LimitReached` is for.
+    fn note_cmap_truncation(&mut self, font: &Font) {
+        if let Font::Program(program) = font
+            && let Some(limit) = program.cmap_truncated()
+        {
+            self.note(Unsupported::LimitReached { limit });
         }
     }
 
@@ -731,7 +747,11 @@ impl Interpreter<'_> {
         let loaded = dict.map(|dict| pdf_font::LoadedFont::load(self.document, dict, name));
 
         let result = match loaded {
-            Some(Ok(font)) => Some(Font::Program(Arc::new(font))),
+            Some(Ok(font)) => {
+                let font = Font::Program(Arc::new(font));
+                self.note_cmap_truncation(&font);
+                Some(font)
+            }
             // A Type 3 font has no program for `pdf-font` to read: its glyphs are content
             // streams, so it is this crate that draws them (§9.6.4). The refusal there is
             // the hand-off rather than a failure, which is why this is not a report.
