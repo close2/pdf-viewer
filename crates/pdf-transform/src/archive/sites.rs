@@ -338,7 +338,7 @@ pub(super) fn appearance_states(
 /// Why a form `XObject` with no resources dictionary is not given one.
 const RESOURCES_ARE_THE_INVOCATION_S: &str = "a content stream here names resources of its own \
      and carries no Resources entry, and it is not a page. For a page the entry is the one \
-     §7.7.3.3's inheritance already put in force, so copying it down resolves every name to the \
+     §7.7.3.4's inheritance already put in force, so copying it down resolves every name to the \
      object it already resolved to — that is written. For a form XObject, a tiling pattern or a \
      Type 3 glyph procedure the names resolve through whatever stream invoked it, and one \
      dictionary cannot answer for every invocation: a stream invoked from two pages whose \
@@ -399,13 +399,13 @@ pub(super) fn page_resources(
     Ok(found)
 }
 
-/// How far up §7.7.3.3's page tree a `/Resources` entry is looked for.
+/// How far up §7.7.3.2's page tree a `/Resources` entry is looked for.
 ///
 /// `pdf_syntax::Limits::DEFAULT`'s `max_depth`, which is the depth the parser admitted the tree
 /// at: a `/Parent` chain longer than that is one no page in the document was read through.
 const MAX_INHERITANCE_DEPTH: usize = 256;
 
-/// The `/Resources` value §7.7.3.3's inheritance puts in force for a page stating none.
+/// The `/Resources` value §7.7.3.4's inheritance puts in force for a page stating none.
 ///
 /// The **reference** where the page inherits one by reference, so that the dictionary is not
 /// copied and every page sharing it goes on sharing it; a copy of the dictionary where it is
@@ -890,4 +890,501 @@ fn standard_encoding_value(document: &Document, font: &Dictionary, base: &[u8]) 
         }
         _ => Object::Name(Name::new(base)),
     }
+}
+
+/// Why an `OutputIntents` array whose entries name genuinely different profiles is not collapsed.
+///
+/// The half of ISO 19005-2 section 6.2.3's sentence this rewrite does not reach, and the reason
+/// is the clause's own: the entries name *different* destinations, so making them name one
+/// throws the loser's away. The array is what tells a reader which device the file's colours
+/// were prepared for, and choosing between two such statements is the operator's call rather
+/// than this converter's.
+const DESTINATION_PROFILES_DIFFER: &str = "two entries of this file's OutputIntents array name \
+     destination profiles that are not the same bytes, and ISO 19005 section 6.2.3 requires one \
+     object. Pointing both at one profile therefore discards a destination its producer stated — \
+     which press or display the other standard's readers were to refer this file's colours to — \
+     and nothing in the file says which of the two it meant. Where the two objects carry the \
+     same profile, sharing one of them loses nothing and is done";
+
+/// Why a destination profile written as a direct object is not shared.
+const DESTINATION_PROFILE_NOT_A_REFERENCE: &str = "an entry of this file's OutputIntents array \
+     states a DestOutputProfile that is not an indirect reference. \u{a7}7.3.8.1 requires every \
+     stream to be an indirect object — ISO 32000-1:2008, 7.3.8.1 states the same sentence, so it \
+     binds a part 2 target as well — so this value is not the ICC profile stream section 6.2.3 \
+     requires, and there is no object for the other entries to share. What the entry was meant to \
+     name is not in the file";
+
+/// Why a destination profile whose bytes cannot be read is not shared.
+const DESTINATION_PROFILE_NOT_DECODED: &str = "a destination profile this file's OutputIntents \
+     array names cannot be decoded, so whether two entries carry the same profile cannot be \
+     answered. ISO 19005 section 6.2.3 requires one object and this conversion shares one only \
+     where it has proved the profiles identical";
+
+/// The one destination profile object every entry of an `OutputIntents` array is to name.
+///
+/// ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3.
+#[derive(Debug)]
+pub(super) struct SharedProfile {
+    /// The object every entry names afterwards, in the source's numbering.
+    pub(super) profile: ObjectId,
+    /// The output intent objects whose `/DestOutputProfile` is repointed.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// The catalog's array, corrected, where an entry written directly inside it had to change.
+    ///
+    /// `None` where every entry that had to change is an object of its own, which is the usual
+    /// shape; an output intent written as a direct dictionary in the array has nowhere else for
+    /// the corrected value to go.
+    pub(super) entries: Option<Vec<Object>>,
+}
+
+/// Every entry of the catalog's `OutputIntents` array that is to name one shared profile.
+///
+/// # Why the population is the array rather than the findings
+///
+/// The rule elsewhere in this file is that `pdf_archive`'s findings decide which objects a
+/// rewrite touches. This one reads the array instead, and the difference is the requirement's
+/// own: it is *about* the catalog's `OutputIntents` array, which is one key of the catalog, so
+/// there is no second reading of the standard to make — `doc/pdf-a-mitigations.md` section
+/// 13.3.1's warning is about the duplicate-profile rows, whose site is a content stream's choice
+/// of colour space and can only be found by walking the pages again. The findings are still what
+/// makes this run at all: nothing is prepared that no failed requirement asked for.
+///
+/// # What makes it lossless, and where it stops
+///
+/// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 require every entry that states a
+/// `DestOutputProfile` to state *the same indirect object*. Where the objects differ but the
+/// profile streams they hold are the same bytes, naming one of them says exactly what the file
+/// said before: every entry still refers its colours to the profile it already referred them to,
+/// and the object that goes carried a copy. Where the bytes differ the entries name two
+/// destinations, one of them has to go, and that is a decision — [`DESTINATION_PROFILES_DIFFER`].
+pub(super) fn shared_destination_profile(
+    document: &Document,
+    catalog: &Dictionary,
+) -> Result<SharedProfile, Because> {
+    let stated = super::prepare::output_intent_entries(document, catalog);
+    let mut winner: Option<(ObjectId, std::sync::Arc<[u8]>, Dictionary)> = None;
+    for entry in &stated {
+        let Some(id) = destination_profile(document, entry)? else {
+            continue;
+        };
+        let Object::Stream(stream) = document.get(id) else {
+            return Err(Because::TheFence(DESTINATION_PROFILE_NOT_A_REFERENCE));
+        };
+        let data = document
+            .decoded_stream_data(&stream)
+            .ok_or(Because::NotBuiltYet(DESTINATION_PROFILE_NOT_DECODED))?;
+        let shape = profile_shape(&stream.dict);
+        match &winner {
+            None => winner = Some((id, data, shape)),
+            Some((first, bytes, first_shape)) => {
+                if id != *first && (*data != **bytes || &shape != first_shape) {
+                    return Err(Because::TheFence(DESTINATION_PROFILES_DIFFER));
+                }
+            }
+        }
+    }
+    // Unreachable through `Prepared`, which prepares this only for a document the validator
+    // failed on the requirement — and it fails only where two entries named two objects.
+    let (profile, ..) = winner.ok_or(Because::NotBuiltYet(DESTINATION_PROFILE_NOT_DECODED))?;
+    let mut at = BTreeSet::new();
+    let mut entries = stated.clone();
+    let mut corrected = false;
+    for (index, entry) in stated.iter().enumerate() {
+        let Some(id) = destination_profile(document, entry)? else {
+            continue;
+        };
+        if id == profile {
+            continue;
+        }
+        if let Some(intent) = entry.as_reference() {
+            at.insert(intent);
+        } else {
+            // An output intent written as a direct dictionary inside the array: there is no
+            // object of its own for the corrected value to go in, so the array is what changes.
+            let Some(mut fixed) = document.resolve(entry).as_dict().cloned() else {
+                continue;
+            };
+            fixed.insert(
+                Name::new(&b"DestOutputProfile"[..]),
+                Object::Reference(profile),
+            );
+            if let Some(slot) = entries.get_mut(index) {
+                *slot = Object::Dictionary(fixed);
+                corrected = true;
+            }
+        }
+    }
+    Ok(SharedProfile {
+        profile,
+        at,
+        entries: corrected.then_some(entries),
+    })
+}
+
+/// The profile object one entry of an `OutputIntents` array names, where it names one.
+///
+/// `Ok(None)` for an entry that states no `DestOutputProfile` at all, which the clause's own
+/// wording exempts: the sentence binds the entries that state the key, not every entry.
+fn destination_profile(document: &Document, entry: &Object) -> Result<Option<ObjectId>, Because> {
+    let Some(intent) = document.resolve(entry).as_dict().cloned() else {
+        return Ok(None);
+    };
+    let Some(value) = intent.get("DestOutputProfile") else {
+        return Ok(None);
+    };
+    value
+        .as_reference()
+        .map(Some)
+        .ok_or(Because::TheFence(DESTINATION_PROFILE_NOT_A_REFERENCE))
+}
+
+/// A profile stream's dictionary with the three keys that describe its *encoding* taken out.
+///
+/// Two streams carrying the same profile may hold it differently — one flate-encoded and one
+/// not — and §7.3.8.2 makes `/Length`, `/Filter` and `/DecodeParms` the entries that say so. What
+/// is left is what the stream asserts about the profile itself: §8.6.5.5's `/N` and `/Alternate`,
+/// §14.11.5's `/Metadata`. Those have to agree, because an entry naming a profile with a
+/// different `/N` is not naming the same thing.
+fn profile_shape(dict: &Dictionary) -> Dictionary {
+    let mut out = dict.clone();
+    for key in ["Length", "Filter", "DecodeParms"] {
+        out.remove(key);
+    }
+    out
+}
+
+/// Why a missing `/Colorants` entry is not synthesised.
+///
+/// `doc/pdf-a-mitigations.md` section 4.2 proposed deriving the entry from the `DeviceN` space's
+/// own alternate space and tint transform, and section 13.3.1 records why the general case cannot
+/// be done exactly: §7.10 gives a PDF function no way to call another, so a one-input transform
+/// derived from an *N*-input one is a **sample** of the producer's rather than a restatement of
+/// it. What this rewrite does instead is the one case that needs no derivation at all.
+const COLORANT_NOT_DERIVABLE: &str = "a DeviceN or NChannel colour space here uses a spot \
+     colourant its Colorants dictionary does not define, and this file states no Separation \
+     array of its own for that colourant. Synthesising one means deriving a one-input tint \
+     transform from the space's N-input one, which ISO 32000-2 §7.10 gives a PDF function no way \
+     to express: the derived function can only sample the producer's, and an archive would then \
+     carry an approximation of their transform written as though it were their definition. Where \
+     the file does state a Separation array for the colourant, that array is the entry — ISO \
+     19005 section 6.2.4.4 requires every Separation of one name in a file to state the same \
+     alternate space and tint transform, so the entry is the producer's own and is written";
+
+/// Why a colourant this file does define twice, differently, is not copied.
+const COLOURANT_DEFINED_TWICE: &str = "this file states more than one Separation array for a \
+     colourant whose Colorants entry is missing, and the arrays are not the same objects. ISO \
+     19005 section 6.2.4.4 requires every Separation of one name to agree, so the file is already \
+     failing that rule and there is no producer's definition for this rewrite to copy — choosing \
+     between them is the question doc/pdf-a-mitigations.md section 4.2 puts to an operator";
+
+/// Why the `DeviceN` space a finding names cannot be reached.
+const COLORANTS_NOT_REACHABLE: &str = "a DeviceN colour space whose Colorants dictionary is \
+     missing an entry is written in a place this rewrite cannot complete: the finding names no \
+     object, or the space's Attributes or Colorants dictionary is an indirect object of its own, \
+     which is not the object the failure was reported at. Writing into an object no finding named \
+     would be this converter reading the file a second way";
+
+/// The `/Colorants` entries a `DeviceN` colour space is to gain, per object.
+///
+/// ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4.
+#[derive(Debug, Default)]
+pub(super) struct ColorantEntries {
+    /// Per object the findings named, the `Separation` array each missing colourant is to get.
+    pub(super) at: BTreeMap<ObjectId, BTreeMap<Vec<u8>, Object>>,
+}
+
+/// Every missing `/Colorants` entry this file already states the answer to.
+///
+/// # Why the file's own `Separation` array is the entry rather than a derivation
+///
+/// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4 require every `Separation` array
+/// in one file that names a given colourant — and the subclause names the ones written inside a
+/// `Colorants` dictionary as being among them —
+/// to state the same alternate space and the same tint transform, and require the comparison to
+/// be made on the PDF objects rather than on what using them computes. So where the file states
+/// one for this colourant, the entry that requirement admits is *that array* and nothing else:
+/// there is no choice left to make, and the producer's own definition of the ink is written down
+/// rather than a function this converter fitted to their N-input one.
+///
+/// Every other shape is refused, and [`COLORANT_NOT_DERIVABLE`] says why.
+pub(super) fn colorant_entries(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<ColorantEntries, Because> {
+    let separations = separation_arrays(document);
+    let mut found = ColorantEntries::default();
+    for judgement in input.failures() {
+        if judgement.id != "graphics/spot-colourants-appear-in-the-colorants-dictionary" {
+            continue;
+        }
+        let Outcome::Failed { places, .. } = &judgement.outcome else {
+            continue;
+        };
+        for finding in places {
+            let (Some(id), Some(colourant)) = (finding.place.object, finding.place.name.as_ref())
+            else {
+                return Err(Because::NotBuiltYet(COLORANTS_NOT_REACHABLE));
+            };
+            let colourant = colourant.clone().into_bytes();
+            let array = separations.stated.get(&colourant).ok_or_else(|| {
+                Because::NotBuiltYet(if separations.clashed.contains(&colourant) {
+                    COLOURANT_DEFINED_TWICE
+                } else {
+                    COLORANT_NOT_DERIVABLE
+                })
+            })?;
+            found
+                .at
+                .entry(id)
+                .or_default()
+                .insert(colourant, array.clone());
+        }
+    }
+    // **The proof that the rewrite reaches every entry it promises.** The same placement the
+    // rewriter performs is made here on a copy, and a colourant it could not place refuses the
+    // document rather than leaving the output still failing the clause.
+    for (id, entries) in &found.at {
+        let mut copy = document.get(*id);
+        let placed = match &mut copy {
+            Object::Stream(stream) => {
+                let mut dict = stream.dict.clone();
+                place_colorants(document, &mut dict, entries, 0)
+            }
+            other => place_colorants_in(document, other, entries),
+        };
+        if entries.keys().any(|name| !placed.contains(name)) {
+            return Err(Because::NotBuiltYet(COLORANTS_NOT_REACHABLE));
+        }
+    }
+    Ok(found)
+}
+
+/// Every `Separation` colour space array the file's cross-referenced objects state, by colourant.
+///
+/// §8.6.6.4 shapes the array — the family name, the colourant name, the alternate space and the
+/// tint transform — and ISO 19005 section 6.2.4.4 is what makes one per name the only answer:
+/// a colourant two arrays define differently is a colourant this file has already failed on, and
+/// [`COLOURANT_DEFINED_TWICE`] is what that is.
+fn separation_arrays(document: &Document) -> Separations {
+    let mut out: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
+    let mut clashed: BTreeSet<Vec<u8>> = BTreeSet::new();
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId::new(number, 0));
+        descend_for_separations(
+            document,
+            &object,
+            0,
+            &mut |name, array| match out.get(&name) {
+                Some(held) if held == &array => {}
+                Some(_) => {
+                    clashed.insert(name);
+                }
+                None => {
+                    out.insert(name, array);
+                }
+            },
+        );
+    }
+    for name in &clashed {
+        out.remove(name);
+    }
+    Separations {
+        stated: out,
+        clashed,
+    }
+}
+
+/// What [`separation_arrays`] found: the colourants this file defines once, and those it defines
+/// more than one way.
+struct Separations {
+    /// The one `Separation` array the file states for each colourant it agrees with itself about.
+    stated: BTreeMap<Vec<u8>, Object>,
+    /// The colourants the file defines two ways, which are already failing section 6.2.4.4.
+    clashed: BTreeSet<Vec<u8>>,
+}
+
+/// One object's contribution to [`separation_arrays`].
+fn descend_for_separations(
+    document: &Document,
+    object: &Object,
+    depth: usize,
+    found: &mut impl FnMut(Vec<u8>, Object),
+) {
+    if depth >= MAX_ENTRY_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    match object {
+        Object::Array(items) => {
+            if let Some(name) = separation_colourant(document, items) {
+                found(name, Object::Array(items.clone()));
+            }
+            for item in items {
+                descend_for_separations(document, item, deeper, found);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_, value) in dict.iter() {
+                descend_for_separations(document, value, deeper, found);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, value) in stream.dict.iter() {
+                descend_for_separations(document, value, deeper, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The colourant a §8.6.6.4 `Separation` array names, where the array is one.
+fn separation_colourant(document: &Document, items: &[Object]) -> Option<Vec<u8>> {
+    if items.len() < 4 {
+        return None;
+    }
+    if !is_name(document, items.first()?, b"Separation") {
+        return None;
+    }
+    document
+        .resolve(items.get(1)?)
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())
+}
+
+/// Whether a value resolves to one particular name.
+fn is_name(document: &Document, value: &Object, wanted: &[u8]) -> bool {
+    document
+        .resolve(value)
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == wanted)
+}
+
+/// Writes each colourant's `Separation` array into every `DeviceN` space inside `dict` that uses
+/// it, and answers which colourants were placed.
+///
+/// **References are not followed**, for the reason the rest of this file does not follow them:
+/// the rewrite reaches the object the failure was reported at, and a dictionary written as its
+/// own object is reported at that object. An `/Attributes` or `/Colorants` the space states
+/// indirectly is therefore left alone, and [`colorant_entries`]'s proof turns that into a refusal.
+pub(super) fn place_colorants(
+    document: &Document,
+    dict: &mut Dictionary,
+    entries: &BTreeMap<Vec<u8>, Object>,
+    depth: usize,
+) -> BTreeSet<Vec<u8>> {
+    let mut placed = BTreeSet::new();
+    if depth >= MAX_ENTRY_DEPTH {
+        return placed;
+    }
+    let deeper = depth.saturating_add(1);
+    let inside: Vec<(Name, Object)> = dict
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    for (key, value) in inside {
+        let mut held = value;
+        if place_in_value(document, &mut held, entries, deeper, &mut placed) {
+            dict.insert(key, held);
+        }
+    }
+    placed
+}
+
+/// The same placement for an object that is not a dictionary.
+///
+/// A `DeviceN` colour space array written as its own object is reported *at* that object, so the
+/// value the rewrite is handed is the array rather than a dictionary holding one.
+pub(super) fn place_colorants_in(
+    document: &Document,
+    value: &mut Object,
+    entries: &BTreeMap<Vec<u8>, Object>,
+) -> BTreeSet<Vec<u8>> {
+    let mut placed = BTreeSet::new();
+    place_in_value(document, value, entries, 0, &mut placed);
+    placed
+}
+
+/// One value inside a dictionary, and whether placing changed it.
+fn place_in_value(
+    document: &Document,
+    value: &mut Object,
+    entries: &BTreeMap<Vec<u8>, Object>,
+    depth: usize,
+    placed: &mut BTreeSet<Vec<u8>>,
+) -> bool {
+    match value {
+        Object::Dictionary(dict) => {
+            let inner = place_colorants(document, dict, entries, depth);
+            let changed = !inner.is_empty();
+            placed.extend(inner);
+            changed
+        }
+        Object::Array(items) => {
+            if depth >= MAX_ENTRY_DEPTH {
+                return false;
+            }
+            let mut changed = place_in_devicen(document, items, entries, placed);
+            for item in items {
+                changed |= place_in_value(document, item, entries, depth.saturating_add(1), placed);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+/// One `DeviceN` colour space array, given the entries its `/Colorants` dictionary is missing.
+///
+/// §8.6.6.5 shapes the array: the family name, the array of colourant names, the alternate space,
+/// the tint transform, and an optional attributes dictionary whose `/Colorants` this writes into.
+/// A space that states no attributes dictionary gains one holding nothing but `/Colorants`, which
+/// is what Table 71 makes a valid attributes dictionary for a plain `DeviceN`.
+fn place_in_devicen(
+    document: &Document,
+    items: &mut Vec<Object>,
+    entries: &BTreeMap<Vec<u8>, Object>,
+    placed: &mut BTreeSet<Vec<u8>>,
+) -> bool {
+    if items.len() < 4 || !is_name(document, &items[0], b"DeviceN") {
+        return false;
+    }
+    let used: BTreeSet<Vec<u8>> = document
+        .resolve(&items[1])
+        .as_array()
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(|entry| {
+                    document
+                        .resolve(entry)
+                        .as_name()
+                        .map(|name| name.as_bytes().to_vec())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let wanted: Vec<(&Vec<u8>, &Object)> = entries
+        .iter()
+        .filter(|(name, _)| used.contains(*name))
+        .collect();
+    if wanted.is_empty() {
+        return false;
+    }
+    if items.len() == 4 {
+        items.push(Object::Dictionary(Dictionary::new()));
+    }
+    let Some(Object::Dictionary(attributes)) = items.get_mut(4) else {
+        return false;
+    };
+    let mut colorants = match attributes.get("Colorants") {
+        Some(Object::Dictionary(stated)) => stated.clone(),
+        Some(_) => return false,
+        None => Dictionary::new(),
+    };
+    for (name, array) in wanted {
+        colorants.insert(Name::new(name.clone()), array.clone());
+        placed.insert(name.clone());
+    }
+    attributes.insert(Name::new(&b"Colorants"[..]), Object::Dictionary(colorants));
+    true
 }

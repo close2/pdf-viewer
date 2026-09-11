@@ -165,12 +165,6 @@ can and cannot open a window on, and where the build lands.
   **Write the message to a file and use `-F`.** It costs one line, it survives backticks, `$`, `!`
   and newlines alike, and `--amend -F` repairs one that already landed.
 
-  And the sweep §5a asks for is worth doing by *profile* rather than wholesale: `debug` was **131 GB
-  of 158** in the shared directory and is the one Cargo on stable cannot garbage-collect, while
-  `release` and `gates` are 9.4 and 4.7 and are what the gates and §5's binaries run from. `tmp/` is
-  never swept — it holds the reference-render cache, and deleting it costs the next oracle run about
-  a thousand seconds of `pdftoppm`, `mutool` and `gs`.
-
 - **Name the worktree in every `git` command: `git -C /…/worktrees/rNNN …`.** A round's shell
   working directory is not a guarantee. In the six-hundred-and-fourteenth session it moved, without
   any `cd` to a worktree, from `r614` to **`r616` — a parallel round's tree** — and the next
@@ -367,11 +361,15 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   parallel rounds do not queue on one build lock — asks for it with `--target-dir` and **not** with
   an exported `CARGO_TARGET_DIR`; the `sccache` note below says what the export costs.
 - **A build script's `env!("CARGO_MANIFEST_DIR")` is baked at *its* compile time, and the shared
-  build directory outlives a checkout.** `pdf-font`'s and `tools/conformance`'s build scripts read
-  it, and a binary compiled from a worktree or a scratchpad copy that no longer exists fails with
-  an absurd message naming a path under `/tmp` — "data/cmaps is readable: No such file or
-  directory". It is not the tree. `touch` the build script's source and rebuild. Two rounds of the
-  four-hundred-and-fifties lost time to it.
+  build directory outlives a checkout.** A binary compiled from a worktree or a scratchpad copy that
+  no longer exists fails with an absurd message naming a path under `/tmp` — "data/cmaps is readable:
+  No such file or directory". It is not the tree. `touch` the build script's source and rebuild. Two
+  rounds of the four-hundred-and-fifties lost time to it. **Which scripts those are is derived rather
+  than written down**, and this bullet named `pdf-font`'s and `tools/conformance`'s until session 967:
+  `tools/conformance` has never had a build script in any commit of this repository, while
+  `crates/pdf-sandbox/build.rs` — which bakes the path and then reads a directory under it — was the
+  one nobody had named. `tools/round.sh`'s check reads every tracked `build.rs` for the macro instead
+  (ADR 0752, trap 25).
 - **`sccache` is the `rustc-wrapper`, and `export CARGO_TARGET_DIR=…` is what makes it useless.**
   It is activated for user `AI` in `~/.cargo/config.toml` (`build.rustc-wrapper`, an absolute path
   to `~/.cargo/bin/sccache`, which is **not on `PATH`** — `which sccache` answers nothing while

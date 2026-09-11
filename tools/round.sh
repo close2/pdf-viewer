@@ -37,29 +37,33 @@ pass() { printf '  ✓ %s\n' "$1"; }
 # The kinds of round, each one row: name, what it is, what it opens beyond the every-round list,
 # and which of doc/todo/02 §2 its change needs. The gate column is that file's change→gate map in
 # one line; the map itself is the authority and this is the pointer to it.
+#
+# The trap column names the group **file** and never its trap numbers. It listed them until session
+# 967, and every one of the five lists had gone stale as traps were added — doc/HANDOVER.md's table
+# is where a group's numbers live, and a second copy of them here was a copy nothing checked.
 kinds="pixels oracle parsers loop instruments clause measure host dependency docs"
 
 kind_reading() {
     case $1 in
     pixels)
-        printf 'doc/traps/pixels-and-rasterisers.md      traps 1, 2, 6, 12b\n'
+        printf 'doc/traps/pixels-and-rasterisers.md      the group for anything that can move a pixel\n'
         printf 'doc/traps/oracle-and-references.md       because the oracle judges what you drew\n'
         printf 'doc/state-of-play.md                     what already draws\n' ;;
     oracle)
-        printf 'doc/traps/oracle-and-references.md       traps 3, 9, 12\n'
+        printf 'doc/traps/oracle-and-references.md       the group for a verdict, a reference or a tolerance\n'
         printf 'doc/oracle-and-corpus.md                 the instrument itself\n'
         printf 'doc/habits.md                            "Judging against other implementations"\n'
         printf 'doc/todo/00-ambiguous-bucket.md          the bucket and step 7\n' ;;
     parsers)
-        printf 'doc/traps/parsers-and-streams.md         traps 4, 5, 8, 28\n'
+        printf 'doc/traps/parsers-and-streams.md         the group for a parser, a filter, a font or a codec\n'
         printf 'doc/traps/instruments-and-reports.md     trap 11, before adding a report\n'
         printf 'doc/verify.md                            which fuzz target covers what you touched\n' ;;
     loop)
-        printf 'doc/traps/the-interactive-loop.md        trap 12a\n'
+        printf 'doc/traps/the-interactive-loop.md        the group for a press, a space or a toolkit loop\n'
         printf 'doc/ui-boundary.md                       the boundary, and the test a message must pass\n'
         printf 'doc/environment.md                       the Xvfb recipe — the only way to drive the loop\n' ;;
     instruments)
-        printf 'doc/traps/instruments-and-reports.md     traps 7, 10, 10a, 11\n'
+        printf 'doc/traps/instruments-and-reports.md     the group for a gate, a number or a report\n'
         printf 'doc/habits.md                            "Tests, gates and reports"\n' ;;
     clause)
         printf 'doc/habits.md                            "Reading the specification" and "The ledger"\n'
@@ -73,7 +77,7 @@ kind_reading() {
         printf 'doc/todo/02-every-round.md               §5 — the binaries, which a measurement owes first\n' ;;
     host)
         printf 'doc/ui-boundary.md                       Command/Event/Query/Answer, and the freeze\n'
-        printf 'doc/traps/the-interactive-loop.md        trap 12a\n'
+        printf 'doc/traps/the-interactive-loop.md        the group for a press, a space or a toolkit loop\n'
         printf 'doc/todo/30-a-native-host.md             what the hosts still owe\n' ;;
     dependency)
         printf 'doc/stack.md                             the stack, and why rustybuzz is not in it\n'
@@ -167,6 +171,7 @@ printf '  and whatever the change: a round that can move a pixel runs §2 whole,
 # ---------------------------------------------------------------- the reading
 
 heading "read, whatever this round is"
+printf '  CLAUDE.md                                the five principles, and what *done* means\n'
 printf '  doc/todo/README.md                       what is owed, one line per item\n'
 printf '  doc/todo/02-every-round.md               the gates, the sweeps, the binaries, the commit\n'
 printf '  doc/environment.md                       the machine, the account, the display, the build directory\n'
@@ -218,12 +223,8 @@ target=$(cargo metadata --no-deps --format-version 1 2>/dev/null |
 #    its binary carries the path in its debug info — grepping a binary for a path finds strings
 #    the program will never read, so the source has to say which kind it is.
 #
-#    It was a hand-written list of two names for four hundred and thirty-five commits, and both
-#    halves of it were wrong: `conformance` has never had a build script in any commit of this
-#    repository, so half of every run looked for a thing that does not exist and found nothing —
-#    which prints as a `✓` — while `crates/pdf-sandbox/build.rs`, which bakes the path and then
-#    reads a directory under it, was never asked at all. A derived population could not have
-#    contained the first or missed the second (ADR 0752, trap 25).
+#    It was a hand-written list of two names, and both halves of it were wrong. Trap 25 in
+#    `doc/traps/instruments-and-reports.md` is that incident and the general shape (ADR 0752).
 stale= superseded=0 asked=0
 while read -r script_source; do
     grep -q 'env!("CARGO_MANIFEST_DIR")' "$script_source" || continue

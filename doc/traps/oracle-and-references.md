@@ -8,9 +8,8 @@ itself; this file is what it does wrong.
 **Principle 5 is over all of it**: another implementation is evidence about our reading of the
 specification, never the definition of correct.
 
-`doc/HANDOVER.md` is the index and names which group holds which trap. **Every trap keeps its
-number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and dozens of ADRs cite them
-by number and an ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
+trap keeps its number.
 
 ## Traps
 

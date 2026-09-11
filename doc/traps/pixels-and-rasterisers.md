@@ -5,9 +5,8 @@ Read by: a round that changes what gets drawn — the interpreter's marks, eithe
 colour, or a cross-backend scene. **If this round can change a pixel, trap 1 is the one that may
 not be skipped.**
 
-`doc/HANDOVER.md` is the index and names which group holds which trap. **Every trap keeps its
-number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and dozens of ADRs cite them
-by number and an ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
+trap keeps its number.
 
 ## Traps
 

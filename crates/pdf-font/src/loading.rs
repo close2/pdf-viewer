@@ -1633,6 +1633,38 @@ impl LoadedFont {
         }
     }
 
+    /// Which of `pdf-font`'s `/ToUnicode` bounds discarded a mapping one of this font's
+    /// Unicode tables stated.
+    ///
+    /// `None` where every table was read whole, which is every font that states none. `Some`
+    /// names the bound in [`crate::tounicode::CUT_BY_SINGLES`]'s vocabulary.
+    ///
+    /// **Three tables are asked, because a font can hold three** and they answer different
+    /// questions: the producer's own `/ToUnicode` (§9.10.2's first method), the character
+    /// collection's `registry-ordering-UCS2` table (its third), and — for a composite font with
+    /// no usable program — whichever of the two [`CodeMapping::Substituted`] selects glyphs
+    /// through. The third is why this is not only about extracted text: §9.7.4.2 says that with
+    /// the program absent "CIDs shall not participate in glyph selection", so the substitute's
+    /// glyph is reached *through* the character, and a mapping the bound discarded is a glyph
+    /// the page does not draw.
+    #[must_use]
+    pub fn to_unicode_truncated(&self) -> Option<&'static str> {
+        let selecting = match &self.mapping {
+            CodeMapping::Substituted { text, .. } => match text.as_ref() {
+                Meaning::ByCode(table) | Meaning::ByCid(table) => table.truncated(),
+            },
+            CodeMapping::Composite { .. } | CodeMapping::Named(_) => None,
+        };
+        self.to_unicode
+            .truncated()
+            .or_else(|| {
+                self.collection
+                    .as_ref()
+                    .and_then(tounicode::ToUnicode::truncated)
+            })
+            .or(selecting)
+    }
+
     /// Whether this font is shown in §9.2.4's writing mode 1, one glyph below the next.
     ///
     /// Set by the `CMap`'s `/WMode` (§9.7.5.1) and available only to a composite font, which
@@ -2377,6 +2409,64 @@ mod tests {
                 "UniCNS-UCS2-H maps {code:02x?} to CID {cid} and this reader disagrees"
             );
         }
+    }
+
+    /// No carried `CMap` read as a `/ToUnicode` loses a mapping to one of `tounicode.rs`'s
+    /// bounds.
+    ///
+    /// **The sibling of [`no_registered_cmap_is_cut_by_these_bounds`], over the second parser
+    /// that reads the same files.** Session 960 measured Adobe's 240 published `CMap`s against
+    /// `cmap.rs`'s four bounds and found one of them below what the data states; the same files
+    /// also go through [`crate::tounicode`], which has three bounds of its own, and nothing
+    /// walked them. §9.10.2's third method reads `registry-ordering-UCS2` for every composite
+    /// font whose program is absent, and §9.10.3 lets a producer's `/ToUnicode` name any of the
+    /// rest in `/UseCMap` — so the population is the whole set, not the five collection tables.
+    ///
+    /// Measured: the widest is `UCS2-ETen-B5` at 13 291 `bfrange` entries against a bound of
+    /// 16 384, and `Adobe-Japan1-UCS2` at 17 387 individual mappings against 65 536. Nothing is
+    /// cut, which is what this asserts; ADR 0971 has the finding, which is that being cut was
+    /// silent.
+    ///
+    /// **The second half is what makes it a gate rather than a formality**, exactly as in its
+    /// sibling: the *last* entry of each of those two files is checked against the value the
+    /// file itself gives it, so a bound raised only far enough to stop the flag firing while
+    /// the parse still lost the tail fails here.
+    #[test]
+    fn no_carried_unicode_cmap_is_cut_by_these_bounds() {
+        let mut counted = 0_u32;
+        let mut read = 0_u32;
+        for name in crate::predefined::names() {
+            counted = counted.saturating_add(1);
+            // A name whose file states no `bfchar` or `bfrange` parses to an empty map and is
+            // answered as `None` — every CID `CMap` in the set — so this is not a failure.
+            let Some(table) = crate::predefined::unicode_cmap(name) else {
+                continue;
+            };
+            read = read.saturating_add(1);
+            assert_eq!(
+                table.truncated(),
+                None,
+                "the carried /{name}, read as a /ToUnicode, lost a mapping to one of \
+                 tounicode.rs's bounds"
+            );
+        }
+        assert!(counted > 200, "only {counted} carried CMaps were walked");
+        assert!(
+            read > 40,
+            "only {read} of them stated any bfchar or bfrange"
+        );
+
+        // `<FFE5> <FFE5> <A244>` is the last line of data/cmaps/UCS2-ETen-B5's only bfrange
+        // section, and `<5a13> <32ff>` the last of data/cmaps/Adobe-Japan1-UCS2's last bfchar
+        // section — the two entries a bound one short would drop first.
+        let eten =
+            crate::predefined::unicode_cmap("UCS2-ETen-B5").expect("UCS2-ETen-B5 is carried");
+        assert_eq!(eten.char_for(0xffe5), char::from_u32(0xa244));
+        let japan = crate::predefined::unicode_cmap("Adobe-Japan1-UCS2")
+            .expect("Adobe-Japan1-UCS2 is carried");
+        assert_eq!(japan.char_for(0x5a13), char::from_u32(0x32ff));
+        // And the last bfrange of the same file, which is the entry after it.
+        assert_eq!(japan.char_for(0x5a0e), char::from_u32(0x9f92));
     }
 
     /// Every registered `CMap` this binary carries can be inverted, which is the bound's evidence.

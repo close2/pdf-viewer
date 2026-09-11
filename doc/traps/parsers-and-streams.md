@@ -4,9 +4,8 @@ Status: **standing** — each is a mistake somebody actually made in this tree.
 Read by: a round that touches `pdf-syntax`, a filter, a font program, an image codec, a colour
 space, or anything that decides what to do with input it cannot fully handle.
 
-`doc/HANDOVER.md` is the index and names which group holds which trap. **Every trap keeps its
-number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and dozens of ADRs cite them
-by number and an ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
+trap keeps its number.
 
 ## Traps
 

@@ -166,6 +166,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(normal_appearance_shape),
     },
     Requirement {
+        id: "annotations/appearance-rendered-without-the-other-entries",
+        asks: "A processor shall render an annotation from its appearance dictionary alone, \
+               ignoring the colour, border, caption and style entries of the annotation \
+               dictionary.",
+        clauses: Clauses::only_two("6.3.3"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the file's half is the three rows above — an appearance is present, its dictionary \
+             holds only N, and N has the right shape — and this sentence says what a processor \
+             does with the entries it then has to leave alone. Part 4 states no equivalent \
+             sentence, which is why this row is part 2's only",
+        ),
+    },
+    Requirement {
         id: "annotations/appearance-graphics-conform",
         asks: "The graphics content of every appearance dictionary shall meet the same colour, \
                image, transparency and font rules as page content.",
@@ -257,6 +271,34 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(signature_widgets_meet_the_annotation_rules),
     },
     Requirement {
+        id: "signatures/signatures-use-signature-fields",
+        asks: "A signature shall be specified through a signature field, as the base standard \
+               defines one.",
+        clauses: Clauses::both("6.4.3", "6.5.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented, and what would settle it is a population rather than a reading: \
+             every signature dictionary the file holds, compared with the ones the AcroForm's \
+             field tree reaches as the V of a field whose FT is Sig. \
+             `pdf_model::signature::signatures` gives the second set today; the first needs a \
+             walk of every object that is a signature dictionary, which is the same walk \
+             `super::file_structure`'s rows already make over the cross-reference sections and \
+             which nothing here reuses yet",
+        ),
+    },
+    Requirement {
+        id: "signatures/signing-does-not-break-conformance",
+        asks: "A processor generating a signature appearance, or any other object, as part of \
+               signing shall not thereby break the file's conformance.",
+        clauses: Clauses::both("6.4.3", "6.5.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "a rule about what a signing processor may produce, and the file it produces is \
+             judged by every other row of this table. A document in front of a validator has \
+             already been signed or has not; nothing in it says what the signer would have done",
+        ),
+    },
+    Requirement {
         id: "signatures/pades-profile",
         asks: "A digital signature shall conform to one of the PAdES profiles of ISO 32000-2 or \
                ISO 14533-3.",
@@ -267,6 +309,93 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              signature departing from ISO 32000-2 §12.8.3.4 could still meet the clause by the \
              other route; `pdf_model::signature::pades_departures` already answers the half we \
              can read",
+        ),
+    },
+    Requirement {
+        id: "signatures/timestamped-file-follows-the-base-standard",
+        asks: "A timestamped conforming file shall follow the base standard's document \
+               timestamp clause.",
+        clauses: Clauses::only_four("6.5.3"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented. The subclause's second sentence is conditional on an aspiration — \
+             what a file needs *in order to* be deterministically valid over the long term — so \
+             only the first binds a file outright, and it delegates wholly to ISO 32000-2 \
+             §12.8.5. `pdf_model::signature` reads a document timestamp's CMS object already; \
+             what is missing is a predicate over §12.8.5's own requirements, which is the same \
+             owed reading as the PAdES row above and is better done once for both",
+        ),
+    },
+    Requirement {
+        id: "signatures/digest-covers-the-whole-file",
+        asks: "A signature's digest shall be computed over the entire file, excluding only the \
+               signature value itself.",
+        clauses: Clauses::only_two("B.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented, and closable without cryptography: \
+             `pdf_model::signature::Signature::coverage` already answers exactly this question, \
+             reporting `Coverage::WholeFile` for a ByteRange that runs from byte zero to the end \
+             of the file with the single gap where the value sits. What stops it being a \
+             predicate here is that it would be this crate's first row whose check the \
+             converter's decision tables have no answer for \
+             (`crates/pdf-transform/tests/archive_unconsidered.txt`), which is a second crate's \
+             row to write",
+        ),
+    },
+    Requirement {
+        id: "signatures/signature-is-a-single-signer-cms-object",
+        asks: "The signature value shall be a DER-encoded PKCS#7 object carrying at least the \
+               signer's X.509 certificate and exactly one signer.",
+        clauses: Clauses::only_two("B.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented, and closable from what this tree already reads: \
+             `pdf_model::cms::SignedData` states `signers` and the entries of `certificates`, \
+             and failing to parse at all is its `CmsError`. Held back for the same reason as the \
+             row above — a new predicate is a new row of the converter's census — and the \
+             annex's reference is to RFC 2315 rather than to RFC 5652, which is a narrower \
+             object than the one that reader accepts and is the part of the sentence that would \
+             need deciding before a verdict is issued",
+        ),
+    },
+    Requirement {
+        id: "signatures/revocation-information-is-a-signed-attribute",
+        asks: "Revocation information, and as much of the certificate chain as is available, \
+               shall be captured before the signature is completed, and the revocation \
+               information shall be a signed attribute of it.",
+        clauses: Clauses::only_two("B.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented. Half the sentence is about the signing process and leaves no trace a \
+             file can be judged by; the half that does is the signed attribute, and \
+             `pdf_model::cms::SignedData::has_signed_attribute` would answer it given the \
+             object identifier the annex intends. The annex names no identifier, and choosing \
+             one from a de-facto convention would be this crate supplying the rule rather than \
+             applying it",
+        ),
+    },
+    Requirement {
+        id: "signatures/signature-handlers-available",
+        asks: "A processor shall be able to call the appropriate signature handler, and shall \
+               support the two subfilters the base standard documents.",
+        clauses: Clauses::only_two("B.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "an obligation on the program rather than on the file: a conforming file may state \
+             either subfilter, and what a processor can do about it is `doc/PLAN.md` section \
+             5a's ledger to record",
+        ),
+    },
+    Requirement {
+        id: "signatures/signatures-validated-as-the-annex-describes",
+        asks: "A processor validating a signature shall compare the document digest, validate \
+               the certificate path at the indicated time, and check revocation status.",
+        clauses: Clauses::only_two("B.2"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the whole subclause is a validation procedure a processor carries out, and no \
+             property of a document satisfies or breaks it",
         ),
     },
     Requirement {
@@ -360,6 +489,30 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Processor(
             "a requirement on what the interactive processor shows the reader rather than on \
              the file",
+        ),
+    },
+    Requirement {
+        id: "actions/a-processor-that-declines-scripts-says-so",
+        asks: "An interactive processor that renders 3D content but does not process \
+               ECMAScript actions shall tell the user so.",
+        clauses: Clauses::only_four("B.3.1"),
+        applies: Applies::Flavours(&[Flavour::E]),
+        check: Check::Processor(
+            "an obligation on the program, and an unusual one: the annex lets a processor \
+             decline the scripts a 3D annotation would run and requires it to say that it has. \
+             Nothing in a file bears on it",
+        ),
+    },
+    Requirement {
+        id: "actions/on-instantiate-script-only-on-explicit-user-action",
+        asks: "A processor that runs a 3D stream's OnInstantiate script shall run it only when \
+               the user explicitly initiates an action.",
+        clauses: Clauses::only_four("B.3.2"),
+        applies: Applies::Flavours(&[Flavour::E]),
+        check: Check::Processor(
+            "the annex permits a processor to ignore the entry outright, so a file may state it \
+             and conform; what is constrained is when a processor that honours it may run the \
+             script",
         ),
     },
 ];

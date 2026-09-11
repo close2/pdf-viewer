@@ -56,12 +56,11 @@ out loud when it opens, since following it is refused and naming it never needed
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
 
 It is **used**, which is a separate claim from the one above and was owed for a long time — and
-since the five-hundred-and-eighty-sixth session the first sentence of it is **measured** rather
-than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
+the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
 what came back, which is the first thing in this tree that clicks, and it found a press that set
 no selection anchor at all (ADR 0421). A
-locked document asks for its password (§7.6.4.1) — **in a window of the host's own in all three,
-since the six-hundred-and-ninety-fifth session**, where `viewer-ui` stopped reading `stdin` and
+locked document asks for its password (§7.6.4.1) — **in a window of the host's own in all three**,
+where `viewer-ui` stopped reading `stdin` and
 stopped leaving the process when there was no terminal (ADR 0545); the page zooms and scrolls; the cursor knows
 what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`; a drag **selects
 text**, whose shapes cross to the host as geometry so that it draws them in its own colour, **and
@@ -82,7 +81,7 @@ text box beside a drop-down list — composed in GTK4, which has no widget that 
 clear is a drop-down and no way to type into it, which the host drawing its own chrome broke for the
 whole of its life (ADR 0596); a click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
-activation (ADR 0191) — **in all three windows since the seven-hundred-and-twenty-sixth**, where two
+activation (ADR 0191) — **in all three windows**, where two
 of them drew nothing of it at all: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613); a **cursor changes over §12.5.6.5's activation region** in all three,
@@ -118,8 +117,7 @@ makes what it costs a number to keep rather than a cost to hide. What each step 
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
 
-**And it has chrome — and since the seven-hundred-and-fourth session all three windows have the
-same six panels**, because the *list* of them is one value every host matches exhaustively on
+**And it has chrome, and all three windows have the same six panels**, because the *list* of them is one value every host matches exhaustively on
 (`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press. A sidebar of
 six tabs, drawn in `viewer-ui` with `pdf-font`'s compiled-in Helvetica and a `pdf-render` display
 list so that every rasteriser draws it, and in the two native hosts with a `GtkNotebook` of
@@ -139,8 +137,7 @@ than to the page the first bead sits on, because activating one composes §12.6.
 action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread —
 and this sentence said "not one corpus document" for as long as the panel has existed**, while four
 documents under `doc/corpora/` state one with 115 beads between them, two of them named for the
-fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier, **and it does so in all three windows since the
-six-hundred-and-eighty-seventh session** — the two native hosts ship the same compiled-in standard 14
+fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier, **and it does so in all three windows** — the two native hosts ship the same compiled-in standard 14
 font programs and had no surface for their licences at all (ADR 0526). **What a key means is one
 value, `viewer_host::keys`, that all three hosts translate their toolkit's key into**: three tables
 that disagreed about the arrow keys, about `f` and about Escape are one, and each host has a test
@@ -191,13 +188,11 @@ pass.
   a file, open a socket or start a program. **Every `Query` crosses**, including the eleven a
   panel is made of and §12.7's whole form — which is the thing that lets a confined host build
   native controls rather than take a form as pixels — and a hostile document's draw is stoppable,
-  because a cancel a hostile document can decline is not one. **A window uses it since the
-  seven-hundred-and-seventy-fifth** — `quorra-confined`, deliberately the smallest complete
+  because a cancel a hostile document can decline is not one. **A window uses it** — `quorra-confined`, deliberately the smallest complete
   host on the boundary, both payload arms on its screen, Escape ending the worker and the
-  in-flight draw together (ADR 0713), §7.6.4.1's prompt since the
-  seven-hundred-and-eighty-first, the password crossing into the confinement as `Command::Open`'s
-  `Secret` (ADR 0718), **and the graphics device drawing its pages since the
-  seven-hundred-and-ninetieth** (ADR 0725) — the marks as they crossed and the worker's rasters
+  in-flight draw together (ADR 0713), §7.6.4.1's prompt with the password crossing into the
+  confinement as `Command::Open`'s `Secret` (ADR 0718), **and the graphics device drawing its
+  pages** (ADR 0725) — the marks as they crossed and the worker's rasters
   wrapped as one-image lists, on a render thread of the window's own, with the interruptible CPU
   thread kept for the frames the device refuses and `--cpu` the window with no device; the same
   round made an unchanged page's `Arc` identity survive the pipe, which every host-side cache was
@@ -226,7 +221,7 @@ pass.
   show, which is `doc/todo/37`'s own stand-in question asked of a frame not yet drawn. It reads no
   clock, because a deadline separates nothing — a document picks its own cost, and the corpus and
   the amplification fixture are two orders of magnitude apart with legitimate pages on both sides
-  of anything between them. **All three windows raise them since the seven-hundred-and-fifty-fourth**
+  of anything between them. **All three windows raise them**
   (ADR 0668): `viewer_host::drawing` gave the two native ones the thread they were missing, and on a
   tier-1 host the same policy has a *provable* form — `viewer_core` drops a `RenderReady` whose token
   is not the one outstanding, so a draw the viewer has stopped holding a token for cannot change a
@@ -234,8 +229,7 @@ pass.
   an entry point rather than an arrangement (`doc/todo/30`). **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
-  own last line to the host rather than a bare signal number. **And since the
-  nine-hundred-and-twentieth it can be *given* a face** (ADR 0880): a worker that cannot walk
+  own last line to the host rather than a bare signal number. **And it can be *given* a face** (ADR 0880): a worker that cannot walk
   `/usr/share/fonts` — and is killed rather than told no for trying (ADR 0870) — sends a
   *description* instead, a family and a weight and the characters a script needs, and its broker
   matches, reads and answers. **The allow-list did not move for it and no host can move it**; what
@@ -251,8 +245,7 @@ pass.
 - **`viewer-gtk`'s `quorra-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three
-  decisions a host owns — §12.7.6.4's file, §7.6.4.1's password, and, since the
-  seven-hundred-and-twenty-first, how much of what the document asserts over its reader this
+  decisions a host owns — §12.7.6.4's file, §7.6.4.1's password, and how much of what the document asserts over its reader this
   window obeys (ADR 0604). `doc/todo/30`'s order made
   GTK4 first because `gtk4-rs` is Rust-safe with no C++ bridge, and the crate keeps
   `#![forbid(unsafe_code)]` to prove it. **Tier 1, because GTK4 admits no other**: a widget has no
@@ -278,7 +271,7 @@ pass.
   and is *pulled* instead, on a timer whose interval `viewer-host` decides and each toolkit arms —
   which is what `Clock` and the accessibility drain already do, and is why `viewer-gtk` does not use
   the file descriptor GTK would have given it (ADR 0668). **A pull has one moment it cannot be made
-  at**, found by the quiet-machine launch A/B in the seven-hundred-and-fifty-ninth: a poll asks the
+  at**, found by the quiet-machine launch A/B: a poll asks the
   toolkit's loop for a turn, and at launch that loop is inside its own first frame — so GTK's page one
   drew in 3.3 ms and waited 61.5 for the timer, and the launch cost 53 ms against 9.5. A host with
   nothing on the screen yet therefore *waits* for page one, out of a one-refresh budget spent once
@@ -299,12 +292,11 @@ pass.
   the entry points *are* the whole vocabulary — has decayed and is counted rather than repeated**:
   `tools/state.sh hosts` says how much of `Command` and `Query` a C caller reaches and names what
   it does not, which is the instrument ADR 0509 added when the claim was found stale. **Every `Query`
-  reaches a symbol again since the seven-hundred-and-ninth**, and the sentence is now held up by a
+  reaches a symbol again**, and the sentence is now held up by a
   test rather than by a round's care: `every_query_reaches_the_abi.rs` matches exhaustively over the
   enum, so a question added to the boundary fails to compile in this crate (ADR 0576). **And
   `tools/state.sh windows` asks the same question of each window** — the parity instrument
-  "all three hosts stay level" had never had (ADR 0577). **It prints the *reading* beside the count
-  since the seven-hundred-and-twenty-first**, one line per unreached variant saying whether it is a
+  "all three hosts stay level" had never had (ADR 0577). **It prints the *reading* beside the count**, one line per unreached variant saying whether it is a
   debt and why, checked in both directions — because a count of what a window does not reach is not
   a list of debts, and two rounds read "eleven queries" off it and walked past a window that could
   not turn a document's restrictions off (ADRs 0603, 0604). ADRs 0247, 0509.
@@ -361,7 +353,7 @@ saves use: `attachments --attach` files a new embedded file in §7.7.4's tree, w
 and checksum from the bytes and no date unless one is given; `--attach --to-page N` files it by a
 §12.5.6.15 annotation on the page instead, drawn with this tree's own icon; and `--remove NAME`
 takes an entry out of the tree and marks the objects it alone reached free, by the one of
-§7.5.4's two mechanisms an update can use. **And since session 886 it writes whole files as well**,
+§7.5.4's two mechanisms an update can use. **And it writes whole files as well**,
 on `pdf_syntax::serialize` — RFC 0002 §10's structure-preserving serializer, admitted by
 `CLAUDE.md`'s redrawn authoring exclusion, which the owner ratified on 2026-09-03. It emits
 structure and never content: §7.5.2's header, a body of indirect objects, §7.5.4's table or
@@ -447,7 +439,7 @@ abandoning one leaves the file byte for byte as it was; the commit is a temporar
 disk before it writes a byte; a write staged against a generation somebody else has replaced is
 `ESTALE` rather than a clobber; and the generation our own commit produces says it is *ours*
 rather than looking like somebody editing the file underneath the mount (ADR 0855). **All five of
-those verbs are walked over the corpus** since the nine-hundred-and-ninth (ADR 0860): every
+those verbs are walked over the corpus** (ADR 0860): every
 document the core opens is edited five ways, each on its own backing, and each commit is held to
 §7.5.6's prefix property read off the file, to the document re-opening at the page count the edit
 stated, to the renumbered listing, and to *every surviving page drawing bit-identically to the
@@ -469,8 +461,7 @@ what it forwards over is `pdf-vfs-ffi`, a C ABI of thirty-five functions with th
 everything unchanged. What it can do that a mount cannot is show a person **why**: RFC section
 5.3's refusals reach a KIO job as the core's own sentence rather than as a category, and a
 deletion's §7.5.6 consequence — the bytes stay in the file — arrives as a non-modal warning
-instead of a log line nobody reads. **And it can put a *question*, since the nine-hundred-and-sixteenth
-session**: the restriction decision is taken inside the confined generator, which has no channel to
+instead of a log line nobody reads. **And it can put a *question***: the restriction decision is taken inside the confined generator, which has no channel to
 a person by construction, so the question crosses instead — `quorra_vfs_consult` says whether the verb
 would be restricted and hands back the sentence, `KIO::WorkerBase::messageBox` puts it, `quorra_vfs_answer`
 carries the answer back, and the verb then runs unchanged, once, at the level a yes *is* (ADRs 0874,
@@ -488,11 +479,11 @@ annotation added, a page rendered, a file extracted, a file written in, a docume
 of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
-takes `off`, the default, `on`, `warn` and — since the nine-hundred-and-sixteenth session — `ask`,
+takes `off`, the default, `on`, `warn` and `ask`,
 which puts the question on the terminal where there is one and is a refusal saying nobody could
 answer where there is not), **RFC 0003's mount honours all four for the same reason a pipe does** —
 a file system has no dialogue, so its *ask* is a refusal with its own sentence and never a silent
-proceed, and both it and *on* leave as `EACCES` — and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
+proceed, and both it and *on* leave as `EACCES` — and **the viewer supplies all four**:
 *refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
 caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.

@@ -292,6 +292,17 @@ reading in this project goes through them:
 
 ### Tests, gates and reports
 
+- **A `--all` or `--workspace` *writing* command is not safe in a tree with a neighbour in it.**
+  `cargo fmt --all` rewrites every file it does not like, across every crate, including the ones a
+  parallel round is halfway through editing — so a round that runs it to tidy its own change can
+  silently reformat somebody else's unfinished work, and the neighbour then cannot tell its own
+  edit from the rewrite. `cargo fmt --all --check` is fine; it writes nothing. The rule is the
+  *write*, not the flag: scope a formatting run to the packages the round touched
+  (`cargo fmt -p <crate>`), and keep the unscoped form for the `--check` that gates the commit.
+  Found by the nine-hundred-and-sixty-fifth session, which verified by mtime that it had rewritten
+  none of its neighbours' files — a check that only works *after* the fact, and only because it was
+  thought of. This is the writing half of trap 23's reading half.
+
 - **An instrument consulted through a truncation is not consulted**, and the failures are not
   exotic. `tools/state.sh quick` was read by grepping its output for the words "fail" and "error"
   rather than for its **exit status**, and reported clean for two days while it exited 101;
@@ -711,9 +722,8 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   argument — it found that eleven of thirteen fuzz targets did not contain the function that
   crashed, which is a stronger statement than any of them could have made about *reaching* it.
 - **This machine has two classes of core, and an unpinned duration is a draw from a lottery, not
-  a measurement.** The processor is an AMD Ryzen AI 9 HX 370: four Zen 5 cores at 5.16 GHz and
-  eight denser Zen 5c at 3.29, and `cpuinfo_max_freq` says which is which
-  (`doc/environment.md` has the one-line command). A **fixed, serial, in-memory** piece of this
+  a measurement.** `doc/environment.md` names the processor and holds the one-line command that
+  says which core is which; what follows for a measurement is here. A **fixed, serial, in-memory** piece of this
   tree's own work — a small document opened from bytes already in memory, its first page
   interpreted — measured **0.75 ms in some processes and 1.50 ms in others, on a machine whose
   load average was under two**. That is not noise an average removes; it is bimodal, and a band
@@ -758,13 +768,11 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   nobody questions. **Diff the two checkouts' walked file sets before believing the sweep** — a
   dozen lines of `os.scandir` — or link `doc/*.pdf`, `doc/corpora/*` and everything
   `tools/worktree.sh` lists, and rerun. ADR 0760.
-- **Take the *before* half with a patch file, never with `git stash`.** The stash stack belongs to
-  the clone and not to the worktree, so every parallel round pushes onto the same one: a neighbour's
-  `git stash` landing between a round's own push and pop makes the pop apply *their* diff and lets
-  theirs take yours. That happened in the five-hundred-and-twenty-third session and cost a recovery
-  out of `git fsck --unreachable`, whose dangling `WIP on <worktree-branch>` commits are what a lost
-  round is found in. `git diff > round.patch`, `git checkout HEAD -- <files>`, measure,
-  `git apply round.patch` — three commands that touch nothing outside the worktree.
+- **Take the *before* half with a patch file, never with `git stash`.** `git diff > round.patch`,
+  `git checkout HEAD -- <files>`, measure, `git apply round.patch` — three commands that touch
+  nothing outside the worktree. Why the stash is forbidden here, and how to recover one that has
+  already gone wrong, is `doc/environment.md`'s; this entry is the measuring half and the two used
+  to carry the incident twice, dated to two different sessions.
 - **Pin the pool before counting a serial change in a program that has one.** Callgrind counts
   every thread, so a work-stealing pool's *spin* is in the total and it is not deterministic.
   `open_one` on two corpus pages read **+0.154%** and **+0.010%** for a change that removes an

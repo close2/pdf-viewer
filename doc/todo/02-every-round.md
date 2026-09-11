@@ -119,9 +119,9 @@ what the change can reach, and *reach* is the crate graph rather than the file's
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
 | `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined`, `confined-transport`, `pdf-fuse`, `pdf-vfs-ffi`, `kio/` | the launch-path gate for the first of them | the core, which builds and tests them; §5 rebuilds what a person runs. **And `--test launch_path` where the change is in `viewer-ui`, `viewer-core` or anything the launch path crosses**, which is `CLAUDE.md` principle 2's four numbers and is the only gate in this sequence that can see them. **`confined-transport` is under two crates**, so a change there is a change to `viewer-confined` *and* `pdf-vfs`, and both of their worker binaries have to be rebuilt before their tests are believed — trap 10 twice. **`pdf-fuse` and `pdf-vfs-ffi` are the two faces and neither has a gate of its own**: the workspace lines build and test both, and `pdf-vfs-ffi`'s own tests need `pdf-vfs`'s worker beside them, which `cargo nextest run --workspace` and `cargo test -p pdf-vfs-ffi` both produce (they build a package's bin targets) — the trap-10 shape would bite only if a `--profile gates --test` line were added for this crate, as it did for `pdf-vfs`. **`kio/` is not in the workspace at all** and no `cargo` line reaches it; what builds it is `crates/pdf-vfs-ffi/tests/the_kio_worker.rs`, which runs CMake and a KIO client and **skips, printing what is missing**, on a machine with no `cmake`, ECM, Qt 6 or KF6 — so this sequence stays green with no KDE installed, which is the whole reason that directory is outside the workspace (ADR 0869) |
 | `tools/conformance`, `doc/conformance/ledger.toml`, a doc comment citing a clause | the conformance gate | `cargo test -p conformance` |
-| `pdf-transform` | the transform gate, and the writer's walk | `cargo test --profile gates -p pdf-transform --test gate`, which carries RFC 0002 section 12's perf floor and holds the verbs' inventories to the document; it needs the sandbox worker beside it like the rest. And `--test writer_corpus`, which attaches a file into every corpus document the suite opens, reads it back and removes it — §7.5.6's prefix property and this tree's own readback, exact, with the writer's refusals counted by reason; `--test split_corpus`, which splits every corpus document's first page out, re-reads it and draws it beside the source page, RFC 0002 section 9's layers 2 and 3 bit for bit; `--test merge_corpus`, which merges every corpus document's first page with a fixed second document, re-reads it, draws both carried pages, and checks each document-level reconciliation against what its source stated; `--test pages_corpus`, which rotates every corpus document's first page a quarter turn and deletes its last, re-reads it, and holds the unrotated pages to bit identity, the rotated one to §7.7.3.3's two exact claims (the sides exchange, and a turn and a turn back is the page), and §12.4.2's labels and §14.7's carried structure tree to what the clauses say; `--test optimize_corpus`, which rewrites every corpus document losslessly, re-reads it, draws page 1 beside the source's, and asks the *output* §7.5.5's and §7.5.7's own questions — nothing unreachable survived pruning, every Table 16 entry is stated, the offsets increase — before rewriting the output again and requiring the same bytes, which is RFC 0002 section 9's idempotence property gate; and `--test foreign_corpus`, which is the only one of them that asks **somebody else** — each of the five writers' output put through `qpdf --check`, `pdftoppm` and `mutool draw`, and every foreign reading compared with that *same* reader's reading of the source page, never with ours (RFC 0002 section 9's fourth layer). qpdf's verdict is read as a **fall of one step or of two**: an error where the source had none fails the run, and so does a warning where the source had none, which is the smaller signal `optimize` is likeliest to produce and which "no worse" used to make unsayable. It also asks `mutool show` for §14.7's carried parent tree, which is the part of a derived document nothing rendered can see. It skips, loudly, where those programs are not installed. All six are corpus walks, so they run under `tools/bounded.sh` (`doc/environment.md`) |
-| `pdf-vfs` | both sides' walks | `--test write_corpus`, which drives RFC 0003 section 5.2's five verbs — a one-page document copied into `pages/`, `rm pages/0001.pdf`, a file copied into `attachments/` and removed again, and `meta/info.json` overwritten and written straight back — over every corpus document the core opens, on a fresh in-memory backing per verb, and holds each commit to §7.5.6's prefix property *read off the file*, to the document re-opening at the page count the edit stated, to the renumbered listing, to §14.7.5.4's `/StructParents` stripped from the carried page and untouched on every page that was already there, and to **every surviving page drawing bit-identically to the page it was** — which because an insertion moves every ordinal down and a deletion moves every ordinal up is a comparison *between different ordinals*, and so is a check of "an ordinal is a position" as well as of the writer. RFC 0002 section 9's first layer binds beside it **except where §7.6.3.1 forbids it**: an AES-encrypted document gets a fresh random initialisation vector in front of every string, so its update differs from one save to the next by construction and only the *length* still binds. It is a corpus walk, so it runs under `tools/bounded.sh`. And `--test read_corpus`, which is the other half and the one a file manager actually exercises: for every corpus document it lists the *whole* of RFC 0003 section 4's layout — the root, `pages/`, each resolution under `renders/`, each page's directory under `images/`, `text/`, `attachments/`, `meta/` — `stat`s every entry it named, which by section 5.5's rule **generates**, and reads every file, holding each against the generator `crate::layout` says it delegates to and computing that generator's answer in the test's own process: a page is `pdf_transform::split`'s piece byte for byte, a render is `render`'s PNG, an image is one output of `images` under that run's own name, a page's text is `pdf_model::interpret`'s readback, an attachment is what the attachments verb saves, and `meta/`'s three files are what `pdf_model::metadata`, the catalog's `/Metadata` stream and the other transport answer. It mounts on the **confined** worker over a `FileBacking`, which is the posture a face has and is what makes every one of those comparisons a two-transport comparison as well — the in-process suite passed for four documents while the confined generator was being killed on a whole class of them (ADR 0870). It holds the listings to the layout's own spelling in order, a `stat` to the size of the bytes that came out, a second `stat` to generating nothing (`Vfs::generated`, not a clock — ADR 0865 section 3), and a second reading to the first. **And since the nine-hundred-and-twenty-seventh session it holds this crate's cost floor**, which is a count and not a clock: `Vfs::questions` says how many questions the mount put to its worker and how many were about a subject it had already answered, `Vfs::forgotten` says how many generated outputs the cache stopped holding, and a document whose repeats outnumber its forgettings fails the run — a generator run to *answer* a question rather than to produce bytes, which is the shape of the hundredfold regression that lived here for four sessions with this walk passing twice (trap 33, ADRs 0886, 0894). Nothing in it is a duration, so a neighbouring round's load cannot fail it. It is a corpus walk, so it runs under `tools/bounded.sh`. And the `--bins` line above it is not optional and is trap 10, on a distinction worth keeping: `cargo nextest run --workspace` and `cargo test -p pdf-vfs` both build a package's bin targets, so under those the `pdf-vfs-worker` beside the test binary is this build's — checked rather than assumed. A `--profile gates --test` line builds **one test target and nothing else**, as it does for `pdf-sandbox`, so under that line the worker would be whatever an earlier round left. Its own tests are `cargo nextest run -p pdf-vfs`, which the workspace line already runs: `tests/a_face.rs` drives the core the way a face drives it and holds two generators byte for byte against what `pdf-transform` itself writes, so a change to the transform seam that moved either shows up here rather than in a face nobody has written yet; `tests/a_write.rs` drives the five write verbs and the transaction around them, including §7.5.6's prefix property against the file on disk and the four restriction levels; `tests/confined.rs` asks every question of both transports and compares — the write questions included, which is what catches an answer one side can encode and the other cannot decode — and re-executes itself under the confinement to check that a forbidden system call kills — including, since the nine-hundred-and-fourteenth session, that a font looked for on the machine does *not* kill, which is ADR 0870 and the same probe `viewer-confined` now carries. **Its population is every corpus on this disk since the nine-hundred-and-nineteenth session** (ADR 0878), which is where the second instrument went: `doc/pdf.js` whole, so that the figures printed since session 914 stay comparable, plus a stride-sample of every other root classified into ten classes (encrypted, locked, an encryption this reader does not implement, pageless, damaged, unopenable, huge, JBIG2, JPEG 2000, and plain as the control) with the first few of each walked beside them — which is where damaged, huge and JPEG 2000 documents actually live. It came with the half a byte comparison does not have: a **death** — a worker killed by a signal, which `confined-transport` words as `killed by signal N` — fails the run wherever the sentence appears, and each mount is asked one more question after its walk so that session 902's recovery is measured rather than claimed. The matrix is printed per class because that is the only way a population can say *which* property killed a worker: with `no_machine_fonts()` taken out, the **control** class dies more often than the encrypted one (ADR 0876). It is a corpus walk, so it runs under `tools/bounded.sh` |
-| `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's. **`pdfref` reaches three gate lines rather than one**, and since the nine-hundred-and-twenty-ninth session it carries their cost floor: `pdfref::Runs` counts how many times a reference renderer or an extractor was actually *spawned*, how many of those were for a key the run had already run, and how many produced something the cache kept nowhere — and `oracle`, `text_extraction` and `selection_census` each fail on a repeat the ceiling does not excuse. It is a count and not a clock, on ADR 0894's argument and for its reason: `Statistics`'s hits and misses cannot see a lookup that never reached the cache, nor tell a second miss on one key from a first miss on another, which is the shape of the regression that lived four sessions in another crate with every gate green (trap 33, ADRs 0886, 0898) |
+| `pdf-transform` | the transform gate, and the five writers' walks | `cargo test --profile gates -p pdf-transform --test gate`, which carries RFC 0002 section 12's perf floor and holds the verbs' inventories to the document; it needs the sandbox worker beside it like the rest. And the six corpus walks named in the sequence above — `writer_corpus`, `split_corpus`, `merge_corpus`, `pages_corpus`, `optimize_corpus` and `foreign_corpus`. **What each of them asserts is in its own `//!` header and not here**: every one of the six opens with the clauses it holds its output to, the layer of RFC 0002 section 9 it is, and what it does when the programs it needs are not installed. `foreign_corpus` is the only one that asks **somebody else** — qpdf, poppler and mupdf over each of the five writers' output, every foreign reading compared with that *same* reader's reading of the source page and never with ours. All six are corpus walks, so they run under `tools/bounded.sh` (`doc/environment.md`) |
+| `pdf-vfs` | both sides' walks | `--test write_corpus`, which drives RFC 0003 section 5.2's five verbs over every corpus document the core opens, and `--test read_corpus`, which lists, `stat`s and reads the whole of section 4's layout through the **confined** worker over `doc/pdf.js` whole plus a class-balanced sample of every other corpus on the disk. **What each holds its answers to is in its own `//!` header**, including the cost floors, which are *counts* rather than clocks (`Vfs::questions`, `Vfs::forgotten` — trap 33) so that a neighbouring round's load cannot fail them. Both are corpus walks, so they run under `tools/bounded.sh`. **The `--bins` line above them is not optional and is trap 10**, on a distinction worth keeping: `cargo nextest run --workspace` and `cargo test -p pdf-vfs` both build a package's bin targets, so under those the `pdf-vfs-worker` beside the test binary is this build's; a `--profile gates --test` line builds **one test target and nothing else**, as it does for `pdf-sandbox`, so under that line the worker would be whatever an earlier round left. This crate's own tests are `cargo nextest run -p pdf-vfs`, which the workspace line already runs: `tests/a_face.rs`, `tests/a_write.rs` and `tests/confined.rs`, the last of which re-executes itself under the confinement to check that a forbidden system call kills — and that a font looked for on the machine does *not* (trap 31). A **death** — `killed by signal N` — fails a walk wherever the sentence appears |
+| `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's. **`pdfref` reaches three gate lines rather than one**, and it carries their cost floor: `pdfref::Runs` counts how many times a reference renderer or an extractor was actually *spawned*, how many of those were for a key the run had already run, and how many produced something the cache kept nowhere — and `oracle`, `text_extraction` and `selection_census` each fail on a repeat the ceiling does not excuse. It is a count and not a clock, for trap 33's reason: `Statistics`'s hits and misses cannot see a lookup that never reached the cache, nor tell a second miss on one key from a first miss on another |
 | **documents only** (`doc/`, `CLAUDE.md`, a `tools/*.sh`) | nothing the gates rasterise | the core, **and `cargo test -p conformance`**, which reads citations and quotations out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or a pointer |
 
 Three things the map does not license:
@@ -358,49 +358,31 @@ list it had read rather than the list it left:
   gate that turns a shipped setting off is measuring a configuration nobody runs**, and the
   isolation it buys is worth having as a second column and not as the only one.
 
-- **`fuzz/` is not in the workspace, so nothing above it builds the targets.** `members` is
-  `["crates/*", "tools/*"]` and `fuzz/Cargo.toml` declares a `[workspace]` table of its own, which
-  is what makes it a separate workspace: `cargo-fuzz` builds it with its own sanitiser and profile
-  settings, and a member would apply those to the whole tree. So `--workspace` reaches neither the
-  fuzz crate nor any of its binaries, and the second `fuzz/` line above is the whole fix. It is not
-  a `build`: it wants no nightly and no sanitiser, and it answers the question a round gets wrong
-  by accident — *do the targets still compile against the tree they fuzz?*
-
-  **That line was a `cargo check` until the eight-hundred-and-tenth session, and the difference is
-  the tree's lint levels.** `fuzz/Cargo.toml` took no `[lints] workspace = true`, so `clippy` had
-  never judged a fuzz target at all: `pedantic`, `arithmetic_side_effects` and the rest stopped at
-  the workspace boundary exactly as `--all` did. Thirty-three findings were sitting there, five of
-  them arithmetic in a target's *own* counters — and the fuzz profile keeps overflow checks on, so
-  each of those was an abort libFuzzer would have filed as a crash in the parser under test. The
-  levels cannot be inherited (cargo resolves `workspace = true` against *this* workspace, and there
-  is no way to point at another's), so `fuzz/Cargo.toml` restates them and the gate below compares
-  the two tables. ADR 0742.
-
-  **`--all` is the same word in the formatting line, and it had the same hole for longer.**
-  `cargo fmt --all --check` reads every package of *this* workspace and not one file under `fuzz/`;
-  it does not say so, and it exits 0. The eight-hundred-and-seventh session found two rustfmt diffs
-  sitting there under a green formatting gate, and the fix is the line beside the check —
-  `cargo fmt --manifest-path fuzz/Cargo.toml --check`, which costs a fraction of a second over a
-  crate this small. **A formatting gate blind to files in the tree is not a weaker
-  gate but a gate with a hole**, and the hole is invisible from the gate's own output, which is the
-  failure mode this project cares most about.
+- **`fuzz/` is not in the workspace, so nothing above it builds the targets**, and the two `fuzz/`
+  lines above are the whole fix. `fuzz/Cargo.toml` declares a `[workspace]` table of its own so that
+  `cargo-fuzz`'s sanitiser and profile settings stay off the tree, and `--all` and `--workspace`
+  therefore reach neither the fuzz crate nor any of its binaries — **for the formatting line as well
+  as the lint one**, which is where two rustfmt diffs sat under a green gate. The clippy line is not
+  a `cargo check`: it wants no nightly and no sanitiser, and `fuzz/Cargo.toml` restates the tree's
+  lint levels because cargo resolves `workspace = true` against *this* workspace and offers no way
+  to point at another's. The mechanism, what the levels were worth when they arrived, and the
+  general shape are `doc/traps/instruments-and-reports.md`'s trap 23 (ADRs 0739, 0742).
 
   **What keeps it closed is `tools/conformance/tests/workspaces.rs`**, and it is derived rather
   than listed: `cargo locate-project --workspace` is asked, for every tracked `Cargo.toml`, which
   workspace root governs it, and every root that comes back must be named by a `cargo fmt` line of
-  this section, by one of its `cargo clippy`, `cargo check` or `cargo build` lines, and — since the
-  eight-hundred-and-tenth session — by a `cargo clippy` line under `RUSTFLAGS="-D warnings"`, while
-  stating the same lint levels the tree's own root does. A third workspace added to this tree fails
-  that gate on the day it is added rather than on the day somebody notices (ADRs 0739 and 0742, and
-  `doc/traps/instruments-and-reports.md`'s trap 23 for the general shape — a workspace-scoped flag
-  is a claim about the manifest graph, not about the directory).
+  this section, by one of its `cargo clippy`, `cargo check` or `cargo build` lines, and by a
+  `cargo clippy` line under `RUSTFLAGS="-D warnings"`, while stating the same lint levels the
+  tree's own root does. A third workspace added to this tree fails that gate on the day it is added
+  rather than on the day somebody notices.
 
-  **They did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped `Answer::Frame`
-  to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility answer the same
-  way; `confined_wire` matched on the old shapes and no local gate saw it, because the only
-  instrument that builds `fuzz/` is a CI job that was itself failing for an unrelated reason the
-  whole time. Principle 3 makes that worse than a compile error — fuzzing is meant to be continuous
-  from the first parser commit, and between those rounds there was none.
+  **Why the question *do the targets still compile against the tree they fuzz* is a line here at
+  all: they did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped
+  `Answer::Frame` to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility
+  answer the same way; `confined_wire` matched on the old shapes and no local gate saw it, because
+  the only instrument that builds `fuzz/` is a CI job that was itself failing for an unrelated
+  reason the whole time. Principle 3 makes that worse than a compile error — fuzzing is meant to be
+  continuous from the first parser commit, and between those rounds there was none.
 
   The tell is worth keeping: **the target that broke was `confined_wire`**, the one speaking
   `viewer-confined`'s protocol, so it is exactly the target a *boundary* change breaks and exactly
@@ -551,12 +533,10 @@ do install -Dm755 "$built/$binary" "target/$binary"; done
 ```
 
 **The loop's names must be the *binary target* names, and three of them were not.** Until session
-945 it installed `pdf-retrieve`, `pdf-transform` and `pdffs` — the names those programs had before
-the rename — while the line above it already built `quorra-retrieve`, `quorra-transform` and
-`quorrafs`. That did not fail, and could not: the pre-rename artefacts were still sitting in the
-shared build directory, because `cargo` removes nothing it no longer produces. So `install` found
-them, copied them, and every fifth round put **September's binaries** under `target/` while
-`target/quorra-retrieve` did not exist at all. `cargo metadata --no-deps --format-version 1 | jq
+945 it installed three pre-rename names, and that could not fail: the pre-rename artefacts were
+still in the shared build directory, because `cargo` removes nothing it no longer produces, so
+`install` found them, copied them, and every fifth round put a months-old binary under `target/`
+while the renamed one did not exist there at all. `cargo metadata --no-deps --format-version 1 | jq
 -r '.packages[].targets[] | select(.kind[]=="bin") | .name'` is the authority on this list; the
 names in a document are a copy of it and drift the way copies do.
 
@@ -566,12 +546,11 @@ install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so
 install -Dm755 "$built/libpdf_vfs_ffi.so" target/libpdf_vfs_ffi.so
 ```
 
-**`pdffs` and `pdf-vfs-worker` joined the list in the nine-hundred-and-ninth session**, and the
-second of them is the reason to say so rather than to add a name: `pdffs` is RFC 0003's mount and
-a person runs it, and it will not open a document without its confined worker *beside the running
-executable* — the same relationship `quorra-confined` has with `pdf-view-worker`, and the same
-trap 10 one directory over. The worker had been built by no line of this file since the round that
-wrote it.
+**`quorrafs` brought `pdf-vfs-worker` with it, and the second of them is the reason to say so
+rather than to add a name**: `quorrafs` is RFC 0003's mount and a person runs it, and it will not
+open a document without its confined worker *beside the running executable* — the same relationship
+`quorra-confined` has with `pdf-view-worker`, and the same trap 10 one directory over. The worker
+had been built by no line of this file since the round that wrote it.
 
 **One invocation, not three.** Each of these is a whole-graph fat link and Cargo runs three of
 them beside each other where three commands run them one after another — measured both ways after
@@ -584,8 +563,8 @@ it.
 a person *runs*, and it is here because it is what a person *links against* — a C program with
 `include/quorra.h` and no `-L` pointing at `/home/AI` is the only way somebody outside this
 tree can try the ABI at all. It is a separate `cargo build` because it is a library and the
-invocation above names binaries. **`libpdf_vfs_ffi.so` joined it in the
-nine-hundred-and-thirteenth session** for the same reason and with one addition: it is also what
+invocation above names binaries. **`libpdf_vfs_ffi.so` is there** for the same reason and with one
+addition: it is also what
 `kio/`'s CMake build links the KIO plugin against, and that build takes the path to it as a
 *required* variable rather than searching — a `find_library` there would pick up a copy of another
 revision, which is precisely what `quorra_vfs_abi_check` exists to make loud (ADR 0869).
@@ -596,9 +575,10 @@ falling back (there is deliberately no in-process fallback — see "the sandbox 
 default is the safe one"); `pdf-view-worker` is the whole viewer confined, which
 `viewer_confined::Confined` spawns — `quorra-confined` is the window that spawns it (ADR
 0713), searched for beside the executable, and `quorra` still does not (ADR 0218);
-`pdf-retrieve` is not
+`quorra-retrieve` is not
 a window but a program a person runs, and the only one whose whole output is text a caller pipes
-(ADR 0257).
+(ADR 0257). It was `pdf-retrieve` in this sentence until session 967, which is the paragraph above
+happening to prose instead of to a shell loop.
 
 Build them first, in release: `cargo test` only ever builds the debug binaries, which is why the
 cadence above exists at all.

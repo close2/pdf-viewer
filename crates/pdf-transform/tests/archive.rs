@@ -2733,3 +2733,210 @@ fn a_non_symbolic_truetype_font_whose_shown_code_would_move_is_refused() {
     );
     assert!(output.is_none(), "and no file claims a conformance");
 }
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3: one destination profile per array.
+//
+// The clause's own note says where this arises — a file conforming to ISO 19005 and to PDF/X or
+// PDF/E at the same time carries one output intent per standard — and the two entries usually
+// carry the same profile twice. That is the case these two tests separate: the same profile in
+// two objects is one object's worth of information, and two different profiles are two
+// destinations of which only one can survive.
+// --------------------------------------------------------------------------------------------
+
+/// The ICC profile this program ships, for a fixture that needs a real one.
+///
+/// A synthetic header is enough where a test asks only which colour family a profile is, and it
+/// is not enough here: the output has to be held to every one of section 6.2.3's other rows, and
+/// those read the profile's device class, its colour space, its required tags and its own
+/// identifier.
+const SRGB: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+
+/// A fixture whose `OutputIntents` array holds a PDF/A entry and a PDF/X one, each naming its
+/// own copy of a destination profile.
+///
+/// §14.11.5's Table 400 and Table 401 shape both entries. The profile streams are objects 8 and
+/// 9, and `second` is what object 9 carries — the same bytes for the lossless case, and
+/// something else for the case that is not.
+fn two_output_intents(second: &[u8]) -> Vec<u8> {
+    let profile = |bytes: &[u8]| stream(&format!("/N 3 /Length {}", bytes.len()), bytes);
+    Conforming {
+        catalog: "/OutputIntents [6 0 R 7 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (Custom) \
+             /DestOutputProfile 8 0 R >>"
+                .to_owned(),
+            "<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier (Custom) \
+             /DestOutputProfile 9 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![profile(SRGB), profile(second)],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn two_entries_carrying_one_profile_are_pointed_at_one_object() {
+    // ISO 19005-4 section 6.2.3 requires every entry that states a `DestOutputProfile` to state
+    // the same indirect object. Where the two objects hold the same bytes, naming one of them
+    // says exactly what the file said: each entry still refers its colours to the profile it
+    // already referred them to, and the object that goes was a copy. That is what puts this in
+    // `doc/adr/0948`'s mechanical class rather than among the choices.
+    let source = two_output_intents(SRGB);
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(
+            &report,
+            "graphics/one-destination-profile-per-output-intents-array"
+        ),
+        Decision::Mechanical(Rewrite::SharedDestinationProfile)
+    );
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+    let named = destination_profiles(&document);
+    assert_eq!(
+        named.len(),
+        2,
+        "both entries still state a destination profile: {named:?}"
+    );
+    assert_eq!(
+        named.iter().collect::<BTreeSet<_>>().len(),
+        1,
+        "and they state one object: {named:?}"
+    );
+}
+
+#[test]
+fn two_entries_naming_two_different_profiles_stay_refused() {
+    // The other half of the same sentence, and it is a discard rather than a restatement: the
+    // two entries name two destinations, the clause admits one, and nothing in the file says
+    // which of them its producer meant. `doc/pdf-a-mitigations.md` section 4.1 puts that
+    // decision in a configuration an operator writes, which is why the row is refused here
+    // rather than answered.
+    let mut other = SRGB.to_vec();
+    let last = other.len().saturating_sub(1);
+    other[last] ^= 0xff;
+    let source = two_output_intents(&other);
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(
+                &report,
+                "graphics/one-destination-profile-per-output-intents-array"
+            ),
+            Decision::Refused(Because::TheFence(_))
+        ),
+        "the profiles differ, so one of the two destinations would be thrown away"
+    );
+    assert!(
+        output.is_none(),
+        "and a refusal writes no file rather than a file that does not conform"
+    );
+}
+
+/// Every `DestOutputProfile` object the catalog's `OutputIntents` array names.
+fn destination_profiles(document: &Document) -> Vec<ObjectId> {
+    let catalog = document.catalog().expect("the output has a catalog");
+    let intents = document.get_key(&catalog, "OutputIntents");
+    let intents = intents.as_array().expect("the array survives").to_vec();
+    intents
+        .iter()
+        .filter_map(|entry| document.resolve(entry).as_dict().cloned())
+        .filter_map(|intent| {
+            intent
+                .get("DestOutputProfile")
+                .and_then(pdf_syntax::object::Object::as_reference)
+        })
+        .collect()
+}
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4: a spot colourant's own entry.
+//
+// The subclause states two rules about one array and the second decides the first. Every spot
+// colour a `DeviceN` space uses needs an entry in that space's `Colorants` dictionary; and every
+// `Separation` array in the file naming one colourant, the arrays written inside a `Colorants`
+// dictionary expressly included, has to state the same alternate space and tint transform, as
+// PDF objects. So where the file already defines the ink, the entry is not a choice.
+// --------------------------------------------------------------------------------------------
+
+/// A fixture drawing through a `DeviceN` over one spot colourant and `Black`, with no
+/// `/Colorants` entry for the spot.
+///
+/// §8.6.6.5 shapes the `DeviceN` array and §8.6.6.4 the `Separation`; both use the same
+/// `CalGray` alternate and the same §7.10.2 sampled tint transform, so nothing about the fixture
+/// depends on a function this test would have to invent. `separately` decides whether the file
+/// also states a `Separation` array for the spot colourant of its own, which is what makes the
+/// entry derivable rather than a choice.
+fn a_devicen_over(separately: bool) -> Vec<u8> {
+    // A one-input, one-output sampled function over two samples: §7.10.2's `/Size`, `/Domain`,
+    // `/Range` and `/BitsPerSample`, with the samples as two bytes.
+    let tint = "<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8 \
+                /Length 2 >>";
+    let gray = "[/CalGray << /WhitePoint [0.9505 1.0 1.089] >>]";
+    let separation = format!("[/Separation /Spot {gray} 8 0 R]");
+    let devicen = format!("[/DeviceN [/Spot /Black] {gray} 8 0 R]");
+    let mut objects = vec![devicen];
+    if separately {
+        objects.push(separation);
+    } else {
+        objects.push("<< /Type /Dummy >>".to_owned());
+    }
+    Conforming {
+        resources: "/ColorSpace << /CS0 6 0 R /CS1 7 0 R >>".to_owned(),
+        objects,
+        binary_objects: vec![stream(tint, &[0x00, 0xff])],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_spot_colourant_the_file_already_defines_gains_the_producers_own_entry() {
+    let source = a_devicen_over(true);
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(
+            &report,
+            "graphics/spot-colourants-appear-in-the-colorants-dictionary"
+        ),
+        Decision::Mechanical(Rewrite::SpotColorantEntry)
+    );
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        written.contains("/Colorants"),
+        "the attributes dictionary the space did not have is written: {written}"
+    );
+    assert!(
+        written.contains("/Spot [/Separation /Spot"),
+        "and the entry is the Separation array the file already stated: {written}"
+    );
+}
+
+#[test]
+fn a_spot_colourant_the_file_never_defines_stays_refused() {
+    // The general case, and section 13.3.1's correction of this catalogue entry: deriving the
+    // entry means deriving a one-input tint transform from the space's two-input one, which
+    // §7.10 gives a PDF function no way to express — so the derived function could only sample
+    // the producer's, and an archive would carry the sample as though it were the definition.
+    let source = a_devicen_over(false);
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(
+                &report,
+                "graphics/spot-colourants-appear-in-the-colorants-dictionary"
+            ),
+            Decision::Refused(Because::NotBuiltYet(_))
+        ),
+        "nothing in the file states what this ink is on its own"
+    );
+    assert!(output.is_none(), "and a refusal writes no file");
+}

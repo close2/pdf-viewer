@@ -817,6 +817,100 @@ fn composite_font_stating_ranges(ranges: usize) -> Document {
     )
 }
 
+/// A substituted composite font whose `/ToUnicode` states `spans` `bfrange` entries.
+///
+/// No `/FontFile`, which is the point rather than an incidental: §9.7.4.2 says that with the
+/// program absent "CIDs shall not participate in glyph selection", so the substitute's glyph is
+/// reached through the character this map gives the code. The embedded `CMap` states two
+/// `cidrange` entries and nothing else, so the only bound this fixture can reach is
+/// `tounicode.rs`'s.
+fn composite_font_with_to_unicode(spans: usize) -> Document {
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+         /CMapName /Test def /CMapType 1 def /WMode 0 def\n\
+         /CIDSystemInfo << /Registry (Test) /Ordering (Test) /Supplement 0 >> def\n\
+         1 begincodespacerange\n<0000> <ffff>\nendcodespacerange\n\
+         2 begincidrange\n<0000> <0000> 1\n<0001> <0001> 2\nendcidrange\n\
+         endcmap CMapName currentdict /CMap defineresource pop end end\n"
+        .to_owned();
+    let mut unicode = String::new();
+    for start in (0..spans).step_by(100) {
+        let count = 100.min(spans - start);
+        let _ = writeln!(unicode, "{count} beginbfrange");
+        for index in start..start + count {
+            let _ = writeln!(
+                unicode,
+                "<{index:04x}> <{index:04x}> <{:04x}>",
+                0x41 + index
+            );
+        }
+        unicode.push_str("endbfrange\n");
+    }
+    let extra = format!(
+        "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding 6 0 R \
+         /DescendantFonts [7 0 R] /ToUnicode 9 0 R >>\nendobj\n\
+         6 0 obj\n<< /Type /CMap /CMapName /Test /WMode 0 \
+         /CIDSystemInfo << /Registry (Test) /Ordering (Test) /Supplement 0 >> \
+         /Length {} >>\nstream\n{cmap}endstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Test \
+         /CIDSystemInfo << /Registry (Test) /Ordering (Test) /Supplement 0 >> \
+         /FontDescriptor 8 0 R /DW 1000 >>\nendobj\n\
+         8 0 obj\n<< /Type /FontDescriptor /FontName /Test /Flags 4 /ItalicAngle 0 \
+         /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 \
+         /FontBBox [0 -200 1000 800] >>\nendobj\n\
+         9 0 obj\n<< /Length {} >>\nstream\n{unicode}endstream\nendobj\n",
+        cmap.len(),
+        unicode.len()
+    );
+    page(
+        "BT /F1 24 Tf 50 700 Td <0001> Tj ET",
+        "<< /Font << /F1 5 0 R >> >>",
+        &extra,
+    )
+}
+
+/// A `/ToUnicode` stating one `bfrange` more than the bound holds says which bound dropped it.
+///
+/// The sibling of [`a_cmap_past_the_range_bound_is_reported_by_name`], over `pdf-font`'s second
+/// `CMap` parser — the one §9.10.3 governs. It had the same silence and nothing walked it until
+/// ADR 0971. What a dropped entry costs here is both halves of §9.10.2: the code has no
+/// character, and — because this font's program is absent — §9.7.4.2 leaves the character as the
+/// only route to a glyph, so the page draws nothing where the producer put a mark.
+///
+/// `16_384` is `MAX_RANGES` and is stated here rather than imported, for the reason its sibling
+/// states: `pdf-font` keeps the constant private and a fixture that read it would agree with a
+/// wrong one.
+#[test]
+fn a_to_unicode_past_the_range_bound_is_reported_by_name() {
+    let document = composite_font_with_to_unicode(16_385);
+    let reported = reported(&document);
+    assert!(
+        reported.contains("max_tounicode_ranges"),
+        "the /ToUnicode lost its last range and the page owes that sentence: {reported}"
+    );
+    assert!(
+        commands(&document) >= 1,
+        "the fixture has to draw, or it is a font that failed to load wearing a bound's name"
+    );
+}
+
+/// A `/ToUnicode` stating exactly as many `bfrange` entries as the bound holds reports nothing.
+///
+/// Trap 11, and the same control its sibling carries: a report that fired on every large
+/// `/ToUnicode` would say nothing at all.
+#[test]
+fn a_to_unicode_exactly_on_the_range_bound_reports_nothing_about_it() {
+    let document = composite_font_with_to_unicode(16_384);
+    let reported = reported(&document);
+    assert!(
+        !reported.contains("max_tounicode_"),
+        "nothing was dropped, so no bound is owed a sentence: {reported}"
+    );
+    assert!(
+        commands(&document) >= 1,
+        "the control has to draw, or it reports nothing by loading nothing"
+    );
+}
+
 /// A `CMap` stating one `cidrange` more than the bound holds says which bound dropped it.
 ///
 /// ISO 32000-2 §9.7.6.2: "The code extracted from the string shall be looked up in the character

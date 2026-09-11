@@ -142,7 +142,7 @@ const KNOWN_PASSWORDS: &[(&str, &str)] = &[
 const WITNESSES: usize = 30;
 
 /// One census, whether of one document or of the whole population.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Census {
     /// Documents examined, and those no password on record opens.
     documents: usize,
@@ -429,6 +429,18 @@ fn population() -> Option<Vec<PathBuf>> {
     }
     files.sort();
     Some(files)
+}
+
+/// Whether a document of the population is one a fresh clone also has.
+///
+/// `doc/pdf.js` is a submodule, pinned by commit: every clone that runs
+/// `git submodule update --init` gets exactly these documents. The specifications sitting directly
+/// in `doc/` are **gitignored** — bought, licensed to a single reader, and present or absent by
+/// machine. A count that mixes the two is reproducible nowhere (ADR 0970, and this file's
+/// `ratchet`).
+fn tracked(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "pdf.js")
 }
 
 /// The password on record for one file, or the empty default §7.6.4.1 starts with.
@@ -802,6 +814,10 @@ fn what_a_screen_reader_is_told_about_every_document() {
         return;
     };
     let census = Mutex::new(Census::default());
+    // The floors are folded a second time over the *tracked* documents alone. See `ratchet`: the
+    // specifications under `doc/` are gitignored, so a sum that includes them is a sum only this
+    // machine can reproduce.
+    let tracked_census = Mutex::new(Census::default());
     let started = Instant::now();
     files.par_iter().for_each(|path| {
         let name = path.display().to_string();
@@ -819,12 +835,20 @@ fn what_a_screen_reader_is_told_about_every_document() {
                 one
             }
         };
+        if tracked(path)
+            && let Ok(mut tracked_census) = tracked_census.lock()
+        {
+            tracked_census.absorb(one.clone());
+        }
         if let Ok(mut census) = census.lock() {
             census.absorb(std::mem::take(&mut one));
         }
     });
     let elapsed = started.elapsed();
     let census = census.into_inner().expect("reported through the census");
+    let tracked_census = tracked_census
+        .into_inner()
+        .expect("reported through the census");
     report(&census, files.len(), elapsed.as_secs_f64());
 
     assert!(
@@ -846,39 +870,147 @@ fn what_a_screen_reader_is_told_about_every_document() {
         "a line's characters and its text disagree: {:?}",
         census.inconsistent_lines
     );
-    ratchet(&census, files.len());
+    let specifications: Vec<String> = files
+        .iter()
+        .filter(|path| !tracked(path))
+        .filter_map(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .collect();
+    ratchet(
+        &census,
+        &tracked_census,
+        files.iter().filter(|path| tracked(path)).count(),
+        &specifications,
+    );
 }
 
-/// The ratchet, which is what ADR 0323 called this instrument's verdict shape.
+/// The second tier of `ratchet`'s floors, over the whole population.
 ///
-/// # Why the numbers may be written down here and nowhere else
+/// # Why there are two tiers
 ///
-/// `CLAUDE.md`'s rule is that a fact a command can print is not written down — and a ratchet is
-/// the exception it names, because a floor is not a *report* of a count but the previous run's
-/// count used as a *bound*. The same shape `pdf-model`'s text-extraction gate has carried since
-/// ADR 0333. What must not appear is these numbers in an instruction file, and they do not.
+/// The tracked floors above are honest and portable and **weak** — `doc/pdf.js`'s documents
+/// contribute about 4,000 of the elements this census reaches and the specifications under
+/// `doc/` contribute the other 212,000. That is not a flaw in the corpus; pdf.js's suite
+/// collects rendering bugs, and tagged structure at this scale lives in documents somebody
+/// published for accessibility. Restricting the ratchet to what every clone has would throw
+/// away 97% of its reach, so the strong floors stay — gated on the documents they were measured
+/// over actually being here, **by name**, which is the only guard that cannot be satisfied by a
+/// coincidence of arithmetic.
 ///
-/// # Why now, and not in the round that built the census
+/// Extra specifications are welcome and change nothing: a floor is a lower bound, and a
+/// document that was not here when these were measured can only add. A *missing* one skips this
+/// tier, loudly, naming what is absent — which is the behaviour the old `files < 988` guard was
+/// reaching for and got wrong by counting instead of naming.
+fn whole_population_floors(census: &Census, specifications: &[String]) {
+    let absent: Vec<&&str> = RATCHETED_SPECIFICATIONS
+        .iter()
+        .filter(|name| !specifications.iter().any(|present| present == *name))
+        .collect();
+    if absent.is_empty() {
+        floor(
+            "documents with structure, whole population",
+            census.with_structure,
+            107,
+        );
+        floor(
+            "pages that answer at all, whole population",
+            census.answered_pages,
+            2407,
+        );
+        floor("elements reached, whole population", census.nodes, 216_289);
+        floor(
+            "§14.9.3's /Alt carried, whole population",
+            census.substituted,
+            665,
+        );
+        floor("elements placed, whole population", census.placed, 11_722);
+        floor(
+            "elements placed by their own marks, whole population",
+            census.derived,
+            188_198,
+        );
+        floor(
+            "cells with headers, whole population",
+            census.header_cells,
+            23_032,
+        );
+        floor(
+            "header associations, whole population",
+            census.header_associations,
+            33_729,
+        );
+        floor("§12.7.5's controls, whole population", census.controls, 272);
+        floor(
+            "elements that are annotations, whole population",
+            census.annotations,
+            10_905,
+        );
+        floor(
+            "elements a caret reaches, whole population",
+            census.with_lines,
+            110_478,
+        );
+        floor("lines, whole population", census.lines, 195_212);
+        floor("characters, whole population", census.characters, 5_196_091);
+        floor(
+            "untagged pages answering honestly, whole population",
+            census.untagged_honest,
+            885,
+        );
+    } else {
+        println!(
+            "the whole-population floors are skipped: {} of the specifications they were measured \
+         over are not on this disk ({absent:?}) — `doc/environment.md` says where they come \
+         from, and they are gitignored on purpose",
+            absent.len()
+        );
+    }
+}
+
+/// A capability count may only rise. Each call is one line of `report`.
+fn floor(what: &str, is: usize, was: usize) {
+    assert!(
+        is >= was,
+        "{what}: {is}, and it was {was} — a screen reader is being told less than it was"
+    );
+}
+
+/// The bought specifications the whole-population floors in `ratchet` were measured over.
 ///
-/// ADR 0323's rule: an instrument's counts enter a gate only once they have held across rounds.
-/// They have — every one of them was unchanged from the five-hundred-and-seventh session to the
-/// five-hundred-and-fifty-ninth, which added the caret without moving anything else — and this is
-/// `doc/todo/05`'s third instrument being closed rather than a new promise.
-///
-/// # Which way each number moves
-///
-/// A **capability** count may only rise: elements reached, elements placed, cells given headers,
-/// somewhere a caret can stand. A **defect** count may only fall: a page whose file names elements
-/// for it and that answers nothing, an answer cut at the bound, a document that will not open.
-/// Trap 5's amendment applies to the first kind and not to the second — a rise in a capability
-/// count is always welcome, and a *fall* is what this catches.
-///
-/// # The population is checked before the counts are
-///
-/// Every floor here is a count over 988 documents, and a tree with the `doc/pdf.js` submodule
-/// unchecked has 14. Comparing a smaller population against these would fail for the one reason
-/// that is not a regression, so the floors are skipped and the skip says so — which is the same
-/// guard ADR 0421 put under the selection verdict's judged set.
+/// `.gitignore` excludes every one of these — they are licensed to a single reader — so a clone
+/// has none of them and the second tier of floors is skipped there, by name and out loud. Adding a
+/// specification to `doc/` needs no change here: a floor is a lower bound and a new document can
+/// only raise it. Removing one does need a change, which is the point.
+const RATCHETED_SPECIFICATIONS: &[&str] = &[
+    "ICC-1_1998-09.pdf",
+    "ICC.1-2022-05.pdf",
+    "ICC.2-2023.pdf",
+    "ISO-14289-1-2014-sponsored.pdf",
+    "ISO-14289-2-2024-sponsored.pdf",
+    "ISO-15076-1-2010.pdf",
+    "ISO-16684-1-2012.pdf",
+    "ISO-IEC-15444-1-2016.pdf",
+    "ISO-IEC-15444-1-2019.pdf",
+    "ISO-TS-32004-2024_sponsored.pdf",
+    "ISO-TS-32005-2023-sponsored.pdf",
+    "ISO_32000-2_sponsored_EC3.pdf",
+    "ISO_IEC 15444.pdf",
+    "ISO_TS_32001-2022_sponsored_EC3.pdf",
+    "ISO_TS_32002-2022_sponsored_EC3.pdf",
+    "ISO_TS_32003-2023_sponsored.pdf",
+    "PDF-Declarations.pdf",
+    "PDF20_AN001-BPC.pdf",
+    "PDF20_AN002-AF.pdf",
+    "PDF20_AN003-ObjectMetadataLocations.pdf",
+    "PDF32000_2008.pdf",
+    "Tagged-PDF-Best-Practice-Guide.pdf",
+    "TechNote0010.pdf",
+    "Well-Tagged-PDF-WTPDF-1.0.pdf",
+    "icc_1_2001-12.pdf",
+];
+
 /// Every page the whole-tree fallback answers nothing for, by name.
 ///
 /// Held as names rather than as a count because the population is not fixed: see `ratchet`. A name
@@ -949,42 +1081,111 @@ const NO_PARENT_KEY_SILENT: &[&str] = &[
     "icc_1_2001-12.pdf p7",
 ];
 
-fn ratchet(census: &Census, files: usize) {
-    /// How many documents the floors below were measured over.
-    const POPULATION: usize = 988;
+/// The ratchet, which is what ADR 0323 called this instrument's verdict shape.
+///
+/// # Why the numbers may be written down here and nowhere else
+///
+/// `CLAUDE.md`'s rule is that a fact a command can print is not written down — and a ratchet is
+/// the exception it names, because a floor is not a *report* of a count but the previous run's
+/// count used as a *bound*. The same shape `pdf-model`'s text-extraction gate has carried since
+/// ADR 0333. What must not appear is these numbers in an instruction file, and they do not.
+///
+/// # Why now, and not in the round that built the census
+///
+/// ADR 0323's rule: an instrument's counts enter a gate only once they have held across rounds.
+/// They have — every one of them was unchanged from the five-hundred-and-seventh session to the
+/// five-hundred-and-fifty-ninth, which added the caret without moving anything else — and this is
+/// `doc/todo/05`'s third instrument being closed rather than a new promise.
+///
+/// # Which way each number moves
+///
+/// A **capability** count may only rise: elements reached, elements placed, cells given headers,
+/// somewhere a caret can stand. A **defect** count may only fall: a page whose file names elements
+/// for it and that answers nothing, an answer cut at the bound, a document that will not open.
+/// Trap 5's amendment applies to the first kind and not to the second — a rise in a capability
+/// count is always welcome, and a *fall* is what this catches.
+///
+/// # The population is checked before the counts are, and the floors' is the tracked one
+///
+/// Every floor here is a sum over documents, so it means something only against the population it
+/// was measured over — comparing a smaller one would fail for the one reason that is not a
+/// regression. That guard has been here since ADR 0421 put the same one under the selection
+/// verdict's judged set — **and its threshold used to be a
+/// count of the whole population, which was wrong in a way that disabled the floors everywhere but
+/// one machine.**
+///
+/// `population()` walks two directories: the `doc/pdf.js` submodule, pinned by commit and identical
+/// in every clone, and `doc/` itself, which holds the specifications this project has bought and
+/// which `.gitignore` excludes. The threshold was 988 — the submodule's documents *plus fourteen
+/// bought specifications that happened to be on this disk the day it was measured*. The submodule
+/// alone is fewer than that. So on any clone without those files — which is every other clone, and
+/// CI — the guard fired, the floors were skipped, and the gate printed one line and exited 0. **A
+/// capability floor that runs on one machine is not a gate**, and this one has never run anywhere
+/// else.
+///
+/// So the floors are folded over the **tracked** documents alone and compared against a threshold
+/// counting only those. The specifications are still walked, still reported, and still bound by
+/// every check below that is population-independent; they are simply not summed into a number that
+/// has to mean the same thing tomorrow. This is ADR 0970's rule reaching the other half of the same
+/// instrument: a count over a population somebody else can change is not a ratchet.
+fn ratchet(
+    census: &Census,
+    tracked_census: &Census,
+    tracked_files: usize,
+    specifications: &[String],
+) {
+    /// How many **tracked** documents the floors below were measured over — `doc/pdf.js`'s, and
+    /// nothing `.gitignore` excludes.
+    const TRACKED_POPULATION: usize = 974;
 
-    if files < POPULATION {
+    if tracked_files < TRACKED_POPULATION {
         println!(
-            "not ratcheted: {files} documents against the {POPULATION} the floors were taken \
-             over — `git submodule update --init doc/pdf.js`, and `doc/environment.md`'s one unzip"
+            "not ratcheted: {tracked_files} tracked documents against the {TRACKED_POPULATION} \
+             the floors were taken over — `git submodule update --init doc/pdf.js`"
         );
         return;
     }
     // A capability may only rise. Each is one line of `report` above.
-    let floor = |what: &str, is: usize, was: usize| {
-        assert!(
-            is >= was,
-            "{what}: {is}, and it was {was} — a screen reader is being told less than it was"
-        );
-    };
-    floor("documents with structure", census.with_structure, 104);
-    floor("pages that answer at all", census.answered_pages, 1502);
-    floor("elements reached", census.nodes, 102_853);
-    floor("§14.9.3's /Alt carried", census.substituted, 664);
-    floor("elements placed", census.placed, 7538);
-    floor("elements placed by their own marks", census.derived, 93_267);
-    floor("cells with headers", census.header_cells, 16_617);
-    floor("header associations", census.header_associations, 27_273);
-    floor("§12.7.5's controls", census.controls, 272);
-    floor("elements that are annotations", census.annotations, 7413);
-    floor("elements a caret reaches", census.with_lines, 57_116);
-    floor("lines", census.lines, 114_011);
-    floor("characters", census.characters, 2_974_185);
+    floor(
+        "documents with structure",
+        tracked_census.with_structure,
+        90,
+    );
+    floor(
+        "pages that answer at all",
+        tracked_census.answered_pages,
+        132,
+    );
+    floor("elements reached", tracked_census.nodes, 4060);
+    floor("§14.9.3's /Alt carried", tracked_census.substituted, 21);
+    floor("elements placed", tracked_census.placed, 437);
+    floor(
+        "elements placed by their own marks",
+        tracked_census.derived,
+        2641,
+    );
+    floor("cells with headers", tracked_census.header_cells, 58);
+    floor(
+        "header associations",
+        tracked_census.header_associations,
+        72,
+    );
+    floor("§12.7.5's controls", tracked_census.controls, 272);
+    floor(
+        "elements that are annotations",
+        tracked_census.annotations,
+        415,
+    );
+    floor("elements a caret reaches", tracked_census.with_lines, 1382);
+    floor("lines", tracked_census.lines, 2482);
+    floor("characters", tracked_census.characters, 31_433);
     floor(
         "untagged pages answering honestly",
-        census.untagged_honest,
-        876,
+        tracked_census.untagged_honest,
+        877,
     );
+
+    whole_population_floors(census, specifications);
 
     // A defect class may only fall. The first two are already empty and stay so; the other two are
     // populations with a number, and each has its own entry in `doc/todo/31`.

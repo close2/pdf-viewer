@@ -408,9 +408,12 @@ const DEFAULT_CMYK_REINTERPRETS: &str = "every DeviceCMYK value in this file is 
 /// that the construction is now fixed, in this program's version of it, and that §12.5.2 has a
 /// reader ignore the appearance characteristics the annotation states in favour of these bytes.
 const APPEARANCE_REINTERPRETS: &str = "an appearance stream this program constructed is now what \
-     every reader draws for these annotations. ISO 32000-2 Table 166 requires a writer to include \
-     an appearance dictionary and each subtype's own clause says what its marks are, so nothing \
-     here is invented — but the detail is this renderer's, and another reader constructing from \
+     every reader draws for these annotations. What asks for the dictionary is the part's own \
+     requirement — ISO 19005-2 section 6.3.3 at a part 2 target, where ISO 32000-1:2008's Table \
+     164 leaves the entry optional, and ISO 32000-2's Table 166 writer obligation at a part 4 \
+     one — and what goes inside it is each subtype's own clause, which both editions state alike, \
+     so nothing here is invented — but the detail is this renderer's, and another reader \
+     constructing from \
      the same entries would differ in line joins, in text metrics and in where a caption sits. \
      §12.5.2 then has a reader ignore C, IC, Border, BS and the rest in favour of the stream, so \
      an annotation whose look used to be recomputed from those entries is fixed as it is here. \
@@ -440,8 +443,11 @@ const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships is now embedd
 /// recognised the producer's private intent — the one case the standard does not govern — sees
 /// the substitute instead.
 const RENDERING_INTENT_REINTERPRETS: &str = "a rendering intent this file states is not one of \
-     ISO 32000-2 §8.6.5.8's four, and the entry now names RelativeColorimetric — which is the \
-     intent that subclause has every conforming processor use for a name it does not recognise. \
+     the four the base standard defines, and the entry now names RelativeColorimetric — which is \
+     the intent that subclause has every conforming processor use for a name it does not \
+     recognise. The requirement binds a PDF/A-2 target alone, so the base standard it has to \
+     hold under is ISO 32000-1:2008, whose 8.6.5.8 states the same rule of a conforming reader \
+     as ISO 32000-2's does of a processor. \
      No colour value changes and no mark moves; what changes is that a reader which happened to \
      know the producer's own name for an intent is no longer told it. The report names every \
      entry restated";
@@ -558,6 +564,24 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "alternate-presentations/no-presentation-steps",
         answer: Answer::Mechanical(Rewrite::PresentationSteps),
+    },
+    // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the entries of one `OutputIntents`
+    // array name one profile object. Mechanical because the preparation performs it only where
+    // the objects carry the same profile bytes under the same stream dictionary — an array whose
+    // entries name genuinely different destinations keeps its refusal, in `super::sites`.
+    Remedy {
+        requirement: "graphics/one-destination-profile-per-output-intents-array",
+        answer: Answer::Mechanical(Rewrite::SharedDestinationProfile),
+    },
+    // ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4: a spot colourant's own entry in
+    // the `/Colorants` dictionary. Mechanical because the entry written is the `Separation` array
+    // this file already states for that colourant, which the same subclause requires every
+    // Separation of the name to agree with; a colourant the file never defines on its own is
+    // refused, in `super::sites`, because deriving the entry would sample the producer's
+    // transform rather than restate it.
+    Remedy {
+        requirement: "graphics/spot-colourants-appear-in-the-colorants-dictionary",
+        answer: Answer::Mechanical(Rewrite::SpotColorantEntry),
     },
     // ISO 19005-2 section 6.2.4.3, ISO 19005-4 section 6.2.4.3, and the two transparency
     // subclauses that turn on the same sentence — ISO 19005-2 section 6.2.10 and ISO 19005-4
@@ -1341,16 +1365,12 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     ),
     // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the shape of the array itself.
     (
-        "graphics/one-destination-profile-per-output-intents-array",
-        Because::NotBuiltYet(OUTPUT_INTENT_ARRAY_NOT_TIDIED),
-    ),
-    (
         "graphics/pdfa-output-intent-states-a-destination-profile",
-        Because::NotBuiltYet(OUTPUT_INTENT_ARRAY_NOT_TIDIED),
+        Because::NotBuiltYet(PDFA_OUTPUT_INTENT_NOT_COMPLETED),
     ),
     (
         "graphics/page-output-intents-have-the-same-shape",
-        Because::NotBuiltYet(OUTPUT_INTENT_ARRAY_NOT_TIDIED),
+        Because::NotBuiltYet(PAGE_OUTPUT_INTENTS_NOT_TIDIED),
     ),
     (
         "graphics/no-destination-profile-reference",
@@ -1430,10 +1450,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "graphics/separations-of-one-name-agree",
         Because::NotBuiltYet(SEPARATIONS_NOT_RECONCILED),
-    ),
-    (
-        "graphics/spot-colourants-appear-in-the-colorants-dictionary",
-        Because::NotBuiltYet(COLORANTS_NOT_SYNTHESISED),
     ),
     // ISO 19005-2 section 6.2.9.2, ISO 19005-4 section 6.2.8.2: section 2.3's one workaround.
     (
@@ -1846,14 +1862,29 @@ const ICC_SPACE_PROFILE_NOT_REPLACED: &str = "an ICCBased colour space in this f
      Both are doc/pdf-a-conversion-limits.md section 3's kind of loss, neither is built, and \
      nothing in the file supplies a corrected profile";
 
-/// Why an `/OutputIntents` array that is already the wrong shape is not reconciled.
-const OUTPUT_INTENT_ARRAY_NOT_TIDIED: &str = "this file's OutputIntents array is not the shape \
-     ISO 19005 section 6.2.3 requires — a PDF/A entry naming no destination profile, or several \
-     entries naming different profile objects, or a page's own array doing either. This \
-     conversion writes a PDF/A output intent by appending one to the array it found \
-     (doc/pdf-a-conversion-limits.md section 4.1), which is the right answer only where the \
-     array was silent; reconciling one that already states intents — dropping a PDF/A entry that \
-     names nothing, pointing every entry at one profile object — is the rewrite this needs";
+/// Why a PDF/A output intent that names no destination profile is left where it is.
+///
+/// **One of the three rows that shared a sentence until the ninth-hundred-and-sixty-sixth
+/// session**, when the third of them was built: `graphics/one-destination-profile-per-output-
+/// intents-array` is now a row of [`REMEDIES`], so what the other two are waiting on is no longer
+/// what that sentence said.
+const PDFA_OUTPUT_INTENT_NOT_COMPLETED: &str = "an entry of this file's OutputIntents array is \
+     identified as a PDF/A output intent and states no valid destination profile stream, which \
+     ISO 19005 section 6.2.3 requires of it. Two routes exist and both are decisions: giving the \
+     entry a profile makes this conversion say which device its producer's colours were prepared \
+     for, and removing the entry throws away the production condition it names. This conversion \
+     writes a PDF/A output intent by appending one to the array it found \
+     (doc/pdf-a-conversion-limits.md section 4.1), which leaves the producer's own entry exactly \
+     as they wrote it and therefore still failing";
+
+/// Why a page's own `/OutputIntents` array is not reconciled.
+const PAGE_OUTPUT_INTENTS_NOT_TIDIED: &str = "a page of this file states an OutputIntents array \
+     of its own, which ISO 19005-4 section 6.2.3 holds to the same three rules as the document's \
+     — a PDF/A entry with a destination profile stream, no DestOutputProfileRef, and one profile \
+     object across the array. The document-level array's third rule is built and this one is not: \
+     a page-level intent is ISO 19005-4's facility for a document mixing colour destinations, so \
+     which of a page's intents wins cannot be settled by the same proof that settles the \
+     catalog's — the pages may legitimately differ from each other and from the document";
 
 /// Why a `/DestOutputProfileRef` is not removed.
 const PROFILE_REFERENCE_NOT_REMOVED: &str = "an output intent here names its destination profile \
@@ -1941,21 +1972,6 @@ const SEPARATIONS_NOT_RECONCILED: &str = "two Separation arrays here name the sa
      differently — so the converter is to report the disagreement, show both, and rewrite only \
      when told which one wins. The report and the rewrite are both owed, and a document \
      assembled from several producers routinely lands here";
-
-/// Why a `/Colorants` entry is not synthesised.
-const COLORANTS_NOT_SYNTHESISED: &str = "every spot colour a DeviceN or NChannel space uses \
-     needs an entry in that space's Colorants dictionary, which the base standard leaves \
-     optional. doc/pdf-a-conversion-limits.md section 4.5 calls this a Default, synthesised from \
-     the space's own alternate space and tint transform so that nothing is invented and no mark \
-     changes — and the entry it would write is a Separation, whose tint transform §8.6.6.4 makes \
-     a function of *one* input where the DeviceN's is a function of N. **That derivation is not \
-     arithmetic, because §7.10 gives a PDF function no way to call another.** The general route \
-     is to sample the producer's function along the one axis, which is an approximation of it \
-     rather than a restatement, and an approximation written into an archive as though it were \
-     the producer's definition is a loss wearing a mechanical's clothes. One shape could be \
-     exact and is the thing to build first: a §7.10.2 sampled transform already states its \
-     values on a grid, and the samples along one axis are the producer's own numbers rather \
-     than a re-approximation of them";
 
 /// Why a reference `XObject`'s `/Ref` is not dropped in favour of its proxy.
 const REFERENCE_XOBJECT_NOT_PROXIED: &str = "doc/pdf-a-conversion-limits.md section 2.3's one \

@@ -6,9 +6,8 @@ defect, or adds a lint exception.
 `doc/todo/02-every-round.md` §2 owns the gate sequence; this file is what the gates and their
 numbers do wrong.
 
-`doc/HANDOVER.md` is the index and names which group holds which trap. **Every trap keeps its
-number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and dozens of ADRs cite them
-by number and an ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
+trap keeps its number.
 
 ## How to read what `tools/state.sh` prints
 
@@ -746,14 +745,6 @@ said the branch name "cannot go stale". Where two sources are both floors, take 
 and print which one won — then nobody has to remember which to trust, and a workflow that has
 outgrown one of them is visible in the place every round already looks.
 
-## Things worth knowing
-
-- **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
-  containment and a memory ceiling, not memory safety. There is deliberately no path that falls
-  back to in-process decoding when the worker fails to start.
-- **Debug builds are ~15× slower here**, and it changes what a test can assert: the corpus gate is
-  2 s in release and minutes in debug. Run timing assertions in release and say so.
-
 ### 34. A guard has to be made of the same stuff as the figure it guards
 
 `crates/viewer-ui/tests/launch_path.rs` measures principle 2's four numbers, and every clock figure
@@ -894,3 +885,16 @@ anything change" with half a fact.** It is trap 11 from the other end — that t
 firing on the wrong condition, this one is about nothing being able to *see* that it did — and it
 is trap 33's shape again, a clean number about a question nobody asked. When a change can move a
 report, the diff has to be able to hold one.
+
+## Things worth knowing
+
+**This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under
+a `##` heading that is not about them; it is at the end now because nothing in the file is about it.
+
+- **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
+  containment and a memory ceiling, not memory safety. There is deliberately no path that falls
+  back to in-process decoding when the worker fails to start.
+- **Debug builds are ~15× slower here**, and it changes what a test can assert: the corpus gate is
+  seconds in release and minutes in debug. Run timing assertions in release and say so. (This line
+  said *2 s* for a long run of rounds; `tools/state.sh` prints what it is, and ADR 0428 §6 took the
+  same figure out of `doc/todo/02` for the same reason.)

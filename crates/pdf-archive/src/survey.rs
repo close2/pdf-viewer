@@ -692,7 +692,7 @@ pub struct Survey {
     colours: Vec<DeviceColour>,
     /// Every transparency group `CS` entry the walk reached.
     groups: Vec<GroupSpace>,
-    /// The pages ISO 32000-2 Annex Q's method finds transparency on.
+    /// The pages the method finds transparency on.
     transparent: BTreeSet<usize>,
     /// Every named resource a content stream referenced and its resources did not define.
     missing: Vec<MissingResource>,
@@ -804,7 +804,16 @@ impl Survey {
         &self.icc_paints
     }
 
-    /// Whether ISO 32000-2 Annex Q's method finds transparency on this page.
+    /// Whether the method finds transparency on this page.
+    ///
+    /// **Which method, for which part, is not one answer.** ISO 32000-2 Annex Q states it and is
+    /// PDF/A-4's base standard; ISO 19005-2 states it itself, in its own normative Annex A, and
+    /// *its* base standard has no Annex Q at all — ISO 32000-1:2008 states no such method. The
+    /// two texts give the same steps and the same four graphics-state conditions, so one walk
+    /// serves both; what would have been wrong is to say that a PDF/A-2 page's transparency is
+    /// decided by a clause of a standard that part does not cite. ADR 0964 found the same shape
+    /// one clause over, in the ICC edition rule, and this comment is written the way that one had
+    /// to be corrected.
     #[must_use]
     pub fn page_is_transparent(&self, page: usize) -> bool {
         self.transparent.contains(&page)

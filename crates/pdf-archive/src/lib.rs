@@ -34,6 +34,7 @@
 #![warn(missing_docs)]
 
 pub mod clarification;
+pub mod coverage;
 pub mod errata;
 pub mod examination;
 pub mod finding;
@@ -46,6 +47,7 @@ pub mod target;
 use pdf_syntax::Document;
 
 pub use crate::clarification::Clarification;
+pub use crate::coverage::{Binding, Subclause, subclauses};
 pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, Where};

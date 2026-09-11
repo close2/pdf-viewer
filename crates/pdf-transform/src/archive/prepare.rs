@@ -26,8 +26,8 @@ use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Metrics, Substitutes};
 use super::rewrite::Rewrite;
 use super::sites::{
-    self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, Sites,
-    StandardEncodings,
+    self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
+    SharedProfile, Sites, StandardEncodings,
 };
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
@@ -264,8 +264,8 @@ const NOT_ASKED_FOR: &str = "no requirement this document failed asked for this 
 ///
 /// Unreachable through [`run`], which refuses such a document before stage 1; it exists so that
 /// the reason a requirement is refused with is never a reason that is not the actual one.
-const NO_CATALOG: &str = "this document has no readable catalog, so there is nowhere to state an \
-     output intent or a metadata stream";
+pub(super) const NO_CATALOG: &str = "this document has no readable catalog, so there is nowhere \
+     to state an output intent or a metadata stream";
 
 /// Why an object could not be added to the output.
 const NO_SPARE_OBJECT: &str = "this document uses every object number a conversion could give to \
@@ -702,6 +702,8 @@ impl Prepared {
             Rewrite::StandardTrueTypeEncoding => {
                 self.owed.standard_encodings.as_ref().err().copied()
             }
+            Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
+            Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
             _ => None,
@@ -782,6 +784,10 @@ pub(super) struct Owed {
     pub(super) symbolic_encodings: Result<Sites, Because>,
     /// The non-symbolic TrueType fonts given one of the two admitted names, or why none are.
     pub(super) standard_encodings: Result<StandardEncodings, Because>,
+    /// The output intents pointed at one shared destination profile, or why none are.
+    pub(super) shared_profile: Result<SharedProfile, Because>,
+    /// The `/Colorants` entries each `DeviceN` colour space gains, or why none are written.
+    pub(super) colorants: Result<ColorantEntries, Because>,
 }
 
 impl Owed {
@@ -829,6 +835,15 @@ impl Owed {
             standard_encodings: asked(wanted(Rewrite::StandardTrueTypeEncoding), || {
                 let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
                 sites::standard_truetype_encodings(document, input, survey)
+            }),
+            shared_profile: asked(wanted(Rewrite::SharedDestinationProfile), || {
+                let catalog = document
+                    .catalog()
+                    .map_err(|_| Because::NotBuiltYet(NO_CATALOG))?;
+                sites::shared_destination_profile(document, &catalog)
+            }),
+            colorants: asked(wanted(Rewrite::SpotColorantEntry), || {
+                sites::colorant_entries(document, input)
             }),
         }
     }

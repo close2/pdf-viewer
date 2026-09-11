@@ -208,6 +208,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(a_device_dependent_page_carries_an_output_intent),
     },
     Requirement {
+        id: "graphics/destination-profile-alternate-ignored",
+        asks: "A processor shall ignore an Alternate key present in the destination profile \
+               stream object.",
+        clauses: Clauses::both("6.2.3", "6.2.3"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the entry is permitted to be there and the rule is what a processor does with it, \
+             so no document can fail it. Not the same sentence as the ICCBased rule one \
+             subclause along: that one is about the Alternate space named *inside* an ICC \
+             profile stream dictionary used as a colour space, and this is the output intent's \
+             destination profile stream",
+        ),
+    },
+    Requirement {
         id: "graphics/colour-is-specified-device-independently",
         asks: "Every colour shall be specified device-independently, either by a \
                device-independent colour space or through the PDF/A output intent's profile.",
@@ -625,6 +639,18 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(jpeg2000_one_best_colour_space_specification),
     },
     Requirement {
+        id: "graphics/jpeg2000-best-colour-space-specification-used",
+        asks: "A processor shall render JPEG 2000 data through the colour space specification \
+               marked as the best available and ignore every other one the data states.",
+        clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the file's half of this sentence is the row above — exactly one specification \
+             marked best available — and this half tells a processor which of them to use. A \
+             document that states one carries no fact that could break it",
+        ),
+    },
+    Requirement {
         id: "graphics/jpeg2000-colour-specification-method",
         asks: "The colour specification method a JPEG 2000 colour box states shall be one of \
                the three the part permits.",
@@ -695,6 +721,23 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(no_postscript_xobjects),
     },
     Requirement {
+        id: "graphics/transparency-determined-by-the-parts-own-method",
+        asks: "A processor shall decide whether a page contains transparency by the method the \
+               part states: the four graphics-state conditions, followed into form XObjects, \
+               image XObjects, Type 3 glyph procedures, tiling patterns and annotation \
+               appearances.",
+        clauses: Clauses::only_two("A.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "a method a processor applies rather than a property a file has — and this crate is \
+             one of the processors it binds, which is why the row is carried rather than left \
+             out: `crate::survey` implements exactly these steps, and the two rows below ask \
+             their question of the page set it produces. ISO 19005-4 states no method of its \
+             own and its base standard's Annex Q states this one word for word, so the same \
+             walk serves both parts",
+        ),
+    },
+    Requirement {
         id: "graphics/a-transparent-page-has-a-blending-space",
         asks: "Where the file states no PDF/A output intent, every page containing transparency \
                shall state a Group whose attribute dictionary names a CS to blend in.",
@@ -744,6 +787,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_four("6.2.9"),
         applies: Applies::Always,
         check: Check::Implemented(annotation_blend_modes_are_defined),
+    },
+    Requirement {
+        id: "graphics/blend-modes-processed-as-the-base-standard-defines",
+        asks: "A processor shall composite with the blend modes the file names as the base \
+               standard describes them.",
+        clauses: Clauses::both("6.2.10", "6.2.9"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the file's half is the two rows above, which hold a BM entry to the modes the base \
+             standard defines; this is what a processor then does with one, and no document can \
+             fail it. ISO 19005-2 adds the Adobe supplement's extension level 5 to the base \
+             standard's account of the modes, which changes what a processor computes and not \
+             what a file may say",
+        ),
     },
 ];
 
@@ -4066,14 +4123,20 @@ mod tests {
             mine.len()
         );
         for requirement in mine {
-            for clause in [requirement.clauses.two, requirement.clauses.four]
-                .into_iter()
-                .flatten()
+            // The two parts' annexes are numbered alike and are about different things, so each
+            // part's citation is judged against that part's own allowance. ISO 19005-2's
+            // normative Annex A states the method clause 6.2.10 sends a processor to;
+            // ISO 19005-4's Annex B modifies clause 6.2 for PDF/A-4e rather than restating it
+            // elsewhere. Neither part's *other* annex belongs to this tranche.
+            for (clause, annex) in [
+                (requirement.clauses.two, "A."),
+                (requirement.clauses.four, "B.2."),
+            ]
+            .into_iter()
+            .filter_map(|(clause, annex)| clause.map(|clause| (clause, annex)))
             {
                 assert!(
-                    // Annex B modifies clause 6.2 for PDF/A-4e rather than restating it
-                    // elsewhere, so a row of this tranche may cite it — and only it.
-                    clause.starts_with("6.2.") || clause.starts_with("B.2."),
+                    clause.starts_with("6.2.") || clause.starts_with(annex),
                     "{} cites {clause}, which is not in this tranche's range",
                     requirement.id
                 );

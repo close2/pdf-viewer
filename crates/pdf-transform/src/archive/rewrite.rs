@@ -26,8 +26,8 @@ use super::prepare::{
     metadata_stream, output_intent_entries,
 };
 use super::sites::{
-    self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, RELATIVE_COLORIMETRIC,
-    RENDERING_INTENTS, StandardEncodings,
+    self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
+    RELATIVE_COLORIMETRIC, RENDERING_INTENTS, SharedProfile, StandardEncodings,
 };
 use super::to_unicode::DerivedMaps;
 
@@ -284,7 +284,7 @@ pub enum Rewrite {
     /// each group's own state, which this rewrite does not touch.
     OptionalContentOrder,
     /// Every page that names a resource and states no `/Resources` of its own is given the
-    /// dictionary §7.7.3.3's inheritance already puts in force.
+    /// dictionary §7.7.3.4's inheritance already puts in force.
     ///
     /// ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2 require a content stream's
     /// resources to be *explicitly associated* with it, which `TechNote 0010`'s A003 reads as
@@ -296,9 +296,19 @@ pub enum Rewrite {
     /// Every font descriptor whose `/CharSet` or `/CIDSet` does not describe the whole of its own
     /// embedded program loses that entry.
     ///
+    /// **Both requirements this answers bind a part 2 target and nothing else**, so the base
+    /// standard the argument has to hold under is ISO 32000-1:2008, and it does: that edition's
+    /// Table 122 makes `/CharSet` optional and its Table 124 makes `/CIDSet` optional, and each
+    /// says what the entry's *absence* indicates: for each of them, a subset is then indicated
+    /// by the subset tag in `/FontName` and by nothing else. So a descriptor stating neither is
+    /// a conforming descriptor of the edition PDF/A-2 adheres to, and what the removed entry said
+    /// is still said by the subset tag and by the program itself.
+    ///
     /// ISO 19005-2 section 6.2.11.4.2 requires each to be complete. §9.8.1's Table 122 makes each
-    /// optional, deprecates both, and says what is indicated by their absence rather than by
-    /// their contents — `/CharSet` is
+    /// optional, **deprecates** both — which ISO 32000-1 does not, and which is why the
+    /// deprecation is the reason removal stays right at a later target rather than the reason it
+    /// is right at this one — and says what is indicated by their absence rather than by
+    /// their contents. `/CharSet` is
     ///
     /// > ( Optional; meaningful only in Type 1 fonts; PDF 1.1; deprecated in PDF 2.0 ) A string
     /// > listing the character names defined in a font subset.
@@ -311,10 +321,11 @@ pub enum Rewrite {
     /// incomplete one states is recoverable from the program itself and removing it loses
     /// nothing a reader could use.
     ///
-    /// **Recomputing the entry is the other lossless route, and it is not the one taken.** The
-    /// base standard deprecates both keys and ISO 19005-4 states no such requirement at all, so
-    /// the entry a conforming file wants is no entry — writing a fuller one would leave a
-    /// deprecated key in an archive to say what the subset tag already says.
+    /// **Recomputing the entry is the other lossless route, and it is not the one taken.** Both
+    /// editions make the key optional and give its absence a meaning, ISO 32000-2 deprecates it,
+    /// and ISO 19005-4 states no such requirement at all — so the entry a conforming file wants
+    /// is no entry, and writing a fuller one would leave a key an archive's later readers are
+    /// told to ignore, to say what the subset tag already says.
     DescriptorSetRemoved,
     /// Every embedded Type 2 `CIDFont` stating no `/CIDToGIDMap` is given the name `Identity`.
     ///
@@ -385,6 +396,34 @@ pub enum Rewrite {
     /// base encoding and the differences two entries of one dictionary, and this requirement is
     /// about the first; the rows about the second are their own.
     StandardTrueTypeEncoding,
+    /// Every entry of the catalog's `OutputIntents` array names one destination profile object.
+    ///
+    /// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 require every entry that states a
+    /// `DestOutputProfile` to state *the same indirect object*, which the clause's own note
+    /// explains: a file conforming both to ISO 19005 and to PDF/X or PDF/E carries one intent per
+    /// standard, and the colours can only be referred to one destination.
+    ///
+    /// **The proof is what makes this mechanical**: the profiles are decoded and the rewrite is
+    /// performed only where every entry's profile is the same bytes under the same stream
+    /// dictionary, so the object that goes carried a copy of the one that stays and no entry
+    /// changes what it refers its colours to. Entries naming genuinely different profiles are
+    /// refused, because one destination would then be discarded.
+    SharedDestinationProfile,
+    /// A `DeviceN` colour space's `/Colorants` gains the entry a spot colourant it uses is
+    /// missing, written from the `Separation` array this file already states for that colourant.
+    ///
+    /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4 require the entry, and the
+    /// same subclause is what decides its value: every `Separation` array in one file naming a
+    /// given colourant, the arrays written inside a `Colorants` dictionary expressly included, must
+    /// state the same alternate space and the same tint transform, compared as PDF objects. So
+    /// where the file states one for this colourant there is nothing to choose, and the producer's
+    /// own definition of the ink is what goes in.
+    ///
+    /// **Only that shape.** Deriving the entry from the `DeviceN` space's own N-input tint
+    /// transform is the general route and it is refused, because §7.10 gives a PDF function no
+    /// way to call another: the one-input transform could only be a *sample* of the producer's,
+    /// and an archive would carry an approximation written as though it were their definition.
+    SpotColorantEntry,
 }
 
 impl Rewrite {
@@ -489,11 +528,13 @@ impl Rewrite {
             }
             Self::PageResources => {
                 "a page that names a resource and states no Resources of its own is given the \
-                 dictionary ISO 32000-2 \u{a7}7.7.3.3's inheritance already puts in force for it"
+                 dictionary ISO 32000-2 \u{a7}7.7.3.4's inheritance already puts in force for it"
             }
             Self::DescriptorSetRemoved => {
                 "a font descriptor's CharSet or CIDSet, which describes the embedded program \
-                 incompletely and which ISO 32000-2 deprecates, is removed"
+                 incompletely, is removed — both editions of the base standard make the entry \
+                 optional and give its absence the same meaning, the subset tag in FontName, and \
+                 ISO 32000-2 deprecates it besides"
             }
             Self::CidToGidIdentity => {
                 "an embedded Type 2 CIDFont stating no CIDToGIDMap is given the name Identity, \
@@ -516,6 +557,16 @@ impl Rewrite {
                 "a non-symbolic TrueType font is given WinAnsiEncoding or MacRomanEncoding, \
                  whichever leaves every one of the 256 codes it could show on the glyph it \
                  already reached"
+            }
+            Self::SharedDestinationProfile => {
+                "an output intent naming a second copy of the destination profile another entry \
+                 of the same OutputIntents array names is pointed at that one object, which is \
+                 the same profile byte for byte"
+            }
+            Self::SpotColorantEntry => {
+                "a DeviceN colour space's Colorants dictionary gains the entry a spot colourant \
+                 it uses was missing, which is the Separation array this file already states for \
+                 that colourant and which ISO 19005 section 6.2.4.4 requires it to agree with"
             }
         }
     }
@@ -559,6 +610,8 @@ impl Rewrite {
             Self::NeedsRendering => "needs-rendering",
             Self::SymbolicTrueTypeEncodingRemoved => "symbolic-truetype-encoding-removed",
             Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
+            Self::SharedDestinationProfile => "shared-destination-profile",
+            Self::SpotColorantEntry => "spot-colorant-entry",
         }
     }
 }
@@ -613,6 +666,8 @@ pub(super) fn convert(
         packet_headers: prepared.owed.packet_headers.as_ref().ok(),
         symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
         standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
+        shared_profile: prepared.owed.shared_profile.as_ref().ok(),
+        colorants: prepared.owed.colorants.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -963,7 +1018,7 @@ struct CmykSites {
     ///
     /// A page with no `Resources` entry has no explicitly associated dictionary at all, so A028
     /// leaves it no default whatever the page tree above it defines — and the requirement is
-    /// therefore asking for the entry the page does not have. What is written is what §7.7.3.3's
+    /// therefore asking for the entry the page does not have. What is written is what §7.7.3.4's
     /// inheritance already puts in force: the reference the page inherits, where it inherits one
     /// by reference, and a copy of the dictionary otherwise. Neither changes what any name on
     /// that page resolves to.
@@ -1109,7 +1164,7 @@ impl CmykSites {
         }
     }
 
-    /// A page with no `Resources` entry of its own, given the one §7.7.3.3 already puts in force.
+    /// A page with no `Resources` entry of its own, given the one §7.7.3.4 already puts in force.
     ///
     /// The value is `super::sites::inherited_resources`'s, which is the same question asked for
     /// `Rewrite::PageResources` — a page inherits one dictionary and both rewrites give it that
@@ -1273,6 +1328,10 @@ struct Rewriter<'a> {
     symbolic_encodings: Option<&'a sites::Sites>,
     /// The `/Encoding` each non-symbolic TrueType font is to state.
     standard_encodings: Option<&'a StandardEncodings>,
+    /// The one destination profile every output intent is to name, where they are being shared.
+    shared_profile: Option<&'a SharedProfile>,
+    /// The `/Colorants` entries each `DeviceN` colour space is to gain, where any are written.
+    colorants: Option<&'a ColorantEntries>,
 }
 
 impl Rewriter<'_> {
@@ -1290,8 +1349,37 @@ impl Rewriter<'_> {
                     Rewritten::Changed(Object::Dictionary(dict))
                 }),
             Object::Stream(stream) => self.rewrite_stream(id, stream, applied),
+            // A colour space array written as its own object, which is the shape
+            // `Rewrite::SpotColorantEntry` reaches and the only rewrite that reaches one: every
+            // other rewrite in this table writes a dictionary entry.
+            Object::Array(_) => self.rewrite_array(id, value, applied),
             _ => Rewritten::Carried,
         }
+    }
+
+    /// An object that is an array: ISO 19005 section 6.2.4.4's `/Colorants` entry, and nothing
+    /// else.
+    fn rewrite_array(
+        &self,
+        id: ObjectId,
+        value: &Object,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> Rewritten {
+        if !self.wants(Rewrite::SpotColorantEntry) {
+            return Rewritten::Carried;
+        }
+        let Some(entries) = self.colorants.and_then(|written| written.at.get(&id)) else {
+            return Rewritten::Carried;
+        };
+        let mut out = value.clone();
+        let placed = sites::place_colorants_in(self.document, &mut out, entries);
+        if placed.is_empty() {
+            return Rewritten::Carried;
+        }
+        for _ in 0..placed.len() {
+            count(applied, Rewrite::SpotColorantEntry);
+        }
+        Rewritten::Changed(out)
     }
 
     /// A dictionary object, rewritten where its position asks for it.
@@ -1421,7 +1509,63 @@ impl Rewriter<'_> {
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
+        changed |= self.share_destination_profile(id, out, applied);
+        changed |= self.write_colorants(id, out, applied);
         changed
+    }
+
+    /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4, inside the object the
+    /// validator named.
+    ///
+    /// `doc/pdf-a-mitigations.md` section 13.3.1's lesson: a colour space is reported at the
+    /// object it is *written in*, which for a space defined in a page's resource dictionary is
+    /// the page. So the object is descended rather than edited at its top level, and
+    /// [`super::sites::place_colorants`] is the same placement the preparation already proved
+    /// reaches every colourant it promised.
+    fn write_colorants(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::SpotColorantEntry) {
+            return false;
+        }
+        let Some(entries) = self.colorants.and_then(|written| written.at.get(&id)) else {
+            return false;
+        };
+        let placed = sites::place_colorants(self.document, out, entries, 0);
+        for _ in 0..placed.len() {
+            count(applied, Rewrite::SpotColorantEntry);
+        }
+        !placed.is_empty()
+    }
+
+    /// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3, at one output intent object.
+    ///
+    /// The entries written directly inside the catalog's array are corrected by
+    /// [`Self::rewrite_catalog`] instead, because there is no object of their own to reach.
+    fn share_destination_profile(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::SharedDestinationProfile) {
+            return false;
+        }
+        let Some(shared) = self.shared_profile else {
+            return false;
+        };
+        if !shared.at.contains(&id) {
+            return false;
+        }
+        out.insert(
+            Name::new(&b"DestOutputProfile"[..]),
+            Object::Reference(shared.profile),
+        );
+        count(applied, Rewrite::SharedDestinationProfile);
+        true
     }
 
     /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6's two font-dictionary rows,
@@ -1667,7 +1811,7 @@ impl Rewriter<'_> {
         false
     }
 
-    /// §7.7.3.3's inherited resources, copied down onto the page that already resolves through
+    /// §7.7.3.4's inherited resources, copied down onto the page that already resolves through
     /// them.
     ///
     /// **Never over an entry that is there.** The population is a page stating none, and a page
@@ -1888,6 +2032,26 @@ impl Rewriter<'_> {
             count(applied, Rewrite::CatalogVersion);
             changed = true;
         }
+        // ISO 19005 section 6.2.3's array, which two rewrites write: one corrects the entries
+        // the source holds and one appends a PDF/A entry, and a document wanting both gets one
+        // array with both done to it rather than two writers overwriting each other.
+        let corrected = self
+            .wants(Rewrite::SharedDestinationProfile)
+            .then(|| {
+                self.shared_profile
+                    .and_then(|shared| shared.entries.clone())
+            })
+            .flatten();
+        if let Some(entries) = &corrected
+            && !self.wants(Rewrite::OutputIntent)
+        {
+            catalog.insert(
+                Name::new(&b"OutputIntents"[..]),
+                Object::Array(entries.clone()),
+            );
+            count(applied, Rewrite::SharedDestinationProfile);
+            changed = true;
+        }
         if self.wants(Rewrite::OutputIntent)
             && let Some(intent) = self.intent
         {
@@ -1895,7 +2059,12 @@ impl Rewriter<'_> {
             // source held indirectly is not carried, because nothing in the rewritten catalog
             // refers to it any more. Its entries are — a reference among them is renumbered like
             // any other reference this verb rewrites.
-            let mut entries = output_intent_entries(self.document, catalog);
+            let mut entries = corrected
+                .clone()
+                .unwrap_or_else(|| output_intent_entries(self.document, catalog));
+            if corrected.is_some() {
+                count(applied, Rewrite::SharedDestinationProfile);
+            }
             entries.push(Object::Dictionary(intent_dictionary(intent)));
             catalog.insert(Name::new(&b"OutputIntents"[..]), Object::Array(entries));
             changed = true;

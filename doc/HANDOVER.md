@@ -129,17 +129,15 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 36 | A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask | instruments |
 | 37 | A digest of the artefact cannot see a change in the *diagnosis* | instruments |
 | 38 | A resource bound can sit below what the standard's own data states | parsers |
+| 39 | A signal that always fires has stopped being a signal, and it looks like caution | instruments |
 
 ---
 
 ## Habits these sessions earned
 
-Each was paid for once. Traps are about code; these are about how to work. Every one keeps the
-anchor that makes it checkable.
-
-**[`doc/habits.md`](habits.md)** holds all of them, in six sections. Open the one the round is
-about; a habit is worth reading when you are about to do the thing it is about, which is why they
-are no longer here.
+**[`doc/habits.md`](habits.md)** holds all of them, in six sections, and states what a habit is and
+what each keeps. Open the one the round is about; a habit is worth reading when you are about to do
+the thing it is about, which is why they are no longer here.
 
 | section | about |
 |---|---|

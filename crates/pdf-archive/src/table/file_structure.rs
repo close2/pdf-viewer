@@ -77,6 +77,65 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         ),
     },
     Requirement {
+        id: "conformance/no-deprecated-features",
+        asks: "A conforming file shall not use a feature the base standard describes as \
+               deprecated.",
+        clauses: Clauses::only_four("5.1"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "unimplemented, and the route to it is in this tree: `pdf_spec`'s Arlington-derived \
+             model states `deprecated_in` for a key and for a type, so the population is every \
+             key a document states whose entry names a version at or below 2.0. What stops it \
+             being written here is that `deprecated` in the model is per *key of a dictionary*, \
+             while the clause's subject is a *feature*, and ISO 32000-2 deprecates whole \
+             constructs — a filter, an action, a security handler — that no single key stands \
+             for. Reporting the keys alone would under-report by an amount nobody has measured, \
+             and calling that the clause would be this crate deciding what a feature is. Part 2 \
+             states no equivalent sentence",
+        ),
+    },
+    Requirement {
+        id: "conformance/the-version-number-does-not-decide-conformance",
+        asks: "The version number in the header shall not be used in deciding whether a file \
+               conforms.",
+        clauses: Clauses::only_two("5.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "addressed to whoever judges the file rather than to the file, and this crate is \
+             one of them: no row here reads the header's version digit except \
+             `file-structure/file-header`, which asks the shape section 6.1.2 states and not \
+             whether the digit suits the target. Part 4 states no equivalent sentence, because \
+             its own section 6.1.2 admits every PDF 2.0 revision",
+        ),
+    },
+    Requirement {
+        id: "conformance/processor-behaviour",
+        asks: "A conforming processor shall meet every requirement this part states about \
+               processor behaviour, shall render as the base standard defines, and shall ignore \
+               features the base standard does not describe.",
+        clauses: Clauses::both("5.5", "5.2"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the subclause that makes every other processor row of this table binding on a \
+             program, and it is the one place ISO 19005 says what a conforming reader *is*. \
+             Nothing in a document bears on it; what this project's own reading of it amounts \
+             to is `doc/PLAN.md` section 5a's ledger",
+        ),
+    },
+    Requirement {
+        id: "file-structure/undescribed-data-never-renders",
+        asks: "Data in a conforming file that neither the base standard nor ISO 19005 describes \
+               shall not be used to render content on a page.",
+        clauses: Clauses::both("6.1.1", "6.1.1"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the sentence permits a file to carry such data and forbids a *processor* to draw \
+             with it, so no property of a document satisfies or breaks it. What a file may not \
+             carry is every other row of this table; this one is the standing instruction about \
+             what is left over",
+        ),
+    },
+    Requirement {
         id: "file-structure/file-header",
         asks: "The header shall begin at byte zero and state the base standard's version, and \
                shall be followed by a comment line of at least four bytes above 127.",
@@ -131,6 +190,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.1.4", "6.1.4"),
         applies: Applies::Always,
         check: Check::Implemented(cross_reference_keyword_line_endings),
+    },
+    Requirement {
+        id: "file-structure/unreferenced-objects-never-influence-rendering",
+        asks: "An indirect object no cross-reference section names is exempt from every \
+               requirement, and a processor that does not ignore it shall never let it \
+               influence what is rendered.",
+        clauses: Clauses::both("6.1.4", "6.1.4"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "two sentences, and neither is a property of a document. The first is an exemption \
+             this crate obeys in its own populations rather than reports on — the object walks \
+             this module and `super::fonts` run visit only what a cross-reference section names \
+             — and the second binds a processor that chooses to read such an object anyway",
+        ),
     },
     Requirement {
         id: "file-structure/no-lzw-filter",
@@ -257,6 +330,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.1.10", "6.1.9"),
         applies: Applies::Always,
         check: Check::Implemented(inline_image_filters),
+    },
+    Requirement {
+        id: "file-structure/linearization-permitted",
+        asks: "Linearization shall be permitted, and a processor should ignore any \
+               linearization information the file carries.",
+        clauses: Clauses::both("6.1.11", "6.1.10"),
+        applies: Applies::Always,
+        check: Check::Processor(
+            "the only `shall` here is addressed to whoever judges the file — linearization is \
+             permitted, so a validator that reported a linearized file would itself be wrong — \
+             and the rest of the subclause is a recommendation to a processor. Carried as a row \
+             because a permission the standard states explicitly is a thing this table can be \
+             *checked against*, and silence here would read as an unexamined subclause",
+        ),
     },
     Requirement {
         id: "implementation-limits/integer-values",

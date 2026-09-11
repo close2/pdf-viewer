@@ -393,8 +393,14 @@ cases.
 #### `graphics/pdfa-output-intent-states-a-destination-profile`
 #### `graphics/one-destination-profile-per-output-intents-array`
 #### `graphics/page-output-intents-have-the-same-shape`
-all six · 4f/4e-and-4 for the third · today `not-built-yet`
+all six · 4f/4e-and-4 for the third · the second **built in session 966**, the other two
+`not-built-yet` · **corrected in session 966**
 
+- **The three were one refusal sentence and they are three different waits.** That is this
+  entry's first correction, and it was invisible while the block read as one mitigation: the
+  middle row's answer turns on a question the file itself settles — *are the two entries' profiles
+  the same bytes?* — and the other two turn on questions only an operator can. So the middle row
+  is built and the sentences the other two now carry are their own.
 - **Mitigation** — `preserve`, and it is nearly mechanical: point every entry that states a
   destination profile at **one** profile object, drop a PDF/A entry that names none, and treat a
   page's own array by the same rule. Where two entries name **different** profiles, one has to win
@@ -411,6 +417,19 @@ all six · 4f/4e-and-4 for the third · today `not-built-yet`
   colour destination is ambiguous, which is not a rendering failure but is a legibility one.
   Narrowable by `allow-multiple = true`, and it should not be the answer when `preserve` costs so
   little.
+- **What session 966 built, and where it stops.** The clause's own note says where several entries
+  arise — a file conforming to ISO 19005 and to PDF/X or PDF/E at once — and such a file carries
+  the *same* profile twice as often as not. So the converter decodes both, and where every entry's
+  profile is the same bytes under the same stream dictionary it points them all at one object:
+  every entry still refers its colours to the profile it already referred them to, the object that
+  goes was a copy, and nothing was decided. Where the bytes differ the entries name two
+  destinations, the clause admits one, and the loser's statement is discarded — that is the
+  `discard` this entry always said it was, it needs the `winner` a configuration supplies, and it
+  keeps its refusal with a sentence naming the half that is done. An entry whose
+  `DestOutputProfile` is not an indirect reference is refused too: §7.3.8.1 makes every stream an
+  indirect object — ISO 32000-1:2008, 7.3.8.1 states the same sentence, so it binds a part 2
+  target as well — so that value is not the profile stream the clause requires and there is
+  nothing for the others to share.
 
 #### `graphics/destination-profile-class-and-colour-space`
 #### `graphics/destination-profile-carries-the-tags-its-class-requires`
@@ -506,8 +525,8 @@ ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · today `the-fence` in its s
 - **Departure** — **A**, and pointless: the remedy loses nothing.
 
 #### `graphics/spot-colourants-appear-in-the-colorants-dictionary`
-ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · today `not-built-yet` ·
-**corrected in session 962**
+ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · **partly built in session 966**, the rest
+`not-built-yet` · **corrected in session 962 and again in session 966**
 
 - **Mitigation** — synthesise each missing entry from the space's own alternate space and tint
   transform, which is the limits document's section 4.5 Default and invents nothing. This entry then
@@ -518,6 +537,19 @@ ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · today `not-built-yet` ·
   an archive as though it were their definition. One shape could be exact and is the thing to build
   first: a §7.10.2 sampled transform already states its values on a grid, so the samples along one
   axis are the producer's own numbers.
+- **Both readings above looked only at the `DeviceN` space, and 6.2.4.4 has a second sentence**
+  (ADR 0973). The subclause requires every `Separation` array in one file naming a given colourant
+  — expressly including the arrays written inside a `Colorants` dictionary — to state the same
+  alternate space and the same tint transform, compared as PDF objects rather than by what using
+  them computes. So where the file already states a `Separation` for the colourant, the entry that
+  requirement admits is **that array and no other**: there is no derivation to make, nothing to
+  sample, and the producer's own definition of the ink is what goes in. That is what session 966
+  built, and it is exact in a way the sampled route never could be — the sampled route stays owed
+  and stays the harder half, for a file whose spot ink is defined nowhere but inside the `DeviceN`
+  that uses it.
+- **The lesson is the catalogue's rather than this row's.** Two sessions read this requirement's
+  mitigation off the one sentence the row's *title* is about, and the answer was in the next
+  paragraph of the same subclause. A clause is not read until its neighbours are.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B**, and unnecessary. A `/Colorants` dictionary is what lets a reader render one
@@ -1691,8 +1723,12 @@ and are struck from the list here as they were struck from `decision.rs`'s `REFU
   sentences rather than one.
 - `fonts/charset-lists-every-glyph-in-the-program` and `fonts/cidset-lists-every-cid-in-the-program`
   — `Mechanical`, by the **remove** route rather than the recompute one. The catalogue offered both
-  and the base standard decides: ISO 32000-2 deprecates both keys, so the entry a conforming file
-  wants is no entry.
+  and the base standard decides — **and session 966 found that the edition named here is the wrong
+  one for these two rows**, which bind a part 2 target and nothing else: ISO 32000-2 deprecates both
+  keys, ISO 32000-1:2008 does not, and what makes removal lossless at the target these rows actually
+  bind is that its Table 122 and Table 124 make both entries optional and give each the same meaning
+  when absent — a subset indicated by the subset tag in `/FontName` and by nothing else. The route
+  was right; the reason had been written for the other edition.
 - `fonts/cid-to-gid-map-present` — `Stated`, **at a part 2 target only**, exactly as the entry
   above reads it.
 - `implementation-limits/indirect-object-count` — the **serializer's**, which is what the entry
@@ -1727,22 +1763,40 @@ afternoon, and §13.3.1 has all five — the two duplicate-profile rows
 `graphics/separation-alternate-space-does-not-duplicate-a-current-profile`), the two JPEG 2000 box
 rows (`graphics/jpeg2000-colour-specification-method`,
 `graphics/jpeg2000-one-best-colour-space-specification`), and
-`graphics/spot-colourants-appear-in-the-colorants-dictionary`.
+`graphics/spot-colourants-appear-in-the-colorants-dictionary` — **and the last of those five did not
+stay refused**, which is the correction below.
 
-**Two remain owed**, and both are code rather than a decision:
+**Two more were built in the nine-hundred-and-sixty-sixth session** (ADR 0973), and are struck here
+as they were struck from `REFUSED_BY_NAME`:
+
+- `graphics/one-destination-profile-per-output-intents-array` — `Mechanical`, **the same-profile
+  half only**, on a proof rather than on a reading: both entries' destination profiles are decoded
+  and the objects are shared only where they are the same bytes under the same stream dictionary,
+  so the object that goes carried a copy and no entry changes what it refers its colours to. Two
+  entries naming genuinely different profiles keep the refusal, because one destination is then
+  discarded; §4.1 carries the split.
+- `graphics/spot-colourants-appear-in-the-colorants-dictionary` — `Mechanical`, **where the file
+  states a `Separation` array for the colourant itself**, which turns out to need no derivation at
+  all. This row had been moved into the fence four rounds earlier on the finding that the entry
+  could only be *sampled* from the producer's N-input transform, and both that finding and the
+  original entry had read one sentence of 6.2.4.4 and not the next: the subclause requires every
+  `Separation` array in a file naming one colourant, in a `Colorants` dictionary or anywhere else,
+  to state the same alternate space and tint transform, compared as PDF objects. So where the file
+  defines the ink, the entry is *determined* rather than chosen. The sampled route stays owed for a
+  file that defines the ink nowhere else.
+
+**One remains owed**, and it is code rather than a decision:
 `fonts/vertical-metrics-agree-with-the-program`, whose entry §13.3.1 corrects and whose rewrite
-belongs in `pdf_font::restate` beside the `hmtx` one; and
-`graphics/one-destination-profile-per-output-intents-array`, untouched, and the one to take next —
-its findings name the offending output intent's object, so unlike the duplicate-profile pair it is
-sited, and the only question it has to answer is whether two entries' destination profiles are the
-same bytes.
+belongs in `pdf_font::restate` beside the `hmtx` one.
 
 **This is the catalogue's most actionable output for the converter itself.** Nearly a fifth of the
 refusals were lossless rewrites nobody had written, and every one of them converts documents that
-had stopped — with the correction two rounds of building it produced: **of the twenty-two, fifteen
-were waiting on code, five were waiting on a decision after all, and two are still waiting on
-code.** A claim that a refusal is only unwritten work is itself a claim, and it decays the way a
-ledger row's does.
+had stopped — with the correction three rounds of building it produced: **of the twenty-two,
+seventeen were waiting on code, four were waiting on a decision after all, and one is still waiting
+on code.** A claim that a refusal is only unwritten work is itself a claim, and it decays the way a
+ledger row's does — **and so does a claim that it is not**, which is what the spot-colourant row is
+now the standing example of: it was moved out of this list by argument and came back into it by a
+better one.
 
 #### 13.3.1 What building them corrected in this catalogue
 
@@ -1798,6 +1852,28 @@ about the standard and two about the work, and the first would have written a wr
   into an archive as though it were their definition. One shape could be exact and is the thing to
   build first: a §7.10.2 sampled transform already states its values on a grid, so the samples
   along one axis are the producer's own numbers.
+
+Three more, from the two built in session 966 (ADR 0973). Two are about the standard and one is
+about this catalogue's own habits:
+
+- **A requirement's answer can be in the paragraph after the one its title quotes.** The colourant
+  entry above was written twice — once as "arithmetic", once as "sampling, and therefore a loss" —
+  and both readings stopped at 6.2.4.4's first sentence. Its second sentence makes every
+  `Separation` of one name in a file agree, *including the ones in `Colorants` dictionaries*, which
+  settles the value outright for any file that defines the ink anywhere. Neither reading was wrong
+  about what it read. Both were wrong about having finished reading.
+- **Three rows sharing one refusal sentence were three different waits.** The output-intent group's
+  sentence said "a PDF/A entry naming no destination profile, or several entries naming different
+  profile objects, or a page's own array doing either", and a reader could not tell that the middle
+  clause of it turns on a question the file answers — are the profiles the same bytes? — while the
+  other two turn on questions only an operator can. One sentence for several rows hides exactly the
+  distinction that decides which of them is buildable.
+- **A justification can be right at a target whose base standard never states it.** Walking the
+  decision table for rows that cite an ISO 32000-2 clause while binding a **part 2** target found
+  three, and none of them wrote a wrong file — ISO 32000-1:2008 states the same rule in two of the
+  three cases, and in the third the ISO 19005 clause was doing the work all along. What was wrong
+  was the reason written down, which is the thing this catalogue exists to keep. ADR 0973 has all
+  three and what each now says.
 
 ---
 

@@ -689,6 +689,7 @@ impl Interpreter<'_> {
         // is the level above that keeps it from firing once per `Tf`.
         self.note_char_procs_damage(&font, name);
         self.note_cmap_truncation(&font);
+        self.note_to_unicode_truncation(&font);
         self.fonts.insert(key.clone(), Some(font.clone()));
         Some(Some(font))
     }
@@ -722,6 +723,24 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Says which of `pdf-font`'s `/ToUnicode` bounds cut one of this font's Unicode tables
+    /// short.
+    ///
+    /// ADR 0971: the sibling of [`Self::note_cmap_truncation`], over the second parser that
+    /// reads the same carried files. A `/ToUnicode` mapping the bound discarded is a code
+    /// §9.10.2 then cannot name — and where the font is a composite one whose program the
+    /// document did not embed, §9.7.4.2 makes that map the *only* route to a glyph ("CIDs shall
+    /// not participate in glyph selection"), so the page loses the mark as well as the text.
+    /// Raised as a bound rather than as a font fault for the same reason its sibling is: the
+    /// font loaded, and what is missing is a limit this program set.
+    fn note_to_unicode_truncation(&mut self, font: &Font) {
+        if let Font::Program(program) = font
+            && let Some(limit) = program.to_unicode_truncated()
+        {
+            self.note(Unsupported::LimitReached { limit });
+        }
+    }
+
     /// Loads a font, caching it under `key`, which is what `Tf` and Table 57's `/Font` share.
     ///
     /// §8.4.1's NOTE 1 gives most graphics state parameters two routes, and this is the one
@@ -750,6 +769,7 @@ impl Interpreter<'_> {
             Some(Ok(font)) => {
                 let font = Font::Program(Arc::new(font));
                 self.note_cmap_truncation(&font);
+                self.note_to_unicode_truncation(&font);
                 Some(font)
             }
             // A Type 3 font has no program for `pdf-font` to read: its glyphs are content

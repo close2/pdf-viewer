@@ -65,6 +65,38 @@ pub enum Mapping<'a> {
     },
 }
 
+/// Bounds the entries one `/ToUnicode` `CMap` may contribute individually.
+///
+/// A `beginbfchar` entry and a `beginbfrange` whose destination is not a single scalar both
+/// land here. The largest file this binary carries states 17 387 of them — `Adobe-Japan1-UCS2`,
+/// which §9.10.2's third method reads for the whole Adobe-Japan1 collection — so the bound is
+/// a little under four times the population it has to admit.
+/// `no_carried_unicode_cmap_is_cut_by_these_bounds` is that measurement.
+const MAX_SINGLES: usize = 1 << 16;
+
+/// Bounds the ranges, which are cheap individually but not unbounded.
+///
+/// **The population this has to admit is not hypothetical**, and it is the reason this constant
+/// carries a census the way [`crate::cmap`]'s does. §9.10.3 lets a producer's `/ToUnicode`
+/// name another `CMap` in `/UseCMap`, and the ones it can name without carrying them are
+/// Adobe's published files — 240 of which this binary compiles in (`data/cmaps/`). The largest
+/// of those, read through this parser, states **13 291** `bfrange` entries (`UCS2-ETen-B5`),
+/// which is 81% of this bound. Nothing is cut today; what would happen if a later edition of
+/// those files crossed it is now said rather than silent (ADR 0971).
+const MAX_RANGES: usize = 1 << 14;
+
+/// What [`ToUnicode::truncated`] answers when [`MAX_SINGLES`] dropped a mapping.
+///
+/// These three are the words a report carries, so they are spelled as the bound a reader would
+/// grep for rather than as prose — the vocabulary [`crate::cmap::CUT_BY_SINGLES`] established.
+pub const CUT_BY_SINGLES: &str = "max_tounicode_singles";
+
+/// What [`ToUnicode::truncated`] answers when [`MAX_RANGES`] dropped a `bfrange` entry.
+pub const CUT_BY_RANGES: &str = "max_tounicode_ranges";
+
+/// What [`ToUnicode::truncated`] answers when one section's operands outran the buffer.
+pub const CUT_BY_OPERANDS: &str = "max_tounicode_operands";
+
 /// Maps character codes to the text they represent.
 #[derive(Debug, Default, Clone)]
 pub struct ToUnicode {
@@ -77,6 +109,10 @@ pub struct ToUnicode {
     /// Boxed because the type is otherwise recursive, and owned rather than shared because a
     /// chain is at most a handful of maps deep and each is read once per font.
     base: Option<Box<ToUnicode>>,
+    /// Which bound discarded a mapping the file stated, in the vocabulary of
+    /// [`ToUnicode::truncated`]. The first bound to cut is kept, because a report names one
+    /// limit.
+    truncated: Option<&'static str>,
 }
 
 impl ToUnicode {
@@ -97,11 +133,6 @@ impl ToUnicode {
     /// to fetch a stream or a file.
     #[must_use]
     pub fn parse_on(bytes: &[u8], base: Option<Self>) -> Self {
-        /// Bounds the entries a single `CMap` may contribute.
-        const MAX_SINGLES: usize = 1 << 16;
-        /// Bounds the ranges, which are cheap individually but not unbounded.
-        const MAX_RANGES: usize = 1 << 14;
-
         /// Which kind of section the operands currently belong to.
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum Section {
@@ -127,11 +158,11 @@ impl ToUnicode {
                         b"beginbfchar" => section = Some(Section::Chars),
                         b"beginbfrange" => section = Some(Section::Ranges),
                         b"endbfchar" => {
-                            map.take_chars(&operands, MAX_SINGLES);
+                            map.take_chars(&operands);
                             section = None;
                         }
                         b"endbfrange" => {
-                            map.take_ranges(&operands, MAX_SINGLES, MAX_RANGES);
+                            map.take_ranges(&operands);
                             section = None;
                         }
                         _ => section = None,
@@ -143,6 +174,8 @@ impl ToUnicode {
                 other => {
                     if operands.len() < MAX_SINGLES.saturating_mul(4) {
                         operands.push(other);
+                    } else {
+                        map.cut_by(CUT_BY_OPERANDS);
                     }
                 }
             }
@@ -152,17 +185,48 @@ impl ToUnicode {
         // mapping before the damage, and those are worth keeping. Extraction then loses
         // characters, which shows, rather than losing the font's meaning entirely.
         match section {
-            Some(Section::Chars) => map.take_chars(&operands, MAX_SINGLES),
-            Some(Section::Ranges) => map.take_ranges(&operands, MAX_SINGLES, MAX_RANGES),
+            Some(Section::Chars) => map.take_chars(&operands),
+            Some(Section::Ranges) => map.take_ranges(&operands),
             None => {}
+        }
+
+        // A `CMap` inherits what the one it builds on lost as well as what it holds: Table 118
+        // makes the pair one statement in two files and [`Self::append`] reads it as one, so an
+        // answer missing from either is missing. Absorbed after the parse rather than before it
+        // so that a file which cut on its own bound reports its own — [`Self::cut_by`] keeps the
+        // first — which is the one a reader of *this* stream can act on.
+        if let Some(bound) = map.base.as_ref().and_then(|base| base.truncated) {
+            map.cut_by(bound);
         }
 
         map.ranges.shrink_to_fit();
         map
     }
 
+    /// Records that a bound discarded a mapping, keeping the first bound to do so.
+    ///
+    /// Called with the entry already in hand and nowhere to put it, never on reaching a count:
+    /// the difference is a file whose last entry lands exactly on the bound, which lost nothing
+    /// and has nothing to report (`doc/traps/instruments-and-reports.md` trap 11). The same
+    /// property [`crate::cmap::CMap`]'s own `cut_by` has, for the same reason.
+    fn cut_by(&mut self, bound: &'static str) {
+        self.truncated.get_or_insert(bound);
+    }
+
+    /// Which bound discarded a mapping this `CMap` stated, or `None` for one read whole.
+    ///
+    /// `Some` names the bound in [`CUT_BY_SINGLES`]'s vocabulary and means the map answers
+    /// nothing for codes the producer mapped. That is not only a text-extraction loss: a
+    /// composite font whose program the document did not embed reaches its substitute's glyphs
+    /// *through* this map (§9.7.4.2: "CIDs shall not participate in glyph selection"), so a
+    /// mapping lost here is a glyph not drawn.
+    #[must_use]
+    pub fn truncated(&self) -> Option<&'static str> {
+        self.truncated
+    }
+
     /// Reads a `beginbfchar` section: pairs of source code and destination text.
-    fn take_chars(&mut self, operands: &[Token<'_>], limit: usize) {
+    fn take_chars(&mut self, operands: &[Token<'_>]) {
         let mut index = 0usize;
         while index.saturating_add(1) < operands.len() {
             let (Some(Token::String(source)), Some(Token::String(target))) =
@@ -171,18 +235,29 @@ impl ToUnicode {
                 index = index.saturating_add(1);
                 continue;
             };
-            if self.singles.len() >= limit {
-                return;
-            }
             if let (Some(code), Some(text)) = (code_of(source), text_of(target)) {
-                self.singles.insert(code, text.into_boxed_str());
+                self.insert_single(code, text);
             }
             index = index.saturating_add(2);
         }
     }
 
+    /// Puts one code's text in the map, or records that [`MAX_SINGLES`] would not let it.
+    ///
+    /// The bound is asked *about this entry* rather than at the top of the loop, so a code the
+    /// map already holds is still overwritten — §9.10.3 lets a later section restate a code, and
+    /// a restatement discards nothing — and a section whose last entry lands exactly on the
+    /// bound reports nothing.
+    fn insert_single(&mut self, code: u32, text: String) {
+        if self.singles.len() < MAX_SINGLES || self.singles.contains_key(&code) {
+            self.singles.insert(code, text.into_boxed_str());
+        } else {
+            self.cut_by(CUT_BY_SINGLES);
+        }
+    }
+
     /// Reads a `beginbfrange` section: a low code, a high code, and a destination.
-    fn take_ranges(&mut self, operands: &[Token<'_>], singles_limit: usize, range_limit: usize) {
+    fn take_ranges(&mut self, operands: &[Token<'_>]) {
         let mut index = 0usize;
         while index.saturating_add(2) < operands.len() {
             let (Some(Token::String(low)), Some(Token::String(high))) =
@@ -200,15 +275,20 @@ impl ToUnicode {
                 // `<lo> <hi> <dst>`: consecutive characters from `dst`.
                 Some(Token::String(target)) => {
                     if let Some(first) = scalar_of(target) {
-                        if self.ranges.len() < range_limit && low <= high {
-                            self.ranges.push((low, high, first));
+                        // A `<hi>` below its `<lo>` states no span at all, which is the file
+                        // being malformed rather than a bound of ours discarding anything —
+                        // so it is dropped without a report, and only the bound reports.
+                        if low <= high {
+                            if self.ranges.len() < MAX_RANGES {
+                                self.ranges.push((low, high, first));
+                            } else {
+                                self.cut_by(CUT_BY_RANGES);
+                            }
                         }
                     } else if let Some(text) = text_of(target) {
                         // A destination that is not a single scalar — a ligature, say —
                         // cannot be incremented, so it applies to the low code only.
-                        if self.singles.len() < singles_limit {
-                            self.singles.insert(low, text.into_boxed_str());
-                        }
+                        self.insert_single(low, text);
                     }
                     index = index.saturating_add(3);
                 }
@@ -219,11 +299,14 @@ impl ToUnicode {
                     while let Some(token) = operands.get(at) {
                         match token {
                             Token::String(target) => {
-                                if code > high || self.singles.len() >= singles_limit {
+                                // An array longer than the span it belongs to has said nothing
+                                // about the codes past `high`, so stopping there discards
+                                // nothing of the producer's; the bound below does.
+                                if code > high {
                                     break;
                                 }
                                 if let Some(text) = text_of(target) {
-                                    self.singles.insert(code, text.into_boxed_str());
+                                    self.insert_single(code, text);
                                 }
                                 code = code.saturating_add(1);
                                 at = at.saturating_add(1);
@@ -375,7 +458,112 @@ fn scalar_of(bytes: &[u8]) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mapping, ToUnicode};
+    use super::{
+        CUT_BY_OPERANDS, CUT_BY_RANGES, CUT_BY_SINGLES, MAX_RANGES, MAX_SINGLES, Mapping, ToUnicode,
+    };
+
+    /// One `beginbfrange` section of `entries` one-code spans, each mapping to U+0041.
+    fn ranges(entries: usize) -> Vec<u8> {
+        let mut source = format!("{entries} beginbfrange\n").into_bytes();
+        for code in 0..entries {
+            source.extend_from_slice(format!("<{code:08x}> <{code:08x}> <0041>\n").as_bytes());
+        }
+        source.extend_from_slice(b"endbfrange\n");
+        source
+    }
+
+    /// A `/ToUnicode` that outruns [`MAX_RANGES`] says which bound took the rest.
+    ///
+    /// §9.10.2's first method is the producer's own table and a bound of ours discarding part
+    /// of it leaves codes unnamed; for a composite font with no program §9.7.4.2 makes that
+    /// the only route to a glyph, so it is a mark missed as well. ADR 0971.
+    #[test]
+    fn a_tounicode_past_the_range_bound_is_reported_by_name() {
+        let map = ToUnicode::parse(&ranges(MAX_RANGES.saturating_add(1)));
+        assert_eq!(map.truncated(), Some(CUT_BY_RANGES));
+        // The entries before the bound are still there, which is what makes this a truncation
+        // rather than a refusal.
+        assert_eq!(map.char_for(0), Some('A'));
+    }
+
+    /// A `/ToUnicode` whose last entry lands exactly on the bound lost nothing and says nothing.
+    ///
+    /// Trap 11: a report fires on a *discarded entry*, never on reaching a count.
+    #[test]
+    fn a_tounicode_exactly_on_the_range_bound_reports_nothing_about_it() {
+        let map = ToUnicode::parse(&ranges(MAX_RANGES));
+        assert_eq!(map.truncated(), None);
+        let last = u32::try_from(MAX_RANGES.saturating_sub(1)).expect("the bound fits a code");
+        assert_eq!(map.char_for(last), Some('A'));
+    }
+
+    /// The same pair for the individual mappings, which `beginbfchar` states.
+    #[test]
+    fn a_tounicode_past_the_single_bound_is_reported_by_name() {
+        let mut source = Vec::new();
+        source.extend_from_slice(b"1 beginbfchar\n");
+        for code in 0..=MAX_SINGLES {
+            source.extend_from_slice(format!("<{code:08x}> <0041>\n").as_bytes());
+        }
+        source.extend_from_slice(b"endbfchar\n");
+        let map = ToUnicode::parse(&source);
+        assert_eq!(map.truncated(), Some(CUT_BY_SINGLES));
+
+        // One fewer, and nothing was discarded.
+        let mut fits = Vec::new();
+        fits.extend_from_slice(b"1 beginbfchar\n");
+        for code in 0..MAX_SINGLES {
+            fits.extend_from_slice(format!("<{code:08x}> <0041>\n").as_bytes());
+        }
+        fits.extend_from_slice(b"endbfchar\n");
+        assert_eq!(ToUnicode::parse(&fits).truncated(), None);
+    }
+
+    /// A restated code overwrites rather than being discarded, even at the bound.
+    ///
+    /// §9.10.3 does not forbid a later section from naming a code an earlier one named, and a
+    /// restatement takes nothing away — so the bound is asked about the entry rather than about
+    /// the count, and the map is full without this reporting anything.
+    #[test]
+    fn restating_a_code_at_the_bound_discards_nothing() {
+        let mut source = Vec::new();
+        source.extend_from_slice(b"1 beginbfchar\n");
+        for code in 0..MAX_SINGLES {
+            source.extend_from_slice(format!("<{code:08x}> <0041>\n").as_bytes());
+        }
+        source.extend_from_slice(b"endbfchar\n1 beginbfchar\n<00000000> <0042>\nendbfchar\n");
+        let map = ToUnicode::parse(&source);
+        assert_eq!(map.truncated(), None);
+        assert_eq!(map.char_for(0), Some('B'));
+    }
+
+    /// A section whose operands outrun the buffer names that bound.
+    #[test]
+    fn a_tounicode_past_the_operand_buffer_is_reported_by_name() {
+        let mut source = Vec::new();
+        source.extend_from_slice(b"1 beginbfchar\n");
+        // Four operands per entry is the buffer's own ratio, so twice as many entries as
+        // `MAX_SINGLES` fills it with room to spare.
+        for _ in 0..MAX_SINGLES.saturating_mul(2).saturating_add(1) {
+            source.extend_from_slice(b"<0041> <0041>\n");
+        }
+        source.extend_from_slice(b"endbfchar\n");
+        assert_eq!(ToUnicode::parse(&source).truncated(), Some(CUT_BY_OPERANDS));
+    }
+
+    /// A map inherits what the `CMap` it builds on lost, because the two are consulted as one.
+    ///
+    /// §9.10.3's `/UseCMap`, and Table 118's "shall specify only the character mappings that
+    /// differ from the referenced CMap": an answer missing from the base is missing from the
+    /// pair. The child's own bound wins where both cut, because that is the one a reader of
+    /// this stream can act on.
+    #[test]
+    fn a_base_that_was_cut_is_carried_into_the_map_built_on_it() {
+        let base = ToUnicode::parse(&ranges(MAX_RANGES.saturating_add(1)));
+        assert_eq!(base.truncated(), Some(CUT_BY_RANGES));
+        let built = ToUnicode::parse_on(b"1 beginbfchar\n<0001> <0041>\nendbfchar\n", Some(base));
+        assert_eq!(built.truncated(), Some(CUT_BY_RANGES));
+    }
 
     #[test]
     fn single_mappings_are_read() {

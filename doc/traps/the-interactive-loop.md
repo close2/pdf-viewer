@@ -6,9 +6,8 @@ frame — and any round that converts between the page's space, the display list
 `doc/ui-boundary.md` is the interface; `doc/environment.md`'s `Xvfb` recipe is the only way to
 exercise the whole loop.
 
-`doc/HANDOVER.md` is the index and names which group holds which trap. **Every trap keeps its
-number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and dozens of ADRs cite them
-by number and an ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
+trap keeps its number.
 
 ## Traps
 
