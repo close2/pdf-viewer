@@ -650,6 +650,18 @@ on every read after the first, and needs no entry, no charge and no eviction arg
 **The tell is that all three ways to take the item as posed gave something up** — the ceiling, the
 cache, or soundness — and when every construction of a fix is bad, the fix is in the wrong layer.
 
+**An A/B that raises a constant can be stopped by a *second* constant, and the picture then lies
+about which one moved.** The nine-hundred-and-forty-fifth session priced a mesh's tessellation by
+rendering every corpus mesh page at `PATCH_STEPS` 10 and at 60 — and the finer arm came back at a
+mean 6.81 of 255 with a person and a dog missing their limbs, which reads as *ten steps is far too
+coarse* and is the opposite of the truth. What the finer arm had done was run the same document into
+`MAX_TRIANGLES`, eleven lines further down the same file, whose units are *this program's triangles*
+and whose headroom therefore falls as the square of the fineness. With that bound lifted, the same
+A/B puts the page at 0.0029. **So before believing an A/B on a constant, ask what else is counted in
+a unit that constant is a factor of** — and the tell is that the arm you expected to be *better* is
+the one that looks broken. ADR 0961; trap 1 is what caught it, because the number alone said
+only that the two arms differed.
+
 **And a price measured on the file can miss a multiplier that only the *caller* has.** ADR 0585's
 population was right — most images run a filter in front of their codec — and the number that
 decided the work was found by reading `pdf_model::content::image::draw` and counting: one `Do` asked

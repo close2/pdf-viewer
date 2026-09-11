@@ -317,6 +317,20 @@ pub(super) enum Answer {
     /// `DeviceCMYK` under PDF/A-4 is refused unless a CMYK profile is supplied. That is the
     /// standard's difference rather than this converter's.
     CmykUnderPartTwo,
+    /// The requirement asks other requirements' rules again of a narrower population, and its
+    /// answer is theirs.
+    ///
+    /// **Routing rather than a rewrite**, and `doc/pdf-a-mitigations.md` section 7 named the
+    /// absence of it as a refusal the conversion would in fact have fixed: ISO 19005-2 section
+    /// 6.4.3 and ISO 19005-4 section 6.5.1 say that a signature field's widget meets the
+    /// annotation flag and appearance rules, which are three rows of this table already — so a
+    /// decision taken per requirement identifier refused a document every one of whose actual
+    /// failures had an answer.
+    ///
+    /// The rows named here are never themselves [`Self::AsUnderlying`]: a compound of a compound
+    /// would need an order this table does not have, and [`decide_as_underlying`] passes over
+    /// one rather than following it.
+    AsUnderlying(&'static [&'static str]),
 }
 
 impl Answer {
@@ -331,6 +345,10 @@ impl Answer {
                 [Some(rewrite), None]
             }
             Self::CmykUnderPartTwo => [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultCmyk)],
+            // None of its own: the rewrites are the underlying rows', and those rows are in this
+            // same table, so a preparation asking "did any failed requirement want this rewrite"
+            // has already been answered by them.
+            Self::AsUnderlying(_) => [None, None],
         }
     }
 }
@@ -414,6 +432,42 @@ const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships is now embedd
      where its producer put it — and the report names, per font, what was asked for, what was \
      embedded and whether the face's own advances were used or restated. Supply the real font \
      with --font, or ask for --no-substitute and the font is refused by name instead";
+
+/// What restating a rendering intent asserts, which is `doc/adr/0948`'s condition on it.
+///
+/// Nothing is lost and something is all the same different: the file used to state a name whose
+/// meaning §8.6.5.8 settles for a *processor*, and now states the name itself. A reader that had
+/// recognised the producer's private intent — the one case the standard does not govern — sees
+/// the substitute instead.
+const RENDERING_INTENT_REINTERPRETS: &str = "a rendering intent this file states is not one of \
+     ISO 32000-2 §8.6.5.8's four, and the entry now names RelativeColorimetric — which is the \
+     intent that subclause has every conforming processor use for a name it does not recognise. \
+     No colour value changes and no mark moves; what changes is that a reader which happened to \
+     know the producer's own name for an intent is no longer told it. The report names every \
+     entry restated";
+
+/// What restating a blend mode array asserts, which is `doc/adr/0948`'s condition on it.
+const BLEND_MODE_REINTERPRETS: &str = "a BM entry in this file is an array naming no blend mode \
+     ISO 32000-2 defines, and it now names Normal — which is what §8.4.1's Table 57 has every \
+     reader take from such an array. Nothing composites differently for any conforming reader; \
+     what changes is that a reader which recognised one of the producer's own names would have \
+     used it, and now uses Normal like everybody else";
+
+/// What collapsing an appearance subdictionary asserts, which is `doc/adr/0948`'s condition.
+const APPEARANCE_STATE_REINTERPRETS: &str = "an annotation's normal appearance was a \
+     subdictionary of appearance states and is now the single stream its own AS entry selected. \
+     §12.5.2's Table 166 makes AS what selects the applicable stream, so the page draws exactly \
+     what it drew before — and the other states go with the subdictionary, so an annotation a \
+     reader could have switched (a check box, a trap network) is fixed in the state the file was \
+     saved in. The report names every one";
+
+/// What writing `/CIDToGIDMap` `/Identity` asserts, which is `doc/adr/0948`'s condition on it.
+const CID_TO_GID_REINTERPRETS: &str = "an embedded Type 2 CIDFont in this file stated no \
+     CIDToGIDMap, and now states Identity. ISO 19005-2 section 5.1 makes a PDF/A-2 file one that \
+     adheres to ISO 32000-1, whose table gives Identity as that entry's own default, so every \
+     reader of this file was already mapping CIDs to glyphs that way and no glyph changes. What \
+     changes is that the file now says so, which is what makes it readable the same way under \
+     ISO 32000-2 — where the entry is required and has no default";
 
 /// The one requirement identifier that will not fit beside its key inside 100 columns.
 const CMYK_UNDER_PART_FOUR: &str =
@@ -733,6 +787,83 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "embedded-files/relationship-stated",
         answer: Answer::Mechanical(Rewrite::AssociatedFileRelationship),
     },
+    // -----------------------------------------------------------------------------------------
+    // `doc/pdf-a-mitigations.md` section 13.3, *owed, not optional*: the refusals whose right
+    // answer loses nothing and which were waiting on code rather than on a decision. Each row's
+    // clause is beside it; `super::sites` is where each works out which objects it reaches, and
+    // is also what refuses a document failing in the shape the standard leaves unanswered.
+    // -----------------------------------------------------------------------------------------
+
+    // ISO 19005-2 section 6.2.6, which part 4 does not state.
+    Remedy {
+        requirement: "graphics/rendering-intent-entries-name-one-of-four",
+        answer: Answer::Stated(
+            None,
+            Rewrite::RenderingIntent,
+            RENDERING_INTENT_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9 — the array half of each.
+    Remedy {
+        requirement: "graphics/graphics-state-blend-modes-are-defined",
+        answer: Answer::Stated(None, Rewrite::BlendModeNormal, BLEND_MODE_REINTERPRETS),
+    },
+    Remedy {
+        requirement: "graphics/annotation-blend-modes-are-defined",
+        answer: Answer::Stated(None, Rewrite::BlendModeNormal, BLEND_MODE_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3 — the half an `/AS` entry answers.
+    Remedy {
+        requirement: "annotations/normal-appearance-shape",
+        answer: Answer::Stated(
+            None,
+            Rewrite::NormalAppearanceFromState,
+            APPEARANCE_STATE_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10 — the `/Order` half of that subclause.
+    Remedy {
+        requirement: "optional-content/order-lists-every-group",
+        answer: Answer::Mechanical(Rewrite::OptionalContentOrder),
+    },
+    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2 — the page half of A003's reading.
+    Remedy {
+        requirement: "graphics/content-streams-have-an-explicit-resources-dictionary",
+        answer: Answer::Mechanical(Rewrite::PageResources),
+    },
+    // ISO 19005-2 section 6.2.11.4.2, which part 4 does not state.
+    Remedy {
+        requirement: "fonts/charset-lists-every-glyph-in-the-program",
+        answer: Answer::Mechanical(Rewrite::DescriptorSetRemoved),
+    },
+    Remedy {
+        requirement: "fonts/cidset-lists-every-cid-in-the-program",
+        answer: Answer::Mechanical(Rewrite::DescriptorSetRemoved),
+    },
+    // ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2 — written at a part 2
+    // target, where `super::sites` refuses it at a part 4 one and says why.
+    Remedy {
+        requirement: "fonts/cid-to-gid-map-present",
+        answer: Answer::Stated(None, Rewrite::CidToGidIdentity, CID_TO_GID_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.4.3, ISO 19005-4 section 6.5.1: the annotation rules, asked again of
+    // a signature field's widget. Nothing of its own to do — the three rows it names are what
+    // answer a widget as they answer any other annotation.
+    Remedy {
+        requirement: "signatures/signature-widgets-meet-the-annotation-rules",
+        answer: Answer::AsUnderlying(ANNOTATION_RULES),
+    },
+];
+
+/// The three rows ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask again of a
+/// signature field's widget.
+///
+/// One per sentence of the predicate that judges it: the flags entry it may not omit, the flags
+/// it may not set, and the appearance dictionary that may hold nothing but `/N`.
+const ANNOTATION_RULES: &[&str] = &[
+    "annotations/flags-entry-present",
+    "annotations/printable-and-visible",
+    "annotations/appearance-dictionary-holds-only-normal",
 ];
 
 /// The requirements the *writer* satisfies, because every output of this verb is a new file.
@@ -765,6 +896,19 @@ pub(super) const WRITER_EMITS: &[&str] = &[
     // changing half. Found unanswered by `super::census` in session 954, and answered by
     // reading the serializer rather than by building anything.
     "file-structure/file-identifier",
+    // ISO 19005-2 section 6.1.13's object-count limit, and the one row of that subclause with a
+    // remedy — `doc/pdf-a-mitigations.md` section 13.3. The serializer writes the objects the
+    // *converted* document reaches and nothing else, so every object no reference reaches is
+    // gone from the output before the count is taken. A file over the limit because it
+    // accumulated orphans across twenty years of incremental updates is therefore converted with
+    // nothing lost and nobody asked to authorise anything.
+    //
+    // **Where the objects are genuinely reachable this does not help**, and nothing would: the
+    // count is then a fact about what the document holds, and `doc/adr/0947`'s third stage
+    // refuses the file rather than writing one wearing a claim it has not earned. The nine other
+    // rows of the subclause stay refused with `IMPLEMENTATION_LIMITS`, whose sentence says what
+    // this one no longer needs to — ask for PDF/A-4, which states no implementation limits.
+    "implementation-limits/indirect-object-count",
 ];
 
 /// Every requirement identifier this converter answers, from both tables.
@@ -916,10 +1060,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     ),
     (
         "implementation-limits/graphics-state-nesting",
-        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
-    ),
-    (
-        "implementation-limits/indirect-object-count",
         Because::NotThisTarget(IMPLEMENTATION_LIMITS),
     ),
     (
@@ -1084,19 +1224,12 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "annotations/printable-and-visible",
         Because::NotBuiltYet(HIDDEN_ANNOTATION_NOT_BUILT),
     ),
-    // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3.
+    // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3. The neighbouring row of this
+    // subclause — a normal appearance that is a subdictionary of states — is answered by
+    // `REMEDIES` where the annotation's own `/AS` says which state it is in.
     (
         "annotations/appearance-dictionary-holds-only-normal",
         Because::NotBuiltYet(EXTRA_APPEARANCE_STATES_NOT_BUILT),
-    ),
-    (
-        "annotations/normal-appearance-shape",
-        Because::NotBuiltYet(APPEARANCE_SUBDICTIONARY_NOT_BUILT),
-    ),
-    // ISO 19005-2 section 6.4.3, ISO 19005-4 section 6.5.1.
-    (
-        "signatures/signature-widgets-meet-the-annotation-rules",
-        Because::NotBuiltYet(SIGNATURE_WIDGET_NOT_ROUTED),
     ),
     // ISO 19005-2 section 6.1.3 and section 6.1.7.2, ISO 19005-4 section 6.1.3 and section
     // 6.1.6.2: `doc/pdf-a-conversion-limits.md` section 3.5.
@@ -1131,21 +1264,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/stream-filters-are-standard",
         Because::NotBuiltYet(NON_STANDARD_FILTER_NOT_BUILT),
     ),
-    // ISO 19005-2 section 6.2.11.4.2, which part 4 does not state because ISO 32000-2 deprecates
-    // `/CIDSet` outright.
-    (
-        "fonts/charset-lists-every-glyph-in-the-program",
-        Because::NotBuiltYet(DESCRIPTOR_SET_NOT_RECOMPUTED),
-    ),
-    (
-        "fonts/cidset-lists-every-cid-in-the-program",
-        Because::NotBuiltYet(DESCRIPTOR_SET_NOT_RECOMPUTED),
-    ),
-    // ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2.
-    (
-        "fonts/cid-to-gid-map-present",
-        Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED),
-    ),
     // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
     (
         "fonts/embedded-cmap-states-its-own-write-mode",
@@ -1179,11 +1297,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "forms/need-appearances-absent-or-false",
         Because::NotBuiltYet(NEED_APPEARANCES_NOT_BUILT),
-    ),
-    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2.
-    (
-        "graphics/content-streams-have-an-explicit-resources-dictionary",
-        Because::NotBuiltYet(RESOURCES_NOT_ATTACHED),
     ),
     // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the destination profile the file
     // already holds.
@@ -1317,20 +1430,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/no-reference-xobjects",
         Because::NotBuiltYet(REFERENCE_XOBJECT_NOT_PROXIED),
     ),
-    // ISO 19005-2 section 6.2.6.
-    (
-        "graphics/rendering-intent-entries-name-one-of-four",
-        Because::NotBuiltYet(RENDERING_INTENT_NOT_RESTATED),
-    ),
-    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9.
-    (
-        "graphics/graphics-state-blend-modes-are-defined",
-        Because::NotBuiltYet(BLEND_MODE_NOT_RESOLVED),
-    ),
-    (
-        "graphics/annotation-blend-modes-are-defined",
-        Because::NotBuiltYet(BLEND_MODE_NOT_RESOLVED),
-    ),
     // ISO 19005-2 section 6.7.4, which binds PDF/A-2a alone.
     (
         "logical-structure/catalog-language-identifier",
@@ -1357,6 +1456,10 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/xmp-packet-header-attributes",
         Because::NotBuiltYet(XMP_HEADER_ATTRIBUTES_NOT_REMOVED),
     ),
+    (
+        "metadata/xmp-character-data-only-in-simple-values",
+        Because::NotBuiltYet(XMP_STRAY_CHARACTER_DATA_NOT_REMOVED),
+    ),
     // ISO 19005-2 section 6.6.2.3.2 and section 6.6.4.
     (
         "metadata/extension-schemas-embedded",
@@ -1366,14 +1469,11 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/identification-amendment-form",
         Because::NotBuiltYet(AMENDMENT_IDENTIFIER_NOT_REMOVED),
     ),
-    // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: section 3.8's three rules.
+    // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the two of section 3.8's three rules
+    // that are still refused. The `/Order` rule is a row of `REMEDIES`.
     (
         "optional-content/configuration-names",
-        Because::NotBuiltYet(CONFIGURATION_NAME_AND_ORDER_NOT_WRITTEN),
-    ),
-    (
-        "optional-content/order-lists-every-group",
-        Because::NotBuiltYet(CONFIGURATION_NAME_AND_ORDER_NOT_WRITTEN),
+        Because::NotBuiltYet(CONFIGURATION_NAME_NOT_WRITTEN),
     ),
     (
         "optional-content/no-automatic-states",
@@ -1615,23 +1715,19 @@ const EXTRA_APPEARANCE_STATES_NOT_BUILT: &str = "this annotation's appearance di
      section 3 would have a caller authorise before it happened. Neither the word nor the \
      rewrite exists";
 
-/// Why an appearance subdictionary is not collapsed to the stream a reader draws.
-const APPEARANCE_SUBDICTIONARY_NOT_BUILT: &str = "this annotation's N entry is a subdictionary of \
-     states where the clause wants a single stream, or a stream where it wants a subdictionary. \
-     Where the annotation states an AS entry, §12.5.5 already says which stream a reader draws, \
-     and collapsing the subdictionary to that one writes down an interpretation the standard \
-     defines — doc/adr/0948's Stated class — which is the rewrite this needs and nobody has \
-     built. Where it states none, nothing in the file says which state the document is in, and \
-     choosing is doc/questions/A48's forbidden half";
-
-/// Why the compound signature-widget row is refused where its own rules would be answered.
-const SIGNATURE_WIDGET_NOT_ROUTED: &str = "this requirement asks the annotation flag and \
-     appearance rules again of a signature field's widget. The converter already answers those \
-     rules where the annotation clauses state them — it constructs the appearance \
-     doc/pdf-a-conversion-limits.md section 4.4 describes, and writes the Print flag section \
-     3.7's first half allows — and nothing routes this compound row to the same preparations, so \
-     a widget the conversion would in fact have fixed is refused here. What it needs is the \
-     decision taken per underlying rule rather than per requirement identifier";
+/// Why a compound row is refused where none of the rules it names failed.
+///
+/// The one case [`Answer::AsUnderlying`] cannot route: the compound's own predicate found
+/// something at a population the rules it names did not reach. A signature field's widget that no
+/// page's `/Annots` array holds is the standing shape — `pdf_archive` walks the annotation rules
+/// over the pages and the signature rule over the form's field tree, and a widget in the second
+/// and not the first is a document whose annotation this conversion never sees.
+const NOTHING_UNDERLYING_FAILED: &str = "this requirement asks other rules of this same table \
+     again, of a narrower population, and every one of those rules passed. So the failure is at \
+     something the rules themselves did not reach — for a signature field's widget, an \
+     annotation the interactive form names and no page's Annots array holds. This conversion \
+     rewrites annotations the pages reach, and one reachable only through the field tree is not \
+     among them";
 
 /// Why encryption is not removed.
 const ENCRYPTION_REMOVAL_NOT_BUILT: &str = "both parts forbid an Encrypt key in the trailer \
@@ -1668,31 +1764,6 @@ const NON_STANDARD_FILTER_NOT_BUILT: &str = "this stream names a filter outside 
      and is not offered. Where nothing draws the stream, ISO 19005-2 section 6.2.2's exemption \
      for an unreferenced named resource would free it, and this tree does not yet state that \
      exemption — doc/todo/62";
-
-/// Why a `/CharSet` or `/CIDSet` naming only what the file uses is not recomputed.
-const DESCRIPTOR_SET_NOT_RECOMPUTED: &str = "ISO 19005-2 section 6.2.11.4.2 asks this \
-     descriptor's CharSet or CIDSet to name every glyph the embedded program contains, and this \
-     one names only the glyphs the file uses. The program is in the file and pdf_font reads it, \
-     so recomputing the set is derivable from the document and loses nothing — a mechanical \
-     rewrite this converter does not do. Removing the entry is the other route and the lighter \
-     one, since the base standard makes both optional and the clause judges only the entry that \
-     is there; which of the two a converter should take is not decided yet";
-
-/// Why an absent `/CIDToGIDMap` is not written as `Identity`.
-///
-/// **The row that shows why a default has to be read rather than recalled.** ISO 32000-1
-/// gave this entry a default of `Identity`; ISO 32000-2's Table 121 makes it *required* for a
-/// Type 2 `CIDFont` with an embedded program and states no default at all. So the obvious
-/// `Stated` rewrite — write down the default — has no default to write down under the edition
-/// this tree is written against, and the part 2 case turns on a base document whose rows are
-/// still being read (`doc/questions/Q49`).
-const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states no CIDToGIDMap, \
-     or states a name that is not Identity. §9.7.4.2's Table 121 makes the entry required for \
-     such a font and states no default for it, so writing Identity would assert a mapping the \
-     base standard does not supply — what the glyph indices are is in the embedded program, and \
-     deriving the map from it is a reading of the font this converter does not make. That \
-     derivation, and whether ISO 32000-1's own default licenses Identity for a PDF/A-2 target, \
-     are what this requirement waits on";
 
 /// Why a `CMap` stream and its program disagreeing about `/WMode` is not settled.
 const WRITE_MODE_DISAGREEMENT: &str = "this CMap stream's WMode entry and the write mode the \
@@ -1738,14 +1809,6 @@ const NEED_APPEARANCES_NOT_BUILT: &str = "this form asks a reader to build its f
      to draw — and then write the flag false, so the file says what it shows. Writing the flag \
      alone would assert appearances nobody built, and the field construction for every widget in \
      the form is what this needs";
-
-/// Why an inherited resources dictionary is not copied onto the stream that needs one.
-const RESOURCES_NOT_ATTACHED: &str = "a content stream here names objects and has no resources \
-     dictionary explicitly associated with it. For a page the dictionary is usually inherited \
-     through the page tree (§7.7.3.4), and copying it down onto the page changes nothing a \
-     reader resolves — a mechanical rewrite, and not built. For a form XObject or a Type 3 glyph \
-     procedure with none, what it draws with depends on the stream that invoked it, and one \
-     dictionary cannot answer for every invocation";
 
 /// Why the destination profile a file already holds is not replaced.
 const DESTINATION_PROFILE_NOT_REPLACED: &str = "the destination profile this file's own output \
@@ -1866,39 +1929,6 @@ const REFERENCE_XOBJECT_NOT_PROXIED: &str = "doc/pdf-a-conversion-limits.md sect
      because a reader that could have reached the imported content now sees the placeholder \
      instead, and neither half is built";
 
-/// Why an unrecognised `/RI` or `/Intent` name is not restated.
-///
-/// §8.6.5.8 states the answer outright, which is what puts this in `doc/adr/0948`'s `Stated`
-/// class rather than behind `doc/questions/A48`'s line:
-///
-/// > If a PDF processor does not recognise the specified name, it shall use the
-/// > RelativeColorimetric intent by default.
-const RENDERING_INTENT_NOT_RESTATED: &str = "a graphics state's RI entry or an image \
-     dictionary's Intent entry names a rendering intent ISO 32000-2 does not define. §8.6.5.8 \
-     says what a processor does with such a name — it uses RelativeColorimetric — so restating \
-     the entry as that name writes down an interpretation the standard defines rather than a \
-     choice this converter made, which is doc/adr/0948's Stated class. The rewrite is not built. \
-     The same name as the rendering intent operator's operand has the other answer, because that \
-     operand is inside a content stream";
-
-/// Why a blend mode the standard does not define is not resolved.
-///
-/// Two cases in one requirement, and the standard answers only one of them. For an *array*
-/// Table 57's own entry says what a reader does — "the PDF reader shall use the first blend
-/// mode in the array that it recognises (or Normal if it recognises none of them)" — so writing
-/// that answer down is `doc/adr/0948`'s `Stated` class. For a bare *name* the same entry says
-/// only that the value "shall be" one of the standard modes, with no sentence about one that is
-/// not, so choosing a mode there is `doc/questions/A48`'s forbidden half and will stay refused.
-const BLEND_MODE_NOT_RESOLVED: &str = "this file sets a blend mode ISO 32000-2 does not define, \
-     and the two shapes that can fail have different answers. An array of names is the older \
-     form, deprecated in PDF 2.0, and §11.6.3's own entry says a reader takes the first mode in \
-     it that it recognises or Normal if it recognises none — so reducing the array to that name \
-     writes down an interpretation the standard defines, and that rewrite is not built. A bare \
-     name the standard does not define has no such sentence behind it: writing one in its place \
-     would be choosing how these marks composite with what is under them, which \
-     doc/questions/A48 forbids, and removing the entry does not state Normal either, because a \
-     graphics state parameter dictionary sets only what it names";
-
 /// Why a malformed `/Lang` is neither corrected nor removed.
 const LANGUAGE_IDENTIFIER_NOT_REMOVED: &str = "a Lang entry here is not a language identifier the \
      base standard defines. Correcting it means deciding what language the producer meant, which \
@@ -1925,6 +1955,22 @@ const XMP_HEADER_ATTRIBUTES_NOT_REMOVED: &str = "this packet's header states the
      removal by span — and it loses nothing a reader of the packet uses, since both attributes \
      describe the packet's own framing. Nothing in this tree does it yet";
 
+/// Why character data outside a simple value is left where it is.
+///
+/// The requirement arrived in session 958 and the census ratchet caught this the same day — a
+/// requirement `pdf-archive` learns to check is a requirement this verb owes an answer to, which
+/// is the ratchet's whole purpose.
+const XMP_STRAY_CHARACTER_DATA_NOT_REMOVED: &str = "this packet writes non-white character data \
+     somewhere the XMP standard's serialisation admits none — that standard allows white space \
+     anywhere the RDF syntax does and confines everything else to the element content of a leaf \
+     representing a simple value, so what is here expresses no XMP value at all. Cutting it is \
+     the same span surgery doc/pdf-a-conversion-limits.md section 3.9 already describes for a \
+     property, but the remover in pdf_model::xmp takes a property name and this text belongs to \
+     no property — it needs a second entry point keyed on the span the reader already records. \
+     Whether taking it out is mechanical or an authorised loss is a question this row does not \
+     settle: it expresses nothing a reader of the packet can use, and it is still bytes somebody \
+     wrote, which is section 3.9's shape exactly";
+
 /// Why an extension schema container is not emitted for an undescribed schema.
 const EXTENSION_CONTAINER_NOT_EMITTED: &str = "this packet uses a schema outside the predefined \
      ones and describes it nowhere. doc/pdf-a-conversion-limits.md section 4.2 permits emitting \
@@ -1943,15 +1989,19 @@ const AMENDMENT_IDENTIFIER_NOT_REMOVED: &str = "the identification schema here s
      converter writes the identification schema (doc/pdf-a-conversion-limits.md section 4.2) and \
      does not touch the amendment entry";
 
-/// Why a configuration's `/Name` and `/Order` are not written.
-const CONFIGURATION_NAME_AND_ORDER_NOT_WRITTEN: &str = "an optional content configuration here \
-     states no Name, states one another configuration already uses, or states an Order that does \
-     not reference every group in the file. doc/pdf-a-conversion-limits.md section 3.8 calls \
-     both Default work — a name synthesised uniquely within the file, an Order completed with \
-     the groups it omits in the file's own order — and neither is built. The name is also where \
-     this class meets doc/questions/A48's line: §8.11.4.3 makes Name a label for a user \
+/// Why a configuration's `/Name` is not written.
+///
+/// The `/Order` half of section 3.8's pair is built — `Rewrite::OptionalContentOrder` — and this
+/// is the half that is not, because the two are different acts. Completing an array with groups
+/// the file already lists invents nothing; a name does not exist anywhere to be found.
+const CONFIGURATION_NAME_NOT_WRITTEN: &str = "an optional content configuration here states no \
+     Name, or states one another configuration already uses. doc/pdf-a-conversion-limits.md \
+     section 3.8 calls a name synthesised uniquely within the file Default work, and this is \
+     where that class meets doc/questions/A48's line: §8.11.4.3 makes Name a label for a user \
      interface, so a synthesised one is text no producer wrote, and the answer has to be argued \
-     rather than assumed";
+     rather than assumed. The neighbouring rule of the same subclause — an Order array that does \
+     not reference every group in the file — is answered, because the groups and their order are \
+     both the file's own";
 
 /// Why an automatic optional-content state is not removed.
 const AUTOMATIC_STATES_NOT_REMOVED: &str = "ISO 19005-2 section 6.9 forbids an AS entry in an \
@@ -2005,6 +2055,7 @@ const UTF8_NAMES: &str = "ISO 19005 binds these names to valid UTF-8, and renami
 /// authorisations. **A requirement absent from [`REMEDIES`] and [`WRITER_EMITS`] is refused by
 /// name** — never passed over, and never answered by a rewrite invented here.
 pub(super) fn decide(
+    input: &pdf_archive::Report,
     judgement: &Judgement,
     authorised: Authorisations,
     prepared: &Prepared,
@@ -2031,7 +2082,75 @@ pub(super) fn decide(
                 .map_or(Because::NotBuiltYet(NOT_BUILT_YET), |(_, because)| *because),
         );
     };
-    match remedy.answer {
+    if let Answer::AsUnderlying(rules) = remedy.answer {
+        return decide_as_underlying(input, rules, authorised, prepared);
+    }
+    answer_of(remedy.answer, authorised, prepared)
+}
+
+/// A compound requirement's decision, taken from the rules it names.
+///
+/// The answer is the **most constraining** of theirs, in the order a conversion is constrained: a
+/// refusal stops the file, then an unauthorised loss, then one the caller authorised, then a
+/// statement, then a rewrite that loses nothing. So a widget failing two rules, one of which this
+/// converter refuses, is refused — which is what the conversion is going to do anyway, said in
+/// the row a reader is looking at.
+///
+/// A rule the document did not fail contributes nothing, and where **none** of them failed the
+/// compound is refused: its predicate found something at a population the rules did not reach,
+/// and [`NOTHING_UNDERLYING_FAILED`] is what that is.
+fn decide_as_underlying(
+    input: &pdf_archive::Report,
+    rules: &[&str],
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    let mut best: Option<Decision> = None;
+    for judgement in input.failures() {
+        if !rules.contains(&judgement.id) {
+            continue;
+        }
+        let Some(remedy) = REMEDIES
+            .iter()
+            .find(|remedy| remedy.requirement == judgement.id)
+        else {
+            return Decision::Refused(
+                REFUSED_BY_NAME
+                    .iter()
+                    .find(|(id, _)| *id == judgement.id)
+                    .map_or(Because::NotBuiltYet(NOT_BUILT_YET), |(_, because)| *because),
+            );
+        };
+        // A compound naming a compound would need an order this table does not have; the rows
+        // `Answer::AsUnderlying` names are ordinary ones, and one that were not is passed over
+        // rather than followed.
+        if matches!(remedy.answer, Answer::AsUnderlying(_)) {
+            continue;
+        }
+        let decision = answer_of(remedy.answer, authorised, prepared);
+        if best.is_none_or(|held| constraint(decision) > constraint(held)) {
+            best = Some(decision);
+        }
+    }
+    best.unwrap_or(Decision::Refused(Because::NotBuiltYet(
+        NOTHING_UNDERLYING_FAILED,
+    )))
+}
+
+/// How much one decision constrains the conversion, for [`decide_as_underlying`]'s ordering.
+const fn constraint(decision: Decision) -> u8 {
+    match decision {
+        Decision::Mechanical(_) => 0,
+        Decision::Stated { .. } => 1,
+        Decision::Authorised { .. } => 2,
+        Decision::Unauthorised { .. } => 3,
+        Decision::Refused(_) => 4,
+    }
+}
+
+/// One row's answer, once the caller's authorisations and the document's preparations are known.
+fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) -> Decision {
+    match answer {
         // A rewrite is an answer only where the document can take it, and the reason it cannot
         // is the reason the requirement is refused with — never this converter's own paraphrase
         // of it. `Prepared::obstacle` is where that question is asked, once.
@@ -2082,5 +2201,8 @@ pub(super) fn decide(
             None if authorised.grants(loss) => Decision::Authorised { loss, rewrite },
             None => Decision::Unauthorised { loss, rewrite },
         },
+        // Resolved by `decide` before this function is reached, so that the routing is one place
+        // rather than two. A row reaching here is one `decide_as_underlying` passed over.
+        Answer::AsUnderlying(_) => Decision::Refused(Because::NotBuiltYet(NOT_BUILT_YET)),
     }
 }

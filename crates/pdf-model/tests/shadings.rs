@@ -1122,6 +1122,82 @@ fn a_truncated_mesh_is_reported() {
     );
 }
 
+/// Builds a type 6 mesh of `patches` Coons patches, each continuing the last along one edge.
+///
+/// Eight bits for everything, so a value is a byte and `/Decode` makes a byte a page unit — the
+/// same arrangement [`a_folded_patchs_overlap_is_resolved_by_the_larger_parameter_v`] uses, and
+/// for the same reason: the fixture is readable as the bytes ISO 32000-2 Table 84 lists.
+fn coons_strip(patches: usize) -> String {
+    // Table 84, f = 0: p00 p01 p02 p03 p13 p23 p33 p32 p31 p30 p20 p10, then four corners.
+    let mut data = String::from(
+        "00 0A0A 1E0A 320A 460A 461E 4632 4646 3246 1E46 0A46 0A32 0A1E \
+         FF0000 00FF00 0000FF FFFF00 ",
+    );
+    // Table 84, f = 1: the previous patch's D1 edge is reused, so eight points and two
+    // corners are all that is in the stream.
+    for _ in 1..patches {
+        data.push_str("01 460A 5A0A 5A1E 5A32 5A46 4646 3246 1E46 0000FF FFFF00 ");
+    }
+    data.push('>');
+    data
+}
+
+/// Interprets a one-page document whose only mark is `/Sh0 sh` over `mesh`.
+fn interpret_mesh(data: &str) -> pdf_model::content::Interpretation {
+    let mesh = format!(
+        "<< /ShadingType 6 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let bytes = pdf_with(&mesh, "/Sh0 sh");
+    let document = Document::open(bytes).expect("valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page)
+}
+
+/// A mesh the triangle bound cuts short is reported, and one it does not is not.
+///
+/// `pdf_model::mesh::MAX_TRIANGLES` is this program's decompression-bomb bound for shadings,
+/// which ISO 32000-2 §10.7.3 licenses:
+///
+/// > Each output device may have internal limits on the maximum and minimum tolerances
+/// > attainable.
+///
+/// It is counted in *this program's* triangles: a type 6 or 7 patch becomes `PATCH_STEPS`²
+/// cells, two triangles apiece. So the number of patches a document is allowed is
+/// `MAX_TRIANGLES / (2 · PATCH_STEPS²)`, and a stream stating more than that has some of its
+/// patches dropped. Drawing the remainder without saying so is the silent drop
+/// `pdf_model::content`'s module documentation forbids and that every other bound in it
+/// already avoids.
+///
+/// Both directions are asserted, because a report that fires on everything says nothing: the
+/// strip below the bound draws complete, the strip above it is reported by the bound's name.
+#[test]
+fn a_mesh_the_triangle_bound_cuts_short_is_reported() {
+    let bound = pdf_model::mesh::MAX_TRIANGLES;
+    // A patch is a PATCH_STEPS × PATCH_STEPS grid of cells, two triangles apiece, which is 200
+    // at that constant's present value. `PATCH_STEPS` is private and this number is therefore
+    // written rather than read — and it is held by the two assertions below rather than left on
+    // trust: a larger fineness makes `inside` truncate and a smaller one stops `over` from
+    // truncating, so either failure names this line.
+    let allowed = bound / 200;
+
+    let inside = interpret_mesh(&coons_strip(allowed.saturating_sub(1)));
+    assert!(
+        inside.is_complete(),
+        "a strip under the bound must draw complete: {:?}",
+        inside.unsupported
+    );
+
+    let over = interpret_mesh(&coons_strip(allowed.saturating_add(2)));
+    let reported = format!("{:?}", over.unsupported);
+    assert!(
+        reported.contains("max_mesh_triangles"),
+        "a mesh the bound cut short must be reported by the bound's name: {reported}"
+    );
+}
+
 /// A `/FunctionType 4` returning `red = x`, `green = y`, `blue = 0` over the unit square.
 ///
 /// The two inputs are already on the stack when the program starts (§7.10.5), so pushing one

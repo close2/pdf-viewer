@@ -43,17 +43,24 @@
 //! - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
 //!   each spelled with the prefix its table requires.
 //!
-//! # The XMP standard, half held, and the four rows that came out of the half
+//! # The XMP standard, half held, and the five rows that came out of the half
 //!
 //! ISO 16684-1:2012 arrived in the nine-hundred-and-forty-sixth session as an iTeh preview: real
 //! clause text from its clause 1 to its section 7.2, and nothing after. That is enough for its
 //! conformance clause, its whole data model and the general part of its serialisation, and it
 //! stops exactly where the canonical RDF serialisation begins — sections 7.4 to 7.9. So the one
 //! row that used to stand for the whole of it is now five, and the split is where the preview's
-//! last page is: `metadata/xmp-packets-state-one-rdf-element` and
-//! `metadata/xmp-packets-meet-the-xmp-data-model` are checks, two rows name held sentences this
-//! reader cannot see (the `rdf:about` a description states, and where character data sat), and
-//! `metadata/xmp-packets-meet-the-xmp-serialisation` keeps what the preview does not reach.
+//! last page is: `metadata/xmp-packets-state-one-rdf-element`,
+//! `metadata/xmp-packets-meet-the-xmp-data-model` and
+//! `metadata/xmp-character-data-only-in-simple-values` are checks, one row names a held sentence
+//! this reader cannot see — the `rdf:about` a description states, whose *serialisation* the
+//! preview stops short of — and `metadata/xmp-packets-meet-the-xmp-serialisation` keeps what the
+//! preview does not reach.
+//!
+//! **The character-data row was a check waiting on a reader rather than on a text**, and it came
+//! off `Unchecked` in the nine-hundred-and-fifty-eighth session when `pdf_model::xmp` learned to
+//! say where each run of character data sat. A reason that names a missing reader decays the way
+//! one that names a missing standard does not.
 //!
 //! **One thing the preview withdraws rather than adds.** The old row's reason named an encoding —
 //! that a UTF-16 packet might not be XMP at all. Section 7.1 says the opposite: it names UTF-8,
@@ -119,7 +126,7 @@
 //! binding wherever one is identified as required — which is what
 //! `metadata/identification-schema-prefix` rests on.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::xmp::{Detail, Name, Property as XmpProperty, RDF, Value, XML, Xmp};
 use pdf_syntax::{Document, Object, ObjectId, Stream};
@@ -169,10 +176,16 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("6.6.2.1"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "ISO 16684-1 section 6.1 states it and this reader cannot see it: `pdf_model::xmp` \
-             resolves every property to a name and a value and keeps no rdf:about attribute, \
-             which is the only thing in a packet that says which resource a description is \
-             about. Reading it means that reader keeping the subject of each description",
+            "two blockers rather than one, and the second is the harder. ISO 16684-1 section \
+             6.1 states the rule in the *data model* — all of one packet's properties describe \
+             one resource — and says nothing about how a serialised packet shows which resource \
+             that is; the subclause that does is section 7.4, which is past the last page of \
+             the preview this project holds. The preview never spells rdf:about at all, so \
+             reading a description's subject out of that attribute would be this crate \
+             supplying the serialisation rule rather than applying it. The reader is the second \
+             blocker and the lesser: `pdf_model::xmp` resolves every property to a name and a \
+             value and keeps no rdf:about, so even a round that held section 7.4 would have to \
+             teach that reader to keep the subject of each description",
         ),
     },
     Requirement {
@@ -181,13 +194,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                element content of the leaf elements standing for its simple values.",
         clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "ISO 16684-1 section 7.2 states it and this reader discards what would answer it: \
-             `pdf_model::xmp` accumulates an element's text wherever it sits and keeps it only \
-             where the element turns out to be a simple value, so character data under a \
-             description or a container leaves nothing behind to report. Reading it means that \
-             reader keeping where each run of character data sat",
-        ),
+        check: Check::Implemented(xmp_character_data_only_in_simple_values),
     },
     Requirement {
         id: "metadata/xmp-packets-meet-the-xmp-serialisation",
@@ -201,7 +208,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              holds is a preview that stops after section 7.2 — so which RDF spellings a packet \
              may use, and which it may not, still cannot be read here — and the same absence is \
              what stops the RDF half of section 7.1's well-formedness being answered beside the \
-             XML half. What the held sections do state has moved to the four rows beside this \
+             XML half. What the held sections do state has moved to the five rows beside this \
              one. **The encoding this reason used \
              to name is not part of it**: section 7.1 puts the choice between UTF-8, UTF-16 and \
              UTF-32 beyond that standard's own scope and leaves it to whichever standard embeds \
@@ -543,6 +550,64 @@ fn xmp_packets_state_one_rdf_element(exam: &Examination<'_>, findings: &mut Find
                 format!(
                     "a metadata stream states {roots} rdf:RDF elements, and the XMP standard \
                      serialises one packet as one"
+                ),
+            );
+        }
+    });
+}
+
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
+///
+/// ISO 16684-1 section 7.2 closes by confining non-white character data to the element content of
+/// the leaf elements that stand for simple XMP values, and it is a rule about the packet's
+/// *serialisation* — so it reaches both parts the way the one-`rdf:RDF` row beside it does: part 2
+/// through its requirement that a metadata stream conform to the XMP specification, part 4 through
+/// ISO 32000-2 §14.3.2, which makes the stream's grammar that standard's.
+///
+/// > The contents of a metadata stream shall be the metadata represented in Extensible Markup
+/// > Language (XML) and the grammar of the XML representing the metadata shall be defined
+/// > according to the extensible metadata platform specification (ISO 16684-1).
+///
+/// **The row was `Unchecked` for want of a reader rather than of a text**, and the reason said so:
+/// `pdf_model::xmp` accumulated an element's character content wherever it sat and kept it only
+/// where the element turned out to be a simple value, so text under a description or a container
+/// left nothing behind. [`Xmp::stray_character_data`] is that reader, built by the same walk and
+/// costing a conforming packet an empty vector.
+///
+/// # What it does not report, and why that is the right direction
+///
+/// An element above the packet's `rdf:RDF` and an element whose content that reader does not
+/// interpret are both passed over: the first is ISO 16684-1 section 7.3's subject and the second
+/// cannot be shown to be a leaf simple value either, and both clauses sit past the preview this
+/// project holds. So a packet this reports on has broken the sentence; a packet it is silent
+/// about has not been shown to keep it.
+///
+/// One finding per distinct tag rather than one per element, because a pretty-printer that puts a
+/// stray run of text in every description has made one mistake and would otherwise be read as
+/// forty.
+fn xmp_character_data_only_in_simple_values(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_metadata_stream(exam, |id, stream| {
+        let Some(bytes) = document.decoded_stream_data(stream) else {
+            return;
+        };
+        // A packet that will not parse is `xmp_packets_well_formed`'s finding, not this row's.
+        let Ok(strays) = Xmp::stray_character_data(&bytes) else {
+            return;
+        };
+        let mut counted: BTreeMap<String, usize> = BTreeMap::new();
+        for tag in strays {
+            let times = counted.entry(tag).or_default();
+            *times = times.saturating_add(1);
+        }
+        for (tag, times) in counted {
+            findings.record(
+                Where::object(id).named(tag.clone()),
+                format!(
+                    "a metadata stream's packet puts character data in {times} <{tag}> \
+                     element{}, and the XMP standard allows it only in a leaf element standing \
+                     for a simple value",
+                    if times == 1 { "" } else { "s" }
                 ),
             );
         }

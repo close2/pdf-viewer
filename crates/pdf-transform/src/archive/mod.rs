@@ -122,6 +122,7 @@ mod fonts;
 mod prepare;
 mod report;
 mod rewrite;
+mod sites;
 mod to_unicode;
 
 use std::collections::BTreeSet;
@@ -300,7 +301,7 @@ fn decide_every_failure(
             // reports no places rather than panicking.
             _ => 0,
         };
-        let mut decision = decide(judgement, plan.authorised, &prepared);
+        let mut decision = decide(input, judgement, plan.authorised, &prepared);
         if decision.rewrite() == Some(Rewrite::FileHeader) {
             match version_for(document, plan.target) {
                 Ok(stated) => version = Some(stated),

@@ -364,6 +364,30 @@ impl Xmp {
         Ok(Reader::new(false).run(&text)?.rdf_elements)
     }
 
+    /// Every element of a packet that carries character data where none is permitted.
+    ///
+    /// ISO 16684-1 section 7.2 closes by confining non-white character data to the element
+    /// content of the leaf elements that stand for simple XMP values; everything else in a
+    /// packet — the `rdf:RDF`, a description, one of the three containers, a property whose
+    /// value some child element carries — may hold white space, markup and nothing besides.
+    /// Neither [`Self::parse`] nor [`Self::parse_detail`] can be asked about it, for
+    /// [`Self::rdf_elements`]'s reason: both hand back the values, and the text a packet put
+    /// where no value could hold it is gone from those by construction.
+    ///
+    /// Each element is named as the packet spelled its tag, in the order the elements closed, and
+    /// an element is named once however many runs of character data it held. The list is
+    /// **not** a rule about which elements are leaves in some other sense: an element this reader
+    /// does not interpret, and anything above the packet's `rdf:RDF`, are passed over rather than
+    /// reported, so what comes back under-reports and never over-reports.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::parse`].
+    pub fn stray_character_data(bytes: &[u8]) -> Result<Vec<String>, XmpError> {
+        let text = text_of(bytes)?;
+        Ok(Reader::new(false).run(&text)?.strays)
+    }
+
     /// Every property, in the order the packet states them.
     #[must_use]
     pub fn properties(&self) -> &[(Name, Value)] {
@@ -1362,6 +1386,12 @@ struct Frame {
     /// Whether a child this reader does not interpret has closed inside this element, which
     /// makes the value a structure whatever else it holds.
     opaque: bool,
+    /// How many child elements have opened inside this one.
+    ///
+    /// An element with a child is not a leaf, and ISO 16684-1 section 7.2's restriction on where
+    /// character data may appear turns on exactly that — see [`Xmp::stray_character_data`]. A
+    /// count rather than a flag because it costs the same and reads as what it is.
+    children: usize,
 }
 
 /// The walk over one packet.
@@ -1382,6 +1412,12 @@ struct Reader {
     fields: usize,
     /// How many top-level `rdf:RDF` elements the packet stated, for [`Xmp::rdf_elements`].
     rdf_elements: usize,
+    /// The elements that carried character data where ISO 16684-1 section 7.2 allows none.
+    ///
+    /// Built by every walk rather than by a third entry point, because it costs a conforming
+    /// packet nothing: the vector stays empty, and what fills it is one comparison per element
+    /// over character content this reader has already accumulated.
+    strays: Vec<String>,
 }
 
 impl Reader {
@@ -1394,6 +1430,7 @@ impl Reader {
             details: Vec::new(),
             fields: 0,
             rdf_elements: 0,
+            strays: Vec::new(),
         }
     }
 
@@ -1549,6 +1586,9 @@ impl Reader {
             }
         }
 
+        if let Some(parent) = self.stack.last_mut() {
+            parent.children = parent.children.saturating_add(1);
+        }
         self.stack.push(Frame {
             tag: name,
             kind,
@@ -1560,6 +1600,7 @@ impl Reader {
             item_details: Vec::new(),
             fields,
             opaque: false,
+            children: 0,
         });
         Ok(())
     }
@@ -1659,6 +1700,9 @@ impl Reader {
         }
         self.bindings
             .truncate(self.bindings.len().saturating_sub(frame.bindings));
+        if self.strays.len() < MAX_PROPERTIES && carries_stray_character_data(&frame) {
+            self.strays.push(spelled(&frame.tag));
+        }
 
         let detailed = self.detailed;
         let text = trimmed(&frame.text);
@@ -1844,6 +1888,41 @@ fn spelled(tag: &(String, String)) -> String {
     } else {
         format!("{}:{}", tag.0, tag.1)
     }
+}
+
+/// Whether one element held character data ISO 16684-1 section 7.2 gives it no room for.
+///
+/// That subclause's last sentence confines non-white character data to the element content of
+/// leaf elements standing for simple XMP values. Two of the three tests it needs are structural
+/// and need no further clause: an element with a child element is not a leaf, and RDF's own
+/// grammar elements stand for a description or one of clause 6.3.4's arrays rather than for a
+/// simple value. The third is the packet's own declaration — section 7.6's
+/// `rdf:parseType="Resource"` says the value is a structure before any child arrives.
+///
+/// **Two kinds are passed over deliberately**, and each would need a clause this project does not
+/// hold to report: an element above the packet's `rdf:RDF`, whose subject is section 7.3, and one
+/// whose content this reader does not interpret, which it therefore cannot call a leaf simple
+/// value either. Under-reporting is the standing direction of error.
+fn carries_stray_character_data(frame: &Frame) -> bool {
+    if frame.text.chars().all(is_xml_white_space) {
+        return false;
+    }
+    match &frame.kind {
+        Kind::Outside | Kind::Uninterpreted => false,
+        Kind::Rdf | Kind::Description | Kind::Nested | Kind::Container { .. } => true,
+        Kind::Property { structured, .. }
+        | Kind::Field { structured, .. }
+        | Kind::Item { structured, .. } => *structured || frame.children > 0,
+    }
+}
+
+/// White space as ISO 16684-1 clause 3 defines it: a space, a carriage return, a line feed or a
+/// tab, and nothing else.
+///
+/// Narrower than [`str::trim`]'s Unicode notion on purpose — a no-break space is character data
+/// that standard's own definition does not excuse, and trimming it away would lose the finding.
+fn is_xml_white_space(character: char) -> bool {
+    matches!(character, ' ' | '\r' | '\n' | '\t')
 }
 
 /// A simple property's text, with the white space a pretty-printer added taken off.
@@ -2634,6 +2713,73 @@ mod tests {
 
         let none = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>";
         assert_eq!(Xmp::rdf_elements(none.as_bytes()).expect("well-formed"), 0);
+    }
+
+    /// ISO 16684-1 section 7.2 keeps non-white character data out of everything but a leaf
+    /// element standing for a simple value, and a validator has to be able to see where it sat.
+    #[test]
+    fn character_data_outside_a_simple_value_is_named() {
+        assert!(
+            Xmp::stray_character_data(PACKET.as_bytes())
+                .expect("well-formed")
+                .is_empty(),
+            "a conforming packet indents freely and reports nothing"
+        );
+
+        // One run of text in each of the four places a packet has no room for it: the RDF root,
+        // a description, a container, and a property whose value a child element carries.
+        let stray = PACKET
+            .replace("<dc:title>", "<dc:title>lost")
+            .replace("<rdf:Alt>", "<rdf:Alt>lost")
+            .replace("</rdf:Description>", "lost</rdf:Description>")
+            .replace("</rdf:RDF>", "lost</rdf:RDF>");
+        let found = Xmp::stray_character_data(stray.as_bytes()).expect("well-formed");
+        assert_eq!(
+            found,
+            vec![
+                "rdf:Alt".to_owned(),
+                "dc:title".to_owned(),
+                "rdf:Description".to_owned(),
+                "rdf:RDF".to_owned(),
+            ],
+            "each element is named once, in the order the elements closed"
+        );
+    }
+
+    /// The two structural halves of the same sentence, apart from each other.
+    #[test]
+    fn a_leaf_simple_value_may_hold_text_and_a_structure_may_not() {
+        let leaves = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+             <rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\
+             <pdf:Keywords>annual, report</pdf:Keywords>\
+             </rdf:Description></rdf:RDF>";
+        assert!(
+            Xmp::stray_character_data(leaves.as_bytes())
+                .expect("well-formed")
+                .is_empty()
+        );
+
+        // Section 7.6's structured spelling: the element says its value is a structure before any
+        // field arrives, so its own character content stands for nothing.
+        let structured = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+             <rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\
+             <pdf:Keywords rdf:parseType=\"Resource\">annual</pdf:Keywords>\
+             </rdf:Description></rdf:RDF>";
+        assert_eq!(
+            Xmp::stray_character_data(structured.as_bytes()).expect("well-formed"),
+            vec!["pdf:Keywords".to_owned()]
+        );
+    }
+
+    /// White space is ISO 16684-1 clause 3's four characters, and a no-break space is not one.
+    #[test]
+    fn a_no_break_space_is_character_data() {
+        let packet = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+             \u{a0}<rdf:Description rdf:about=\"\"/></rdf:RDF>";
+        assert_eq!(
+            Xmp::stray_character_data(packet.as_bytes()).expect("well-formed"),
+            vec!["rdf:RDF".to_owned()]
+        );
     }
 
     /// The `xmp:` accessors name the properties Table 349's NOTEs pair with the dictionary.

@@ -1409,7 +1409,16 @@ impl Interpreter<'_> {
             state.transform,
             colouring,
         ) {
-            Ok(shading) => {
+            Ok(built) => {
+                // §10.7.3 permits the bound and `crate::content`'s module documentation forbids
+                // drawing less than the document states in silence, so a mesh the bound cut
+                // short is said out loud before its remaining triangles are painted.
+                if built.truncated {
+                    self.note(Unsupported::LimitReached {
+                        limit: "max_mesh_triangles",
+                    });
+                }
+                let shading = built.shading;
                 // Table 77's `/Background` "shall be applied only when the shading is used as
                 // part of a shading pattern, not when painted directly with the sh operator";
                 // §8.7.4.2 says the same of this operator — "[t]he Background entry, if
@@ -1678,7 +1687,7 @@ impl Interpreter<'_> {
         definition: &ShadingDefinition,
         colouring: &MarkColouring,
     ) -> Result<Shading, crate::shading::ShadingError> {
-        let shading = self.shadings.build(
+        let built = self.shadings.build(
             self.document,
             &definition.object,
             &definition.resources,
@@ -1689,6 +1698,16 @@ impl Interpreter<'_> {
                 colouring.transfer.as_deref(),
             ),
         )?;
+        // Raised here rather than at one of the two callers because both of them paint: the
+        // `scn` builds the colours and every later mark rebuilds them, and a mesh the bound cut
+        // short is the same mesh at both. `note` is a set, so saying it once a mark says it
+        // once.
+        if built.truncated {
+            self.note(Unsupported::LimitReached {
+                limit: "max_mesh_triangles",
+            });
+        }
+        let shading = built.shading;
         if definition.paints_background {
             return Ok(shading);
         }

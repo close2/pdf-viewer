@@ -154,6 +154,31 @@ struct Built {
     /// shading's own space, so §10.7.3's resolution and the [`Conversion`] this table is keyed
     /// by decide it exactly as they decide the ramp's.
     background: Option<Color>,
+    /// [`crate::mesh::MAX_TRIANGLES`] stopped this mesh's stream part-way.
+    ///
+    /// Remembered with the colours because it is a property of the object and of this
+    /// program's constants together, exactly as the colours are: the same stream read again
+    /// under the same build is cut in the same place. It leaves the cache as
+    /// [`Shaded::truncated`] so that the interpreter can report it — a bound that stops a
+    /// document's mesh part-way and says nothing is the silent drop `crate::content`'s module
+    /// documentation forbids, and every other bound in that module is already reported as
+    /// [`crate::Unsupported::LimitReached`].
+    truncated: bool,
+}
+
+/// A built shading, and what a bound this program set cost it.
+///
+/// The pair exists because [`Cache::build`]'s two callers are inside the interpreter, which is
+/// the only place that can raise a report — and returning a bare [`Shading`] let the one bound
+/// in this family stop a mesh in silence from the day it was written until the
+/// nine-hundred-and-forty-fifth session.
+#[derive(Debug, Clone)]
+pub struct Shaded {
+    /// The shading to paint.
+    pub shading: Shading,
+    /// [`crate::mesh::MAX_TRIANGLES`] stopped this shading's mesh stream part-way, so the
+    /// triangles are some of what the document states rather than all of them.
+    pub truncated: bool,
 }
 
 impl Cache {
@@ -175,7 +200,7 @@ impl Cache {
         resources: &Dictionary,
         transform: Transform,
         colouring: Colouring<'_>,
-    ) -> Result<Shading, ShadingError> {
+    ) -> Result<Shaded, ShadingError> {
         // §10.7.3's tolerance is part of the key rather than of the object: the same shading
         // painted under two `/SM` values is two sets of colours, and a page that changes it
         // between paintings has said so.
@@ -205,27 +230,28 @@ impl Cache {
         if let Some(id) = key
             && let Some(built) = self.built.get(&(id, resolution, colouring.into.clone()))
         {
-            return Ok(Shading {
-                kind: Arc::clone(&built.kind),
-                transform: built.own.then(transform),
-                background: built.background,
+            return Ok(Shaded {
+                shading: Shading {
+                    kind: Arc::clone(&built.kind),
+                    transform: built.own.then(transform),
+                    background: built.background,
+                },
+                truncated: built.truncated,
             });
         }
         let space = self.space_of(document, object, resources);
-        let (kind, own, background) = kind_of(document, object, resources, space, colouring)?;
-        let built = Built {
-            kind: Arc::new(kind),
-            own,
-            background,
-        };
+        let built = kind_of(document, object, resources, space, colouring)?;
         if let Some(id) = key {
             self.built
                 .insert((id, resolution, colouring.into.clone()), built.clone());
         }
-        Ok(Shading {
-            kind: built.kind,
-            transform: built.own.then(transform),
-            background: built.background,
+        Ok(Shaded {
+            shading: Shading {
+                kind: built.kind,
+                transform: built.own.then(transform),
+                background: built.background,
+            },
+            truncated: built.truncated,
         })
     }
 
@@ -277,18 +303,21 @@ pub fn build(
     object: &Object,
     resources: &Dictionary,
     transform: Transform,
-) -> Result<Shading, ShadingError> {
-    let (kind, own, background) = kind_of(
+) -> Result<Shaded, ShadingError> {
+    let built = kind_of(
         document,
         object,
         resources,
         None,
         Colouring::new(None, &Conversion::device(), None),
     )?;
-    Ok(Shading {
-        kind: Arc::new(kind),
-        transform: own.then(transform),
-        background,
+    Ok(Shaded {
+        shading: Shading {
+            kind: built.kind,
+            transform: built.own.then(transform),
+            background: built.background,
+        },
+        truncated: built.truncated,
     })
 }
 
@@ -323,7 +352,7 @@ fn kind_of(
     resources: &Dictionary,
     space: Option<ColourSpace>,
     colouring: Colouring<'_>,
-) -> Result<(ShadingKind, Transform, Option<Color>), ShadingError> {
+) -> Result<Built, ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
         Object::Dictionary(dict) => dict.clone(),
@@ -350,6 +379,7 @@ fn kind_of(
             })?,
     };
 
+    let mut truncated = false;
     let (kind, own) = match kind {
         // Only a type 1 shading has a `/Matrix`, which places its domain rectangle within
         // the shading's own space. It composes ahead of the caller's transform rather than
@@ -367,14 +397,20 @@ fn kind_of(
             radial(document, &dict, &space, colouring)?,
             Transform::IDENTITY,
         ),
-        4..=7 => (
-            mesh(document, &resolved, &dict, &space, kind, colouring)?,
-            Transform::IDENTITY,
-        ),
+        4..=7 => {
+            let (kind, cut) = mesh(document, &resolved, &dict, &space, kind, colouring)?;
+            truncated = cut;
+            (kind, Transform::IDENTITY)
+        }
         other => return Err(ShadingError::UnsupportedType { kind: other }),
     };
 
-    Ok((kind, own, background_of(document, &dict, &space, colouring)))
+    Ok(Built {
+        kind: Arc::new(kind),
+        own,
+        background: background_of(document, &dict, &space, colouring),
+        truncated,
+    })
 }
 
 /// ISO 32000-2 §8.7.4.3 Table 77's `/BBox`, if the shading dictionary states one.
@@ -668,6 +704,9 @@ fn radial(
 }
 
 /// Reads one of the four mesh types into triangles.
+///
+/// The second half of the answer is [`crate::mesh::MAX_TRIANGLES`] having stopped the stream
+/// part-way, which travels to the interpreter as [`Shaded::truncated`].
 fn mesh(
     document: &Document,
     object: &Object,
@@ -675,7 +714,7 @@ fn mesh(
     space: &ColourSpace,
     kind: i64,
     colouring: Colouring<'_>,
-) -> Result<ShadingKind, ShadingError> {
+) -> Result<(ShadingKind, bool), ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
     })?;
@@ -691,15 +730,19 @@ fn mesh(
         }
     };
 
-    let (triangles, ramp) = crate::mesh::read(document, stream, kind, space, &functions, colouring)
-        .ok_or_else(|| ShadingError::Malformed {
+    let read = crate::mesh::read(document, stream, kind, space, &functions, colouring).ok_or_else(
+        || ShadingError::Malformed {
             detail: format!("the type {kind} mesh stream could not be read"),
-        })?;
+        },
+    )?;
 
-    Ok(ShadingKind::Mesh {
-        triangles: triangles.into(),
-        ramp,
-    })
+    Ok((
+        ShadingKind::Mesh {
+            triangles: read.triangles.into(),
+            ramp: read.ramp,
+        },
+        read.truncated,
+    ))
 }
 
 fn function_based(

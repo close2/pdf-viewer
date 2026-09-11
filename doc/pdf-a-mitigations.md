@@ -365,6 +365,8 @@ All ten are stated at ISO 19005-2 6.1.13. What each adds beyond the shared answe
 
 ### The exception: `implementation-limits/indirect-object-count`
 
+**Built in session 957**: the row is in `WRITER_EMITS`, because the serializer answers it.
+
 - **Mitigation** — `discard` **of nothing anybody can see**, which makes it mechanical rather than a
   loss. RFC 0002 RFC 0002 section 10's serializer writes the objects the document reaches; an object
   no reference reaches is not carried. A file over 8 388 607 objects **because it accumulated
@@ -597,7 +599,7 @@ today `not-built-yet`
 specified name, it shall use the RelativeColorimetric intent by default."
 
 #### `graphics/rendering-intent-entries-name-one-of-four`
-ISO 19005-2 6.2.6 · PDF/A-2b, 2u, 2a · today `not-built-yet`
+ISO 19005-2 6.2.6 · PDF/A-2b, 2u, 2a · **built in session 957** (`Stated`)
 
 - **Mitigation** — restate the entry as `RelativeColorimetric`, which writes down the interpretation
   the standard defines rather than a choice this converter made — `doc/adr/0948`'s `Stated` class.
@@ -686,7 +688,8 @@ ISO 19005-2 6.2.9.2, ISO 19005-4 6.2.8.2 · all six · today `not-built-yet`
 
 #### `graphics/graphics-state-blend-modes-are-defined`
 #### `graphics/annotation-blend-modes-are-defined`
-ISO 19005-2 6.2.10, ISO 19005-4 6.2.9 · all six / part 4 · today `not-built-yet`
+ISO 19005-2 6.2.10, ISO 19005-4 6.2.9 · all six / part 4 · **array half built in session 957**
+(`Stated`); the bare-name half stays `not-built-yet`
 
 - **Mitigation** — split by shape, as ADR 0955 found. For an **array** of names, §11.6.3's own entry
   says a reader takes the first mode it recognises or `Normal` if it recognises none, so reducing
@@ -727,7 +730,8 @@ ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`
   cheaply, and it separates a safe departure from an unsafe one along the standard's own line.
 
 #### `graphics/content-streams-have-an-explicit-resources-dictionary`
-ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `not-built-yet`
+ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · **page half built in session 957**
+(`Mechanical`); the form `XObject` half is now `the-fence`
 
 - **Mitigation** — two cases. For a **page**, the dictionary is usually inherited through the page
   tree (§7.7.3.4) and copying it down changes nothing a reader resolves: mechanical, **owed, not
@@ -788,7 +792,8 @@ ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · today `the-fence`
   does not determine what its codes select, which is the font half of the format's central promise.
 
 #### `fonts/cid-to-gid-map-present`
-ISO 19005-2 6.2.11.3.2, ISO 19005-4 6.2.10.3.2 · all six · today `not-built-yet`
+ISO 19005-2 6.2.11.3.2, ISO 19005-4 6.2.10.3.2 · all six · **part 2 half built in session 957**
+(`Stated`); part 4 stays `not-built-yet`
 
 - **Mitigation** — **differs by target in kind, and the difference is a reading nobody had made.**
   ADR 0955 records that §9.7.4.2's Table 121 makes the entry required and states **no default**, so
@@ -845,7 +850,7 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
 
 #### `fonts/charset-lists-every-glyph-in-the-program`
 #### `fonts/cidset-lists-every-cid-in-the-program`
-ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · today `not-built-yet`
+ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechanical`, by removal)
 
 - **Mitigation** — two lossless routes and the choice between them is the only open part.
   **Recompute** the set from the embedded program, which `pdf_font` already reads; or **remove** the
@@ -1076,7 +1081,8 @@ ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · today `not-built-yet`
   remedy and the departure are nearly free, which is itself worth reporting to an operator.
 
 #### `annotations/normal-appearance-shape`
-ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · today `not-built-yet`
+ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · **`/AS` half built in session 957** (`Stated`);
+the half with no `/AS` stays `not-built-yet`
 
 - **Mitigation** — split, as ADR 0955 found. Where the annotation states an `/AS` entry, §12.5.5
   already says which stream a reader draws, so collapsing the subdictionary to that one is `Stated`
@@ -1161,7 +1167,8 @@ ISO 19005-2 6.4.2, ISO 19005-4 6.4.2 · all six · today `not-built-yet`
   document already owes.
 
 #### `signatures/signature-widgets-meet-the-annotation-rules`
-ISO 19005-2 6.4.3, ISO 19005-4 6.5.1 · all six · today `not-built-yet`
+ISO 19005-2 6.4.3, ISO 19005-4 6.5.1 · all six · **built in session 957** (routed to the three
+annotation rows it names)
 
 - **Mitigation** — none of its own: the requirement asks the annotation flag and appearance rules
   again of a signature field's widget, and the converter already answers those where the annotation
@@ -1487,7 +1494,8 @@ ISO 19005-4 Annex A.2 · PDF/A-4f · today `not-this-target`
 
 #### `optional-content/configuration-names`
 #### `optional-content/order-lists-every-group`
-ISO 19005-2 6.9, ISO 19005-4 6.10 · all six · today `not-built-yet`
+ISO 19005-2 6.9, ISO 19005-4 6.10 · all six · **the `/Order` row built in session 957**
+(`Mechanical`); the name row stays `not-built-yet`
 
 - **Mitigation** — section 3.8 of the limits document calls both Default work and the review splits
   them. Completing an `/Order` array with the groups it omits, in the file's own order, invents
@@ -1604,27 +1612,72 @@ producer which*, the third is *supply the font*, the fourth is *keep the source*
 
 ### 13.3 Owed, not optional — the refusals no operator should be asked about
 
-Twenty-two requirements are refused today although the right answer **loses nothing**. They are
-waiting on code, not on a decision, and offering an operator a `discard` to get past one would trade
-a permanent loss for a missing afternoon's work:
+Twenty-two requirements were refused although the right answer **loses nothing**. They were waiting
+on code, not on a decision, and offering an operator a `discard` to get past one would trade a
+permanent loss for a missing afternoon's work.
+
+**Eleven of the twenty-two were built in the nine-hundred-and-fifty-seventh session** (ADR 0957),
+and are struck from the list here as they were struck from `decision.rs`'s `REFUSED_BY_NAME`:
+
+- `graphics/rendering-intent-entries-name-one-of-four` — `Stated`, §8.6.5.8's own answer written
+  into the entry. An inline image's `/Intent` is refused separately and by the fence.
+- `graphics/graphics-state-blend-modes-are-defined` and
+  `graphics/annotation-blend-modes-are-defined` — `Stated`, **the array half only**; a bare name
+  the standard does not define keeps its refusal, with a sentence that now says which half is
+  which.
+- `graphics/content-streams-have-an-explicit-resources-dictionary` — `Mechanical`, **the page half
+  only**; the form `XObject` half is refused by the fence, because one dictionary cannot answer for
+  every invocation.
+- `annotations/normal-appearance-shape` — `Stated`, **where the annotation states an `/AS`**.
+- `optional-content/order-lists-every-group` — `Mechanical`. Its neighbour
+  `optional-content/configuration-names` is still refused, and the two reasons are now separate
+  sentences rather than one.
+- `fonts/charset-lists-every-glyph-in-the-program` and `fonts/cidset-lists-every-cid-in-the-program`
+  — `Mechanical`, by the **remove** route rather than the recompute one. The catalogue offered both
+  and the base standard decides: ISO 32000-2 deprecates both keys, so the entry a conforming file
+  wants is no entry.
+- `fonts/cid-to-gid-map-present` — `Stated`, **at a part 2 target only**, exactly as the entry
+  above reads it.
+- `implementation-limits/indirect-object-count` — the **serializer's**, which is what the entry
+  said: the writer carries only what the converted document reaches, so a file over the limit
+  through accumulated orphans converts with nothing lost. A file genuinely over it is still refused,
+  by the output's own verdict.
+- `signatures/signature-widgets-meet-the-annotation-rules` — **routing**, as the entry said, and it
+  needed a fifth kind of answer in the decision table rather than a rewrite: `Answer::AsUnderlying`
+  takes the compound row's decision from the three annotation rows it names.
+
+**Eleven remain**, and each is where its own entry left it:
 
 `graphics/one-destination-profile-per-output-intents-array`, `graphics/no-icc-space-duplicating-the-
 output-intent-profile`, `graphics/separation-alternate-space-does-not-duplicate-a-current-profile`,
-`graphics/spot-colourants-appear-in-the-colorants-dictionary`, `graphics/rendering-intent-entries-
-name-one-of-four`, `graphics/jpeg2000-colour-specification-method`, `graphics/jpeg2000-one-best-
-colour-space-specification`, `graphics/content-streams-have-an-explicit-resources-dictionary` (page
-half), `graphics/graphics-state-blend-modes-are-defined` and `graphics/annotation-blend-modes-are-
-defined` (array half), `fonts/charset-lists-every-glyph-in-the-program`, `fonts/cidset-lists-every-
-cid-in-the-program`, `fonts/vertical-metrics-agree-with-the-program`, `fonts/non-symbolic-truetype-
-uses-a-standard-encoding`, `fonts/symbolic-truetype-states-no-encoding`, `fonts/cid-to-gid-map-
-present` (part 2 targets), `annotations/normal-appearance-shape` (with `/AS`),
-`signatures/signature-widgets-meet-the-annotation-rules`, `metadata/xmp-packet-header-attributes`,
-`optional-content/order-lists-every-group`, `implementation-limits/indirect-object-count`, and
-`forms/no-needs-rendering` once `/XFA` is gone.
+`graphics/spot-colourants-appear-in-the-colorants-dictionary`,
+`graphics/jpeg2000-colour-specification-method`,
+`graphics/jpeg2000-one-best-colour-space-specification`,
+`fonts/vertical-metrics-agree-with-the-program`, `fonts/non-symbolic-truetype-uses-a-standard-
+encoding`, `fonts/symbolic-truetype-states-no-encoding`, `metadata/xmp-packet-header-attributes`,
+and `forms/no-needs-rendering` once `/XFA` is gone.
 
 **This is the catalogue's most actionable output for the converter itself.** Nearly a fifth of the
-refusals are lossless rewrites nobody has written, and every one of them converts documents that
-today stop.
+refusals were lossless rewrites nobody had written, and every one of them converts documents that
+had stopped.
+
+#### 13.3.1 What building eleven of them corrected in this catalogue
+
+Two entries above were wrong about the work and one about the standard, and the corrections belong
+here rather than in a session note:
+
+- **The site of a failure is the object a dictionary is *written in*, not the dictionary.** Both
+  blend-mode entries and the rendering-intent entry read as though the failing entry were on the
+  object the validator names. It usually is not: a graphics state written directly inside a page's
+  resource dictionary is reported at the page's object number, so a rewrite that edits the named
+  dictionary alone fixes nothing at all. Both rewrites descend the object they are given.
+- **`/Intent` is two keys with one spelling.** §8.9.5.1's Table 87 gives an image `XObject` a
+  rendering intent and §8.11.2.3 gives an optional content group an `/Intent` of `View` or
+  `Design`. The entry did not say so, and a rewrite taking the catalogue at its word would have
+  turned a layer's intent into `RelativeColorimetric`.
+- **`/CharSet` is deprecated too**, not only `/CIDSet`. The entry gave the part 4 preference for
+  removal on `/CIDSet`'s deprecation alone; §9.8.1's Table 122 deprecates both in PDF 2.0, which
+  makes *remove* the better of the two lossless routes at every target rather than at one.
 
 ---
 

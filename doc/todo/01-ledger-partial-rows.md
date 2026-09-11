@@ -271,6 +271,17 @@ depends on nothing but `thiserror`.
   the fourth is silent because it is not the defect. The noise is a note quoting the standard for
   the half of the clause it **executes**, which is at least as common as quoting the half it owes,
   and which nothing mechanical separates: §12.7.7 was wrong and unflagged for exactly that reason.
+  **Its third rank was read in the nine-hundred-and-forty-fifth, and the row was right where the
+  sweep is loosest — while the *code* under it was not.** §8.7.4.5.8's whole debt rests on
+  "identical to Type 6, except that they are based on a bicubic tensor-product patch defined by 16
+  control points", which carries no modal verb and which session 939 had already read and kept
+  (ADR 0919): the flag is right about the words and says nothing about the status. What came of
+  checking the *debt* rather than the sentence is that the constant it names, `mesh::PATCH_STEPS`,
+  is coupled to a second constant eleven lines away — §10.7.3's `MAX_TRIANGLES`, which bounds a
+  mesh in *this program's* triangles and which had stopped a document's mesh part-way **in
+  silence** from the day it was written. ADR 0961. **The reading worth carrying is the method
+  rather than the row**: a `partial` row whose debt is a named constant is a debt that can be
+  *measured* in an afternoon, and measuring it is what found a defect the row was not about.
 - **One reads no row at all**: `cargo run --release -p conformance --bin
   overtaken`, a fraction of a second, over the tree's **page-list notes** and `doc/adr/` — the
   nineteenth sweep and the fourteenth to be a program (ADR 0491). A page-list note is the doc

@@ -39,17 +39,54 @@ use crate::shading::{Colouring, transferred};
 /// How finely a Bézier patch is evaluated along each axis.
 ///
 /// The geometry's accuracy is set here, because a backend that subdivides these triangles
-/// further does so linearly and cannot recover curvature. Ten steps puts the error of a
-/// patch spanning a whole page well under a pixel, at two hundred triangles per patch.
+/// further does so linearly and cannot recover curvature. Ten steps is two hundred triangles
+/// per patch.
+///
+/// **This comment used to end "puts the error of a patch spanning a whole page well under a
+/// pixel", and that was a claim with no scale in it**: the surface is evaluated in the
+/// shading's own space and the triangles are transformed afterwards, so whatever the chord
+/// error is in page units, a device sees it multiplied by the magnification. What the sentence
+/// is worth is what a measurement says, and the nine-hundred-and-forty-fifth session took one —
+/// every corpus page holding a mesh rendered at this fineness and at 60, with
+/// [`MAX_TRIANGLES`] lifted so that only the fineness moved. At the page's own scale the worst
+/// page is `coons-allflags-withfunction.pdf` at a mean 0.0511 of 255 and a worst 32×32 tile of
+/// 0.92; at four times the mean is unchanged and the worst tile rises to 10.18
+/// (`issue18816.pdf`), because the departure is a seam at each patch's boundary whose *width*
+/// does not shrink as the pixels arrive. So ten steps is adequate for a page and visibly not a
+/// derivation, which is why §8.7.4.5.7's and §8.7.4.5.8's ledger rows stay `partial` on it.
+///
+/// **And raising it is not free, which is the thing this constant could not say before
+/// [`MAX_TRIANGLES`] was public**: the bound is counted in triangles, so a document's patch
+/// budget is `MAX_TRIANGLES / (2 · PATCH_STEPS²)`. The largest mesh any corpus this tree holds
+/// paints with is `bug1703683_page2_reduced.pdf`'s 305 patches — 61 000 triangles, 23.3% of the
+/// bound at this fineness — and it **crosses the bound at a fineness of 21**. So a session that
+/// derives this number from §10.7.3's smoothness tolerance has to move the bound with it or
+/// start dropping patches out of a real document, which is what makes the two constants one
+/// decision rather than two.
 const PATCH_STEPS: usize = 10;
 
 /// Most triangles one shading may produce.
 ///
 /// A mesh stream is compressed, so a few kilobytes can describe an unbounded number of
-/// patches. This is the decompression-bomb bound for shadings.
-const MAX_TRIANGLES: usize = 1 << 18;
+/// patches. This is the decompression-bomb bound for shadings, and ISO 32000-2 §10.7.3 is
+/// where a bound of this kind is licensed — "[e]ach output device may have internal limits" —
+/// the same sentence [`crate::shading`]'s `MAX_FUNCTION_CELLS` rests on.
+///
+/// **It is counted in this program's triangles rather than in the document's patches**, and
+/// that is worth saying out loud because it is the reason this constant is public: a type 6 or
+/// 7 patch becomes `PATCH_STEPS`² quadrilaterals here, so how many patches a document is
+/// allowed depends on a number that is nothing to do with the document, and raising the
+/// tessellation's fineness lowers it. `examples/mesh_triangle_census` is what keeps that
+/// relation measured rather than assumed: over `doc/pdf.js/test/pdfs`, the four `doc/corpora/`
+/// submodules and `corpus-cache/openpreserve` — 1516 files, 40 mesh paints — the largest is
+/// 23.3% of this bound and no page reports it.
+pub const MAX_TRIANGLES: usize = 1 << 18;
 
 /// Reads a mesh shading's stream into triangles, with the ramp a parametric mesh needs.
+///
+/// [`Mesh::truncated`] is set where [`MAX_TRIANGLES`] stopped the reading with more of the
+/// stream to come, so the caller can say that the page is drawing less than the document
+/// states.
 ///
 /// The ramp is `Some` exactly where the shading states a `/Function`, which is exactly where
 /// the triangles carry [`Corners::Parameters`]: §8.7.4.5.5 interpolates the parameter and
@@ -69,7 +106,7 @@ pub(crate) fn read(
     space: &ColourSpace,
     functions: &[Function],
     colouring: Colouring<'_>,
-) -> Option<(Vec<Triangle>, Option<Ramp>)> {
+) -> Option<Mesh> {
     let dict = &stream.dict;
     let data = document.decoded_stream_data(stream)?;
 
@@ -132,7 +169,7 @@ pub(crate) fn read(
     let mut bits = BitReader::new(&data);
     // The two readings differ only in what a vertex carries, which is what the clause makes
     // the whole question: components, or the one parametric value the function takes.
-    let (triangles, ramp) = if functions.is_empty() {
+    let ((triangles, truncated), ramp) = if functions.is_empty() {
         (reader.triangles::<Color>(&mut bits, kind, per_row)?, None)
     } else {
         (
@@ -142,7 +179,28 @@ pub(crate) fn read(
     };
 
     let triangles = transferred_corners(triangles, colouring.transfer);
-    (!triangles.is_empty()).then_some((triangles, ramp))
+    (!triangles.is_empty()).then_some(Mesh {
+        triangles,
+        ramp,
+        truncated,
+    })
+}
+
+/// What reading a mesh stream produced, and what a bound cost it.
+///
+/// A struct rather than the pair this returned until the nine-hundred-and-forty-fifth session,
+/// because the third member is the one a caller must not be able to ignore by accident:
+/// [`MAX_TRIANGLES`] stops a mesh part-way, and a page that drew the part without saying so is
+/// exactly the silent drop `crate::content` forbids. Every neighbouring bound in this crate is
+/// already reported as [`crate::Unsupported::LimitReached`]; this one was not, from the day it
+/// was written until that session.
+pub(crate) struct Mesh {
+    /// The triangles, in the order §8.7.4.5.7's overlap rule needs them painted.
+    pub(crate) triangles: Vec<Triangle>,
+    /// The ramp a parametric mesh needs, `Some` exactly where the shading states a `/Function`.
+    pub(crate) ramp: Option<Ramp>,
+    /// [`MAX_TRIANGLES`] stopped the reading with a vertex, a row or a patch still to come.
+    pub(crate) truncated: bool,
 }
 
 /// Every corner colour through ISO 32000-2 §10.5's transfer function.
@@ -322,7 +380,7 @@ impl MeshReader<'_> {
         bits: &mut BitReader<'_>,
         kind: i64,
         per_row: usize,
-    ) -> Option<Vec<Triangle>> {
+    ) -> Option<(Vec<Triangle>, bool)> {
         match kind {
             4 => Some(self.free_form::<C>(bits)),
             5 => Some(self.lattice::<C>(bits, per_row)),
@@ -430,15 +488,23 @@ impl MeshReader<'_> {
     }
 
     /// Type 4: a strip whose edge flags say which two earlier vertices each triangle keeps.
-    fn free_form<C: Corner>(&self, bits: &mut BitReader<'_>) -> Vec<Triangle> {
+    ///
+    /// The second half of the answer is [`MAX_TRIANGLES`] having stopped the reading with a
+    /// vertex still to come — see [`read`] for what is done with it.
+    fn free_form<C: Corner>(&self, bits: &mut BitReader<'_>) -> (Vec<Triangle>, bool) {
         let mut triangles = Vec::new();
+        let mut truncated = false;
         // The previous two triangles' vertices, in the specification's `va`, `vb`, `vc`.
         let mut previous: Option<(Vertex<C>, Vertex<C>, Vertex<C>)> = None;
 
-        while triangles.len() < MAX_TRIANGLES {
-            let Some((flag, vertex)) = self.read_vertex(bits, true) else {
+        while let Some((flag, vertex)) = self.read_vertex(bits, true) {
+            // The bound is tested *after* a vertex has been read rather than before, so that
+            // the flag says a vertex was dropped rather than that the count reached a number:
+            // a stream whose last vertex lands exactly on the bound is complete (trap 11).
+            if triangles.len() >= MAX_TRIANGLES {
+                truncated = true;
                 break;
-            };
+            }
             let corners = match (flag, previous) {
                 // A new triangle needs two more vertices, whose own flags are ignored.
                 (0, _) => {
@@ -460,12 +526,20 @@ impl MeshReader<'_> {
             triangles.push(triangle(corners));
             previous = Some(corners);
         }
-        triangles
+        (triangles, truncated)
     }
 
     /// Type 5: rows of a lattice, with triangles between consecutive rows.
-    fn lattice<C: Corner>(&self, bits: &mut BitReader<'_>, per_row: usize) -> Vec<Triangle> {
+    ///
+    /// The second half of the answer is [`MAX_TRIANGLES`] having stopped the reading with a
+    /// whole row still to come — see [`read`] for what is done with it.
+    fn lattice<C: Corner>(
+        &self,
+        bits: &mut BitReader<'_>,
+        per_row: usize,
+    ) -> (Vec<Triangle>, bool) {
         let mut rows: Vec<Vec<Vertex<C>>> = Vec::new();
+        let mut truncated = false;
         loop {
             let mut row = Vec::with_capacity(per_row);
             for _ in 0..per_row {
@@ -477,10 +551,13 @@ impl MeshReader<'_> {
             if row.len() < per_row {
                 break;
             }
-            rows.push(row);
+            // Tested with a complete row in hand, for [`free_form`]'s reason: the flag then
+            // says a row was dropped rather than that a count was reached.
             if rows.len().saturating_mul(per_row) > MAX_TRIANGLES {
+                truncated = true;
                 break;
             }
+            rows.push(row);
         }
 
         let mut triangles = Vec::new();
@@ -500,7 +577,7 @@ impl MeshReader<'_> {
                 triangles.push(triangle((*b, *d, *c)));
             }
         }
-        triangles
+        (triangles, truncated)
     }
 
     /// Types 6 and 7: Bézier patches, evaluated into triangles.
@@ -510,17 +587,24 @@ impl MeshReader<'_> {
     /// another, the patch that appears later in the data stream shall paint over the earlier
     /// one" — given that a mesh is painted triangle by triangle in this order.
     /// [`tessellate`] owns the rule for an overlap *within* one patch.
-    fn patches<C: Corner>(&self, bits: &mut BitReader<'_>, tensor: bool) -> Vec<Triangle> {
+    ///
+    /// The second half of the answer is [`MAX_TRIANGLES`] having stopped the reading with a
+    /// patch still to come — see [`read`] for what is done with it.
+    fn patches<C: Corner>(&self, bits: &mut BitReader<'_>, tensor: bool) -> (Vec<Triangle>, bool) {
         let boundary = 12usize;
         let total = if tensor { 16 } else { boundary };
 
         let mut triangles = Vec::new();
+        let mut truncated = false;
         let mut previous: Option<([Point; 16], [C; 4])> = None;
 
-        while triangles.len() < MAX_TRIANGLES {
-            let Some(flag) = bits.read(self.flag_bits) else {
+        while let Some(flag) = bits.read(self.flag_bits) {
+            // Tested with a patch's flag in hand, for [`free_form`]'s reason: the flag then
+            // says a patch was dropped rather than that a count was reached.
+            if triangles.len() >= MAX_TRIANGLES {
+                truncated = true;
                 break;
-            };
+            }
             let flag = flag & 0b11;
 
             // A continuation reuses four points and two corners from the previous patch's
@@ -584,7 +668,7 @@ impl MeshReader<'_> {
             triangles.extend(tessellate(&grid, &corners));
             previous = Some((points, corners));
         }
-        triangles
+        (triangles, truncated)
     }
 }
 

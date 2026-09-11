@@ -2269,3 +2269,267 @@ fn a_document_with_nothing_embedded_cannot_be_told_it_will_be_pdfa_four_f_later(
     );
     assert!(output.is_none(), "and no file is written");
 }
+
+// --------------------------------------------------------------------------------------------
+// `doc/pdf-a-mitigations.md` section 13.3 — *owed, not optional*: the refusals whose right answer
+// loses nothing. Each test below asks the same three questions of one of them: was the decision
+// the class `doc/adr/0948` says it is, does the output conform when it is carried out, and is
+// what the file now says the sentence the standard states rather than a choice this program made.
+// --------------------------------------------------------------------------------------------
+
+/// Converts to PDF/A-2b with nothing authorised, which is where part 2's own rules are asked.
+fn to_part_two(bytes: &[u8]) -> (Report, Option<Vec<u8>>) {
+    convert(bytes, Target::Two(Level::B), Authorisations::default())
+}
+
+#[test]
+fn a_rendering_intent_the_base_standard_does_not_define_is_restated_as_the_one_it_names() {
+    // ISO 19005-2 section 6.2.6 admits only the four intents ISO 32000-2 §8.6.5.8 defines, and
+    // that subclause says what a processor does with any other name: "If a PDF processor does
+    // not recognise the specified name, it shall use the RelativeColorimetric intent by
+    // default." So the value written is the standard's own answer rather than a choice, which is
+    // what puts the decision in `doc/adr/0948`'s `Stated` class.
+    //
+    // The graphics state is written *inside* the page's resource dictionary, which is the shape
+    // that matters: `pdf_archive` reports a dictionary at the object it is written in, so the
+    // finding names the page and the entry is two levels down inside it.
+    let source = Conforming {
+        resources: "/ExtGState << /GS0 << /Type /ExtGState /RI /Cheerful >> >>".to_owned(),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    assert!(matches!(
+        decision(
+            &report,
+            "graphics/rendering-intent-entries-name-one-of-four"
+        ),
+        Decision::Stated {
+            rewrite: Rewrite::RenderingIntent,
+            ..
+        }
+    ));
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        written.contains("/RI /RelativeColorimetric"),
+        "the entry names the intent §8.6.5.8 supplies: {written}"
+    );
+    assert!(!written.contains("Cheerful"), "and the old name is gone");
+}
+
+#[test]
+fn an_optional_content_groups_intent_is_left_alone_by_the_rendering_intent_rewrite() {
+    // §8.11.2.3 gives an optional content group an `/Intent` whose values are `View` and
+    // `Design`, and §8.9.5.1's Table 87 gives an image `XObject` an `/Intent` that is a rendering
+    // intent. One key, two meanings — so the rewrite is guarded by `/Subtype /Image`, which is
+    // the validator's own test, and a group's entry is none of its business.
+    let source = Conforming {
+        catalog: "/OCProperties << /OCGs [6 0 R] /D << /Name (Default) /Order [6 0 R] >> >>"
+            .to_owned(),
+        resources: "/ExtGState << /GS0 << /Type /ExtGState /RI /Cheerful >> >>".to_owned(),
+        objects: vec!["<< /Type /OCG /Name (Layer) /Intent /Design >>".to_owned()],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (_, output) = to_part_two(&source);
+    let output = output.expect("the document converts");
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        written.contains("/Intent /Design"),
+        "the group's own intent is untouched: {written}"
+    );
+}
+
+#[test]
+fn a_blend_mode_array_naming_nothing_the_standard_defines_becomes_normal() {
+    // ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9 require a defined blend mode.
+    // §8.4.1's Table 57 says what a reader takes from an array: "In the latter case, the PDF
+    // reader shall use the first blend mode in the array that it recognises (or Normal if it
+    // recognises none of them)." So an array with nothing recognised in it already *is* Normal
+    // to every conforming reader, and writing the name down composites nothing differently.
+    let source = Conforming {
+        resources: "/ExtGState << /GS0 << /Type /ExtGState /BM [/Sepia /Woodcut] >> >>".to_owned(),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "graphics/graphics-state-blend-modes-are-defined"),
+        Decision::Stated {
+            rewrite: Rewrite::BlendModeNormal,
+            ..
+        }
+    ));
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(written.contains("/BM /Normal"), "{written}");
+    assert!(!written.contains("Sepia"), "and the array is gone");
+}
+
+#[test]
+fn a_blend_mode_written_as_a_bare_name_is_refused_because_no_clause_says_what_it_means() {
+    // The other half of the same requirement, and `doc/pdf-a-mitigations.md` section 4.6 is why
+    // it stays refused: Table 57 says what a reader does with an unrecognised name *in an array*
+    // and says nothing at all about one on its own. Writing a mode in its place would decide how
+    // these marks composite with what is under them, which `doc/questions/A48` forbids.
+    let source = Conforming {
+        resources: "/ExtGState << /GS0 << /Type /ExtGState /BM /Sepia >> >>".to_owned(),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, "graphics/graphics-state-blend-modes-are-defined"),
+            Decision::Refused(Because::NotBuiltYet(_))
+        ),
+        "the shape with no answer in the standard keeps the refusal"
+    );
+    assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
+fn an_appearance_subdictionary_collapses_to_the_state_the_annotation_selects() {
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require an annotation that is not
+    // a button widget to state its normal appearance as a stream. §12.5.2's Table 166 makes
+    // `/AS` "[t]he annotation's appearance state , which selects the applicable appearance
+    // stream from an appearance subdictionary", so the stream written is the one the reader was
+    // drawing already.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /AS /On \
+             /AP << /N << /On 7 0 R /Off 8 0 R >> >> >>"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "annotations/normal-appearance-shape"),
+        Decision::Stated {
+            rewrite: Rewrite::NormalAppearanceFromState,
+            ..
+        }
+    ));
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn an_appearance_subdictionary_with_no_state_stays_refused() {
+    // The half `doc/pdf-a-mitigations.md` section 6 leaves without an answer: with no `/AS`,
+    // nothing in the file says which state the document is in, and choosing one is the half of
+    // `doc/questions/A48`'s line this converter does not cross.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 \
+             /AP << /N << /On 7 0 R >> >> >>"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "annotations/normal-appearance-shape"),
+        Decision::Refused(Because::NotBuiltYet(_))
+    ));
+    assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
+fn an_order_array_gains_the_groups_the_producer_left_out_of_it() {
+    // ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10 require the array to reference every
+    // optional content group the file states. §8.11.4.3's Table 99 says what the entry decides,
+    // and it is a panel rather than a page: "Any groups not listed in this array shall not be
+    // presented in any user interface that uses the configuration." The groups and their order
+    // are both the file's own, so nothing is invented.
+    let source = Conforming {
+        catalog: "/OCProperties << /OCGs [6 0 R 7 0 R] \
+                   /D << /Name (Default) /Order [6 0 R] >> >>"
+            .to_owned(),
+        objects: vec![
+            "<< /Type /OCG /Name (First) >>".to_owned(),
+            "<< /Type /OCG /Name (Second) >>".to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "optional-content/order-lists-every-group"),
+        Decision::Mechanical(Rewrite::OptionalContentOrder),
+        "nothing is lost and nothing is reinterpreted: the groups are already in the file"
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_states_them() {
+    // ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask the annotation flag and
+    // appearance rules again of a signature field's widget. `doc/pdf-a-mitigations.md` section 7
+    // records that a document refused on this row was one the conversion would in fact have
+    // fixed, because the rules it names are rows of the same table — so the answer is theirs,
+    // which for a widget stating no `/F` is section 3.7's authorised loss.
+    let widget = "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature) \
+                  /Rect [10 10 90 90] /AP << /N 7 0 R >> >>";
+    let appearance =
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream";
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] >>".to_owned(),
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![widget.to_owned(), appearance.to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(
+            &report,
+            "signatures/signature-widgets-meet-the-annotation-rules"
+        ),
+        Decision::Unauthorised {
+            loss: Loss::AnnotationPrinting,
+            rewrite: Rewrite::AnnotationFlags,
+        },
+        "the compound row takes the most constraining of the rules it names"
+    );
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: true,
+    };
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert_eq!(
+        decision(
+            &report,
+            "signatures/signature-widgets-meet-the-annotation-rules"
+        ),
+        Decision::Authorised {
+            loss: Loss::AnnotationPrinting,
+            rewrite: Rewrite::AnnotationFlags,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}

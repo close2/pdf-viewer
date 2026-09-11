@@ -106,6 +106,13 @@ pub enum Kind {
     Loses,
     /// `Answer::CmykUnderPartTwo`: two licences, chosen between on the profile in hand.
     TwoLicences,
+    /// `Answer::AsUnderlying`: the requirement asks other rows' rules again, and the answer is
+    /// theirs.
+    ///
+    /// Counted as an answer this converter has, because it is one: the rewrite exists, in the
+    /// rows named, and what was missing was the routing. What it is *not* is a rewrite of its
+    /// own, which is why it is a class here rather than folded into one of the four above.
+    Underlying,
 }
 
 impl Kind {
@@ -117,6 +124,7 @@ impl Kind {
             Self::Stated => "stated",
             Self::Loses => "loses",
             Self::TwoLicences => "two-licences",
+            Self::Underlying => "underlying",
         }
     }
 }
@@ -147,6 +155,7 @@ pub fn standing(requirement: &Requirement) -> Standing {
             Answer::Stated(..) => Kind::Stated,
             Answer::Loses(..) => Kind::Loses,
             Answer::CmykUnderPartTwo => Kind::TwoLicences,
+            Answer::AsUnderlying(_) => Kind::Underlying,
         });
     }
     REFUSED_BY_NAME

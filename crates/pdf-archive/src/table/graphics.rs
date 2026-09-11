@@ -648,22 +648,21 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(jpeg2000_bit_depth),
     },
     Requirement {
-        id: "graphics/jpeg2000-device-colour-obeys-the-colour-rules",
-        asks: "Where JPEG 2000 data effectively uses a device colour space, the device colour \
-               space requirements shall apply to it.",
+        id: "graphics/jpeg2000-device-colour-the-image-dictionary-states",
+        asks: "Where a JPEG 2000 image's ColorSpace entry names a device colour space, the \
+               device colour space requirements shall apply to it.",
         clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "what the codestream declares is now readable — `pdf_model::jpeg2000` reports the \
-             `colr` boxes — but the rule turns on the word *effectively*, and neither part says \
-             which of the enumerated colour spaces is a device space. Numbers 16 and 17 are \
-             sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather than device; \
-             12 (CMYK) has no such definition attached. Deciding which of them makes an image \
-             *effectively* DeviceCMYK, and then running section 6.2.4.3's output-intent and \
-             default \
-             colour space tests over that decision, is a reading of ISO/IEC 15444-2's colour \
-             annex this project cannot make from part 1 alone",
-        ),
+        check: Check::Unchecked(JPEG2000_DEVICE_COLOUR_IS_DELEGATED),
+    },
+    Requirement {
+        id: "graphics/jpeg2000-device-colour-the-codestream-defines",
+        asks: "Where a JPEG 2000 image states no ColorSpace entry and the colour space defined \
+               in its data is effectively a device one, the device colour space requirements \
+               shall apply to it.",
+        clauses: Clauses::both("6.2.8.3", "6.2.7.3"),
+        applies: Applies::Always,
+        check: Check::Unchecked(JPEG2000_DEVICE_COLOUR_IN_THE_CODESTREAM),
     },
     Requirement {
         id: "graphics/no-form-xobject-opi",
@@ -805,9 +804,11 @@ const DESTINATION_PROFILE_VALIDITY_NEEDS_AN_ICC_TEXT: &str = "both parts require
 /// ISO 19005-2 section 6.2.4.2 names ICC.1:1998-09, ICC.1:2001-12, ICC.1:2003-09 and ISO 15076-1.
 /// The last is undated in that part's clause 2, whose normative-reference boilerplate makes the
 /// latest edition apply, and its title line there pins the part to the one based on ICC.1:2010.
-/// This project holds none of the four: three are not here at all, and ISO 15076-1:2010 is a
-/// front-matter preview. Holding ICC.1:2022 does not substitute for any of them — it is a fifth
-/// text, profile version 4.4.0.0, and part 2 names no edition later than 4.3.0.0.
+/// This project holds two of the four, both since the nine-hundred-and-fiftieth session:
+/// ICC.1:1998-09 and ICC.1:2001-12. ICC.1:2003-09 is not here — the ICC supplies its past
+/// specifications on request only — and ISO 15076-1:2010 is a front-matter preview. Holding
+/// ICC.1:2022 does not substitute for either of the two that are missing: it is a fifth text,
+/// profile version 4.4.0.0, and part 2 names no edition later than 4.3.0.0.
 ///
 /// **A version number identifies which edition a profile claims**, and that was worth establishing
 /// rather than assuming. All four held editions say the major and minor versions are set by the ICC
@@ -832,6 +833,47 @@ const ICC_PERMITTED_EDITION_NEEDS_THE_TEXTS_IT_NAMES: &str = "part 2 names four 
      of each document; and, for a profile that satisfies neither, whether one of the two texts \
      not held would admit it all the same. `CLAUDE.md` principle 5 forbids closing either from \
      somebody else's reading";
+
+/// Why the first half of the device-colour sentence is delegated rather than predicated.
+///
+/// The sentence names two routes by which a JPEG 2000 image can come to use `DeviceGray`,
+/// `DeviceRGB` or `DeviceCMYK`, and puts them in an order: the `ColorSpace` entry of the image
+/// `XObject`, and — *in the absence thereof* — the colour space defined in the JPEG 2000 data.
+/// The first route is not ambiguous in any degree: an entry naming `/DeviceRGB` is a use of
+/// `DeviceRGB`, and section 6.2.4.3 binds every use of one whatever compression carries the
+/// samples.
+///
+/// **That row used to be one row, and its reason said the whole rule turned on the word
+/// *effectively*.** It does not: only the second route does. `crate::survey`'s `image_space`
+/// records the `ColorSpace` of every image `XObject` a content stream draws, in the resource
+/// dictionary that was in force, and the six section 6.2.4.3 rows judge what it records — so
+/// the first route is already answered under the clause that states the rule, and a predicate
+/// here would report the same failure twice under a clause number that adds nothing.
+///
+/// The limits are the survey's rather than this row's, and they are the ones its own rows carry:
+/// an image on no page is not drawn and so not recorded, and a soft mask's image is not descended
+/// into.
+const JPEG2000_DEVICE_COLOUR_IS_DELEGATED: &str = "delegated, and the delegation is real rather than promised: the sentence's first route is \
+     the image XObject's own ColorSpace entry, which `crate::survey` records for every image a \
+     content stream draws and the six section 6.2.4.3 rows then judge. A predicate here would \
+     report those same failures under a clause number that adds nothing to them. What the \
+     sentence adds beyond them is its second route, which is the row beside this one";
+
+/// Why the second half of the device-colour sentence needs a part this project does not hold.
+///
+/// `pdf_model::jpeg2000` reads the `colr` boxes, so what the codestream *declares* is legible.
+/// What is not is the word the clause turns on. Neither part says which of the enumerated colour
+/// spaces makes an image *effectively* `DeviceGray`, `DeviceRGB` or `DeviceCMYK`: 16 and 17 are
+/// sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather than device, and 12
+/// (CMYK) carries no such definition at all. Both parts' NOTE 3 sends the question to
+/// ISO/IEC 15444-2, which `doc/questions/A51` settles will not be bought.
+const JPEG2000_DEVICE_COLOUR_IN_THE_CODESTREAM: &str = "the codestream is readable — `pdf_model::jpeg2000` reports the `colr` boxes — and the word \
+     the rule turns on is not: neither part says which enumerated colour space makes an image \
+     *effectively* a device one, and both send the question to ISO/IEC 15444-2 in their NOTE 3. \
+     Numbers 16 and 17 are sRGB and an sRGB-nonlinearity greyscale, which are calibrated rather \
+     than device; 12 (CMYK) has no such definition attached. `doc/questions/A51` rules that the \
+     extensions part will not be bought, so this is settled rather than outstanding, and a later \
+     round should neither reconstruct the reading from a secondary source nor soften this reason";
 
 /// Why the baseline-feature row is unchecked, where five rows beside it no longer are.
 ///
@@ -1552,11 +1594,12 @@ const ICC_COLOUR_SPACES: [(&[u8], i64); 4] =
 ///
 /// # Why part 4's version of this rule is readable here and part 2's is not
 ///
-/// ISO 19005-2 names four ICC texts and asks the profile to conform to one of them; this
-/// project holds none of the four, so that row stays unchecked. **Part 4 states the same rule by
-/// deferring to ISO 32000-2 §8.6.5.5 instead**, and that clause is in `doc/md/`. So the half a
-/// reader here can actually check is checked, and the halves are separate rows rather than one
-/// row applying part 4's clause to a part 2 file.
+/// ISO 19005-2 names four ICC texts and asks the profile to conform to one of them; this project
+/// holds two of the four, which is enough for their required-tag lists and not for the rest of
+/// either document, so that row stays unchecked with a reason saying which half is which.
+/// **Part 4 states the same rule by deferring to ISO 32000-2 §8.6.5.5 instead**, and that clause
+/// is in `doc/md/`. So the half a reader here can actually check is checked, and the halves are
+/// separate rows rather than one row applying part 4's clause to a part 2 file.
 ///
 /// Three things §8.6.5.5 states about the *file*:
 ///
@@ -1577,9 +1620,10 @@ const ICC_COLOUR_SPACES: [(&[u8], i64); 4] =
 /// ISO 19005-2 section 6.2.4.2, first sentence, the half a version number settles.
 ///
 /// The clause admits four texts: ICC.1:1998-09, ICC.1:2001-12, ICC.1:2003-09 and ISO 15076-1.
-/// This project holds none of them, so *conformance* to one is the unchecked row above. What a
-/// profile's header does settle is which text it claims, and one claim is decidable against the
-/// texts that are here.
+/// Two of them are here and two are not, so *conformance* to one is still the unchecked row
+/// above — what the two held texts settle is their required-tag lists and the row beside this
+/// one is where that is done. What a profile's header does settle is which text it claims, and
+/// one claim is decidable against the texts that are here.
 ///
 /// **A profile stating major version 5 claims ICC.2, and ICC.2 is not one of the four.** Its
 /// section 7.2.6 states that 5.0.0.0 is the version consistent with iccMAX, and its section 1

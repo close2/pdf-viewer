@@ -25,6 +25,7 @@ use crate::json::Value;
 use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Metrics, Substitutes};
 use super::rewrite::Rewrite;
+use super::sites::{self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, Sites};
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
 
@@ -534,6 +535,12 @@ pub(super) struct Prepared {
     /// key — a claim that the file follows §14.8's conventions, made by the converter rather
     /// than demonstrated by the file.
     pub(super) structure: Result<(), Because>,
+    /// `doc/pdf-a-mitigations.md` section 13.3's *owed, not optional* preparations.
+    ///
+    /// One field rather than seven because they are one class of work — see [`Owed`] — and
+    /// because a reader of this struct should be able to see which of its parts are the two
+    /// constructions this verb was built around and which are the lossless rewrites it grew.
+    pub(super) owed: Owed,
 }
 
 impl Prepared {
@@ -541,12 +548,7 @@ impl Prepared {
     pub(super) fn of(plan: &ArchivePlan, document: &Document, input: &pdf_archive::Report) -> Self {
         let failed: BTreeSet<&'static str> =
             input.failures().map(|judgement| judgement.id).collect();
-        let wanted = |rewrite: Rewrite| {
-            REMEDIES.iter().any(|remedy| {
-                failed.contains(remedy.requirement)
-                    && remedy.answer.rewrites().contains(&Some(rewrite))
-            })
-        };
+        let wanted = |rewrite: Rewrite| wanted_by(&failed, rewrite);
         let mut spare = Spare::of(document);
         let catalog = document.catalog().ok();
         let intent = match (wanted(Rewrite::OutputIntent), catalog.as_ref()) {
@@ -652,6 +654,7 @@ impl Prepared {
             substitutes,
             metrics,
             structure,
+            owed: Owed::of(plan, document, input, &mut spare, &failed),
         }
     }
 
@@ -671,6 +674,15 @@ impl Prepared {
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
             Rewrite::RestateFontMetrics => self.metrics.as_ref().err().copied(),
+            Rewrite::RenderingIntent => self.owed.rendering_intents.as_ref().err().copied(),
+            Rewrite::BlendModeNormal => self.owed.blend_modes.as_ref().err().copied(),
+            Rewrite::NormalAppearanceFromState => {
+                self.owed.appearance_states.as_ref().err().copied()
+            }
+            Rewrite::OptionalContentOrder => self.owed.orders.as_ref().err().copied(),
+            Rewrite::PageResources => self.owed.page_resources.as_ref().err().copied(),
+            Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
+            Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
             _ => None,
@@ -710,7 +722,88 @@ impl Prepared {
                 out.insert(*id, object.clone());
             }
         }
+        if let Ok(states) = &self.owed.appearance_states {
+            for (id, object) in &states.written {
+                out.insert(*id, object.clone());
+            }
+        }
         out
+    }
+}
+
+/// `doc/pdf-a-mitigations.md` section 13.3's *owed, not optional* preparations, taken together.
+///
+/// A type of its own rather than seven more lines inside [`Prepared::of`], and the grouping is
+/// the catalogue's own: each of these answers a requirement that was refused only because the
+/// lossless rewrite had not been written. They share a rule with every other preparation —
+/// **nothing is prepared that no failed requirement asked for** — so a conforming document has
+/// its fonts, its annotations and its optional content left unread.
+pub(super) struct Owed {
+    /// The graphics states and images whose rendering intent is restated, or why none are.
+    pub(super) rendering_intents: Result<Sites, Because>,
+    /// The dictionaries whose `/BM` array is restated as `Normal`, or why none are.
+    pub(super) blend_modes: Result<Sites, Because>,
+    /// The annotations whose normal appearance collapses to one state, or why none do.
+    pub(super) appearance_states: Result<AppearanceStates, Because>,
+    /// The optional content configurations whose `/Order` is completed, or why none are.
+    pub(super) orders: Result<CompletedOrders, Because>,
+    /// The pages given the resources dictionary they inherit, or why none are.
+    pub(super) page_resources: Result<PageResources, Because>,
+    /// The font descriptors whose incomplete subset description goes, or why none do.
+    pub(super) descriptor_sets: Result<DescriptorSets, Because>,
+    /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
+    pub(super) cid_to_gid: Result<Sites, Because>,
+}
+
+impl Owed {
+    /// Each of the seven, where a failed requirement asked for it.
+    pub(super) fn of(
+        plan: &ArchivePlan,
+        document: &Document,
+        input: &pdf_archive::Report,
+        spare: &mut Spare,
+        failed: &BTreeSet<&'static str>,
+    ) -> Self {
+        let wanted = |rewrite: Rewrite| wanted_by(failed, rewrite);
+        Self {
+            rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
+                sites::rendering_intents(input)
+            }),
+            blend_modes: asked(wanted(Rewrite::BlendModeNormal), || {
+                sites::blend_modes(document, input)
+            }),
+            appearance_states: asked(wanted(Rewrite::NormalAppearanceFromState), || {
+                sites::appearance_states(document, input, spare)
+            }),
+            orders: asked(wanted(Rewrite::OptionalContentOrder), || {
+                sites::completed_orders(document)
+            }),
+            page_resources: asked(wanted(Rewrite::PageResources), || {
+                sites::page_resources(document, input)
+            }),
+            descriptor_sets: asked(wanted(Rewrite::DescriptorSetRemoved), || {
+                sites::descriptor_sets(document, input)
+            }),
+            cid_to_gid: asked(wanted(Rewrite::CidToGidIdentity), || {
+                sites::cid_to_gid_maps(document, input, plan.target)
+            }),
+        }
+    }
+}
+
+/// Whether any requirement the document failed is answered by this rewrite.
+fn wanted_by(failed: &BTreeSet<&'static str>, rewrite: Rewrite) -> bool {
+    REMEDIES.iter().any(|remedy| {
+        failed.contains(remedy.requirement) && remedy.answer.rewrites().contains(&Some(rewrite))
+    })
+}
+
+/// One preparation, run only where a failed requirement asked for it.
+fn asked<T>(wanted: bool, prepare: impl FnOnce() -> Result<T, Because>) -> Result<T, Because> {
+    if wanted {
+        prepare()
+    } else {
+        Err(Because::NotBuiltYet(NOT_ASKED_FOR))
     }
 }
 

@@ -90,9 +90,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("6.7.3.2"),
         applies: Applies::FromLevel(Level::A),
         check: Check::Unchecked(
-            "asking it needs a walk of every page's text-showing operators and a decision, per \
-             run, about whether its script separates words that way — neither of which this \
-             crate reaches from a dictionary",
+            "the walk this reason used to name as missing is here: `crate::survey` reads every \
+             page's text-showing operators and keeps the strings they drew, per font. What is \
+             still out of reach is the sentence's two conditions, and neither is a walk. The \
+             rule binds only a language or script system that normally separates words with \
+             space characters, and nothing in a file is required to say which a run of text is \
+             in: a /Lang is optional on the catalog, on a structure element and on a \
+             marked-content property list alike, it names a language rather than a script, and \
+             no show string carries one. And where it does bind, deciding that a space is \
+             missing means \
+             knowing where one word ends and the next begins, which the subclause's own NOTE \
+             puts beyond any boundary in the file: a single word may span two or more show \
+             strings, so only the characters decide, and segmenting them needs a lexicon this \
+             project has no business carrying. Under-reporting is not available either, because \
+             the failure is an *absent* space",
         ),
     },
     Requirement {

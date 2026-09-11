@@ -3028,7 +3028,58 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// what ADR 0267 decided and this page is its third witness**, after `issue7580.pdf`'s zeroes and
 /// `bug1671312_ArialNarrow.pdf`'s 922: the entry is stated and unusable, on the very page whose
 /// cap-height deficit §9.8's row prices.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
+/// # A twelfth, and it is the *first* page this group has where the references are **two**
+/// foundries rather than one
+///
+/// **`ICC.1-2022-05.pdf` page 1** arrived in the pool without a pixel moving: `doc/*.pdf` is
+/// gitignored and the gate walks it for page one of every specification this project holds
+/// (`corpus_items`' `specifications`), so the rounds that fetched six specifications into that
+/// directory on 2026-09-09 and -10 — four of them ICC's — grew the judged population by six
+/// pages, five of which agree and one of which does not. That is worth saying before anything
+/// about the page, because the ratchet reports it as *newly contradicted* and the round it fires
+/// on is not the round that caused it: agrees went 985 → 990 and contradicted 61 → 62 with no
+/// pixel moved anywhere.
+///
+/// The failing bound is the **worst tile alone** — 45.70 against 40.00, with mean 2.64 of 5.00,
+/// differing 2.61% of 5.00% and ssim 0.9652 of 0.9000 all inside — and the worst tile is at
+/// (256, 96), which is the `International Color Consortium®` wordmark. `pdffonts` says why: the
+/// wordmark is `Arial-ItalicMT`, **not embedded**, beside a non-embedded `ArialMT` and
+/// `Arial-BoldMT`; everything else on the page is an embedded Calibri or Arial subset.
+///
+/// **Two designs, and the vote goes to the pair that share a foundry.** Ink in levels of 255
+/// over the wordmark's own box (`-crop 380x110+230+60 -alpha off -channel R`, the gate's
+/// artefacts at the page's own scale):
+///
+/// ```text
+///   ours          21.906      Liberation Sans, compiled in (data/standard-fonts)
+///   poppler       21.878      fc-match Arial:italic → Arimo-Italic, the same design
+///   mupdf         22.994      URW NimbusSans, compiled in
+///   ghostscript   23.037      URW NimbusSans, and it says so
+///   hayro         23.160
+/// ```
+///
+/// `ghostscript` without `-q` names its own: *Loading font Arial-ItalicMT (or substitute) from
+/// /usr/share/ghostscript/Resource/Font/NimbusSans-Italic*, with `ArialMT` and `Arial-BoldMT`
+/// going the same way. `fc-match Arial:italic` on this machine answers `Arimo-Italic.ttf`, which
+/// is the Liberation design under its Chrome OS name — so `poppler`, asking fontconfig for the
+/// document's own name, lands where we already are. **The metrics are the same and the weight is
+/// not**, which is what a metric-compatible clone means: at 8× (`render_at` against
+/// `pdftoppm -cropbox -r 576`, `mutool draw -r 576`, `gs -dUseCropBox -r576`) the wordmark's ink
+/// spans **3839 device columns for us and for `poppler` against 3844 and 3843** for the two URW
+/// programs — 0.13% over 3839 columns — while the ink inside that span differs by **5.3%**. Side
+/// by side at six times, the same words sit in the same places in a different design.
+///
+/// **So this is trap 9's sixth bullet with the camps split**, and that is what makes the page
+/// worth a section rather than a line. On `bug847420.pdf` above, all three voting references drew
+/// one face and the tell was that they agreed to the pixel; here they draw two, the consensus
+/// that convicts us is `mupdf` + `ghostscript`, and the voting reference it excludes is the one
+/// whose face is ours. §9.5 NOTE 5 is quoted at the head of this note and settles it: the results
+/// "depend on the availability of fonts in the PDF processor's environment". Nothing in ISO
+/// 32000-2 chooses between URW's Helvetica clone and Liberation's, and a bound that convicts a
+/// reader for holding the second is measuring this machine's font directory. ADR 0962.
+///
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
+    "ICC.1-2022-05.pdf page 1",
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
     "issue15716.pdf page 1",

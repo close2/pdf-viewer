@@ -25,6 +25,10 @@ use super::prepare::{
     Appearances, Cleaned, DefaultCmyk, Intent, Metadata, Prepared, intent_dictionary,
     metadata_stream, output_intent_entries,
 };
+use super::sites::{
+    self, AppearanceStates, CompletedOrders, DescriptorSets, PageResources, RELATIVE_COLORIMETRIC,
+    RENDERING_INTENTS,
+};
 use super::to_unicode::DerivedMaps;
 
 /// The deepest a rewritten object's value tree is walked for references.
@@ -223,10 +227,123 @@ pub enum Rewrite {
     /// outline changes: what is rewritten is `hmtx` for an sfnt and the leading width operand of
     /// a charstring for a CFF.
     RestateFontMetrics,
+    /// Every graphics state's `/RI` and image dictionary's `/Intent` that names an intent the
+    /// base standard does not define is restated as `RelativeColorimetric`.
+    ///
+    /// ISO 19005-2 section 6.2.6 admits only the four §8.6.5.8 defines, and that subclause says
+    /// what a reader does with any other name:
+    ///
+    /// > If a PDF processor does not recognise the specified name, it shall use the
+    /// > RelativeColorimetric intent by default.
+    ///
+    /// So the entry is restated to the name every conforming reader was already using, which is
+    /// `doc/adr/0948`'s `Stated` class rather than a choice this converter made. **The same name
+    /// as the `ri` operator's operand is not touched**: that is inside a content stream.
+    RenderingIntent,
+    /// Every `/BM` that is an array naming no blend mode the base standard defines is restated
+    /// as the name `Normal`.
+    ///
+    /// ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9 require a defined mode, and
+    /// §8.4.1's Table 57 says what a reader does with such an array:
+    ///
+    /// > In the latter case, the PDF reader shall use the first blend mode in the array that it
+    /// > recognises (or Normal if it recognises none of them).
+    ///
+    /// An array with no recognised name in it is therefore already `Normal` to every conforming
+    /// reader, and writing the name down changes no composite. **A bare name the standard does
+    /// not define is left alone**, because no sentence of the standard says what it means.
+    BlendModeNormal,
+    /// Every annotation whose `/AP` `/N` is a subdictionary of states, and which states an `/AS`
+    /// naming one of them, has `/N` restated as that one stream.
+    ///
+    /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require the normal appearance of
+    /// an annotation that is not a button widget to be a stream, and §12.5.2's Table 166 says
+    /// which of a subdictionary's streams a reader draws — the `/AS` entry is
+    ///
+    /// > The annotation's appearance state , which selects the applicable appearance stream from
+    /// > an appearance subdictionary
+    ///
+    /// So the collapse writes down the reader's own choice. **Where the annotation states no
+    /// `/AS` nothing is written**: nothing in the file then says which state the document is in.
+    NormalAppearanceFromState,
+    /// Every optional content configuration whose `/Order` omits a group the file states has the
+    /// missing groups appended to it, in the order `/OCGs` lists them.
+    ///
+    /// ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10 require the array to reference every
+    /// group. The groups are the file's and the order is the file's, so nothing is invented; and
+    /// §8.11.4.3's Table 99 says what the entry decides, which is a panel rather than a page:
+    ///
+    /// > An array specifying the order for presentation of optional content groups in an
+    /// > interactive PDF processor's user interface.
+    ///
+    /// > Any groups not listed in this array shall not be presented in any user interface that
+    /// > uses the configuration.
+    ///
+    /// So a group a producer left out of the array was a group no reader offered, and appending
+    /// it adds a line to that list. **No content changes**: §8.11.2.3 decides what is drawn from
+    /// each group's own state, which this rewrite does not touch.
+    OptionalContentOrder,
+    /// Every page that names a resource and states no `/Resources` of its own is given the
+    /// dictionary §7.7.3.3's inheritance already puts in force.
+    ///
+    /// ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2 require a content stream's
+    /// resources to be *explicitly associated* with it, which `TechNote 0010`'s A003 reads as
+    /// the `/Resources` entry of the page itself. Copying the inherited value down resolves
+    /// every name to the object it already resolved to. **Only a page**: a form `XObject` or a
+    /// Type 3 glyph procedure with no resources draws with whatever invoked it, and one
+    /// dictionary cannot answer for every invocation.
+    PageResources,
+    /// Every font descriptor whose `/CharSet` or `/CIDSet` does not describe the whole of its own
+    /// embedded program loses that entry.
+    ///
+    /// ISO 19005-2 section 6.2.11.4.2 requires each to be complete. §9.8.1's Table 122 makes each
+    /// optional, deprecates both, and says what is indicated by their absence rather than by
+    /// their contents — `/CharSet` is
+    ///
+    /// > ( Optional; meaningful only in Type 1 fonts; PDF 1.1; deprecated in PDF 2.0 ) A string
+    /// > listing the character names defined in a font subset.
+    ///
+    /// > If this entry is absent, the only indication of a font subset shall be the subset tag
+    /// > in the FontName entry
+    ///
+    /// and `/CIDSet` is "( Optional; deprecated in PDF 2.0 ) A stream identifying which CIDs are
+    /// present in the `CIDFont` file." Both describe a program **this file carries**, so what an
+    /// incomplete one states is recoverable from the program itself and removing it loses
+    /// nothing a reader could use.
+    ///
+    /// **Recomputing the entry is the other lossless route, and it is not the one taken.** The
+    /// base standard deprecates both keys and ISO 19005-4 states no such requirement at all, so
+    /// the entry a conforming file wants is no entry — writing a fuller one would leave a
+    /// deprecated key in an archive to say what the subset tag already says.
+    DescriptorSetRemoved,
+    /// Every embedded Type 2 `CIDFont` stating no `/CIDToGIDMap` is given the name `Identity`.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.2 requires the entry. **Written only at a part 2 target**,
+    /// and the reason is which base document the target names: ISO 19005-2 section 5.1 makes a
+    /// PDF/A-2 file one that adheres to ISO 32000-1, whose Table 117 gives `Identity` as this
+    /// entry's own default — so writing it restates what a reader of that edition already
+    /// applies. ISO 32000-2's Table 121 states no default, so the same write at a part 4 target
+    /// would assert a mapping its base document does not supply.
+    CidToGidIdentity,
+    /// Every XMP packet whose header states the deprecated `bytes` or `encoding` attribute loses
+    /// it.
+    ///
+    /// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 forbid both. Each describes
+    /// the packet's own framing rather than anything inside it, so the attribute is cut out of
+    /// the processing instruction and every other byte of the producer's packet crosses
+    /// unchanged — `pdf_model::xmp::without_deprecated_header_attributes`.
+    PacketHeaderAttributes,
 }
 
 impl Rewrite {
     /// What the rewrite does, in one sentence for a person.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per rewrite, and the arms are prose for a person rather than code. \
+                  Splitting the match would need either a catch-all, which stops a new rewrite \
+                  from failing to compile until somebody has written its sentence, or an \
+                  unreachable arm"
+    )]
     #[must_use]
     pub const fn describe(self) -> &'static str {
         match self {
@@ -301,6 +418,40 @@ impl Rewrite {
                 "an embedded font program's stated advances are restated to the widths the font \
                  dictionary already states, which is the one of the two that does not move a mark"
             }
+            Self::RenderingIntent => {
+                "a graphics state's RI or an image's Intent that names no intent ISO 32000-2 \
+                 defines is restated as RelativeColorimetric, which \u{a7}8.6.5.8 is what a \
+                 processor uses for such a name anyway"
+            }
+            Self::BlendModeNormal => {
+                "a BM that is an array naming no blend mode ISO 32000-2 defines is restated as \
+                 Normal, which \u{a7}8.4.1's Table 57 is what a reader takes from such an array"
+            }
+            Self::NormalAppearanceFromState => {
+                "an annotation whose normal appearance is a subdictionary of states is given the \
+                 one stream its own AS entry selects"
+            }
+            Self::OptionalContentOrder => {
+                "an optional content configuration's Order array gains the groups it left out, \
+                 in the order the file's OCGs array lists them"
+            }
+            Self::PageResources => {
+                "a page that names a resource and states no Resources of its own is given the \
+                 dictionary ISO 32000-2 \u{a7}7.7.3.3's inheritance already puts in force for it"
+            }
+            Self::DescriptorSetRemoved => {
+                "a font descriptor's CharSet or CIDSet, which describes the embedded program \
+                 incompletely and which ISO 32000-2 deprecates, is removed"
+            }
+            Self::CidToGidIdentity => {
+                "an embedded Type 2 CIDFont stating no CIDToGIDMap is given the name Identity, \
+                 which ISO 32000-1 gives as that entry's default and which a PDF/A-2 file's own \
+                 base document therefore already applies"
+            }
+            Self::PacketHeaderAttributes => {
+                "an XMP packet header loses the deprecated bytes or encoding attribute, leaving \
+                 every other byte of the packet as its producer wrote it"
+            }
         }
     }
 
@@ -332,6 +483,14 @@ impl Rewrite {
             Self::AppearanceDictionary => "appearance-dictionary",
             Self::SubstituteFontProgram => "substitute-font-program",
             Self::RestateFontMetrics => "restate-font-metrics",
+            Self::RenderingIntent => "rendering-intent",
+            Self::BlendModeNormal => "blend-mode-normal",
+            Self::NormalAppearanceFromState => "normal-appearance-from-state",
+            Self::OptionalContentOrder => "optional-content-order",
+            Self::PageResources => "page-resources",
+            Self::DescriptorSetRemoved => "descriptor-set-removed",
+            Self::CidToGidIdentity => "cid-to-gid-identity",
+            Self::PacketHeaderAttributes => "packet-header-attributes",
         }
     }
 }
@@ -376,6 +535,13 @@ pub(super) fn convert(
         appearances: prepared.appearances.as_ref().ok(),
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
+        rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
+        blend_modes: prepared.owed.blend_modes.as_ref().ok(),
+        appearance_states: prepared.owed.appearance_states.as_ref().ok(),
+        orders: prepared.owed.orders.as_ref().ok(),
+        page_resources: prepared.owed.page_resources.as_ref().ok(),
+        descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
+        cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -873,45 +1039,25 @@ impl CmykSites {
     }
 
     /// A page with no `Resources` entry of its own, given the one §7.7.3.3 already puts in force.
+    ///
+    /// The value is `super::sites::inherited_resources`'s, which is the same question asked for
+    /// `Rewrite::PageResources` — a page inherits one dictionary and both rewrites give it that
+    /// one. What differs is only where the `/DefaultCMYK` then goes: a reference is shared, so
+    /// the entry is written into the dictionary once for every page that shares it, and a copy
+    /// is the page's own object and takes the entry inline.
     fn inherited(&mut self, document: &Document, id: ObjectId, page: &Dictionary) {
-        let mut node = page.clone();
-        for _ in 0..MAX_INHERITANCE_DEPTH {
-            let Some(parent) = node.get("Parent").and_then(Object::as_reference) else {
-                break;
-            };
-            let Some(above) = document.get(parent).as_dict().cloned() else {
-                break;
-            };
-            match above.get("Resources") {
-                // Inherited by reference: the page is given the same reference, so the dictionary
-                // is not copied and the entry is written into it once for every page that shares
-                // it. Nothing about what the page resolves changes.
-                Some(reference @ Object::Reference(resources)) => {
-                    self.resources.insert(*resources);
-                    self.pages.insert(id, reference.clone());
-                    return;
-                }
-                Some(Object::Dictionary(resources)) => {
-                    self.pages.insert(id, Object::Dictionary(resources.clone()));
-                    // The copy is the page's own object now, so the entry goes into it inline.
-                    self.direct.insert(id);
-                    return;
-                }
-                _ => node = above,
+        let resources = sites::inherited_resources(document, page);
+        match &resources {
+            Object::Reference(at) => {
+                self.resources.insert(*at);
+            }
+            _ => {
+                self.direct.insert(id);
             }
         }
-        // No resources anywhere above it: the page gets one holding the default and nothing else,
-        // which is the smallest dictionary that makes the entry explicitly associated.
-        self.pages.insert(id, Object::Dictionary(Dictionary::new()));
-        self.direct.insert(id);
+        self.pages.insert(id, resources);
     }
 }
-
-/// How far up §7.7.3.3's page tree a `Resources` entry is looked for.
-///
-/// `pdf_syntax::Limits::DEFAULT`'s `max_depth`, which is the depth the parser admitted the tree
-/// at: a `/Parent` chain longer than that is one no page in the document was read through.
-const MAX_INHERITANCE_DEPTH: usize = 256;
 
 /// Which kind of content-stream holder a resource entry has to be to matter.
 #[derive(Debug, Clone, Copy)]
@@ -985,6 +1131,19 @@ fn appearance_streams(document: &Document, page: &Dictionary) -> Vec<Object> {
     out
 }
 
+/// Which entry [`Rewriter::restate_inside`] is restating.
+///
+/// Two rewrites share one walk because they share one problem: the validator names the object a
+/// dictionary is *written in*, and the dictionary the requirement is about may be several levels
+/// down inside it. What differs is one key and one test, which is what this enum carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Entry {
+    /// A graphics state's `/RI`, and an image `XObject`'s `/Intent`.
+    RenderingIntent,
+    /// A `/BM` written as an array of names.
+    BlendMode,
+}
+
 /// What became of one object on the way into the output.
 enum Rewritten {
     /// Unchanged: the source's bytes cross to the sink.
@@ -1023,6 +1182,20 @@ struct Rewriter<'a> {
     substitutes: Option<&'a Substitutes>,
     /// The font program stream to write in place of each one being restated.
     metrics: Option<&'a Metrics>,
+    /// The graphics states and images whose rendering intent is restated.
+    rendering_intents: Option<&'a sites::Sites>,
+    /// The dictionaries whose `/BM` array is restated.
+    blend_modes: Option<&'a sites::Sites>,
+    /// The stream each annotation's normal appearance collapses to.
+    appearance_states: Option<&'a AppearanceStates>,
+    /// The `/Order` arrays completed, and where each goes.
+    orders: Option<&'a CompletedOrders>,
+    /// The `/Resources` each page with none of its own is given.
+    page_resources: Option<&'a PageResources>,
+    /// The subset descriptions removed from each font descriptor.
+    descriptor_sets: Option<&'a DescriptorSets>,
+    /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
+    cid_to_gid: Option<&'a sites::Sites>,
 }
 
 impl Rewriter<'_> {
@@ -1135,6 +1308,7 @@ impl Rewriter<'_> {
         }
         changed |= self.write_default_cmyk(id, &mut out, applied);
         changed |= self.complete_file_specification(&mut out, applied);
+        changed |= self.owed_rewrites(id, &mut out, applied);
         if self.wants(Rewrite::ToUnicode)
             && let Some(at) = self.to_unicode.and_then(|maps| maps.at.get(&id))
         {
@@ -1146,6 +1320,305 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed.then_some(out)
+    }
+
+    /// `doc/pdf-a-mitigations.md` section 13.3's rewrites, each at the objects its own
+    /// preparation found.
+    ///
+    /// One function rather than seven branches in [`Self::rewrite_dictionary`] because they share
+    /// exactly one property and it is the one worth naming: every one of them writes a value the
+    /// standard states, at objects `super::sites` chose from the validator's findings, and
+    /// nowhere else.
+    fn owed_rewrites(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        changed |= self.restate_rendering_intent(id, out, applied);
+        changed |= self.restate_blend_mode(id, out, applied);
+        changed |= self.collapse_appearance_states(id, out, applied);
+        changed |= self.complete_order(id, out, applied);
+        changed |= self.attach_page_resources(id, out, applied);
+        changed |= self.remove_descriptor_sets(id, out, applied);
+        changed |= self.write_cid_to_gid_map(id, out, applied);
+        changed
+    }
+
+    /// §8.6.5.8's answer, written into every entry inside this object that stated a name it does
+    /// not define.
+    ///
+    /// **Inside the object rather than on its top-level dictionary**, and that is not a detail:
+    /// `pdf_archive` reports a dictionary at the object it is written in, so a resource
+    /// dictionary a page states directly carries its graphics states at the page's own object
+    /// number. An edit that looked only at the dictionary the number names would fix nothing
+    /// there and leave the requirement failed.
+    ///
+    /// The two keys are guarded differently, because only one of them is unambiguous. `/RI` is a
+    /// graphics state parameter and §8.4.5's Table 57 gives it no other home, so any value
+    /// outside §8.6.5.8's four names is the one this requirement is about. `/Intent` is an image
+    /// `XObject`'s in §8.9.5.1's Table 87 **and** an optional content group's in §8.11.2.3,
+    /// where its values are `View` and `Design` — so it is restated only where the dictionary
+    /// states `/Subtype /Image`, which is the validator's own test.
+    fn restate_rendering_intent(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::RenderingIntent)
+            || !self
+                .rendering_intents
+                .is_some_and(|sites| sites.at.contains(&id))
+        {
+            return false;
+        }
+        let mut places = 0usize;
+        self.restate_inside(out, Entry::RenderingIntent, 0, &mut places);
+        for _ in 0..places {
+            count(applied, Rewrite::RenderingIntent);
+        }
+        places > 0
+    }
+
+    /// §8.4.1's Table 57 answer, written wherever inside this object the entry was an array of
+    /// names it does not define.
+    ///
+    /// [`Self::restate_rendering_intent`]'s reason for descending, and `/BM` needs no guard of
+    /// its own: §8.4.1's Table 57 is the only place the base standard gives the key, and an array
+    /// with no recognised name in it means `Normal` to a reader wherever it is written.
+    fn restate_blend_mode(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::BlendModeNormal)
+            || !self.blend_modes.is_some_and(|sites| sites.at.contains(&id))
+        {
+            return false;
+        }
+        let mut places = 0usize;
+        self.restate_inside(out, Entry::BlendMode, 0, &mut places);
+        for _ in 0..places {
+            count(applied, Rewrite::BlendModeNormal);
+        }
+        places > 0
+    }
+
+    /// One dictionary and everything written inside it, with `entry` restated where it is wrong.
+    ///
+    /// References are **not** followed, for the reason `pdf_archive`'s own walk does not follow
+    /// them: a dictionary written as its own object is reported at that object and is reached by
+    /// this rewrite there.
+    fn restate_inside(
+        &self,
+        dict: &mut Dictionary,
+        entry: Entry,
+        depth: usize,
+        places: &mut usize,
+    ) {
+        if depth >= sites::MAX_ENTRY_DEPTH {
+            return;
+        }
+        if let Some((key, value)) = self.restated_entry(dict, entry) {
+            dict.insert(Name::new(key.as_bytes()), value);
+            *places = places.saturating_add(1);
+        }
+        let deeper = depth.saturating_add(1);
+        let inside: Vec<(Name, Object)> = dict
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        for (key, value) in inside {
+            let mut held = value;
+            if self.restate_value(&mut held, entry, deeper, places) {
+                dict.insert(key, held);
+            }
+        }
+    }
+
+    /// One value inside a dictionary, and whether the restating changed it.
+    fn restate_value(
+        &self,
+        value: &mut Object,
+        entry: Entry,
+        depth: usize,
+        places: &mut usize,
+    ) -> bool {
+        let before = *places;
+        match value {
+            Object::Dictionary(dict) => self.restate_inside(dict, entry, depth, places),
+            Object::Array(items) => {
+                for item in items {
+                    self.restate_value(item, entry, depth.saturating_add(1), places);
+                }
+            }
+            _ => {}
+        }
+        *places > before
+    }
+
+    /// The entry this dictionary states wrongly, and what it is to state instead.
+    fn restated_entry(&self, dict: &Dictionary, entry: Entry) -> Option<(&'static str, Object)> {
+        match entry {
+            Entry::RenderingIntent => {
+                let key = if dict.get("RI").is_some() {
+                    "RI"
+                } else if dict.get("Intent").is_some() && self.subtype_is(dict, b"Image") {
+                    "Intent"
+                } else {
+                    return None;
+                };
+                let stated = self.document.get_key(dict, key);
+                let defined = stated
+                    .as_name()
+                    .is_some_and(|name| RENDERING_INTENTS.contains(&name.as_bytes()));
+                (!defined).then(|| (key, Object::Name(Name::new(RELATIVE_COLORIMETRIC))))
+            }
+            Entry::BlendMode => {
+                dict.get("BM")?;
+                let Object::Array(names) = self.document.get_key(dict, "BM") else {
+                    return None;
+                };
+                names
+                    .iter()
+                    .all(|name| !sites::is_blend_mode(&self.document.resolve(name)))
+                    .then(|| ("BM", Object::Name(Name::new(&b"Normal"[..]))))
+            }
+        }
+    }
+
+    /// The one appearance stream an annotation's `/AS` selects, written as its `/N`.
+    ///
+    /// The `/AP` dictionary is written **direct** whatever the source stated it as, for the
+    /// reason [`Rewrite::OutputIntent`]'s array is: the value is the annotation's own and this
+    /// walk rewrites objects, so an `/AP` some other object held is copied here and left behind
+    /// where nothing else refers to it. Every other key of it crosses unchanged — an `/R` or a
+    /// `/D` beside the normal appearance is a different requirement's business.
+    fn collapse_appearance_states(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(stream) = self
+            .appearance_states
+            .filter(|_| self.wants(Rewrite::NormalAppearanceFromState))
+            .and_then(|states| states.at.get(&id))
+        else {
+            return false;
+        };
+        let Some(mut appearance) = self.document.get_key(out, "AP").as_dict().cloned() else {
+            return false;
+        };
+        appearance.insert(Name::new(&b"N"[..]), Object::Reference(*stream));
+        out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
+        count(applied, Rewrite::NormalAppearanceFromState);
+        true
+    }
+
+    /// An optional content configuration's completed `/Order`, or the `/OCProperties` object
+    /// holding configurations written directly inside it.
+    fn complete_order(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(orders) = self
+            .orders
+            .filter(|_| self.wants(Rewrite::OptionalContentOrder))
+        else {
+            return false;
+        };
+        if let Some(order) = orders.at.get(&id) {
+            out.insert(Name::new(&b"Order"[..]), Object::Array(order.clone()));
+            count(applied, Rewrite::OptionalContentOrder);
+            return true;
+        }
+        if let Some((at, properties)) = &orders.properties
+            && *at == id
+        {
+            *out = properties.clone();
+            count(applied, Rewrite::OptionalContentOrder);
+            return true;
+        }
+        false
+    }
+
+    /// §7.7.3.3's inherited resources, copied down onto the page that already resolves through
+    /// them.
+    ///
+    /// **Never over an entry that is there.** The population is a page stating none, and a page
+    /// the `/DefaultCMYK` rewrite has already given one is a page this rewrite has nothing left
+    /// to do for — the value the two write is the same value, read from the same tree.
+    fn attach_page_resources(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::PageResources) || out.get("Resources").is_some() {
+            return false;
+        }
+        let Some(resources) = self
+            .page_resources
+            .and_then(|pages| pages.at.get(&id))
+            .cloned()
+        else {
+            return false;
+        };
+        out.insert(Name::new(&b"Resources"[..]), resources);
+        count(applied, Rewrite::PageResources);
+        true
+    }
+
+    /// A font descriptor's incomplete `/CharSet` or `/CIDSet`, removed.
+    fn remove_descriptor_sets(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(keys) = self
+            .descriptor_sets
+            .filter(|_| self.wants(Rewrite::DescriptorSetRemoved))
+            .and_then(|sets| sets.at.get(&id))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        for key in keys {
+            if out.remove(key).is_some() {
+                count(applied, Rewrite::DescriptorSetRemoved);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// ISO 32000-1's default for `/CIDToGIDMap`, written where a part 2 target asks for the
+    /// entry.
+    fn write_cid_to_gid_map(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::CidToGidIdentity)
+            || !self.cid_to_gid.is_some_and(|sites| sites.at.contains(&id))
+            || !self.document.get_key(out, "CIDToGIDMap").is_null()
+        {
+            return false;
+        }
+        out.insert(
+            Name::new(&b"CIDToGIDMap"[..]),
+            Object::Name(Name::new(&b"Identity"[..])),
+        );
+        count(applied, Rewrite::CidToGidIdentity);
+        true
     }
 
     /// An embedded file's specification: §7.11.3's `/F` and `/UF`, and its `/AFRelationship`.
@@ -1323,6 +1796,19 @@ impl Rewriter<'_> {
             mark_info.insert(Name::new(&b"Marked"[..]), Object::Boolean(true));
             catalog.insert(Name::new(&b"MarkInfo"[..]), Object::Dictionary(mark_info));
             count(applied, Rewrite::MarkInfo);
+            changed = true;
+        }
+        if self.wants(Rewrite::OptionalContentOrder)
+            && let Some(orders) = self.orders
+            && let Some(properties) = &orders.in_catalog
+        {
+            // The catalog states `/OCProperties` directly, so the completed configurations go
+            // back into the catalog rather than into an object of their own.
+            catalog.insert(
+                Name::new(&b"OCProperties"[..]),
+                Object::Dictionary(properties.clone()),
+            );
+            count(applied, Rewrite::OptionalContentOrder);
             changed = true;
         }
         if self.wants(Rewrite::AlternatePresentations)
