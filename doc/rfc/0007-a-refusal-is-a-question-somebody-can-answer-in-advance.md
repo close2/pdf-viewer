@@ -507,11 +507,31 @@ configuration file this project ships; §3's format is already the whole of it. 
 that almost nobody wants to answer a hundred and fifty questions, and almost everybody can say
 which of half a dozen sentences describes their archive.
 
-### 5a.1 `as-if-printed` is derivable, not a taste
+### 5a.1 A profile is answers to refusals, and nothing else
 
-Most policies would be somebody's opinion about what matters. This one is not, and that is what
-makes it the best of the proposed profiles: **the standard states what a printed page shows**, so
-the profile's content can be read out of clauses rather than argued.
+**The owner corrected this section on 2026-09-11**: `as-if-printed` is *"configuration choices
+regarding the refusals"*. That is narrower than the first draft implied, and the narrowness is the
+point — so it is worth stating what the profile is **not** before what it is.
+
+It is **not** a mode in which the converter inspects each annotation's `Print` flag, or each
+optional-content group's `PrintState`, and decides per document what a printed page would have
+shown. That would be new behaviour, new code and a new thing to get wrong. A profile is a
+configuration file this project ships: a list of refusal sites with an answer beside each,
+identical in kind to one an operator writes by hand.
+
+What the printing criterion supplies is **the reason each answer was chosen** — it is the profile
+author's yardstick, applied once per site while writing the file, not a computation the converter
+performs. "Would printing have lost this anyway?" is a question a person answers about a *class* of
+thing: attachments, scripts, multimedia, the metadata packet. It is answered once, written down as
+`discard`, and thereafter the converter is doing exactly what it does for any other configuration.
+
+That keeps §5a's opening claim strictly true: these profiles need no new mechanism at all.
+
+### 5a.1a Why the yardstick is principled rather than a taste
+
+Most policies would be somebody's opinion about what matters. This one is anchored, and the anchor
+is worth citing even though the converter never evaluates it — because it is what makes the
+profile's answers defensible to an auditor rather than merely convenient:
 
 - §12.5.3's Table 167, bit 3: "If set, print the annotation when the page is printed unless the
   Hidden flag is also set. If clear, never print the annotation, regardless of whether it is
@@ -528,7 +548,13 @@ the profile's content can be read out of clauses rather than argued.
   moment they pressed print.
 
 The profile's sentence is therefore short and checkable: **discard what printing would not have
-carried; touch nothing that it would.**
+carried; touch nothing that it would.** An operator reading it knows what they are agreeing to
+without knowing a single clause number, which is the test a profile has to pass.
+
+A later refinement is available and is deliberately not proposed here: a site's answer could carry
+a **narrowing predicate** in the §4.7.2 sense — *discard only the annotations whose `Print` flag is
+clear* — which would make the criterion per-document rather than per-class. That is more faithful
+and it is new behaviour; it belongs after the mechanism exists and somebody has asked for it.
 
 ### 5a.2 And it interacts with the target, which is the part to get right
 
