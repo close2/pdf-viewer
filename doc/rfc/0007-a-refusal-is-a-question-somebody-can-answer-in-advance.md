@@ -556,29 +556,65 @@ a **narrowing predicate** in the §4.7.2 sense — *discard only the annotations
 clear* — which would make the criterion per-document rather than per-class. That is more faithful
 and it is new behaviour; it belongs after the mechanism exists and somebody has asked for it.
 
-### 5a.2 And it interacts with the target, which is the part to get right
+### 5a.2 A profile cannot make a file fail its target, and the first draft said otherwise
 
-`as-if-printed` is *incoherent* with two of the six targets, and saying so is more useful than
-shipping a file that quietly under-delivers:
+This section claimed `as-if-printed` was *incoherent* with PDF/A-2a and PDF/A-2u — that a profile
+discarding what printing loses would discard the logical structure that Level A is for. **The owner
+corrected it on 2026-09-11 and the correction is the same one §5a.1 needed**, one step further on:
 
-- **PDF/A-2a** is Level A: it requires the logical structure that describes the content. Printing
-  carries none of it. A profile that discards what printing loses would discard the very thing
-  that target is for.
-- **PDF/A-2u** requires every text-showing operation to map to Unicode. A printed page carries the
-  glyphs and not the mapping.
+> We are talking about refusals. The user wanted the output to have logical structure, but might
+> think: this is a replacement for a previous paper archive. The logical structure is a nice to
+> have, but I would rather lose information I wouldn't have had as paper archive anyway, if this
+> means that I can convert this input file.
 
-So a shipped profile declares the targets it is coherent with, and using it against another is an
-error naming both — the same rule §4.6 already sets for a remedy the target does not admit. This
-is the second time that pair has turned out to be the unit rather than the site.
+The claim rested on reading the yardstick as a *deletion rule*. It is not. **A profile answers
+refusals and speaks nowhere else.** If a document carries a structure tree, no requirement fails,
+no refusal arises, and the profile is silent — the tree is carried through exactly as it would be
+without any configuration at all. Nothing in `as-if-printed` removes a structure tree, because
+removing one is not an answer to any refusal.
+
+The same disposes of the PDF/A-2u claim. `as-if-printed` does not drop a `/ToUnicode`; the 2u
+refusal is that a font's codes are not derivable, and *that* refusal's answers do not include
+throwing the mapping away, because doing so would not produce a 2u file.
+
+**The general property, which is stronger than the exception it replaces**: every answer a profile
+may give is one that leaves the file conforming to the target. A profile therefore *cannot* make a
+conversion fail its target — it can only decide, at a point where the converter would have stopped,
+that something be lost or moved instead. The one exception is a **departure** (§4.7), which is
+deliberately not a remedy, is named per requirement, and requires the invocation to say so.
+
+So a shipped profile does not declare targets it is "coherent with". What §4.6 does say remains
+true and is a different statement: an individual *answer* may be unavailable under a given target —
+attach-unchanged exists only at PDF/A-4f — and a configuration naming one the target does not admit
+is an error naming both.
+
+### 5a.2a The user this profile is for, in their own words
+
+The owner's sentence is the profile's motivation and is better than any this RFC had:
+
+> this is a replacement for a previous paper archive
+
+That is the whole argument. Somebody replacing filing cabinets already accepted, years ago,
+everything paper cannot hold — the attachments, the scripts, the movie, the metadata packet. For
+them `as-if-printed` is not a compromise but a **statement of the floor they have been living with
+all along**, and choosing it says: do not stop and ask me about things a photocopier would have
+lost.
+
+And it composes with a target rather than competing with it. Choosing PDF/A-2a says *I want the
+logical structure where it exists*; choosing `as-if-printed` says *do not refuse the whole document
+over something paper would have lost anyway*. Those are answers to two different questions, and the
+first draft's mistake was to treat them as one.
 
 ### 5a.3 The profiles worth shipping, and what each says in one sentence
 
-| profile | its sentence | coherent with |
-|---|---|---|
-| `refuse-any-loss` | every site `stop`; today's behaviour, named so an operator can state it deliberately | all six |
-| `as-if-printed` | discard what printing would not have carried; touch nothing it would | 2b, 4, 4f, 4e |
-| `only-metadata-loss` | nothing may be lost but metadata; everything else `stop` | all six |
-| `keep-everything` | prefer `preserve` wherever it exists, then `derive`, never `discard`; `stop` rather than lose | all six |
+| profile | its sentence |
+|---|---|
+| `refuse-any-loss` | every site `stop`; today's behaviour, named so an operator can state it deliberately |
+| `as-if-printed` | where I would otherwise stop, lose what a paper archive would have lost anyway |
+| `only-metadata-loss` | nothing may be lost but metadata; everything else `stop` |
+| `keep-everything` | prefer `preserve` wherever it exists, then `derive`, never `discard`; `stop` rather than lose |
+
+Every one of the four works with every one of the six targets, for §5a.2's reason.
 
 `keep-everything` is the one that most needs §4.6.1's finding — appending is available under every
 target, so "keep it somewhere" is nearly always possible — and it is the profile an operator
