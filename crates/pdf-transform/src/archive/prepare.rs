@@ -23,6 +23,7 @@ use pdf_syntax::serialize::flate_encode;
 use crate::json::Value;
 
 use super::decision::{Because, REMEDIES};
+use super::fonts::{self, Metrics, Substitutes};
 use super::rewrite::Rewrite;
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
@@ -124,6 +125,33 @@ const NO_PLACE_TO_RECORD: &str = "the DeviceN DefaultCMYK is allowed on conditio
 /// verb that a reader of the output cannot see the shape of — a deleted key leaves no hole — so
 /// the provenance is where the file itself says what it lost.
 pub(super) const REMOVED_PROPERTIES_ACTION: &str = "converted";
+
+/// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
+///
+/// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE both give font
+/// substitution as an example of a converter action that changes a document's appearance and is
+/// therefore to be recorded — which is `doc/pdf-a-conversion-limits.md` section 4.9's third
+/// argument for the act being contemplated by the standard rather than merely not forbidden.
+pub(super) const SUBSTITUTED_FONTS_ACTION: &str = "converted";
+
+/// How many substituted fonts the `xmpMM:History` entry names before it stops listing them.
+const MOST_FONTS_NAMED: usize = 8;
+
+/// Why a font is refused rather than substituted when the caller asked for that.
+///
+/// `doc/pdf-a-conversion-limits.md` section 4.9's `--no-substitute`, and the sentence says which
+/// of the four kinds of *no* this is — the one the caller can take back.
+const SUBSTITUTION_DECLINED: &str = "this document renders a font it does not embed, and \
+     --no-substitute was asked for. The default is to embed one of the faces this program ships \
+     and report which, on the argument that a file whose font is not embedded has no appearance \
+     of its own; the flag is for a curator who would rather be told the font is missing than be \
+     given a stand-in. Drop the flag, or supply the font itself with --font";
+
+/// Why a substitution was withdrawn even though it could have been carried out.
+const NO_PLACE_TO_RECORD_A_SUBSTITUTION: &str = "embedding a face for a font this file never \
+     carried is allowed on condition that it is recorded in the file's own xmpMM:History, which \
+     is where ISO 19005-2 section 6.6.6's NOTE 1 puts font substitution by name — and this \
+     document's XMP packet will not take that entry, so no face is embedded either";
 
 /// How many removed properties the `xmpMM:History` entry names before it stops listing them.
 ///
@@ -485,6 +513,19 @@ pub(super) struct Prepared {
     /// identification schema is restated into the packet the removal already edited, so that a
     /// document needing both edits gets one packet rather than two writers overwriting each other.
     pub(super) properties: Result<Cleaned, Because>,
+    /// The font programs to embed where the file embedded none, or why none can be.
+    ///
+    /// Prepared **before** the metadata, like the `/DefaultCMYK` and for the same reason:
+    /// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE name font
+    /// substitution outright as a converter action to record in `xmpMM:History`, so a packet
+    /// that will not take the entry withdraws the substitution rather than leaving it unrecorded.
+    pub(super) substitutes: Result<Substitutes, Because>,
+    /// The font programs whose stated advances are to be restated, or why none can be.
+    ///
+    /// **Not conditional on the packet**, unlike the substitution beside it: restating a
+    /// program's advances changes no mark and no appearance, so it is not one of the actions
+    /// either part's `xmpMM:History` subclause asks a converter to record.
+    pub(super) metrics: Result<Metrics, Because>,
     /// Whether the file already carries the structure tree `/MarkInfo` would be a claim about.
     ///
     /// `Ok(())` where the catalog states a `/StructTreeRoot`, and the reason otherwise.
@@ -539,6 +580,17 @@ impl Prepared {
             .as_ref()
             .map(|cleaned| names_removed(&cleaned.removed))
             .unwrap_or_default();
+        let PreparedFonts {
+            substitutes,
+            metrics,
+            recorded: font_history,
+        } = prepare_fonts(
+            plan,
+            document,
+            &mut spare,
+            wanted(Rewrite::SubstituteFontProgram),
+            wanted(Rewrite::RestateFontMetrics),
+        );
         let now = xmp::instant(std::time::SystemTime::now());
         let metadata = the_packet(
             plan.target,
@@ -550,27 +602,22 @@ impl Prepared {
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
+                substituted: &font_history,
                 cleaned: properties.as_ref().ok(),
             },
         );
-        // A48's permission and its condition are one thing: a construction whose entry was not
-        // written — because the packet would not take it, or because no clock answered — is
-        // withdrawn rather than left unrecorded. The test is on the *event*, not on the packet:
-        // a packet edited for the identification schema alone carries no action.
         let recorded_it = now.is_some() && metadata.is_ok();
-        let default_cmyk = match default_cmyk {
-            Ok(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD)),
-            built => built,
-        };
-        // section 4.2's audit trail, on the same footing and for the sharper reason: a property
-        // that is gone leaves nothing in the file to notice, so a removal nobody could record is
-        // one this converter does not make.
-        let properties = match properties {
-            Ok(ref cleaned) if !cleaned.removed.is_empty() && !recorded_it => {
-                Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_REMOVAL))
-            }
-            built => built,
-        };
+        let nothing_removed = properties
+            .as_ref()
+            .is_ok_and(|cleaned| cleaned.removed.is_empty());
+        let default_cmyk = unless_recorded(default_cmyk, recorded_it, NO_PLACE_TO_RECORD);
+        let substitutes =
+            unless_recorded(substitutes, recorded_it, NO_PLACE_TO_RECORD_A_SUBSTITUTION);
+        let properties = unless_recorded(
+            properties,
+            recorded_it || nothing_removed,
+            NO_PLACE_TO_RECORD_A_REMOVAL,
+        );
         // The fonts are the validator's own findings rather than a walk of this converter's:
         // the clause has four exemptions and reading them belongs to `pdf_archive`, so the set of
         // fonts that need a CMap is the set it named. A findings list is capped, and a document
@@ -602,6 +649,8 @@ impl Prepared {
             to_unicode,
             appearances,
             properties,
+            substitutes,
+            metrics,
             structure,
         }
     }
@@ -620,6 +669,8 @@ impl Prepared {
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
             Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
+            Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
+            Rewrite::RestateFontMetrics => self.metrics.as_ref().err().copied(),
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
             _ => None,
@@ -651,6 +702,11 @@ impl Prepared {
         }
         if let Ok(appearances) = &self.appearances {
             for (id, object) in &appearances.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(substitutes) = &self.substitutes {
+            for (id, object) in &substitutes.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -1133,6 +1189,113 @@ fn names_removed(removed: &[MisusedProperty]) -> String {
     )
 }
 
+/// A construction whose provenance entry could not be written, withdrawn rather than left
+/// unrecorded.
+///
+/// **`doc/adr/0927`'s condition, applied in one place because all three of them carry it.** The
+/// owner's permissions to write something a producer did not are each conditional on the writing
+/// being visible — for the `/DefaultCMYK` (`doc/questions/A48`) and for a substituted face
+/// (`doc/pdf-a-conversion-limits.md` section 4.9, on ISO 19005-2 section 6.6.6's NOTE 1, which
+/// names font substitution outright) that means an `xmpMM:History` entry in the file itself, and
+/// for a removed property (section 4.2) it is sharper still: a property that is gone leaves
+/// nothing in the output to notice.
+///
+/// `recorded` is the test on the *event* rather than on the packet — a packet edited for the
+/// identification schema alone carries no action — so a construction whose entry the packet
+/// would not take, or for which no clock answered, is not made at all.
+fn unless_recorded<T>(
+    built: Result<T, Because>,
+    recorded: bool,
+    because: &'static str,
+) -> Result<T, Because> {
+    match built {
+        Ok(_) if !recorded => Err(Because::NotBuiltYet(because)),
+        built => built,
+    }
+}
+
+/// What the two font rewrites need, worked out from one content walk.
+struct PreparedFonts {
+    /// The faces to embed where the file embedded none, or why none can be.
+    substitutes: Result<Substitutes, Because>,
+    /// The programs whose stated advances are to be restated, or why none can be.
+    metrics: Result<Metrics, Because>,
+    /// The `xmpMM:History` parameters the substitution has to record, empty where there is none.
+    recorded: String,
+}
+
+/// Works out both font rewrites, from one walk of the document's content.
+///
+/// **The content walk is made once and only where a font rewrite asked for it.** Both
+/// preparations need the codes the content streams showed — which glyph a width belongs to is a
+/// question about what was drawn — and `pdf_archive::check` has already made this walk for its
+/// own rules without keeping it. Walking a second time is the cost of that seam; a document
+/// whose fonts all conform pays none of it.
+fn prepare_fonts(
+    plan: &ArchivePlan,
+    document: &Document,
+    spare: &mut Spare,
+    wants_substitutes: bool,
+    wants_metrics: bool,
+) -> PreparedFonts {
+    let survey =
+        (wants_substitutes || wants_metrics).then(|| pdf_archive::survey::Survey::of(document));
+    let substitutes = match (wants_substitutes, survey.as_ref()) {
+        (true, _) if !plan.substitute_fonts => Err(Because::Declined(SUBSTITUTION_DECLINED)),
+        (true, Some(survey)) => fonts::embed_faces(document, survey, spare),
+        _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+    };
+    let metrics = match (wants_metrics, survey.as_ref()) {
+        (true, Some(survey)) => fonts::restate_metrics(document, survey),
+        _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+    };
+    let recorded = substitutes
+        .as_ref()
+        .map(|built| substituted_fonts_recorded(&built.done))
+        .unwrap_or_default();
+    PreparedFonts {
+        substitutes,
+        metrics,
+        recorded,
+    }
+}
+
+/// The `parameters` field of the substitution's recorded action: which face went where.
+///
+/// Empty where nothing was substituted. Each font is named by what the file asked for, what was
+/// embedded and which of section 4.9's two metric routes it took, because those three are what
+/// section 4.9 asks a converter to report per font and a provenance entry a reader can act on
+/// has to carry them in the file rather than only in the run's own report.
+pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> String {
+    if fonts.is_empty() {
+        return String::new();
+    }
+    let named: Vec<String> = fonts
+        .iter()
+        .take(MOST_FONTS_NAMED)
+        .map(|font| {
+            format!(
+                "{} was not embedded and {} was embedded in its place ({})",
+                font.requested,
+                font.face,
+                font.route.word()
+            )
+        })
+        .collect();
+    let rest = fonts.len().saturating_sub(named.len());
+    let tail = if rest == 0 {
+        String::new()
+    } else {
+        format!(", and {rest} more")
+    };
+    format!(
+        "fonts were substituted so that this file carries the programs ISO 19005-2 clause \
+         6.2.11.4.1 requires: {}{tail}. The glyph widths the font dictionaries state were not \
+         changed, so no mark moved; the shapes drawn are the substituted faces'",
+        named.join("; ")
+    )
+}
+
 /// What the packet has to carry besides the producer's own bytes.
 ///
 /// One argument rather than five, because every one of them is a fact about *this conversion*
@@ -1148,6 +1311,8 @@ struct Recording<'a> {
     default_cmyk: bool,
     /// The removal's own recorded action, empty where nothing was removed.
     removals: &'a str,
+    /// The substitution's own recorded action, empty where no face was embedded.
+    substituted: &'a str,
     /// The packets a removal has already edited, one of which may be the catalog's.
     cleaned: Option<&'a Cleaned>,
 }
@@ -1178,6 +1343,13 @@ fn the_packet(
             events.push(xmp::Event {
                 action: REMOVED_PROPERTIES_ACTION,
                 parameters: recording.removals,
+                when,
+            });
+        }
+        if !recording.substituted.is_empty() {
+            events.push(xmp::Event {
+                action: SUBSTITUTED_FONTS_ACTION,
+                parameters: recording.substituted,
                 when,
             });
         }

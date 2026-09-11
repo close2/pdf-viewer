@@ -50,6 +50,14 @@
 //! - **PDF/A-4f and PDF/A-4e** (ISO 19005-4 section 6.9, Annexes A.2 and B.4): an embedded file's
 //!   `/F` and `/UF`, each written from the other, and its `/AFRelationship` written as §7.11.3's
 //!   Table 43 own default.
+//! - **Every target** (section 4.9): the font programs. A font a content stream renders and the
+//!   file does not embed gains one of the faces this program ships — `doc/questions/A47` makes
+//!   that the default, because a file whose font is not embedded has no appearance of its own —
+//!   and an embedded program whose stated advances disagree with its own font dictionary has the
+//!   *program's* numbers restated. Never the dictionary's: §9.2.4 makes those what positions the
+//!   glyphs, so section 4.9 calls restating them never and `tests/archive_corpus.rs` checks over
+//!   the whole corpus that no width ever changed. [`fonts`] is both halves, and
+//!   `--no-substitute` is section 4.9's flag for the curator who would rather be told.
 //!
 //! **And two losses a caller authorises before the run** (section 3), because a batch tool has
 //! nobody to ask: `--authorise metadata-property` takes out an XMP property whose own predefined
@@ -58,8 +66,11 @@
 //! names in the report exactly what it did — [`Conversion::removed`] and the flag's own count —
 //! because a loss nobody can see afterwards is the failure section 3 exists against.
 //!
-//! **Everything else is refused by name**: fonts (section 4.9), the structure tree and the role
-//! map (section 5.1), a `/ToUnicode` entry no code in the file evidences (section 4.3),
+//! **Everything else is refused by name**: the fonts section 4.9 cannot answer — a composite font
+//! nothing embedded (section 2.1), a page that draws a glyph its own embedded program has not got
+//! (section 2.2), and a document needing a face this program does not ship (`doc/questions/A47`'s
+//! *refuse rather than guess*) — the structure tree and the role map (section 5.1), a
+//! `/ToUnicode` entry no code in the file evidences (section 4.3),
 //! encryption (section 3.5), an embedded file that would itself have to be converted
 //! (section 3.1), `/Info` reconciliation and the extension schemas a producer's private XMP
 //! property needs (section 4.2's other halves). A document needing one of those is told which
@@ -82,7 +93,7 @@
 //! being left to a caller to remember. [`Conversion`] is the report, and it reaches a caller
 //! through [`crate::Report::archive`] whether or not a file was written.
 //!
-//! # Five files, and the seam each is on
+//! # Six files, and the seam each is on
 //!
 //! The three stages are the seam, because they are three different kinds of work over the same
 //! document, and a file that held two of them could not be read without reading both:
@@ -93,6 +104,7 @@
 //! | [`prepare`] | what a decision needs built from the document before it can be taken |
 //! | [`rewrite`] | the rewrites themselves, one object at a time, and the serializer walk |
 //! | [`to_unicode`] | the `/ToUnicode` `CMap` a font's own encoding derives, and what it cannot |
+//! | [`fonts`] | the face a font that embedded none is given, and the advances restated in it |
 //! | [`report`] | what was decided and done, worded for a person and for `--json` |
 //! | this file | the three stages in order, the plan they run from, and the output's version |
 //!
@@ -105,6 +117,7 @@
 //! verdict rests on.
 
 mod decision;
+mod fonts;
 mod prepare;
 mod report;
 mod rewrite;
@@ -121,12 +134,16 @@ use crate::pattern::{Fill, Pattern};
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
+pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
 pub use report::{Achieved, Conversion, Decided, NotChecked};
 pub use rewrite::Rewrite;
 
 use decision::decide;
-use prepare::{DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared};
+use prepare::{
+    DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, SUBSTITUTED_FONTS_ACTION,
+    substituted_fonts_recorded,
+};
 use report::describe_decision;
 use rewrite::convert;
 
@@ -162,6 +179,15 @@ pub struct ArchivePlan {
     /// decide. A supplied profile's own `cprt` tag is named in the report, because a user
     /// embedding somebody else's profile is entitled to be told whose it is.
     pub profile: Option<std::sync::Arc<[u8]>>,
+    /// Whether a font the file renders and does not embed may be given a face this program ships.
+    ///
+    /// `doc/pdf-a-conversion-limits.md` section 4.9 makes substitution the **default** and offers
+    /// the other behaviour as a flag: "`--no-substitute` for the user who wants the other
+    /// behaviour, which turns every such font back into a refusal. Batch archiving wants the
+    /// default; a curator checking one document may want the flag." So `true` here is what a
+    /// caller who says nothing gets, and `false` refuses the font by name — [`Because::Declined`]
+    /// rather than any of the three reasons that are facts about the document or the program.
+    pub substitute_fonts: bool,
 }
 
 /// Converts one document to the target and writes it.
@@ -260,6 +286,8 @@ fn decide_every_failure(
         recorded: None,
         removed: Vec::new(),
         appearances: Vec::new(),
+        substituted: Vec::new(),
+        restated: Vec::new(),
     };
     let prepared = Prepared::of(plan, document, input);
     let mut version = None;
@@ -332,8 +360,31 @@ fn apply_the_decisions(
     {
         conversion.profile = Some(intent.reported.clone());
     }
+    // `doc/adr/0927`'s condition on two of the four permissions, and they share one field
+    // because a reader asking "what did this conversion write into my file's provenance" is
+    // asking one question: an entry each, joined, in the order the packet holds them.
+    let mut recorded: Vec<String> = Vec::new();
     if wanted.contains(&Rewrite::DefaultCmyk) {
-        conversion.recorded = Some(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
+        recorded.push(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
+    }
+    // section 4.9's own condition, and ISO 19005-2 section 6.6.6's NOTE 1 names the act: a face
+    // embedded for a font the file never carried is recorded in the file itself, not only here.
+    if wanted.contains(&Rewrite::SubstituteFontProgram)
+        && let Ok(substitutes) = &prepared.substitutes
+    {
+        conversion.substituted.clone_from(&substitutes.done);
+        recorded.push(format!(
+            "{SUBSTITUTED_FONTS_ACTION} — {}",
+            substituted_fonts_recorded(&substitutes.done)
+        ));
+    }
+    if wanted.contains(&Rewrite::RestateFontMetrics)
+        && let Ok(metrics) = &prepared.metrics
+    {
+        conversion.restated.clone_from(&metrics.done);
+    }
+    if !recorded.is_empty() {
+        conversion.recorded = Some(recorded.join("; "));
     }
     // A21's condition on the permission: every appearance written is named, with the page it is
     // on, because a constructed appearance is this program's rendering rather than the file's.

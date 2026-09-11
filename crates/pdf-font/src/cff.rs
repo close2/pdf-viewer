@@ -47,6 +47,14 @@ pub enum CffError {
         /// What `read-fonts` reported.
         detail: String,
     },
+    /// A glyph's advance could not be restated where the program states it.
+    #[error("glyph {glyph}'s advance cannot be restated: {detail}")]
+    AdvanceNotRestatable {
+        /// Which glyph.
+        glyph: u16,
+        /// Why not.
+        detail: String,
+    },
     /// The program parsed, but carries no charset.
     ///
     /// Without one there is no way to reach a glyph from a name or a CID, and the only
@@ -382,6 +390,46 @@ const OP_PRIVATE: u16 = 18;
 const OP_FD_ARRAY: u16 = ESCAPE | 0x24;
 const OP_FD_SELECT: u16 = ESCAPE | 0x25;
 
+/// Where a rebuilt program's Top DICT is to point, for the offsets that are not simply shifted.
+///
+/// Every absolute offset a Top DICT states moves by the same `delta` when the Top DICT INDEX
+/// changes length and the rest of the program is copied after it — except the one table the
+/// rebuild has *relocated*, which is stated outright. One field per relocatable table rather
+/// than a pair of numbers, so that a rebuild which forgets to say where it put something gets
+/// the shifted offset rather than zero.
+#[derive(Debug, Clone, Copy, Default)]
+struct Moved {
+    /// How far everything copied after the Top DICT INDEX has moved.
+    delta: i64,
+    /// Where the `FDArray` now is, where the rebuild wrote a fresh one.
+    fd_array_at: Option<i64>,
+    /// Where the `CharStrings` INDEX now is, where the rebuild wrote a fresh one.
+    charstrings_at: Option<i64>,
+}
+
+impl Moved {
+    /// Everything after the Top DICT INDEX shifted by `delta`, nothing relocated.
+    const fn by(delta: i64) -> Self {
+        Self {
+            delta,
+            fd_array_at: None,
+            charstrings_at: None,
+        }
+    }
+
+    /// The same, with a fresh `FDArray` at `at`.
+    const fn fd_array_to(mut self, at: i64) -> Self {
+        self.fd_array_at = Some(at);
+        self
+    }
+
+    /// The same, with a fresh `CharStrings` INDEX at `at`.
+    const fn charstrings_to(mut self, at: i64) -> Self {
+        self.charstrings_at = Some(at);
+        self
+    }
+}
+
 impl Layout {
     fn read(data: &[u8]) -> Option<Self> {
         let header = usize::from(*data.get(2)?);
@@ -406,7 +454,7 @@ impl Layout {
     fn with_font_dicts(&self, data: &[u8], font_dicts: &[Option<&[u8]>]) -> Vec<u8> {
         // Pass one: the Top DICT with placeholder offsets, which has the length of the real one
         // because every offset is written in the five-byte form.
-        let placeholder = self.top_dict(0, 0);
+        let placeholder = self.top_dict(Moved::by(0).fd_array_to(0));
         let new_index_len = 3usize
             .saturating_add(2 * 4)
             .saturating_add(placeholder.len());
@@ -416,18 +464,10 @@ impl Layout {
             .saturating_sub(i64::try_from(old_index_len).unwrap_or(0));
         let fd_array_at = i64::try_from(data.len()).unwrap_or(0).saturating_add(delta);
 
-        let top_dict = self.top_dict(delta, fd_array_at);
+        let top_dict = self.top_dict(Moved::by(delta).fd_array_to(fd_array_at));
         let mut out = Vec::with_capacity(data.len().saturating_add(64));
         out.extend_from_slice(data.get(..self.top_index.start).unwrap_or(data));
-        out.extend_from_slice(&1u16.to_be_bytes());
-        out.push(4);
-        out.extend_from_slice(&1u32.to_be_bytes());
-        out.extend_from_slice(
-            &u32::try_from(top_dict.len().saturating_add(1))
-                .unwrap_or(u32::MAX)
-                .to_be_bytes(),
-        );
-        out.extend_from_slice(&top_dict);
+        push_index(&mut out, std::slice::from_ref(&top_dict));
         out.extend_from_slice(data.get(self.top_index.end..).unwrap_or(&[]));
 
         // The FDArray: an INDEX of Font DICTs. An empty Private DICT is size 0 at any offset the
@@ -447,22 +487,41 @@ impl Layout {
                 )
             })
             .collect();
-        out.extend_from_slice(&u16::try_from(dicts.len()).unwrap_or(u16::MAX).to_be_bytes());
-        out.push(4);
-        let mut at = 1u32;
-        out.extend_from_slice(&at.to_be_bytes());
-        for dict in &dicts {
-            at = at.saturating_add(u32::try_from(dict.len()).unwrap_or(u32::MAX));
-            out.extend_from_slice(&at.to_be_bytes());
-        }
-        for dict in &dicts {
-            out.extend_from_slice(dict);
-        }
+        push_index(&mut out, &dicts);
         out
     }
 
-    /// The Top DICT's bytes, offsets shifted by `delta` and the `FDArray` pointed at `fd_array_at`.
-    fn top_dict(&self, delta: i64, fd_array_at: i64) -> Vec<u8> {
+    /// The program with a fresh `CharStrings` INDEX at its end and the Top DICT pointing there.
+    ///
+    /// The same move [`Self::with_font_dicts`] makes for the `FDArray`, and for the same reason:
+    /// the Top DICT is re-encoded with every offset in the five-byte form, so its length is known
+    /// before the offsets are, everything after the Top DICT INDEX is copied verbatim and shifted
+    /// by the difference, and the table being replaced is appended past the end. The program's own
+    /// `CharStrings` INDEX stays where it was and is no longer reached — Adobe Technical Note
+    /// #5176 locates it by the Top DICT's offset alone, so bytes nothing points at are inert.
+    fn with_charstrings(&self, data: &[u8], charstrings: &[Vec<u8>]) -> Vec<u8> {
+        let placeholder = self.top_dict(Moved::by(0).charstrings_to(0));
+        let new_index_len = 3usize
+            .saturating_add(2 * 4)
+            .saturating_add(placeholder.len());
+        let old_index_len = self.top_index.end.saturating_sub(self.top_index.start);
+        let delta = i64::try_from(new_index_len)
+            .unwrap_or(0)
+            .saturating_sub(i64::try_from(old_index_len).unwrap_or(0));
+        let charstrings_at = i64::try_from(data.len()).unwrap_or(0).saturating_add(delta);
+        let top_dict = self.top_dict(Moved::by(delta).charstrings_to(charstrings_at));
+
+        let mut out = Vec::with_capacity(data.len().saturating_mul(2));
+        out.extend_from_slice(data.get(..self.top_index.start).unwrap_or(data));
+        push_index(&mut out, std::slice::from_ref(&top_dict));
+        out.extend_from_slice(data.get(self.top_index.end..).unwrap_or(&[]));
+        push_index(&mut out, charstrings);
+        out
+    }
+
+    /// The Top DICT's bytes, every offset it states restated under `moved`.
+    fn top_dict(&self, moved: Moved) -> Vec<u8> {
+        let delta = moved.delta;
         let mut out = Vec::new();
         for (operands, op) in &self.entries {
             match *op {
@@ -478,7 +537,12 @@ impl Layout {
                         at
                     }));
                 }
-                OP_CHARSTRINGS | OP_FD_SELECT => {
+                OP_CHARSTRINGS => out.extend_from_slice(&int5(
+                    moved
+                        .charstrings_at
+                        .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
+                )),
+                OP_FD_SELECT => {
                     out.extend_from_slice(&int5(
                         dict_int(operands).unwrap_or(0).saturating_add(delta),
                     ));
@@ -488,7 +552,11 @@ impl Layout {
                     out.extend_from_slice(&int5(size));
                     out.extend_from_slice(&int5(at.saturating_add(delta)));
                 }
-                OP_FD_ARRAY => out.extend_from_slice(&int5(fd_array_at)),
+                OP_FD_ARRAY => out.extend_from_slice(&int5(
+                    moved
+                        .fd_array_at
+                        .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
+                )),
                 _ => out.extend_from_slice(operands),
             }
             push_operator(&mut out, *op);
@@ -515,6 +583,30 @@ fn font_dict_shifted(dict: &[u8], delta: i64) -> Vec<u8> {
         push_operator(&mut out, *op);
     }
     out
+}
+
+/// Writes an INDEX holding `items`, header and data (Adobe Technical Note #5176, section 5).
+///
+/// The offset size is always four, which holds any offset a CFF can state, so the header's
+/// length is a function of the item count alone — which is what lets a rebuild work out where
+/// the INDEX ends before it knows how long the items are.
+fn push_index(out: &mut Vec<u8>, items: &[Vec<u8>]) {
+    out.extend_from_slice(&u16::try_from(items.len()).unwrap_or(u16::MAX).to_be_bytes());
+    if items.is_empty() {
+        // "An empty INDEX is represented by a count field with a 0 value and no additional
+        // fields", so an offset size would be one byte too many.
+        return;
+    }
+    out.push(4);
+    let mut at = 1u32;
+    out.extend_from_slice(&at.to_be_bytes());
+    for item in items {
+        at = at.saturating_add(u32::try_from(item.len()).unwrap_or(u32::MAX));
+        out.extend_from_slice(&at.to_be_bytes());
+    }
+    for item in items {
+        out.extend_from_slice(item);
+    }
 }
 
 /// Writes a DICT operator, in its one- or two-byte form.
@@ -802,6 +894,477 @@ fn calls_local_subr(charstring: &[u8], font: &CffFontRef<'_>, depth: u8) -> bool
         }
     }
     false
+}
+
+// ---------------------------------------------------------------------------------------------
+// Restating a program's advances, which is the one thing a converter may change about a font.
+// ---------------------------------------------------------------------------------------------
+
+/// The Private DICT operator naming the advance every charstring's width is stated against
+/// (Adobe Technical Note #5176, Table 23: `nominalWidthX`, operator 21, default 0).
+const OP_NOMINAL_WIDTH: u16 = 21;
+
+/// The Type 2 operators that clear the operand stack, and may therefore carry a width.
+///
+/// Adobe Technical Note #5177, section 3.1: "The first stack-clearing operator, which must be
+/// one of hstem, hstemhm, cntrmask, hintmask, hmoveto, vmoveto, rmoveto, or endchar, takes an
+/// additional argument — the width — which may be expressed as zero or one numeric argument."
+/// `vstem` and `vstemhm` are not in that sentence's list and are stack-clearing all the same, so
+/// they are treated the same way: a charstring beginning with one is the shape the sentence
+/// describes, whatever the list leaves out.
+mod stack_clearing {
+    /// `hstem`.
+    pub(super) const HSTEM: u8 = 1;
+    /// `vstem`.
+    pub(super) const VSTEM: u8 = 3;
+    /// `vmoveto`.
+    pub(super) const VMOVETO: u8 = 4;
+    /// `rmoveto`.
+    pub(super) const RMOVETO: u8 = 21;
+    /// `hmoveto`.
+    pub(super) const HMOVETO: u8 = 22;
+    /// `endchar`.
+    pub(super) const ENDCHAR: u8 = 14;
+    /// `hstemhm`.
+    pub(super) const HSTEMHM: u8 = 18;
+    /// `hintmask`.
+    pub(super) const HINTMASK: u8 = 19;
+    /// `cntrmask`.
+    pub(super) const CNTRMASK: u8 = 20;
+    /// `vstemhm`.
+    pub(super) const VSTEMHM: u8 = 23;
+}
+
+/// Where a Type 2 charstring states its width, where the rule can say at all.
+///
+/// Three answers rather than two, and the third is what keeps this honest: a charstring whose
+/// first operator is not one of the stack-clearing set — a `callsubr` before any of them being
+/// the shape that occurs — states its width inside a subroutine, and a caller must follow the
+/// call rather than prepend a second width.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LeadingWidth {
+    /// The width is the operand occupying this span.
+    At(std::ops::Range<usize>),
+    /// The charstring states no width, so one is inserted rather than replaced.
+    Absent,
+}
+
+/// Where a Type 2 charstring's leading width operand is, where it has one.
+///
+/// `None` is [`LeadingWidth`]'s third answer: the width is not in this charstring at all.
+///
+/// The rule is positional (Adobe Technical Note #5177, section 3.1): the width is present when
+/// the stack holds one operand more than the operator takes.
+fn width_span(charstring: &[u8]) -> Option<LeadingWidth> {
+    use stack_clearing::{
+        CNTRMASK, ENDCHAR, HINTMASK, HMOVETO, HSTEM, HSTEMHM, RMOVETO, VMOVETO, VSTEM, VSTEMHM,
+    };
+    let mut operands: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut at = 0usize;
+    while let Some(&b0) = charstring.get(at) {
+        let width = match b0 {
+            28 => 3,
+            32..=246 => 1,
+            247..=254 => 2,
+            255 => 5,
+            HSTEM | VSTEM | HSTEMHM | VSTEMHM | HINTMASK | CNTRMASK => {
+                return Some(has_width(&operands, operands.len() % 2 == 1));
+            }
+            RMOVETO => return Some(has_width(&operands, operands.len() > 2)),
+            HMOVETO | VMOVETO => return Some(has_width(&operands, operands.len() > 1)),
+            ENDCHAR => {
+                return Some(has_width(
+                    &operands,
+                    operands.len() == 1 || operands.len() == 5,
+                ));
+            }
+            _ => return None,
+        };
+        let end = at.checked_add(width)?;
+        charstring.get(at..end)?;
+        operands.push(at..end);
+        at = end;
+    }
+    None
+}
+
+/// The first operand's span where `present`, which is where the width sits when there is one.
+fn has_width(operands: &[std::ops::Range<usize>], present: bool) -> LeadingWidth {
+    match operands.first().filter(|_| present) {
+        Some(span) => LeadingWidth::At(span.clone()),
+        None => LeadingWidth::Absent,
+    }
+}
+
+/// The `Subrs` operator of a Private DICT (Adobe Technical Note #5176, Table 23, operator 19),
+/// whose operand is an offset **relative to the Private DICT's own start**.
+const OP_SUBRS: u16 = 19;
+
+/// `callsubr` and `callgsubr` (Adobe Technical Note #5177, section 4.7).
+const CALL_LOCAL: u8 = 10;
+/// `callgsubr`.
+const CALL_GLOBAL: u8 = 29;
+/// `return`.
+const RETURN: u8 = 11;
+/// The two-byte operator escape.
+const ESCAPE_BYTE: u8 = 12;
+
+/// How many subroutine calls are followed before a charstring's width is given up on.
+///
+/// A subroutinizer factors a common *prefix*, so the width is reached in one or two calls in
+/// every program this has been run against; the bound is what keeps a program whose subroutines
+/// call each other in a ring from being followed for ever.
+const MAX_INLINE_DEPTH: usize = 8;
+
+/// The subroutine bias, which Adobe Technical Note #5177 section 4.7 makes a function of how
+/// many subroutines the INDEX holds.
+fn bias(count: usize) -> i64 {
+    if count < 1240 {
+        107
+    } else if count < 33900 {
+        1131
+    } else {
+        32768
+    }
+}
+
+/// The subroutines a charstring can call: the program's global INDEX and one Font DICT's local.
+struct Subroutines<'a> {
+    /// The Global Subr INDEX, which every charstring of the program shares.
+    global: &'a [Vec<u8>],
+    /// The Local Subr INDEX of the Private DICT this glyph's charstring is read against.
+    local: &'a [Vec<u8>],
+}
+
+/// How many bytes of a subroutine are its body, with a trailing `return` left off.
+///
+/// A subroutine is spliced into a charstring in place of the call, which is what `callsubr`
+/// does; the `return` that ends it has nothing to return to once it is inlined, so it is
+/// dropped. Finding it means reading the subroutine as Type 2 rather than looking at its last
+/// byte, because `hintmask`'s mask bytes follow the operator as data and one of them may be 11.
+///
+/// `None` where the subroutine cannot be read that far: a mask whose length depends on stems
+/// counted inside a *nested* call is one this does not follow, and a subroutine holding both is
+/// declined rather than guessed at.
+fn subroutine_body(subr: &[u8]) -> Option<usize> {
+    let mut stems = 0usize;
+    let mut operands = 0usize;
+    let mut called = false;
+    let mut at = 0usize;
+    let mut last: Option<(usize, u8)> = None;
+    while let Some(&b0) = subr.get(at) {
+        last = Some((at, b0));
+        let step = match b0 {
+            28 => {
+                operands = operands.saturating_add(1);
+                3
+            }
+            32..=246 => {
+                operands = operands.saturating_add(1);
+                1
+            }
+            247..=254 => {
+                operands = operands.saturating_add(1);
+                2
+            }
+            255 => {
+                operands = operands.saturating_add(1);
+                5
+            }
+            stack_clearing::HSTEM
+            | stack_clearing::VSTEM
+            | stack_clearing::HSTEMHM
+            | stack_clearing::VSTEMHM => {
+                stems = stems.saturating_add(operands / 2);
+                operands = 0;
+                1
+            }
+            stack_clearing::HINTMASK | stack_clearing::CNTRMASK => {
+                if called {
+                    return None;
+                }
+                stems = stems.saturating_add(operands / 2);
+                operands = 0;
+                1usize.saturating_add(stems.div_ceil(8))
+            }
+            ESCAPE_BYTE => {
+                operands = 0;
+                2
+            }
+            CALL_LOCAL | CALL_GLOBAL => {
+                called = true;
+                operands = operands.saturating_sub(1);
+                1
+            }
+            _ => {
+                operands = 0;
+                1
+            }
+        };
+        at = at.checked_add(step)?;
+        if at > subr.len() {
+            return None;
+        }
+    }
+    match last {
+        Some((start, RETURN)) => Some(start),
+        Some(_) => Some(subr.len()),
+        None => None,
+    }
+}
+
+/// The charstring with the leading subroutine call it begins with spliced out.
+///
+/// `None` where the head is not a call, where the subroutine is not there, or where
+/// [`subroutine_body`] declines it. Splicing is exactly what the interpreter does, so the outline
+/// the charstring draws is unchanged — which `an_inlined_charstring_draws_what_the_call_drew`
+/// checks over every glyph of the compiled-in faces rather than asserting here.
+fn inline_leading_call(charstring: &[u8], subrs: &Subroutines<'_>) -> Option<Vec<u8>> {
+    let mut operands: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut at = 0usize;
+    while let Some(&b0) = charstring.get(at) {
+        let width = match b0 {
+            28 => 3,
+            32..=246 => 1,
+            247..=254 => 2,
+            255 => 5,
+            CALL_LOCAL | CALL_GLOBAL => {
+                let index = operands.last()?;
+                let named = dict_ints(charstring.get(index.clone())?).first().copied()?;
+                let table = if b0 == CALL_LOCAL {
+                    subrs.local
+                } else {
+                    subrs.global
+                };
+                let chosen = usize::try_from(named.checked_add(bias(table.len()))?).ok()?;
+                let body = table.get(chosen)?;
+                let keep = subroutine_body(body)?;
+                let mut out = Vec::with_capacity(charstring.len().saturating_add(body.len()));
+                out.extend_from_slice(charstring.get(..index.start)?);
+                out.extend_from_slice(body.get(..keep)?);
+                out.extend_from_slice(charstring.get(at.checked_add(1)?..)?);
+                return Some(out);
+            }
+            _ => return None,
+        };
+        let end = at.checked_add(width)?;
+        charstring.get(at..end)?;
+        operands.push(at..end);
+        at = end;
+    }
+    None
+}
+
+/// One charstring with its width operand restated as `advance`, in the program's own units.
+///
+/// The outline is untouched: what changes is the one leading operand Adobe Technical Note #5177
+/// section 3.1 defines, written in the three-byte form so that its length does not depend on its
+/// value. `None` where the charstring states its width through a subroutine ([`width_span`]) or
+/// where the difference from `nominal` will not fit a 16-bit operand.
+fn charstring_with_advance(
+    charstring: &[u8],
+    advance: i64,
+    nominal: i64,
+    subrs: &Subroutines<'_>,
+) -> Option<Vec<u8>> {
+    // A subroutinized program factors the width into a subroutine, so the call at the head is
+    // spliced out until the width is where Adobe Technical Note #5177 section 3.1 puts it.
+    let mut charstring = charstring.to_vec();
+    for _ in 0..MAX_INLINE_DEPTH {
+        if width_span(&charstring).is_some() {
+            break;
+        }
+        charstring = inline_leading_call(&charstring, subrs)?;
+    }
+    let charstring = charstring.as_slice();
+    let span = width_span(charstring)?;
+    let value = i16::try_from(advance.checked_sub(nominal)?).ok()?;
+    let mut out = Vec::with_capacity(charstring.len().saturating_add(3));
+    out.push(28);
+    out.extend_from_slice(&value.to_be_bytes());
+    match span {
+        LeadingWidth::At(span) => {
+            out.extend_from_slice(charstring.get(..span.start)?);
+            out.extend_from_slice(charstring.get(span.end..)?);
+        }
+        LeadingWidth::Absent => out.extend_from_slice(charstring),
+    }
+    Some(out)
+}
+
+/// A DICT's `nominalWidthX`, which is zero where the DICT does not state one.
+fn nominal_width(private: &[u8]) -> i64 {
+    dict_entries(private)
+        .unwrap_or_default()
+        .iter()
+        .find(|(_, op)| *op == OP_NOMINAL_WIDTH)
+        .and_then(|(operands, _)| dict_int(operands))
+        .unwrap_or(0)
+}
+
+/// The Private DICT a DICT's `Private` entry names, as a slice of the program.
+fn private_dict<'a>(data: &'a [u8], dict: &[u8]) -> Option<&'a [u8]> {
+    let (size, at) = dict_entries(dict)?
+        .iter()
+        .find(|(_, op)| *op == OP_PRIVATE)
+        .and_then(|(operands, _)| dict_two_ints(operands))?;
+    let at = usize::try_from(at).ok()?;
+    let size = usize::try_from(size).ok()?;
+    data.get(at..at.checked_add(size)?)
+}
+
+/// The Global Subr INDEX, which sits directly after the String INDEX (Adobe Technical Note
+/// #5176, section 1: the header, then the Name, Top DICT, String and Global Subr INDEXes).
+fn global_subroutines(data: &[u8]) -> Vec<Vec<u8>> {
+    let read = || -> Option<Vec<Vec<u8>>> {
+        let header = usize::from(*data.get(2)?);
+        let name = index_extent(data, header)?;
+        let top = index_extent(data, name.end)?;
+        let strings = index_extent(data, top.end)?;
+        Some(
+            index_items(data, strings.end)?
+                .into_iter()
+                .map(<[u8]>::to_vec)
+                .collect(),
+        )
+    };
+    read().unwrap_or_default()
+}
+
+/// The Local Subr INDEX a Private DICT names, whose offset the DICT states relative to itself.
+fn local_subroutines(data: &[u8], dict: &[u8]) -> Vec<Vec<u8>> {
+    let read = || -> Option<Vec<Vec<u8>>> {
+        let (size, at) = dict_entries(dict)?
+            .iter()
+            .find(|(_, op)| *op == OP_PRIVATE)
+            .and_then(|(operands, _)| dict_two_ints(operands))?;
+        let at = usize::try_from(at).ok()?;
+        let private = data.get(at..at.checked_add(usize::try_from(size).ok()?)?)?;
+        let relative = dict_entries(private)?
+            .iter()
+            .find(|(_, op)| *op == OP_SUBRS)
+            .and_then(|(operands, _)| dict_int(operands))?;
+        Some(
+            index_items(data, at.checked_add(usize::try_from(relative).ok()?)?)?
+                .into_iter()
+                .map(<[u8]>::to_vec)
+                .collect(),
+        )
+    };
+    read().unwrap_or_default()
+}
+
+/// Every `nominalWidthX` the program states, by Font DICT index, and the one a glyph uses.
+///
+/// A name-keyed program has one Private DICT, named by the Top DICT; a CID-keyed one has a
+/// Private DICT per Font DICT, and `FDSelect` says which glyph uses which (Adobe Technical Note
+/// #5176, sections 15, 18 and 19). Both are read here so that a rebuilt charstring's width
+/// operand is stated against the same number the reader will subtract it from.
+fn nominal_widths(data: &[u8], layout: &Layout, cid_keyed: bool) -> Vec<i64> {
+    if !cid_keyed {
+        let top = index_item(data, layout.top_index.start, 0).unwrap_or_default();
+        return vec![private_dict(data, top).map_or(0, nominal_width)];
+    }
+    index_items(data, layout.fd_array_at.unwrap_or(0))
+        .unwrap_or_default()
+        .iter()
+        .map(|dict| private_dict(data, dict).map_or(0, nominal_width))
+        .collect()
+}
+
+/// The program with the advance of each named glyph restated, in the program's own units.
+///
+/// **What section 4.9 of `doc/pdf-a-conversion-limits.md` calls the second metric route.**
+/// ISO 19005-2
+/// section 6.2.11.5 and ISO 19005-4 section 6.2.10.5 require a font dictionary's stated widths
+/// and its embedded program's own to agree, and ISO 32000-2 §9.2.4 says which of the two
+/// positions the glyphs:
+///
+/// > Storing this information in the font dictionary, although redundant, enables a PDF processor
+/// > to determine glyph positioning without having to look inside the font program.
+///
+/// So the program's number is the one that may move, and this is the move: the leading width
+/// operand of each named glyph's charstring is restated and every other byte of the charstring —
+/// every byte of the outline — is copied. A glyph not named keeps the advance it had.
+///
+/// # Errors
+///
+/// [`CffError::Malformed`] where the program does not open or its `CharStrings` INDEX does not
+/// read, and [`CffError::AdvanceNotRestatable`] where a named glyph's charstring states its width
+/// somewhere this does not follow.
+pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u8>, CffError> {
+    let font = open(data)?;
+    let layout = Layout::read(data).ok_or_else(|| CffError::Malformed {
+        detail: "the Top DICT INDEX could not be located".to_owned(),
+    })?;
+    let charstrings_at = layout
+        .entries
+        .iter()
+        .find(|(_, op)| *op == OP_CHARSTRINGS)
+        .and_then(|(operands, _)| dict_int(operands))
+        .and_then(|at| usize::try_from(at).ok())
+        .ok_or_else(|| CffError::Malformed {
+            detail: "the Top DICT states no CharStrings offset".to_owned(),
+        })?;
+    let mut charstrings: Vec<Vec<u8>> = index_items(data, charstrings_at)
+        .ok_or_else(|| CffError::Malformed {
+            detail: "the CharStrings INDEX could not be read".to_owned(),
+        })?
+        .into_iter()
+        .map(<[u8]>::to_vec)
+        .collect();
+    let cid_keyed = font.is_cid();
+    let nominal = nominal_widths(data, &layout, cid_keyed);
+    let global = global_subroutines(data);
+    // One Local Subr INDEX per Font DICT, read once: a charstring's `callsubr` reaches the
+    // subroutines of the Private DICT it is interpreted against and no other.
+    let dicts: Vec<Vec<u8>> = if cid_keyed {
+        index_items(data, layout.fd_array_at.unwrap_or(0))
+            .unwrap_or_default()
+            .into_iter()
+            .map(<[u8]>::to_vec)
+            .collect()
+    } else {
+        vec![
+            index_item(data, layout.top_index.start, 0)
+                .unwrap_or_default()
+                .to_vec(),
+        ]
+    };
+    let locals: Vec<Vec<Vec<u8>>> = dicts
+        .iter()
+        .map(|dict| local_subroutines(data, dict))
+        .collect();
+    for (glyph, advance) in advances {
+        let slot =
+            charstrings
+                .get_mut(usize::from(*glyph))
+                .ok_or(CffError::AdvanceNotRestatable {
+                    glyph: *glyph,
+                    detail: "the program's CharStrings INDEX has no entry for it".to_owned(),
+                })?;
+        let subfont = if cid_keyed {
+            font.subfont_index(GlyphId::from(*glyph)).unwrap_or(0)
+        } else {
+            0
+        };
+        let against = nominal.get(usize::from(subfont)).copied().unwrap_or(0);
+        let subrs = Subroutines {
+            global: &global,
+            local: locals
+                .get(usize::from(subfont))
+                .map_or(&[][..], Vec::as_slice),
+        };
+        *slot = charstring_with_advance(slot, *advance, against, &subrs).ok_or(
+            CffError::AdvanceNotRestatable {
+                glyph: *glyph,
+                detail: "its charstring does not begin with one of the stack-clearing operators \
+                         a width is stated against, so the width is inside a subroutine"
+                    .to_owned(),
+            },
+        )?;
+    }
+    Ok(layout.with_charstrings(data, &charstrings))
 }
 
 #[cfg(test)]

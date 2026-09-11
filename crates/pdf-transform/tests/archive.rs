@@ -278,6 +278,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             target,
             authorised,
             profile: None,
+            substitute_fonts: true,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -1291,6 +1292,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             target: Target::Four(Flavour::Plain),
             authorised: Authorisations::default(),
             profile: Some(profile),
+            substitute_fonts: true,
         }),
         &[Source::new(source)],
         &sinks,
@@ -1686,6 +1688,7 @@ fn convert_with_profile(
             target,
             authorised: Authorisations::default(),
             profile: Some(std::sync::Arc::clone(profile)),
+            substitute_fonts: true,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -1733,6 +1736,216 @@ fn a_cmyk_profile_answers_the_clause_and_no_default_is_written() {
     assert!(
         conversion(&report).recorded.is_none(),
         "and nothing is recorded in the history, because nothing was interpreted"
+    );
+}
+
+/// A PDF/A-2 fixture whose one font states `widths` and embeds its program only if `embedded`.
+///
+/// The same shape as [`a_font_whose_cmap_states`] one clause over, and the two differences are
+/// what the font tests turn on: the `/Widths` array is the test's, and the descriptor's
+/// `/FontFile2` is present or absent. The font is non-symbolic `/WinAnsiEncoding` and the page
+/// draws the single code 0x41, which that encoding names `A` — so which glyph is meant is the
+/// standard's answer rather than this fixture's.
+///
+/// 667 is the width Liberation Sans itself states for that glyph: 1366 units of a 2048-unit em
+/// is 0.66699, which is inside the thousandth ISO 19005-2 section 6.2.11.5 allows. So a fixture
+/// stating 667 asks for section 4.9's first metric route and one stating anything else asks for
+/// the second.
+fn a_font_stating(widths: &str, embedded: bool) -> Vec<u8> {
+    let program = if embedded { "/FontFile2 8 0 R" } else { "" };
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 65 \
+                 /LastChar 65 /Widths [{widths}] /FontDescriptor 7 0 R \
+                 /Encoding /WinAnsiEncoding >>"
+            ),
+            format!(
+                "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+                 /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+                 /CapHeight 716 /StemV 80 {program} >>"
+            ),
+        ],
+        binary_objects: vec![stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// One font dictionary's `/Widths` array, read out of a converted file.
+fn stated_widths(bytes: &[u8]) -> Vec<f64> {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let font = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    held.resolve(&held.get_key(&font, "Widths"))
+        .as_array()
+        .expect("a /Widths array")
+        .iter()
+        .filter_map(|entry| held.resolve(entry).as_number())
+        .collect()
+}
+
+#[test]
+fn a_font_the_file_never_embedded_is_given_a_face_the_report_names() {
+    // ISO 19005-2 section 6.2.11.4.1 requires the program of every rendered font to be in the
+    // file, and `doc/pdf-a-conversion-limits.md` section 4.9 makes embedding one of the faces
+    // this program ships the **default** rather than a refusal — `doc/questions/A47` settled
+    // that. The width the fixture states is the face's own, so this is section 4.9's *first*
+    // metric route and nothing inside the program is touched.
+    let source = a_font_stating("667", false);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let decided = decision(&report, "fonts/font-programs-embedded");
+    assert!(
+        matches!(decided, Decision::Stated { .. }),
+        "embedding a face states an interpretation rather than losing something: {decided:?}"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    let substituted = &conversion(&report).substituted;
+    assert_eq!(
+        substituted.len(),
+        1,
+        "section 4.9 asks for one report line per font: {substituted:?}"
+    );
+    let font = substituted.first().expect("the one font");
+    assert_eq!(
+        (font.requested.as_str(), font.face, font.route),
+        (
+            "LiberationSans",
+            "Liberation Sans Regular",
+            pdf_transform::archive::MetricRoute::FaceMetrics
+        ),
+        "the face requested, the face used and which metric route was taken"
+    );
+    assert!(
+        conversion(&report)
+            .recorded
+            .as_ref()
+            .is_some_and(|recorded| recorded.contains("LiberationSans")),
+        "ISO 19005-2 section 6.6.6's NOTE 1 names font substitution as an action to record in \
+         the file's own xmpMM:History, and A47's permission is conditional on it"
+    );
+}
+
+#[test]
+fn an_embedded_face_whose_metrics_differ_has_the_program_restated_and_not_the_widths() {
+    // `doc/pdf-a-conversion-limits.md` section 4.9's second metric route, and the third — "never"
+    // — checked in the same breath. The fixture states a width the shipped face does not have, so
+    // the face's advances are restated to it; what must *not* happen is the reverse, because
+    // ISO 32000-2 §9.2.4 makes `/Widths` what positions the glyphs and rewriting it would move
+    // every line of the page.
+    let source = a_font_stating("500", false);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "the two statements of the advance now agree, which is what section 6.2.11.5 asks"
+    );
+    assert_eq!(
+        conversion(&report)
+            .substituted
+            .first()
+            .map(|font| font.route),
+        Some(pdf_transform::archive::MetricRoute::RestatedProgram),
+        "and the report says which of the two routes it was"
+    );
+    assert_eq!(
+        stated_widths(&output),
+        stated_widths(&source),
+        "the widths the file states cross the conversion unchanged: section 4.9 calls restating \
+         them **never**, because they are what positions the glyphs"
+    );
+}
+
+#[test]
+fn a_program_whose_advances_disagree_with_its_dictionary_is_restated_in_place() {
+    // ISO 19005-2 section 6.2.11.5: the widths the font dictionary states and the ones the
+    // embedded program states shall agree. This fixture embeds the real Liberation Sans and then
+    // states 500 for a glyph the program makes 667 wide — the shape the corpus's own
+    // `6.2.11.5` witnesses have — and the remedy is the program's number, never the file's.
+    let source = a_font_stating("500", true);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let decided = decision(&report, "fonts/widths-agree-with-the-program");
+    assert_eq!(
+        decided.rewrite(),
+        Some(Rewrite::RestateFontMetrics),
+        "restating a program's advances loses nothing and moves no mark: {decided:?}"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    assert_eq!(
+        stated_widths(&output),
+        stated_widths(&source),
+        "the dictionary's widths are untouched"
+    );
+    let restated = &conversion(&report).restated;
+    assert_eq!(
+        restated
+            .first()
+            .map(|font| (font.requested.as_str(), font.glyphs)),
+        Some(("LiberationSans", 1)),
+        "and the report names the font and how many glyphs were restated: {restated:?}"
+    );
+}
+
+#[test]
+fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
+    // `doc/pdf-a-conversion-limits.md` section 4.9: "--no-substitute for the user who wants the
+    // other behaviour, which turns every such font back into a refusal." The reason has to say
+    // which of the four kinds of *no* it is — this one is the caller's own, and it goes away the
+    // moment the flag does, which is what separates it from a gap and from a fence.
+    let source = a_font_stating("667", false);
+    let sinks = MemorySinks::default();
+    let report = apply(
+        &Plan::Archive(ArchivePlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+            target: Target::Two(Level::B),
+            authorised: Authorisations::default(),
+            profile: None,
+            substitute_fonts: false,
+        }),
+        &[Source::new(source)],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let decided = conversion(&report)
+        .decided
+        .iter()
+        .find(|decided| decided.requirement == "fonts/font-programs-embedded")
+        .map(|decided| decided.decision)
+        .expect("the embedding requirement is decided about");
+    assert!(
+        matches!(decided, Decision::Refused(Because::Declined(_))),
+        "the caller asked for this, so it is not a gap and not a fence: {decided:?}"
+    );
+    assert!(
+        sinks.into_outputs().is_empty(),
+        "and no file is written, because the document does not conform without the face"
     );
 }
 

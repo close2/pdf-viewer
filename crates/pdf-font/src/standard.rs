@@ -151,6 +151,112 @@ pub fn face(request: Request) -> Face {
     }
 }
 
+/// A face this program ships, chosen for a simple font the document did not embed.
+///
+/// **The archival counterpart of [`crate::substitute::find`], and the difference is the whole
+/// reason it exists.** That function consults the machine's own fonts first for a `/BaseFont`
+/// outside §9.6.2.2's fourteen, because for *rendering* a wider repertoire is worth more than
+/// reproducibility. A converter embedding a face into a file cannot make that trade twice over:
+/// the program it writes has to be the same on every machine, and — ISO 19005-2 section
+/// 6.2.11.4.1 — it has to be one that may lawfully be embedded for unlimited universal
+/// rendering, which a face installed on somebody's machine generally may not be. So this answers
+/// from [`face`] and nowhere else.
+#[derive(Debug, Clone, Copy)]
+pub struct ShippedFace {
+    /// The face's bytes, compiled into this binary.
+    pub program: &'static [u8],
+    /// Which reader parses them, which ISO 32000-2 §9.9's Table 124 turns into the `/FontFile`
+    /// key a font descriptor may carry them under.
+    pub format: Format,
+    /// What the document asked for, derived from the font dictionary alone.
+    pub request: Request,
+    /// The glyph each of the 256 codes selects in this face, by §9.6.5's own route.
+    glyphs: [Option<u16>; 256],
+}
+
+impl ShippedFace {
+    /// The glyph a code selects in this face, where it selects one.
+    ///
+    /// `None` is a code the document's encoding names a glyph for that this face does not have,
+    /// or names nothing at all — which is the answer a converter must refuse on rather than fill
+    /// in, because §9.6.5.2 sends such a code to `.notdef` and both parts' `.notdef` clause
+    /// forbids showing it.
+    #[must_use]
+    pub fn glyph(&self, code: u8) -> Option<u16> {
+        self.glyphs.get(usize::from(code)).copied().flatten()
+    }
+
+    /// The face's own name, for a report that has to say which face was embedded.
+    #[must_use]
+    pub fn describe(&self) -> &'static str {
+        describe(self.request)
+    }
+}
+
+/// The face this program ships for a simple font the document did not embed, and its code table.
+///
+/// The request is derived from the font dictionary and its descriptor exactly as
+/// [`crate::substitute::Request::derive`] derives it for rendering, so a converter embeds the
+/// face a reader would have drawn from — which is what makes the embedded file look like the
+/// file the reader was already showing.
+///
+/// # Errors
+///
+/// [`crate::FontError`] where the document's `/Encoding` cannot be read, where the face cannot be
+/// parsed, or where the face draws none of the codes the document declares — the last being
+/// [`crate::FontError::NoSubstitute`], which is a document asking for a repertoire this program
+/// does not ship and is the case `doc/questions/A47` says to refuse rather than guess at.
+pub fn shipped_face(
+    document: &pdf_syntax::Document,
+    dict: &pdf_syntax::Dictionary,
+    name: &str,
+) -> Result<ShippedFace, crate::FontError> {
+    let descriptor = document.get_key(dict, "FontDescriptor").as_dict().cloned();
+    let request = Request::derive(document, dict, descriptor.as_ref());
+    let (program, format) = face(request);
+    let names = crate::substituted::substitute_encoding_names(document, dict, request, name)?;
+    let (glyphs, _) = crate::substituted::substitute_code_table(
+        document,
+        dict,
+        request,
+        names,
+        program,
+        crate::program::Program::from(format),
+        name,
+    )?;
+    Ok(ShippedFace {
+        program,
+        format,
+        request,
+        glyphs,
+    })
+}
+
+/// A compiled-in face's own name, which a report names as the face that was used.
+///
+/// The names are the files' own, recorded in `data/standard-fonts/PROVENANCE.md`: four Liberation
+/// Sans faces under the SIL Open Font License and ten of `PDFium`'s Foxit set under BSD-3-Clause.
+/// A report that said only "the sans-serif face" would leave a reader unable to check the licence
+/// of what is now in their file.
+const fn describe(request: Request) -> &'static str {
+    match (request.family, request.bold, request.italic) {
+        (Family::SansSerif, false, false) => "Liberation Sans Regular",
+        (Family::SansSerif, true, false) => "Liberation Sans Bold",
+        (Family::SansSerif, false, true) => "Liberation Sans Italic",
+        (Family::SansSerif, true, true) => "Liberation Sans Bold Italic",
+        (Family::Serif, false, false) => "Foxit Serif",
+        (Family::Serif, true, false) => "Foxit Serif Bold",
+        (Family::Serif, false, true) => "Foxit Serif Italic",
+        (Family::Serif, true, true) => "Foxit Serif Bold Italic",
+        (Family::Monospace, false, false) => "Foxit Fixed",
+        (Family::Monospace, true, false) => "Foxit Fixed Bold",
+        (Family::Monospace, false, true) => "Foxit Fixed Italic",
+        (Family::Monospace, true, true) => "Foxit Fixed Bold Italic",
+        (Family::Symbol, _, _) => "Foxit Symbol",
+        (Family::ZapfDingbats, _, _) => "Foxit Dingbats",
+    }
+}
+
 /// §9.6.2.2's fourteen names, exactly as the clause spells them.
 ///
 /// > The PostScript language names of 14 Type 1 fonts, known as the standard 14 fonts, are as

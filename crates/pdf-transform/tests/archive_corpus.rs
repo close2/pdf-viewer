@@ -1,4 +1,4 @@
-//! `archive` over the veraPDF corpus: two properties, over a population of witnesses.
+//! `archive` over the veraPDF corpus: three properties, over a population of witnesses.
 //!
 //! `crates/pdf-transform/tests/archive.rs` states what the converter *does*, from a fixture built
 //! out of the clauses. This states what it may never do, over a few hundred documents nobody here
@@ -10,6 +10,13 @@
 //! 2. **Nothing panics, and nothing comes back as an error.** A conversion either writes a file or
 //!    refuses by name; `crate::Refusal` is for a source that could not be read at all, and a
 //!    corpus document that reaches one is a bug in this verb rather than a fact about the file.
+//! 3. **No glyph moves.** Every glyph advance the output's font dictionaries state is one the
+//!    source stated. `doc/pdf-a-conversion-limits.md` section 4.9 offers three ways to make a
+//!    font dictionary agree with its embedded program and calls the third — restating the
+//!    dictionary — **never**, because ISO 32000-2 §9.2.4 makes those numbers what a reader
+//!    positions glyphs by; a converter that took it would move every line of every page it
+//!    touched and nothing in its report would say so. [`every_stated_width`] is the check, and
+//!    it is absolute rather than sampled: the whole set of statements, before and after.
 //!
 //! **The corpus is a population, never an answer key** — `crates/pdf-archive/tests/corpus.rs` has
 //! that argument in full, and `CLAUDE.md` principle 5 is where it comes from. Nothing here treats
@@ -136,7 +143,41 @@ struct Tally {
     refusals: BTreeMap<&'static str, usize>,
 }
 
-/// Converts every corpus document under `part` to `target` and states the two properties.
+/// Every glyph advance a document's font dictionaries state, in one comparable list.
+///
+/// ISO 32000-2 §9.6.2.1's `/Widths` for a simple font and §9.7.4.3's `/W` and `/DW` for a
+/// `CIDFont` — plus §9.8.1's `/MissingWidth`, which is what a simple font's unlisted codes are —
+/// gathered over every object the cross-reference table reaches. Sorted rather than keyed by
+/// object, because what is being asserted is that the *set of statements* is the same and not
+/// that the serializer chose the same numbering.
+///
+/// **Only a dictionary whose `/Type` is `Font` or `FontDescriptor` is looked at**, because `/W`
+/// is not only a `CIDFont`'s: §7.5.8.2 gives a cross-reference stream one too, and the
+/// serializer writes a cross-reference stream where a source wrote a table.
+fn every_stated_width(document: &Document) -> Vec<String> {
+    let mut stated = Vec::new();
+    for number in document.xref().object_numbers().collect::<Vec<_>>() {
+        let object = document.get(pdf_syntax::ObjectId::new(number, 0));
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        let kind = document.get_key(dict, "Type");
+        let kind = kind.as_name().map(|name| name.as_bytes().to_vec());
+        if !matches!(kind.as_deref(), Some(b"Font" | b"FontDescriptor")) {
+            continue;
+        }
+        for key in ["Widths", "W", "DW", "DW2", "W2", "MissingWidth"] {
+            let value = document.get_key(dict, key);
+            if !value.is_null() {
+                stated.push(format!("{key}={:?}", document.resolve(&value)));
+            }
+        }
+    }
+    stated.sort_unstable();
+    stated
+}
+
+/// Converts every corpus document under `part` to `target` and states the three properties.
 fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) -> Tally {
     let mut tally = Tally::default();
     for path in documents(root, part) {
@@ -150,6 +191,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
         let conformed = pdf_archive::check(&document, target).verdict() == Verdict::Conforms;
         drop(document);
 
+        let kept = bytes.clone();
         let sinks = MemorySinks::new();
         let report = apply(
             &Plan::Archive(ArchivePlan {
@@ -158,6 +200,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 target,
                 authorised,
                 profile: None,
+                substitute_fonts: true,
             }),
             &[Source::new(bytes)],
             &sinks,
@@ -199,7 +242,26 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 "{}: conformed already and no file was written",
                 path.display()
             ),
-            (false, Some(_)) => tally.converted = tally.converted.saturating_add(1),
+            (false, Some(output)) => {
+                // **Property 3: no glyph moves.** `doc/pdf-a-conversion-limits.md` section 4.9
+                // sets out three ways to make a font dictionary's widths agree with its
+                // program's and calls the third — restating the dictionary — *never*, because
+                // ISO 32000-2 §9.2.4 makes those numbers what positions the glyphs. A converter
+                // that took it would move every line of every page it touched, and nothing in
+                // the report would say so. So it is checked where it can be checked absolutely:
+                // every width every font in the output states is the width the source stated.
+                let held = Document::open_with_limits(output, Limits::DEFAULT)
+                    .expect("the converted document re-opens");
+                let source =
+                    Document::open_with_limits(kept, Limits::DEFAULT).expect("the source re-opens");
+                assert_eq!(
+                    every_stated_width(&held),
+                    every_stated_width(&source),
+                    "{}: a width the file states was rewritten, which moves the text",
+                    path.display()
+                );
+                tally.converted = tally.converted.saturating_add(1);
+            }
             (false, None) => {
                 tally.refused = tally.refused.saturating_add(1);
                 let conversion = report.archive.as_ref().expect("a conversion is reported");

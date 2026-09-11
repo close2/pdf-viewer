@@ -247,6 +247,7 @@ const KNOWN: &[&str] = &[
     "--every",
     "--at-bookmarks",
     "--collate",
+    "--no-substitute",
     "--delete",
     "--rotate",
     "--move",
@@ -569,6 +570,7 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         target,
         authorised,
         profile: output_intent_profile(arguments)?,
+        substitute_fonts: !arguments.switch("--no-substitute"),
     })
 }
 
@@ -1321,15 +1323,29 @@ archive:
                            document was made for is the one thing nobody but its owner knows.
                            A supplied profile's own copyright tag is printed, because embedding
                            somebody's profile means shipping their terms with it
+  --no-substitute          a font the file renders and does not embed is refused by name instead
+                           of being given one of the faces this program ships. The default is to
+                           substitute, because a PDF whose font is not embedded has no appearance
+                           of its own — every reader picks a face at display time and they pick
+                           different ones — so embedding one removes that indeterminacy, which is
+                           what the format is for. The report names, per font, what was asked
+                           for, what was embedded, and whether the face's own advances were used
+                           or restated to the widths the file states; no glyph moves either way.
+                           Batch archiving wants the default; a curator checking one document
+                           may want the flag
   the document is validated against the target, one decision is taken per requirement it fails,
   and the rewrites those decisions call for are applied — then the output is validated again and
   is **not written** if it fails a requirement the source met. The report says, per document,
   what already conformed, what was changed and under which clause, what was refused and why, and
   which requirements the verdict does not cover; --report=json carries all of it. Adding an
   output intent is reported as what it is: it states an interpretation, so every device colour
-  in the file afterwards means what that profile says it means to a conforming reader. Fonts,
-  the structure tree, encryption, attachments and the rest are refused **by name**, with the
-  clause they could not meet, and no file is written.
+  in the file afterwards means what that profile says it means to a conforming reader. A font
+  the file does not embed is given one of the faces this program ships unless --no-substitute
+  says otherwise, and an embedded program whose stated advances disagree with its own font
+  dictionary has the program's numbers restated, never the dictionary's — /Widths is what
+  positions the glyphs. The structure tree, encryption, attachments, a composite font nothing
+  embedded, and a page that draws a glyph its own program has not got are refused **by name**,
+  with the clause they could not meet, and no file is written.
   doc/pdf-a-conversion-limits.md is the whole list.
 
 attachments --attach:

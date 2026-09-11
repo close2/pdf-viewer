@@ -20,6 +20,7 @@ use pdf_syntax::{Document, Version, serialize::serialize};
 use crate::Refusal;
 
 use super::COMPRESSION_LEVEL;
+use super::fonts::{Metrics, Substitutes};
 use super::prepare::{
     Appearances, Cleaned, DefaultCmyk, Intent, Metadata, Prepared, intent_dictionary,
     metadata_stream, output_intent_entries,
@@ -191,6 +192,37 @@ pub enum Rewrite {
     /// **Only `/N` is written**, which is what both parts' section 6.3.3 requires of an appearance
     /// dictionary, so nothing here can create the `/R` or `/D` entry the same subclause forbids.
     AppearanceDictionary,
+    /// Every rendered font whose descriptor carries no program gains one of the faces this
+    /// program ships, embedded under the `/FontFile` key ISO 32000-2 §9.9's Table 124 admits.
+    ///
+    /// ISO 19005-2 section 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1 require the program of
+    /// every font a content stream renders to be in the file, and
+    /// `doc/pdf-a-conversion-limits.md` section 4.9 makes embedding a face the **default** rather
+    /// than a refusal: a PDF whose font is not embedded has no appearance of its own, so writing
+    /// one down removes an indeterminacy instead of creating one. `doc/questions/A47` settled
+    /// that, and made "where no shipped face covers a document's characters, refuse rather than
+    /// guess" its condition. [`super::fonts`] is where both halves are.
+    ///
+    /// **The descriptor's `/CharSet` and `/CIDSet` are removed with the same edit.** §9.8.1's
+    /// Table 122 makes each a description of the *embedded* program, and this descriptor
+    /// described one the file did not carry; ISO 19005-2 section 6.2.11.4.2 requires such a
+    /// description to be complete, so leaving a producer's beside a face this converter chose
+    /// would leave the file stating something false about its own bytes.
+    SubstituteFontProgram,
+    /// Every embedded font program whose stated advances disagree with its own font dictionary
+    /// has the *program's* advances restated.
+    ///
+    /// ISO 19005-2 section 6.2.11.5 and ISO 19005-4 section 6.2.10.5 require the two statements
+    /// to agree, and §9.2.4 says which of them a reader positions glyphs by:
+    ///
+    /// > Storing this information in the font dictionary, although redundant, enables a PDF
+    /// > processor to determine glyph positioning without having to look inside the font program.
+    ///
+    /// So the program's number is the one that may move and the dictionary's is not — nothing in
+    /// this verb writes a `/Widths`, a `/W` or a `/DW`. **No mark on any page moves**, and no
+    /// outline changes: what is rewritten is `hmtx` for an sfnt and the leading width operand of
+    /// a charstring for a CFF.
+    RestateFontMetrics,
 }
 
 impl Rewrite {
@@ -259,6 +291,16 @@ impl Rewrite {
                 "an annotation stating no appearance dictionary is given an /AP whose /N names a \
                  form XObject constructed from the entries its own subtype clause states"
             }
+            Self::SubstituteFontProgram => {
+                "a font the file renders and does not embed gains one of the faces this program \
+                 ships, embedded under the /FontFile key ISO 32000-2 \u{a7}9.9's Table 124 \
+                 admits for its dictionary; the descriptor's CharSet and CIDSet go with it, \
+                 because each describes a font program this file never carried"
+            }
+            Self::RestateFontMetrics => {
+                "an embedded font program's stated advances are restated to the widths the font \
+                 dictionary already states, which is the one of the two that does not move a mark"
+            }
         }
     }
 
@@ -288,6 +330,8 @@ impl Rewrite {
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
             Self::AnnotationFlags => "annotation-flags",
             Self::AppearanceDictionary => "appearance-dictionary",
+            Self::SubstituteFontProgram => "substitute-font-program",
+            Self::RestateFontMetrics => "restate-font-metrics",
         }
     }
 }
@@ -330,6 +374,8 @@ pub(super) fn convert(
         to_unicode: prepared.to_unicode.as_ref().ok(),
         cleaned: prepared.properties.as_ref().ok(),
         appearances: prepared.appearances.as_ref().ok(),
+        substitutes: prepared.substitutes.as_ref().ok(),
+        metrics: prepared.metrics.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -973,6 +1019,10 @@ struct Rewriter<'a> {
     cleaned: Option<&'a Cleaned>,
     /// The appearance each annotation's `/AP` `/N` is to name, where any are being constructed.
     appearances: Option<&'a Appearances>,
+    /// The `/FontFile` entry each font descriptor is to gain, where any are being embedded.
+    substitutes: Option<&'a Substitutes>,
+    /// The font program stream to write in place of each one being restated.
+    metrics: Option<&'a Metrics>,
 }
 
 impl Rewriter<'_> {
@@ -1044,6 +1094,43 @@ impl Rewriter<'_> {
             appearance.insert(Name::new(&b"N"[..]), Object::Reference(*stream));
             out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
             count(applied, Rewrite::AppearanceDictionary);
+            changed = true;
+        }
+        if self.wants(Rewrite::SubstituteFontProgram)
+            && let Some(embedding) = self
+                .substitutes
+                .and_then(|substitutes| substitutes.at.get(&id))
+        {
+            // §9.9's Table 124 admits at most one of the three keys:
+            //
+            // > At most, only one of the FontFile , FontFile2 , and FontFile3 entries shall be
+            // > present.
+            //
+            // This descriptor *states* none — the preparation's population is a descriptor whose
+            // every such key resolves to null — but it may well hold one of the keys with
+            // nothing behind it, which §7.3.7 makes the same thing and Table 124's sentence
+            // counts all the same. So the other two go before this one is written.
+            for key in ["FontFile", "FontFile2", "FontFile3"] {
+                if key != embedding.key {
+                    out.remove(key);
+                }
+            }
+            // **`/CharSet` and `/CIDSet` describe a program, and the program they describe was
+            // never in this file.** §9.8.1's Table 122 makes both optional and makes each a list
+            // of what the *embedded* program contains; ISO 19005-2 section 6.2.11.4.2 then
+            // requires the list to be complete. A producer who wrote one for a font they did not
+            // embed wrote a description of a font nobody had, so carrying it forward beside a
+            // face this converter chose would leave the file asserting something false about its
+            // own bytes — and would fail the very clause that checks the assertion, which is how
+            // the corpus found this. Removing a description of an absent program takes nothing
+            // from the document that a reader could have used.
+            out.remove("CharSet");
+            out.remove("CIDSet");
+            out.insert(
+                Name::new(embedding.key.as_bytes()),
+                Object::Reference(embedding.at),
+            );
+            count(applied, Rewrite::SubstituteFontProgram);
             changed = true;
         }
         changed |= self.write_default_cmyk(id, &mut out, applied);
@@ -1283,6 +1370,14 @@ impl Rewriter<'_> {
             && let Some(packet) = self.cleaned.and_then(|cleaned| cleaned.packets.get(&id))
         {
             return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
+        // The font program itself, restated: a whole new stream rather than a dictionary edit,
+        // because its bytes, its `/Length` and its `/Length1` all change together.
+        if self.wants(Rewrite::RestateFontMetrics)
+            && let Some(restated) = self.metrics.and_then(|metrics| metrics.at.get(&id))
+        {
+            count(applied, Rewrite::RestateFontMetrics);
+            return Rewritten::Changed(restated.clone());
         }
         let mut changed = false;
         let mut dict = match self.rewrite_dictionary(id, &stream.dict, applied) {

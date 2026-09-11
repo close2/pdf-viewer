@@ -602,6 +602,182 @@ pub(crate) fn glyph_length(glyf: &[u8], start: usize) -> Option<usize> {
     at.checked_sub(start)
 }
 
+// ---------------------------------------------------------------------------------------------
+// Restating a program's advances, which is `doc/pdf-a-conversion-limits.md` section 4.9's
+// second metric route.
+// ---------------------------------------------------------------------------------------------
+
+/// Offset of `numberOfHMetrics` within `hhea`, which is the table's last field.
+const NUMBER_OF_H_METRICS: usize = 34;
+
+/// Offset of `numGlyphs` within `maxp`.
+const NUM_GLYPHS: usize = 4;
+
+/// Offset of `checkSumAdjustment` within `head`.
+const CHECKSUM_ADJUSTMENT: usize = 8;
+
+/// The constant a font's whole-file checksum is subtracted from (ISO/IEC 14496-22, `head`).
+const CHECKSUM_MAGIC: u32 = 0xb1b0_afba;
+
+/// The advance and left side bearing `hmtx` states for one glyph.
+///
+/// ISO/IEC 14496-22 gives `hmtx` `numberOfHMetrics` pairs followed by side bearings alone, the
+/// last stated advance applying to every glyph past the pairs — which is how a monospaced face
+/// stores one advance for a thousand glyphs.
+fn horizontal_metric(hmtx: &[u8], pairs: usize, glyph: usize) -> (u16, i16) {
+    let paired = glyph.min(pairs.saturating_sub(1));
+    let advance = paired
+        .checked_mul(4)
+        .and_then(|at| be16(hmtx, at))
+        .unwrap_or(0);
+    let bearing = if glyph < pairs {
+        glyph
+            .checked_mul(4)
+            .and_then(|at| be16(hmtx, at.checked_add(2)?))
+    } else {
+        pairs
+            .checked_mul(4)
+            .and_then(|base| base.checked_add(glyph.checked_sub(pairs)?.checked_mul(2)?))
+            .and_then(|at| be16(hmtx, at))
+    };
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "a side bearing is a signed 16-bit field, read here as the two bytes it is"
+    )]
+    (advance, bearing.unwrap_or(0) as i16)
+}
+
+/// The program with the advance of each named glyph restated, in the program's own units.
+///
+/// The outlines are untouched: what is rewritten is `hmtx`, and `hhea`'s `numberOfHMetrics` with
+/// it, because a font that stated one advance for its whole tail cannot state a different one for
+/// one glyph of it. Every side bearing the program stated is carried across unchanged, so no
+/// glyph moves inside its own advance.
+///
+/// `None` where the tables this needs are absent or too short, which is a font this cannot
+/// restate rather than one it restates wrongly.
+pub(crate) fn with_advances(data: &[u8], advances: &BTreeMap<u16, u16>) -> Option<Vec<u8>> {
+    let tables = sfnt_tables(data)?;
+    let (maxp, _) = *tables.get(b"maxp".as_slice())?;
+    let (hhea_at, hhea_length) = *tables.get(b"hhea".as_slice())?;
+    let (hmtx_at, hmtx_length) = *tables.get(b"hmtx".as_slice())?;
+    let glyphs = usize::from(be16(data, maxp.checked_add(NUM_GLYPHS)?)?);
+    let pairs = usize::from(be16(data, hhea_at.checked_add(NUMBER_OF_H_METRICS)?)?);
+    if pairs == 0 || hhea_length < NUMBER_OF_H_METRICS.checked_add(2)? {
+        return None;
+    }
+    let hmtx = data.get(hmtx_at..hmtx_at.checked_add(hmtx_length)?)?;
+
+    let mut restated = Vec::with_capacity(glyphs.checked_mul(4)?);
+    for glyph in 0..glyphs {
+        let (advance, bearing) = horizontal_metric(hmtx, pairs, glyph);
+        let advance = u16::try_from(glyph)
+            .ok()
+            .and_then(|glyph| advances.get(&glyph).copied())
+            .unwrap_or(advance);
+        restated.extend_from_slice(&advance.to_be_bytes());
+        restated.extend_from_slice(&bearing.to_be_bytes());
+    }
+    let mut hhea = data
+        .get(hhea_at..hhea_at.checked_add(hhea_length)?)?
+        .to_vec();
+    hhea.get_mut(NUMBER_OF_H_METRICS..NUMBER_OF_H_METRICS.checked_add(2)?)?
+        .copy_from_slice(&u16::try_from(glyphs).ok()?.to_be_bytes());
+
+    let out = rewritten_sfnt(data, &tables, &[(b"hhea", hhea), (b"hmtx", restated)])?;
+    checksummed(out)
+}
+
+/// The font with every table's checksum and its own `checkSumAdjustment` recomputed.
+///
+/// ISO/IEC 14496-22 states both: a directory record's `checkSum` is the sum of the table's
+/// 32-bit words with the table padded to a four-byte boundary, and `head`'s
+/// `checkSumAdjustment` is [`CHECKSUM_MAGIC`] less the same sum taken over the whole file with
+/// that field zero. A program this tree hands to a reader states them rather than leaving a
+/// producer's, because a restated `hmtx` makes both false and a font that lies about itself is
+/// not one to archive.
+fn checksummed(mut data: Vec<u8>) -> Option<Vec<u8>> {
+    let count = usize::from(be16(&data, 4)?);
+    let mut head_at = None;
+    for index in 0..count {
+        let entry = 12usize.checked_add(index.checked_mul(16)?)?;
+        let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
+        let offset = usize::try_from(be32(&data, entry.checked_add(8)?)?).ok()?;
+        let length = usize::try_from(be32(&data, entry.checked_add(12)?)?).ok()?;
+        if tag == b"head" {
+            head_at = Some(offset);
+            data.get_mut(
+                offset.checked_add(CHECKSUM_ADJUSTMENT)?
+                    ..offset.checked_add(CHECKSUM_ADJUSTMENT)?.checked_add(4)?,
+            )?
+            .copy_from_slice(&0u32.to_be_bytes());
+        }
+        let sum = words(&data, offset, length)?;
+        data.get_mut(entry.checked_add(4)?..entry.checked_add(8)?)?
+            .copy_from_slice(&sum.to_be_bytes());
+    }
+    let head_at = head_at?;
+    let whole = words(&data, 0, data.len())?;
+    data.get_mut(
+        head_at.checked_add(CHECKSUM_ADJUSTMENT)?
+            ..head_at.checked_add(CHECKSUM_ADJUSTMENT)?.checked_add(4)?,
+    )?
+    .copy_from_slice(&CHECKSUM_MAGIC.wrapping_sub(whole).to_be_bytes());
+    Some(data)
+}
+
+/// The sum of a byte range's 32-bit big-endian words, the last one zero-padded.
+///
+/// The padding is the format's own: ISO/IEC 14496-22 pads every table to a four-byte boundary
+/// with zeros and computes the checksum over the padded table, so a range whose length is not a
+/// multiple of four is summed as though the zeros were there — which they are, in a well-formed
+/// file, and which makes this answer the same either way.
+fn words(data: &[u8], at: usize, length: usize) -> Option<u32> {
+    let table = data.get(at..at.checked_add(length)?)?;
+    let mut sum = 0u32;
+    for chunk in table.chunks(4) {
+        let mut word = [0u8; 4];
+        word.get_mut(..chunk.len())?.copy_from_slice(chunk);
+        sum = sum.wrapping_add(u32::from_be_bytes(word));
+    }
+    Some(sum)
+}
+
+/// The `head` table's `unitsPerEm`, which is the scale every metric an sfnt states is in.
+pub(crate) fn units_per_em(data: &[u8]) -> Option<f32> {
+    /// Offset of `unitsPerEm` within `head`.
+    const UNITS_PER_EM: usize = 18;
+
+    let (head, length) = *sfnt_tables(data)?.get(b"head".as_slice())?;
+    if length < UNITS_PER_EM.checked_add(2)? {
+        return None;
+    }
+    Some(f32::from(be16(data, head.checked_add(UNITS_PER_EM)?)?))
+}
+
+/// One glyph's advance as `hmtx` states it, in the program's own units.
+///
+/// The same read [`crate::metrics::program_advance`] makes through `skrifa`, done here without
+/// a `FontRef` so that a caller holding nothing but a face's bytes — a converter choosing
+/// between `doc/pdf-a-conversion-limits.md` section 4.9's two metric routes — can ask it.
+pub(crate) fn advance(data: &[u8], glyph: u16) -> Option<f32> {
+    let tables = sfnt_tables(data)?;
+    let (maxp, _) = *tables.get(b"maxp".as_slice())?;
+    let (hhea_at, _) = *tables.get(b"hhea".as_slice())?;
+    let (hmtx_at, hmtx_length) = *tables.get(b"hmtx".as_slice())?;
+    if usize::from(glyph) >= usize::from(be16(data, maxp.checked_add(NUM_GLYPHS)?)?) {
+        return None;
+    }
+    let pairs = usize::from(be16(data, hhea_at.checked_add(NUMBER_OF_H_METRICS)?)?);
+    if pairs == 0 {
+        return None;
+    }
+    let hmtx = data.get(hmtx_at..hmtx_at.checked_add(hmtx_length)?)?;
+    Some(f32::from(
+        horizontal_metric(hmtx, pairs, usize::from(glyph)).0,
+    ))
+}
+
 /// ISO 32000-2 §9.6.5.4, one rule at a time, on fonts built to isolate it.
 ///
 /// The corpus cannot do this. It can show that a real document draws, and it did — but

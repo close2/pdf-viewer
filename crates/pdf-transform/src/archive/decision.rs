@@ -170,6 +170,15 @@ pub enum Because {
     /// is implemented. Section 2.5's implementation limits and section 2.3's external data are the
     /// standing cases, and section 1.1's table is what a user does about it.
     NotThisTarget(&'static str),
+    /// The conversion could have been carried out and the **caller asked that it not be**.
+    ///
+    /// The fourth kind of *no*, and the one that is not a fact about the document or about this
+    /// program at all: `doc/pdf-a-conversion-limits.md` section 4.9 offers `--no-substitute` to
+    /// the user who would rather a font be refused than replaced, and a report that said "not
+    /// built yet" about a flag they had just typed would be wrong in the most confusing
+    /// direction available. Unlike [`Self::NotBuiltYet`] the answer changes the moment the flag
+    /// comes off, and unlike [`Self::NotThisTarget`] no other target helps.
+    Declined(&'static str),
 }
 
 impl Because {
@@ -177,7 +186,10 @@ impl Because {
     #[must_use]
     pub const fn sentence(self) -> &'static str {
         match self {
-            Self::TheFence(why) | Self::NotBuiltYet(why) | Self::NotThisTarget(why) => why,
+            Self::TheFence(why)
+            | Self::NotBuiltYet(why)
+            | Self::NotThisTarget(why)
+            | Self::Declined(why) => why,
         }
     }
 
@@ -188,6 +200,7 @@ impl Because {
             Self::TheFence(_) => "the-fence",
             Self::NotBuiltYet(_) => "not-built-yet",
             Self::NotThisTarget(_) => "not-this-target",
+            Self::Declined(_) => "declined",
         }
     }
 }
@@ -384,6 +397,23 @@ const APPEARANCE_REINTERPRETS: &str = "an appearance stream this program constru
      §12.5.2 then has a reader ignore C, IC, Border, BS and the rest in favour of the stream, so \
      an annotation whose look used to be recomputed from those entries is fixed as it is here. \
      The report names every appearance written, with the page it is on";
+
+/// What embedding a substitute face asserts, which is `doc/questions/A47`'s condition on it.
+///
+/// `doc/adr/0927`: the sentence travels with the decision. What changes here is larger than what
+/// any other `Stated` row changes and the argument for it is `doc/pdf-a-conversion-limits.md`
+/// section 4.9's: a file that names a font and does not carry it **has no appearance of its
+/// own** — every reader picks a face at display time and they pick different ones — so writing
+/// one down settles a question the file left open rather than overriding an answer it gave.
+const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships is now embedded for a font \
+     this file names and never carried, so the shapes every reader draws for it are this \
+     program's choice rather than each reader's. That is a change, and it is the one an archival \
+     format asks for: the file had no appearance of its own before, because a non-embedded font \
+     is drawn from whatever the machine opening it happens to have. Nothing moves — the glyph \
+     widths the font dictionary states are untouched, so every line breaks and every word sits \
+     where its producer put it — and the report names, per font, what was asked for, what was \
+     embedded and whether the face's own advances were used or restated. Supply the real font \
+     with --font, or ask for --no-substitute and the font is refused by name instead";
 
 /// The one requirement identifier that will not fit beside its key inside 100 columns.
 const CMYK_UNDER_PART_FOUR: &str =
@@ -632,6 +662,27 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/to-unicode-values-are-usable",
         answer: Answer::Mechanical(Rewrite::ToUnicode),
     },
+    // ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1, first requirement:
+    // the program of every font a content stream renders is in the file.
+    // `doc/pdf-a-conversion-limits.md` section 4.9 makes embedding a face the default rather than
+    // a refusal, `doc/questions/A47` settled it, and the condition A47 attaches — refuse rather
+    // than guess where no shipped face covers the characters — is `super::fonts`' own gate.
+    Remedy {
+        requirement: "fonts/font-programs-embedded",
+        answer: Answer::Stated(
+            None,
+            Rewrite::SubstituteFontProgram,
+            SUBSTITUTION_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-2 section 6.2.11.5, ISO 19005-4 section 6.2.10.5: the widths the dictionary
+    // states and the ones the program states agree. Section 4.9 sets out three ways to reach
+    // that and ranks them; this is the second, and the third — restating `/Widths` — is the one
+    // it calls **never**, because `/Widths` is what positions the glyphs.
+    Remedy {
+        requirement: "fonts/widths-agree-with-the-program",
+        answer: Answer::Mechanical(Rewrite::RestateFontMetrics),
+    },
     // ISO 19005-2 section 6.7.2.2, and Level A only. Answered where the file already carries the
     // structure tree the flag is a claim about, and refused with `NO_STRUCTURE_TREE` where it
     // does not — which is `Prepared::obstacle`'s gate rather than a second row.
@@ -770,6 +821,20 @@ const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/actual-text-covers-private-use-characters",
         Because::TheFence(ACTUAL_TEXT_IS_ON_THE_PAGE),
     ),
+    // ISO 19005-2 section 6.2.11.4.1's last requirement and both parts' `.notdef` clause
+    // (section 6.2.11.8, section 6.2.10.9). `doc/pdf-a-conversion-limits.md` section 2.2 splits
+    // this by where the missing glyph is, and **this predicate's population is the embedded
+    // half**: `pdf_archive` asks the question only of a font whose own program the file carries
+    // and this tree reads. A font the file does *not* embed reaches neither row, because
+    // section 4.9's substitution builds the program and chooses what each code maps to.
+    (
+        "fonts/embedded-programs-define-every-glyph-shown",
+        Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
+    ),
+    (
+        "fonts/no-notdef-glyph-shown",
+        Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
+    ),
     // ISO 19005-2 section 6.7.3.4 needs a judgement about what a producer's own structure type
     // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask** and no
     // interface exists to ask.
@@ -815,6 +880,24 @@ const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotThisTarget(THREE_DIMENSIONAL_FORMAT),
     ),
 ];
+
+/// Why a page that draws a glyph its own embedded program has not got is refused.
+///
+/// `doc/pdf-a-conversion-limits.md` section 2.2 calls this a true refusal and says why in one
+/// line: the mapping is fixed by a program the file carries, so the only ways out are editing the
+/// content stream to stop showing the code or editing the font program to give it a glyph — the
+/// first takes a mark off the page and the second invents one. ADR 0816's fence is where both
+/// stop, and `CLAUDE.md`'s "authoring content from nothing" is what the second would be.
+const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a character code whose glyph its \
+     own embedded font program does not define, so the code reaches the .notdef glyph — which \
+     ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing \
+     operator to reference in any rendering mode. The file carries the program, so the mapping \
+     is the producer's and fixed: the only remedies are taking the code off the page or drawing \
+     a glyph for it, and this converter does neither — a mark removed is content lost and a \
+     glyph drawn is content invented. Where the font is *not* embedded this is not a refusal at \
+     all, because doc/pdf-a-conversion-limits.md section 4.9 then builds the program and chooses \
+     what each code maps to; supplying the intended font with --font moves this document into \
+     that case";
 
 /// `doc/pdf-a-conversion-limits.md` section 5.1's sentence, at the clauses that are the tree.
 const WILL_NOT_INVENT_STRUCTURE: &str = "this converter will not invent a structure tree. \

@@ -16,6 +16,7 @@ use pdf_archive::{Judgement, MisusedProperty, Outcome, Target};
 use crate::json::Value;
 
 use super::decision::Decision;
+use super::fonts::{RestatedFont, SubstitutedFont};
 use super::prepare::{DestinationProfile, WrittenAppearance};
 
 /// One requirement the input failed, with what was decided and what was done about it.
@@ -127,6 +128,19 @@ pub struct Conversion {
     /// appearance written, so the difference between the producer's file and ours is visible in
     /// the report rather than only in the bytes.
     pub appearances: Vec<WrittenAppearance>,
+    /// Every font this conversion embedded a face for, with what was asked for and what was used.
+    ///
+    /// `doc/pdf-a-conversion-limits.md` section 4.9's condition, in its own words: report per
+    /// font, naming the face requested, the face used and which of the two metric routes was
+    /// taken. `doc/questions/A47` makes substitution the default, and this list is what keeps
+    /// that default honest — a reader of the output can see which of its typefaces are the
+    /// producer's and which are this program's.
+    pub substituted: Vec<SubstitutedFont>,
+    /// Every embedded font program whose stated advances this conversion restated.
+    ///
+    /// Section 4.9's second metric route, listed for the same reason: nothing on the page moved,
+    /// and all the same the bytes of somebody's font program are not the bytes they were.
+    pub restated: Vec<RestatedFont>,
 }
 
 impl Conversion {
@@ -186,6 +200,14 @@ impl Conversion {
                         .map(WrittenAppearance::to_json)
                         .collect(),
                 ),
+            ),
+            (
+                "substituted_fonts".to_owned(),
+                Value::Array(self.substituted.iter().map(substituted_to_json).collect()),
+            ),
+            (
+                "restated_font_metrics".to_owned(),
+                Value::Array(self.restated.iter().map(restated_to_json).collect()),
             ),
         ])
     }
@@ -312,6 +334,41 @@ impl Conversion {
                 );
             }
         }
+        if !self.substituted.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} font(s) this file names and does not carry now embed a face this program \
+                 ships; no glyph moved, because the widths the font dictionaries state were not \
+                 touched:",
+                self.substituted.len()
+            );
+            for font in &self.substituted {
+                let _ = writeln!(
+                    out,
+                    "      {} (resource {}) is drawn from {} — {}",
+                    font.requested,
+                    font.resource,
+                    font.face,
+                    font.route.describe()
+                );
+            }
+        }
+        if !self.restated.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} embedded font program(s) had their own stated advances restated to the \
+                 widths their font dictionary already states, which is what ISO 32000-2 \
+                 \u{a7}9.2.4 makes a reader position glyphs by:",
+                self.restated.len()
+            );
+            for font in &self.restated {
+                let _ = writeln!(
+                    out,
+                    "      {} (resource {}): {} glyph(s) restated, no outline changed",
+                    font.requested, font.resource, font.glyphs
+                );
+            }
+        }
         if !self.removed.is_empty() {
             let _ = writeln!(
                 out,
@@ -329,6 +386,25 @@ impl Conversion {
         }
         out
     }
+}
+
+/// One substituted font as JSON.
+fn substituted_to_json(font: &SubstitutedFont) -> Value {
+    Value::Object(vec![
+        ("resource".to_owned(), Value::text(font.resource.clone())),
+        ("requested".to_owned(), Value::text(font.requested.clone())),
+        ("face".to_owned(), Value::text(font.face)),
+        ("metric_route".to_owned(), Value::text(font.route.word())),
+    ])
+}
+
+/// One font whose program's advances were restated, as JSON.
+fn restated_to_json(font: &RestatedFont) -> Value {
+    Value::Object(vec![
+        ("resource".to_owned(), Value::text(font.resource.clone())),
+        ("base_font".to_owned(), Value::text(font.requested.clone())),
+        ("glyphs".to_owned(), Value::count(font.glyphs)),
+    ])
 }
 
 /// One removed property as JSON.
