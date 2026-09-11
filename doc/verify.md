@@ -367,6 +367,25 @@ cargo run --release -p spec-errata -- check  doc/*.pdf
   # population. **Never a gate**: the conformance checker has to keep
   # comparing quotations against a conversion this project did not make, and this parses fourteen
   # PDFs in 6.4 s. ADR 0252
+cargo run --release -p pdf-transform --example archive_census
+  # what the PDF/A converter has decided about **every** requirement each of the six targets
+  # binds, which is `CLAUDE.md`'s coverage question — denominator the specification, where
+  # `tests/archive_corpus.rs` answers the robustness one whose denominator is the world. Seven
+  # standings per requirement, three of them reasons the converter is never asked (a rule whose
+  # subject is a program, one a clarification puts outside validation, one the validator does not
+  # check) and three of them answers (a `REMEDIES` row, a rule the serializer satisfies by
+  # construction, a refusal with a sentence of its own). The seventh is the product and is
+  # printed in full: the requirements in none of `decision.rs`'s three tables, which a document
+  # failing one is refused over with a sentence saying only that the gap is this program's.
+  # **107 of them when the census was built in session 954, 0 when it ended**, and
+  # `crates/pdf-transform/tests/archive_unconsidered.txt` is the ratchet that holds it there in
+  # both directions — arriving fails the build, leaving means striking the line. Empty is not
+  # finished: 77 of those rows are refusals that name a rewrite nobody has built, and this
+  # example is the list to work from (ADR 0955)
+cargo run -p pdf-archive --example targets
+  # the other half of the same question, one layer down: how many of the requirement table's rows
+  # each target binds, how many are checked, and every requirement that binds some PDF/A-4
+  # flavours and not others
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
   # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
   # list of one rectangle. doc/RENDER_LIBRARY.md §6.1

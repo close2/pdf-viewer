@@ -116,6 +116,7 @@
 //! keeps nothing. That is the price of the re-validation, and the re-validation is what the
 //! verdict rests on.
 
+mod census;
 mod decision;
 mod fonts;
 mod prepare;
@@ -133,6 +134,7 @@ use pdf_syntax::{Document, Version};
 use crate::pattern::{Fill, Pattern};
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
+pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};

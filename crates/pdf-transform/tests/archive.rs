@@ -26,6 +26,7 @@
               expected to decide about and did not, must both fail loudly"
 )]
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
@@ -1023,6 +1024,42 @@ fn every_requirement_the_decision_table_answers_is_one_the_validator_states() {
             "{refused} is refused by name and stated by no requirement"
         );
     }
+}
+
+#[test]
+fn the_unconsidered_requirements_are_the_ones_this_file_names() {
+    // The coverage ratchet, in `doc/todo/00`'s shape: equality in both directions rather than a
+    // ceiling. A requirement that reaches none of `decision.rs`'s three tables is answered with
+    // the catch-all sentence — "this converter does not yet meet this requirement" — which is
+    // true of every gap and informative about none, so the set of requirements in that state is
+    // held where it is. Arriving fails the build on arrival; leaving means striking the line in
+    // the commit that answered it.
+    //
+    // The corpus cannot do this job: it ranks requirements by how many documents exercise them,
+    // and a requirement no document in the corpus exercises is invisible to it. `CLAUDE.md`'s
+    // two denominators, and this is the one whose denominator is the specification.
+    let named: BTreeSet<&str> = include_str!("archive_unconsidered.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect();
+    let found: BTreeSet<&str> = pdf_transform::archive::unconsidered()
+        .into_iter()
+        .map(|requirement| requirement.id)
+        .collect();
+    let arrived: Vec<&&str> = found.difference(&named).collect();
+    let left: Vec<&&str> = named.difference(&found).collect();
+    assert!(
+        arrived.is_empty(),
+        "these requirements have no considered answer and archive_unconsidered.txt does not \
+         name them: {arrived:?}. Give each one a row in decision.rs — a remedy, a refusal with \
+         its own argument, or a not-built-yet that names what it waits on — or add it here."
+    );
+    assert!(
+        left.is_empty(),
+        "archive_unconsidered.txt names requirements that now have a considered answer: \
+         {left:?}. Strike them from the file."
+    );
 }
 
 #[test]

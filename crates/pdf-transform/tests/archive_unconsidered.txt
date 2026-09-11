@@ -1,0 +1,19 @@
+# Every requirement of ISO 19005 that this converter has no considered answer for.
+#
+# `pdf_transform::archive::unconsidered()` computes the list: a requirement `pdf_archive`
+# binds some target to, whose check is a predicate a document can fail, and which appears in
+# none of `decision.rs`'s three tables — so `decide` answers it with the catch-all sentence
+# saying only that the gap is this program's.
+#
+# This file is held to that list in BOTH directions by `archive.rs`'s
+# `the_unconsidered_requirements_are_the_ones_this_file_names`. A requirement arriving here
+# fails the build on arrival, which is the regression the ratchet exists for; one leaving has
+# to be struck from this file in the same commit that answered it. `doc/todo/00`'s discipline,
+# and ADR 0955's argument for applying it to coverage rather than to a corpus.
+#
+# It was 107 rows long when the census was built in session 954 and empty when that session
+# ended. Empty is not "finished": most of those rows were answered with a refusal that names
+# what it is waiting on, and `cargo run -p pdf-transform --example archive_census` prints the
+# standing of every requirement, which is the list to work from.
+#
+# One identifier a line, sorted, no blank lines. Lines starting with `#` are comments.

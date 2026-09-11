@@ -744,7 +744,7 @@ pub(super) const REMEDIES: &[Remedy] = &[
 ///
 /// Each is still *reported*, because a requirement the input failed is a fact about the input
 /// whether the fix cost anything or not.
-const WRITER_EMITS: &[&str] = &[
+pub(super) const WRITER_EMITS: &[&str] = &[
     // ISO 19005-2 section 6.1.6, ISO 19005-4 section 6.1.5: `pdf_syntax::write` writes every
     // string in §7.3.4.3's hexadecimal form, two digits a byte.
     "file-structure/hexadecimal-string-digits",
@@ -759,6 +759,12 @@ const WRITER_EMITS: &[&str] = &[
     // ISO 19005-2 section 6.1.3, ISO 19005-4 section 6.1.3: nothing follows the last `%%EOF`
     // this writer emits.
     "file-structure/nothing-after-the-last-end-of-file-marker",
+    // ISO 19005-2 section 6.1.3, ISO 19005-4 section 5.1: §14.4's pair of identifiers, which
+    // `pdf_syntax::serialize` writes into the trailer of every file it creates — the source's
+    // own permanent identifier where it had one, and a digest of the bytes written for the
+    // changing half. Found unanswered by `super::census` in session 954, and answered by
+    // reading the serializer rather than by building anything.
+    "file-structure/file-identifier",
 ];
 
 /// Every requirement identifier this converter answers, from both tables.
@@ -784,19 +790,23 @@ pub fn refused_by_name() -> Vec<&'static str> {
     REFUSED_BY_NAME.iter().map(|(id, _)| *id).collect()
 }
 
-/// Every requirement this converter refuses *by argument* rather than for want of a slice.
+/// Every requirement this converter refuses with a sentence written for that requirement.
 ///
 /// **A third table beside [`REMEDIES`] and [`WRITER_EMITS`], and the reason it exists is that
-/// [`NOT_BUILT_YET`] would be a lie for every row of it.** That sentence says the gap is this
-/// program's and that a later slice will close it; each row here is a requirement no slice of
-/// this converter will ever answer, or one whose answer needs something the file does not
-/// contain. Telling a user "not yet" about a document that will never convert sends them back
-/// tomorrow for the same answer.
+/// [`NOT_BUILT_YET`]'s sentence tells a reader almost nothing.** Each row here says which of
+/// four things the refusal is: ADR 0816's fence, which no slice of this converter will ever
+/// cross; a target that conforms where the one asked for cannot; a caller's own `--no-substitute`;
+/// or a rewrite this converter owes, *named*, so that "not yet" comes with what it is waiting on.
+/// Telling a user "not yet" about a document that will never convert sends them back tomorrow
+/// for the same answer, and telling them "not yet" without saying what for tells them nothing at
+/// all.
 ///
 /// A requirement in none of the three tables is still refused — by [`decide`], with
 /// [`NOT_BUILT_YET`] — so nothing here is load-bearing for safety. What it is load-bearing for
-/// is the report saying something true.
-const REFUSED_BY_NAME: &[(&str, Because)] = &[
+/// is the report saying something true. `super::census` is what counts the requirements that
+/// have reached none of the three, and `tests/archive_unconsidered.txt` holds that count where
+/// it is.
+pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     // `doc/pdf-a-conversion-limits.md` section 5.1's refusal, at the three clauses that are the
     // structure tree itself. `CLAUDE.md`'s "authoring content from nothing" is the fence, and
     // ISO 19005-2 section 6.7.1 advises writers against exactly this in its own words.
@@ -878,6 +888,496 @@ const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "annotations/three-dimensional-stream-format",
         Because::NotThisTarget(THREE_DIMENSIONAL_FORMAT),
+    ),
+    // ISO 19005-2 section 6.1.8 and ISO 19005-4 section 6.1.7. A row of this table rather
+    // than a branch of [`decide`] since session 954: a refusal `census` cannot see is a
+    // refusal that counts as a gap, and this one is an argument rather than a gap.
+    (
+        "file-structure/bound-names-are-valid-utf8",
+        Because::TheFence(UTF8_NAMES),
+    ),
+    // ---------------------------------------------------------------------------------------
+    // Session 954: the requirements the census found with no considered answer at all. Each is
+    // one of four things and the sentence says which — a fence nothing closes, a target that
+    // conforms where this one cannot, a caller's own refusal, or a rewrite named as owed. The
+    // census that found them is `super::census`, and `tests/archive_unconsidered.txt` is the
+    // ratchet that keeps the list from growing back.
+    // ---------------------------------------------------------------------------------------
+
+    // ISO 19005-2 section 6.1.13's ten limits. Part 4 states no implementation-limits subclause
+    // at all, which is what makes every one of these a target question rather than a gap.
+    (
+        "implementation-limits/character-identifiers",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/devicen-colourants",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/graphics-state-nesting",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/indirect-object-count",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/integer-values",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/name-lengths",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/page-boundary-sizes",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/real-values",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/string-lengths",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    (
+        "implementation-limits/values-written-in-content-streams",
+        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
+    ),
+    // ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1:
+    // `doc/pdf-a-conversion-limits.md` section 2.3's standing case.
+    (
+        "file-structure/no-external-stream-data",
+        Because::NotThisTarget(EXTERNAL_STREAM_DATA),
+    ),
+    // The rules a content stream's own bytes fail, which this verb carries byte for byte.
+    (
+        "graphics/inline-image-interpolation-is-off",
+        Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "file-structure/inline-image-filters",
+        Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "graphics/only-operators-the-base-standard-defines",
+        Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "graphics/rendering-intent-operator-names-one-of-four",
+        Because::TheFence(RENDERING_INTENT_OPERAND),
+    ),
+    (
+        "graphics/named-resources-are-defined",
+        Because::TheFence(NAMED_RESOURCE_IS_NOT_IN_THE_FILE),
+    ),
+    // ISO 19005-4 section 6.2.10.5 and section 6.2.10.8: both are the producer's page.
+    (
+        "fonts/type3-glyph-procedures-state-their-width",
+        Because::TheFence(TYPE3_WIDTH_IS_IN_THE_PROCEDURE),
+    ),
+    (
+        "fonts/actual-text-states-no-private-use",
+        Because::TheFence(ACTUAL_TEXT_STATES_THE_PRODUCERS_WORDS),
+    ),
+    // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6: the embedded program and the
+    // encoding held to each other, where changing either moves what a code draws.
+    (
+        "fonts/non-symbolic-truetype-differences-are-listed-names",
+        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "fonts/non-symbolic-truetype-differences-need-the-unicode-cmap",
+        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "fonts/non-symbolic-truetype-program-maps-every-code",
+        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "fonts/symbolic-truetype-program-has-a-usable-cmap",
+        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
+    ),
+    (
+        "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
+        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
+    ),
+    // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
+    (
+        "fonts/cmap-embedded-or-predefined",
+        Because::TheFence(A_CMAP_IS_THE_ENCODING),
+    ),
+    (
+        "fonts/cmap-uses-only-predefined-cmaps",
+        Because::TheFence(A_CMAP_IS_THE_ENCODING),
+    ),
+    // ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1.
+    (
+        "fonts/cid-system-info-agrees-with-the-cmap",
+        Because::TheFence(A_CHARACTER_COLLECTION_IS_A_CLAIM),
+    ),
+    // ISO 19005-4 section 6.7.5's history entries.
+    (
+        "metadata/provenance-recorded-action-fields-four",
+        Because::TheFence(HISTORY_IS_WHAT_HAPPENED),
+    ),
+    // ISO 19005-2 section 6.5.1 and section 6.5.2, ISO 19005-4 section 6.6.1 and section 6.6.3,
+    // and both parts' section 6.4.1 for the widget's own `/A`: nine rows, one loss.
+    (
+        "actions/named-action-is-page-navigation",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/no-additional-actions-dictionary",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/no-deprecated-set-state-or-no-op-actions",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/no-javascript-action",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/no-launch-multimedia-or-form-actions",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/no-optional-content-or-view-action",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/optional-content-or-view-action-only-in-engineering-files",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "actions/additional-actions-outside-widgets-hold-only-annotation-triggers",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "forms/no-action-on-widget-or-field",
+        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.3.1, ISO 19005-4 section 6.3.1.
+    (
+        "annotations/subtype-defined-in-iso-32000-1",
+        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "annotations/subtype-defined-in-iso-32000-2",
+        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "annotations/three-dimensional-only-in-engineering-files",
+        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "annotations/file-attachment-only-in-embedded-file-files",
+        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2: the half of section 3.7 that is not
+    // an annotation stating no flags at all.
+    (
+        "annotations/printable-and-visible",
+        Because::NotBuiltYet(HIDDEN_ANNOTATION_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3.
+    (
+        "annotations/appearance-dictionary-holds-only-normal",
+        Because::NotBuiltYet(EXTRA_APPEARANCE_STATES_NOT_BUILT),
+    ),
+    (
+        "annotations/normal-appearance-shape",
+        Because::NotBuiltYet(APPEARANCE_SUBDICTIONARY_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.4.3, ISO 19005-4 section 6.5.1.
+    (
+        "signatures/signature-widgets-meet-the-annotation-rules",
+        Because::NotBuiltYet(SIGNATURE_WIDGET_NOT_ROUTED),
+    ),
+    // ISO 19005-2 section 6.1.3 and section 6.1.7.2, ISO 19005-4 section 6.1.3 and section
+    // 6.1.6.2: `doc/pdf-a-conversion-limits.md` section 3.5.
+    (
+        "file-structure/no-encryption",
+        Because::NotBuiltYet(ENCRYPTION_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "file-structure/crypt-filter-is-identity",
+        Because::NotBuiltYet(ENCRYPTION_REMOVAL_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.1.12, ISO 19005-4 section 6.1.11: section 3.6.
+    (
+        "file-structure/document-signature-states-no-digest",
+        Because::NotBuiltYet(SIGNATURE_STRUCTURE_NOT_BUILT),
+    ),
+    (
+        "file-structure/permissions-dictionary-keys",
+        Because::NotBuiltYet(SIGNATURE_STRUCTURE_NOT_BUILT),
+    ),
+    // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary.
+    (
+        "file-structure/document-information-dictionary-holds-only-a-modification-date",
+        Because::NotBuiltYet(INFO_DICTIONARY_NOT_RECONCILED),
+    ),
+    (
+        "file-structure/document-information-dictionary-needs-piece-info",
+        Because::NotBuiltYet(INFO_DICTIONARY_NOT_RECONCILED),
+    ),
+    // ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
+    (
+        "file-structure/stream-filters-are-standard",
+        Because::NotBuiltYet(NON_STANDARD_FILTER_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.2.11.4.2, which part 4 does not state because ISO 32000-2 deprecates
+    // `/CIDSet` outright.
+    (
+        "fonts/charset-lists-every-glyph-in-the-program",
+        Because::NotBuiltYet(DESCRIPTOR_SET_NOT_RECOMPUTED),
+    ),
+    (
+        "fonts/cidset-lists-every-cid-in-the-program",
+        Because::NotBuiltYet(DESCRIPTOR_SET_NOT_RECOMPUTED),
+    ),
+    // ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2.
+    (
+        "fonts/cid-to-gid-map-present",
+        Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED),
+    ),
+    // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
+    (
+        "fonts/embedded-cmap-states-its-own-write-mode",
+        Because::NotBuiltYet(WRITE_MODE_DISAGREEMENT),
+    ),
+    // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6: the two rows of that subclause
+    // whose subject is the font dictionary rather than the program.
+    (
+        "fonts/non-symbolic-truetype-uses-a-standard-encoding",
+        Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_COMPARED),
+    ),
+    (
+        "fonts/symbolic-truetype-states-no-encoding",
+        Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_COMPARED),
+    ),
+    // ISO 19005-4 section 6.2.10.5.
+    (
+        "fonts/vertical-metrics-agree-with-the-program",
+        Because::NotBuiltYet(VERTICAL_METRICS_NOT_RESTATED),
+    ),
+    // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
+    (
+        "forms/no-xfa-key",
+        Because::NotBuiltYet(XFA_REMOVAL_NOT_BUILT),
+    ),
+    (
+        "forms/no-needs-rendering",
+        Because::NotBuiltYet(XFA_REMOVAL_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1.
+    (
+        "forms/need-appearances-absent-or-false",
+        Because::NotBuiltYet(NEED_APPEARANCES_NOT_BUILT),
+    ),
+    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2.
+    (
+        "graphics/content-streams-have-an-explicit-resources-dictionary",
+        Because::NotBuiltYet(RESOURCES_NOT_ATTACHED),
+    ),
+    // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the destination profile the file
+    // already holds.
+    (
+        "graphics/destination-profile-carries-the-tags-its-class-requires",
+        Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
+    ),
+    (
+        "graphics/destination-profile-class-and-colour-space",
+        Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
+    ),
+    (
+        "graphics/destination-profile-states-a-correct-profile-id",
+        Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
+    ),
+    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: an `ICCBased` space's own.
+    (
+        "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires",
+        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
+    ),
+    (
+        "graphics/icc-profiles-carry-the-tags-their-version-requires",
+        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
+    ),
+    (
+        "graphics/icc-profiles-claim-a-permitted-edition",
+        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
+    ),
+    (
+        "graphics/icc-profiles-conform-to-the-base-standard",
+        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
+    ),
+    // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the shape of the array itself.
+    (
+        "graphics/one-destination-profile-per-output-intents-array",
+        Because::NotBuiltYet(OUTPUT_INTENT_ARRAY_NOT_TIDIED),
+    ),
+    (
+        "graphics/pdfa-output-intent-states-a-destination-profile",
+        Because::NotBuiltYet(OUTPUT_INTENT_ARRAY_NOT_TIDIED),
+    ),
+    (
+        "graphics/page-output-intents-have-the-same-shape",
+        Because::NotBuiltYet(OUTPUT_INTENT_ARRAY_NOT_TIDIED),
+    ),
+    (
+        "graphics/no-destination-profile-reference",
+        Because::NotBuiltYet(PROFILE_REFERENCE_NOT_REMOVED),
+    ),
+    (
+        "graphics/no-destination-profile-reference-in-a-pdfx-output-intent",
+        Because::NotBuiltYet(PROFILE_REFERENCE_NOT_REMOVED),
+    ),
+    // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5: section 4.8's two halves, which are
+    // two different facts about what a reader sees.
+    (
+        "graphics/halftone-type-is-one-or-five",
+        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
+    ),
+    (
+        "graphics/no-halftone-name",
+        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
+    ),
+    (
+        "graphics/no-halftone-origin-in-a-graphics-state",
+        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
+    ),
+    (
+        "graphics/no-halftone-phase-in-a-graphics-state",
+        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
+    ),
+    (
+        "graphics/halftone-transfer-function-only-where-required",
+        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
+    ),
+    (
+        "graphics/no-transfer-function-in-a-graphics-state",
+        Because::NotBuiltYet(TRANSFER_FUNCTION_NOT_REMOVED),
+    ),
+    (
+        "graphics/second-transfer-function-is-default",
+        Because::NotBuiltYet(TRANSFER_FUNCTION_NOT_REMOVED),
+    ),
+    // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: section 4.10's table, split by
+    // whether the offending field is in the JP2 wrapper or in the codestream.
+    (
+        "graphics/jpeg2000-one-best-colour-space-specification",
+        Because::NotBuiltYet(JPEG2000_BOX_NOT_REWRITTEN),
+    ),
+    (
+        "graphics/jpeg2000-colour-specification-method",
+        Because::NotBuiltYet(JPEG2000_BOX_NOT_REWRITTEN),
+    ),
+    (
+        "graphics/jpeg2000-bit-depth",
+        Because::NotBuiltYet(JPEG2000_SAMPLES_NOT_RE_ENCODED),
+    ),
+    (
+        "graphics/jpeg2000-channel-count",
+        Because::NotBuiltYet(JPEG2000_SAMPLES_NOT_RE_ENCODED),
+    ),
+    (
+        "graphics/jpeg2000-no-ciejab-colour-space",
+        Because::NotBuiltYet(JPEG2000_SAMPLES_NOT_RE_ENCODED),
+    ),
+    // ISO 19005-4 section 6.2.4.2 and section 6.2.4.4.
+    (
+        "graphics/no-icc-space-duplicating-the-output-intent-profile",
+        Because::NotBuiltYet(DUPLICATE_PROFILE_NOT_COLLAPSED),
+    ),
+    (
+        "graphics/separation-alternate-space-does-not-duplicate-a-current-profile",
+        Because::NotBuiltYet(DUPLICATE_PROFILE_NOT_COLLAPSED),
+    ),
+    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2.
+    (
+        "graphics/no-overprint-mode-one-under-icc-cmyk",
+        Because::NotBuiltYet(OVERPRINT_MODE_NOT_CHANGED),
+    ),
+    // ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4: section 4.5's two rows.
+    (
+        "graphics/separations-of-one-name-agree",
+        Because::NotBuiltYet(SEPARATIONS_NOT_RECONCILED),
+    ),
+    (
+        "graphics/spot-colourants-appear-in-the-colorants-dictionary",
+        Because::NotBuiltYet(COLORANTS_NOT_SYNTHESISED),
+    ),
+    // ISO 19005-2 section 6.2.9.2, ISO 19005-4 section 6.2.8.2: section 2.3's one workaround.
+    (
+        "graphics/no-reference-xobjects",
+        Because::NotBuiltYet(REFERENCE_XOBJECT_NOT_PROXIED),
+    ),
+    // ISO 19005-2 section 6.2.6.
+    (
+        "graphics/rendering-intent-entries-name-one-of-four",
+        Because::NotBuiltYet(RENDERING_INTENT_NOT_RESTATED),
+    ),
+    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9.
+    (
+        "graphics/graphics-state-blend-modes-are-defined",
+        Because::NotBuiltYet(BLEND_MODE_NOT_RESOLVED),
+    ),
+    (
+        "graphics/annotation-blend-modes-are-defined",
+        Because::NotBuiltYet(BLEND_MODE_NOT_RESOLVED),
+    ),
+    // ISO 19005-2 section 6.7.4, which binds PDF/A-2a alone.
+    (
+        "logical-structure/catalog-language-identifier",
+        Because::NotBuiltYet(LANGUAGE_IDENTIFIER_NOT_REMOVED),
+    ),
+    (
+        "logical-structure/element-and-property-list-language-identifiers",
+        Because::NotBuiltYet(LANGUAGE_IDENTIFIER_NOT_REMOVED),
+    ),
+    // ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
+    (
+        "metadata/xmp-packets-well-formed",
+        Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
+    ),
+    (
+        "metadata/xmp-packets-state-one-rdf-element",
+        Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
+    ),
+    (
+        "metadata/xmp-packets-meet-the-xmp-data-model",
+        Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
+    ),
+    (
+        "metadata/xmp-packet-header-attributes",
+        Because::NotBuiltYet(XMP_HEADER_ATTRIBUTES_NOT_REMOVED),
+    ),
+    // ISO 19005-2 section 6.6.2.3.2 and section 6.6.4.
+    (
+        "metadata/extension-schemas-embedded",
+        Because::NotBuiltYet(EXTENSION_CONTAINER_NOT_EMITTED),
+    ),
+    (
+        "metadata/identification-amendment-form",
+        Because::NotBuiltYet(AMENDMENT_IDENTIFIER_NOT_REMOVED),
+    ),
+    // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: section 3.8's three rules.
+    (
+        "optional-content/configuration-names",
+        Because::NotBuiltYet(CONFIGURATION_NAME_AND_ORDER_NOT_WRITTEN),
+    ),
+    (
+        "optional-content/order-lists-every-group",
+        Because::NotBuiltYet(CONFIGURATION_NAME_AND_ORDER_NOT_WRITTEN),
+    ),
+    (
+        "optional-content/no-automatic-states",
+        Because::NotBuiltYet(AUTOMATIC_STATES_NOT_REMOVED),
     ),
 ];
 
@@ -978,6 +1478,489 @@ const THREE_DIMENSIONAL_FORMAT: &str = "ISO 19005-4 Annex B.2.2 admits a 3D stre
      by name. Removing the annotation would reach plain PDF/A-4 at the cost of the artwork, and \
      this converter does not yet offer that loss";
 
+/// Why a document outside ISO 19005-2's implementation limits is a PDF/A-4 document.
+///
+/// `doc/pdf-a-conversion-limits.md` section 2.5. Ten requirements share this: every one of them
+/// is a limit on what the file may contain rather than on what it may say, so every fix is an
+/// edit to the document's own values — and part 4 states no implementation-limits subclause at
+/// all, which turns the whole family into a question about the target.
+const IMPLEMENTATION_LIMITS: &str = "ISO 19005-2 section 6.1.13 sets a hard limit this document \
+     exceeds, and every way of meeting one is an edit to what the document says: re-nesting q \
+     and Q, rescaling a page, re-encoding a colour space, renaming an object, or dropping \
+     objects until the count falls. ISO 19005-4 states no implementation-limits subclause at all \
+     — its section 6.1 runs to 6.1.12 — so a large-format drawing, a deeply nested content \
+     stream or a 40-colourant DeviceN space can be PDF/A-4 and cannot be PDF/A-2. Ask for \
+     PDF/A-4";
+
+/// Why a stream whose bytes live outside the file is refused.
+///
+/// `doc/pdf-a-conversion-limits.md` section 2.3, and one of the two places where "cannot view
+/// it either" and "cannot archive it" agree.
+const EXTERNAL_STREAM_DATA: &str = "a stream in this file states F, FFilter or FDecodeParams, \
+     which puts its data on somebody else's disk or server. Fetching it is a network operation \
+     this program does not have and CLAUDE.md principle 3 will not acquire, and a file assembled \
+     from an unverifiable fetch is not an archival object. Both parts forbid the keys, so no \
+     other target helps; what does is obtaining the referenced data and having the producer \
+     embed it. Where nothing draws the stream, ISO 19005-2 section 6.2.2's exemption for a named \
+     resource the content stream never references would free it, and this tree does not yet \
+     state that exemption — doc/todo/62";
+
+/// Why a rule a content stream's own bytes fail is not repaired.
+const CONTENT_STREAM_IS_THE_PRODUCERS: &str = "this requirement is failed by bytes inside a \
+     content stream, which this verb carries from the source byte for byte. Meeting it means \
+     editing the producer's page, and ADR 0816's fence is where that stops — \
+     doc/pdf-a-conversion-limits.md section 5.2. The one exception doc/questions/A50 grants is a \
+     closed list of operator spellings the standard itself documents as equivalent, applied only \
+     where a deprecation rule names one, and this is not that";
+
+/// Why an unrecognised `ri` operand is not restated, where an `/RI` entry's answer differs.
+const RENDERING_INTENT_OPERAND: &str = "the rendering intent operator's operand names an intent \
+     ISO 32000-2 does not define. §8.6.5.8 says what a processor does with such a name — it uses \
+     RelativeColorimetric — so the answer is known, and the operand is inside a content stream \
+     this verb carries byte for byte, which is ADR 0816's fence. The same name in a graphics \
+     state's RI entry or an image dictionary's Intent entry is not refused for this reason: that \
+     is an object, and doc/pdf-a-conversion-limits.md's own answer for it is a rewrite nobody \
+     has built";
+
+/// Why a name a resources dictionary does not define is not supplied.
+const NAMED_RESOURCE_IS_NOT_IN_THE_FILE: &str = "a content stream names a resource its resources \
+     dictionary does not define, and the two ways out are opposite fences: supplying the \
+     resource invents an object the producer never wrote, and taking the reference off the page \
+     edits the producer's content stream. §7.8.3 makes the resources dictionary what a name is \
+     resolved through, so nothing in the file says what the missing one was meant to be";
+
+/// Why a Type 3 glyph procedure's width is not reconciled with the font dictionary's.
+const TYPE3_WIDTH_IS_IN_THE_PROCEDURE: &str = "a Type 3 glyph procedure's d0 or d1 operands \
+     disagree with the width its font dictionary states, and both halves are closed. The \
+     operands are inside the glyph procedure, which is a content stream this verb carries byte \
+     for byte; and §9.2.4 makes the dictionary's widths what positions every glyph on the line, \
+     so doc/pdf-a-conversion-limits.md section 4.9 restates those never. Changing either moves \
+     marks on the page";
+
+/// Why an `/ActualText` holding a Private Use character is neither corrected nor removed.
+const ACTUAL_TEXT_STATES_THE_PRODUCERS_WORDS: &str = "ISO 19005-4 section 6.2.10.8 forbids a \
+     Private Use character inside an ActualText entry, and that entry is a marked-content \
+     property list or a structure element's entry over a span of the producer's page. Changing \
+     its value means deciding what the producer meant that span to say, which doc/questions/A48 \
+     forbids; removing it takes away the only statement the file makes about what those glyphs \
+     spell, which at Level A is the evidence the level exists to require";
+
+/// Why a TrueType font's program and encoding are not made to agree.
+const THE_FONT_PROGRAM_IS_THE_PRODUCERS: &str = "this rule holds an embedded font program and \
+     the font dictionary's encoding to each other, and meeting it means changing which glyph a \
+     character code selects: adding a cmap subtable to the program, or rewriting the Differences \
+     array that names the glyphs. The first invents outlines the producer never shipped and the \
+     second moves the marks on the page, so ADR 0816's fence closes both. Where the file embeds \
+     no program at all this is a different case: doc/pdf-a-conversion-limits.md section 4.9 \
+     builds one, and --font supplies the real face";
+
+/// Why a `CMap` this file neither embeds nor names from the predefined set is not written.
+const A_CMAP_IS_THE_ENCODING: &str = "a CMap is what maps a composite font's character codes to \
+     CIDs, so supplying one this file neither embeds nor takes from the predefined set means \
+     writing the encoding its producer did not — every code would then select whatever this \
+     program chose, which is doc/questions/A48's forbidden half. The same holds of an embedded \
+     CMap that builds on one the base standard does not predefine: what it builds on is not here \
+     to be carried, and inventing it invents the mapping";
+
+/// Why a `CIDSystemInfo` and a `CMap` that disagree are not reconciled.
+const A_CHARACTER_COLLECTION_IS_A_CLAIM: &str = "the CIDFont's registry, ordering and supplement \
+     say which character collection its CIDs are numbered in, and the CMap's say the same of the \
+     codes it produces. Making them agree means restating one of the two, which relabels what \
+     every CID in this font means — the file states two collections and nothing in it says which \
+     its producer meant";
+
+/// Why a producer's incomplete XMP history entry is not completed.
+const HISTORY_IS_WHAT_HAPPENED: &str = "ISO 19005-4 section 6.7.5 requires every action recorded \
+     in the XMP history to state what was done and when. An entry missing either records \
+     something this converter did not witness, so filling it in would be writing down a \
+     provenance nobody has — doc/questions/A48's line, and the opposite of what an audit trail \
+     is for. This converter adds its own history entries for what it does \
+     (doc/pdf-a-conversion-limits.md section 4.2); it does not complete a producer's";
+
+/// Why removing an action is not built, and which targets permit which actions.
+const ACTION_REMOVAL_NOT_BUILT: &str = "an action carries behaviour, and the only way to meet \
+     this clause is to remove it. doc/pdf-a-conversion-limits.md section 3.3 calls that an Ask, \
+     because a form that computed its own fields stops computing them, and neither the \
+     authorisation word nor the rewrite that takes an action out of a dictionary is built. Two \
+     target facts belong beside it: ISO 19005-4 section 6.6.2 permits a JavaScript action \
+     outright and its section 6.6.3 permits an AA entry on a widget annotation, so a document \
+     refused here for PDF/A-2 may convert to PDF/A-4 untouched; and PDF/A-4e admits a \
+     SetOCGState or GoTo3DView action that plain PDF/A-4 does not";
+
+/// Why removing an annotation of a forbidden subtype is not built.
+const ANNOTATION_REMOVAL_NOT_BUILT: &str = "this annotation's subtype is one ISO 19005 does not \
+     admit for the target asked for, and removal is the only remedy. \
+     doc/pdf-a-conversion-limits.md section 3.2 makes it an Ask — a removed annotation takes its \
+     normal appearance off the page with it, and for a Screen, Movie or Sound one the media \
+     stream goes too — and neither the authorisation word nor the rewrite is built. Re-badging \
+     it as a Stamp to keep the mark is ADR 0816's fence rather than a fix. PDF/A-4e admits a 3D \
+     or RichMedia annotation and PDF/A-4f a FileAttachment, so for those two the target is the \
+     shorter route";
+
+/// Why an annotation the producer hid is neither shown nor removed.
+const HIDDEN_ANNOTATION_NOT_BUILT: &str = "this annotation states flags ISO 19005 forbids — \
+     Hidden, Invisible, NoView or ToggleNoView set, or Print clear. \
+     doc/pdf-a-conversion-limits.md section 3.7: an annotation somebody hid has two futures and \
+     no third, becoming visible and printable or being removed, and both change the document. \
+     What is built is the smaller half, an annotation stating no F entry at all, which is not \
+     one anybody hid: --authorise annotation-printing writes the Print flag for that case. \
+     Un-hiding one that states a flag, and removing it, are the two rewrites owed, and section \
+     3.7 makes removal the default of the two";
+
+/// Why a rollover or down appearance is not dropped.
+const EXTRA_APPEARANCE_STATES_NOT_BUILT: &str = "this annotation's appearance dictionary states \
+     a rollover or a down appearance beside its normal one, and ISO 19005 admits only N. \
+     Dropping R and D loses what §12.5.5 has a reader draw while the pointer is over the \
+     annotation or the mouse button is down, which is a loss doc/pdf-a-conversion-limits.md \
+     section 3 would have a caller authorise before it happened. Neither the word nor the \
+     rewrite exists";
+
+/// Why an appearance subdictionary is not collapsed to the stream a reader draws.
+const APPEARANCE_SUBDICTIONARY_NOT_BUILT: &str = "this annotation's N entry is a subdictionary of \
+     states where the clause wants a single stream, or a stream where it wants a subdictionary. \
+     Where the annotation states an AS entry, §12.5.5 already says which stream a reader draws, \
+     and collapsing the subdictionary to that one writes down an interpretation the standard \
+     defines — doc/adr/0948's Stated class — which is the rewrite this needs and nobody has \
+     built. Where it states none, nothing in the file says which state the document is in, and \
+     choosing is doc/questions/A48's forbidden half";
+
+/// Why the compound signature-widget row is refused where its own rules would be answered.
+const SIGNATURE_WIDGET_NOT_ROUTED: &str = "this requirement asks the annotation flag and \
+     appearance rules again of a signature field's widget. The converter already answers those \
+     rules where the annotation clauses state them — it constructs the appearance \
+     doc/pdf-a-conversion-limits.md section 4.4 describes, and writes the Print flag section \
+     3.7's first half allows — and nothing routes this compound row to the same preparations, so \
+     a widget the conversion would in fact have fixed is refused here. What it needs is the \
+     decision taken per underlying rule rather than per requirement identifier";
+
+/// Why encryption is not removed.
+const ENCRYPTION_REMOVAL_NOT_BUILT: &str = "both parts forbid an Encrypt key in the trailer \
+     outright, and with it a Crypt filter whose name is not Identity. Removing encryption is \
+     mechanically small and doc/pdf-a-conversion-limits.md section 3.5 makes it an Ask and never \
+     a default: the archived copy becomes readable by anyone holding it, and Table 22's \
+     permission flags stop being asserted with it. The authorisation word and the \
+     decrypt-then-write path are not built, and a document whose password is not to hand cannot \
+     be read at all (section 2.4)";
+
+/// Why the keys a signature structure keeps are not stripped.
+const SIGNATURE_STRUCTURE_NOT_BUILT: &str = "this key belongs to a permissions dictionary or a \
+     signature reference that the conversion has already invalidated: \
+     doc/pdf-a-conversion-limits.md section 3.6 — a signature covers a byte range of one file, a \
+     conversion rewrites every offset, and no converted document carries its source's \
+     signatures. Removing the key is a small rewrite and it belongs with the report section 3.6 \
+     asks for, which names each signature, its signer and whether it validated before the \
+     conversion. Neither is built";
+
+/// Why `/Info` is not reconciled with the XMP packet.
+const INFO_DICTIONARY_NOT_RECONCILED: &str = "ISO 19005-4 section 6.1.3 leaves a document \
+     information dictionary no entry but ModDate, and only where the catalog states a PieceInfo. \
+     §14.3.3 deprecates the dictionary, so the answer is doc/pdf-a-conversion-limits.md section \
+     4.2's: what it holds moves into the XMP packet and the dictionary goes. This converter \
+     writes the identification schema into that packet and does not reconcile Info with it, \
+     which is the rewrite this needs — and a value moved wrongly would be metadata this \
+     converter had asserted rather than carried";
+
+/// Why a stream in a filter this tree cannot decode is refused.
+const NON_STANDARD_FILTER_NOT_BUILT: &str = "this stream names a filter outside the set the base \
+     standard defines, so no conforming reader can decode it and this program cannot either. \
+     Re-encoding needs the decoded bytes, which needs a decoder nobody specifies; what is left \
+     is dropping the stream, which is doc/pdf-a-conversion-limits.md section 3's kind of loss \
+     and is not offered. Where nothing draws the stream, ISO 19005-2 section 6.2.2's exemption \
+     for an unreferenced named resource would free it, and this tree does not yet state that \
+     exemption — doc/todo/62";
+
+/// Why a `/CharSet` or `/CIDSet` naming only what the file uses is not recomputed.
+const DESCRIPTOR_SET_NOT_RECOMPUTED: &str = "ISO 19005-2 section 6.2.11.4.2 asks this \
+     descriptor's CharSet or CIDSet to name every glyph the embedded program contains, and this \
+     one names only the glyphs the file uses. The program is in the file and pdf_font reads it, \
+     so recomputing the set is derivable from the document and loses nothing — a mechanical \
+     rewrite this converter does not do. Removing the entry is the other route and the lighter \
+     one, since the base standard makes both optional and the clause judges only the entry that \
+     is there; which of the two a converter should take is not decided yet";
+
+/// Why an absent `/CIDToGIDMap` is not written as `Identity`.
+///
+/// **The row that shows why a default has to be read rather than recalled.** ISO 32000-1
+/// gave this entry a default of `Identity`; ISO 32000-2's Table 121 makes it *required* for a
+/// Type 2 `CIDFont` with an embedded program and states no default at all. So the obvious
+/// `Stated` rewrite — write down the default — has no default to write down under the edition
+/// this tree is written against, and the part 2 case turns on a base document whose rows are
+/// still being read (`doc/questions/Q49`).
+const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states no CIDToGIDMap, \
+     or states a name that is not Identity. §9.7.4.2's Table 121 makes the entry required for \
+     such a font and states no default for it, so writing Identity would assert a mapping the \
+     base standard does not supply — what the glyph indices are is in the embedded program, and \
+     deriving the map from it is a reading of the font this converter does not make. That \
+     derivation, and whether ISO 32000-1's own default licenses Identity for a PDF/A-2 target, \
+     are what this requirement waits on";
+
+/// Why a `CMap` stream and its program disagreeing about `/WMode` is not settled.
+const WRITE_MODE_DISAGREEMENT: &str = "this CMap stream's WMode entry and the write mode the \
+     CMap program itself states disagree, and between them they decide whether the text runs \
+     down the page or across it. Making them agree means choosing which of the file's two \
+     statements its producer meant, which changes either the writing direction a reader lays the \
+     text out in or the program's own bytes. That is a question for the document's owner, and no \
+     interface exists to ask it";
+
+/// Why a TrueType font's stated encoding is neither written nor removed.
+const TRUETYPE_ENCODING_NOT_COMPARED: &str = "a non-symbolic TrueType font here names neither \
+     MacRomanEncoding nor WinAnsiEncoding, or a symbolic one names an encoding at all. The \
+     failing entry is in the font dictionary rather than the program, so no fence stands in the \
+     way — but §9.6.5.4 makes the encoding what decides which cmap subtable a character code is \
+     looked up through, so writing one or taking one away moves glyphs unless the program's own \
+     tables already agree. Establishing that they do, per font and per code, is the reading this \
+     needs and it is not built";
+
+/// Why vertical metrics are not restated the way horizontal advances already are.
+const VERTICAL_METRICS_NOT_RESTATED: &str = "doc/pdf-a-conversion-limits.md section 4.9's \
+     restatement, in the other writing direction. This converter already restates an embedded \
+     program's horizontal advances into a font dictionary that disagrees with them, on the \
+     argument that the program is the file's own; §9.7.4.3's DW2 and W2 are the vertical \
+     equivalent, and the vertical metrics of an embedded program are what this tree's font \
+     reader does not yet hand back. That reading is what this requirement waits on";
+
+/// Why `/XFA` and `/NeedsRendering` are not removed.
+const XFA_REMOVAL_NOT_BUILT: &str = "both parts forbid an XFA entry in the interactive form \
+     dictionary and a NeedsRendering entry in the catalog. doc/pdf-a-conversion-limits.md \
+     section 3.4's default is to keep the AcroForm's data and drop the XFA key — ISO 32000-2 \
+     Annex K requires a conforming hybrid file's AcroForm entries to be consistent with the XFA \
+     information, so for a static form the AcroForm is the form — and to refuse a dynamic one \
+     outright, because there the AcroForm is not the document and the output would be a \
+     placeholder page wearing a conformance claim. Neither the key removal nor the test that \
+     tells the two apart is built, and CLAUDE.md excludes rendering XFA, so flattening one is \
+     not available";
+
+/// Why `/NeedAppearances` is not simply written `false`.
+const NEED_APPEARANCES_NOT_BUILT: &str = "this form asks a reader to build its field \
+     appearances, which ISO 32000-2 Table 224 deprecates and ISO 19005 forbids. The honest \
+     answer is a pair: construct every field's appearance — doc/pdf-a-conversion-limits.md \
+     section 4.4, which this converter does for annotations whose own subtype clause states what \
+     to draw — and then write the flag false, so the file says what it shows. Writing the flag \
+     alone would assert appearances nobody built, and the field construction for every widget in \
+     the form is what this needs";
+
+/// Why an inherited resources dictionary is not copied onto the stream that needs one.
+const RESOURCES_NOT_ATTACHED: &str = "a content stream here names objects and has no resources \
+     dictionary explicitly associated with it. For a page the dictionary is usually inherited \
+     through the page tree (§7.7.3.4), and copying it down onto the page changes nothing a \
+     reader resolves — a mechanical rewrite, and not built. For a form XObject or a Type 3 glyph \
+     procedure with none, what it draws with depends on the stream that invoked it, and one \
+     dictionary cannot answer for every invocation";
+
+/// Why the destination profile a file already holds is not replaced.
+const DESTINATION_PROFILE_NOT_REPLACED: &str = "the destination profile this file's own output \
+     intent carries is not one ISO 19005 admits: the wrong device class or colour space, missing \
+     the tags the ICC edition its header names requires, or stating a profile identifier that is \
+     not the digest of its own bytes. An ICC profile is opaque data — this converter can write a \
+     profile it has, sRGB or the one --output-intent-profile supplies, but replacing the profile \
+     a document already holds changes what every device colour in the file means, which is \
+     doc/adr/0927's statement rather than a repair. That replacement path is not built";
+
+/// Why an `ICCBased` space's own profile is not replaced.
+const ICC_SPACE_PROFILE_NOT_REPLACED: &str = "an ICCBased colour space in this file carries a \
+     profile ISO 19005 does not admit. Unlike an output intent's, this profile is what the \
+     page's colours are given in: replacing it recolours everything drawn through the space, and \
+     falling back on §8.6.5.5's alternate space puts a device space where a managed one was. \
+     Both are doc/pdf-a-conversion-limits.md section 3's kind of loss, neither is built, and \
+     nothing in the file supplies a corrected profile";
+
+/// Why an `/OutputIntents` array that is already the wrong shape is not reconciled.
+const OUTPUT_INTENT_ARRAY_NOT_TIDIED: &str = "this file's OutputIntents array is not the shape \
+     ISO 19005 section 6.2.3 requires — a PDF/A entry naming no destination profile, or several \
+     entries naming different profile objects, or a page's own array doing either. This \
+     conversion writes a PDF/A output intent by appending one to the array it found \
+     (doc/pdf-a-conversion-limits.md section 4.1), which is the right answer only where the \
+     array was silent; reconciling one that already states intents — dropping a PDF/A entry that \
+     names nothing, pointing every entry at one profile object — is the rewrite this needs";
+
+/// Why a `/DestOutputProfileRef` is not removed.
+const PROFILE_REFERENCE_NOT_REMOVED: &str = "an output intent here names its destination profile \
+     through DestOutputProfileRef, which puts the profile outside the file. Where the same \
+     intent also embeds a DestOutputProfile, removing the reference is mechanical and loses \
+     nothing; where it does not, the profile is on somebody else's disk and \
+     doc/pdf-a-conversion-limits.md section 2.3's refusal applies unless --output-intent-profile \
+     supplies one. Neither branch is built";
+
+/// Why a halftone is not removed.
+///
+/// The pair with [`TRANSFER_FUNCTION_NOT_REMOVED`], and they are deliberately two sentences:
+/// `CLAUDE.md` records §10.6's halftones as inapplicable on the standard's own condition and
+/// §10.5's transfer functions as emphatically not, so what removing each costs is different.
+const HALFTONE_NOT_REMOVED: &str = "ISO 19005 admits halftones only of type 1 or 5, without a \
+     HalftoneName, and forbids a halftone phase or origin key in a graphics state. Removing one \
+     changes nothing this renderer draws — CLAUDE.md records §10.6's halftones as inapplicable \
+     on the standard's own condition, because a halftone describes how a marking device renders \
+     continuous tone — and it does change what a press does with the file, which is exactly what \
+     an archived print master is kept for. doc/pdf-a-conversion-limits.md section 4.8 therefore \
+     makes it an Ask, and neither the authorisation word nor the rewrite is built";
+
+/// Why a transfer function is not removed.
+const TRANSFER_FUNCTION_NOT_REMOVED: &str = "ISO 19005 forbids a TR entry in a graphics state \
+     and admits TR2 only with the value Default. This is not a print-only key: CLAUDE.md records \
+     that this project called transfer functions inapplicable and was wrong, because §10.5's \
+     transfer functions decide what a screen shows and an inverting one is a photographic \
+     negative. So removing one can change the rendered page, and \
+     doc/pdf-a-conversion-limits.md section 4.8's default is to render the page both ways, show \
+     whether anything changed, and remove it only with that shown. The comparison and the \
+     rewrite are both owed; where the function is the identity the removal is silent and safe, \
+     and even that is not built";
+
+/// Why a JP2 wrapper box is not rewritten.
+const JPEG2000_BOX_NOT_REWRITTEN: &str = "doc/pdf-a-conversion-limits.md section 4.10: this \
+     field is in the JP2 wrapper rather than the codestream — the colour specification box's \
+     method, and which specification is marked best available — so meeting the clause is byte \
+     surgery on a hundred-odd bytes and touches no sample. Mechanical where a permitted method \
+     describes the same colour, and not built: nothing in this tree writes a JP2 box";
+
+/// Why JPEG 2000 samples are not re-encoded.
+const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
+     bit depth and the channel count are stated in the codestream's own SIZ marker, and the \
+     enumerated CIEJab colour space is what the samples mean — so meeting these means decoding \
+     and re-encoding the image, or relabelling what its numbers are. The universal fallback is \
+     transcoding the samples to FlateDecode, which loses nothing visible at a large cost in size \
+     and puts this tree's own JPEG 2000 decoder's output into the archive permanently. One \
+     channel-count case is cheaper and is unbuilt too: a cdef box declaring the second channel \
+     as opacity leaves one colour channel without a sample being touched";
+
+/// Why an `ICCBased` space duplicating the output intent's profile is not collapsed.
+const DUPLICATE_PROFILE_NOT_COLLAPSED: &str = "ISO 19005-4 forbids an ICCBased space, or a \
+     Separation's alternate space, from carrying a CMYK destination profile identical to the one \
+     the output intent or the blending space already supplies. The remedy is the cheap one — the \
+     identical profile is already in the file, so naming DeviceCMYK in the space's place leaves \
+     every colour where it was, because ISO 19005-4 section 6.2.4.3 licenses that device space \
+     very intent. What the rewrite has to establish first is that every use of the space can \
+     take the substitution, since an ICCBased space also fixes a component count and a range, \
+     and it is not built";
+
+/// Why overprint mode is not changed.
+const OVERPRINT_MODE_NOT_CHANGED: &str = "this file sets overprint mode 1 while an ICCBased CMYK \
+     space is in use and overprinting is on. doc/pdf-a-conversion-limits.md section 4.5 makes it \
+     an Ask: the mode decides whether a zero component leaves the backdrop alone or paints it, \
+     so changing it changes how overlapping CMYK marks composite. The key is in a graphics state \
+     parameter dictionary rather than on a page, so no fence stands in the way; what is missing \
+     is the authorisation word and the rewrite";
+
+/// Why two `Separation` arrays of one name are not reconciled.
+const SEPARATIONS_NOT_RECONCILED: &str = "two Separation arrays here name the same colourant and \
+     define it differently. doc/pdf-a-conversion-limits.md section 4.5: making them agree means \
+     choosing one definition and rewriting the others, and the two may genuinely render \
+     differently — so the converter is to report the disagreement, show both, and rewrite only \
+     when told which one wins. The report and the rewrite are both owed, and a document \
+     assembled from several producers routinely lands here";
+
+/// Why a `/Colorants` entry is not synthesised.
+const COLORANTS_NOT_SYNTHESISED: &str = "every spot colour a DeviceN or NChannel space uses \
+     needs an entry in that space's Colorants dictionary, which the base standard leaves \
+     optional. doc/pdf-a-conversion-limits.md section 4.5 calls this a Default and a mechanical \
+     one, synthesised from the space's own alternate space and tint transform so that nothing is \
+     invented and no mark changes. How a single colourant's transform is derived from an \
+     N-input one is the part the rewrite has to settle, and it is not built";
+
+/// Why a reference `XObject`'s `/Ref` is not dropped in favour of its proxy.
+const REFERENCE_XOBJECT_NOT_PROXIED: &str = "doc/pdf-a-conversion-limits.md section 2.3's one \
+     case with a real workaround: §8.10.4 makes a reference XObject's containing form serve as a \
+     proxy — what a processor draws when the referenced content is not available, and what one \
+     that does not implement Ref draws unconditionally. An archived file is exactly the case \
+     where the target will not be available, so dropping the Ref entry and keeping the proxy \
+     writes down what the file was going to show. It is an Ask rather than a mechanical rewrite, \
+     because a reader that could have reached the imported content now sees the placeholder \
+     instead, and neither half is built";
+
+/// Why an unrecognised `/RI` or `/Intent` name is not restated.
+///
+/// §8.6.5.8 states the answer outright, which is what puts this in `doc/adr/0948`'s `Stated`
+/// class rather than behind `doc/questions/A48`'s line:
+///
+/// > If a PDF processor does not recognise the specified name, it shall use the
+/// > RelativeColorimetric intent by default.
+const RENDERING_INTENT_NOT_RESTATED: &str = "a graphics state's RI entry or an image \
+     dictionary's Intent entry names a rendering intent ISO 32000-2 does not define. §8.6.5.8 \
+     says what a processor does with such a name — it uses RelativeColorimetric — so restating \
+     the entry as that name writes down an interpretation the standard defines rather than a \
+     choice this converter made, which is doc/adr/0948's Stated class. The rewrite is not built. \
+     The same name as the rendering intent operator's operand has the other answer, because that \
+     operand is inside a content stream";
+
+/// Why a blend mode the standard does not define is not resolved.
+///
+/// Two cases in one requirement, and the standard answers only one of them. For an *array*
+/// Table 57's own entry says what a reader does — "the PDF reader shall use the first blend
+/// mode in the array that it recognises (or Normal if it recognises none of them)" — so writing
+/// that answer down is `doc/adr/0948`'s `Stated` class. For a bare *name* the same entry says
+/// only that the value "shall be" one of the standard modes, with no sentence about one that is
+/// not, so choosing a mode there is `doc/questions/A48`'s forbidden half and will stay refused.
+const BLEND_MODE_NOT_RESOLVED: &str = "this file sets a blend mode ISO 32000-2 does not define, \
+     and the two shapes that can fail have different answers. An array of names is the older \
+     form, deprecated in PDF 2.0, and §11.6.3's own entry says a reader takes the first mode in \
+     it that it recognises or Normal if it recognises none — so reducing the array to that name \
+     writes down an interpretation the standard defines, and that rewrite is not built. A bare \
+     name the standard does not define has no such sentence behind it: writing one in its place \
+     would be choosing how these marks composite with what is under them, which \
+     doc/questions/A48 forbids, and removing the entry does not state Normal either, because a \
+     graphics state parameter dictionary sets only what it names";
+
+/// Why a malformed `/Lang` is neither corrected nor removed.
+const LANGUAGE_IDENTIFIER_NOT_REMOVED: &str = "a Lang entry here is not a language identifier the \
+     base standard defines. Correcting it means deciding what language the producer meant, which \
+     doc/questions/A48 forbids; removing it drops the only statement the file makes about the \
+     text's language, which §14.9.2 has a reader use and which PDF/A-2a exists partly to \
+     require. Removal is doc/pdf-a-conversion-limits.md section 3's kind of answer and is not \
+     offered";
+
+/// Why a packet this converter cannot parse is not rebuilt.
+const XMP_PACKET_NOT_REBUILT: &str = "this file's metadata packet does not parse, states more \
+     than one rdf:RDF element, or breaks the XMP data model. This converter writes into the \
+     producer's own packet by span — doc/pdf-a-conversion-limits.md section 4.2's identification \
+     schema, and section 3.9's property removals — and a packet it cannot parse has no spans to \
+     write into. Replacing it with one this program composes would throw away everything the \
+     producer recorded, which is section 3's kind of loss; repairing it would be this converter \
+     deciding what a malformed packet meant, which is doc/questions/A48's forbidden half. \
+     Neither is built, and the first is the one a later slice can offer";
+
+/// Why a deprecated packet header attribute is not removed.
+const XMP_HEADER_ATTRIBUTES_NOT_REMOVED: &str = "this packet's header states the bytes or the \
+     encoding attribute, both of which the XMP standard deprecates and ISO 19005 forbids. Taking \
+     an attribute out of the processing instruction is byte surgery of exactly the kind \
+     pdf_model::xmp already does for a property — doc/pdf-a-conversion-limits.md section 3.9's \
+     removal by span — and it loses nothing a reader of the packet uses, since both attributes \
+     describe the packet's own framing. Nothing in this tree does it yet";
+
+/// Why an extension schema container is not emitted for an undescribed schema.
+const EXTENSION_CONTAINER_NOT_EMITTED: &str = "this packet uses a schema outside the predefined \
+     ones and describes it nowhere. doc/pdf-a-conversion-limits.md section 4.2 permits emitting \
+     an extension schema container for such a property and calls it authoring in a small way, \
+     with an Ask where a value's type cannot be determined from what is there — that is the \
+     rewrite this needs. Its sibling, a container the producer wrote and left a required field \
+     out of, is refused separately and for a different reason: there the missing field is a \
+     sentence only its producer holds";
+
+/// Why a malformed amendment identifier is not removed.
+const AMENDMENT_IDENTIFIER_NOT_REMOVED: &str = "the identification schema here states an \
+     amendment or corrigendum identifier that is not the number and the year separated by a \
+     colon. Neither half can be recovered from a malformed one, so correcting it is \
+     doc/questions/A48's forbidden half; the entry is optional, so removing it is the available \
+     remedy and it drops the producer's claim about which amendment the file was made to. This \
+     converter writes the identification schema (doc/pdf-a-conversion-limits.md section 4.2) and \
+     does not touch the amendment entry";
+
+/// Why a configuration's `/Name` and `/Order` are not written.
+const CONFIGURATION_NAME_AND_ORDER_NOT_WRITTEN: &str = "an optional content configuration here \
+     states no Name, states one another configuration already uses, or states an Order that does \
+     not reference every group in the file. doc/pdf-a-conversion-limits.md section 3.8 calls \
+     both Default work — a name synthesised uniquely within the file, an Order completed with \
+     the groups it omits in the file's own order — and neither is built. The name is also where \
+     this class meets doc/questions/A48's line: §8.11.4.3 makes Name a label for a user \
+     interface, so a synthesised one is text no producer wrote, and the answer has to be argued \
+     rather than assumed";
+
+/// Why an automatic optional-content state is not removed.
+const AUTOMATIC_STATES_NOT_REMOVED: &str = "ISO 19005-2 section 6.9 forbids an AS entry in an \
+     optional content configuration; ISO 19005-4 section 6.10 permits it and has a conforming \
+     processor ignore it instead. AS is what switches layers by zoom, by print-versus-view or by \
+     user event, so removing it freezes the document into one state — \
+     doc/pdf-a-conversion-limits.md section 3.8's Ask, and not built. PDF/A-4 is the shorter \
+     route here, because it keeps the key and ignores it";
+
 /// The sentence a requirement absent from both tables is refused with.
 ///
 /// Deliberately not per-requirement prose. The requirement's own `asks` and its clause are
@@ -1026,9 +2009,6 @@ pub(super) fn decide(
     authorised: Authorisations,
     prepared: &Prepared,
 ) -> Decision {
-    if judgement.id == "file-structure/bound-names-are-valid-utf8" {
-        return Decision::Refused(Because::TheFence(UTF8_NAMES));
-    }
     if WRITER_EMITS.contains(&judgement.id) {
         // **Not unconditionally.** Some of these rules reach inside a content stream — ISO
         // 19005's hexadecimal string rule is stated of the file's syntax and a content stream
