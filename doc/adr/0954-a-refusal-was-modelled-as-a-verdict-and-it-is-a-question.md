@@ -84,6 +84,25 @@ a remedy the chosen target does not admit is **an error naming both**, never a q
 to `stop` — a configuration that silently does less than it says is the failure mode this whole
 change exists to remove.
 
+**And the first version of that table was wrong, corrected by the owner the same day**: it said
+PDF/A-2 had no remedy at all, when *appending the content as pages* is available there. The reason
+generalises and is the useful part — **what the six targets differ about is what may be attached,
+not what may be a page.** Every one of them admits as many pages as a document likes, so the
+restriction that closes the attachment route at PDF/A-2 does not touch the appending route.
+
+That makes the target dimension a question of *mechanism* rather than of availability: attach
+unchanged (4f alone), attach a derived PDF/A (4 and 4f), or append as pages (all six). Appending
+is therefore an operator's choice and not a fallback — somebody archiving to PDF/A-4 may still
+prefer the content visible in the document over an attachment a reader has to go looking for.
+
+It is not free, and the costs are per target too. A page changes the page count, so page labels and
+the outline stop describing the document unless extended — neither is a conformance requirement and
+both are user-visible, so leaving them stale is wrong even where it conforms. **And a Level A
+target needs the structure tree to cover the appended pages**, or they are content the logical
+structure does not describe: appending at 2a is a different operation from appending at 2b, costing
+structure-tree work or costing the Level A claim. The per-site table therefore has to record what a
+remedy *then owes*, which is the sharpest argument yet that the site-and-target pair is the unit.
+
 And it yields the cheapest useful thing in the proposal: **the report can say when another target
 would have kept what this one loses.** The converter already holds every target's requirement
 table, so "the target you asked for cannot hold this; PDF/A-4f can" costs nothing to compute. It

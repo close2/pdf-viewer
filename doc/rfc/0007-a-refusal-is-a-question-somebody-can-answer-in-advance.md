@@ -227,9 +227,50 @@ answer is different in kind at each:
 |---|---|---|
 | PDF/A-4f | attach the original, unchanged | **nothing is lost and nothing is derived** |
 | PDF/A-4 | derive a PDF/A and attach that | the *content* survives, in another format |
-| PDF/A-2 | discard, or `stop` | lost, or the conversion refuses |
+| PDF/A-2 | derive a PDF if it is not one, and **append its pages** | the content survives, in the document's body |
 
-Three things follow.
+**The last row was wrong in this RFC's first draft, which said PDF/A-2 had neither remedy
+available.** The owner corrected it on 2026-09-11: *appending pages for target 2 could also be an
+option.* It is, and the reason is worth stating because it generalises — **what the targets differ
+about is what may be *attached*, not what may be a page.** Every one of the six admits as many
+pages as a document likes. So the restriction that closes the attachment route at PDF/A-2 does not
+touch the appending route at all.
+
+### 4.6.1 Appending is available everywhere, which makes the target dimension about *mechanism*
+
+Once that is seen, the table above is not "which targets have a remedy" but "which mechanism each
+target's best remedy uses", and appending is a *fourth* column available under all six:
+
+| mechanism | available | what it costs |
+|---|---|---|
+| attach unchanged | 4f only | nothing |
+| attach a derived PDF/A | 4, 4f | the original format |
+| **append as pages** | **all six** | the content becomes body rather than an attachment |
+
+Appending is therefore an operator's choice rather than a fallback: somebody archiving to PDF/A-4
+may still prefer the content *visible in the document* over an attachment a reader has to go
+looking for, and the configuration should let them say so.
+
+### 4.6.2 What appending costs, which is not nothing and differs by target
+
+A page is cheap to add and expensive to add *consistently*, and the costs are per target:
+
+- **the page count changes**, so §12.4.2's page labels and §12.3's outline no longer describe the
+  document unless they are extended. Neither is a conformance requirement, and both are
+  user-visible, so silently leaving them stale is the wrong answer even where it conforms;
+- **PDF/A-2a and any Level A target need the structure tree to cover the new pages.** ISO 19005-2
+  section 6.7 requires the logical structure to describe the content, and appended pages with no
+  structure elements are content the tree does not describe. So appending at 2a is not the same
+  operation as appending at 2b — it costs structure-tree work, or it costs the Level A claim;
+- **an appended page is marks no clause specifies**, which is `Q58`'s whole subject. The content is
+  the document's own, which is why this is `preserve` and not `derive`, but the page it sits on is
+  composed by this program.
+
+None of that argues against appending. It argues that the remedy's entry in the per-site table has
+to say *which target* and *what else it then owes* — which is what makes the site-and-target pair
+the unit, rather than the site.
+
+Three things follow from all of this.
 
 **`--remedy-sites` takes a target**, because the list it prints is a property of the pair. A
 configuration written against one target and used with another must not silently do less than it
@@ -273,7 +314,7 @@ the list is the work rather than the shape.
 
 | site | `discard` | `preserve` | `derive` |
 |---|---|---|---|
-| embedded file not itself PDF/A (§3.1) | drop the attachment | **4f: attach the original unchanged, losing nothing** | **4: derive a PDF/A and attach that.** 2: neither is available |
+| embedded file not itself PDF/A (§3.1) | drop the attachment | **4f: attach unchanged. All six: append as pages** (§4.6.1) | **4: derive a PDF/A and attach.** 2: derive a PDF and append it |
 | multimedia and 3D annotations (§3.2) | drop the annotation | keep the poster image the annotation already carries | poster frame, key frames, or a transcript, appended as pages |
 | JavaScript and behavioural actions (§3.3) | drop the action | — | — (a script's *text* as a page is information nobody asked to archive) |
 | encryption (§3.5) | decrypt and drop the permissions | — | — (no tool helps; the information is the restriction itself) |

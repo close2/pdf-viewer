@@ -26,6 +26,18 @@ appearances — both cases where a *clause* states what the marks are.
 That is the difference worth ruling on: an appended image page is marks **no clause specifies**,
 even though the image itself is the document's own.
 
+**The owner widened this on 2026-09-11**, and it makes the question bigger rather than narrower:
+appending is available under *every* target, because what the six differ about is what may be
+attached and not what may be a page. So this is not a corner used when nothing else works — under
+PDF/A-2 it is the only route that keeps an embedded file's content at all, and under PDF/A-4 an
+operator may reasonably prefer it to an attachment a reader has to go looking for. Whatever is
+ruled here applies to the whole feature rather than to an edge of it.
+
+One consequence to rule on with it: under a **Level A** target the appended pages need structure
+elements, or they are content the logical structure does not describe (ISO 19005-2 section 6.7).
+Composing a page is one amendment; composing a page *and the structure tree entries that describe
+it* is arguably a second, and it is the nearest this program would come to authoring.
+
 ## Recommendation
 
 Treat it as needing the amendment, and make it. The argument is that the alternative is losing the
