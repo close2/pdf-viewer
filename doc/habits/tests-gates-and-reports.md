@@ -7,6 +7,15 @@ which gates a change actually needs.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **Staging a batch from `git status --short` has two traps, and both bite in a worktree.** A
+  rename prints as `R  old -> new`, so a pipeline that strips the status column hands `git add` one
+  path with an arrow in it and **aborts on the first one** — the commit then captures only what was
+  already in the index, silently. And a worktree whose gitignored resources are symlinks into the
+  main checkout prints its submodules as `T ` (typechange): staging those would commit a symlink
+  over a tracked submodule and take the corpus with it. Use `git add -- .`, then read
+  `git status --short | grep -vE '^[AMD] '` before committing and unstage every `T `. Session 1005
+  did both in one commit and caught them by reading the staged count against the file count.
+
 - **On a shared machine, stop a run by its pid, never by a pattern.** `pkill -f 'cargo …'` written
   to stop one round's own gate sequence matched that round's shell as well, and would have matched
   any sibling's `cargo` had the pattern been a word wider (session 997). A background sequence
