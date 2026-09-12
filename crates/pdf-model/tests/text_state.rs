@@ -32,7 +32,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_render::Command;
+use pdf_render::{BlendMode, Command};
 use pdf_syntax::Document;
 
 /// A `/ToUnicode` `CMap` for the composite font below, mapping two codes to themselves.
@@ -74,7 +74,8 @@ fn fixture(content: &str) -> Vec<u8> {
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << /Font << /F1 5 0 R /F0 6 0 R /F2 10 0 R /F3 11 0 R /F4 12 0 R >> \
          /ExtGState << /Half << /ca 0.5 /CA 0.5 >> /Knock << /TK true >> \
-         /NoKnock << /TK false >> /Mult << /ca 0.5 /BM /Multiply >> >> >> /Contents 4 0 R >>\nendobj\n\
+         /NoKnock << /TK false >> /Mult << /ca 0.5 /BM /Multiply >> \
+         /Dark << /ca 0.5 /BM /Darken >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
          6 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /TestCID /Encoding /Identity-H \
@@ -461,6 +462,23 @@ fn reports_knockout(content: &str) -> bool {
 }
 
 /// Whether a content stream's text object became §9.3.8's knockout group.
+/// The blend mode and isolation of the text object's knockout group, where one is drawn.
+fn knockout_group(content: &str) -> Option<(BlendMode, bool)> {
+    interpret(content)
+        .display_list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Group {
+                knockout: true,
+                blend,
+                isolated,
+                ..
+            } => Some((*blend, *isolated)),
+            _ => None,
+        })
+}
+
 fn draws_knockout(content: &str) -> bool {
     interpret(content)
         .display_list
@@ -510,23 +528,53 @@ fn text_knockout_becomes_a_group_only_where_the_two_models_differ() {
     );
 }
 
-/// A text object whose glyphs *blend* keeps §9.3.8's report.
+/// A text object whose glyphs *blend* is still drawn as §9.3.8's group, by one of two routes.
 ///
-/// The clause makes the implicit group **non-isolated**, and this renderer composites a
-/// group's elements onto transparency. §11.4.4's NOTE 3 is what makes those the same
-/// computation — the backdrop is composited in and removed again — and it is only the same
-/// where every element blends Normal. A glyph with a blend mode is exactly the case where the
-/// group's own backdrop is load-bearing, so the object is drawn as it was before and says so.
+/// The clause makes the implicit group **non-isolated**, and this renderer composites a group's
+/// elements onto transparency; §11.4.4's NOTE 3 makes those the same computation only where every
+/// element blends Normal. Until the nine-hundred-and-seventy-ninth session a blending glyph was
+/// therefore drawn flat and reported. ADR 1000 built the two constructions the clause admits:
+/// where the mode is affine in the source — `Multiply` is — it moves from the glyphs to the
+/// group's `Do` and the glyphs are drawn Normal on transparency, which is equal pixel for pixel
+/// (`blend_at_the_do`'s derivation); otherwise the group is built on §11.4.6's own backdrop,
+/// `isolated: false` beside `knockout: true`, which the oracle's backend draws. Neither is a
+/// report, and the flat drawing this test used to pin was the double border NOTE 2 exists to
+/// prevent.
 #[test]
-fn text_knockout_still_reports_where_a_glyph_blends() {
+fn text_knockout_with_a_blending_glyph_takes_one_of_the_two_constructions() {
     let overlapping = "BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET";
-    assert!(
-        reports_knockout(&format!("/Mult gs {overlapping}")),
-        "a non-isolated group whose elements blend needs the backdrop this one drops"
+    let (blend, isolated) = knockout_group(&format!("/Mult gs {overlapping}"))
+        .expect("Multiply commutes with the weighted average, so the group is drawn");
+    assert_eq!(
+        (blend, isolated),
+        (BlendMode::Multiply, true),
+        "the affine mode moves to the group's Do and the glyphs draw on transparency"
     );
     assert!(
-        !draws_knockout(&format!("/Mult gs {overlapping}")),
-        "and it is not drawn as one"
+        !reports_knockout(&format!("/Mult gs {overlapping}")),
+        "and what is drawn is not also reported"
+    );
+    // `Darken` does not commute with the weighted average — but two glyphs of one colour
+    // average to that colour whatever the weights, so the mode still moves to the `Do`.
+    let (blend, isolated) = knockout_group(&format!("/Dark gs {overlapping}"))
+        .expect("glyphs of one colour let any separable mode move to the Do");
+    assert_eq!(
+        (blend, isolated),
+        (BlendMode::Darken, true),
+        "one colour is the other condition under which the mode moves"
+    );
+    // Two colours under `Darken` is the case neither shortcut covers: §11.4.6's own backdrop.
+    let two_colours = "BT /F1 24 Tf 10 50 Td 0 g (A) Tj -8 0 Td 0.5 g (A) Tj ET";
+    let (blend, isolated) = knockout_group(&format!("/Dark gs {two_colours}"))
+        .expect("a mode that does not commute takes §11.4.6's own backdrop");
+    assert_eq!(
+        (blend, isolated),
+        (BlendMode::Normal, false),
+        "the glyphs keep their mode and the group seeds from the immediate backdrop"
+    );
+    assert!(
+        !reports_knockout(&format!("/Dark gs {two_colours}")),
+        "drawn on the backdrop is drawn, not reported"
     );
 }
 

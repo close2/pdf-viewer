@@ -548,6 +548,25 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    since the seventy-first session. Removing it means a Plus layer per element and the elements are
    §9.3.8's glyphs, so it wants a measurement before it is paid.
 
+## The implicit knockout group was refused by its own neighbour
+
+**§11.7.4.4's `B` and §9.3.8's text object were drawn flat wherever a part blended or wore a soft
+mask, and the two corpus documents that showed it were both a `B` in one colour under a blend
+mode** (ADR 1000, session 979). `transparency::knockout_group_elements` answered the two implicit
+callers and refused both cases, while `knockout_elements` — forty lines above it, ADR 0234's
+`Command::Shaped` for a form's knockout group — had stated a masked part's shape all along, and
+§11.6.2's ledger row had recorded the refusal as deliberate. `implicit_knockout_group` is the
+answer now, with the three fields the clauses leave to the parts: transparency where nothing
+blends; one shared blend mode moved to the `Do` where §11.3.3 against §11.4.6's weighted average
+makes it the same picture — affine in the source (Multiply, Screen, Overlay, Exclusion) or one
+colour — on every backend; and §11.4.6's own backdrop otherwise, ADR 0327's construction, on the
+oracle and not inside a knockout group (NOTE 6). `issue17215.pdf` and `issue14438.pdf` leave the
+incomplete list once `path.rs` asks the new function, which is the three-line switch ADR 1000 §5
+writes out for `path.rs` and `text.rs`; this file's own crates were the round's, and those two
+were not. The same move would put a form's non-isolated knockout group whose elements share an
+affine mode back on three backends — `issue18032.pdf`'s population — and is priced there as a
+follow-up rather than taken.
+
 ## What the five precedents have in common, and what the sixth was instead
 
 `ImageSource` carries a raster the list *names* (ADR 0210), a mask group is painted in the one

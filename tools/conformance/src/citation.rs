@@ -544,10 +544,17 @@ fn another_document(before: &str) -> Option<Named> {
     // a wrapped doc comment's `Table` into a document called `/// -`. It was latent on the `§`
     // side for the whole of that arm's life and needed a bare number before the sign to show;
     // the `Table` caller reached it on the first run, twice.
+    // **A standard cited with its year is that standard**, and the colon that joins the two is
+    // part of the number: `ISO 32000-1:2008 §7.3.4.3` names the 2008 edition, whose clause
+    // numbering is not this standard's. Until the nine-hundred-and-eighty-third session the
+    // colon failed the digits-and-hyphens test, the word was no document, and the `§` after it
+    // was checked against ISO 32000-2 — where it resolved, because both editions number their
+    // clauses alike enough for a citation of the older one to land on a clause of the newer.
+    // Three sites in `pdf-archive` did exactly that (ADR 0997 section 2, ADR 1004).
     let acronym = unwrapped(words.next()?)?;
     if !number
         .chars()
-        .all(|character| character.is_ascii_digit() || character == '-')
+        .all(|character| character.is_ascii_digit() || character == '-' || character == ':')
         || !number.contains(|character: char| character.is_ascii_digit())
         || !acronym.chars().all(|character| {
             character.is_ascii_uppercase() || character.is_ascii_digit() || character == '/'
@@ -557,7 +564,10 @@ fn another_document(before: &str) -> Option<Named> {
     {
         return None;
     }
-    if acronym == "ISO" && number == "32000-2" {
+    // This standard, with or without its year, is the document every bare `§` already names:
+    // `ISO 32000-2 §9.6.5.4` and `ISO 32000-2:2020 §9.6.5.4` are the convention spelled out, not
+    // another document.
+    if acronym == "ISO" && (number == "32000-2" || number == "32000-2:2020") {
         return None;
     }
     // This project's own ADRs and RFCs are numbered in four digits with a leading zero, and the
@@ -942,6 +952,39 @@ mod tests {
         let scan = scan(&source);
         assert!(scan.foreign.is_empty());
         assert_eq!(scan.citations.len(), 1);
+    }
+
+    /// **A standard cited with its year is that standard, and the colon is part of its number.**
+    ///
+    /// `ISO 32000-1:2008 §7.3.4.3` names the 2008 edition, whose §7.3.4.3 is not this standard's
+    /// to check; until the nine-hundred-and-eighty-third session the colon defeated the number
+    /// test and the citation passed as ours by landing on a clause that exists. This standard's
+    /// own year is the exemption, in both spellings, because naming the document every `§`
+    /// already means is not a finding. Both halves are asserted, per trap 13.
+    #[test]
+    fn a_standard_cited_with_its_year_is_that_standard() {
+        let source = format!(
+            "{DOC} ISO 32000-1:2008 {SECTION}7.3.4.3 states it in the same terms\n\
+             {DOC} and ISO/IEC 15444-1:2000 {SECTION}I.5.3.3 sets APPROX to zero\n"
+        );
+        let dated = scan(&source);
+        assert!(dated.citations.is_empty(), "{:?}", dated.citations);
+        assert_eq!(
+            dated
+                .foreign
+                .iter()
+                .map(|foreign| foreign.document.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ISO 32000-1:2008", "ISO/IEC 15444-1:2000"]
+        );
+
+        let ours = format!(
+            "{DOC} ISO 32000-2:2020 {SECTION}9.6.5.4 names five routes, as ISO 32000-2 \
+             {SECTION}9.6.5.4 always has\n"
+        );
+        let own = scan(&ours);
+        assert!(own.foreign.is_empty(), "{:?}", own.foreign);
+        assert_eq!(own.citations.len(), 2);
     }
 
     /// A project document's own file name before a `§` marks the citation as that document's

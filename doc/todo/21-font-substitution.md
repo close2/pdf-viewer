@@ -1,6 +1,6 @@
 # What is left of font substitution
 
-Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below — the first of those remainders closed by an instrument rather than a decision, and the two that followed it settled by measuring this machine's font catalogue rather than by arguing about a feature** (ADRs 0763, 0764, 0765).
+Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses for a face, and its other half — the clause's own per-code fallback between §9.10.2's methods — taken** (ADR 1002), the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below — the first of those remainders closed by an instrument rather than a decision, and the two that followed it settled by measuring this machine's font catalogue rather than by arguing about a feature** (ADRs 0763, 0764, 0765).
 Priority: 21
 Corpus: 40 documents. **The corpus gate's own four silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
@@ -55,6 +55,35 @@ glyph source (no compiled-in face has one Arabic glyph — measured; Liberation 
 the whole Arabic range to glyph 0 and its `GSUB` has no `arab` script), Unicode's joining-form
 selection and right-to-left ordering, **together or not at all**; the cost of each is ADR 0348's.
 So this section's mechanism stays owed with no witness at all, exactly as its own heading says.
+
+### The per-code fallback the clause itself states was owed too, and it is taken (ADR 1002)
+
+Everything above is about a *face* — a second one, asked when the first lacks a character — and
+that stays owed with no witness. But "per character" has a second meaning this section never
+separated from it, and it is the clause's rather than the machine's: §9.10.2 ranks its methods
+"in the priority given", and its closing sentence is about methods that "fail to produce a Unicode
+value" — which a `/ToUnicode` that omits a code has done *for that code*. Since §9.7.4.2 leaves a
+substituted composite font reachable by character alone, §9.10.2 is its glyph selection algorithm,
+and `CodeMapping::Substituted` applied the ranking once per **font**: it held a copy of the
+`/ToUnicode` whenever that stated anything and never asked the collection's
+`registry-ordering-UCS2` table about a code the producer left out — while `LoadedFont::text`, six
+hundred lines away, asked both per code. Two routes over one clause, disagreeing, and the page
+could read back a character it did not draw.
+
+Session 981 made the drawing route read the two tables the font already holds, in the clause's
+order, per code (`LoadedFont::substituted_character`), and deleted the copy. The population is a
+command rather than a sentence:
+
+```sh
+cargo run --release -p pdf-font --example partial_to_unicode_census -- doc/pdf.js doc/corpora
+```
+
+Its first run found the *shape* — a substituted font over a carried collection whose non-empty
+`/ToUnicode` omits a code the collection names — in four documents of the 90 129 that open on this disk and
+in none of the 974, and on none of the four's pages does a shown code fall in the gap, so no
+silence line moves and the pin is a fixture calibrated both ways rather than a corpus figure. What
+this closes is the *reading*; what §1 above still owes — a second face — is untouched by it, and
+the two are now written down apart so that neither is mistaken for the other again.
 
 ## 2. A substitute that cannot be addressed — 40 fonts
 

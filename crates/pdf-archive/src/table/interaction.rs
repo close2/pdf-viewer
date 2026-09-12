@@ -332,23 +332,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                signature value itself.",
         clauses: Clauses::only_two("B.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "unimplemented, and **not** one predicate away, which two earlier rounds recorded \
-             that it was (ADRs 0972 and 0981). The route is real: \
-             `pdf_model::signature::Signature::coverage` reports `Coverage::WholeFile` for a \
-             ByteRange running from byte zero to the end of the file with the single gap where \
-             the value sits. What those rounds priced was the converter's census row \
-             (`crates/pdf-transform/tests/archive_unconsidered.txt`), which is still owed. What \
-             neither priced is a **reading**, and it is the blocker: the annex says the digest \
-             is computed over the entire file, which is a statement about the moment of \
-             signing, and every signature but the newest in an incrementally updated file gives \
-             `Coverage::Unsigned` instead. Either the annex forbids a conforming file from \
-             carrying an update after a signature — which is what its own NOTE 2 says the rule \
-             ensures — or it does not, and a predicate written before that is decided fails \
-             documents on this crate's reading rather than on the file. \
-             `pdf_model::signature::Signature::must_cover_whole_file` records the base \
-             standard's answer, which is the opposite one and binds two sub-filters only",
-        ),
+        check: Check::Implemented(digest_covers_the_whole_file),
     },
     Requirement {
         id: "signatures/signature-is-a-single-signer-cms-object",
@@ -357,15 +341,19 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("B.1"),
         applies: Applies::Always,
         check: Check::Unchecked(
-            "unimplemented, and closable from what this tree already reads: \
+            "unimplemented, and closable in part from what this tree already reads: \
              `pdf_model::cms::SignedData` states `signers` and the entries of `certificates`, \
-             and failing to parse at all is its `CmsError`. **One thing that used to be part of \
-             this row's reason is now the row below**: the annex's reference to RFC 2315 is a \
-             requirement of its own sentence, and folding it in here made a row that could not \
-             be closed without settling a question the countable half does not depend on. What \
-             is left owed is a predicate and the converter's census row \
-             (`crates/pdf-transform/tests/archive_unconsidered.txt`), which is a second crate's \
-             commit in the same breath",
+             `pdf_model::x509::Certificate::is_named_by` matches the signer's `sid` to one of \
+             them, and failing to parse at all is its `CmsError`. **What keeps it here is the \
+             first word of the sentence, not the count**: *DER-encoded* is a claim about the \
+             encoding, and `pdf_model::der` accepts X.690's indefinite lengths on purpose — it \
+             records `Value::had_indefinite_length` and refuses nothing — so a predicate written \
+             from that reader could say *parses as CMS* and could not say *is DER*. Judging DER \
+             needs the reader to refuse, or to report, every departure X.690 clause 10 names, \
+             which is a change in `pdf-model` rather than here. The annex's reference to RFC \
+             2315 is the row below, split out so that this half is not hostage to it; and the \
+             converter's census row (`crates/pdf-transform/tests/archive_unconsidered.txt`) is \
+             owed in the same commit as the predicate, as it was for the digest row above",
         ),
     },
     Requirement {
@@ -1485,6 +1473,238 @@ fn signature_widgets_meet_the_annotation_rules(exam: &Examination<'_>, findings:
     });
 }
 
+/// ISO 19005-2 Annex B.1, first sentence: a signature's digest takes in every byte of the file,
+/// the signature dictionary included, and leaves out nothing but the signature itself — and
+/// `/ByteRange` is where the file says so.
+///
+/// # The reading, which two rounds priced as a predicate and a third found was a clause
+///
+/// ADRs 0972 and 0981 recorded this row as one predicate away; ADR 0986 found that the
+/// predicate depended on a sentence nobody had settled — whether the annex's "entire file"
+/// forbids a conforming file from carrying an incremental update after a signature, which
+/// would make every signature but the newest in such a file a fault. ADR 1003 settles it, and
+/// this is the short form.
+///
+/// **The annex's sentence is about the moment of signing.** Its own subject is *computing* the
+/// digest, and its NOTE 1 says what the sentence is: ISO 32000-1:2008, 12.8.1's recommendation
+/// that the range be the entire file, made a requirement. Turning a *should* into a *shall*
+/// changes the modal verb and not the subject, and that base clause reads "entire file" as the
+/// file that exists when the digest is computed. It says so three times, and a PDF/A-2 file
+/// inherits all three unchanged through ISO 19005-2 section 5.1: 12.8.1's NOTE 1, that a signed
+/// document modified and saved by incremental update keeps the bytes the original signature's
+/// range covers, so the state at signing can be recreated; Table 252's `Changes` entry, that
+/// each signature results in an incremental save and later signatures have a greater length;
+/// and 12.8.2.2.1, whose `P` values 2 and 3 permit changes after a certification signature.
+///
+/// **And ISO 19005-2's own section 6.4.3 requires this reading.** It permits a conforming file
+/// to contain the signatures 12.8.1 permits — in the plural, and 12.8.1 has approval signatures
+/// *follow* a certification signature — so a conforming PDF/A-2 file may hold two signatures,
+/// and in such a file the first one's range necessarily stops where the file stopped when it
+/// was signed. Reading the annex as forbidding any byte after a signature's range would make
+/// section 6.4.3's permission unreachable, which `doc/habits/reading-the-specification.md`
+/// names as the reading to reject when two clauses seem to disagree: the one that makes a
+/// file's own words mean nothing.
+///
+/// What the annex adds to the base standard is therefore the *shall* alone: a signer may not
+/// choose a smaller range — 12.8.1 says other ranges are not recommended because they do not
+/// check for all changes — and NOTE 2 says what the restriction buys, that no byte of the file
+/// as signed lies outside the digest but the signature value. On the file in front of a
+/// validator that is four checks per signature, each one the annex's own:
+///
+/// - the range starts at byte zero and has exactly two pairs — one gap, not several, because
+///   what is excluded is the signature value and nothing else;
+/// - the gap *is* the signature value: the bytes the range leaves out are the `/Contents`
+///   string, with or without its angle brackets. The standard says the value is excluded and
+///   does not say whether a hexadecimal string's delimiters are the value's bytes, so both
+///   shapes are accepted — a deliberate choice, and one every real producer read the same way;
+/// - the signature dictionary is inside the range, which follows from the check above: 12.8.1
+///   makes the value a direct object of the dictionary, so a dictionary whose `/Contents` is the
+///   gap surrounds it;
+/// - the range ends where a file ends. At the end of this file, which is the plain case; or at
+///   the end of an `%%EOF` marker plus at most one end-of-line, which is where ISO 32000-1:2008,
+///   7.5.5 and 7.5.6 end every revision — the file as it was when this signature was computed —
+///   with an update appended afterwards, which is what 12.8.1's NOTE 1 describes and is not a
+///   fault of this signature. **A marker followed by nothing but white space is not a revision
+///   boundary**: then the bytes past the range were the signed file's own last line, and they
+///   are outside the digest. A marker followed by an end-of-line and then more file is
+///   accepted whichever revision that end-of-line belonged to, because the file cannot say.
+///
+/// A range that names bytes past the end of the file is one no digest over this file can have
+/// been computed with, and is reported as such rather than as a range that stops short.
+///
+/// # The population
+///
+/// The form's signature fields, by the walk [`signature_widgets_meet_the_annotation_rules`]
+/// makes, because ISO 32000-1:2008, 12.8.1 puts a signature dictionary in a signature field's
+/// `/V` and section 6.4.3 requires it. A signature reachable only another way — the corpus has
+/// one, referenced from `/Perms` alone — is `signatures/signatures-use-signature-fields`'s
+/// finding and not this row's. A field whose `/V` states neither `/ByteRange` nor `/Contents`
+/// is prepared and unsigned, and [`pdf_model::signature::read`] declines it.
+///
+/// veraPDF's rule for this clause was run on the same shapes, as evidence and not as the
+/// target (`CLAUDE.md` principle 5): it passes a signature whose range ends at its own revision's
+/// marker with an update appended after it, and fails one whose range stops short of the
+/// marker or runs past the file — which is this reading exactly. It fails, and this row
+/// accepts, a range that stops at `%%EOF` with the file's own end-of-line after it followed by
+/// an update; the paragraph above says why that case is undecidable from the bytes.
+fn digest_covers_the_whole_file(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let file = document.bytes();
+    let length = u64::try_from(file.len()).unwrap_or(u64::MAX);
+    for_each_field(document, |place, field| {
+        if inherited(document, field, "FT").as_deref() != Some("Sig") {
+            return;
+        }
+        let value = document.get_key(field, "V");
+        let Some(dict) = value.as_dict() else {
+            return;
+        };
+        let Some(signature) = pdf_model::signature::read(document, dict) else {
+            return;
+        };
+        let place = place.clone().named("ByteRange");
+        let [(start, head), (resume, tail)] = signature.byte_range.as_slice() else {
+            findings.record(
+                place,
+                "the signature's ByteRange is not two pairs leaving one gap for the value",
+            );
+            return;
+        };
+        if *start != 0 {
+            findings.record(
+                place,
+                "the signature's ByteRange does not start at the first byte of the file",
+            );
+            return;
+        }
+        let gap_start = start.saturating_add(*head);
+        let end = resume.saturating_add(*tail);
+        if *resume < gap_start {
+            findings.record(place, "the signature's ByteRange pairs overlap");
+            return;
+        }
+        if end > length {
+            findings.record(
+                place,
+                format!(
+                    "the signature's ByteRange runs {} bytes past the end of the file, so no \
+                     digest over this file was computed with it",
+                    end.saturating_sub(length)
+                ),
+            );
+            return;
+        }
+        if !gap_is_the_value(file, gap_start, *resume, &signature.contents) {
+            findings.record(
+                place.clone(),
+                "the bytes the signature's ByteRange leaves out are not its Contents value",
+            );
+        }
+        if end != length && !ends_a_signed_revision(file, end) {
+            findings.record(
+                place,
+                format!(
+                    "the signature's ByteRange stops {} bytes before the end of the file at a \
+                     point that is not the end-of-file marker of a revision",
+                    length.saturating_sub(end)
+                ),
+            );
+        }
+    });
+}
+
+/// Whether the bytes of `file` in `start..end` are the hexadecimal string holding `value`.
+///
+/// With or without the angle brackets: the `/Contents` string is a direct object of the
+/// dictionary, written `<…>`, and a producer's `/ByteRange` gap either includes the delimiters
+/// or does not. ISO 32000-1:2008, 7.3.4.3's own rules decode what is between them — white space
+/// is ignored, and a missing final digit is zero — so that the comparison is with the value the
+/// file states rather than with one spelling of it.
+fn gap_is_the_value(file: &pdf_syntax::FileBytes, start: u64, end: u64, value: &[u8]) -> bool {
+    let (Ok(start), Ok(end)) = (usize::try_from(start), usize::try_from(end)) else {
+        return false;
+    };
+    if end <= start {
+        return false;
+    }
+    let gap = file.read(start..end);
+    let mut digits = gap.as_ref();
+    if let [b'<', rest @ ..] = digits {
+        digits = rest;
+    }
+    if let [rest @ .., b'>'] = digits {
+        digits = rest;
+    }
+    let mut decoded = Vec::with_capacity(digits.len() / 2);
+    let mut pending = None;
+    for &byte in digits {
+        let nibble = match byte {
+            b'0'..=b'9' => byte.wrapping_sub(b'0'),
+            b'a'..=b'f' => byte.wrapping_sub(b'a').saturating_add(10),
+            b'A'..=b'F' => byte.wrapping_sub(b'A').saturating_add(10),
+            b' ' | b'\t' | b'\r' | b'\n' | 0x0c | 0x00 => continue,
+            _ => return false,
+        };
+        match pending.take() {
+            None => pending = Some(nibble),
+            Some(high) => decoded.push((high << 4) | nibble),
+        }
+    }
+    if let Some(high) = pending {
+        decoded.push(high << 4);
+    }
+    decoded == value
+}
+
+/// Whether byte `end` of `file` is where a revision ended: just after an `%%EOF` marker, or
+/// after that marker and one end-of-line — and with something other than white space after it.
+///
+/// ISO 32000-1:2008, 7.5.5 makes the marker the file's last line and 7.5.6 gives every appended
+/// trailer its own, so a range ending here covered the whole of some earlier state of the file.
+/// The white-space condition is the other half of the same sentence: a marker with nothing but
+/// white space after it is the *current* file's last line, and a range that stops before its
+/// end-of-line has left bytes of the signed file outside the digest.
+fn ends_a_signed_revision(file: &pdf_syntax::FileBytes, end: u64) -> bool {
+    /// `%%EOF`, `\r`, `\n`: the most a marker and one end-of-line occupy.
+    const WINDOW: u64 = 7;
+    /// How much of what follows is read at a time while looking for a byte that is not white
+    /// space.
+    const PROBE: usize = 512;
+    let Ok(at) = usize::try_from(end) else {
+        return false;
+    };
+    let Ok(from) = usize::try_from(end.saturating_sub(WINDOW)) else {
+        return false;
+    };
+    let before = file.read(from..at);
+    let marker_then_line_end = [
+        &b"%%EOF"[..],
+        &b"%%EOF\r"[..],
+        &b"%%EOF\n"[..],
+        &b"%%EOF\r\n"[..],
+    ]
+    .iter()
+    .any(|shape| before.ends_with(shape));
+    if !marker_then_line_end {
+        return false;
+    }
+    // What follows has to be more file, not the tail of this line: read as much as could be
+    // white space before the first byte that is not.
+    let mut probe = at;
+    while probe < file.len() {
+        let next = probe.saturating_add(PROBE).min(file.len());
+        let bytes = file.read(probe..next);
+        if bytes
+            .iter()
+            .any(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | 0x0c | 0x00))
+        {
+            return true;
+        }
+        probe = next;
+    }
+    false
+}
+
 // ---------------------------------------------------------------------------------------
 // 6.5 / 6.6 Actions
 // ---------------------------------------------------------------------------------------
@@ -1673,7 +1893,10 @@ mod tests {
         no_three_dimensional_annotation, normal_appearance_shape, printable_and_visible,
         subtype_permitted_by_part_four, subtype_permitted_by_part_two,
     };
-    use super::{no_deprecated_set_state_or_no_op_actions, three_dimensional_stream_format};
+    use super::{
+        digest_covers_the_whole_file, no_deprecated_set_state_or_no_op_actions,
+        three_dimensional_stream_format,
+    };
 
     /// A file built from its objects, numbered from 1, with `/Root 1 0 R`.
     fn document(objects: &[&str]) -> Document {
@@ -2096,5 +2319,240 @@ mod tests {
             "<< /FT /Btn /T (b) /A << /S /GoTo /D [3 0 R /Fit] >> >>",
         ]);
         assert_eq!(faults(&file, no_action_on_widget_or_field), 1);
+    }
+
+    /// The bytes of a file built from its objects, numbered from 1, with `/Root 1 0 R` — the
+    /// same construction as [`document`], kept as bytes so that a test can patch offsets into
+    /// them before the file is opened.
+    fn file(objects: &[&str]) -> Vec<u8> {
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let _ = write!(
+            out,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len().saturating_add(1)
+        );
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            objects.len().saturating_add(1)
+        );
+        out.into_bytes()
+    }
+
+    /// Hexadecimal characters reserved for a fixture signature's value.
+    const ROOM: usize = 64;
+
+    /// Characters the fixture reserves for its `/ByteRange` array: room for three pairs, so that
+    /// a test can state one gap too many.
+    const HOLE: usize = "[0000000000 0000000000 0000000000 0000000000 0000000000 0000000000]".len();
+
+    /// A file signed the way ISO 32000-1:2008, 12.8.1 says one is, minus the cryptography: a
+    /// form with one signature field whose `/V` states a `/ByteRange` naming everything but the
+    /// `/Contents` string, delimiters included, which is where every real producer puts the gap.
+    ///
+    /// Returns the bytes and the offset of the `/ByteRange` array's first character, so that a
+    /// test can overwrite the array — every number is written ten digits wide and the array is
+    /// padded to [`HOLE`] for exactly that reason — with a range that breaks the annex in one
+    /// particular way.
+    fn signed_file() -> (Vec<u8>, usize) {
+        let signature = format!(
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0000000000 0000000000 0000000000 0000000000 0000000000 0000000000] \
+             /Contents <{}> >>",
+            "ab".repeat(ROOM / 2)
+        );
+        let mut bytes = file(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Sig /T (Signature1) /V 4 0 R /Subtype /Widget >>",
+            &signature,
+        ]);
+        let open = bytes
+            .windows(11)
+            .position(|window| window == b"/Contents <")
+            .expect("the /Contents string")
+            .saturating_add(10);
+        let after = open.saturating_add(ROOM).saturating_add(2);
+        let range_at = bytes
+            .windows(11)
+            .position(|window| window == b"/ByteRange ")
+            .expect("the /ByteRange entry")
+            .saturating_add(11);
+        let tail = bytes.len().saturating_sub(after);
+        write_range(&mut bytes, range_at, &[(0, open), (after, tail)]);
+        (bytes, range_at)
+    }
+
+    /// Overwrites the fixture's `/ByteRange` array in place, ten digits a number.
+    fn write_range(bytes: &mut [u8], at: usize, pairs: &[(usize, usize)]) {
+        let mut text = String::from("[");
+        for (index, (start, length)) in pairs.iter().enumerate() {
+            if index > 0 {
+                text.push(' ');
+            }
+            let _ = write!(text, "{start:010} {length:010}");
+        }
+        text.push(']');
+        let hole = HOLE;
+        assert!(
+            text.len() <= hole,
+            "the array fits where the fixture left room"
+        );
+        while text.len() < hole {
+            text.insert(text.len().saturating_sub(1), ' ');
+        }
+        bytes[at..at.saturating_add(hole)].copy_from_slice(text.as_bytes());
+    }
+
+    /// The pairs the fixture's `/ByteRange` states.
+    fn pairs_of(bytes: &[u8], at: usize) -> Vec<(usize, usize)> {
+        let text = std::str::from_utf8(&bytes[at.saturating_add(1)..at.saturating_add(HOLE - 1)])
+            .expect("ten-digit numbers");
+        let numbers: Vec<usize> = text
+            .split_whitespace()
+            .map(|n| n.parse().expect("a number"))
+            .collect();
+        numbers.chunks(2).map(|pair| (pair[0], pair[1])).collect()
+    }
+
+    /// ISO 19005-2 Annex B.1: a range from byte zero to the end of the file, with one gap that
+    /// is the `/Contents` string, is the range the annex requires.
+    #[test]
+    fn a_range_over_the_whole_file_but_the_value_meets_the_annex() {
+        let (bytes, _) = signed_file();
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 0);
+    }
+
+    /// ISO 32000-1:2008, 12.8.1 NOTE 1: a signed document saved by incremental update keeps the
+    /// bytes the signature's range covers, and ISO 19005-2 section 6.4.3 permits the signatures
+    /// 12.8.1 permits — so a range ending at its own revision's `%%EOF` with an update after it
+    /// covered the entire file *as it was signed*, which is what the annex asks.
+    #[test]
+    fn an_update_appended_after_the_signature_is_not_the_signatures_fault() {
+        let (mut bytes, _) = signed_file();
+        let previous = bytes
+            .windows(9)
+            .rposition(|window| window == b"startxref")
+            .expect("startxref");
+        let previous: usize = std::str::from_utf8(&bytes[previous + 10..])
+            .expect("ascii")
+            .lines()
+            .next()
+            .expect("the offset line")
+            .trim()
+            .parse()
+            .expect("an offset");
+        // §7.5.6: the update's own cross-reference section, a trailer restating the previous
+        // one's entries plus /Prev, and its own marker.
+        let object_at = bytes.len();
+        let update = format!(
+            "5 0 obj\n<< /Later true >>\nendobj\nxref\n0 1\n0000000000 65535 f \n5 1\n{object_at:010} \
+             00000 n \ntrailer\n<< /Size 6 /Root 1 0 R /Prev {previous} >>\nstartxref\n{}\n%%EOF\n",
+            object_at + "5 0 obj\n<< /Later true >>\nendobj\n".len()
+        );
+        bytes.extend_from_slice(update.as_bytes());
+        let document = Document::open(bytes).expect("a valid updated file");
+        assert!(
+            document
+                .get_key(document.trailer(), "Prev")
+                .as_integer()
+                .is_some()
+        );
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 0);
+    }
+
+    /// A range that stops short of the marker has left bytes of the signed file outside the
+    /// digest, which is the shape the annex's NOTE 2 says the rule exists to prevent.
+    #[test]
+    fn a_range_that_stops_before_the_marker_is_reported() {
+        let (mut bytes, at) = signed_file();
+        let pairs = pairs_of(&bytes, at);
+        write_range(&mut bytes, at, &[pairs[0], (pairs[1].0, pairs[1].1 - 3)]);
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 1);
+    }
+
+    /// A range that stops at `%%EOF` and leaves the file's own last end-of-line outside the
+    /// digest has not covered the entire file: the marker is the current file's last line, not
+    /// a boundary an update was appended after.
+    #[test]
+    fn the_files_own_last_end_of_line_is_part_of_the_entire_file() {
+        let (mut bytes, at) = signed_file();
+        let pairs = pairs_of(&bytes, at);
+        write_range(&mut bytes, at, &[pairs[0], (pairs[1].0, pairs[1].1 - 1)]);
+        assert!(bytes.ends_with(b"%%EOF\n"));
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 1);
+    }
+
+    /// A range naming bytes the file does not have is one no digest over this file was computed
+    /// with — the corpus's `6-1-12-t01-pass-a` has exactly this shape, on a signature no field
+    /// reaches.
+    #[test]
+    fn a_range_past_the_end_of_the_file_is_reported() {
+        let (mut bytes, at) = signed_file();
+        let pairs = pairs_of(&bytes, at);
+        write_range(&mut bytes, at, &[pairs[0], (pairs[1].0, pairs[1].1 + 10)]);
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 1);
+    }
+
+    /// The gap has to be the signature value: one that starts a byte early excludes a byte of
+    /// the dictionary from the digest and includes a delimiter-less spelling of nothing.
+    #[test]
+    fn a_gap_that_is_not_the_value_is_reported() {
+        let (mut bytes, at) = signed_file();
+        let pairs = pairs_of(&bytes, at);
+        write_range(&mut bytes, at, &[(0, pairs[0].1 - 1), pairs[1]]);
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 1);
+    }
+
+    /// The value's delimiters may be on either side of the gap: a gap over the hexadecimal
+    /// digits alone still excludes exactly the signature value.
+    #[test]
+    fn a_gap_that_leaves_the_delimiters_in_the_digest_still_excludes_the_value() {
+        let (mut bytes, at) = signed_file();
+        let pairs = pairs_of(&bytes, at);
+        write_range(
+            &mut bytes,
+            at,
+            &[(0, pairs[0].1 + 1), (pairs[1].0 - 1, pairs[1].1 + 1)],
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 0);
+    }
+
+    /// Two gaps exclude more than the signature value, whatever the second one is.
+    #[test]
+    fn a_second_gap_is_reported() {
+        let (mut bytes, at) = signed_file();
+        let pairs = pairs_of(&bytes, at);
+        write_range(&mut bytes, at, &[(0, 10), (12, pairs[0].1 - 12), pairs[1]]);
+        let document = Document::open(bytes).expect("a valid file");
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 1);
+    }
+
+    /// A field prepared for a signature and never signed states neither entry, and is not a
+    /// signature the annex has anything to say about.
+    #[test]
+    fn an_unsigned_signature_field_is_not_judged() {
+        let document = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Sig /T (Signature1) /Subtype /Widget /V 4 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite >>",
+        ]);
+        assert_eq!(faults(&document, digest_covers_the_whole_file), 0);
     }
 }

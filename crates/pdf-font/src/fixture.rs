@@ -135,3 +135,47 @@ pub(crate) fn symbolic_font_with_binary_program(
         .clone();
     (document, dict)
 }
+
+/// A document assembled from whole object bodies, for a rule that needs more than one object.
+///
+/// Each element of `objects` is one object's body *including* its `N 0 obj` … `endobj` lines and
+/// may hold a stream, so a fixture can state a `Type0` font, its descendant and a `/ToUnicode`
+/// stream as three objects and read any of them back by number. The bytes go in as bytes, so a
+/// stream's data is carried exactly — [`font_with_program`] routes its body through a `String`
+/// and says why that is fine for its callers and would not be here.
+///
+/// Object 1 is what the returned dictionary is, and it is the catalogue's `/Root` as well, which
+/// no test here reads: the fixtures are about fonts, not pages.
+pub(crate) fn document_of(objects: &[&[u8]]) -> (Document, Dictionary) {
+    let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for object in objects {
+        offsets.push(out.len());
+        out.extend_from_slice(object);
+        if !object.ends_with(b"\n") {
+            out.push(b'\n');
+        }
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let mut trailer = format!("xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(trailer, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        trailer,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.extend_from_slice(trailer.as_bytes());
+
+    let document = Document::open(out).expect("the fixture is a valid PDF");
+    let dict = document
+        .get(ObjectId {
+            number: 1,
+            generation: 0,
+        })
+        .as_dict()
+        .expect("object 1 is the font dictionary")
+        .clone();
+    (document, dict)
+}

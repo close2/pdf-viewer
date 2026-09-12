@@ -14,7 +14,10 @@ anything this tree says about itself. `doc/ledger-and-claims.md` is where a fals
   about the moment of signing, so every signature but the newest in an incrementally updated file
   reads as uncovered — and a predicate written before that sentence was settled would have failed
   conforming documents on *our* reading (ADR 0986). **When a reason prices work, check what it
-  prices the work against.**
+  prices the work against.** And the clause half is usually cheap to settle once noticed: the
+  next round read the annex's NOTEs, then the base clause a NOTE named, then that clause's own
+  NOTEs, and every sentence it needed was already in a document this tree held (ADR 1003).
+  The standard usually says what its phrase refers to within a page of using it.
 
 - **A ledger note that is boilerplate multiplies whatever is wrong with it by the size of the clause
   family.** One paragraph written once became 22 copies of a retired quotation of `CLAUDE.md` in a

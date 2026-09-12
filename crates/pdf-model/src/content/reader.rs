@@ -462,7 +462,7 @@ impl<'a> ContentReader<'a> {
         match &mut self.held {
             Held::Whole { bytes, at } => {
                 let mut lexer = Lexer::at(bytes, *at);
-                let token = lexer.next_token();
+                let token = next_content_token(&mut lexer);
                 *at = lexer.position();
                 read(token)
             }
@@ -718,7 +718,7 @@ impl Window {
     fn with_token<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
         if !self.in_comment && self.filled.saturating_sub(self.at) >= SLACK {
             let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
-            let token = lexer.next_token();
+            let token = next_content_token(&mut lexer);
             let end = lexer.position();
             if end < self.filled {
                 self.at = end;
@@ -763,7 +763,7 @@ impl Window {
             }
         }
         let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
-        let token = lexer.next_token();
+        let token = next_content_token(&mut lexer);
         self.at = lexer.position();
         read(token)
     }
@@ -1044,6 +1044,86 @@ impl Window {
 ///
 /// §7.2.4 ends a comment at "an EOL marker", so a `%` with no end of line after it is a
 /// comment the buffer cut rather than one that finished.
+/// The next token of a content stream: the lexer's, except where a salvage swallowed an operator.
+///
+/// `5f` is one token under ISO 32000-2 §7.2.3 — `f` is a regular character and a token ends
+/// only at a delimiter or white space — and under §7.3.3 it spells no number. The lexer reads
+/// it as `5` all the same and records what it dropped ([`pdf_syntax::lexer::Salvage`]), because
+/// `12pt` has the same shape and a content stream that writes a unit after a number still has
+/// to draw. So far the two are indistinguishable, and clause 7 offers nothing to tell them
+/// apart: both are runs of regular characters that spell no object.
+///
+/// **What separates them is §7.8.2, and it is what the dropped tail *is*.** The clause defines
+/// an operator as "a PDF keyword specifying some action that shall be performed", and says of
+/// one a reader meets and does not recognise that "an error shall occur". A tail that is one of
+/// §8.2 Table 50's operator names is an action the producer wrote and the salvage threw away:
+/// `5f` was a fill, `0g` a colour, `2w` a line width, and reading the number while dropping the
+/// action paints less than the producer specified and says nothing — the silence trap 5 forbids.
+/// A tail that names no operator — `pt`, `e`, `.3`, `-2` — is a spelling, and dropping it costs
+/// no action; the salvage stands, as ADR 0303 left it.
+///
+/// So where the tail names an operator, the interpreter is handed the whole run as the keyword
+/// §7.2.3 makes it, and its own dispatch reports `Unsupported::Operator` for `5f` exactly as it
+/// does for any other keyword it does not know. The number is not offered beside it: §7.3.3 does
+/// not spell `5f`, and an operand rescued from a run that also lost an operator would be half of
+/// a statement whose other half was refused. ADR 1004 has the calibration in both directions.
+///
+/// The vocabulary is the standard's, not this interpreter's: a run that swallowed an operator
+/// this tree does not implement has still swallowed one, and the report names the run either
+/// way.
+fn next_content_token<'b>(lexer: &mut Lexer<'b>) -> Option<Token<'b>> {
+    let token = lexer.next_token()?;
+    match lexer.salvaged() {
+        Some(salvage) if names_an_operator(salvage.dropped) => Some(Token::Keyword(salvage.run)),
+        _ => Some(token),
+    }
+}
+
+/// Whether `word` is one of the operators ISO 32000-2 §8.2 Table 50 catalogues.
+///
+/// The table's sixteen categories, in its order. One name is not as the table prints it:
+/// Table 50's shading row reads `Sh`, and the operator §8.7.4.4 Table 76 defines is `sh` —
+/// Errata Collection 3's Issue #80 strikes the capital, and every content stream in the world
+/// agrees with the erratum. The compatibility pair `BX`/`EX` is in the list because a run that
+/// swallowed one has lost a *section boundary*, which is worse than losing a mark.
+fn names_an_operator(word: &[u8]) -> bool {
+    matches!(
+        word,
+        // General graphics state, Table 56.
+        b"w" | b"J" | b"j" | b"M" | b"d" | b"ri" | b"i" | b"gs" | b"q" | b"Q"
+        // Special graphics state, Table 56.
+        | b"cm"
+        // Path construction, Table 58.
+        | b"m" | b"l" | b"c" | b"v" | b"y" | b"h" | b"re"
+        // Path painting, Table 59.
+        | b"S" | b"s" | b"f" | b"F" | b"f*" | b"B" | b"B*" | b"b" | b"b*" | b"n"
+        // Clipping paths, Table 60.
+        | b"W" | b"W*"
+        // Text objects, Table 105.
+        | b"BT" | b"ET"
+        // Text state, Table 103.
+        | b"Tc" | b"Tw" | b"Tz" | b"TL" | b"Tf" | b"Tr" | b"Ts"
+        // Text positioning, Table 106.
+        | b"Td" | b"TD" | b"Tm" | b"T*"
+        // Text showing, Table 107.
+        | b"Tj" | b"TJ" | b"'" | b"\""
+        // Type 3 fonts, Table 111.
+        | b"d0" | b"d1"
+        // Colour, Table 73.
+        | b"CS" | b"cs" | b"SC" | b"SCN" | b"sc" | b"scn" | b"G" | b"g" | b"RG" | b"rg" | b"K" | b"k"
+        // Shading patterns, Table 76.
+        | b"sh"
+        // Inline images, Table 90.
+        | b"BI" | b"ID" | b"EI"
+        // XObjects, Table 86.
+        | b"Do"
+        // Marked content, Table 352.
+        | b"MP" | b"DP" | b"BMC" | b"BDC" | b"EMC"
+        // Compatibility, Table 33.
+        | b"BX" | b"EX"
+    )
+}
+
 fn comment_open(run: &[u8]) -> bool {
     for &byte in run.iter().rev() {
         if byte == b'\n' || byte == b'\r' {
@@ -1209,4 +1289,105 @@ fn inline_array(reader: &mut ContentReader<'_>, depth: usize) -> Vec<Object> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_syntax::Token;
+
+    use super::{ContentReader, names_an_operator};
+
+    /// Every token of `content`, through the whole-buffer reader.
+    fn tokens(content: &[u8]) -> Vec<Token<'static>> {
+        let mut reader = ContentReader::over(content);
+        let mut out = Vec::new();
+        while let Some(token) = reader.with_token(|token| {
+            token.map(|token| match token {
+                // A keyword borrows from the buffer the closure lends; copied out into a
+                // static so the test can compare a whole stream's worth at once.
+                Token::Keyword(word) => Token::Keyword(Box::leak(word.to_vec().into_boxed_slice())),
+                Token::Integer(value) => Token::Integer(value),
+                Token::Real(value) => Token::Real(value),
+                Token::Name(name) => Token::Name(name),
+                Token::String(bytes) => Token::String(bytes),
+                Token::ArrayOpen => Token::ArrayOpen,
+                Token::ArrayClose => Token::ArrayClose,
+                Token::DictOpen => Token::DictOpen,
+                Token::DictClose => Token::DictClose,
+            })
+        }) {
+            out.push(token);
+        }
+        out
+    }
+
+    /// **The line between a unit a producer appended and an operator a run swallowed.**
+    ///
+    /// Both halves are asserted, because the rule is only as good as the side it leaves alone
+    /// (trap 13): a digit run whose tail names one of Table 50's operators reaches the
+    /// interpreter as the keyword §7.2.3 makes it, and one whose tail names nothing is the
+    /// number ADR 0303 left it. The delimited spelling is the control — `5 f` is two tokens
+    /// and always was.
+    #[test]
+    fn a_digit_run_that_swallowed_an_operator_is_the_keyword_it_lexically_is() {
+        assert_eq!(tokens(b"5f"), vec![Token::Keyword(b"5f")]);
+        assert_eq!(tokens(b"0g"), vec![Token::Keyword(b"0g")]);
+        assert_eq!(tokens(b"2w"), vec![Token::Keyword(b"2w")]);
+        assert_eq!(tokens(b"1.5re"), vec![Token::Keyword(b"1.5re")]);
+        assert_eq!(tokens(b"3T*"), vec![Token::Keyword(b"3T*")]);
+        assert_eq!(
+            tokens(b"5 f"),
+            vec![Token::Integer(5), Token::Keyword(b"f")],
+            "the delimited form is two tokens, and the second is the operator"
+        );
+    }
+
+    /// The other side of the line: a salvage whose tail is not an operator stands.
+    #[test]
+    fn a_digit_run_with_a_unit_or_a_second_point_is_still_salvaged() {
+        assert_eq!(tokens(b"12pt"), vec![Token::Integer(12)]);
+        assert_eq!(tokens(b"1.2.3"), vec![Token::Real(1.2)]);
+        assert_eq!(tokens(b"--5"), vec![Token::Integer(-5)]);
+        assert_eq!(tokens(b"1.5-2"), vec![Token::Real(1.5)]);
+        assert_eq!(tokens(b".-1"), vec![Token::Integer(0)]);
+        // A tail that *contains* an operator's letters is not that operator: `fq` names nothing.
+        assert_eq!(tokens(b"5fq"), vec![Token::Integer(5)]);
+    }
+
+    /// The vocabulary is Table 50's, with the one spelling Issue #80 corrects.
+    #[test]
+    fn the_operator_vocabulary_is_table_fifties() {
+        for operator in [
+            &b"w"[..],
+            b"cm",
+            b"re",
+            b"f*",
+            b"W*",
+            b"BT",
+            b"Tf",
+            b"T*",
+            b"'",
+            b"\"",
+            b"d1",
+            b"scn",
+            b"sh",
+            b"EI",
+            b"Do",
+            b"BDC",
+            b"EX",
+        ] {
+            assert!(
+                names_an_operator(operator),
+                "{} is in Table 50",
+                String::from_utf8_lossy(operator)
+            );
+        }
+        for not_one in [&b"Sh"[..], b"pt", b"e", b"", b"fq", b"ff", b"tf"] {
+            assert!(
+                !names_an_operator(not_one),
+                "{} is not an operator",
+                String::from_utf8_lossy(not_one)
+            );
+        }
+    }
 }

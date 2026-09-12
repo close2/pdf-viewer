@@ -1127,18 +1127,44 @@ fn a_conversion_that_would_break_what_the_source_met_writes_nothing() {
 }
 
 #[test]
-fn an_object_the_catalog_cannot_reach_is_not_carried() {
+fn an_object_the_catalog_cannot_reach_is_not_carried_by_a_rewrite_and_is_by_a_copy() {
     // §7.5.5's Table 15 makes `/Root` "( Required; shall be an indirect reference ) The catalog
     // dictionary for the PDF file" and §7.7.2's Table 28 makes the catalog "the root of a
     // document's object hierarchy". An object no path from that root reaches is one no reader of
-    // the output can ask for, so the walk does not carry it — and this is written down because
-    // it is the one way the output holds *less* than the input without a decision saying so.
-    let source = Conforming {
+    // the output can ask for, so the *rewrite* does not carry it — and this is written down
+    // because it is the one way a rewritten output holds less than the input without a decision
+    // saying so. A source that already conforms is not rewritten at all: it is copied byte for
+    // byte (ADR 1006), orphan included, because the one conversion that cannot regress a
+    // requirement is the one that changes no byte.
+    let conforming = Conforming {
         objects: vec!["<< /Unreachable true >>".to_owned()],
         ..Conforming::default()
     }
     .build();
-    let (_, output) = to_part_four(&source);
+    let (report, output) = to_part_four(&conforming);
+    let output = output.expect("the document converts");
+    assert_eq!(
+        output, conforming,
+        "a conforming source is the identity conversion"
+    );
+    assert!(String::from_utf8_lossy(&output).contains("Unreachable"));
+    assert!(
+        conversion(&report).decided.is_empty(),
+        "nothing was decided, because nothing failed"
+    );
+
+    // The same orphan behind a header the target refuses: the rewrite runs, and prunes.
+    let rewritten = Conforming {
+        header: Some("%PDF-1.7"),
+        objects: vec!["<< /Unreachable true >>".to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&rewritten);
+    assert_eq!(
+        decision(&report, "file-structure/file-header"),
+        Decision::Mechanical(Rewrite::FileHeader)
+    );
     let output = output.expect("the document converts");
     assert!(!String::from_utf8_lossy(&output).contains("Unreachable"));
 }

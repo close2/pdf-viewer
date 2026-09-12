@@ -2675,3 +2675,122 @@ above; no blindness is renumbered, which is the index's own rule and ADR 0232 §
   which costs one `grep` of `doc/md/` and is the same check the recipe's step 3 already implies when
   it calls the bucket a sort order. What step 6 bought stands — three consecutive uses put a head
   inside an exclusion and this one did not stay there.
+
+## The remainder read whole, and the default a cross-reference stream never had — the nine-hundred-and-eighty-third
+
+The successor rule's twentieth use, and the first that read the **whole** unread field rather than
+its head. The round was sent to `doc/todo/48`'s steps 4 and 5 with the instruction to read the
+remainder to a verdict each, and the remainder had to be re-derived first, because the number that
+file carried — nineteen — was the five-hundred-and-ninety-fourth's step 3b and not this rule's
+population at all. Re-derived under the recipe's own greps: **302 issues carry a strike or a caret
+under the single-issue line parse and 44 are named nowhere** (the multi-issue parse: 310 and 46,
+the same eight second-numbers as every use since the sixteenth). The eighteenth use left 50; the six
+between were read by rounds 830 to 982 without a section here, which step 2's second grep sees and
+this file did not. Of the 44: **30 touch only a settled row, 7 touch a live one, 7 land on no row**
+(clauses 2 and 3, Annex A.2, Annex H.8.3), and 4 sit wholly inside the clause-13 exclusion.
+
+**The collection has moved under the reading, and the `emit` says so in its dates.** Issues #57,
+#519, #623 and #627 carry annotation dates in April and May 2026 — after the eighteenth use — so
+`doc/ISO_32000-2_sponsored_EC3.pdf` is not the file the eight-hundred-and-twenty-ninth read. Nothing
+here depends on which copy: the recipe is run against the file on disk and the count is its.
+
+Every placement below is the annotation's own `/Rect` against `pdftotext -bbox` where the verdict
+turned on *which* words — #500, #143, #398, #94, #170 — and the caret's or strike's text against
+`pdftotext -layout` of its page for the rest, which are one-word substitutions, cross-reference
+numbers and examples, where the words say where they are. `mutool run` prints the same bounds.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§7.5.8.3, Table 18's type 1 offset** | 83 | #500 | **implements — the sixth clause found implemented against struck text** | A `StrikeOut` at `[249.51 211.96 320.24 223.63]` — (212.0)–(223.6) from the top — over the `Default value: 0.` that `-bbox` puts at the end of "The byte offset of the object, starting from the beginning of the PDF file. Default value: 0.", the type 1 entry's second field. No caret: the sentence goes and nothing replaces it. `emit` files it under §7.5.8.4, page 83 reaching that heading. See the finding below. |
+| §7.11.6, Table 47's `/D` and `/P` | 156 | #37 | confirms | Two strikes, both `Default: none.` — the collection subitem dictionary's data and prefix cells. `collection.rs` reads `/D` as whatever the file states and `/P` as a prefix only where one is a string; neither has a default in the code, so the cells caught up with it. `emit` files it under §7.12.1, page 156 reaching that heading; the row it belongs to is §7.11.6's. |
+| §7.3.4.2 | 40 | #143 | confirms | A caret writing *T* at `[101.35 433.22 110.31 440.52]`, inside the word `-bbox` puts at 72.02–129.02 on the line "unbalanced parentheses and the backslash": the page's own "LEFT PARENHESIS (28h)" two lines up loses its `T` in the print and the caret restores it. A misspelling of a character's name, and the character is the same one. |
+| §7.5.7 | 78 | #594 | confirms | *might* → *may* in "although there might not be any references to it", the sentence explaining the example's unreferenced object. Wording of an explanation; the row's requirements are elsewhere in the clause. |
+| §7.6.4.2 | 93 | #674 | confirms | *owne r* → *owner*, a broken word in Table 21. |
+| §7.6.7 | 109 | #424 | confirms | The last example of §7.6.6 gains the SOLIDUS its `V2` name was missing. An example; the row is `writer-side` and the example is the wrapper's. |
+| §7.10.5.1 | 145 | #446 | confirms | NOTE 1's "(in a Type 4 PDF function)" becomes *Type 0*: any function can be *sampled*, and sampled functions are type 0. A NOTE's cross-reference, and the tokenizer is untouched. |
+| §7.11.3, Table 43 | 149 | #298 | confirms | *; PDF 1.3* added to an entry's version tag. `file_spec.rs` reads the entry regardless of version. |
+| §7.11.4.1 | 152 | #391 | confirms | *(via an AF or MCAF array)* inserted after the sentence about associated files reaching an object; §14.13's two routes named where the clause had only implied them. `attachment.rs` walks both. |
+| §9.4.4 | 325 | #165 | confirms — and the writer already obeys the amended list | Two carets: *CARRIAGE RETURN (0Dh),* joins the parentheses and the REVERSE SOLIDUS in the list of bytes that "shall be preceded by a REVERSE SOLIDUS" when a string is written in parentheses, and *(see 7.3.4.2, "Literal strings")* points the rule at its home. This is a writer's `shall`, and this tree writes such strings: `variable_text::show` escapes `(`, `)` and `\` by name and every byte outside `0x20..=0x7e` as `\ooo`, so a CARRIAGE RETURN in a field value has always been written escaped. |
+| §9.7.5.3 | 353 | #278 | confirms | A stray `".` struck. |
+| §12.3.5.1 | 465 | #673 | confirms | *Other keys* set in plain rather than bold — typography of a table's row label. |
+| §12.4.2 | 473 | #73 | confirms | *and indices* inserted: "Page labels and page indices need not coincide". A restatement of the sentence's own next clause; `page_label.rs` already keeps the two apart. |
+| §12.5.6.11 | 508 | #608 | confirms | `. When` → ` when`, joining two sentences. |
+| §12.5.6.18 | 512 | #676 | confirms | *Movie* set in plain rather than bold. |
+| §12.5.6.24 | 520 | #94 | confirms — and it is the reading `annotation.rs` already gives | A caret at `[532.04 542.74 541.01 550.04]` — (542.7)–(550.0) from the top — at the end of the sentence `-bbox` puts on that line, "only valid within the context of an associated run-time environment, such as an activated 3D model", writing *, and thus an AP dictionary is not required*. `annotation::decide` answers a `Projection` with `Decision::Nothing` before it looks for an appearance, and §12.5.6.24's row says an appearance-less one is not a defect; the clause now says so in its own words. |
+| §12.6.4.2, Table 202's `/D` | 526 | #140 | confirms | *explicit destination or named* inserted before "destination": the cell now names both forms §12.3.2 defines. `Destination::of_go_to` reads both. |
+| §12.6.4.6 | 532 | #677 | confirms | *bye* → *byte*. |
+| §12.7.5.2.4 | 553 | #170 | confirms — a permission the tree already extends | A caret at `[361.39 367.67 370.40 375.01]` — (367.7)–(375.0) from the top — at the end of "the value of the AS key shall be used instead of the V key to determine which appearance to use", writing *The appearance for the off state is optional but, if present, shall be stored in the appearance dictionary under the name Off.* A widget whose `/AS` names a state its `/N` does not hold is `Normal::StateNotDefined`, which `decide` answers with `Decision::Nothing` and no report — §12.5.5's "displaying nothing" — so a radio button with no `Off` appearance draws nothing and accuses nobody, which is what the erratum makes correct. |
+| §12.7.5.3 | 555 | #392 | confirms | "If the field has a value, the RV entry" → *If the field has a value other than null, the*. `/RV` is rich text and `forms_data.rs` excludes it by name; nothing here reads the sentence either way. |
+| §12.7.8.2.1 | 572 | #176 | confirms | *application/fdf, or the deprecated alias* — the FDF media type gains its registered name and a NOTE pointing at IANA. A statement about how FDF is transported; `forms_data.rs` reads the bytes and asks no media type. |
+| §12.7.8.3.1 | 576 | #264 | confirms | A comma. |
+| §12.8.7, Table 264's `/UR3` | 608 | #218 | confirms | A caret at `[337.04 164.90 345.00 171.38]` writing *an array with at least one entry, exactly one of which is* into "shall contain a Reference entry that shall be a signature reference dictionary" — the `/Reference` entry is an array, as Table 255 has always said, and the cell now says so. `view.rs` removes `/UR3` under §12.8.2.3's withdrawal and reads nothing inside it; the row's `Legal::disagreements` is about Table 264's counts, which this does not touch. |
+| §13.6.2 | 658 | #142 | confirms — clause 13 | *0 "Rich media"* → *13.7 "Rich media"*, a cross-reference that lost its number. |
+| §13.6.4.1 | 671 | #91 | confirms — clause 13 | *Perspective* → *P (perspective)*, a projection type's name written as its key. |
+| §13.6.4.6 | 684 | #50 | confirms — clause 13 | *false* → *true*, a default in the 3D cross section dictionary. Out of scope; recorded so the ranking stops offering it. |
+| §13.6.5 | 693 | #690 | confirms — clause 13 | *z* inserted, an axis the sentence dropped. |
+| §14.3.2 | 730 | #296 | **confirms the behaviour, and corrects a claim `xmp.rs` makes about the clause** | A caret at `[339.79 262.94 348.80 270.29]` writing *All XMP metadata in PDF shall be encoded as UTF-8.* after the sentence about which object bears the `/Metadata` entry. A producer's `shall`. `xmp::decode` reads UTF-8 and, by byte-order mark, UTF-16 and UTF-32 — a tolerance — and its doc comment argues for the tolerance from "§14.3.2 embeds packets in PDF and states no encoding either". After the erratum the clause states one, so the sentence is false and the tolerance is a *departure* from a stated encoding rather than a reading of a silence: a reader that decodes what a producer was told not to write loses nothing, and refusing it would cost a document its metadata for no reader-side requirement. The behaviour stays; the comment is `pdf-model/src/xmp.rs`'s, which this round does not own, and is named in ADR 1004 for the round that does. §14.3.2's row now says which text it is implemented against. |
+| §14.3.3 | 732 | #398 | confirms | A strike at `[180.62 717.17 198.88 724.41]` over the three bytes the print shows as `Ôªø` in the example's `<?xpacket begin="…"` — the UTF-8 byte-order mark, rendered as Latin-1 — with a caret writing *… UTF-8 value of U+FEFF (efbbbf) …*. An example's glyph problem; `xmp.rs`'s own wrapper writes the mark as `\u{feff}`. |
+| §14.8.4.5 | 773 | #689 | confirms | *a* inserted. |
+| §14.8.4.8.4 | 783 | #35 | confirms | The clause's NOTE becomes NOTE 1 and a NOTE 2 is added: an `Artifact` that needs association with a `Caption` is a descendant of it. Guidance to a writer of tagged PDF; the tree reads `Caption` as a grouping element regardless of what is under it. |
+| §14.8.5.7 | 806 | #632 | confirms | *Listbox* → *List box*. |
+| §14.12.3 | 850 | #609 | confirms | *a DPartRootNode dictionary.* → *the DPartRoot dictionary (see "Table 408 - Entries in a DPartRoot dictionary").* — a dictionary named by a type it does not have. The row is `writer-side`. |
+| §14.13.10 | 858 | #637 | confirms | `/application#2Fxhtml+xml` → `/application#2Fmathml+xml` in the MathML example, whose file was MathML all along. |
+| Annex A.2 | 859 | #108, #541 | confirms | Two table references corrected: the marked-content operators' row cited Table 351 (a data dictionary) and now cites Table 352; the text-object operators' row cited Table 107 and now cites Table 105. The catalogue is informative and `run.rs` dispatches by name, not by table. |
+| Annex H.8.3 | 945 | #425 | confirms | Two carets on the hierarchical-list example: a `/P` entry gains its SOLIDUS, and `/P 400 0 R` is written where the example had lost it. |
+| Annex Q.3 | 997 | #51 | confirms | A caret writing *Any annotation that has a BM key (PDF 2.0) in the Annotation dictionary with a value other than Normal shall be considered to contain transparency (see "Table 166 - Entries common to all annotation dictionaries").* — the annex's list of what puts transparency on a page gains §12.5.2's `/BM`, which this tree has drawn since the four-hundred-and-seventeenth's own first finding. The row is `inapplicable` for the annex's stated reason and the addition does not move it. |
+| Annex Q.5 | 998 | #295 | confirms | *if it was* inserted, grammar. |
+| Clause 2 | 17, 18 | #57, #519 | confirms — no row | *(not including any amendments)* after the boilerplate about dated references, with an editor's note that an amendment to a dated normative reference does not apply to PDF; and Technical Note #5014's date corrected from 8 October 1996 to 11 June 1993. Both are about which text a reference names; `pdf-font/src/cmap.rs`'s deferral to #5014 is by number and title, and neither changed. |
+| Clause 3 | 22, 27 | #623, #627 | confirms — no row | A plural's `s` struck; *of Type stream* → *that are stream objects (3.63)* in a definition. |
+
+### The finding: a default that put every uncompressed object at byte zero
+
+**Table 18 as printed gives the type 1 entry's byte offset "Default value: 0", and Issue #500
+strikes the sentence.** Table 17's rule for a zero element of `/W` is that the field "shall not be
+present in the stream, and the default value shall be used, if there is one" — and *if there is one*
+was doing no work in this reader, because `xref::entry_location` began every record as
+`[1, 0, 0]` and read an absent second field as zero for every entry type. A `/W` of `[1 0 1]`
+therefore located every type 1 object at the file's header, which is the struck text executed
+exactly. A type 2 entry's object-stream number and index never had a default at all and were read
+as zero the same way.
+
+The reader now refuses a type 1 entry whose layout states no offset, and a type 2 entry whose layout
+states no stream number, and refuses the section with it — the `/W` is the section's, so no record
+under it can say where anything is — which sends `Document::open` to §C.4's rebuild, where the
+body's own headers answer. **The type 2 entry's index is deliberately not in that list, and the
+first form of this change had it there**: Table 18 states no default for the index either, but
+`/W [1 2 0]` above type 2 entries is what dozens of `doc/pdf.js` documents write, and the strict
+form cost `issue3371.pdf` its first page, two documents their outlines and twenty-one their XMP
+packets — found by two sibling rounds' gates within the hour, and attributed to the lexer change
+beside it until a bisection put it here. The index reads as zero, as every reader and producer has
+it, and `entry_location`'s doc comment records that as a choice about a silence rather than a
+reading of a sentence; the offset is different because the standard *had* a sentence and struck it,
+and no file on this disk relies on it. `tests/cross_references.rs::a_type_1_entry_with_no_offset_field_locates_nothing`
+holds it, calibrated per trap 13: run against the reader before the change the section is believed,
+`was_recovered()` is false, and the test fails on that line. No document in `doc/pdf.js` or
+`doc/corpora/` states a `/W` with a zero second element (`grep -aE '/W *\[ *[0-9]+ +0 +[0-9]+'`
+over both), so the witness is hand-built and the defect was a defect of the reading rather than of
+any file yet met. §7.5.8.3's row says which text it is implemented against now.
+
+**It is the sixth clause this collection has found implemented against struck text**, after §12.5.2's
+`/BM`, §14.13.5's `/MCAF`, §7.8.3's Type 3 resources, §8.9.5.4 and §7.4.3's base-85 bound — and
+like the last of those it sat under an `implemented` row that quoted the default as the clause's.
+`doc/md/` still prints the sentence, which is `doc/todo/48`'s whole subject.
+
+### Three things about the rule itself, from running it
+
+- **The remainder is small enough to read whole, and reading it whole is cheaper than ranking it.**
+  Forty-four issues, thirty of them one-word substitutions, cross-reference repairs or examples,
+  took one round to verdicts; the ranking machinery — three rankings, a tie-break, step 6's
+  exclusion column — was built for a field of a hundred and is not needed on one of forty. What
+  paid was the one issue whose strike was a *default*, which no ranking could have weighted above
+  a typo: a strike is a strike. **A rule for the next round**: run step 2, and if the unread field
+  is under fifty, read it; rank only what a round cannot finish.
+- **The count in `doc/todo/48` was a different population's.** The file said nineteen; the nineteen
+  were step 3b's struck-passage lines, read in the five-hundred-and-ninety-fourth, and the number a
+  round sent to "the remainder" needs is the recipe's, which lived only in this file's last section.
+  `doc/todo/48` now says which count is which, and where the current one is printed from.
+- **A settled row with a quoted default is where the sixth finding was, which is step 4's preference
+  arriving as the whole result.** Of the 44, the one that moved code touched an `implemented` row
+  and the thing it corrected was the row's own claim to read Table 18's defaults as written. The
+  seven live-touching issues moved nothing. Step 4 rests on that ratio and this use is its strongest
+  witness: thirty settled-only issues, one finding, and it was on the settled side.

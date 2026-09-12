@@ -10,13 +10,13 @@ use std::sync::Arc;
 
 use pdf_font::Code;
 use pdf_render::display_list::Clip;
-use pdf_render::{BlendMode, ClipId, Command, FillRule, Path, Point, Rect, Transform};
+use pdf_render::{ClipId, Command, FillRule, Path, Point, Rect, Transform};
 use pdf_syntax::Dictionary;
 
 use super::font::Font;
 use super::pattern::{PatternPaint, Tiled};
 use super::report::{Placed, Unsupported};
-use super::transparency::{Painted, knockout_group_elements, outline_bounds};
+use super::transparency::{Painted, implicit_knockout_group, outline_bounds};
 use super::{GraphicsState, Interpreter};
 
 /// What a text object owns, as against what the graphics state does.
@@ -965,7 +965,7 @@ impl Interpreter<'_> {
         // §11.7.4.4's implicit group is decided here too, and it has to be: a glyph shown in
         // mode 2 or 6 owes a knockout group of its own fill and stroke, and where the object
         // above is built that group is *inside* it. One knockout group inside another is not
-        // something either backend can state — `knockout_group_elements` rejects an element
+        // something either backend can state — `implicit_knockout_group` rejects an element
         // that is a group — and it does not have to be stated, because it computes the same
         // picture flat: in a knockout group every element composites with the initial
         // backdrop, so at each point the topmost element wins, and nesting cannot change
@@ -976,16 +976,22 @@ impl Interpreter<'_> {
             let glyphs = text.composited.len();
             let elements = self.list.split_off_commands(text.start);
             let stated = knockout_owed
-                .then(|| knockout_group_elements(&elements, self.alpha_sources.settled()))
+                .then(|| {
+                    implicit_knockout_group(
+                        &elements,
+                        self.alpha_sources.settled(),
+                        self.inside_knockout,
+                    )
+                })
                 .flatten();
-            if let Some(elements) = stated {
+            if let Some(group) = stated {
                 self.draw(Command::Group {
-                    commands: elements,
+                    commands: group.elements,
                     alpha: 1.0,
                     clip: None,
                     mask: None,
-                    blend: BlendMode::Normal,
-                    isolated: true,
+                    blend: group.blend,
+                    isolated: group.isolated,
                     knockout: true,
                     // Stated rather than asked: this group carries no clip of its own, and
                     // §8.5.4's intersection at the blit is the only thing the flag decides.
@@ -1107,14 +1113,16 @@ impl Interpreter<'_> {
                     .take(to.saturating_sub(from).saturating_sub(1)),
             );
             index = to;
-            if let Some(elements) = knockout_group_elements(&parts, self.alpha_sources.settled()) {
+            if let Some(group) =
+                implicit_knockout_group(&parts, self.alpha_sources.settled(), self.inside_knockout)
+            {
                 self.draw(Command::Group {
-                    commands: elements,
+                    commands: group.elements,
                     alpha: 1.0,
                     clip: None,
                     mask: None,
-                    blend: BlendMode::Normal,
-                    isolated: true,
+                    blend: group.blend,
+                    isolated: group.isolated,
                     knockout: true,
                     // §11.4.6's accumulation is not §11.4.4's union, so this group's raster is not
                     // asked to carry Table 139's shape — see `group_alpha_is_shape`.

@@ -7,6 +7,14 @@ which gates a change actually needs.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **When a new ranked source of meaning is added, re-run the one-conversion test with that source
+  stated.** `colour_paths.rs`'s first test guards "one conversion, every route", under the
+  parameters its fixture names. A source added later — a default colour space, an output intent, a
+  blending space — is a parameter the fixture does not name, and every route agrees under its
+  *absence* exactly as they did before it existed; the test stays green while `k` and `cs … scn`
+  give two colours on a page with an output intent (ADR 1001). The question is not "does the test
+  still pass" but **"which call sites read the new source"**, which is one grep for the field's name.
+
 - **A build error naming a crate this round may not touch is a neighbour mid-edit, not a defect.**
   Wait and re-run before doing anything else; never "just fix" an unclosed brace or a missing item
   in somebody else's slice, and never conclude from one red run that a gate is broken. Four rounds

@@ -42,9 +42,10 @@
 //! **prefix of each part in that part's own order**, plus the normative annexes, so that a
 //! reviewer with their copy open reads straight down the page and can see that nothing was
 //! skipped. Clause 5, clause 6.1 and the annexes were the first pass; clause 6.2 — graphics,
-//! colour, images, `XObject`s, transparency and the whole of the font subclauses — is the
-//! second.
-//! Everything after it is still judged at subclause level only.
+//! colour, images, `XObject`s, transparency and the whole of the font subclauses — the
+//! second; and the third is what each part says a document lets a reader *do* — annotations,
+//! forms, signatures and actions, which is ISO 19005-2's clauses 6.3 to 6.5 and ISO 19005-4's
+//! 6.3 to 6.6. Everything after it is still judged at subclause level only.
 //!
 //! A [`Binding::Container`] heading is not in the frontier: it states no text. Everything else is,
 //! including the subclauses this audit records as scoping or as stating no requirement — because
@@ -2785,6 +2786,229 @@ static READINGS: &[Reading] = &[
     },
     Reading {
         part: Part::Two,
+        clause: "6.3.1",
+        sentences: &[
+            Sentence {
+                says: "an annotation type ISO 32000-1 does not define is not permitted",
+                carried: Carried::By(&["annotations/subtype-defined-in-iso-32000-1"]),
+            },
+            Sentence {
+                says: "the 3D, Sound, Screen and Movie types are not permitted",
+                carried: Carried::By(&["annotations/subtype-defined-in-iso-32000-1"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.3.2",
+        sentences: &[
+            Sentence {
+                says: "every annotation dictionary but a Popup's states an F entry",
+                carried: Carried::By(&["annotations/flags-entry-present"]),
+            },
+            Sentence {
+                says: "where F is present its Print flag is set and its Hidden, Invisible, \
+                       ToggleNoView and NoView flags are clear",
+                carried: Carried::By(&["annotations/printable-and-visible"]),
+            },
+            Sentence {
+                says: "a Text annotation should set NoZoom and NoRotate",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; a table of requirements that admitted one would make a \
+                     should fail a file",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.3.3",
+        sentences: &[
+            Sentence {
+                says: "every annotation has at least one appearance dictionary, except one whose \
+                       Rect is degenerate and one whose subtype is Popup or Link",
+                carried: Carried::By(&["annotations/appearance-dictionary-present"]),
+            },
+            Sentence {
+                says: "a conforming reader renders the appearance dictionary without regard to \
+                       the other entries and ignores the colour, border, style and caption keys \
+                       the sentence lists",
+                carried: Carried::By(&[
+                    "annotations/appearance-rendered-without-the-other-entries",
+                ]),
+            },
+            Sentence {
+                says: "an annotation's appearance dictionary holds only the N key",
+                carried: Carried::By(&["annotations/appearance-dictionary-holds-only-normal"]),
+            },
+            Sentence {
+                says: "N is an appearance subdictionary for a button field's widget and an \
+                       appearance stream for every other annotation",
+                carried: Carried::By(&["annotations/normal-appearance-shape"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.3.4",
+        sentences: &[Sentence {
+            says: "a conforming interactive reader provides a way to display the Contents of \
+                   every annotation, widgets included, except a signature field's widget",
+            carried: Carried::By(&["annotations/contents-displayable"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.4.1",
+        sentences: &[
+            Sentence {
+                says: "the subclause's intent is that form fields render without ambiguity",
+                carried: Carried::StatesNoRequirement(
+                    "a statement of intent; what binds a file is the sentences after it",
+                ),
+            },
+            Sentence {
+                says: "a conforming reader renders a field from its appearance dictionary, by \
+                       section 6.3.3, and not from the field's value",
+                carried: Carried::By(&["forms/field-value-not-used-for-rendering"]),
+            },
+            Sentence {
+                says: "a widget annotation dictionary or field dictionary holds no A key",
+                carried: Carried::By(&["forms/no-action-on-widget-or-field"]),
+            },
+            Sentence {
+                says: "a widget annotation dictionary or field dictionary holds no AA key",
+                carried: Carried::Restated(
+                    "the same sentence's other half, stated again by section 6.5.2 for the widget \
+                     and the field beside the catalog and the page, and carried by that row",
+                ),
+            },
+            Sentence {
+                says: "the interactive form dictionary's NeedAppearances flag is absent or false",
+                carried: Carried::By(&["forms/need-appearances-absent-or-false"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.4.2",
+        sentences: &[
+            Sentence {
+                says: "the interactive form dictionary holds no XFA key",
+                carried: Carried::By(&["forms/no-xfa-key"]),
+            },
+            Sentence {
+                says: "the document catalog holds no NeedsRendering key",
+                carried: Carried::By(&["forms/no-needs-rendering"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.4.3",
+        sentences: &[
+            Sentence {
+                says: "a conforming file may contain the document, certifying and user rights \
+                       signatures ISO 32000-1:2008, 12.8.1 permits",
+                carried: Carried::StatesNoRequirement(
+                    "a permission — and the one that decides how Annex B.1's first sentence is \
+                     read: it admits every signature 12.8.1 does, which has approval signatures \
+                     follow a certification signature, so a conforming file may carry an \
+                     incremental update after a signature (ADR 1003)",
+                ),
+            },
+            Sentence {
+                says: "a signature is specified through a signature field as the base standard \
+                       defines one",
+                carried: Carried::By(&["signatures/signatures-use-signature-fields"]),
+            },
+            Sentence {
+                says: "every annotation of a signature field meets sections 6.3.2 and 6.3.3",
+                carried: Carried::By(&["signatures/signature-widgets-meet-the-annotation-rules"]),
+            },
+            Sentence {
+                says: "a conforming reader generating appearances or other objects while signing \
+                       does not thereby break the file's conformance",
+                carried: Carried::By(&["signatures/signing-does-not-break-conformance"]),
+            },
+            Sentence {
+                says: "further requirements on signatures are in Annex B",
+                carried: Carried::StatesNoRequirement(
+                    "a cross-reference to Annex B, whose rows are cited at B.1 and B.2",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.5.1",
+        sentences: &[
+            Sentence {
+                says: "the Launch, Sound, Movie, ResetForm, ImportData, Hide, SetOCGState, \
+                       Rendition, Trans, GoTo3DView and JavaScript actions are not permitted",
+                carried: Carried::By(&[
+                    "actions/no-launch-multimedia-or-form-actions",
+                    "actions/no-optional-content-or-view-action",
+                    "actions/no-javascript-action",
+                ]),
+            },
+            Sentence {
+                says: "the deprecated set-state and no-op actions are not permitted",
+                carried: Carried::By(&["actions/no-deprecated-set-state-or-no-op-actions"]),
+            },
+            Sentence {
+                says: "a named action names one of NextPage, PrevPage, FirstPage and LastPage",
+                carried: Carried::By(&["actions/named-action-is-page-navigation"]),
+            },
+            Sentence {
+                says: "a conforming interactive reader performs the base standard's action for \
+                       each of the four",
+                carried: Carried::By(&["actions/named-actions-performed"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.5.2",
+        sentences: &[
+            Sentence {
+                says: "a widget annotation dictionary or field dictionary holds no AA entry",
+                carried: Carried::By(&["actions/no-additional-actions-dictionary"]),
+            },
+            Sentence {
+                says: "the document catalog holds no AA entry",
+                carried: Carried::By(&["actions/no-additional-actions-dictionary"]),
+            },
+            Sentence {
+                says: "a page dictionary holds no AA entry",
+                carried: Carried::By(&["actions/no-additional-actions-dictionary"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.5.3",
+        sentences: &[
+            Sentence {
+                says: "a conforming interactive reader gives the GoToR, URI and SubmitForm \
+                       actions special treatment",
+                carried: Carried::By(&["actions/external-targets-displayable"]),
+            },
+            Sentence {
+                says: "it provides a way to display a GoToR action's F and D, a URI action's \
+                       URI and a SubmitForm action's F",
+                carried: Carried::By(&["actions/external-targets-displayable"]),
+            },
+            Sentence {
+                says: "the reader may decline to invoke those actions at all",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the reader, with nothing owed either way",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
         clause: "A.1",
         sentences: &[Sentence {
             says: "a conforming reader uses the method this annex describes to decide whether a \
@@ -4016,6 +4240,380 @@ static READINGS: &[Reading] = &[
     },
     Reading {
         part: Part::Four,
+        clause: "6.3.1",
+        sentences: &[
+            Sentence {
+                says: "an annotation type ISO 32000-2's Table 171 does not define is not permitted",
+                carried: Carried::By(&["annotations/subtype-defined-in-iso-32000-2"]),
+            },
+            Sentence {
+                says: "the Sound, Screen and Movie types are not permitted",
+                carried: Carried::By(&["annotations/subtype-defined-in-iso-32000-2"]),
+            },
+            Sentence {
+                says: "the 3D and RichMedia types are permitted only in a PDF/A-4e file, as \
+                       Annex B describes",
+                carried: Carried::By(&["annotations/three-dimensional-only-in-engineering-files"]),
+            },
+            Sentence {
+                says: "the FileAttachment type is permitted only in a PDF/A-4f file, as Annex A \
+                       describes",
+                carried: Carried::By(&["annotations/file-attachment-only-in-embedded-file-files"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.3.2",
+        sentences: &[
+            Sentence {
+                says: "every annotation dictionary but a Popup's states an F entry",
+                carried: Carried::By(&["annotations/flags-entry-present"]),
+            },
+            Sentence {
+                says: "where F is present its Print flag is set and its Hidden, Invisible, \
+                       ToggleNoView and NoView flags are clear",
+                carried: Carried::By(&["annotations/printable-and-visible"]),
+            },
+            Sentence {
+                says: "a Text annotation should set NoZoom and NoRotate",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; a table of requirements that admitted one would make a \
+                     should fail a file",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.3.3",
+        sentences: &[
+            Sentence {
+                says: "an annotation's appearance dictionary holds only the N key",
+                carried: Carried::By(&["annotations/appearance-dictionary-holds-only-normal"]),
+            },
+            Sentence {
+                says: "N is an appearance subdictionary for a button field's widget and an \
+                       appearance stream for every other annotation",
+                carried: Carried::By(&["annotations/normal-appearance-shape"]),
+            },
+            Sentence {
+                says: "not this subclause's own sentence: its NOTE 1 attributes the \
+                       have-an-appearance rule to ISO 32000-2 section 12.5.2 and Table 166, and \
+                       the row carries that base-standard rule under this clause's number with \
+                       the base standard's own exemptions",
+                carried: Carried::By(&[
+                    "annotations/appearance-dictionary-present-from-base-standard",
+                ]),
+            },
+            Sentence {
+                says: "all graphics content of any appearance dictionary conforms to clause 6.2",
+                carried: Carried::By(&["annotations/appearance-graphics-conform"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.3.4",
+        sentences: &[Sentence {
+            says: "a conforming interactive processor provides a way to display the Contents of \
+                   every annotation that states one, widgets included, except a signature \
+                   field's widget",
+            carried: Carried::By(&["annotations/contents-displayable"]),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.4.1",
+        sentences: &[
+            Sentence {
+                says: "the subclause's intent is that form fields render without ambiguity",
+                carried: Carried::StatesNoRequirement(
+                    "a statement of intent; what binds a file is the sentences after it",
+                ),
+            },
+            Sentence {
+                says: "a conforming processor renders a field from its appearance dictionary, by \
+                       section 6.3.3, and not from the field's value",
+                carried: Carried::By(&["forms/field-value-not-used-for-rendering"]),
+            },
+            Sentence {
+                says: "a widget annotation dictionary or field dictionary holds no A key, and \
+                       may hold AA keys",
+                carried: Carried::By(&["forms/no-action-on-widget-or-field"]),
+            },
+            Sentence {
+                says: "the interactive form dictionary's NeedAppearances flag is absent or false",
+                carried: Carried::By(&["forms/need-appearances-absent-or-false"]),
+            },
+            Sentence {
+                says: "a conforming processor that removes ECMAScript actions and still keeps a \
+                       form's values or logic keeps them as an XFDF embedded file in the \
+                       EmbeddedFiles name tree",
+                carried: Carried::By(&["forms/removed-scripts-kept-as-xfdf"]),
+            },
+            Sentence {
+                says: "that file's specification dictionary states an AFRelationship of FormData",
+                carried: Carried::By(&["forms/removed-scripts-kept-as-xfdf"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.4.2",
+        sentences: &[
+            Sentence {
+                says: "the interactive form dictionary holds no XFA key",
+                carried: Carried::By(&["forms/no-xfa-key"]),
+            },
+            Sentence {
+                says: "the document catalog holds no NeedsRendering key",
+                carried: Carried::By(&["forms/no-needs-rendering"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.5.1",
+        sentences: &[
+            Sentence {
+                says: "a conforming file may contain one user rights signature, one certifying \
+                       signature or one or more approval signatures, as ISO 32000-2 section 12.8 \
+                       permits",
+                carried: Carried::StatesNoRequirement(
+                    "a permission, and the part 4 form of the one that decides Annex B.1's \
+                     reading for part 2: more than one signature is admitted, so a conforming \
+                     file may carry an incremental update after a signature (ADR 1003)",
+                ),
+            },
+            Sentence {
+                says: "a signature is specified through a signature field as the base standard \
+                       defines one",
+                carried: Carried::By(&["signatures/signatures-use-signature-fields"]),
+            },
+            Sentence {
+                says: "every annotation of a signature field meets sections 6.3.2 and 6.3.3",
+                carried: Carried::By(&["signatures/signature-widgets-meet-the-annotation-rules"]),
+            },
+            Sentence {
+                says: "a conforming processor generating appearances or other objects while \
+                       signing does not thereby break the file's conformance",
+                carried: Carried::By(&["signatures/signing-does-not-break-conformance"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.5.2",
+        sentences: &[
+            Sentence {
+                says: "a simple digital signature represents that, at a given but insecure time, \
+                       the certificate's holder certified or approved the document as it was",
+                carried: Carried::StatesNoRequirement(
+                    "a definition, which is what makes the sentence after it reach every \
+                     signature the subclause goes on to profile",
+                ),
+            },
+            Sentence {
+                says: "such a signature conforms to one of the PAdES profiles of ISO 32000-2 or \
+                       ISO 14533-3",
+                carried: Carried::By(&["signatures/pades-profile"]),
+            },
+            Sentence {
+                says: "where only a basic signature is required, the PAdES-BES or PAdES-EPES \
+                       profile is followed",
+                carried: Carried::StatesNoRequirement(
+                    "conditional on what the signer requires, which no file states; the \
+                     profiles it names are among those the sentence above admits, and the row \
+                     carrying that sentence is where a signature is held to one",
+                ),
+            },
+            Sentence {
+                says: "a signature given a timestamp so that it can be validated after the \
+                       certificate expires or is revoked, and the timestamp, comply with one of \
+                       ISO 14533-3's two PAdES-T profiles",
+                carried: Carried::StatesNoRequirement(
+                    "conditional on the same need; the profile it requires is in ISO 14533-3, \
+                     which this project does not hold, and `signatures/pades-profile`'s reason \
+                     already records that half of the disjunction as unreadable here",
+                ),
+            },
+            Sentence {
+                says: "a signature whose validity is to be preserved long-term follows \
+                       ISO 32000-2's clauses 12.8.3.4.4, 12.8.4 and 12.8.5, and its validation \
+                       data and timestamps comply with ISO 14533-3's PAdES-A profile",
+                carried: Carried::StatesNoRequirement(
+                    "conditional on an aspiration — long-term validity — that no file states; \
+                     the same shape as section 6.5.3's last sentence, and recorded the same way",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.5.3",
+        sentences: &[
+            Sentence {
+                says: "a document timestamp dictionary may be used on its own as a proof of \
+                       existence, whether or not the file carries a signature",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the writer, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "a timestamped conforming file follows ISO 32000-2's document timestamp \
+                       clause, and may also comply with ISO 14533-3's PAdES-DT profile",
+                carried: Carried::By(&["signatures/timestamped-file-follows-the-base-standard"]),
+            },
+            Sentence {
+                says: "a file that is to be deterministically valid long-term is signed and \
+                       timestamped in a form of ISO 32000-2's 12.8.4 and 12.8.5 that carries \
+                       every piece of validation material",
+                carried: Carried::StatesNoRequirement(
+                    "conditional on an aspiration no file states, as the row's own reason \
+                     records; only the sentence above binds a file outright",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.5.4",
+        sentences: &[
+            Sentence {
+                says: "signatures and timestamps should be validated as necessary",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+            Sentence {
+                says: "validation should follow ISO 32000-2's 12.8.3, 12.8.4 and 12.8.5",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+            Sentence {
+                says: "ISO 14533-3's Table 10 validation data should be used where possible",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.6.1",
+        sentences: &[
+            Sentence {
+                says: "the Launch, Sound, Movie, ResetForm, ImportData, Hide, Rendition and \
+                       Trans actions are not permitted",
+                carried: Carried::By(&["actions/no-launch-multimedia-or-form-actions"]),
+            },
+            Sentence {
+                says: "the obsolete set-state and no-op actions of earlier PDF specifications \
+                       are not permitted",
+                carried: Carried::By(&["actions/no-deprecated-set-state-or-no-op-actions"]),
+            },
+            Sentence {
+                says: "the SetOCGState and GoTo3DView actions are permitted only in a PDF/A-4e \
+                       file, as Annex B describes",
+                carried: Carried::By(&[
+                    "actions/optional-content-or-view-action-only-in-engineering-files",
+                ]),
+            },
+            Sentence {
+                says: "a named action names one of NextPage, PrevPage, FirstPage and LastPage",
+                carried: Carried::By(&["actions/named-action-is-page-navigation"]),
+            },
+            Sentence {
+                says: "a conforming interactive processor performs the base standard's action \
+                       for each of the four",
+                carried: Carried::By(&["actions/named-actions-performed"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.6.2",
+        sentences: &[
+            Sentence {
+                says: "a conforming interactive processor gives ECMAScript actions special \
+                       treatment",
+                carried: Carried::By(&["actions/javascript-only-on-explicit-user-action"]),
+            },
+            Sentence {
+                says: "such an action may be executed only when a user invokes it explicitly",
+                carried: Carried::By(&["actions/javascript-only-on-explicit-user-action"]),
+            },
+            Sentence {
+                says: "a non-interactive conforming processor never executes one",
+                carried: Carried::By(&["actions/javascript-only-on-explicit-user-action"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.6.3",
+        sentences: &[
+            Sentence {
+                says: "a widget annotation dictionary or field dictionary may hold an AA entry \
+                       with any of the trigger keys the base standard's four tables list",
+                carried: Carried::StatesNoRequirement(
+                    "a permission that widens what part 2 forbids outright; what it costs a file \
+                     is the key list two sentences on, which binds everywhere but a widget",
+                ),
+            },
+            Sentence {
+                says: "the document catalog should not hold an AA entry",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+            Sentence {
+                says: "a page dictionary should not hold an AA entry",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+            Sentence {
+                says: "an annotation dictionary other than a widget's should not hold an AA entry",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+            Sentence {
+                says: "an AA entry on the catalog, a page or a non-widget annotation holds no \
+                       keys but E, X, D, U, Fo and Bl",
+                carried: Carried::By(&[
+                    "actions/additional-actions-outside-widgets-hold-only-annotation-triggers",
+                ]),
+            },
+            Sentence {
+                says: "every additional action complies with section 6.6.1",
+                carried: Carried::Restated(
+                    "the action rows cited at section 6.6.1, whose walk already follows every \
+                     AA entry a reader could reach",
+                ),
+            },
+            Sentence {
+                says: "a conforming interactive processor should implement an additional action \
+                       as the base standard describes, as section 6.6.2 modifies it",
+                carried: Carried::StatesNoRequirement("a recommendation"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.6.4",
+        sentences: &[
+            Sentence {
+                says: "a conforming interactive processor gives the GoToR, GoToE, URI and \
+                       SubmitForm actions special treatment",
+                carried: Carried::By(&["actions/external-targets-displayable"]),
+            },
+            Sentence {
+                says: "it provides a way to display a GoToR or GoToE action's F and D, a URI \
+                       action's URI and a SubmitForm action's F",
+                carried: Carried::By(&["actions/external-targets-displayable"]),
+            },
+            Sentence {
+                says: "the processor may decline to invoke those actions at all",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the processor, with nothing owed either way",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
         clause: "A.1",
         sentences: &[
             Sentence {
@@ -4558,11 +5156,15 @@ mod tests {
             (Part::Two, "6.1.13"),
             (Part::Two, "6.2.1"),
             (Part::Two, "6.2.11.8"),
+            (Part::Two, "6.3.1"),
+            (Part::Two, "6.5.3"),
             (Part::Two, "B.2"),
             (Part::Four, "5.2"),
             (Part::Four, "6.1.12"),
             (Part::Four, "6.2.1"),
             (Part::Four, "6.2.10.9"),
+            (Part::Four, "6.3.1"),
+            (Part::Four, "6.6.4"),
             (Part::Four, "B.5"),
         ] {
             assert!(

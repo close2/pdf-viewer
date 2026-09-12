@@ -7,13 +7,11 @@
 use std::sync::Arc;
 
 use pdf_render::display_list::Clip;
-use pdf_render::{
-    BlendMode, ClipId, Command, FillRule, Paint, Path, PathCommand, Point, Transform,
-};
+use pdf_render::{ClipId, Command, FillRule, Paint, Path, PathCommand, Point, Transform};
 
 use super::pattern::{PatternPaint, Tiled};
 use super::report::Unsupported;
-use super::transparency::{Painted, knockout_group_elements};
+use super::transparency::{Painted, implicit_knockout_group};
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -133,16 +131,18 @@ impl Interpreter<'_> {
                 // "all of the objects it contains", so the reading its *contents* ran under
                 // is what decides whether its alpha is its shape.
                 let parts = self.list.split_off_commands(mark);
-                if let Some(elements) =
-                    knockout_group_elements(&parts, self.alpha_sources.settled())
-                {
+                if let Some(group) = implicit_knockout_group(
+                    &parts,
+                    self.alpha_sources.settled(),
+                    self.inside_knockout,
+                ) {
                     self.draw(Command::Group {
-                        commands: elements,
+                        commands: group.elements,
                         alpha: 1.0,
                         clip: None,
                         mask: None,
-                        blend: BlendMode::Normal,
-                        isolated: true,
+                        blend: group.blend,
+                        isolated: group.isolated,
                         knockout: true,
                         // Stated rather than asked: this group carries no clip of its own,
                         // and §8.5.4's intersection at the blit is the only thing the flag

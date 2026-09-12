@@ -371,7 +371,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         id: "file-structure/hexadecimal-string-holds-only-digits",
         asks: "A hexadecimal string shall hold nothing but hexadecimal digits and white space.",
         // Neither part states this one: it is the base standard's, and section 5.1 is what binds
-        // it. ISO 32000-2 §7.3.4.3, and ISO 32000-1:2008 §7.3.4.3 in the same words for part 2:
+        // it. ISO 32000-2 §7.3.4.3, and ISO 32000-1:2008, 7.3.4.3 in the same words for part 2:
         //
         // > A hexadecimal string shall be written as a sequence of hexadecimal digits (0 -9 and
         // > A -F or a -f) encoded as ASCII characters and enclosed within angle brackets
@@ -645,8 +645,8 @@ fn nothing_after_the_end(exam: &Examination<'_>, findings: &mut Findings) {
 /// # Which trailer, when a file has several
 ///
 /// [`pdf_syntax::Document::trailer`] is the **merge** of every section on the `/Prev` chain,
-/// which is right for a reader resolving `/Root` and wrong for this question. ISO 32000-1:2008
-/// §7.5.6 and ISO 32000-2 §7.5.6 both require each appended trailer to restate its predecessor's
+/// which is right for a reader resolving `/Root` and wrong for this question. ISO 32000-1:2008,
+/// 7.5.6 and ISO 32000-2 §7.5.6 both require each appended trailer to restate its predecessor's
 /// entries itself —
 ///
 /// > The added trailer shall contain all the entries except the Prev entry (if present) from the
@@ -658,12 +658,14 @@ fn nothing_after_the_end(exam: &Examination<'_>, findings: &mut Findings) {
 /// stated everything passes the merge and has broken the rule.
 ///
 /// A **linearised** file is where the corpus finds one, and it is not an exotic case.
-/// ISO 32000-1:2008 §F.3.4 makes the first-page trailer the one `startxref` names and says a
+/// ISO 32000-1:2008, F.3.4 makes the first-page trailer the one `startxref` names and says a
 /// reader "interprets the first-page cross-reference table as an update to an original document
-/// that is indexed by the main cross-reference table"; §F.3.11 then says the main trailer "shall
-/// not contain any entries other than Size". So in a conforming linearised file the identifier
-/// is in the *first-page* trailer, and a producer that leaves it only in the main one has
-/// written a file whose newest trailer does not state it.
+/// that is indexed by the main cross-reference table"; its F.3.11 then says the main trailer
+/// shall not contain any entries other than `Size` — a *shall* in that edition, and a *should*
+/// in ISO 32000-2 §F.3.11, which changes nothing here because the argument needs only the
+/// first sentence. So in a conforming linearised file the identifier is in the *first-page*
+/// trailer, and a producer that leaves it only in the main one has written a file whose newest
+/// trailer does not state it.
 ///
 /// Where the chain cannot be read at all — a table [`pdf_syntax::xref::rebuild`] recovered by
 /// scanning states no sections — the merge is used instead. That is deliberately the weaker
@@ -2086,7 +2088,7 @@ fn record_span(out: &mut Vec<HexadecimalSpan>, place: Where, lexer: &Lexer<'_>) 
 /// > If the final digit of a hexadecimal string is missing -that is, if there is an odd number of
 /// > digits -the final digit shall be assumed to be 0.
 ///
-/// — and ISO 32000-1:2008 §7.3.4.3 states it in the same terms for part 2. **A conforming reader
+/// — and ISO 32000-1:2008, 7.3.4.3 states it in the same terms for part 2. **A conforming reader
 /// therefore cannot see this fault in the value**: the string it builds from `<901FA>` is byte
 /// for byte the string it builds from `<901FA0>`, which is why the count comes from
 /// [`pdf_syntax::HexadecimalStrings`] — the lexer's own record of what the bytes said — rather

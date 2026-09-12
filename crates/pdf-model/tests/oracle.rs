@@ -11142,6 +11142,58 @@ const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 16] = [
 const AMBIGUOUS_HIGHLIGHT_APPEARANCE_STREAM: [&str; 1] =
     ["pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf page 1"];
 
+/// Ambiguous: a page of twelve markup annotations with appearance streams and twelve popups
+/// without, on which the references part over the annotations and agree on the page.
+///
+/// `issue14438.pdf` page 1 entered the judged set in the nine-hundred-and-seventy-ninth session,
+/// when its `Square` annotation's `B` under `Multiply` stopped being drawn flat and reported and
+/// became §11.7.4.4's knockout group with the mode at the `Do` (ADR 1000) — 125 pixels on one
+/// rim, and the rim pixel now reads what `mutool` draws there. Nothing else on the page moved,
+/// and nothing on the page is what the renderers disagree about.
+///
+/// # What the file states
+///
+/// Twelve markup annotations — `FreeText` ×2, `Highlight`, `Line`, `Circle`, `Polygon` ×2,
+/// `Text`, `Square`, `Underline`, `StrikeOut`, `Caret`, `Ink` — **every one with a `/Rect`, an
+/// `/AP`, and `/F 4`** (`Print` set, `Hidden` and `NoView` clear). Each has a `/Popup`; the
+/// twelve `Popup` annotations have no `/AP`, and some state `/Open true`.
+///
+/// # What the clauses determine
+///
+/// §6.3.2.2 obliges a rendering processor to draw the appearance stream of every annotation
+/// whose flags call for one, and §12.5.5 says which stream. That covers the twelve markup
+/// annotations exactly, and it is what this renderer does. §12.5.6.14 says of a popup that it
+/// "shall have no appearance stream or associated actions of its own", and Table 186's `/Open`
+/// says only "whether the popup annotation shall initially be displayed open" — a statement
+/// about a window a viewer opens "for entry and editing", with no artwork stated anywhere. So a
+/// closed popup has nothing to draw, and an open one has a window the standard describes and no
+/// marks it defines: the same shape as §12.5.6.4's icons (ADR 0109), a requirement without
+/// artwork.
+///
+/// # What each reference did, off the artefacts
+///
+/// Ink in levels of 255 at the page's own scale, and pixel distance from our render
+/// (`magick compare -metric AE`, normalised): ours **15.76**; `hayro` 15.28 at **3 472**, the
+/// nearest; `mupdf` 15.49 at 5 872; `poppler` 15.66 at 11 390; `ghostscript` 15.48 at 11 628.
+/// The furthest pair on the page is `poppler`–`ghostscript` at 21 453, so no two voting
+/// references agree within the bound and the verdict is `ambiguous`.
+///
+/// - **`ghostscript` draws the open popups** — a column of coloured windows down the right
+///   margin — with artwork of its own, which is a choice the clause leaves open and this
+///   renderer does not make.
+/// - **`poppler` rejects part of the page**, and says so on its own standard error: "Bad bounding
+///   box for annotation" twice and "Bad Annot Ink List" once. The `Ink` annotation's `/Rect`
+///   and `/InkList` are present and well-formed under Table 184; what `poppler` refuses is its
+///   own reading, not the file.
+/// - **`hayro` paints the `Highlight` opaque over the title's text.** Its `/AP` is the producer's;
+///   drawing it as the stream states leaves the text legible under a yellow wash, which is what
+///   we, `mupdf` and `poppler` show.
+///
+/// We are on the side §6.3.2.2 names, and the nearest reference to us is the one that also
+/// draws every `/AP` and no popup. That is evidence our reading is right and would remain the
+/// reading if the vote moved.
+const AMBIGUOUS_MARKUP_APPEARANCES_AND_OPEN_POPUPS: [&str; 1] = ["issue14438.pdf page 1"];
+
 /// Ambiguous, and the bound every one of them fails is one no pair of the references meets here
 /// either.
 ///
@@ -11459,6 +11511,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
         .chain(&AMBIGUOUS_HIGHLIGHT_APPEARANCE_STREAM)
+        .chain(&AMBIGUOUS_MARKUP_APPEARANCES_AND_OPEN_POPUPS)
         .chain(&AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE)
         .chain(&AMBIGUOUS_PAGE_PLACED_A_ROW_APART)
         .chain(&AMBIGUOUS_TRANSPARENCY_GROUP)

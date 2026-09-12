@@ -109,7 +109,7 @@ applies.
 
 - **The rewriter walks the closure `/Root` and `/Info` reach**, so an object nothing reaches is not
   carried. That is the one way the output holds less than the input without a decision saying so,
-  and it is tested (`an_object_the_catalog_cannot_reach_is_not_carried`).
+  and it is tested (`an_object_the_catalog_cannot_reach_is_not_carried_by_a_rewrite_and_is_by_a_copy` — renamed when ADR 1006 made a conforming source the identity conversion).
 - **An object the conversion changes is `replace`d, and its replacement is built in the source's
   numbering** and renumbered when it is placed. That is what lets the walk follow the references
   the *rewritten* object holds rather than the ones the source held, so a key a conversion removes

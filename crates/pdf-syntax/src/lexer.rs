@@ -154,6 +154,32 @@ pub struct HexadecimalStrings {
     pub first_strayed_at: Option<usize>,
 }
 
+/// A number ISO 32000-2 §7.3.3 does not spell, read anyway, and what reading it left out.
+///
+/// The clause writes both numeric forms as decimal digits with an optional sign and an
+/// optional PERIOD, and [`Lexer::read_number`] reads a run that departs from that — `--5`,
+/// `1.2.3`, `12pt` — as the number its leading part spells, because a content stream still
+/// has to draw. What that costs is recorded here rather than lost: the run as the file wrote
+/// it, and the tail the value does not account for.
+///
+/// **The lexer records the tail and does not judge it**, because judging it takes a vocabulary
+/// this crate does not have. §7.2.3 makes the whole run one token and §7.3.3 makes it no
+/// number, and that is all clause 7 says; whether the tail is a unit a producer appended
+/// (`pt`) or an operator the run swallowed (`5f`, where `f` is §8.2 Table 50's fill) is a
+/// question about §7.8.2's operators, which is `pdf-model`'s content reader's to ask. It asks
+/// it through [`Lexer::salvaged`], and hands the interpreter the whole run as the keyword it
+/// lexically is where the answer is an operator — a mark lost, reported — and the salvaged
+/// value where it is not — a spelling, read (ADR 1004).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Salvage<'a> {
+    /// The whole run of regular characters, as written.
+    pub run: &'a [u8],
+    /// The bytes of `run` the salvaged value does not account for: empty where every byte was
+    /// read (`--5` collapses its signs and drops nothing), the run itself where nothing before
+    /// its first digit could be read as a number (`.-1`, which is read as zero).
+    pub dropped: &'a [u8],
+}
+
 /// A cursor over PDF bytes yielding tokens.
 #[derive(Debug, Clone)]
 pub struct Lexer<'a> {
@@ -163,6 +189,8 @@ pub struct Lexer<'a> {
     examined: usize,
     /// What the hexadecimal strings read so far looked like; see [`HexadecimalStrings`].
     hexadecimal: HexadecimalStrings,
+    /// The salvage behind the last token [`Self::next_token`] returned; see [`Self::salvaged`].
+    salvage: Option<Salvage<'a>>,
 }
 
 #[expect(
@@ -185,6 +213,7 @@ impl<'a> Lexer<'a> {
                 strayed: 0,
                 first_strayed_at: None,
             },
+            salvage: None,
         }
     }
 
@@ -205,6 +234,7 @@ impl<'a> Lexer<'a> {
                 strayed: 0,
                 first_strayed_at: None,
             },
+            salvage: None,
         }
     }
 
@@ -212,6 +242,17 @@ impl<'a> Lexer<'a> {
     #[must_use]
     pub fn position(&self) -> usize {
         self.position
+    }
+
+    /// The salvage behind the last token [`Self::next_token`] returned, if there was one.
+    ///
+    /// `Some` exactly when that token is a number read out of a run §7.3.3 does not spell, and
+    /// it says what the run was and which of its bytes the value leaves out. `None` for every
+    /// other token, including a number the clause's own fixed format read whole — so a caller
+    /// that never asks sees exactly what it always saw.
+    #[must_use]
+    pub const fn salvaged(&self) -> Option<Salvage<'a>> {
+        self.salvage
     }
 
     /// What the hexadecimal strings read so far looked like as written.
@@ -296,6 +337,9 @@ impl<'a> Lexer<'a> {
     /// parser sees `Keyword` and decides. That keeps recovery policy in one place instead
     /// of spread between lexer and parser.
     pub fn next_token(&mut self) -> Option<Token<'a>> {
+        // Cleared before anything is read, so that the answer to [`Self::salvaged`] is always
+        // about the token this call returns and never about an earlier one.
+        self.salvage = None;
         self.skip_whitespace();
         let byte = self.peek()?;
 
@@ -677,22 +721,32 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Salvage a leading numeric prefix from forms like `--5` or `1.2.3`.
-        match salvage_number(raw) {
-            Some(value) if value.fract() == 0.0 && value.abs() < 9.0e15 =>
-            {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "guarded to values with no fractional part and well inside \
-                              i64's exact range"
-                )]
-                Token::Integer(value as i64)
-            }
-            Some(value) => Token::Real(value),
+        // Salvage a leading numeric prefix from forms like `--5` or `1.2.3`. What the salvage
+        // leaves out is recorded beside the token rather than lost — see [`Salvage`] for who
+        // reads it and why the lexer itself does not judge it.
+        let Some((value, read)) = salvage_number(raw) else {
             // A digit is present — the condition above saw to that — but nothing before it
             // could be read as one. See this function's doc comment for why that keeps the
-            // older reading rather than joining the case above.
-            None => Token::Integer(0),
+            // older reading rather than joining the case below.
+            self.salvage = Some(Salvage {
+                run: raw,
+                dropped: raw,
+            });
+            return Token::Integer(0);
+        };
+        self.salvage = Some(Salvage {
+            run: raw,
+            dropped: raw.get(read..).unwrap_or_default(),
+        });
+        if value.fract() == 0.0 && value.abs() < 9.0e15 {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "guarded to values with no fractional part and well inside \
+                          i64's exact range"
+            )]
+            Token::Integer(value as i64)
+        } else {
+            Token::Real(value)
         }
     }
 }
@@ -831,10 +885,11 @@ fn fixed_format_number(raw: &[u8]) -> Option<(Fixed, usize)> {
     }
 }
 
-/// Extracts a usable number from a malformed numeric token.
+/// Extracts a usable number from a malformed numeric token, and says how many bytes it read.
 ///
-/// `--5` yields -5, `1.2.3` yields 1.2, `-` yields nothing. Real files contain all of
-/// these.
+/// `--5` yields -5 over all three bytes, `1.2.3` yields 1.2 over the first three, `-` yields
+/// nothing. Real files contain all of these. The count is what lets a caller see the tail the
+/// value leaves out — [`Salvage::dropped`] — and is the whole reason this returns a pair.
 ///
 /// A repeated leading sign collapses to one rather than invalidating the number:
 /// producers emit `--5` by prepending a minus to an already-negative value, and both
@@ -845,16 +900,17 @@ fn fixed_format_number(raw: &[u8]) -> Option<(Fixed, usize)> {
               sign versus a second decimal point — and merging them into one guard \
               obscures both, as an earlier attempt that broke `1.5` demonstrated"
 )]
-fn salvage_number(text: &[u8]) -> Option<f64> {
+fn salvage_number(text: &[u8]) -> Option<(f64, usize)> {
     let mut cleaned = String::with_capacity(text.len());
     let mut seen_dot = false;
     let mut seen_digit = false;
     let mut in_leading_signs = true;
+    let mut read = text.len();
 
     // Bytes rather than `char`s, and the two walks are the same walk: every byte the loop
     // keeps is ASCII, and any other byte — including each byte of a multi-byte sequence —
     // terminates the number exactly where a decoded character would have.
-    for &byte in text {
+    for (at, &byte) in text.iter().enumerate() {
         match byte {
             b'-' | b'+' if in_leading_signs => {
                 // Only the first sign counts; later ones in the run are dropped.
@@ -868,9 +924,15 @@ fn salvage_number(text: &[u8]) -> Option<f64> {
             // A sign once the number has started terminates it: `1-2` is two numbers
             // jammed together in the wild, and taking the first is closer to what was
             // meant than reading `12`.
-            b'-' | b'+' => break,
+            b'-' | b'+' => {
+                read = at;
+                break;
+            }
             // A second decimal point likewise ends the number rather than being ignored.
-            b'.' if seen_dot => break,
+            b'.' if seen_dot => {
+                read = at;
+                break;
+            }
             b'.' => {
                 in_leading_signs = false;
                 seen_dot = true;
@@ -881,14 +943,20 @@ fn salvage_number(text: &[u8]) -> Option<f64> {
                 seen_digit = true;
                 cleaned.push(char::from(byte));
             }
-            _ => break,
+            _ => {
+                read = at;
+                break;
+            }
         }
     }
 
     if !seen_digit {
         return None;
     }
-    cleaned.parse::<f64>().ok().map(within_the_representation)
+    cleaned
+        .parse::<f64>()
+        .ok()
+        .map(|value| (within_the_representation(value), read))
 }
 
 /// Brings a magnitude the file states, and a double cannot hold, inside the representation.
@@ -954,7 +1022,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Lexer, Token};
+    use super::{Lexer, Salvage, Token};
 
     fn tokens(input: &[u8]) -> Vec<Token<'_>> {
         let mut lexer = Lexer::new(input);
@@ -1151,6 +1219,10 @@ mod tests {
     /// digit at all. That leniency is why the second assertion is here: it would be a real
     /// regression for the leading value to be salvaged *and* the trailing letters to be
     /// re-offered as a token.
+    ///
+    /// What the lexer *does* say about the letters is [`super::Lexer::salvaged`], asserted in
+    /// [`what_a_salvage_dropped_is_recorded_beside_the_token`]; whether `f` is an operator is
+    /// not this crate's question, and `pdf-model`'s content reader answers it (ADR 1004).
     #[test]
     fn a_digit_run_ending_in_letters_is_one_token() {
         assert_eq!(tokens(b"5f"), vec![Token::Integer(5)]);
@@ -1160,6 +1232,99 @@ mod tests {
             tokens(b"5 f"),
             vec![Token::Integer(5), Token::Keyword(b"f")]
         );
+    }
+
+    /// **A salvage says what it left out, and a number the clause spells says nothing.**
+    ///
+    /// §7.3.3's two forms are read whole and leave no salvage; every departure from them that
+    /// still yields a number records the run and the tail the value does not cover, which is
+    /// what lets a consumer with an operator vocabulary tell `12pt` from `5f` without the lexer
+    /// having to know one. The four shapes are the four `salvage_number` distinguishes: a run
+    /// read whole after its signs collapse, a run cut at a second point, a run cut at a letter,
+    /// and a run whose first digit comes too late for anything before it to be a number.
+    #[test]
+    fn what_a_salvage_dropped_is_recorded_beside_the_token() {
+        let salvage_of = |input: &'static [u8]| {
+            let mut lexer = Lexer::new(input);
+            let token = lexer.next_token();
+            (token, lexer.salvaged())
+        };
+        for whole in [
+            &b"5"[..],
+            b"-3.62",
+            b"4.",
+            b"-.002",
+            b"1e5",
+            b"/Name",
+            b"obj",
+            b"(",
+        ] {
+            let (_, salvage) = salvage_of(whole);
+            assert_eq!(
+                salvage,
+                None,
+                "{} departs from nothing, so there is nothing to record",
+                String::from_utf8_lossy(whole)
+            );
+        }
+        assert_eq!(
+            salvage_of(b"--5"),
+            (
+                Some(Token::Integer(-5)),
+                Some(Salvage {
+                    run: b"--5",
+                    dropped: b""
+                })
+            ),
+            "a repeated sign is a departure with nothing left out"
+        );
+        assert_eq!(
+            salvage_of(b"1.2.3"),
+            (
+                Some(Token::Real(1.2)),
+                Some(Salvage {
+                    run: b"1.2.3",
+                    dropped: b".3"
+                })
+            )
+        );
+        assert_eq!(
+            salvage_of(b"5f"),
+            (
+                Some(Token::Integer(5)),
+                Some(Salvage {
+                    run: b"5f",
+                    dropped: b"f"
+                })
+            )
+        );
+        assert_eq!(
+            salvage_of(b"12pt"),
+            (
+                Some(Token::Integer(12)),
+                Some(Salvage {
+                    run: b"12pt",
+                    dropped: b"pt"
+                })
+            )
+        );
+        assert_eq!(
+            salvage_of(b".-1"),
+            (
+                Some(Token::Integer(0)),
+                Some(Salvage {
+                    run: b".-1",
+                    dropped: b".-1"
+                })
+            ),
+            "a run read as zero accounts for none of its bytes"
+        );
+        // And the record is about the token just returned, never about an earlier one.
+        let mut lexer = Lexer::new(b"5f 6");
+        assert_eq!(lexer.next_token(), Some(Token::Integer(5)));
+        assert!(lexer.salvaged().is_some());
+        assert_eq!(lexer.next_token(), Some(Token::Integer(6)));
+        assert_eq!(lexer.salvaged(), None);
     }
 
     /// **A token ends where §7.2.3 says it does, whichever path read it.**

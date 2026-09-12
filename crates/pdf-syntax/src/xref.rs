@@ -1077,12 +1077,34 @@ fn big_endian(bytes: &[u8]) -> u64 {
 
 /// Reads one Table 18 record.
 ///
-/// `None` is malformation — a record shorter than `/W` says it is — and is distinct from the
-/// record saying the number names nothing, which is `Entry::Deleted`. §7.5.8.2's Table 17 gives
-/// the defaults: "[a] value of zero for an element in the W array indicates that the
-/// corresponding field shall not be present in the stream, and the default value shall be used,
-/// if there is one", and of the first field specifically, "[i]f the first element is zero, the
-/// type field shall not be present, and shall default to Type 1".
+/// `None` is malformation — a record shorter than `/W` says it is, or a `/W` that leaves a
+/// located entry without the field that locates it — and is distinct from the record saying
+/// the number names nothing, which is `Entry::Deleted`. §7.5.8.2's Table 17 gives the
+/// defaults: "[a] value of zero for an element in the W array indicates that the corresponding
+/// field shall not be present in the stream, and the default value shall be used, if there is
+/// one", and of the first field specifically, "[i]f the first element is zero, the type field
+/// shall not be present, and shall default to Type 1".
+///
+/// **"If there is one" is the condition, and the type 1 entry's byte offset has none.** Table
+/// 18 as printed gives it "Default value: 0", and Errata Collection 3's Issue #500 strikes that
+/// sentence — an offset of zero is the file's header, and a default that puts every uncompressed
+/// object there is a wrong answer dressed as one. Until the nine-hundred-and-eighty-third session
+/// this function implemented the struck text: an absent second field read as zero for every
+/// entry type, so a `/W` of `[1 0 1]` located every type 1 object at the start of the file. An
+/// entry whose location the layout cannot state is refused, and with it the section: the `/W`
+/// is the section's, so no record under it can say where anything is (ADR 1004).
+///
+/// **A type 2 entry's index is the one field read as zero without a sentence to stand on, and
+/// that is a choice with witnesses rather than a reading.** Table 18 states no default for
+/// "[t]he index of this object within the object stream" — it never did, and no erratum touches
+/// it — yet `/W [1 2 0]` is what dozens of `doc/pdf.js` documents write above type 2 entries
+/// (`grep -aoE '/W *\[[ 0-9]*\]'` over the corpus), and `issue3371.pdf` loses its first page and
+/// twenty-one documents their XMP packet under a reading that refuses them. Every object such a
+/// file compresses is the first of its stream, and every reader on this machine reads it there.
+/// Where the standard states no value and every producer relies on one, a refusal is not a
+/// reading of the clause but a document lost to a silence, so the index reads as zero and this
+/// sentence is where the choice is written down. The type 2 entry's *stream number* has the
+/// same silence and no witness, and is refused like the offset.
 fn entry_location(record: &[u8], layout: &RecordLayout, base: usize) -> Option<Entry> {
     let mut fields = [1u64, 0, 0];
     for (slot, field) in fields.iter_mut().zip(&layout.fields) {
@@ -1091,8 +1113,13 @@ fn entry_location(record: &[u8], layout: &RecordLayout, base: usize) -> Option<E
         };
         *slot = big_endian(record.get(at..end)?);
     }
+    let stated = |field: usize| layout.fields.get(field).is_some_and(Option::is_some);
 
     Some(match fields[0] {
+        // A type 1 entry's byte offset and a type 2 entry's stream number are both the second
+        // field, and Table 18 gives neither a default — see above. The index, third, is the
+        // field read as zero on witnesses rather than on a sentence.
+        1 | 2 if !stated(1) => return None,
         // Type 1: an object at a byte offset.
         1 => usize::try_from(fields[1]).map_or(Entry::Deleted, |position| {
             Entry::At(Location::Offset(position.saturating_add(base)))

@@ -160,7 +160,12 @@ impl Interpreter<'_> {
             return;
         }
 
-        let space = ColourSpace::parse(self.document, &Object::Name(name.clone()), resources);
+        let space = ColourSpace::parse_with_output_intent(
+            self.document,
+            &Object::Name(name.clone()),
+            resources,
+            self.output_intent.as_ref(),
+        );
         if let (Some(id), Some(parsed)) = (stated, space.as_ref())
             && is_icc_based(self.document, id)
         {
@@ -252,16 +257,27 @@ impl Interpreter<'_> {
 
         // Where the operand count disagrees with the declared space, the operands win:
         // producers get `/CS` wrong more often than they get the operand count wrong, and
-        // a device space with a matching component count is the likeliest intent.
+        // a device space with a matching component count is the likeliest intent — the
+        // device space *as this page defines it*, so that the recovery lands on the same
+        // colour the matching `g`, `rg` or `k` would have.
         let colour = match (values.len(), space.components()) {
             (0, _) => return,
             (given, expected) if given == expected => {
                 let space = space.clone();
                 self.colour(&space, &values, state.black_point())
             }
-            (1, _) => self.colour(&ColourSpace::Gray, &values, state.black_point()),
-            (3, _) => self.colour(&ColourSpace::Rgb, &values, state.black_point()),
-            (4, _) => self.colour(&ColourSpace::Cmyk, &values, state.black_point()),
+            (1, _) => {
+                let space = self.device_space("DeviceGray", resources);
+                self.colour(&space, &values, state.black_point())
+            }
+            (3, _) => {
+                let space = self.device_space("DeviceRGB", resources);
+                self.colour(&space, &values, state.black_point())
+            }
+            (4, _) => {
+                let space = self.device_space("DeviceCMYK", resources);
+                self.colour(&space, &values, state.black_point())
+            }
             (given, expected) => {
                 self.note(Unsupported::Shading {
                     name: format!("{given} colour components (expected {expected})"),
@@ -279,40 +295,29 @@ impl Interpreter<'_> {
 
     /// Resolves a device colour space to what the document says it means.
     ///
-    /// Three sources, in the order the specification puts them. A `/Default` entry in the
-    /// resources §8.6.5.6 says *shall* be used. Failing that, the output intent describes
-    /// the device the document's colours were prepared for, which §8.6.5.7 NOTE 3 names as
-    /// the only thing in a PDF that can. Failing both, the device space itself — where
-    /// §8.6.4.4 states no conversion, §10.4.2.5 states one and §10.4.2.1 ranks it below
-    /// §10.3's ICC route, so what happens then is this processor's own choice between two
-    /// answers the standard has already ordered, and is documented as such in `colour.rs`.
+    /// The ranking — §8.6.5.6's default, then §14.11.5's output intent, then the device space
+    /// itself — is `ColourSpace::device_family`'s, and it is the same function `cs` reaches
+    /// through `ColourSpace::parse_with_output_intent`, so an operator that sets a device space
+    /// and a colour together and one that names the space first cannot be two conversions.
+    /// Until the nine-hundred-and-eightieth session the intent was consulted here alone, so
+    /// `1 0 0 0 k` and `/DeviceCMYK cs 1 0 0 0 scn` were two colours on a page with an
+    /// output intent (ADR 1001).
     pub(super) fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
         let named = Object::Name(Name::new(name.as_bytes().to_vec()));
-        if let Some(space) = ColourSpace::parse(self.document, &named, resources) {
-            // `parse` returns the device space itself when no `/Default` entry replaces
-            // it, so an output intent gets its turn only when nothing did.
-            let replaced = !matches!(
-                (&space, name),
-                (ColourSpace::Gray, "DeviceGray")
-                    | (ColourSpace::Rgb, "DeviceRGB")
-                    | (ColourSpace::Cmyk, "DeviceCMYK")
-            );
-            if replaced {
-                return space;
-            }
-        }
-
-        if let Some(intent) = &self.output_intent
-            && intent.components() == expected_components(name)
-        {
-            return intent.clone();
-        }
-
-        match name {
+        ColourSpace::parse_with_output_intent(
+            self.document,
+            &named,
+            resources,
+            self.output_intent.as_ref(),
+        )
+        .unwrap_or(match name {
+            // A family name always resolves, so this arm answers only a caller naming
+            // something that is not one — a device space rather than a panic, for a name
+            // this function is never handed.
             "DeviceGray" => ColourSpace::Gray,
             "DeviceCMYK" => ColourSpace::Cmyk,
             _ => ColourSpace::Rgb,
-        }
+        })
     }
 }
 
@@ -334,15 +339,6 @@ pub(super) fn assign_colour(
         state.stroke_colour = colour;
         state.stroke_space = space;
         state.stroke_pattern = None;
-    }
-}
-
-/// How many components a device space's colours have.
-fn expected_components(name: &str) -> usize {
-    match name {
-        "DeviceGray" => 1,
-        "DeviceCMYK" => 4,
-        _ => 3,
     }
 }
 

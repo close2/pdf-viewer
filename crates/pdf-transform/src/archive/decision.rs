@@ -1366,6 +1366,13 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/permissions-dictionary-keys",
         Because::NotBuiltYet(SIGNATURE_STRUCTURE_NOT_BUILT),
     ),
+    // ISO 19005-2 Annex B.1: section 3.6 again, seen from the signature's own range rather than
+    // from the keys around it. Promoted to a predicate by `pdf_archive` in session 982 (ADR
+    // 1003), which is what put it in front of this table.
+    (
+        "signatures/digest-covers-the-whole-file",
+        Because::NotBuiltYet(SIGNATURE_RANGE_IS_THE_SIGNERS),
+    ),
     // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary.
     (
         "file-structure/document-information-dictionary-holds-only-a-modification-date",
@@ -1825,6 +1832,15 @@ const SIGNATURE_STRUCTURE_NOT_BUILT: &str = "this key belongs to a permissions d
      signatures. Removing the key is a small rewrite and it belongs with the report section 3.6 \
      asks for, which names each signature, its signer and whether it validated before the \
      conversion. Neither is built";
+
+/// Why a signature whose range does not cover its file is not repaired.
+const SIGNATURE_RANGE_IS_THE_SIGNERS: &str = "a signature's ByteRange and its digest are one \
+     act, and only the signer can redo it: a range that does not cover the file it was made over \
+     cannot be widened without the digest failing, and doc/pdf-a-conversion-limits.md section \
+     3.6 already says no converted document carries its source's signatures at all. What this \
+     requirement waits on is the report section 3.6 asks for — each signature named, its \
+     signer, and whether it validated before the conversion — so that a range the source got \
+     wrong is stated there rather than dropped in silence with the rest. Not built";
 
 /// Why `/Info` is not reconciled with the XMP packet.
 const INFO_DICTIONARY_NOT_RECONCILED: &str = "ISO 19005-4 section 6.1.3 leaves a document \

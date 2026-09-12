@@ -1822,6 +1822,53 @@ mod tests {
         );
     }
 
+    /// The shipped sRGB profile, read as an `ICCBased` *source*, is the identity to the level.
+    ///
+    /// ISO 32000-2 §8.6.5.7: "In cases where a source colour space accurately represents the
+    /// particular output device being used, a PDF processor should avoid converting the
+    /// component colour values but use the source values directly as output values." This
+    /// device is an sRGB screen and the ICC's own sRGB profile is the source that represents
+    /// it, so the profile route — tone curves and matrix to D50 XYZ, then the one matrix that
+    /// turns an XYZ into a pixel — has to land where the pass-through the clause asks for
+    /// would, or every document embedding the commonest profile there is would draw its
+    /// `DeviceRGB` and its `ICCBased` colours apart. The clause is a `should` and this tree
+    /// takes the conversion rather than the shortcut, which is fine exactly as long as the
+    /// two agree; this is the measurement that they do, over a 9 × 9 × 9 grid, held to one
+    /// level of 255 on every channel.
+    #[test]
+    fn the_shipped_srgb_profile_is_the_identity_through_the_profile_route() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        let profile = Profile::parse(bytes).expect("the shipped profile builds a transform");
+        assert_eq!(profile.channels(), 3);
+
+        let mut worst = 0.0f32;
+        let mut at = [0.0f32; 3];
+        for r in 0..=8u8 {
+            for g in 0..=8u8 {
+                for b in 0..=8u8 {
+                    let input = [f32::from(r) / 8.0, f32::from(g) / 8.0, f32::from(b) / 8.0];
+                    let out = profile.to_rgb(&input);
+                    let gap = [
+                        (out.r - input[0]).abs(),
+                        (out.g - input[1]).abs(),
+                        (out.b - input[2]).abs(),
+                    ]
+                    .into_iter()
+                    .fold(0.0f32, f32::max);
+                    if gap > worst {
+                        worst = gap;
+                        at = input;
+                    }
+                }
+            }
+        }
+        assert!(
+            worst * 255.0 <= 1.0,
+            "sRGB through its own profile moved {at:?} by {} of 255",
+            worst * 255.0
+        );
+    }
+
     #[test]
     fn bytes_that_are_not_a_profile_are_not_read_as_one() {
         assert_eq!(Identification::read(&[0u8; 200]), None, "no acsp signature");

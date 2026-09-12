@@ -353,6 +353,23 @@ impl ToUnicode {
             .is_some_and(|base| base.append(code, out))
     }
 
+    /// Whether the `CMap` states anything at all about a code, whatever it states.
+    ///
+    /// The question ISO 32000-2 §9.10.2's ranking turns on: a method that answers is final for
+    /// that code, and one that "fail[s] to produce a Unicode value" hands the code to the next.
+    /// [`Self::char_for`] cannot answer it, because it says `None` both for a code this table
+    /// omits and for one it maps to a sequence — and the second is an answer. The same walk as
+    /// [`Self::append`], without the destination.
+    #[must_use]
+    pub fn states(&self, code: u32) -> bool {
+        self.singles.contains_key(&code)
+            || self
+                .ranges
+                .iter()
+                .any(|&(low, high, _)| (low..=high).contains(&code))
+            || self.base.as_ref().is_some_and(|base| base.states(code))
+    }
+
     /// Returns the single character a code represents, when it represents exactly one.
     ///
     /// This is what font substitution needs: a `cmap` is keyed by character, so a code
@@ -717,5 +734,38 @@ mod tests {
         assert!(!map.is_empty());
         assert_eq!(map.char_for(1), Some('A'));
         assert!(ToUnicode::parse_on(b"begincmap endcmap", Some(ToUnicode::default())).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod states_tests {
+    use super::ToUnicode;
+
+    /// A code mapped to a sequence is *stated* and has no single character, and a code the file
+    /// omits is neither. §9.10.2's ranking turns on the first distinction.
+    #[test]
+    fn a_stated_sequence_is_an_answer_and_an_omitted_code_is_not() {
+        let table = ToUnicode::parse(
+            b"1 begincodespacerange <00> <FF> endcodespacerange\n\
+              2 beginbfchar <41> <00660066> <42> <0043> endbfchar\n\
+              1 beginbfrange <50> <52> <0061> endbfrange\n",
+        );
+        assert!(table.states(0x41), "a ligature is stated");
+        assert_eq!(table.char_for(0x41), None, "and addresses no single glyph");
+        assert!(table.states(0x42));
+        assert_eq!(table.char_for(0x42), Some('C'));
+        assert!(table.states(0x51), "a range states each code it spans");
+        assert!(!table.states(0x43), "a code the file omits is not stated");
+        assert!(!table.states(0x53));
+    }
+
+    /// The base a `/ToUnicode` builds on (§9.10.3, `/UseCMap`) states codes for the pair.
+    #[test]
+    fn a_base_states_the_codes_the_child_leaves_to_it() {
+        let base = ToUnicode::parse(b"1 beginbfchar <41> <0041> endbfchar\n");
+        let child = ToUnicode::parse_on(b"1 beginbfchar <42> <0042> endbfchar\n", Some(base));
+        assert!(child.states(0x41));
+        assert!(child.states(0x42));
+        assert!(!child.states(0x43));
     }
 }

@@ -29,7 +29,7 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 use crate::cff::{self, CodeToGlyph};
 use crate::cmap::{CMap, Code};
 use crate::composite::{
-    CidToGlyph, cid_to_glyph, collection_gap, collection_meaning, composite_cmap,
+    CidToGlyph, cid_to_glyph, collection_gap, collection_table, composite_cmap,
 };
 use crate::encoding;
 use crate::glyph_names::GlyphNames;
@@ -141,11 +141,18 @@ pub(crate) enum CodeMapping {
     /// the font that defined it, so it says nothing about any other font. The `CMap` is
     /// still needed, to split the string into codes — §9.7.4.2 is explicit that a CID plays
     /// no part here: "In this case, CIDs shall not participate in glyph selection".
+    ///
+    /// What a code *means* is not held here, because the font already holds it:
+    /// [`LoadedFont::to_unicode`] is §9.10.2's first method and [`LoadedFont::collection`] its
+    /// third, and [`LoadedFont::substituted_character`] asks them in the clause's order for
+    /// each code. This variant carried a copy of one of the two until session 981, chosen once
+    /// at load — the `/ToUnicode` whenever it stated anything at all — so a code the producer's
+    /// table omitted never reached the collection's, while the readback beside it did (ADR
+    /// 1002).
     Substituted {
-        /// Codes to CIDs, used for the code boundaries and for `/W`'s widths.
+        /// Codes to CIDs, used for the code boundaries, for `/W`'s widths, and for §9.10.2's
+        /// step (a) on the way to the collection's table.
         cmap: Box<CMap>,
-        /// What each code means, by whichever of §9.10.2's methods answered.
-        text: Box<Meaning>,
         /// The vertical forms this substitute draws, for a `CMap` in writing mode 1.
         ///
         /// `None` for every horizontal font and for a vertical one whose collection Table 116
@@ -156,40 +163,6 @@ pub(crate) enum CodeMapping {
         /// `LoadedFont::unsupplied_vertical_form` counts (ADR 0764).
         downward: Option<Box<Downward>>,
     },
-}
-
-/// What a code means, by whichever of ISO 32000-2 §9.10.2's methods produced it.
-///
-/// Two of the clause's three methods apply to a composite font and they are keyed
-/// differently, which is the whole reason this is an enum rather than one table: the first
-/// is the producer's `/ToUnicode` and is keyed by *character code*; the third is the
-/// character collection's own `registry-ordering-UCS2` table and is keyed by *CID*. Folding
-/// the second into the first would mean enumerating every code the `CMap` defines, which for
-/// a UTF-32 codespace is not a finite thing to do at load time.
-#[derive(Debug, Clone)]
-pub enum Meaning {
-    /// §9.10.2's first method: the producer's own `/ToUnicode`, by character code.
-    ByCode(tounicode::ToUnicode),
-    /// §9.10.2's third method: the collection's table, by CID.
-    ///
-    /// > e. Map the CID obtained in step (a) according to the CMap obtained in step (d),
-    /// > producing a Unicode value.
-    ByCid(tounicode::ToUnicode),
-}
-
-impl Meaning {
-    /// The single character a code represents, given the `CMap` that turns it into a CID.
-    ///
-    /// One character rather than a string because this is what *substitution* needs: a
-    /// substitute face is addressed by character, so a code standing for a cluster has no
-    /// glyph to look up.
-    #[must_use]
-    pub fn char_for(&self, cmap: &CMap, code: Code) -> Option<char> {
-        match self {
-            Self::ByCode(table) => table.char_for(code.value()),
-            Self::ByCid(table) => table.char_for(cmap.cid(code)?),
-        }
-    }
 }
 
 /// Why ISO 32000-2 §9.10.2 could not say what a character code represents.
@@ -446,7 +419,10 @@ pub struct LoadedFont {
     /// character collection: the collection's own CID table, keyed by CID.
     ///
     /// Held beside `to_unicode` rather than folded into it because the two are keyed
-    /// differently — see [`Meaning`] — and because the clause ranks them, `/ToUnicode` first.
+    /// differently — by code and by CID, and folding one into the other would mean enumerating
+    /// every code the `CMap` defines, which for a UTF-32 codespace is not a finite thing to do
+    /// at load time — and because the clause ranks them, `/ToUnicode` first. Both
+    /// [`Self::text`] and [`Self::substituted_character`] read the pair in that order.
     collection: Option<tounicode::ToUnicode>,
     /// The character set this font's own encoding belongs to, for the two symbolic standard-14
     /// fonts.
@@ -571,18 +547,6 @@ impl std::fmt::Debug for LoadedFont {
             .field("stretch", &self.stretch)
             .field("substituted", &self.substituted)
             .finish_non_exhaustive()
-    }
-}
-
-/// §9.10.2's third method, where the descendant's character collection supplies it.
-///
-/// [`collection_meaning`] answers with whichever of the clause's methods applies, and only the
-/// CID-keyed one belongs in [`LoadedFont::collection`]: the others are keyed by code and are
-/// `/ToUnicode`'s own field. Split out so the composite constructor states one field per line.
-fn collection_by_cid(document: &Document, descendant: &Dictionary) -> Option<tounicode::ToUnicode> {
-    match collection_meaning(document, descendant) {
-        Some(Meaning::ByCid(table)) => Some(table),
-        _ => None,
     }
 }
 
@@ -870,6 +834,12 @@ impl LoadedFont {
         // rather than in an `sfnt` header, so `FontRef` cannot be asked.
         let (type1, units_per_em) = parsed_program(program, &data, name)?;
 
+        // §9.10.2's first and third methods, read once each: the producer's `/ToUnicode`, keyed
+        // by code, and the collection's `registry-ordering-UCS2` table, keyed by CID. Both serve
+        // the readback of every composite font and, for a substituted one, glyph selection too.
+        let to_unicode = to_unicode(document, dict);
+        let collection = collection_table(document, &descendant);
+
         let mapping = if substituted {
             // A CID is meaningless outside the font that defined it — it is an index into
             // that font's glyphs, not a character — so a substitute can only be reached
@@ -891,31 +861,32 @@ impl LoadedFont {
             // is not a gap in this reader — it is the one honest answer to a combination the
             // standard says shall not exist. ADR 0433 measures what the other renderers do
             // with it instead, and they do four different things.
-            let direct = to_unicode(document, dict);
-            let text = if direct.is_empty() {
-                collection_meaning(document, &descendant).ok_or_else(|| {
-                    // **[`FontError::NoSubstitute`] rather than
-                    // [`FontError::UnsupportedEncoding`], and the encoding is why**: `Identity-H`
-                    // is read perfectly well here — [`composite_cmap`] built `cmap` out of it
-                    // above — so nothing about the *encoding* is unsupported. What failed is
-                    // reaching a substitute through it, which is the case that variant's own doc
-                    // comment describes and which the sibling refusal thirty lines up already
-                    // uses. [`collection_gap`] says which of its four facts this file is.
-                    FontError::NoSubstitute {
-                        name: name.to_owned(),
-                        reason: collection_gap(
-                            document,
-                            &descendant,
-                            encoding_name(document, dict).as_deref(),
-                        ),
-                    }
-                })?
-            } else {
-                Meaning::ByCode(direct)
-            };
+            //
+            // **Both tables are kept, and the choice between them is made per code.** The
+            // clause ranks its methods and a method that "fail[s] to produce a Unicode value"
+            // for one code has failed for that code only, so a `/ToUnicode` that omits a code
+            // the collection names has not settled the font's route — `substituted_character`
+            // asks the second table where the first says nothing (ADR 1002). What is refused
+            // here is the font with *neither*, which is the one with no question left to ask.
+            if to_unicode.is_empty() && collection.is_none() {
+                // **[`FontError::NoSubstitute`] rather than
+                // [`FontError::UnsupportedEncoding`], and the encoding is why**: `Identity-H`
+                // is read perfectly well here — [`composite_cmap`] built `cmap` out of it
+                // above — so nothing about the *encoding* is unsupported. What failed is
+                // reaching a substitute through it, which is the case that variant's own doc
+                // comment describes and which the sibling refusal thirty lines up already
+                // uses. [`collection_gap`] says which of its four facts this file is.
+                return Err(FontError::NoSubstitute {
+                    name: name.to_owned(),
+                    reason: collection_gap(
+                        document,
+                        &descendant,
+                        encoding_name(document, dict).as_deref(),
+                    ),
+                });
+            }
             CodeMapping::Substituted {
                 cmap: Box::new(cmap),
-                text: Box::new(text),
                 // §9.7.5.1's NOTE: a vertical `CMap` names *different CIDs*, so a substituted
                 // face has to be asked for a different glyph too.
                 downward: Downward::read(document, &descendant, &data, vertical),
@@ -942,8 +913,8 @@ impl LoadedFont {
             type1,
             mapping,
             substituted,
-            to_unicode: to_unicode(document, dict),
-            collection: collection_by_cid(document, &descendant),
+            to_unicode,
+            collection,
             // §9.6.5.1 gives the two symbolic standard-14 fonts *simple* built-in encodings, and
             // a composite font has none of them.
             symbolic_set: None,
@@ -1639,30 +1610,22 @@ impl LoadedFont {
     /// `None` where every table was read whole, which is every font that states none. `Some`
     /// names the bound in [`crate::tounicode::CUT_BY_SINGLES`]'s vocabulary.
     ///
-    /// **Three tables are asked, because a font can hold three** and they answer different
-    /// questions: the producer's own `/ToUnicode` (§9.10.2's first method), the character
-    /// collection's `registry-ordering-UCS2` table (its third), and — for a composite font with
-    /// no usable program — whichever of the two [`CodeMapping::Substituted`] selects glyphs
-    /// through. The third is why this is not only about extracted text: §9.7.4.2 says that with
-    /// the program absent "CIDs shall not participate in glyph selection", so the substitute's
-    /// glyph is reached *through* the character, and a mapping the bound discarded is a glyph
-    /// the page does not draw.
+    /// **Two tables are asked, because a font can hold two** and they answer different
+    /// questions: the producer's own `/ToUnicode` (§9.10.2's first method) and the character
+    /// collection's `registry-ordering-UCS2` table (its third). For a composite font with no
+    /// usable program the same two are what [`CodeMapping::Substituted`] selects glyphs through,
+    /// which is why this is not only about extracted text: §9.7.4.2 says that with the program
+    /// absent "CIDs shall not participate in glyph selection", so the substitute's glyph is
+    /// reached *through* the character, and a mapping the bound discarded is a glyph the page
+    /// does not draw. (This said *three* while the substituted variant held a copy of one of
+    /// the two; it holds none since session 981.)
     #[must_use]
     pub fn to_unicode_truncated(&self) -> Option<&'static str> {
-        let selecting = match &self.mapping {
-            CodeMapping::Substituted { text, .. } => match text.as_ref() {
-                Meaning::ByCode(table) | Meaning::ByCid(table) => table.truncated(),
-            },
-            CodeMapping::Composite { .. } | CodeMapping::Named(_) => None,
-        };
-        self.to_unicode
-            .truncated()
-            .or_else(|| {
-                self.collection
-                    .as_ref()
-                    .and_then(tounicode::ToUnicode::truncated)
-            })
-            .or(selecting)
+        self.to_unicode.truncated().or_else(|| {
+            self.collection
+                .as_ref()
+                .and_then(tounicode::ToUnicode::truncated)
+        })
     }
 
     /// Whether this font is shown in §9.2.4's writing mode 1, one glyph below the next.
@@ -1905,22 +1868,47 @@ impl LoadedFont {
     /// code §9.10.2 gives no character or the face has no glyph for — that second silence is
     /// [`Self::uncovered_character`]'s and is deliberately not this one's.
     fn substituted_glyph(&self, code: Code) -> Option<(char, u16, Form)> {
-        let CodeMapping::Substituted {
-            text,
-            cmap,
-            downward,
-        } = &self.mapping
-        else {
+        let CodeMapping::Substituted { cmap, downward } = &self.mapping else {
             return None;
         };
         let font = FontRef::new(&self.data).ok()?;
-        let character = text.char_for(cmap, code)?;
+        let character = self.substituted_character(cmap, code)?;
         let glyph = u16::try_from(font.charmap().map(character)?.to_u32()).ok()?;
         let form = downward.as_ref().map_or(Form::Upright, |downward| {
             cmap.cid(code)
                 .map_or(Form::Upright, |cid| downward.form_of(character, cid, glyph))
         });
         Some((character, glyph, form))
+    }
+
+    /// The single character a substituted composite font's code stands for, by ISO 32000-2
+    /// §9.10.2's methods in the clause's order.
+    ///
+    /// > A PDF processor can use these methods, in the priority given, to map a character code
+    /// > to a Unicode value.
+    ///
+    /// The first method is the producer's `/ToUnicode` and the third is the collection's own
+    /// table, and **the ranking is per code**: the clause's closing sentence speaks of methods
+    /// that "fail to produce a Unicode value", and a `/ToUnicode` that omits a code has failed
+    /// for that code however many others it answers. So the `/ToUnicode` is asked first and is
+    /// final where it *states* the code — even with a sequence, which addresses no single glyph
+    /// and answers `None` here, because the producer's statement is not to be second-guessed by
+    /// a table that outranks nothing — and the collection is asked, through §9.10.2's step (a),
+    /// only where the producer's table says nothing at all. That is the same order and the same
+    /// two tables as [`Self::text`]'s first two branches, which is the point: until session 981
+    /// this route took one table for the whole font and the readback took both per code, and
+    /// a page could name a character it did not draw (ADR 1002).
+    ///
+    /// One character rather than a string because this is what *substitution* needs: a
+    /// substitute face is addressed by character, so a code standing for a cluster has no glyph
+    /// to look up.
+    fn substituted_character(&self, cmap: &CMap, code: Code) -> Option<char> {
+        if self.to_unicode.states(code.value()) {
+            return self.to_unicode.char_for(code.value());
+        }
+        self.collection
+            .as_ref()
+            .and_then(|table| table.char_for(cmap.cid(code)?))
     }
 
     /// The character whose *vertical form* this code named and the substituted face did not have.
@@ -1964,11 +1952,11 @@ impl LoadedFont {
     /// distinguishable without the caller having to know which is which.
     #[must_use]
     pub fn uncovered_character(&self, code: Code) -> Option<char> {
-        let CodeMapping::Substituted { text, cmap, .. } = &self.mapping else {
+        let CodeMapping::Substituted { cmap, .. } = &self.mapping else {
             return None;
         };
         let font = FontRef::new(&self.data).ok()?;
-        let character = text.char_for(cmap, code)?;
+        let character = self.substituted_character(cmap, code)?;
         font.charmap().map(character).is_none().then_some(character)
     }
 
@@ -3269,6 +3257,110 @@ mod simple_font_subtype_tests {
             font.program_vertical_advance(crate::Code::single_byte(0x41)),
             None,
             "the fixture has no vmtx"
+        );
+    }
+}
+
+#[cfg(test)]
+mod substituted_composite_tests {
+    use super::{FontError, LoadedFont};
+    use crate::fixture::document_of;
+
+    /// A `/ToUnicode` stream stating one mapping, for a font whose `CMap` addresses many codes.
+    ///
+    /// It says that code `<3042>` — U+3042 あ under `UniJIS-UCS2-H`, and Adobe-Japan1's CID 843
+    /// — means U+3044 い, which is *not* what the collection says. That disagreement is
+    /// deliberate: it is what shows which table answered.
+    const TO_UNICODE: &[u8] = b"/CIDInit /ProcSet findresource begin\n\
+        12 dict begin\n\
+        begincmap\n\
+        /CMapName /Fixture def\n\
+        1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+        1 beginbfchar\n<3042> <3044>\nendbfchar\n\
+        endcmap\n\
+        CMapName currentdict /CMap defineresource pop\n\
+        end end\n";
+
+    /// A non-embedded Adobe-Japan1 font under a Unicode `CMap`, with the stream above.
+    fn fixture() -> Result<LoadedFont, FontError> {
+        let font = b"1 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /KozMinPr6N-Regular \
+            /Encoding /UniJIS-UCS2-H /DescendantFonts [2 0 R] /ToUnicode 3 0 R >>\nendobj\n";
+        let descendant = b"2 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
+            /BaseFont /KozMinPr6N-Regular \
+            /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> \
+            /FontDescriptor << /Type /FontDescriptor /FontName /KozMinPr6N-Regular /Flags 4 \
+            /FontBBox [0 -120 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 \
+            /CapHeight 700 /StemV 80 >> /DW 1000 >>\nendobj\n";
+        let mut stream =
+            format!("3 0 obj\n<< /Length {} >>\nstream\n", TO_UNICODE.len()).into_bytes();
+        stream.extend_from_slice(TO_UNICODE);
+        stream.extend_from_slice(b"\nendstream\nendobj\n");
+        let (document, dict) = document_of(&[font, descendant, &stream]);
+        LoadedFont::load(&document, &dict, "F1")
+    }
+
+    /// ISO 32000-2 §9.10.2's methods are ranked per code, and glyph selection for a substituted
+    /// composite font is §9.10.2 (§9.7.4.2: "CIDs shall not participate in glyph selection").
+    ///
+    /// Three codes, one string. `<3042>` is stated by the `/ToUnicode` and means what the
+    /// producer said, い, whatever Adobe-Japan1 says CID 843 is — the first method answered and
+    /// is final. `<3044>` is omitted by the `/ToUnicode`, so the first method "fail[ed] to
+    /// produce a Unicode value" for it and the third is next: `UniJIS-UCS2-H` gives CID 845 and
+    /// `Adobe-Japan1-UCS2` gives い. `<3046>` the same way, to う. So the first two codes draw one
+    /// glyph and the third another.
+    ///
+    /// **Machine-independent by construction.** Which face stands in is this machine's business
+    /// (§9.5 NOTE 5, ADR 0133), so the test states relations between the three codes' glyphs
+    /// and no glyph index: any face `installed_covering` accepts covers あ, and a face covering
+    /// あ covers い and う. Where the machine has no such face the load refuses and the test says
+    /// so rather than passing.
+    ///
+    /// **Calibrated both ways** (session 981): with `substituted_character` reading the
+    /// `/ToUnicode` alone — the route before ADR 1002 — the second and third codes reach no
+    /// glyph and the first assertion fails; with the collection alone, the first code draws あ
+    /// and the equality fails.
+    #[test]
+    fn a_code_the_to_unicode_omits_is_selected_through_the_collection() {
+        let font = match fixture() {
+            Ok(font) => font,
+            Err(FontError::NoSubstitute { reason, .. }) => {
+                println!("skipped: {reason}");
+                return;
+            }
+            Err(other) => {
+                panic!("the fixture should load or be refused for want of a face: {other}")
+            }
+        };
+        assert!(font.is_substituted());
+        let codes = font.decode(&[0x30, 0x42, 0x30, 0x44, 0x30, 0x46]);
+        assert_eq!(codes.len(), 3, "UniJIS-UCS2-H is two bytes a code");
+        let stated = font.glyph_index(codes[0]);
+        let omitted = font.glyph_index(codes[1]);
+        let another = font.glyph_index(codes[2]);
+        assert!(
+            omitted.is_some(),
+            "a code the /ToUnicode omits reaches a glyph through §9.10.2's third method"
+        );
+        assert_eq!(
+            stated, omitted,
+            "the producer's /ToUnicode outranks the collection where it states the code, so \
+             <3042> draws the い the file says and not the あ the collection says"
+        );
+        assert!(another.is_some());
+        assert_ne!(
+            another, omitted,
+            "う and い are two glyphs of any face that has them"
+        );
+
+        // And the readback names what was drawn, through the same two tables in the same order.
+        let mut text = String::new();
+        for code in &codes {
+            assert!(font.text(*code, &mut text));
+        }
+        assert_eq!(text, "いいう");
+        assert!(
+            font.uncovered_character(codes[1]).is_none(),
+            "a character the face draws is not an uncovered one"
         );
     }
 }

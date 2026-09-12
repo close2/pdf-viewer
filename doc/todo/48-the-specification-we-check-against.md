@@ -11,6 +11,14 @@ which is implemented as the erratum states it since the five-hundred-and-fortiet
 five-hundred-and-ninety-first's repair of the comparison made visible, and the
 five-hundred-and-ninety-fourth read them: three findings, one owed behaviour, and a count of the
 unread remainder corrected from twenty to nineteen by re-deriving it.
+**That nineteen was step 3b's count and is spent; it is not the number a round sent to "the
+remainder" needs.** The remainder that is still being read is the *issue* population of
+`doc/todo/01`'s recipe — every erratum carrying a strike or a caret that no file in this tree
+names — and its count is printed by that recipe's step 2 and recorded only in
+`doc/errata-read.md`'s latest section, never here. The nine-hundred-and-eighty-third read the whole
+of that field to a verdict each and found the **sixth** clause implemented against struck text,
+§7.5.8.3's Table 18 offset default (ADR 1004); the field is small enough now that a round reads it
+whole rather than ranking it.
 Priority: 48 — kept, by the convention that the `40`–`49` band is *the project's own instruments*.
 **Its real weight is higher than the number**: this is a list of known-wrong passages in the file
 principle 5 rests on.
@@ -170,7 +178,11 @@ correctness one, and this item drops into the notes.**
 
 **That test has been run three times and the item passes it every time.** Three clauses were
 implemented differently — §12.5.2's `/BM`, §14.13.5's `/MCAF` and §7.8.3's Type 3 glyph resources —
-and a fourth, §8.9.5.4, still is. So the item stays where it is. **The four-hundred-and-nineteenth
+and a fourth, §8.9.5.4, still is. So the item stays where it is. **A fifth and a sixth followed
+from the recipe's issue population rather than from `check`'s struck passages**: §7.4.3's base-85
+bound in the eight-hundred-and-twenty-ninth, and §7.5.8.3's type 1 offset default in the
+nine-hundred-and-eighty-third, both under `implemented` rows that quoted the printed text as the
+clause's. **The four-hundred-and-nineteenth
 ran it a fourth time and it passed again**, this time from the other direction: reading §7.8.3 for
 an unrelated clause found `content.rs` quoting the struck fourth bullet, which found two holes in
 the instrument — a `"` inside an ordinary `//` comment and a quotation with an ellipsis in it — and

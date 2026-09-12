@@ -16,9 +16,10 @@ use skrifa::FontRef;
 
 use crate::cff::CodeToGlyph;
 use crate::cmap::CMap;
-use crate::loading::{FontError, Meaning};
+use crate::loading::FontError;
 use crate::predefined;
 use crate::program::Program;
+use crate::tounicode::ToUnicode;
 
 /// How a `CIDFont` turns a CID into a glyph index (ISO 32000-2 §9.7.4.2).
 ///
@@ -359,9 +360,12 @@ pub(crate) fn cid_to_glyph(
 /// `None` where the descendant states no `/CIDSystemInfo`, or states one this binary carries no
 /// table for — which is every registry but Adobe's, and `Identity` orderings, where the codes
 /// are indices into a font nobody supplied and no table could say what they mean.
-pub(crate) fn collection_meaning(document: &Document, descendant: &Dictionary) -> Option<Meaning> {
+///
+/// Keyed by **CID**, which is the caller's business: step (a) of the same method is the font's
+/// own `CMap`, and `LoadedFont` applies it before asking this table.
+pub(crate) fn collection_table(document: &Document, descendant: &Dictionary) -> Option<ToUnicode> {
     let (registry, ordering) = collection_names(document, descendant)?;
-    predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
+    predefined::cid_to_unicode(&registry, &ordering)
 }
 
 /// §9.7.3's registry and ordering, which between them name a character collection.
@@ -392,7 +396,7 @@ pub(crate) fn collection_names(
     Some((text("Registry")?, text("Ordering")?))
 }
 
-/// Why [`collection_meaning`] answered `None`, in the file's own terms.
+/// Why [`collection_table`] answered `None`, in the file's own terms.
 ///
 /// **One refusal carried four different facts about a file, and only the last of them is work
 /// owed.** A substituted composite font with no `/ToUnicode` reaches §9.10.2's third method and
@@ -414,7 +418,7 @@ pub(crate) fn collection_names(
 ///    ADR 0433 read this population off the ink sweep by hand; this is that reading said by the
 ///    refusal itself.
 /// b) **The descendant states no readable `/CIDSystemInfo`.** Table 115 makes it "( Required )",
-///    so §9.10.2's step (b), quoted above [`collection_meaning`], has nothing to obtain.
+///    so §9.10.2's step (b), quoted above [`collection_table`], has nothing to obtain.
 /// c) **The collection's ordering is `Identity`.** §9.7.3 makes a character collection "an
 ///    ordered set of glyphs" whose order "shall determine the CID number for each glyph", so an
 ///    `Identity` ordering is the glyph order of the program the file did not embed. No table

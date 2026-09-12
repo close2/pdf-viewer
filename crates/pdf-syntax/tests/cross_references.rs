@@ -113,6 +113,38 @@ fn xref_stream_object(
     bytes
 }
 
+/// **A type 1 entry whose `/W` states no offset field locates nothing.**
+///
+/// Table 17 says a zero width means the field "shall not be present in the stream, and the
+/// default value shall be used, if there is one". Table 18 as printed gives the type 1 entry's
+/// byte offset "Default value: 0", and Errata Collection 3's Issue #500 strikes that sentence:
+/// an object at byte offset zero is the file's header, and a default that places every
+/// uncompressed object there is not a default but a wrong answer. With the sentence gone the
+/// field has no default, so a `/W` of `[1 0 1]` describes a stream that cannot say where any
+/// of its type 1 objects are, and the reader refuses the section rather than reading each of
+/// them at offset zero — which sends `Document::open` to §C.4's rebuild, where the body's own
+/// headers answer.
+///
+/// Calibrated per trap 13: with `entry_location`'s zero default put back, the section is
+/// believed, every type 1 entry is at offset zero, and the assertion that the table was
+/// *refused* fails.
+#[test]
+fn a_type_1_entry_with_no_offset_field_locates_nothing() {
+    let document = Document::open(skeleton_with_xref_stream([1, 0, 1], true))
+        .expect("the body is intact, so the rebuild finds every object");
+    assert!(
+        document.was_recovered(),
+        "a section whose type 1 entries state no offset is refused, not read at offset zero"
+    );
+    assert!(
+        object(&document, 3).as_dict().is_some(),
+        "and the objects are found by the rebuild"
+    );
+    // The control: the same document with the offset field present is read as written.
+    let stated = open(skeleton_with_xref_stream([1, 2, 1], true));
+    assert!(object(&stated, 3).as_dict().is_some());
+}
+
 /// Opens a document, insisting the cross-reference table was the thing that was read.
 ///
 /// Every fixture here is intact, so a rebuild means the table was rejected — and a rebuilt table

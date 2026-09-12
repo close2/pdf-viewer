@@ -88,8 +88,8 @@ sweep's family arithmetic, so that neither half is a vocabulary written that mor
 are
 still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
-be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
-answer" failing in the direction it was written for. The cheapest moment to commit one is the
+be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s rule that what is written down is the
+command that counts a fact, never the fact, failing in the direction it was written for. The cheapest moment to commit one is the
 round that next has to run it, because that round has to reconstruct it anyway; at one per sweep
 round the backlog is gone in ten, without ever being a marathon. A sweep that is genuinely
 twenty lines of Python belongs under `tools/conformance` with the four that already live there.
@@ -5348,7 +5348,7 @@ to.
   citation `examples/luminosity_mask_census`, read as a `/Key` because a solidus followed by letters
   is what that sweep's key extractor looks for. **It is a standing shape rather than a new one**:
   `examples/border_precedence_census` yields `border`, which no source names either, so *every* row
-  that obeys `CLAUDE.md`'s "write down the command" rule inside a `partial` note moves this level by
+  that obeys `CLAUDE.md`'s write-down-the-command rule inside a `partial` note moves this level by
   one. Neither repair is right — dropping the citation is the instrument choosing what the ledger may
   say (ADR 0490 §6), and teaching the extractor about paths is a guess, because a `/Key` and a path
   segment are the same characters. Know the shape and account for the one. ADR 0493.

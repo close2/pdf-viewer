@@ -1,6 +1,8 @@
 # The residues left from reading hayro's tracker
 
-Status: **open**, from the five-hundred-and-fifty-seventh session.
+Status: **closed** — all three residues, the last in the nine-hundred-and-eighty-third (ADR 1004);
+kept as the record of three cases a round deliberately did not fix and what changed each answer.
+Opened in the five-hundred-and-fifty-seventh session.
 Priority: 53 — neither is witnessed by a corpus document, which is exactly why they are written
 down rather than left to be rediscovered.
 Clauses: §7.2.3 and §7.8.2 (item 1), §9.6.5.2 (item 2)
@@ -12,15 +14,31 @@ that found it deliberately did not fix. The reason was the same in all three: th
 than the finding, and nothing in the corpus draws wrong because of it. That is a reason to record,
 not a reason to forget.
 
-**The third of the three is closed** (ADR 0434). It was the one whose shape was a correctness
+**All three are closed** — the third first (ADR 0434), then the second (ADR 0932), then the first
+(ADR 1004). The third was the one whose shape was a correctness
 hazard rather than a missing diagnostic — a CCITT decode bound and an image height sharing one
 `u32` on the sandbox pipe, so a decode Table 11 legitimately stopped short of the image was
 refused for being the size the clause asked for. The pipe carries both numbers, the lines between
 them are blank and named, and the witness is a hand-built pair of pages in
-`crates/pdf-model/tests/ccitt_bound.rs` because the corpus has no such document. What is left is
-below, and neither has moved: both still need the thing their last paragraph names.
+`crates/pdf-model/tests/ccitt_bound.rs` because the corpus has no such document. The other two are
+below, each with what closed it above the entry that said why it had been left.
 
-## 1. A digit run that swallows an operator is silent
+## 1. A digit run that swallows an operator is silent — **closed** (ADR 1004, session 983)
+
+The rule this entry said the standard does not state turned out to be one clause along from
+where it was looked for. §7.2.3 and §7.3.3 cannot tell `5f` from `12pt` — both are one token and
+neither is a number — but §7.8.2 can, by what the dropped tail *is*: an operator is "a PDF keyword
+specifying some action that shall be performed", so a tail naming one of §8.2 Table 50's operators
+is an action the salvage threw away, and a tail naming none is a spelling. `Lexer::salvaged` now
+records what a salvage dropped and `content::reader::next_content_token` hands the interpreter the
+whole run as a keyword where the tail is an operator, so `5f` is reported through the existing
+`Unsupported::Operator` and `12pt` is still 12. The corpus witness that this entry said would
+change the answer never appeared — `issue6342.pdf` gains three reports and no ink moves — and the
+answer changed anyway, because the clause that separates the two was there to be read.
+
+The original entry is kept below because it is the argument.
+
+### The original entry
 
 `5f` is one token (§7.2.3: `f` is a regular character, and a token ends only at a delimiter or
 white space). It spells no number and no operator, so §7.8.2's rule applies — "when a PDF reader

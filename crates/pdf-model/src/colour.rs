@@ -1023,13 +1023,38 @@ impl ColourSpace {
     /// rather than guessing a colour.
     #[must_use]
     pub fn parse(document: &Document, object: &Object, resources: &Dictionary) -> Option<Self> {
-        Self::parse_at(document, object, resources, 0)
+        Self::parse_with_output_intent(document, object, resources, None)
+    }
+
+    /// Resolves a colour space object on a page whose output intent says what its device
+    /// colours mean.
+    ///
+    /// `output_intent` is the space §14.11.5's `/DestOutputProfile` describes — a profile
+    /// "defining the transformation from the PDF document's source colours to output device
+    /// colourants" — which §8.6.5.7 NOTE 3 names as the one thing in a PDF that can suggest
+    /// the calibration a document's device colours were prepared for. Where a device space is
+    /// selected and the resources name no §8.6.5.6 default for it, the intent with the same
+    /// number of components stands in for the space; where they name one, the default wins,
+    /// being the nearer statement and a `shall`. That ranking is [`Self::device_family`]'s,
+    /// and it is reached from every place a device space can be selected — the family name,
+    /// the array form, a `Pattern`'s underlying space, an `Indexed` base, a `Separation` or
+    /// `DeviceN` alternate — because a meaning is a property of the *space* and not of the
+    /// operator that named it (trap 6). [`Self::parse`] is this with no intent.
+    #[must_use]
+    pub fn parse_with_output_intent(
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+        output_intent: Option<&Self>,
+    ) -> Option<Self> {
+        Self::parse_at(document, object, resources, output_intent, 0)
     }
 
     fn parse_at(
         document: &Document,
         object: &Object,
         resources: &Dictionary,
+        intent: Option<&Self>,
         depth: usize,
     ) -> Option<Self> {
         if depth > MAX_DEPTH {
@@ -1038,7 +1063,7 @@ impl ColourSpace {
         let resolved = document.resolve(object);
 
         if let Some(name) = resolved.as_name() {
-            return Self::by_name(document, name, resources, depth);
+            return Self::by_name(document, name, resources, intent, depth);
         }
 
         let items = resolved.as_array()?;
@@ -1048,9 +1073,15 @@ impl ColourSpace {
             .and_then(|item| item.as_name().map(|n| n.as_bytes().to_vec()))?;
 
         match family.as_slice() {
-            b"DeviceGray" | b"G" => Some(Self::Gray),
-            b"DeviceRGB" | b"RGB" => Some(Self::Rgb),
-            b"DeviceCMYK" | b"CMYK" => Some(Self::Cmyk),
+            // §8.6.3 makes the array the general form — "[a] colour space shall be defined
+            // by an array object whose first element is a name object identifying the colour
+            // space family" — and the bare name its shorthand for a family with no
+            // parameters, so the two select one space; and §8.6.5.6 remaps a device space
+            // "[r]egardless of how the colour space is specified". The array form therefore
+            // takes the name's route, which it did not until session 980 (ADR 1001).
+            b"DeviceGray" | b"G" | b"DeviceRGB" | b"RGB" | b"DeviceCMYK" | b"CMYK" => {
+                Self::device_family(document, &family, resources, intent, depth)
+            }
             b"CalGray" => Some(Self::parse_cal_gray(document, items.get(1))),
             b"CalRGB" => Some(Self::parse_cal_rgb(document, items.get(1))),
             // §8.6.5.1: "A PDF reader shall ignore CalCMYK colour space attributes and
@@ -1060,19 +1091,14 @@ impl ColourSpace {
             // calibrate against and the clause states the whole of what a reader does with
             // one. No corpus document writes it; without this arm such a file would report
             // an unsupported colour space, which is a *refusal* where the standard states
-            // an answer.
-            #[expect(
-                clippy::match_same_arms,
-                reason = "the same answer for a different reason: `DeviceCMYK` is a device \
-                          space and `CalCMYK` is a withdrawn family the clause redirects to \
-                          it, and merging the arms would put one comment over two rules"
-            )]
-            b"CalCMYK" => Some(Self::Cmyk),
+            // an answer. "As if … DeviceCMYK" includes what a `/DefaultCMYK` or an output
+            // intent says that space means.
+            b"CalCMYK" => Self::device_family(document, b"DeviceCMYK", resources, intent, depth),
             b"Pattern" => Some(Self::Pattern {
                 base: items
                     .get(1)
                     .and_then(|item| {
-                        Self::parse_at(document, item, resources, depth.saturating_add(1))
+                        Self::parse_at(document, item, resources, intent, depth.saturating_add(1))
                     })
                     .map(Box::new),
             }),
@@ -1092,8 +1118,8 @@ impl ColourSpace {
                     .unwrap_or([-100.0, 100.0, -100.0, 100.0]);
                 Some(Self::Lab { range })
             }
-            b"ICCBased" => Self::parse_icc_based(document, items.get(1)?, resources, depth),
-            b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, depth),
+            b"ICCBased" => Self::parse_icc_based(document, items.get(1)?, resources, intent, depth),
+            b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, intent, depth),
             b"Separation" | b"DeviceN" => {
                 let is_separation = family.as_slice() == b"Separation";
                 let names = colourant_names(document, items.get(1), is_separation);
@@ -1126,8 +1152,13 @@ impl ColourSpace {
                     // empty or missing one leaves the space undefined rather than degenerate.
                     return None;
                 }
-                let alternate =
-                    Self::parse_at(document, items.get(2)?, resources, depth.saturating_add(1))?;
+                let alternate = Self::parse_at(
+                    document,
+                    items.get(2)?,
+                    resources,
+                    intent,
+                    depth.saturating_add(1),
+                )?;
                 let transform = Function::parse(document, items.get(3)?).ok()?;
                 Some(Self::Separation {
                     inputs,
@@ -1148,6 +1179,7 @@ impl ColourSpace {
         document: &Document,
         object: &Object,
         resources: &Dictionary,
+        intent: Option<&Self>,
         depth: usize,
     ) -> Option<Self> {
         let stream = document.resolve(object);
@@ -1191,8 +1223,13 @@ impl ColourSpace {
         // and is free: a document saying its profile stands in for `Lab` or a `Separation` gets
         // that, rather than whichever device space happens to have the same component count.
         if let Some(alternate) = stream.dict.get("Alternate")
-            && let Some(space) =
-                Self::parse_at(document, alternate, resources, depth.saturating_add(1))
+            && let Some(space) = Self::parse_at(
+                document,
+                alternate,
+                resources,
+                intent,
+                depth.saturating_add(1),
+            )
         {
             return Some(space);
         }
@@ -1245,9 +1282,16 @@ impl ColourSpace {
         document: &Document,
         items: &[Object],
         resources: &Dictionary,
+        intent: Option<&Self>,
         depth: usize,
     ) -> Option<Self> {
-        let base = Self::parse_at(document, items.get(1)?, resources, depth.saturating_add(1))?;
+        let base = Self::parse_at(
+            document,
+            items.get(1)?,
+            resources,
+            intent,
+            depth.saturating_add(1),
+        )?;
         let high = usize::try_from(
             items
                 .get(2)
@@ -1348,42 +1392,71 @@ impl ColourSpace {
         document: &Document,
         name: &Name,
         resources: &Dictionary,
+        intent: Option<&Self>,
         depth: usize,
     ) -> Option<Self> {
-        // Choosing a device space is a request to use the *default* space standing in for
-        // it, where the resources name one. ISO 32000-2 §8.6.5.6: "If such an entry is
-        // present, its value shall be used as the colour space for the operation currently
-        // being performed." This is how a producer says "my DeviceCMYK means this press",
-        // and ignoring it renders those documents in the wrong colours entirely.
-        // The families are ISO 32000-2's own names, so they are compared against literals —
-        // as bytes, which is §7.3.5's rule by the shorter route.
-        let default = match name.as_bytes() {
-            b"DeviceGray" | b"G" | b"CalGray" => Some("DefaultGray"),
-            b"DeviceRGB" | b"RGB" | b"CalRGB" => Some("DefaultRGB"),
-            b"DeviceCMYK" | b"CMYK" => Some("DefaultCMYK"),
-            _ => None,
-        };
-        if let Some(default) = default
-            && let Some(space) = Self::named_default(document, default, resources, depth)
+        if let Some(space) =
+            Self::device_family(document, name.as_bytes(), resources, intent, depth)
         {
             return Some(space);
         }
-
-        match name.as_bytes() {
-            b"DeviceGray" | b"G" | b"CalGray" => return Some(Self::Gray),
-            b"DeviceRGB" | b"RGB" | b"CalRGB" => return Some(Self::Rgb),
-            b"DeviceCMYK" | b"CMYK" => return Some(Self::Cmyk),
-            // A bare `/Pattern` names no underlying space; the caller falls back on the
-            // operand count when one is needed.
-            b"Pattern" => return Some(Self::Pattern { base: None }),
-            _ => {}
+        // A bare `/Pattern` names no underlying space; the caller falls back on the
+        // operand count when one is needed.
+        if name.as_bytes() == b"Pattern" {
+            return Some(Self::Pattern { base: None });
         }
         // Anything else is a name in the page's `/ColorSpace` resource dictionary — the
         // document's own name, so §7.3.5's exact binary match decides it (ADR 0439).
         let table = document.get_key(resources, "ColorSpace");
         let table = table.as_dict()?;
         let entry = table.get_by_name(name)?;
-        Self::parse_at(document, entry, resources, depth.saturating_add(1))
+        Self::parse_at(document, entry, resources, intent, depth.saturating_add(1))
+    }
+
+    /// What a device colour space family means on this page: three sources, in the order
+    /// the standard puts them, and `None` for a name that is not a family.
+    ///
+    /// Choosing a device space is a request to use the *default* space standing in for it,
+    /// where the resources name one. ISO 32000-2 §8.6.5.6: "If such an entry is present, its
+    /// value shall be used as the colour space for the operation currently being performed."
+    /// This is how a producer says "my `DeviceCMYK` means this press", and ignoring it renders
+    /// those documents in the wrong colours entirely. Failing that, the page's output intent
+    /// describes the device the document's colours were prepared for, which §8.6.5.7 NOTE 3
+    /// names as the only thing in a PDF that can, and it stands in for the family with the same
+    /// number of components; §14.11.5 makes the intent informational and this tree chooses to
+    /// respect it, so a `/DefaultCMYK` — a `shall` about the current operation — outranks it.
+    /// Failing both, the device space itself — where §8.6.4.4 states no conversion,
+    /// §10.4.2.5 states one and §10.4.2.1 ranks it below §10.3's ICC route, so what happens
+    /// then is this processor's own choice between two answers the standard has already
+    /// ordered, documented at [`CMYK_CORNERS`].
+    ///
+    /// The families are ISO 32000-2's own names, so they are compared against literals — as
+    /// bytes, which is §7.3.5's rule by the shorter route. A bare `/CalGray` or `/CalRGB` is
+    /// not a colour space name §8.6.3 admits — those families take a dictionary — and is read
+    /// as the device family it would otherwise stand for, which is a recovery rather than a
+    /// reading.
+    fn device_family(
+        document: &Document,
+        family: &[u8],
+        resources: &Dictionary,
+        intent: Option<&Self>,
+        depth: usize,
+    ) -> Option<Self> {
+        let (default, device) = match family {
+            b"DeviceGray" | b"G" | b"CalGray" => ("DefaultGray", Self::Gray),
+            b"DeviceRGB" | b"RGB" | b"CalRGB" => ("DefaultRGB", Self::Rgb),
+            b"DeviceCMYK" | b"CMYK" => ("DefaultCMYK", Self::Cmyk),
+            _ => return None,
+        };
+        if let Some(space) = Self::named_default(document, default, resources, intent, depth) {
+            return Some(space);
+        }
+        if let Some(intent) = intent
+            && intent.components() == device.components()
+        {
+            return Some(intent.clone());
+        }
+        Some(device)
     }
 
     /// Resolves a `/DefaultGray`, `/DefaultRGB` or `/DefaultCMYK` entry, if present.
@@ -1394,6 +1467,7 @@ impl ColourSpace {
         document: &Document,
         key: &str,
         resources: &Dictionary,
+        intent: Option<&Self>,
         depth: usize,
     ) -> Option<Self> {
         if depth > MAX_DEPTH {
@@ -1401,7 +1475,7 @@ impl ColourSpace {
         }
         let table = document.get_key(resources, "ColorSpace");
         let entry = table.as_dict()?.get(key)?;
-        Self::parse_at(document, entry, resources, depth.saturating_add(1))
+        Self::parse_at(document, entry, resources, intent, depth.saturating_add(1))
     }
 
     /// Which of §11.3.4's two calibrated one-component spaces this is, if either.

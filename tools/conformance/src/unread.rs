@@ -30,9 +30,10 @@
 //!
 //! It was one of `doc/todo/01`'s prose sweeps from the hundred-and-twenty-second session to the
 //! four-hundred-and-eighty-ninth, re-derived from its own paragraph on every run — which is the
-//! failure mode ADR 0319 records for the fifteenth sweep, and `CLAUDE.md`'s "write down the
-//! command, not the answer" failing in the direction it was written for. A description is
-//! rebuilt differently every time; a program is the same instrument twice. ADR 0324.
+//! failure mode ADR 0319 records for the fifteenth sweep, and `CLAUDE.md`'s rule that what is
+//! written down is the command that counts a fact, never the fact, failing in the direction it
+//! was written for. A description is rebuilt differently every time; a program is the same
+//! instrument twice. ADR 0324.
 //!
 //! # Why it is not a gate
 //!

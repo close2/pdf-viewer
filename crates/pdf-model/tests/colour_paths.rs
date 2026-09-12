@@ -450,6 +450,116 @@ fn a_default_space_outranks_the_output_intent() {
     );
 }
 
+/// §8.6.5.6's remapping reaches the array form of a device space, not only its name.
+///
+/// > A colour space is selected for painting each graphics object. This is either the current
+/// > colour space parameter in the graphics state or a colour space given as an entry in an
+/// > image XObject, inline image, or shading dictionary. Regardless of how the colour space is
+/// > specified, it shall be subject to remapping as described below.
+///
+/// `[/DeviceRGB]` is a device colour space selected, and until the nine-hundred-and-eightieth
+/// session the array arms of `ColourSpace::parse` answered the device space directly while the
+/// name arms asked for the default — two routes to one space, which is trap 6's shape.
+#[test]
+fn a_default_space_reaches_the_array_form_of_a_device_space() {
+    let objects = "5 0 obj\n[/CalRGB << /WhitePoint [0.9505 1.0 1.089] /Gamma [1 1 1] \
+                   /Matrix [0 0 0 0 1 0 0 0 0] >>]\nendobj\n";
+    let resources = "/ColorSpace << /DefaultRGB 5 0 R /CS0 [/DeviceRGB] >>";
+
+    // The default's matrix sends every component to Y alone, so a pure red is a grey — a
+    // colour no reading of `1 0 0` as device RGB produces.
+    let by_name = centre_colour(pdf_with(
+        objects,
+        resources,
+        "/DeviceRGB cs 1 0 0 scn 0 0 20 20 re f",
+    ));
+    let by_array = centre_colour(pdf_with(
+        objects,
+        resources,
+        "/CS0 cs 1 0 0 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        by_name, by_array,
+        "the family name and its array form select one space and one default"
+    );
+    let (r, g, b) = by_array;
+    assert!(
+        r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1 && r < 250,
+        "the default's matrix makes red a grey; got {by_array:?}"
+    );
+}
+
+/// An output intent reaches a device colour however the colour is set.
+///
+/// The same rule as [`a_cmyk_colour_is_the_same_however_it_is_drawn`], one source further up:
+/// §14.11.5's `/DestOutputProfile` is what this tree takes a document's `DeviceCMYK` to mean
+/// where no `/DefaultCMYK` says otherwise, and a meaning is a property of the *space*, not of
+/// the operator that named it. Until the nine-hundred-and-eightieth session the intent was
+/// consulted by `g`, `rg` and `k` alone — `Interpreter::device_space` — while `cs` reached the
+/// same space through `ColourSpace::parse`, which asked §8.6.5.6's default and stopped. So on
+/// a document carrying an output intent, `1 0 0 0 k` was the intent's cyan and
+/// `/DeviceCMYK cs 1 0 0 0 scn` was the assumed press's, 173 levels apart in green, on the
+/// same page, for the same four numbers. Trap 6, with an operator on one side of it.
+///
+/// Four routes: the operator, the family name, a resource name that resolves to the family,
+/// and a `Separation` whose alternate is the family — the last because §8.6.5.6 applies a
+/// default space to "[t]he alternate colour space of a Separation or DeviceN colour space (but
+/// only if the alternate colour space is actually selected)", and on an additive device it
+/// always is (§8.6.6.4). What the intent replaces is the device space wherever it is reached,
+/// so the same rule holds for the intent.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the doc comment quotes §8.6.5.6 verbatim, and a quotation is not marked up"
+)]
+fn an_output_intent_reaches_a_device_colour_however_it_is_set() {
+    let objects = format!(
+        "{}7 0 obj\n[/Separation /Spot /DeviceCMYK 8 0 R]\nendobj\n\
+         8 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 0 0 0] /N 1 >>\n\
+         endobj\n",
+        output_intent_objects()
+    );
+    let with_intent = |resources: &str, content: &str| {
+        centre_colour(pdf_with_catalog(
+            &objects,
+            "/OutputIntents [5 0 R]",
+            resources,
+            content,
+        ))
+    };
+
+    let by_operator = with_intent("", "1 0 0 0 k 0 0 20 20 re f");
+    let (r, g, b) = by_operator;
+    assert!(
+        r <= 1 && g >= 254 && b <= 1,
+        "the intent's profile says cyan is green; `k` gave {by_operator:?}"
+    );
+
+    let by_family = with_intent("", "/DeviceCMYK cs 1 0 0 0 scn 0 0 20 20 re f");
+    assert_eq!(
+        by_operator, by_family,
+        "`k` and `/DeviceCMYK cs … scn` are one space and must be one colour"
+    );
+
+    let by_resource = with_intent(
+        "/ColorSpace << /CS0 /DeviceCMYK >>",
+        "/CS0 cs 1 0 0 0 scn 0 0 20 20 re f",
+    );
+    assert_eq!(
+        by_operator, by_resource,
+        "a resource name resolving to the family is the same space again"
+    );
+
+    let by_alternate = with_intent(
+        "/ColorSpace << /CS0 7 0 R >>",
+        "/CS0 cs 1 scn 0 0 20 20 re f",
+    );
+    assert_eq!(
+        by_operator, by_alternate,
+        "a Separation reverting to DeviceCMYK reverts to what the document says it means"
+    );
+}
+
 /// An `ICCBased` image is converted through its profile, exactly as a fill in it is.
 ///
 /// ISO 32000-2 §8.6.5.5, and the whole of what this test is about: the profile is the

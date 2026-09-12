@@ -52,6 +52,6 @@ pub mod type1;
 mod vertical;
 
 pub use crate::cmap::Code;
-pub use crate::loading::{CharacterGlyph, FontError, LoadedFont, Meaning, NOTDEF_GLYPH, NamingGap};
+pub use crate::loading::{CharacterGlyph, FontError, LoadedFont, NOTDEF_GLYPH, NamingGap};
 pub use crate::metrics::measured_extent;
 pub use crate::sfnt::repaired_font_program;

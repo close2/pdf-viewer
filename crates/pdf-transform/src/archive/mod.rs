@@ -223,6 +223,30 @@ pub(crate) fn run(
 
     // Stage 1: the validator is the reading. Nothing below re-reads ISO 19005.
     let input = pdf_archive::check(document, plan.target);
+    // **A source that already conforms is copied, not rewritten.** A conversion is a rewrite,
+    // and a rewrite of a file that needs nothing changed can only lose: every byte offset
+    // moves, so a signature the source carries — which ISO 19005-2 6.4.3 permits and Annex
+    // B.1 holds to "the entire file" — no longer covers the bytes it sits in, and the output
+    // fails a requirement the source met. That is exactly what the output's own verdict caught
+    // the day `signatures/digest-covers-the-whole-file` became checkable (ADR 1006), and until
+    // then this verb had been writing conforming signed sources as files whose signatures
+    // lied. The identity conversion is the honest one: nothing moves, nothing is lost, and
+    // the report says the document conformed already. What a *non*-conforming signed source
+    // owes is `doc/pdf-a-conversion-limits.md` section 3.6's report, which is not built; such
+    // a document is refused by the output's verdict with the regression named.
+    if input.verdict() == Verdict::Conforms {
+        let (mut conversion, _, _) = decide_every_failure(plan, document, &input);
+        conversion.achieved = Some(Achieved {
+            conforms: true,
+            still_failing: Vec::new(),
+            regressions: Vec::new(),
+            checked: input.checked(),
+        });
+        let output = copy_the_source(plan, document, sinks)?;
+        report.outputs.push(output);
+        report.archive = Some(conversion);
+        return Ok(());
+    }
     // Stage 2: one decision per failed requirement.
     let (mut conversion, version, prepared) = decide_every_failure(plan, document, &input);
     if !conversion.proceeds() {
@@ -456,6 +480,48 @@ fn apply_the_decisions(
                 .count(),
         },
     }))
+}
+
+/// The source written to the sink byte for byte, for a document that already conforms.
+///
+/// The one conversion that cannot regress a requirement is the one that changes no byte.
+fn copy_the_source(
+    plan: &ArchivePlan,
+    document: &Document,
+    sinks: &dyn Sinks,
+) -> Result<Output, Refusal> {
+    let expanded = plan.names.expand(&Fill {
+        ordinal: 1,
+        count: 1,
+        page: None,
+        label: None,
+        title: None,
+    });
+    let mut writer = sinks.open(&expanded.name).map_err(|error| Refusal::Sink {
+        name: expanded.name.clone(),
+        error,
+    })?;
+    let sank = |error| Refusal::Sink {
+        name: expanded.name.clone(),
+        error,
+    };
+    let bytes = document.bytes();
+    writer
+        .write_all(&bytes.read(0..bytes.len()))
+        .map_err(sank)?;
+    writer.flush().map_err(sank)?;
+    drop(writer);
+    Ok(Output {
+        name: expanded.name,
+        bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        sanitised: expanded.sanitised,
+        origin: Origin::Archived {
+            source: plan.source,
+            target: plan.target.to_string(),
+            pages: Pages::new(document).len(),
+            changed: 0,
+        },
+    })
 }
 
 /// Why an assembled output was not written.

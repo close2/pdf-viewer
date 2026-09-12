@@ -187,7 +187,8 @@ fn every_form_the_clause_prints_still_draws() {
 /// a white-space character and at nothing else, and `f` is neither: Table 2 lists the
 /// delimiters and `f` is not among them, so `5f` is **one** token. It spells no number
 /// (§7.3.3 wants digits and an optional sign and point, not a letter) and no operator, so
-/// nothing is painted.
+/// nothing is painted — and §7.8.2 says what a reader owes an operator it does not recognise:
+/// "an error shall occur".
 ///
 /// The distinction is visible rather than theoretical, which is why it is worth a test:
 /// `hayro`'s issue 994 is a hand-built stream that ends `... re 1 0 0 rg 5f`, and the two
@@ -195,12 +196,16 @@ fn every_form_the_clause_prints_still_draws() {
 /// interpreter a `5` and an `f`, the fill operator runs, and the square appears. One that
 /// respects §7.2.3's boundary paints nothing.
 ///
-/// **This tree paints nothing, and says nothing** — the run is salvaged to the number 5 and
-/// the letters are dropped, rather than surfacing as `Unsupported::Operator("5f")` the way
-/// `.` does above. The ink is what the clause asks for; the silence is not, and it is not
-/// fixed here because the same leniency is what reads `12pt` as 12 in the streams that need
-/// it (ADR 0303 scoped its correction to digit-less runs deliberately). `doc/todo/53` carries
-/// the residue. What this test pins is the half that decides the page.
+/// **This tree paints nothing and says so.** Until the nine-hundred-and-eighty-third session it
+/// painted nothing and said nothing — the run was salvaged to the number 5 and the letters were
+/// dropped — because the same leniency reads `12pt` as 12 in the streams that need it, and ADR
+/// 0303 had scoped its correction to digit-less runs for that reason. What separates the two is
+/// what the dropped tail *is*: `f` is §8.2 Table 50's fill and `pt` is nobody's operator, so the
+/// first run swallowed an action and the second appended a spelling. The content reader asks
+/// exactly that question and hands the interpreter `5f` as the keyword it lexically is, which
+/// the operator dispatch reports as it reports any keyword it does not know (ADR 1004). The
+/// pair below is the calibration: the report fires on the swallowed operator and not on the
+/// unit.
 #[test]
 fn a_digit_run_that_swallows_an_operator_paints_nothing() {
     let drawn = draws_in_silence("1 0 0 rg 10 10 100 20 re f");
@@ -210,5 +215,40 @@ fn a_digit_run_that_swallows_an_operator_paints_nothing() {
     assert!(
         !format!("{:?}", interpretation.display_list).contains("Fill"),
         "`5f` is one token under §7.2.3, so there is no `f` operator and no fill"
+    );
+    assert_eq!(
+        interpretation.unsupported,
+        vec![unrecognised("5f")],
+        "the run that swallowed the fill is reported as the operator it is not"
+    );
+}
+
+/// **The half the rule has to leave alone: a unit a producer wrote after a number.**
+///
+/// `12pt` has the same shape as `5f` — digits and then letters, one token — and the same clause
+/// makes it no number. What differs is that `pt` names no operator, so the salvage drops a
+/// spelling and not an action, and the leniency ADR 0303 kept stands: the size is read as 12,
+/// the text draws, and nothing is reported. Asserted beside the test above because a rule that
+/// reported both would be the clause read without its cost, and one that reported neither is
+/// what this file recorded as a residue for four hundred sessions.
+#[test]
+fn a_digit_run_with_a_unit_suffix_is_still_read_as_its_number() {
+    let with_unit = interpretation("BT /F0 12pt Tf 10 10 Td (Hi) Tj ET");
+    assert_eq!(
+        with_unit.unsupported,
+        Vec::new(),
+        "a unit suffix is a spelling, and dropping it costs no action"
+    );
+    assert!(
+        format!("{:?}", with_unit.display_list).contains("Fill"),
+        "the text draws at the size the run's digits state"
+    );
+    assert_eq!(
+        format!("{:?}", with_unit.display_list),
+        format!(
+            "{:?}",
+            interpretation("BT /F0 12 Tf 10 10 Td (Hi) Tj ET").display_list
+        ),
+        "`12pt` and `12` set the same size"
     );
 }

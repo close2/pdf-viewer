@@ -300,6 +300,21 @@ Two things follow, and the second is the cheaper one:
   missed 2886 that mark outside a boundary equal to their medium. Derive the condition from the
   clause's own words and print what it matched.
 
+### 40. Two functions in one file can be the same capability arriving and announcing nothing
+
+Every instance of that shape on record was between a crate and a host, or between a session and a
+ledger row. In the nine-hundred-and-seventy-ninth session it was forty lines apart:
+`transparency::knockout_group_elements` refused a masked part and any blending part, with a doc
+comment explaining the refusal in terms that `knockout_elements`, the function above it, had
+already answered for a form's knockout group since ADR 0234. The corpus's two `CompositedInParts`
+documents were drawn flat — a stroke composited over its own fill, the double border §11.7.4.4's
+NOTE 2 exists to prevent — for that reason and no other (ADR 1000).
+
+The sweep that finds this is not a grep over reasons, because the reason named no blocker. It is
+**reading a refusing function's neighbours for the construction it says does not exist.** A
+refusal with a good sentence is the most convincing kind, and the sentence is only as current as
+the last time somebody read the file it is in.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in
