@@ -567,6 +567,39 @@ were not. The same move would put a form's non-isolated knockout group whose ele
 affine mode back on three backends — `issue18032.pdf`'s population — and is priced there as a
 follow-up rather than taken.
 
+## The form's knockout group took the mode to its `Do`, and a stated element was read as blending
+
+**ADR 1000 §7 priced a form `XObject`'s non-isolated knockout group whose elements blend as
+route 2's argument "extended unchanged", and the nine-hundred-and-eighty-eighth session took it
+(ADR 1009).** `transparency::knockout_construction` tries the three constructions in the order
+`implicit_knockout_group` does — transparency, the mode at the `Do`, the group's own backdrop —
+and the second is tried before the third because every backend draws it. Two things the pricing
+did not say were needed, and both came from reading the derivation for what it needs rather than
+what it was written against: an element of zero opacity has weight 0 everywhere, so it contributes
+no colour, need not share the mode, and — under the opacity reading — still knocks out what is under
+it; and where exactly one element carries colour, `K / Σwᵢ` is that colour at every pixel, so *any*
+mode moves, §11.3.5.3's non-separable ones included. `issue18032.pdf`'s group was neither of the
+shapes the pricing named — its elements are a nested group holding a shading under `/BM /Color`
+and a nested group at `ca 0` — and it takes the construction on exactly that reading, drawing
+zero pixels differently from the own-backdrop construction at scale 2 and on three backends
+rather than one. Its name comes off `render-raster`'s `REFUSED_BEFORE_THE_SCENE`, which is that
+crate's list.
+
+**Found on the way, and it was a report about nothing**: `command_blends` fell to its
+non-exhaustive arm for a `Command::Shaped`, so a knockout group drawn on transparency with a
+stated element was reported as "non-isolated, and an element blends with the backdrop it excludes"
+whenever Table 145 said `/I false`. A stated element blends as its object does now. No corpus
+page carried the report, because every corpus knockout group with a stated element is `/I true`.
+
+What the own-backdrop construction still keeps, and keeps on the oracle alone: coloured elements
+under two modes, or under one mode that is neither affine in its source nor applied to one colour.
+And the two elements §11.4.6 can neither draw nor state stay reported by name — an image whose
+samples may be shape or opacity, a shading that is not opaque — which §11.3.7.2's row now argues is
+the *whole* of what a single alpha per pixel costs this tree: nothing but §11.4.6 reads a shape
+apart from an opacity, and there the shape is stated. The bit that would close both is the
+*kind* of an image's or a shading's alpha carried beside its value, in `crate::image` and
+`crate::shading`.
+
 ## What the five precedents have in common, and what the sixth was instead
 
 `ImageSource` carries a raster the list *names* (ADR 0210), a mask group is painted in the one

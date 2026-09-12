@@ -37,21 +37,35 @@
 //!
 //! **The frontier is computed rather than claimed**: [`frontier`] lists every subclause with text
 //! in it that no reading has reached, and `cargo run -p pdf-archive --example frontier` prints it
-//! — which is where the size of it belongs rather than in this sentence. What a *document* can
-//! say, because it is a shape rather than a number, is the shape of the region read: it is a
-//! **prefix of each part in that part's own order**, plus the normative annexes, so that a
-//! reviewer with their copy open reads straight down the page and can see that nothing was
-//! skipped. Clause 5, clause 6.1 and the annexes were the first pass; clause 6.2 — graphics,
-//! colour, images, `XObject`s, transparency and the whole of the font subclauses — the
-//! second; and the third is what each part says a document lets a reader *do* — annotations,
-//! forms, signatures and actions, which is ISO 19005-2's clauses 6.3 to 6.5 and ISO 19005-4's
-//! 6.3 to 6.6. Everything after it is still judged at subclause level only.
+//! — which is where the size of it belongs rather than in this sentence. **It is empty**, and
+//! `every_subclause_with_text_in_it_has_a_reading` holds it empty: a subclause added to
+//! [`subclauses`] arrives with its reading or fails the build by name. It was read in four passes,
+//! each a **prefix of each part in that part's own order** plus the normative annexes, so that a
+//! reviewer with their copy open could read straight down the page and see that nothing was
+//! skipped — clause 5, clause 6.1 and the annexes; clause 6.2; what each part says a document
+//! lets a reader *do*, ISO 19005-2's 6.3 to 6.5 and ISO 19005-4's 6.3 to 6.6; and the rest,
+//! metadata, logical structure, embedded files, optional content, presentations, the
+//! `Requirements` key and ISO 19005-4's 6.13 to 6.15.
 //!
 //! A [`Binding::Container`] heading is not in the frontier: it states no text. Everything else is,
 //! including the subclauses this audit records as scoping or as stating no requirement — because
 //! those are claims about *all* of a subclause's sentences, and two of them turned out to be
 //! hiding a processor obligation apiece (ISO 19005-4 Annex A.1 and Annex B.1, which define a
 //! flavour *and* require a processor of that flavour to read every plain PDF/A-4 file).
+//!
+//! # A sentence a row carries on a ground other than the subclause's own text
+//!
+//! Three rows cite a subclause for a rule that subclause's normative text does not state, and
+//! each is right to: `graphics/named-resources-are-defined` binds a PDF/A-2 file on a published
+//! clarification (`TechNote 0010` A002, which [`crate::clarification`] carries); ISO 19005-4
+//! section 6.3.3's have-an-appearance row rests on that subclause's NOTE 1, which attributes the
+//! rule to the base standard; and `embedded-files/associated-file-media-type` carries ISO 32000-2
+//! §14.13.2's rule under ISO 19005-4 section 6.9, on nothing but section 5.1's delegation. Two of
+//! them used to be recorded as a [`Carried::By`] whose sentence opened "not this subclause's own
+//! sentence" — a disclaimer inside the one field a reader compares with the standard's words.
+//! [`Carried::Clarified`] is the variant for it, and [`Ground`] says which of the three grounds a
+//! row rests on; the tests hold a clarification's item against [`crate::clarification`] and
+//! refuse a `By` whose text disclaims itself.
 //!
 //! # Why the clause numbers are here and the clause text is not
 //!
@@ -1568,6 +1582,38 @@ pub enum Carried {
     /// A definition, a permission, or a sentence about the standard's own text. The reason says
     /// which — a `shall` inside a definition is still a definition.
     StatesNoRequirement(&'static str),
+    /// Rows carry it under this subclause's number on a ground other than the subclause's own
+    /// normative text.
+    ///
+    /// The subclause does not state the sentence; a clarification, one of its NOTEs or the base
+    /// standard does, and the row is cited here because this is where a reader would look for
+    /// it. Kept apart from [`Self::By`] because a `By` is a claim that the subclause's own words
+    /// say so, which is the claim a reader checks against their copy.
+    Clarified {
+        /// The rows that carry it, by identifier.
+        by: &'static [&'static str],
+        /// What binds the rows here, since the subclause's text does not.
+        ground: Ground,
+    },
+}
+
+/// What a [`Carried::Clarified`] sentence rests on.
+///
+/// Three grounds, kept apart because a reader finds each in a different place: a resolution in
+/// the technical note, a NOTE in the part's own text, or a clause of the base standard the part's
+/// delegation sentence makes binding without the subclause pointing at it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ground {
+    /// A published clarification [`crate::clarification`] carries, by its item — `A002`.
+    ///
+    /// The tests hold it to that module: every row named beside it is clarified by that item
+    /// under this part.
+    Resolution(&'static str),
+    /// A NOTE of the subclause itself, which says where the rule is stated.
+    Note(&'static str),
+    /// A clause of the base standard, which the part's clause 5 makes binding and which nothing
+    /// in this subclause states or points at.
+    BaseStandard(&'static str),
 }
 
 /// One subclause read sentence by sentence.
@@ -2026,10 +2072,13 @@ static READINGS: &[Reading] = &[
                 ),
             },
             Sentence {
-                says: "not part 2's own sentence: TechNote 0010 A002 extends part 4's rule \
-                       that the associated resources dictionary defines every named resource the \
-                       stream references to a PDF/A-2 file as well",
-                carried: Carried::By(&["graphics/named-resources-are-defined"]),
+                says: "such a resources dictionary defines every named resource that content \
+                       stream references — part 4's sentence, which part 2's text does not \
+                       state and the working group's resolution extends to a PDF/A-2 file",
+                carried: Carried::Clarified {
+                    by: &["graphics/named-resources-are-defined"],
+                    ground: Ground::Resolution("A002"),
+                },
             },
         ],
     },
@@ -3006,6 +3055,637 @@ static READINGS: &[Reading] = &[
                 ),
             },
         ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.1",
+        sentences: &[Sentence {
+            says: "the metadata requirements are sections 6.6.2 to 6.6.6; the rest of the \
+                   subclause says why metadata matters and that a writer may have domain-specific \
+                   requirements of its own to meet outside this part",
+            carried: Carried::StatesNoRequirement(
+                "informative: a pointer at the subclauses that state the rules, and a paragraph \
+                 about what metadata is for",
+            ),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.2.1",
+        sentences: &[
+            Sentence {
+                says: "the document catalog states a Metadata key whose value is a metadata \
+                       stream as the base standard's 14.3.2 defines one",
+                carried: Carried::By(&["metadata/catalog-metadata-stream"]),
+            },
+            Sentence {
+                says: "every metadata stream in the file conforms to the XMP Specification",
+                carried: Carried::By(&[
+                    "metadata/xmp-packets-state-one-rdf-element",
+                    "metadata/xmp-packets-meet-the-xmp-data-model",
+                    "metadata/xmp-packets-describe-one-resource",
+                    "metadata/xmp-character-data-only-in-simple-values",
+                    "metadata/xmp-packets-meet-the-xmp-serialisation",
+                ]),
+            },
+            Sentence {
+                says: "no XMP packet header states the bytes or encoding attributes",
+                carried: Carried::By(&["metadata/xmp-packet-header-attributes"]),
+            },
+            Sentence {
+                says: "all content of every XMP packet is well-formed as XML 1.0 and RDF/XML \
+                       define well-formedness",
+                carried: Carried::By(&["metadata/xmp-packets-well-formed"]),
+            },
+            Sentence {
+                says: "a writer creating or resaving a conforming file should validate every \
+                       packet's content at that moment",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation, addressed to the writer at the moment of writing",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.2.2",
+        sentences: &[
+            Sentence {
+                says: "a namespace prefix carries no significance, except where a specific \
+                       prefix is identified as required",
+                carried: Carried::Scoping(
+                    "the exception is what makes a required prefix a rule rather than a \
+                     convention: `metadata/identification-schema-prefix` and \
+                     `metadata/extension-schema-container-fields` rest on it, at the subclauses \
+                     that require theirs",
+                ),
+            },
+            Sentence {
+                says: "the prefixes Table 1 lists should be used for the namespaces it names",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; a table of requirements that admitted one would make a \
+                     should fail a file",
+                ),
+            },
+            Sentence {
+                says: "a namespace URI identifies and need not be an actionable link",
+                carried: Carried::StatesNoRequirement(
+                    "a statement about what the URIs are, with nothing a file could fail",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.2.3.1",
+        sentences: &[
+            Sentence {
+                says: "every property stated in XMP form uses a predefined schema — the XMP \
+                       Specification's, ISO 19005-1's or this part's — as that schema defines it",
+                carried: Carried::By(&["metadata/properties-use-known-schemas"]),
+            },
+            Sentence {
+                says: "or else an extension schema that complies with section 6.6.2.3.2",
+                carried: Carried::Restated(
+                    "section 6.6.2.3.2, whose `metadata/extension-schemas-embedded` judges a \
+                     namespace no predefined schema owns: this sentence states that half by \
+                     deferring to it, and a reader that reported both would report each file \
+                     twice",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.2.3.2",
+        sentences: &[
+            Sentence {
+                says: "every extension schema a metadata stream references is described inside \
+                       that stream or inside the catalog's",
+                carried: Carried::By(&["metadata/extension-schemas-embedded"]),
+            },
+            Sentence {
+                says: "the catalog's stream's schemas are inherited by every stream, and any \
+                       other stream's schemas are considered in that stream alone",
+                carried: Carried::Scoping(
+                    "where `extension_schemas_embedded` looks for a description: the catalog's \
+                     packet is read once and carried into every stream, and another stream's \
+                     descriptions reach that stream alone",
+                ),
+            },
+            Sentence {
+                says: "a stream other than the catalog's may extend or replace some or all of a \
+                       schema it inherited",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the writer, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "an extension schema is specified using the container schema of section \
+                       6.6.2.3.3",
+                carried: Carried::By(&["metadata/extension-schemas-embedded"]),
+            },
+            Sentence {
+                says: "every field each of section 6.6.2.3.3's tables describes is present in \
+                       any extension schema container schema",
+                carried: Carried::Restated(
+                    "section 6.6.2.3.3, where the tables are and where \
+                     `metadata/extension-schema-container-fields` carries this sentence beside \
+                     the prefixes those tables require — its doc comment names this sentence as \
+                     the one that binds it, and TechNote 0010 A029 is what exempts two fields",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.2.3.3",
+        sentences: &[
+            Sentence {
+                says: "the container schema of Table 2 has the namespace URI the subclause gives \
+                       it and pdfaExtension as its required prefix",
+                carried: Carried::By(&["metadata/extension-schema-container-fields"]),
+            },
+            Sentence {
+                says: "the Schema value type of Table 3 has its own field namespace and \
+                       pdfaSchema as its required prefix",
+                carried: Carried::By(&["metadata/extension-schema-container-fields"]),
+            },
+            Sentence {
+                says: "the Property value type of Table 4 has its own field namespace and \
+                       pdfaProperty as its required prefix",
+                carried: Carried::By(&["metadata/extension-schema-container-fields"]),
+            },
+            Sentence {
+                says: "a pdfaProperty:valueType names a value type the XMP Specification \
+                       defines or a custom value type defined within the same extension schema",
+                carried: Carried::By(&["metadata/extension-property-value-types-are-defined"]),
+            },
+            Sentence {
+                says: "the ValueType value type of Table 5 has its own field namespace and \
+                       pdfaType as its required prefix",
+                carried: Carried::By(&["metadata/extension-schema-container-fields"]),
+            },
+            Sentence {
+                says: "the Field value type of Table 6 has its own field namespace and \
+                       pdfaField as its required prefix",
+                carried: Carried::By(&["metadata/extension-schema-container-fields"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.3",
+        sentences: &[
+            Sentence {
+                says: "a document information dictionary may appear in a conforming file",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the writer, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "where one appears, a conforming reader ignores it",
+                carried: Carried::By(&["metadata/document-information-dictionary-ignored"]),
+            },
+            Sentence {
+                says: "a writer should keep its values consistent with the metadata stream's, as \
+                       Table 7 pairs them",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.4",
+        sentences: &[
+            Sentence {
+                says: "the file's PDF/A version and conformance level are stated using the \
+                       identification schema this subclause defines",
+                carried: Carried::By(&[
+                    "metadata/identification-part-number",
+                    "metadata/identification-conformance-level",
+                ]),
+            },
+            Sentence {
+                says: "the schema of Table 8 has the namespace URI the subclause gives it and \
+                       pdfaid as its required prefix",
+                carried: Carried::By(&["metadata/identification-schema-prefix"]),
+            },
+            Sentence {
+                says: "pdfaid:part is the number of the part the file conforms to, which is 2 \
+                       for a file prepared under this part",
+                carried: Carried::By(&["metadata/identification-part-number"]),
+            },
+            Sentence {
+                says: "where the file conforms to a version defined by an amendment, pdfaid:amd \
+                       is the amendment's number and year separated by a colon",
+                carried: Carried::By(&[
+                    "metadata/identification-amendment-and-corrigendum",
+                    "metadata/identification-amendment-form",
+                ]),
+            },
+            Sentence {
+                says: "where the file conforms to a version defined by a corrigendum, \
+                       pdfaid:corr is the corrigendum's number and year separated by a colon",
+                carried: Carried::By(&[
+                    "metadata/identification-amendment-and-corrigendum",
+                    "metadata/identification-amendment-form",
+                ]),
+            },
+            Sentence {
+                says: "a Level A file states A as pdfaid:conformance, a Level B file B and a \
+                       Level U file U",
+                carried: Carried::By(&[
+                    "metadata/identification-conformance-level",
+                    "metadata/identification-declares-level-a",
+                ]),
+            },
+            Sentence {
+                says: "the four properties do not by themselves decide conformance with a part, \
+                       which is determined as clause 5 says",
+                carried: Carried::Scoping(
+                    "what a verdict is: `check` is handed the target it holds a document to \
+                     rather than reading one off the file, so the schema's claim is judged and \
+                     never trusted — `crate::report`'s own premise",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.5",
+        sentences: &[
+            Sentence {
+                says: "a conforming file should carry properties that identify it; no scheme is \
+                       mandated, and the ones the subclause names are not an exhaustive list",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation, and a sentence about the standard's own list",
+                ),
+            },
+            Sentence {
+                says: "where an xmpMM:History entry is added to a conforming file, the changing \
+                       half of the trailer's ID is changed as section 6.1.3 says",
+                carried: Carried::By(&["metadata/file-identifier-changes-with-history"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.6.6",
+        sentences: &[
+            Sentence {
+                says: "each high-level action taken to create, transform or instantiate the file \
+                       should be recorded in the catalog's xmpMM:History",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; the sentence after it binds an action that *is* recorded",
+                ),
+            },
+            Sentence {
+                says: "every recorded action states its action, parameters and when fields",
+                carried: Carried::By(&["metadata/provenance-recorded-action-fields"]),
+            },
+            Sentence {
+                says: "a recorded action should state softwareAgent and instanceID",
+                carried: Carried::StatesNoRequirement(
+                    "two recommendations, one per field, beside the three fields the sentence \
+                     before requires",
+                ),
+            },
+            Sentence {
+                says: "where a source such as paper or another file was transformed into the \
+                       conforming file, the history should describe the processing, the \
+                       alterations, the handling of earlier metadata and the rest of the \
+                       transformation",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+            Sentence {
+                says: "for every conforming file the history should describe the later workflow, \
+                       the governing policies, the tools and whatever else places the file's \
+                       creation and use in context",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+            Sentence {
+                says: "where a metadata property was changed or deleted, the history should say \
+                       so with an entry naming the property and its previous value",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.1",
+        sentences: &[
+            Sentence {
+                says: "the whole of section 6.7 binds a Level A file only; a Level B or Level U \
+                       file may ignore it",
+                carried: Carried::Scoping(
+                    "`Applies::FromLevel(Level::A)` on every row of section 6.7, not a row",
+                ),
+            },
+            Sentence {
+                says: "sections 6.7.2 to 6.7.8 are guidance on carrying higher-level semantic \
+                       information, on the base standard's 14.7 and 14.8, so that text can be \
+                       recovered in reading order and the file made accessible",
+                carried: Carried::StatesNoRequirement("informative: what the subclauses are for"),
+            },
+            Sentence {
+                says: "a writer should not add structure the source does not carry solely to \
+                       conform",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.2.1",
+        sentences: &[Sentence {
+            says: "a Level A file meets every requirement the base standard's 14.8 sets for \
+                   Tagged PDF",
+            carried: Carried::By(&["logical-structure/tagged-pdf"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.2.2",
+        sentences: &[Sentence {
+            says: "the document catalog states a MarkInfo dictionary whose Marked entry is true",
+            carried: Carried::By(&["logical-structure/mark-info-marked"]),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.3.1",
+        sentences: &[Sentence {
+            says: "pagination, layout and production features should be marked as pagination, \
+                   layout and page artefacts as the base standard's 14.8.2.2 describes",
+            carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.3.2",
+        sentences: &[
+            Sentence {
+                says: "the restriction that follows applies to a language or script system that \
+                       normally separates words with space characters",
+                carried: Carried::Scoping(
+                    "the condition `logical-structure/word-boundaries`'s reason names as \
+                     undecidable from the file: nothing in a file is required to say which \
+                     script a run of text is in",
+                ),
+            },
+            Sentence {
+                says: "inside a show string, a word boundary is marked by one or more space \
+                       characters between the words",
+                carried: Carried::By(&["logical-structure/word-boundaries"]),
+            },
+            Sentence {
+                says: "a word that ends at the end of a show string is followed by a space \
+                       character there, unless punctuation follows it",
+                carried: Carried::By(&["logical-structure/word-boundaries"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.3.3",
+        sentences: &[
+            Sentence {
+                says: "the file's logical structure is described by a structure hierarchy \
+                       rooted in the catalog's StructTreeRoot, as the base standard's 14.7 \
+                       describes one",
+                carried: Carried::By(&["logical-structure/structure-tree-root"]),
+            },
+            Sentence {
+                says: "a writer should capture the structure to the finest granularity it can, \
+                       using the base standard's standard structure types",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.3.4",
+        sentences: &[
+            Sentence {
+                says: "every non-standard structure type is mapped, in the structure tree \
+                       root's role map, to the nearest functionally equivalent standard type",
+                carried: Carried::By(&["logical-structure/role-map-terminates-at-a-standard-type"]),
+            },
+            Sentence {
+                says: "the mapping may pass through further non-standard types, but ends at a \
+                       standard one",
+                carried: Carried::By(&["logical-structure/role-map-terminates-at-a-standard-type"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.4",
+        sentences: &[
+            Sentence {
+                says: "the default natural language of the file's text should be stated by the \
+                       catalog's Lang entry",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+            Sentence {
+                says: "text in another language should say so with a Lang property on a \
+                       marked-content sequence or a Lang entry on a structure element",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+            Sentence {
+                says: "a Lang entry the catalog, a structure element or a property list does \
+                       state is a language identifier as the base standard's 14.9.2 defines one",
+                carried: Carried::By(&[
+                    "logical-structure/catalog-language-identifier",
+                    "logical-structure/element-and-property-list-language-identifiers",
+                ]),
+            },
+            Sentence {
+                says: "a Unicode text string whose language differs from the one in force \
+                       should say so with the base standard's escape sequence",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.5",
+        sentences: &[Sentence {
+            says: "a structure element whose content has no natural textual analogue should \
+                   carry an alternate description in its Alt entry",
+            carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.6",
+        sentences: &[Sentence {
+            says: "an annotation of a type that displays no text should describe its contents \
+                   in its Contents entry",
+            carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.7",
+        sentences: &[Sentence {
+            says: "a textual structure element represented in a non-standard way should carry \
+                   replacement text in its ActualText entry",
+            carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.7.8",
+        sentences: &[Sentence {
+            says: "an abbreviation or acronym should sit in a Span marked-content sequence \
+                   whose E property expands it",
+            carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+        }],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.8",
+        sentences: &[
+            Sentence {
+                says: "a file specification dictionary may carry an EF key, provided the \
+                       embedded file conforms to ISO 19005-1 or to this part",
+                carried: Carried::By(&["embedded-files/embedded-file-is-itself-pdfa"]),
+            },
+            Sentence {
+                says: "an embedded file's file specification states both F and UF, and should \
+                       state Desc",
+                carried: Carried::By(&["embedded-files/file-and-unicode-names"]),
+            },
+            Sentence {
+                says: "the name dictionary may carry an EmbeddedFiles key, provided every \
+                       embedded file conforms to ISO 19005-1 or to this part",
+                carried: Carried::By(&["embedded-files/embedded-file-is-itself-pdfa"]),
+            },
+            Sentence {
+                says: "a conforming reader provides a way to display the name strings the \
+                       EmbeddedFiles tree states",
+                carried: Carried::By(&["embedded-files/names-displayable"]),
+            },
+            Sentence {
+                says: "a reader may also display information from the embedded file stream \
+                       dictionaries or their Params",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the reader, with nothing owed either way",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.9",
+        sentences: &[
+            Sentence {
+                says: "optional content may be used to carry several variants of a document in \
+                       one file",
+                carried: Carried::StatesNoRequirement("a permission, with the use cases it is for"),
+            },
+            Sentence {
+                says: "a variant is one or more optional content groups associated through a \
+                       membership dictionary and a configuration dictionary, and each \
+                       configuration dictionary decides which groups form one variant",
+                carried: Carried::StatesNoRequirement(
+                    "a definition, which the sentences below use",
+                ),
+            },
+            Sentence {
+                says: "the catalog may carry OCProperties, and where it does the file carries \
+                       variants and this subclause's requirements apply",
+                carried: Carried::Scoping(
+                    "the population: every row of this subclause reads the catalog's \
+                     `/OCProperties` and binds nothing where the catalog states none",
+                ),
+            },
+            Sentence {
+                says: "absent explicit instructions to the contrary, a reader renders the file \
+                       in the default state the D configuration sets, as the base standard's \
+                       8.11.4 determines it",
+                carried: Carried::By(&["optional-content/default-configuration-rendered"]),
+            },
+            Sentence {
+                says: "OCProperties may carry Configs, and where it does each element of that \
+                       array defines a single variant",
+                carried: Carried::Restated(
+                    "section 5.1: an element of Configs is a configuration dictionary by the \
+                     base standard's own Table 100, and one such dictionary is one variant by \
+                     this subclause's own definition, so what a file could fail here is the \
+                     base standard's type rule `conformance/adheres-to-the-base-standard` \
+                     carries",
+                ),
+            },
+            Sentence {
+                says: "every configuration dictionary that is D or an element of Configs states \
+                       a Name, unique among all the file's configuration dictionaries",
+                carried: Carried::By(&["optional-content/configuration-names"]),
+            },
+            Sentence {
+                says: "where a configuration dictionary states an Order, that array references \
+                       every optional content group in the file",
+                carried: Carried::By(&["optional-content/order-lists-every-group"]),
+            },
+            Sentence {
+                says: "a conforming interactive reader provides a way to display the Order of \
+                       every configuration that states or inherits one",
+                carried: Carried::By(&["optional-content/order-and-configurations-displayable"]),
+            },
+            Sentence {
+                says: "where the file carries configurations beyond the default one, a \
+                       conforming interactive reader provides a way to display the list and \
+                       choose among them",
+                carried: Carried::By(&["optional-content/order-and-configurations-displayable"]),
+            },
+            Sentence {
+                says: "no configuration dictionary states an AS key",
+                carried: Carried::By(&["optional-content/no-automatic-states"]),
+            },
+            Sentence {
+                says: "its NOTE 4: section 6.2.11's font rules reach every font used in any \
+                       optional content, rendered or not",
+                carried: Carried::Scoping(
+                    "the font population: `super::table::fonts` visits every font dictionary \
+                     the cross-reference table reaches, and `crate::survey` walks every \
+                     marked-content sequence whatever its group's state, so a font used only in \
+                     hidden content is judged like any other",
+                ),
+            },
+            Sentence {
+                says: "a conforming reader does not use the value of the Intent key",
+                carried: Carried::By(&["optional-content/intent-not-used"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.10",
+        sentences: &[
+            Sentence {
+                says: "the document's name dictionary states no AlternatePresentations entry",
+                carried: Carried::By(&["alternate-presentations/none-in-the-name-dictionary"]),
+            },
+            Sentence {
+                says: "no page dictionary states a PresSteps entry",
+                carried: Carried::By(&["alternate-presentations/no-presentation-steps"]),
+            },
+            Sentence {
+                says: "a conforming interactive reader ignores a page dictionary's Trans and \
+                       Dur keys",
+                carried: Carried::By(&["alternate-presentations/transitions-ignored"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Two,
+        clause: "6.11",
+        sentences: &[Sentence {
+            says: "the document catalog states no Requirements key",
+            carried: Carried::By(&["document-requirements/no-requirements-dictionary"]),
+        }],
     },
     Reading {
         part: Part::Two,
@@ -4298,13 +4978,16 @@ static READINGS: &[Reading] = &[
                 carried: Carried::By(&["annotations/normal-appearance-shape"]),
             },
             Sentence {
-                says: "not this subclause's own sentence: its NOTE 1 attributes the \
-                       have-an-appearance rule to ISO 32000-2 section 12.5.2 and Table 166, and \
-                       the row carries that base-standard rule under this clause's number with \
-                       the base standard's own exemptions",
-                carried: Carried::By(&[
-                    "annotations/appearance-dictionary-present-from-base-standard",
-                ]),
+                says: "an annotation has an appearance dictionary, with the base standard's own \
+                       exemptions",
+                carried: Carried::Clarified {
+                    by: &["annotations/appearance-dictionary-present-from-base-standard"],
+                    ground: Ground::Note(
+                        "NOTE 1, which attributes the have-an-appearance rule to ISO 32000-2 \
+                         §12.5.2 and Table 166; the row carries that base-standard rule under \
+                         this clause's number, because this is where a reader looks for it",
+                    ),
+                },
             },
             Sentence {
                 says: "all graphics content of any appearance dictionary conforms to clause 6.2",
@@ -4614,6 +5297,427 @@ static READINGS: &[Reading] = &[
     },
     Reading {
         part: Part::Four,
+        clause: "6.7.1",
+        sentences: &[Sentence {
+            says: "the metadata requirements are sections 6.7.2 to 6.7.5; the rest of the \
+                   subclause says why metadata matters and that a writer may have domain-specific \
+                   requirements of its own to meet outside this document",
+            carried: Carried::StatesNoRequirement(
+                "informative: a pointer at the subclauses that state the rules, and a paragraph \
+                 about what metadata is for",
+            ),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.7.2.1",
+        sentences: &[
+            Sentence {
+                says: "the document catalog states a Metadata key whose value is a metadata \
+                       stream as ISO 32000-2 §14.3.2 defines one",
+                carried: Carried::By(&["metadata/catalog-metadata-stream"]),
+            },
+            Sentence {
+                says: "all content of every XMP packet in any metadata stream is well-formed \
+                       as ISO 16684-1 defines well-formedness",
+                carried: Carried::By(&[
+                    "metadata/xmp-packets-well-formed",
+                    "metadata/xmp-packets-state-one-rdf-element",
+                    "metadata/xmp-character-data-only-in-simple-values",
+                    "metadata/xmp-packets-meet-the-xmp-serialisation",
+                ]),
+            },
+            Sentence {
+                says: "a writer creating or resaving a conforming file should validate every \
+                       packet at that moment",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation, addressed to the writer at the moment of writing",
+                ),
+            },
+            Sentence {
+                says: "no XMP packet header states the bytes or encoding attributes",
+                carried: Carried::By(&["metadata/xmp-packet-header-attributes"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.7.2.2",
+        sentences: &[
+            Sentence {
+                says: "a namespace prefix carries no significance, except where a specific \
+                       prefix is identified as required",
+                carried: Carried::Scoping(
+                    "the exception is what makes a required prefix a rule rather than a \
+                     convention: `metadata/identification-schema-prefix` rests on it, at the \
+                     subclause that requires its prefix",
+                ),
+            },
+            Sentence {
+                says: "the prefixes Table 1 lists should be used for the namespaces it names",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; a table of requirements that admitted one would make a \
+                     should fail a file",
+                ),
+            },
+            Sentence {
+                says: "a namespace URI identifies and need not be an actionable link",
+                carried: Carried::StatesNoRequirement(
+                    "a statement about what the URIs are, with nothing a file could fail",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.7.2.3",
+        sentences: &[
+            Sentence {
+                says: "a metadata stream should have an associated file, named by its AF key, \
+                       that is an embedded file specification whose AFRelationship is Schema",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation; the sentence after it binds the file such a specification \
+                     names",
+                ),
+            },
+            Sentence {
+                says: "the data in that file specification's stream conforms to ISO 16684-2",
+                carried: Carried::By(&["metadata/schema-associated-file"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.7.3",
+        sentences: &[
+            Sentence {
+                says: "the file's PDF/A version is stated using the identification schema this \
+                       subclause defines",
+                carried: Carried::By(&["metadata/identification-part-number-four"]),
+            },
+            Sentence {
+                says: "the schema of Table 2 has the namespace URI the subclause gives it and \
+                       pdfaid as its required prefix",
+                carried: Carried::By(&["metadata/identification-schema-prefix"]),
+            },
+            Sentence {
+                says: "pdfaid:part is the number of the part the file conforms to, which is 4 \
+                       for a file prepared under this document",
+                carried: Carried::By(&["metadata/identification-part-number-four"]),
+            },
+            Sentence {
+                says: "where the file conforms to a version defined by a dated revision of a \
+                       part, pdfaid:rev is that revision's four-digit year",
+                carried: Carried::By(&["metadata/identification-revision-year"]),
+            },
+            Sentence {
+                says: "a PDF/A-4e file states E as its conformance property, a PDF/A-4f file F, \
+                       and a file that is neither states none",
+                carried: Carried::By(&[
+                    "metadata/identification-declares-flavour-e",
+                    "metadata/identification-declares-flavour-f",
+                    "metadata/identification-states-no-flavour",
+                ]),
+            },
+            Sentence {
+                says: "pdfaid:part and pdfaid:rev do not by themselves decide conformance with \
+                       a part, which is determined as clause 5 says",
+                carried: Carried::Scoping(
+                    "what a verdict is: `check` is handed the target it holds a document to \
+                     rather than reading one off the file, so the schema's claim is judged and \
+                     never trusted — `crate::report`'s own premise",
+                ),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.7.4",
+        sentences: &[
+            Sentence {
+                says: "a conforming file should carry properties that identify it; no scheme is \
+                       mandated, and the ones the subclause names are not an exhaustive list",
+                carried: Carried::StatesNoRequirement(
+                    "a recommendation, and a sentence about the standard's own list",
+                ),
+            },
+            Sentence {
+                says: "where an xmpMM:History entry is added to a conforming file, the changing \
+                       half of the trailer's ID is changed as section 6.1.3 says",
+                carried: Carried::By(&["metadata/file-identifier-changes-with-history"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.7.5",
+        sentences: &[
+            Sentence {
+                says: "each high-level action taken to create, transform or instantiate the file \
+                       may be recorded in the catalog's xmpMM:History",
+                carried: Carried::StatesNoRequirement(
+                    "a permission; the sentence after it binds an action that *is* recorded",
+                ),
+            },
+            Sentence {
+                says: "every recorded action states its action and when fields",
+                carried: Carried::By(&["metadata/provenance-recorded-action-fields-four"]),
+            },
+            Sentence {
+                says: "a recorded action should state parameters, softwareAgent and instanceID",
+                carried: Carried::StatesNoRequirement(
+                    "three recommendations, one per field — the first of them a field part 2 \
+                     requires, which is the difference `metadata/provenance-recorded-action-\
+                     fields-four`'s own sentence names",
+                ),
+            },
+            Sentence {
+                says: "where a source such as paper or another file was transformed into the \
+                       conforming file, the history should describe the processing, the \
+                       alterations, the handling of earlier metadata and the rest of the \
+                       transformation",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+            Sentence {
+                says: "for every conforming file the history should describe the later workflow, \
+                       the governing policies, the tools and whatever else places the file's \
+                       creation and use in context",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+            Sentence {
+                says: "where a metadata property was changed or deleted, the history should say \
+                       so with an entry naming the property and its previous value",
+                carried: Carried::StatesNoRequirement("a recommendation, addressed to the writer"),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.8",
+        sentences: &[Sentence {
+            says: "higher-level semantic information helps text be recovered in reading order \
+                   and the file be accessible, and the PDF/UA family is where the guidance is",
+            carried: Carried::StatesNoRequirement(
+                "informative: this part has no conformance levels and states no structure rule \
+                 of its own",
+            ),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.9",
+        sentences: &[
+            Sentence {
+                says: "files may be embedded, under requirements that go beyond the base \
+                       standard's",
+                carried: Carried::StatesNoRequirement(
+                    "an introduction to the sentences that state them",
+                ),
+            },
+            Sentence {
+                says: "the name dictionary may carry EmbeddedFiles, and where it does every \
+                       embedded file conforms to ISO 19005-1, ISO 19005-2 or this document",
+                carried: Carried::By(&[
+                    "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
+                ]),
+            },
+            Sentence {
+                says: "every embedded file's file specification states an AFRelationship saying \
+                       how the file relates to the document",
+                carried: Carried::By(&["embedded-files/relationship-stated"]),
+            },
+            Sentence {
+                says: "every embedded file's file specification states both F and UF, and \
+                       should state Desc",
+                carried: Carried::By(&["embedded-files/file-and-unicode-names"]),
+            },
+            Sentence {
+                says: "a conforming interactive processor provides a way to display the name \
+                       strings the EmbeddedFiles tree states",
+                carried: Carried::By(&["embedded-files/names-displayable"]),
+            },
+            Sentence {
+                says: "a conforming interactive processor may also display information from \
+                       the embedded file stream dictionaries or their Params",
+                carried: Carried::StatesNoRequirement(
+                    "a permission granted to the processor, with nothing owed either way",
+                ),
+            },
+            Sentence {
+                says: "an embedded file stream used as an associated file states a valid MIME \
+                       media type as its Subtype",
+                carried: Carried::Clarified {
+                    by: &["embedded-files/associated-file-media-type"],
+                    ground: Ground::BaseStandard(
+                        "ISO 32000-2 §14.13.2, which section 5.1 makes binding on a PDF/A-4 \
+                         file and which this subclause neither states nor points at; the row \
+                         carries it under the subclause that is about embedded files",
+                    ),
+                },
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.10",
+        sentences: &[
+            Sentence {
+                says: "optional content may be used to carry several variants of a document in \
+                       one file",
+                carried: Carried::StatesNoRequirement("a permission, with the use cases it is for"),
+            },
+            Sentence {
+                says: "a variant is one or more optional content groups associated through a \
+                       membership dictionary and a configuration dictionary, and each \
+                       configuration dictionary decides which groups form one variant",
+                carried: Carried::StatesNoRequirement(
+                    "a definition, which the sentences below use",
+                ),
+            },
+            Sentence {
+                says: "the catalog may carry OCProperties, and where it does the file carries \
+                       variants and this subclause's requirements apply",
+                carried: Carried::Scoping(
+                    "the population: every row of this subclause reads the catalog's \
+                     `/OCProperties` and binds nothing where the catalog states none",
+                ),
+            },
+            Sentence {
+                says: "absent explicit instructions to the contrary, a processor renders the \
+                       file in the default state the D configuration sets, as ISO 32000-2 \
+                       §8.11.4.5 determines it",
+                carried: Carried::By(&["optional-content/default-configuration-rendered"]),
+            },
+            Sentence {
+                says: "OCProperties may carry Configs, and where it does each element of that \
+                       array defines a single variant",
+                carried: Carried::Restated(
+                    "section 5.1: an element of Configs is a configuration dictionary by the \
+                     base standard's own Table 100, and one such dictionary is one variant by \
+                     this subclause's own definition, so what a file could fail here is the \
+                     base standard's type rule `conformance/adheres-to-the-base-standard` \
+                     carries",
+                ),
+            },
+            Sentence {
+                says: "every configuration dictionary that is D or an element of Configs states \
+                       a Name, unique among all the file's configuration dictionaries",
+                carried: Carried::By(&["optional-content/configuration-names"]),
+            },
+            Sentence {
+                says: "where a configuration dictionary states an Order, that array references \
+                       every optional content group in the file",
+                carried: Carried::By(&["optional-content/order-lists-every-group"]),
+            },
+            Sentence {
+                says: "a conforming interactive processor provides a way to display the Order \
+                       of every configuration that states or inherits one",
+                carried: Carried::By(&["optional-content/order-and-configurations-displayable"]),
+            },
+            Sentence {
+                says: "where the file carries configurations beyond the default one, a \
+                       conforming interactive processor provides a way to display the list and \
+                       choose among them",
+                carried: Carried::By(&["optional-content/order-and-configurations-displayable"]),
+            },
+            Sentence {
+                says: "an AS key may appear in a configuration dictionary, and a conforming \
+                       processor ignores it",
+                carried: Carried::By(&["optional-content/automatic-states-ignored"]),
+            },
+            Sentence {
+                says: "its NOTE 4: section 6.2.10's font rules reach every font used in any \
+                       optional content, rendered or not",
+                carried: Carried::Scoping(
+                    "the font population: `super::table::fonts` visits every font dictionary \
+                     the cross-reference table reaches, and `crate::survey` walks every \
+                     marked-content sequence whatever its group's state, so a font used only in \
+                     hidden content is judged like any other",
+                ),
+            },
+            Sentence {
+                says: "a conforming processor does not use the value of the Intent key",
+                carried: Carried::By(&["optional-content/intent-not-used"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.11",
+        sentences: &[
+            Sentence {
+                says: "the document's name dictionary states no AlternatePresentations entry",
+                carried: Carried::By(&["alternate-presentations/none-in-the-name-dictionary"]),
+            },
+            Sentence {
+                says: "no page dictionary states a PresSteps entry",
+                carried: Carried::By(&["alternate-presentations/no-presentation-steps"]),
+            },
+            Sentence {
+                says: "a conforming interactive processor ignores a page dictionary's Trans and \
+                       Dur keys",
+                carried: Carried::By(&["alternate-presentations/transitions-ignored"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.12",
+        sentences: &[Sentence {
+            says: "the document catalog states no Requirements key",
+            carried: Carried::By(&["document-requirements/no-requirements-dictionary"]),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.13",
+        sentences: &[
+            Sentence {
+                says: "a conforming processor obeys the viewer preferences dictionary's \
+                       PrintScaling key",
+                carried: Carried::By(&["print-scaling/print-scaling-obeyed"]),
+            },
+            Sentence {
+                says: "where it is None, a non-interactive processor prints only if every page \
+                       prints unscaled, and may report an error otherwise",
+                carried: Carried::By(&["print-scaling/print-scaling-obeyed"]),
+            },
+            Sentence {
+                says: "where it is None, an interactive processor allows no scaling factor when \
+                       printing",
+                carried: Carried::By(&["print-scaling/print-scaling-obeyed"]),
+            },
+            Sentence {
+                says: "where the dictionary's Enforce array names PrintScaling, a conforming \
+                       processor prints every page as the key's value says",
+                carried: Carried::By(&["print-scaling/print-scaling-obeyed"]),
+            },
+        ],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.14",
+        sentences: &[Sentence {
+            says: "a conforming file may carry geospatial information by any of the mechanisms \
+                   ISO 32000-2 §12.10 describes",
+            carried: Carried::StatesNoRequirement(
+                "a permission granted to the writer, with nothing owed either way",
+            ),
+        }],
+    },
+    Reading {
+        part: Part::Four,
+        clause: "6.15",
+        sentences: &[Sentence {
+            says: "a conforming file may carry measurement properties by any of the mechanisms \
+                   ISO 32000-2 §12.9 describes",
+            carried: Carried::StatesNoRequirement(
+                "a permission granted to the writer, with nothing owed either way",
+            ),
+        }],
+    },
+    Reading {
+        part: Part::Four,
         clause: "A.1",
         sentences: &[
             Sentence {
@@ -4831,8 +5935,16 @@ static READINGS: &[Reading] = &[
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Binding, Carried, Part, SUBCLAUSES, frontier, readings, subclauses};
-    use crate::table;
+    use super::{Binding, Carried, Ground, Part, SUBCLAUSES, frontier, readings, subclauses};
+    use crate::{clarification, table};
+
+    /// The rows a sentence names, whether on the subclause's own text or on another ground.
+    fn rows_named(carried: Carried) -> &'static [&'static str] {
+        match carried {
+            Carried::By(ids) | Carried::Clarified { by: ids, .. } => ids,
+            Carried::Restated(_) | Carried::Scoping(_) | Carried::StatesNoRequirement(_) => &[],
+        }
+    }
 
     /// Every clause the table cites for one part, as the rows write it.
     fn cited(part: Part) -> BTreeSet<&'static str> {
@@ -5048,15 +6160,15 @@ mod tests {
     fn every_sentence_names_a_row_cited_at_its_own_clause() {
         for reading in readings() {
             for sentence in reading.sentences {
-                let Carried::By(ids) = sentence.carried else {
-                    continue;
-                };
-                assert!(
-                    !ids.is_empty(),
-                    "{:?} section {}: a sentence is carried by an empty list of rows",
-                    reading.part,
-                    reading.clause
-                );
+                let ids = rows_named(sentence.carried);
+                if matches!(sentence.carried, Carried::By(_) | Carried::Clarified { .. }) {
+                    assert!(
+                        !ids.is_empty(),
+                        "{:?} section {}: a sentence is carried by an empty list of rows",
+                        reading.part,
+                        reading.clause
+                    );
+                }
                 for id in ids {
                     let row = table::requirements()
                         .find(|requirement| requirement.id == *id)
@@ -5095,10 +6207,7 @@ mod tests {
             let named: BTreeSet<&str> = reading
                 .sentences
                 .iter()
-                .flat_map(|sentence| match sentence.carried {
-                    Carried::By(ids) => ids,
-                    _ => &[],
-                })
+                .flat_map(|sentence| rows_named(sentence.carried))
                 .copied()
                 .collect();
             for requirement in table::requirements() {
@@ -5132,7 +6241,7 @@ mod tests {
                     reading
                         .sentences
                         .iter()
-                        .any(|sentence| matches!(sentence.carried, Carried::By(_))),
+                        .any(|sentence| !rows_named(sentence.carried).is_empty()),
                     "{:?} section {} is audited as bound and no sentence of its reading names a \
                      row",
                     reading.part,
@@ -5142,36 +6251,66 @@ mod tests {
         }
     }
 
-    /// The frontier is stated by being computed, and it is only ever a prefix of the standards.
+    /// The frontier is empty, and it stays empty.
     ///
-    /// What this asserts is not a size — a later round shrinking it must not have to edit a
-    /// number — but the two properties that make it honest: everything read is listed, and the
-    /// region this round read is *contiguous* in each part's own order, so that "up to here" is
-    /// a sentence a reviewer can check against their copy rather than a scattered set.
+    /// What this asserts is not a size but the ratchet's direction: every subclause with text in
+    /// it has a reading, so a subclause added to the audit — an amendment's, a corrected number's
+    /// — arrives with its sentences read or fails the build by name. Until the round that read
+    /// the last of them, this test named anchors inside the region read so far and asserted
+    /// nothing outside it, so that progress never cost a failure; with nothing outside it, the
+    /// stronger sentence is the honest one.
     #[test]
-    fn the_region_this_audit_has_read_sentence_by_sentence_stays_read() {
-        let unread: BTreeSet<(Part, &str)> = frontier().map(|s| (s.part, s.clause)).collect();
-        for (part, clause) in [
-            (Part::Two, "5.1"),
-            (Part::Two, "6.1.13"),
-            (Part::Two, "6.2.1"),
-            (Part::Two, "6.2.11.8"),
-            (Part::Two, "6.3.1"),
-            (Part::Two, "6.5.3"),
-            (Part::Two, "B.2"),
-            (Part::Four, "5.2"),
-            (Part::Four, "6.1.12"),
-            (Part::Four, "6.2.1"),
-            (Part::Four, "6.2.10.9"),
-            (Part::Four, "6.3.1"),
-            (Part::Four, "6.6.4"),
-            (Part::Four, "B.5"),
-        ] {
-            assert!(
-                !unread.contains(&(part, clause)),
-                "{part:?} section {clause} is inside the region this audit claims to have read \
-                 sentence by sentence, and it has no reading"
-            );
+    fn every_subclause_with_text_in_it_has_a_reading() {
+        let unread: Vec<String> = frontier()
+            .map(|subclause| format!("{:?} section {}", subclause.part, subclause.clause))
+            .collect();
+        assert!(
+            unread.is_empty(),
+            "no sentence-level reading for: {}",
+            unread.join(", ")
+        );
+    }
+
+    /// A sentence carried on a clarification names the item that clarifies each of its rows
+    /// under this part, and a `By` never disclaims its own text.
+    ///
+    /// The second half is what retired the shape the variant replaced: a `By` whose sentence
+    /// opened "not this subclause's own sentence" was a disclaimer inside the one field a reader
+    /// compares with the standard's words.
+    #[test]
+    fn a_clarified_sentence_rests_on_the_ground_it_names() {
+        for reading in readings() {
+            for sentence in reading.sentences {
+                match sentence.carried {
+                    Carried::Clarified {
+                        by,
+                        ground: Ground::Resolution(item),
+                    } => {
+                        for id in by {
+                            let found = clarification::clarifying(id, reading.part);
+                            assert_eq!(
+                                found.map(|clarification| clarification.item),
+                                Some(item),
+                                "{:?} section {} says {id} rests on item {item}, and \
+                                 `crate::clarification` says otherwise",
+                                reading.part,
+                                reading.clause
+                            );
+                        }
+                    }
+                    Carried::By(_) => assert!(
+                        !sentence.says.starts_with("not "),
+                        "{:?} section {}: a sentence carried by the subclause's own text \
+                         disclaims itself — `Carried::Clarified` is the variant for that",
+                        reading.part,
+                        reading.clause
+                    ),
+                    Carried::Clarified { .. }
+                    | Carried::Restated(_)
+                    | Carried::Scoping(_)
+                    | Carried::StatesNoRequirement(_) => {}
+                }
+            }
         }
     }
 }

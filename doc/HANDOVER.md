@@ -46,7 +46,7 @@ what these files are split by.
 | wants a number | `tools/state.sh` — `quick` in seconds, the whole thing in minutes; never a document |
 | reads a clause, or writes a ledger row | [`doc/habits/reading-the-specification.md`](habits/reading-the-specification.md) and [`the-ledger-and-claims-about-this-tree.md`](habits/the-ledger-and-claims-about-this-tree.md), [`doc/ledger-and-claims.md`](ledger-and-claims.md), [`doc/errata-read.md`](errata-read.md), [`doc/todo/01`](todo/01-ledger-partial-rows.md) |
 | judges a page against other renderers | [`doc/habits/judging-against-other-implementations.md`](habits/judging-against-other-implementations.md), [`doc/oracle-and-corpus.md`](oracle-and-corpus.md), [`doc/todo/00`](todo/00-ambiguous-bucket.md) |
-| needs the owner's word on something | [`doc/questions/`](questions/) — one `Q` file per open question, answered by an `A` file of the same name; write yours in the same commit as the work that raised it |
+| needs the owner's word on something | [`doc/questions/`](questions/) — one `Q` file per open question, answered by an `A` file of the same name whose `Status` header says what the answer left open; write yours in the same commit as the work that raised it |
 | **measures** anything | [`doc/habits/measuring.md`](habits/measuring.md), [`doc/performance.md`](performance.md), [`doc/verify.md`](verify.md) — and `tools/state.sh`, because the number has to be printed rather than quoted |
 | writes a host, or adds a message | [`doc/ui-boundary.md`](ui-boundary.md), [`doc/todo/30`](todo/30-a-native-host.md)–[`33`](todo/33-annotation-editing.md) |
 | adds or questions a dependency | [`doc/stack.md`](stack.md), [`doc/third-party-data.md`](third-party-data.md), [`doc/PLAN.md`](PLAN.md) §1 |

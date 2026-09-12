@@ -252,3 +252,32 @@ fn a_digit_run_with_a_unit_suffix_is_still_read_as_its_number() {
         "`12pt` and `12` set the same size"
     );
 }
+
+/// **A run whose front spells no number is no number, however many digits follow.**
+///
+/// `--12` and `.-12` each hold digits, and neither is read: §7.3.3 admits one optional sign
+/// before the digits, so the grammar reads nothing of `--12` before the second sign and nothing
+/// of `.-12` before the sign after the point. Until the nine-hundred-and-ninetieth session the
+/// first was −12 — on a comment that named Acrobat and pdf.js as the reason — and the second
+/// was 0, the zero ADR 0303 took out of `.` surviving one condition below it. Both are now the
+/// keyword `.` already is, and the pair below is the calibration for each: the conforming
+/// spelling draws in silence, and the run that spells nothing is reported by name, with the
+/// `Tf` it starved reported for the show it cost (ADR 1011).
+#[test]
+fn a_run_whose_front_spells_no_number_is_reported_rather_than_read() {
+    draws_in_silence("BT /F0 -12 Tf 10 30 Td (Hi) Tj ET");
+    draws_in_silence("BT /F0 .5 Tf 10 30 Td (Hi) Tj ET");
+
+    for run in ["--12", ".-12", "-+12", "..5"] {
+        let interpretation = interpretation(&format!("BT /F0 {run} Tf 10 30 Td (Hi) Tj ET"));
+        assert_eq!(
+            interpretation.unsupported,
+            vec![Unsupported::Text { operations: 1 }, unrecognised(run)],
+            "`{run}` spells no number, so the `Tf` after it states no size and the show is lost"
+        );
+        assert!(
+            !format!("{:?}", interpretation.display_list).contains("Glyph"),
+            "`{run}` may not become a size somebody invented"
+        );
+    }
+}

@@ -46,8 +46,8 @@ fn main() {
 
     println!("\nread sentence by sentence:");
     println!(
-        "{:<8} {:<10} {:>10} {:>8} {:>10} {:>9} {:>10}",
-        "part", "clause", "sentences", "by rows", "restated", "scoping", "no rule"
+        "{:<8} {:<10} {:>10} {:>8} {:>10} {:>9} {:>10} {:>10}",
+        "part", "clause", "sentences", "by rows", "clarified", "restated", "scoping", "no rule"
     );
     for reading in readings() {
         let tally = |wanted: fn(&Carried) -> bool| {
@@ -58,11 +58,12 @@ fn main() {
                 .count()
         };
         println!(
-            "{:<8} {:<10} {:>10} {:>8} {:>10} {:>9} {:>10}",
+            "{:<8} {:<10} {:>10} {:>8} {:>10} {:>9} {:>10} {:>10}",
             format!("{:?}", reading.part),
             reading.clause,
             reading.sentences.len(),
             tally(|carried| matches!(carried, Carried::By(_))),
+            tally(|carried| matches!(carried, Carried::Clarified { .. })),
             tally(|carried| matches!(carried, Carried::Restated(_))),
             tally(|carried| matches!(carried, Carried::Scoping(_))),
             tally(|carried| matches!(carried, Carried::StatesNoRequirement(_))),
@@ -77,9 +78,11 @@ fn main() {
     };
     println!(
         "\n{} subclauses read, {sentences} normative sentences — {} carried by a row, \
-         {} restated elsewhere, {} scoping, {} stating no requirement",
+         {} carried on a clarification, a NOTE or the base standard, {} restated elsewhere, \
+         {} scoping, {} stating no requirement",
         readings().count(),
         total(|carried| matches!(carried, Carried::By(_))),
+        total(|carried| matches!(carried, Carried::Clarified { .. })),
         total(|carried| matches!(carried, Carried::Restated(_))),
         total(|carried| matches!(carried, Carried::Scoping(_))),
         total(|carried| matches!(carried, Carried::StatesNoRequirement(_))),
@@ -90,12 +93,17 @@ fn main() {
     // the kind of derived fact `CLAUDE.md` says belongs in a command's output rather than in a
     // document.
     println!("\nno sentence-level reading yet:");
+    let mut any = false;
     for subclause in frontier() {
+        any = true;
         println!(
             "  {:<6} {:<10} {}",
             format!("{:?}", subclause.part),
             subclause.clause,
             subclause.subject
         );
+    }
+    if !any {
+        println!("  none: every subclause with text in it has a reading");
     }
 }

@@ -135,7 +135,13 @@ pub struct Cache {
     /// costs nothing to parse twice. §8.6.5.1's resolution through the resource dictionary
     /// does not reach here at all — that applies to a space stated as a **name**, which has no
     /// object identity and is not put in this table.
-    spaces: BTreeMap<ObjectId, ColourSpace>,
+    ///
+    /// Keyed by the output intent's identity as well since session 987, because the space a
+    /// `/DeviceCMYK` reference parses to depends on §14.11.5's intent (ADR 1008). One
+    /// interpretation has one intent, so the second half of the key never varies within a
+    /// cache's life; it is there so that the table is exact by construction rather than by
+    /// that argument.
+    spaces: BTreeMap<(ObjectId, Option<u128>), ColourSpace>,
 }
 
 /// The half of a shading [`Cache`] can remember: everything but the caller's transform.
@@ -239,7 +245,7 @@ impl Cache {
                 truncated: built.truncated,
             });
         }
-        let space = self.space_of(document, object, resources);
+        let space = self.space_of(document, object, resources, colouring.into);
         let built = kind_of(document, object, resources, space, colouring)?;
         if let Some(id) = key {
             self.built
@@ -265,14 +271,22 @@ impl Cache {
         document: &Document,
         object: &Object,
         resources: &Dictionary,
+        into: &Conversion,
     ) -> Option<ColourSpace> {
         let dict = dictionary_of(document, object)?;
         let id = dict.get("ColorSpace")?.as_reference()?;
-        if let Some(space) = self.spaces.get(&id) {
+        let intent = into.output_intent();
+        let key = (id, intent.as_ref().and_then(ColourSpace::profile_identity));
+        if let Some(space) = self.spaces.get(&key) {
             return Some(space.clone());
         }
-        let space = ColourSpace::parse(document, &Object::Reference(id), resources)?;
-        self.spaces.insert(id, space.clone());
+        let space = ColourSpace::parse_with_output_intent(
+            document,
+            &Object::Reference(id),
+            resources,
+            intent.as_ref(),
+        )?;
+        self.spaces.insert(key, space.clone());
         Some(space)
     }
 }
@@ -371,12 +385,24 @@ fn kind_of(
             detail: "no /ShadingType".to_owned(),
         })?;
 
-    let space = match space {
-        Some(space) => space,
-        None => ColourSpace::parse(document, &document.get_key(&dict, "ColorSpace"), resources)
-            .ok_or_else(|| ShadingError::Malformed {
-                detail: "unsupported /ColorSpace".to_owned(),
-            })?,
+    // Table 77's `/ColorSpace`, under §8.6.5.6's defaults and §14.11.5's output intent — the
+    // second of which reached a shading only in session 987, so that a `/DeviceCMYK` shading
+    // on a page with an intent was the assumed press's colours beside a fill that was the
+    // intent's (ADR 1008). The intent travels in `colouring.into` with the target and the
+    // black point, which is how every route that converts after the interpreter gets it.
+    let space = if let Some(space) = space {
+        space
+    } else {
+        let intent = colouring.into.output_intent();
+        ColourSpace::parse_with_output_intent(
+            document,
+            &document.get_key(&dict, "ColorSpace"),
+            resources,
+            intent.as_ref(),
+        )
+        .ok_or_else(|| ShadingError::Malformed {
+            detail: "unsupported /ColorSpace".to_owned(),
+        })?
     };
 
     let mut truncated = false;

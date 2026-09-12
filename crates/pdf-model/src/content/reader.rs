@@ -1343,13 +1343,18 @@ mod tests {
     }
 
     /// The other side of the line: a salvage whose tail is not an operator stands.
+    ///
+    /// `--5` and `.-1` are not on either side of it since the nine-hundred-and-ninetieth
+    /// session: the lexer reads nothing off the front of either and hands them over as the
+    /// keywords §7.2.3 makes them, with no salvage to ask about (ADR 1011). They are here so
+    /// that the reader's answer for them is pinned too — the keyword, and no number beside it.
     #[test]
     fn a_digit_run_with_a_unit_or_a_second_point_is_still_salvaged() {
         assert_eq!(tokens(b"12pt"), vec![Token::Integer(12)]);
         assert_eq!(tokens(b"1.2.3"), vec![Token::Real(1.2)]);
-        assert_eq!(tokens(b"--5"), vec![Token::Integer(-5)]);
+        assert_eq!(tokens(b"--5"), vec![Token::Keyword(b"--5")]);
         assert_eq!(tokens(b"1.5-2"), vec![Token::Real(1.5)]);
-        assert_eq!(tokens(b".-1"), vec![Token::Integer(0)]);
+        assert_eq!(tokens(b".-1"), vec![Token::Keyword(b".-1")]);
         // A tail that *contains* an operator's letters is not that operator: `fq` names nothing.
         assert_eq!(tokens(b"5fq"), vec![Token::Integer(5)]);
     }

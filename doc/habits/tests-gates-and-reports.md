@@ -7,6 +7,23 @@ which gates a change actually needs.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A non-exhaustive `_ => true` arm in a predicate is a report that fires on every variant added
+  after it.** `command_blends` fell to `_ => true` for `Command::Shaped`, so any `/I false` knockout
+  group drawn on transparency with a stated element reported a blend nothing carried, since ADR 0234
+  (ADR 1009). A predicate over an enum names every variant or it is not a predicate.
+
+- **A test that scans sources for a marker reads its own source.** `editions.rs`'s sweep for `§`
+  failed on its own comment's `§14`, then on its own table's `§12.11`, then the conformance gate
+  failed on its `'§'` char literals — three self-matches before it measured anything else (ADR
+  1010). Spell the marker as an escape in the scanner, and exclude the scanner's own file by name
+  and say so.
+
+- **A priced follow-up names a population by the shape of its argument; open the witness's display
+  list before taking it.** ADR 1000 priced `issue18032.pdf` as "a form knockout group whose elements
+  share an affine mode"; its elements were a nested group under a non-separable mode and a group at
+  `ca 0`, and the construction that drew it was a different one (ADR 1009). The pricing was right
+  about the cost and wrong about the shape, and only the display list could say so.
+
 - **When a new ranked source of meaning is added, re-run the one-conversion test with that source
   stated.** `colour_paths.rs`'s first test guards "one conversion, every route", under the
   parameters its fixture names. A source added later — a default colour space, an output intent, a

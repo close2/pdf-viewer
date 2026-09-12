@@ -359,10 +359,9 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// (`pdf_render::Luminance`), where `raster_scene::MaskKind::Luminosity` weighs the channels in
 /// its own shader — a different formula, refused rather than drawn to the wrong mask.
 /// `doc/QUORRA_FEEDBACK.md` section 43 is the ask for both.
-const REFUSED_BEFORE_THE_SCENE: [&str; 5] = [
+const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
     "bug1721218_reduced.pdf",
     "issue16742.pdf",
-    "issue18032.pdf",
     "issue21346.pdf",
     "issue5044.pdf",
 ];

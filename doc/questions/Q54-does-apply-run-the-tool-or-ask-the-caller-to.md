@@ -1,8 +1,6 @@
 # Q54 — Does `apply` run the external tool, or return a request for the caller to run?
 
 Source: `doc/rfc/0007` §7 question 1, raised by session 954 designing the remedy configuration.
-Status: **open** — answered when `A54-does-apply-run-the-tool-or-ask-the-caller-to.md` exists
-beside this file.
 
 ## Why it needs the owner
 

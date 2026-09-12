@@ -840,12 +840,22 @@ fn colour_space(
     // numbers mean, and this function used to reduce such a space to a device one by its
     // `/N` — so the same colour rendered differently depending on whether it reached the
     // page as a fill or as an image, which is exactly trap 6's defect one level up.
-    let resolved =
-        crate::colour::ColourSpace::parse(document, &space, resources).ok_or_else(|| {
-            ImageError::UnsupportedColourSpace {
-                space: String::from_utf8_lossy(&family).into_owned(),
-            }
-        })?;
+    //
+    // And §14.11.5's output intent, the third source `ColourSpace::device_family` ranks and
+    // the one this route reached last: until session 987 the space was parsed with no intent,
+    // so on a page carrying one an image in `DeviceCMYK` was the assumed press's cyan beside
+    // a fill that was the intent's (ADR 1001, ADR 1008). The intent travels in `into` because
+    // that is what the interpreter already hands every route that converts after it.
+    let intent = into.output_intent();
+    let resolved = crate::colour::ColourSpace::parse_with_output_intent(
+        document,
+        &space,
+        resources,
+        intent.as_ref(),
+    )
+    .ok_or_else(|| ImageError::UnsupportedColourSpace {
+        space: String::from_utf8_lossy(&family).into_owned(),
+    })?;
     Ok(ColourSpace::reduced(resolved, into.target().clone()))
 }
 
@@ -1837,11 +1847,19 @@ fn decode_jpx(
     let declared_space = if matches!(declared, Object::Null) {
         None
     } else {
+        // Under the page's output intent, as [`colour_space`] parses every other image's:
+        // the codestream's colour specification is what §7.4.9 lets `/ColorSpace` override,
+        // and a `/DeviceCMYK` stated here means what it means on this page.
+        let intent = into.output_intent();
         Some(
-            crate::colour::ColourSpace::parse(document, &declared, resources).ok_or_else(|| {
-                ImageError::UnsupportedColourSpace {
-                    space: space_name(&declared),
-                }
+            crate::colour::ColourSpace::parse_with_output_intent(
+                document,
+                &declared,
+                resources,
+                intent.as_ref(),
+            )
+            .ok_or_else(|| ImageError::UnsupportedColourSpace {
+                space: space_name(&declared),
             })?,
         )
     };
@@ -2113,7 +2131,7 @@ fn codestream_colour_space(
         pdf_sandbox::Colour::Icc(profile) => {
             crate::icc::Profile::parse(profile).map_or_else(by_channel_count, |profile| {
                 Ok(crate::colour::ColourSpace::Icc {
-                    profile: Box::new(profile),
+                    profile: Arc::new(profile),
                 })
             })
         }
@@ -3192,6 +3210,9 @@ pub fn short_of_its_grid(
         )
         .ok()?;
         let space = document.get_key(dict, "ColorSpace");
+        // Asked for its component count alone, which no output intent can change:
+        // `ColourSpace::device_family` substitutes the intent only for a family with the
+        // same number of components, so the answer here is the answer under any intent.
         let resolved = crate::colour::ColourSpace::parse(document, &space, resources)?;
         (bits, resolved.components())
     };

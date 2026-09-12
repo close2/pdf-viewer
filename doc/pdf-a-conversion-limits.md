@@ -383,13 +383,49 @@ invalidates every one of them, and nothing can prevent that.**
   signature's `/DocMDP` transform detects and reports as an alteration. And removing `/Encrypt`
   cannot be done by appending at all, because encryption is a property of the whole file. So the
   honest summary stands: a converted document does not carry its source's signatures.
-- **Class: Ask, loudly.** The report names each signature, its signer and whether it currently
-  validates, and says that the output will carry none of that. The sensible default is to keep
-  the signature *fields* and their appearances (they are annotations, and §6.3.3 requires
-  appearances) while stating that the cryptographic assertion is gone.
+- **Class: Ask, loudly — and built, in session 986 (ADR 1007), after ninety-odd sessions in
+  which this bullet described nothing the code did.** ADR 1006 found the converter had been
+  re-serialising signed documents and carrying each signature dictionary into bytes it no longer
+  covered: a signature that lies, written into files claiming PDF/A. What is built now is the
+  mechanism this bullet always described, and the sentence deciding each part is in
+  `crates/pdf-transform/src/archive/signatures.rs`:
+  - **The question is the conversion's own, not a requirement's.** A rewrite invalidates every
+    signature whatever requirement asked for the rewrite, and a part 4 target has no row that
+    would notice — ISO 19005-4 has no Annex B.1. So the converter asks it itself, whenever a
+    non-conforming source carries a signature, and the answer is `--authorise
+    signature-assertion` or no file. A conforming source is copied byte for byte and keeps every
+    signature it has (ADR 1006).
+  - **What goes**: each signature field's `/V` (§12.7.5.5 — the dictionary *is* the assertion);
+    the permissions dictionary's `DocMDP` and `UR3` entries, which Table 263 makes signatures and
+    which enforce, or grant, only while the signature verifies (§12.8.2.3 says of `UR3` outright
+    that a processor modifying the document "should remove that signature prior to writing");
+    and Table 225's `AppendOnly` bit, which says the document contains signatures when it no
+    longer does.
+  - **What stays**: the field, its widget and its `/AP` — §12.7.5.5 makes the appearance
+    "strictly for the purpose of providing a way for a human verifier to perform their own
+    verification" and forbids it to carry a validation status, and ISO 19005-2 §6.3.3 requires
+    it; the field's `/Lock` and `/SV`, which constrain the *next* signing; `/DSS` and `/Legal`,
+    which name no byte of the file; `SignaturesExist`, because the fields do; and the permissions
+    dictionary itself, empty, because Table 263 makes every entry optional.
+  - **The report names each signature before it goes**, computed over the *source*: where it
+    was reached (field, widget, `DocMDP`, `UR3`), its `/Name`, its `/M`, its `/Reason`, what its
+    `DocMDP` permitted, what its `/ByteRange` covered of the source, whether the bytes still hash
+    to the digest it records, and whether the value verifies under the certificate the file
+    carries. Nothing in it says *valid*, for `pdf_model::signature`'s reason. A range the source
+    got wrong is stated there rather than dropped with the rest, which is what ADR 1003's row
+    was waiting for.
+  - **The output is proved before it is written**: walked the same three ways as the source,
+    and refused by name if a signature remains.
 - ISO 19005-2 §6.1.12 and ISO 19005-4 §6.1.11 additionally allow only `UR3` and `DocMDP` in a
   permissions dictionary, and ISO 19005-2 §6.1.12 strips three keys from a `/DocMDP` signature
-  reference. Both are removals from a structure the conversion has already invalidated.
+  reference. **The second is a removal from the signature dictionary, and goes with it under the
+  same authorisation.** The first is not a signature at all: §12.8.6 makes each key "the name of a
+  permission handler" and Table 263 lists the two the standard defines, so a key naming any other
+  is one no conforming processor can consult, and removing it changes what no reader could see —
+  a mechanical rewrite, and the report names the key.
+- **Not built, and honestly so**: `doc/pdf-a-mitigations.md`'s proposal to write the same line
+  into `xmpMM:History`, onto an appended page, or to attach the signed source under PDF/A-4f.
+  The report is the record; those three are `doc/rfc/0007`'s configuration and wait on it.
 
 ### 3.7 Hidden annotations cannot stay hidden
 

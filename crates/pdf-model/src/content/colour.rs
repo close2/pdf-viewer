@@ -124,7 +124,12 @@ impl Interpreter<'_> {
     /// Split out rather than inlined there so that the compositing target is still read in one
     /// place — see [`Interpreter::colour`].
     pub(super) fn conversion_under(&self, black_point: BlackPoint) -> Conversion {
+        // The page's §14.11.5 intent goes with the target and the black point, because the
+        // three routes named above parse their own `/ColorSpace` after this interpreter has
+        // handed the work over, and a device space parsed without the intent is the assumed
+        // press beside a fill drawn through the document's own (ADR 1008).
         Conversion::new(self.compositing.clone(), black_point.applies())
+            .under_output_intent(self.output_intent.as_ref())
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
@@ -428,7 +433,7 @@ fn first_usable_intent(document: &Document, intents: &Object) -> Option<ColourSp
             && let Some(parsed) = crate::icc::Profile::parse(&data)
         {
             return Some(ColourSpace::Icc {
-                profile: Box::new(parsed),
+                profile: std::sync::Arc::new(parsed),
             });
         }
     }

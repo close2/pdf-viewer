@@ -6,6 +6,18 @@ Read by: a round that writes code, sets or lifts a bound, or takes a dependency.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A parameter that changes what a value means travels *with* the value the routes already share,
+  never beside it on one signature.** §14.11.5's output intent was read by `k`, `rg` and `g` and by
+  nothing else that selects a device space, then carried to `cs … scn`, then found missing at four
+  more sites. The fix that held was putting it into `Conversion`, which every route already passed —
+  so omitting it became a type error rather than a habit (ADRs 1001, 1008). One grep for the field's
+  name is the audit.
+
+- **Measure a per-operator `Box` clone before calling it a refcount-shaped cost.** 4,000 `k` fills
+  under a real 718 KB CMYK profile: 1,799 M instructions, 95% of them `memcpy`, against 49.8 M with
+  an `Arc` — 85–100 ms against 9.3 ms (ADR 1008). The number goes on the variant, per principle 2;
+  without it the `Arc` would have been an assumption dressed as an optimisation.
+
 - **Adding a `use` lints lines this round never opened.** Importing `Object` into a test file turned
   seven pre-existing fully-qualified paths into `unused_qualifications`, which under
   `RUSTFLAGS="-D warnings"` are failures in code the round did not write (ADR 0992). That makes

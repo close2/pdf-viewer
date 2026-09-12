@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::survey::{DeviceFamily, Survey};
-use pdf_archive::{Flavour, Level, Target};
+use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_archive::{MisusedProperty, Outcome};
 use pdf_model::icc::Identification;
 use pdf_model::xmp::{self, Name as XmpName, Schema};
@@ -26,6 +26,7 @@ use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
 use super::rewrite::Rewrite;
+use super::signatures::{self, ForeignHandlers, Signatures};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
     SharedProfile, Sites, StandardEncodings,
@@ -539,6 +540,16 @@ pub(super) struct Prepared {
     /// key — a claim that the file follows §14.8's conventions, made by the converter rather
     /// than demonstrated by the file.
     pub(super) structure: Result<(), Because>,
+    /// Every signature the source carries, each verified over the source, and where the
+    /// rewrite reaches it.
+    ///
+    /// **Prepared whenever the source will be rewritten, whether or not a failed requirement
+    /// named a signature** — the one preparation not gated on `wanted`, and the reason is
+    /// `doc/pdf-a-conversion-limits.md` section 3.6's: a rewrite moves every byte, so it
+    /// invalidates every signature whatever requirement asked for it, and a part 4 target has
+    /// no row that would notice. A conforming source is copied and never reaches here, so
+    /// nothing is walked or hashed for it.
+    pub(super) signatures: Signatures,
     /// `doc/pdf-a-mitigations.md` section 13.3's *owed, not optional* preparations.
     ///
     /// One field rather than seven because they are one class of work — see [`Owed`] — and
@@ -667,6 +678,7 @@ impl Prepared {
             substitutes,
             metrics,
             structure,
+            signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
         }
     }
@@ -709,6 +721,10 @@ impl Prepared {
             Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
             Rewrite::Jpeg2000ColourSpecifications => {
                 self.owed.specifications.as_ref().err().copied()
+            }
+            Rewrite::SignatureValueRemoved => self.signatures.obstacle,
+            Rewrite::ForeignPermissionHandlers => {
+                self.owed.foreign_handlers.as_ref().err().copied()
             }
             // Every other rewrite is decided by the standard and the requirement alone: it
             // either applies to an object or finds none, and finding none is not a refusal.
@@ -796,6 +812,8 @@ pub(super) struct Owed {
     pub(super) colorants: Result<ColorantEntries, Because>,
     /// The `JPXDecode` images whose colour specification boxes are reduced, or why none are.
     pub(super) specifications: Result<Specifications, Because>,
+    /// The permissions dictionary's keys outside Table 263, or why none are removed.
+    pub(super) foreign_handlers: Result<ForeignHandlers, Because>,
 }
 
 impl Owed {
@@ -856,7 +874,23 @@ impl Owed {
             specifications: asked(wanted(Rewrite::Jpeg2000ColourSpecifications), || {
                 jpeg2000::reduce_specifications(document, input)
             }),
+            foreign_handlers: asked(wanted(Rewrite::ForeignPermissionHandlers), || {
+                signatures::foreign_handlers(document)
+            }),
         }
+    }
+}
+
+/// Every signature the source carries, where the source is going to be rewritten.
+///
+/// A conforming source is copied byte for byte and keeps every signature it has, so nothing is
+/// walked or hashed for it; a failing one is rewritten, and a rewrite invalidates every
+/// signature whatever requirement asked for it — `doc/pdf-a-conversion-limits.md` section 3.6.
+fn signatures_if_rewritten(document: &Document, input: &pdf_archive::Report) -> Signatures {
+    if input.verdict() == Verdict::Fails {
+        signatures::find(document)
+    } else {
+        Signatures::default()
     }
 }
 

@@ -1,3 +1,7 @@
+Status: complete
+Given: 2026-09-09, by the owner's hand
+Owes: none
+
 Substitution is the default, never a refusal — that is my 2026-09-07 decision, and it is this question's premise.
 
 Ship the licence-clean OFL family with wide coverage, including a Noto-CJK-class family, under the same discipline as Liberation: the licence read off a copy, a row in doc/third-party-data.md, /NOTICE extended. Where no shipped face covers a document's characters, refuse rather than guess.

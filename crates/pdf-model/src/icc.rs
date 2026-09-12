@@ -618,7 +618,25 @@ impl Profile {
             b"GRAY" => 1,
             b"RGB " => 3,
             b"CMYK" => 4,
-            // Other input spaces exist but do not occur in PDFs.
+            // ISO 32000-2 §8.6.5.5 Table 67 admits one more data colour space, `'Lab '`, and
+            // this reader refuses it on purpose, so that the space falls to its `/Alternate`
+            // (Table 66's own instruction for a profile that "is not supported"). What is
+            // missing is not the table — a Lab-input `A2B` is the same `mft2` or `mAB ` as a
+            // CMYK one — but the *encoding of its input*. ISO 15076-1's lookup-table clauses
+            // define a Lab encoding for the connection-space side of a table only, and say
+            // outright that the definition does not reach the data-colour-space field of the
+            // header; a Lab *device* value therefore lands on the table's 0..1 input by
+            // whatever scale the profile's maker assumed, and the one place a PDF states that
+            // scale is Table 66's `/Range` — "[t]hese values shall match the information in
+            // the ICC profile" — which `crate::colour::parse_icc_based` does not read, and
+            // which is the identity for every profile it does read. Reading it is the work,
+            // and it is `ColourSpace::Icc`'s to carry rather than this parser's. No document
+            // in the 1249 across `doc/pdf.js/test/pdfs`, `doc/corpora/` and `doc/corpora-own/`
+            // embeds such a profile (session 987's scan of every directly filtered stream:
+            // 333 profiles, 235 `'RGB '`, 95 `'GRAY'`, 3 `'CMYK'`), and a conformant file's
+            // `/Alternate` for one is `[/Lab …]`, so the cost of refusing is the difference
+            // between the profile's own modelling of CIELAB and §8.6.5.4's — ADR 1008.
+            // Every other Table 19 space is outside what Table 67 admits.
             _ => return None,
         };
         let lab_pcs = match data.get(20..24)? {

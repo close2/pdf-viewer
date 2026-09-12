@@ -1,3 +1,7 @@
+Status: complete
+Given: 2026-09-09, by the owner's hand
+Owes: none
+
 Final answer, replacing the "not yet a qualified answer" this file held — my first text is preserved in Q05:
 
 The product is quorra, and only the front doors carry the name: the binaries quorra, quorra-transform, quorra-retrieve and quorrafs. The crates keep the names that say what they do, and the workers keep theirs.

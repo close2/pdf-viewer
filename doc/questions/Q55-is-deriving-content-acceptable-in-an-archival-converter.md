@@ -1,8 +1,6 @@
 # Q55 — Is `derive` acceptable at all in an archival converter?
 
 Source: `doc/rfc/0007` §7 question 2, raised by session 954.
-Status: **open** — answered when `A55-is-deriving-content-acceptable-in-an-archival-converter.md`
-exists beside this file.
 
 ## Why it needs the owner
 

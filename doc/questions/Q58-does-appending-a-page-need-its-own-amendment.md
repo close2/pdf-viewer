@@ -1,8 +1,6 @@
 # Q58 — Does a `preserve` remedy that appends a page need its own amendment to the fence?
 
 Source: `doc/rfc/0007` §7 question 5, raised by session 954.
-Status: **open** — answered when `A58-does-appending-a-page-need-its-own-amendment.md` exists
-beside this file.
 
 ## Why it needs the owner
 

@@ -68,11 +68,28 @@
 //! test placed in `corpus.rs`'s or `text_extraction.rs`'s binary joins that gate's run and its
 //! output *immediately* — and ADR 0323's own rule is that an instrument's numbers enter §2 only
 //! after they have held across rounds. A binary of its own keeps the instrument invokable by
-//! name today and keeps the eventual gate line running exactly this and nothing else:
+//! name and keeps the gate line running exactly this and nothing else:
 //!
 //! ```text
 //! cargo test --profile gates -p pdf-model --test save_round_trip -- --ignored --nocapture
 //! ```
+//!
+//! # The ratchet, since the nine-hundred-and-ninetieth session
+//!
+//! The census counts held from the four-hundred-and-ninety-ninth session to the
+//! nine-hundred-and-ninetieth with one movement — a document with no reachable page one gained
+//! one and is now refused for its rebuilt table — so [`ratchet`] holds them the way the oracle
+//! holds its lists: every capability count has a floor, and every refusal, exclusion and policy
+//! population is a **set of names** checked in both directions, because a name that leaves is a
+//! document this tree began to save or a reference began to read and is examined rather than
+//! quietly enjoyed (ADR 1011). The whole run is twelve seconds on a quiet machine and its only
+//! clock is the thirty-second budget on each reference call, so a loaded machine can cost it a
+//! `reference would not answer` line and nothing else.
+
+// no sandbox worker: this gate edits and saves through `ViewState` and asks poppler and mupdf
+// what the saved file contains. It interprets no page and decodes no image — `view.rs`,
+// `form.rs` and `variable_text.rs` name nothing in `pdf_model::image` — so the sandboxed
+// decoder's absence cannot move a number here.
 
 #![expect(
     clippy::print_stdout,
@@ -81,6 +98,8 @@
     reason = "test code: an explanatory panic is the intended failure, and the census output \
               is the point of the run"
 )]
+
+use std::collections::BTreeSet;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -949,14 +968,14 @@ fn print_level(label: &str, level: &Level) {
 /// The instrument. Ignored: minutes over 974 documents and two subprocesses per save; run it
 /// deliberately, in release or under the gates profile.
 ///
-/// # What is asserted now, and what is only printed
+/// # What is asserted
 ///
 /// The three exact assertions bind from the first run: no panic, every save a prefix, every
 /// save read back, and every reference answer either agreeing or in [`KNOWN_DISAGREEMENTS`]
 /// with a diagnosis. The census *counts* — saves, policy refusals, construction refusals,
-/// exclusions — are printed by reason and deliberately not ratcheted yet: ADR 0323's rule is
-/// that an instrument's numbers enter `doc/todo/02` §2 only after they have held across
-/// rounds, and a ratchet invented on a first run is a number nobody has watched hold.
+/// exclusions — were printed by reason and deliberately not ratcheted on the first run, on ADR
+/// 0323's rule that an instrument's numbers enter `doc/todo/02` §2 only after they have held
+/// across rounds; they held, and [`ratchet`] holds them now.
 #[test]
 #[ignore = "corpus-scale; spawns poppler and mupdf per document — run explicitly, in release"]
 fn every_corpus_document_saves_and_three_readers_see_the_edit() {
@@ -1031,6 +1050,227 @@ fn every_corpus_document_saves_and_three_readers_see_the_edit() {
             );
         }
     }
+    // And the census counts, once they had held across rounds.
+    ratchet(&tally, files.len());
+}
+
+/// How many corpus documents the floors and names below were taken over — `doc/pdf.js`'s,
+/// pinned by commit and identical in every clone.
+const TRACKED_POPULATION: usize = 974;
+
+/// The two documents this reader cannot open at all: one encryption it does not implement, one
+/// password nobody has recorded. `corpus.rs` holds the same two under `MAX_UNREADABLE_ENCRYPTION`.
+const REFUSED_OPEN: &[&str] = &["PDFBOX-4352-0.pdf", "issue21579.pdf"];
+
+/// The documents with no page an update can put an annotation on — five with no reachable page
+/// one, and `issue9105_other.pdf`, whose page one is an inline dictionary in `/Kids`.
+const PAGELESS: &[&str] = &[
+    "Brotli-Prototype-FileA.pdf",
+    "REDHAT-1531897-0.pdf",
+    "bug1020226.pdf",
+    "issue9105_other.pdf",
+    "poppler-85140-0.pdf",
+    "poppler-937-0-fuzzed.pdf",
+];
+
+/// The policy census: every document `Restrict(On)` withholds an operation from, by name. All
+/// nine withhold *adding an annotation* — eight by §7.6.4.2 Table 22 bit 6 and
+/// `xfa_filled_imm1344e.pdf` by §12.8.2.2's certification — and none withholds filling a field.
+const POLICY_REFUSED: &[&str] = &[
+    "bug1782186.pdf",
+    "bug1815476.pdf",
+    "bug900822.pdf",
+    "issue15893_reduced.pdf",
+    "issue17215.pdf",
+    "issue19484_1.pdf",
+    "issue19484_2.pdf",
+    "secHandler.pdf",
+    "xfa_filled_imm1344e.pdf",
+];
+
+/// The documents `Restrict(On)` leaves nothing to save of: the policy-refused ones with no
+/// fillable text field to fill instead.
+const NOTHING_TO_SAVE_ON: &[&str] = &[
+    "bug1782186.pdf",
+    "bug900822.pdf",
+    "issue15893_reduced.pdf",
+    "issue17215.pdf",
+    "issue19484_1.pdf",
+    "issue19484_2.pdf",
+    "xfa_filled_imm1344e.pdf",
+];
+
+/// The saves §7.5.6 cannot honestly append, by name: twenty-three whose cross-reference table
+/// was rebuilt by scanning, and `scan-bad.pdf`, which states no `startxref`. A name that leaves
+/// this list is a document the writer began to chain to and is examined, not enjoyed.
+const SAVE_REFUSED_ON: &[&str] = &[
+    "GHOSTSCRIPT-698804-1-fuzzed.pdf",
+    "PDFBOX-3148-2-fuzzed.pdf",
+    "bug1250079.pdf",
+    "bug1606566.pdf",
+    "bug1795263.pdf",
+    "bug1980958.pdf",
+    "close-path-bug.pdf",
+    "encrypted-attachment.pdf",
+    "helloworld-bad.pdf",
+    "issue10438_reduced.pdf",
+    "issue15590.pdf",
+    "issue17147.pdf",
+    "issue17554.pdf",
+    "issue18986.pdf",
+    "issue19800.pdf",
+    "issue6069.pdf",
+    "issue9105_reduced.pdf",
+    "issue9252.pdf",
+    "mesh_shading_empty.pdf",
+    "named_dest_collision_for_editor.pdf",
+    "outlines_for_editor.pdf",
+    "poppler-742-0-fuzzed.pdf",
+    "scan-bad.pdf",
+    "xref_command_missing.pdf",
+];
+
+/// The one document of the policy-refused population whose save `Restrict(Off)` refuses too.
+const SAVE_REFUSED_OFF: &[&str] = &["issue15893_reduced.pdf"];
+
+/// The references that cannot read an **original**, by document and reference, under
+/// `Restrict(On)` — every one a file this reader opens through §7.7.3.3's recovery and the
+/// reference refuses. A pair that leaves is a reference that learned to read a file, or this
+/// reader that stopped opening one, and either is examined.
+const REFERENCE_EXCLUDED_ON: &[(&str, &str)] = &[
+    ("bug1978317.pdf", "poppler"),
+    ("issue21436.pdf", "mupdf"),
+    ("issue9418.pdf", "mupdf"),
+    ("issue9418.pdf", "poppler"),
+    ("poppler-395-0-fuzzed.pdf", "mupdf"),
+    ("poppler-395-0-fuzzed.pdf", "poppler"),
+    ("poppler-67295-0.pdf", "poppler"),
+    ("poppler-91414-0-53.pdf", "poppler"),
+    ("poppler-91414-0-54.pdf", "poppler"),
+];
+
+/// The same under `Restrict(Off)`: `issue19484_1/2.pdf`, whose two key-length claims contradict
+/// each other, so neither reference reads the original's own streams.
+const REFERENCE_EXCLUDED_OFF: &[(&str, &str)] = &[
+    ("issue19484_1.pdf", "mupdf"),
+    ("issue19484_1.pdf", "poppler"),
+    ("issue19484_2.pdf", "mupdf"),
+    ("issue19484_2.pdf", "poppler"),
+];
+
+/// A capability count may only rise.
+fn floor(what: &str, count: usize, at_least: usize) {
+    assert!(
+        count >= at_least,
+        "{what}: {count}, below the floor of {at_least} this instrument has held since session 499"
+    );
+}
+
+/// A population is held as a set of names, in both directions.
+///
+/// A name that joins is a document this tree stopped saving, or a reference stopped reading —
+/// a regression, or a reference upgrade, and the run says which. A name that leaves is the
+/// other direction and is examined all the same: the oracle's lists are held to equality both
+/// ways (ADR 0282), because a document that quietly started to save is a change in the writer
+/// nobody read.
+fn held(what: &str, found: impl IntoIterator<Item = String>, named: &[&str]) {
+    let found: BTreeSet<String> = found.into_iter().collect();
+    let named: BTreeSet<String> = named.iter().map(|name| (*name).to_owned()).collect();
+    let joined: Vec<&String> = found.difference(&named).collect();
+    let left: Vec<&String> = named.difference(&found).collect();
+    assert!(
+        joined.is_empty() && left.is_empty(),
+        "{what}: the population moved — joined {joined:?}, left {left:?}; examine each and \
+         then edit the list, in that order"
+    );
+}
+
+/// One reference exclusion as a name: the document and the reference that could not read it.
+fn excluded_pair((name, why): &(String, String)) -> String {
+    format!("{name}: {}", why.split(' ').next().unwrap_or(""))
+}
+
+/// The ratchet, which is what ADR 0323 called this instrument's verdict shape once its numbers
+/// had held: floors under the capability counts, and names for every population that shrinks
+/// the judged set. Run over the tracked population only, and says so where it is not.
+fn ratchet(tally: &Tally, population: usize) {
+    if population != TRACKED_POPULATION {
+        println!(
+            "not ratcheted: {population} documents against the {TRACKED_POPULATION} the floors \
+             and names were taken over — `git submodule update --init doc/pdf.js`"
+        );
+        return;
+    }
+    let names = |entries: &[(String, String)]| -> Vec<String> {
+        entries.iter().map(|(name, _)| name.clone()).collect()
+    };
+    held("refused open", names(&tally.refused_open), REFUSED_OPEN);
+    held("no page to annotate", names(&tally.pageless), PAGELESS);
+    held(
+        "refused by policy",
+        names(&tally.policy_refused),
+        POLICY_REFUSED,
+    );
+    held(
+        "nothing to save under Restrict(On)",
+        names(&tally.on.nothing_to_save),
+        NOTHING_TO_SAVE_ON,
+    );
+    held(
+        "save refused under Restrict(On)",
+        names(&tally.on.save_refused),
+        SAVE_REFUSED_ON,
+    );
+    held(
+        "save refused under Restrict(Off)",
+        names(&tally.off.save_refused),
+        SAVE_REFUSED_OFF,
+    );
+    let pairs = |named: &[(&str, &str)]| -> Vec<String> {
+        named
+            .iter()
+            .map(|(name, who)| format!("{name}: {who}"))
+            .collect()
+    };
+    held(
+        "reference cannot witness under Restrict(On)",
+        tally.on.reference_excluded.iter().map(excluded_pair),
+        &pairs(REFERENCE_EXCLUDED_ON)
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
+    held(
+        "reference cannot witness under Restrict(Off)",
+        tally.off.reference_excluded.iter().map(excluded_pair),
+        &pairs(REFERENCE_EXCLUDED_OFF)
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
+    floor(
+        "documents with a fillable text field",
+        tally.with_text_field,
+        80,
+    );
+    floor("saved under Restrict(On)", tally.on.saved, 935);
+    floor(
+        "free texts checked under Restrict(On)",
+        tally.on.free_texts_checked,
+        933,
+    );
+    floor(
+        "field values checked under Restrict(On)",
+        tally.on.fields_checked,
+        80,
+    );
+    floor("saved under Restrict(Off)", tally.off.saved, 8);
+    floor(
+        "field values checked under Restrict(Off)",
+        tally.off.fields_checked,
+        2,
+    );
+    println!("ratchet held: every floor and every named population as in session 499");
 }
 
 /// One document through the whole instrument, un-ignored, so the witness scripts cannot rot

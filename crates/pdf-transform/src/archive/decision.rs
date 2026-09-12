@@ -79,15 +79,36 @@ pub enum Loss {
     /// specification sees no difference at all; one that cannot now falls back to a device space
     /// rather than to the producer's second choice. Not one image sample is touched either way.
     Jpeg2000ColourFallback,
+    /// section 3.6: the cryptographic assertion of every signature the source carries.
+    ///
+    /// A signature covers a byte range of one file — §12.8.1 — and a conversion rewrites every
+    /// offset, so no output of this verb can carry the source's signatures as signatures; what
+    /// it can do is carry the dictionary into bytes it no longer covers, which is a signature
+    /// that lies and is what this verb wrote until ADR 1006. So the assertion is *removed*: each
+    /// signature field loses its `/V` and keeps its widget and appearance (§12.7.5.5), the
+    /// permissions dictionary loses the `DocMDP` and `UR3` entries that rested on the signature
+    /// (Table 263, §12.8.2.3), and the form's `AppendOnly` flag is cleared (Table 225).
+    /// [`super::signatures`] has the sentence deciding each.
+    ///
+    /// What is lost is exactly what a signature told a reader: who signed, when, and that the
+    /// bytes had not changed since. **All three are written into the report before they go**,
+    /// each signature named with its `/Name`, its `/M`, and what verifying it over the *source*
+    /// found — so a reader of the output can still learn what the source asserted, from the
+    /// report if not from the file. No mark on any page moves.
+    ///
+    /// Not a default and never mechanical, however invisible on the page: the assertion is the
+    /// point of a signed document, and section 3.6 classes its loss *Ask, loudly*.
+    SignatureAssertion,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
         Self::Jpeg2000ColourFallback,
+        Self::SignatureAssertion,
     ];
 
     /// The word a caller authorises it by.
@@ -98,6 +119,7 @@ impl Loss {
             Self::MetadataProperty => "metadata-property",
             Self::AnnotationPrinting => "annotation-printing",
             Self::Jpeg2000ColourFallback => "jpeg2000-colour-fallback",
+            Self::SignatureAssertion => "signature-assertion",
         }
     }
 
@@ -120,6 +142,13 @@ impl Loss {
                 "a JPEG 2000 image keeps only the colour space specification it uses, so a \
                  processor that cannot use that one falls back to a device space rather than to \
                  the producer's next specification. No image sample is touched"
+            }
+            Self::SignatureAssertion => {
+                "every signature the source carries loses its cryptographic assertion — the \
+                 conversion rewrites every byte the signature covered, so its value is removed \
+                 rather than carried as a signature that no longer covers the bytes it sits in. \
+                 Each field keeps its widget and appearance; the report names each signature, \
+                 its signer, its time, and what verifying it over the source found"
             }
         }
     }
@@ -152,6 +181,8 @@ pub struct Authorisations {
     pub annotation_printing: bool,
     /// Whether [`Loss::Jpeg2000ColourFallback`] was authorised.
     pub jpeg2000_colour_fallback: bool,
+    /// Whether [`Loss::SignatureAssertion`] was authorised.
+    pub signature_assertion: bool,
 }
 
 impl Authorisations {
@@ -163,6 +194,7 @@ impl Authorisations {
             Loss::MetadataProperty => self.metadata_property,
             Loss::AnnotationPrinting => self.annotation_printing,
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback,
+            Loss::SignatureAssertion => self.signature_assertion,
         }
     }
 
@@ -173,6 +205,7 @@ impl Authorisations {
             Loss::MetadataProperty => self.metadata_property = true,
             Loss::AnnotationPrinting => self.annotation_printing = true,
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback = true,
+            Loss::SignatureAssertion => self.signature_assertion = true,
         }
     }
 }
@@ -555,6 +588,30 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "file-structure/catalog-version-key",
         answer: Answer::Mechanical(Rewrite::CatalogVersion),
+    },
+    // ISO 19005-2 section 6.1.12, ISO 19005-4 section 6.1.11: a permissions dictionary's keys
+    // outside Table 263. §12.8.6 makes each key the name of a permission handler, and a handler
+    // the standard does not define is one no conforming processor can consult, so removing the
+    // key changes what no reader could see — `super::signatures::foreign_handlers`.
+    Remedy {
+        requirement: "file-structure/permissions-dictionary-keys",
+        answer: Answer::Mechanical(Rewrite::ForeignPermissionHandlers),
+    },
+    // ISO 19005-2 section 6.1.12's second sentence: the digest keys of the DocMDP signature's
+    // reference dictionaries. They go with the signature, which `doc/pdf-a-conversion-limits.md`
+    // section 3.6 makes an authorised loss — the conversion invalidates the signature whatever
+    // is done about the keys, and `super::signatures` is the reading.
+    Remedy {
+        requirement: "file-structure/document-signature-states-no-digest",
+        answer: Answer::Loses(Loss::SignatureAssertion, Rewrite::SignatureValueRemoved),
+    },
+    // ISO 19005-2 Annex B.1: a signature whose range does not cover the file it was made over.
+    // Only the signer could redo the range and the digest as one act (ADR 1003), and no output
+    // of this verb carries the signature anyway; what the row asked for was that the range the
+    // source got wrong be *stated*, which the report's line per signature now does.
+    Remedy {
+        requirement: "signatures/digest-covers-the-whole-file",
+        answer: Answer::Loses(Loss::SignatureAssertion, Rewrite::SignatureValueRemoved),
     },
     // ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
     Remedy {
@@ -1357,22 +1414,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/crypt-filter-is-identity",
         Because::NotBuiltYet(ENCRYPTION_REMOVAL_NOT_BUILT),
     ),
-    // ISO 19005-2 section 6.1.12, ISO 19005-4 section 6.1.11: section 3.6.
-    (
-        "file-structure/document-signature-states-no-digest",
-        Because::NotBuiltYet(SIGNATURE_STRUCTURE_NOT_BUILT),
-    ),
-    (
-        "file-structure/permissions-dictionary-keys",
-        Because::NotBuiltYet(SIGNATURE_STRUCTURE_NOT_BUILT),
-    ),
-    // ISO 19005-2 Annex B.1: section 3.6 again, seen from the signature's own range rather than
-    // from the keys around it. Promoted to a predicate by `pdf_archive` in session 982 (ADR
-    // 1003), which is what put it in front of this table.
-    (
-        "signatures/digest-covers-the-whole-file",
-        Because::NotBuiltYet(SIGNATURE_RANGE_IS_THE_SIGNERS),
-    ),
     // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary.
     (
         "file-structure/document-information-dictionary-holds-only-a-modification-date",
@@ -1823,24 +1864,6 @@ const ENCRYPTION_REMOVAL_NOT_BUILT: &str = "both parts forbid an Encrypt key in 
      permission flags stop being asserted with it. The authorisation word and the \
      decrypt-then-write path are not built, and a document whose password is not to hand cannot \
      be read at all (section 2.4)";
-
-/// Why the keys a signature structure keeps are not stripped.
-const SIGNATURE_STRUCTURE_NOT_BUILT: &str = "this key belongs to a permissions dictionary or a \
-     signature reference that the conversion has already invalidated: \
-     doc/pdf-a-conversion-limits.md section 3.6 — a signature covers a byte range of one file, a \
-     conversion rewrites every offset, and no converted document carries its source's \
-     signatures. Removing the key is a small rewrite and it belongs with the report section 3.6 \
-     asks for, which names each signature, its signer and whether it validated before the \
-     conversion. Neither is built";
-
-/// Why a signature whose range does not cover its file is not repaired.
-const SIGNATURE_RANGE_IS_THE_SIGNERS: &str = "a signature's ByteRange and its digest are one \
-     act, and only the signer can redo it: a range that does not cover the file it was made over \
-     cannot be widened without the digest failing, and doc/pdf-a-conversion-limits.md section \
-     3.6 already says no converted document carries its source's signatures at all. What this \
-     requirement waits on is the report section 3.6 asks for — each signature named, its \
-     signer, and whether it validated before the conversion — so that a range the source got \
-     wrong is stated there rather than dropped in silence with the rest. Not built";
 
 /// Why `/Info` is not reconciled with the XMP packet.
 const INFO_DICTIONARY_NOT_RECONCILED: &str = "ISO 19005-4 section 6.1.3 leaves a document \

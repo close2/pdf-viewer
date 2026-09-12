@@ -7,6 +7,22 @@ anything this tree says about itself. `doc/ledger-and-claims.md` is where a fals
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A loss caused by *serialising* has no requirement to key it by, and a census over requirements
+  cannot count it.** The converter's decisions were keyed on failed rows; a rewrite invalidates
+  every signature whatever row triggered it, and PDF/A-4 has no row about a signature's range at
+  all — so a converter keyed on rows would have kept writing lying signatures under PDF/A-4 with
+  nothing to catch it. The question became the conversion's own, asked whenever a non-conforming
+  signed source is rewritten (ADR 1007). **And the report reads the source, never the output**: what
+  a signature covered, whether it verified, whose key — all of it is true of the file that arrived
+  and none of it of the file that leaves.
+
+- **A catalogue that classes a loss "Ask, loudly" is a claim that the code asks.** The limits
+  document had the right answer for ninety sessions and the converter never read it; the instrument
+  that finally compared them was a *predicate*, written for a different reason (ADR 1006). When a
+  requirement moves from `Unchecked` to `Implemented`, the converter's output check is the first
+  reader of every claim the catalogue made about it — run the archive walk over the corpus before
+  the promotion is believed.
+
 - **A reason that says a row is "one predicate away" is a claim about the *clause* as well as about
   the tree, and the clause half is the one nobody re-reads.** The route is greppable and so it gets
   checked; the reading sits in a licensed document and so it does not. Two signature rows were

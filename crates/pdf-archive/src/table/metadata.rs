@@ -41,7 +41,10 @@
 //!   embedded extension schema describes, because section 6.6.2.3.1 states that half by deferring
 //!   to section 6.6.2.3.2.
 //! - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
-//!   each spelled with the prefix its table requires.
+//!   each spelled with the prefix its table requires. What it does not judge, and says so in a
+//!   row of its own, is the one sentence of that subclause that reads a field's *value*: a
+//!   property's value type names one the XMP Specification defines or one the same schema
+//!   defines.
 //!
 //! # The XMP standard, half held, and the five rows that came out of the half
 //!
@@ -247,6 +250,26 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::only_two("6.6.2.3.3"),
         applies: Applies::Always,
         check: Check::Implemented(extension_schema_container_fields),
+    },
+    Requirement {
+        id: "metadata/extension-property-value-types-are-defined",
+        asks: "A property an extension schema describes shall name, as its value type, one the \
+               XMP Specification defines or one the same extension schema defines.",
+        clauses: Clauses::only_two("6.6.2.3.3"),
+        applies: Applies::Always,
+        check: Check::Unchecked(
+            "the row above holds every pdfaProperty:valueType present and spelled with its \
+             prefix, and reads nothing of what it names. Deciding that needs two vocabularies \
+             this crate does not hold as names: the value types the XMP Specification defines \
+             — its simple types, its derived ones, and the array and structure forms its own \
+             grammar builds from them — which `PREDEFINED` records per property as a shape and \
+             a lexical form rather than by the type's name, and the custom types the same \
+             schema's pdfaSchema:valueType entries define by their pdfaType:type. Both are \
+             countable from documents this tree holds, so what is owed is a predicate and the \
+             converter's census row that comes with one. Table 6's explanation of \
+             pdfaField:valueType states the same constraint of a structure's fields in a cell \
+             rather than in a sentence, and would come with it",
+        ),
     },
     Requirement {
         id: "metadata/schema-associated-file",

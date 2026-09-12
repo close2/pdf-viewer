@@ -1,12 +1,12 @@
 # An instrument for the interactive surface
 
-Status: **all three built (ADRs 0333, 0334, 0342), and two of them gate — the first one's verdict
-since ADR 0421 and the third one's counts since ADR 0425; what is left is the save round-trip's
-ratchet, the standing rule at the foot of this file, and the named remainders under the items.** ADR 0323 is the design, with the measured reference-vs-reference spread the tolerance
+Status: **all three built (ADRs 0333, 0334, 0342), and all three ratchet — the first one's verdict
+since ADR 0421, the third one's counts since ADR 0425 and the second one's since ADR 1011; what is
+left is the second one's §2 line, which is the owner's to add (ADR 1011 states it and its measured
+cost), the standing rule at the foot of this file, and the named remainders under the items.** ADR 0323 is the design, with the measured reference-vs-reference spread the tolerance
 rests on. Each instrument's first-run numbers are in its session's history file, not here. **The
-file stays open for the rule rather than for the build**: instrument 1's geometry verdict and
-instrument 3's counts have each held across rounds and therefore ratchet, instrument 2's have not,
-and this is where that promise is kept.
+file stays open for the rule rather than for the build**: each instrument's numbers held across
+rounds before they ratcheted, and this is where that promise is kept.
 Priority: 05 — standing band, because it is an instrument like 00 and 01 rather than a feature
 Corpus: the denominator is stated per instrument in ADR 0323, with every refusal printed by reason
 Clauses: §9.10 (extraction), §12.7 (forms), §7.5.6 (the incremental update a save appends),
@@ -81,11 +81,15 @@ text-domain entry.
    exactly the differing population. A reference that cannot read the *original* is excluded
    by reason rather than counted as a disagreement. Nothing is cached (the saved file's hash
    is new whenever the writer changes, so `pdfref`'s key never amortises) and nothing needed
-   sampling — the questions are object reads, not renders. **Still owed from this item:**
-   ratcheting the census counts once they have held across rounds, a §2 line by the standing
-   rule below, and the oracle-over-saved-files sample, which stays unbuilt at the price ADR
-   0334 states (about two minutes of reference CPU per writer-change, unamortisable by
-   construction; encrypted documents outside that half only, ADR 0129).
+   sampling — the questions are object reads, not renders. **And the census counts ratchet since
+   ADR 1011**: they held from session 499 to session 990 with one explained movement, so every
+   capability count has a floor and every refusal, exclusion and policy population is a set of
+   names checked both ways; `tools/state.sh save` runs it, in about twelve seconds. **Still owed
+   from this item:** the §2 line — `cargo test --profile gates -p pdf-model --test
+   save_round_trip -- --ignored --nocapture`, under `tools/bounded.sh` like every walk — which is
+   the owner's to add to `doc/todo/02`, and the oracle-over-saved-files sample, which stays unbuilt
+   at the price ADR 0334 states (about two minutes of reference CPU per writer-change,
+   unamortisable by construction; encrypted documents outside that half only, ADR 0129).
 
 3. **The accessibility ratchet — built (ADR 0342).** `tools/state.sh accessibility` over
    `crates/viewer-core/tests/accessibility_census.rs`: page one of every document in
@@ -114,7 +118,7 @@ text-domain entry.
    ceiling once it has held; `refused` is a denominator and may want no bound at all, and a later
    round decides which of the two it is putting a bound under.
 
-   **What remains of this item is instrument 2's ratchet**, plus what each item names.
+   **What remains is what each item names**, and instrument 2's §2 line.
 
 Each instrument's numbers enter `doc/todo/02` §2 only once they have held across rounds, never
 before.

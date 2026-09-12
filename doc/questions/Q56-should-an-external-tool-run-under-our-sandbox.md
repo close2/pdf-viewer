@@ -1,8 +1,6 @@
 # Q56 — Should an external tool run under this project's sandbox where it can?
 
 Source: `doc/rfc/0007` §7 question 3, raised by session 954.
-Status: **open** — answered when `A56-should-an-external-tool-run-under-our-sandbox.md` exists
-beside this file.
 
 ## Why it needs the owner
 

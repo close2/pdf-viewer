@@ -1,3 +1,7 @@
+Status: complete
+Given: 2026-09-06, by the owner's hand
+Owes: the `mozjpeg-rs` DCT encoder in `doc/stack.md`, which gates lossy image optimisation — absent from the tree at retrofit
+
 Use mozjpeg-rs 
 
 However be very careful to only reencode when explicitly requested.

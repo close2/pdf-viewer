@@ -81,7 +81,8 @@
 //! The rules themselves are the same in both editions — the same two categories of colourant, the
 //! same requirement that a `Default` halftone carry a transfer function where any nonprimary
 //! colourant is present — which was checked rather than assumed. Every other clause this file
-//! cites carries the same number and title in both editions.
+//! cites carries the same number and title in both editions, and `crate::editions` is the test
+//! that keeps that true.
 //!
 //! # Recommendations are not rows
 //!

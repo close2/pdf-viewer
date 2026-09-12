@@ -221,6 +221,14 @@ section_xmp() {
         cargo test --profile gates -p pdf-model --test xmp -- --ignored --nocapture
 }
 
+# §7.5.6's incremental update over the corpus, read back by this tree and by poppler and mupdf
+# (ADR 0334); its counts ratchet since ADR 1011. Twelve seconds, and a corpus walk all the same.
+section_save() {
+    run "save round-trip (§7.5.6)" \
+        '^[0-9]+ documents in|^Restrict\((On|Off)\)|^  (prefix failed|readback failed|reference disagreed|reference would not answer|panicked)|ratchet' \
+        tools/bounded.sh -- cargo test --profile gates -p pdf-model --test save_round_trip -- --ignored --nocapture
+}
+
 section_jpeg2000() {
     run "JPEG 2000 against ISO/IEC 15444-5's reference software" \
         '^[0-9]+ (codestreams|differing|not comparable)' \
@@ -526,8 +534,14 @@ section_disk() {
     fi
 }
 
-all="ledger conformance annex-o governing counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer vfs launch dates xmp jpeg2000"
-quick="ledger conformance annex-o governing counts hosts windows binaries disk"
+section_questions() {
+    run "questions (the owner's word, and what each answer left open)" \
+        '^doc/questions/ holds|^  A[0-9]|^owed by ' \
+        cargo test -q -p conformance --test questions -- --nocapture
+}
+
+all="ledger conformance annex-o governing questions counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer vfs launch dates xmp save jpeg2000"
+quick="ledger conformance annex-o governing questions counts hosts windows binaries disk"
 
 case ${1-} in
 --list) printf '%s\n' $all; exit 0 ;;
@@ -557,9 +571,11 @@ for section in $sections; do
     launch) section_launch ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
+    save) section_save ;;
     jpeg2000) section_jpeg2000 ;;
     annex-o) section_annex_o ;;
     governing) section_governing ;;
+    questions) section_questions ;;
     counts) section_counts ;;
     hosts) section_hosts ;;
     windows) section_windows ;;

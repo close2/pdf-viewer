@@ -61,6 +61,8 @@
 //! which was checked rather than assumed: clause 7.3's object syntax, 7.9.2.2's text strings,
 //! 9.6.2.1, 9.6.3, the whole of 9.7's `CIDFont` subclauses, 9.8's descriptors, 9.9's embedded
 //! programs, 9.10's Unicode mapping, 14.9.4's replacement text and Annex D's character sets.
+//! **That sentence is a test now**: `crate::editions` holds the whole crate's shifts in one table
+//! and checks every `§` in these sources against both editions' headings.
 //!
 //! # Two populations, and why they are not the same one
 //!

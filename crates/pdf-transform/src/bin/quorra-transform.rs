@@ -1316,8 +1316,14 @@ archive:
                            prints; jpeg2000-colour-fallback keeps only the colour space
                            specification a JPEG 2000 image uses, so a processor that cannot use
                            that one falls back to a device space rather than to the producer's
-                           next specification, no image sample being touched. Anything not
-                           authorised stops the conversion instead of happening quietly
+                           next specification, no image sample being touched;
+                           signature-assertion lets a signed document be rewritten at all — a
+                           signature covers the bytes of one file and a conversion moves every
+                           one of them, so each signature field loses its value and keeps its
+                           widget and appearance, and the report names each signature, its
+                           signer, its time and what verifying it over the source found.
+                           Anything not authorised stops the conversion instead of happening
+                           quietly
   --output-intent-profile <file>
                            the ICC profile a PDF/A output intent added by this conversion names
                            as its destination profile. The default is the sRGB profile this

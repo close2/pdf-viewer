@@ -78,7 +78,7 @@ pub enum Flavour {
 /// One conformance target: a part, and the level or flavour that narrows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Target {
-    /// PDF/A-2 at one of §5's three levels.
+    /// PDF/A-2 at one of the three levels ISO 19005-2's clause 5 defines.
     Two(Level),
     /// PDF/A-4 in one of its three flavours.
     Four(Flavour),

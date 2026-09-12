@@ -1,8 +1,6 @@
 # Q57 — What shape does a remedy's fallback take when it fails?
 
 Source: `doc/rfc/0007` §7 question 4, raised by session 954.
-Status: **open** — answered when `A57-what-shape-does-a-fallback-chain-take.md` exists beside this
-file.
 
 ## Why it needs the owner
 

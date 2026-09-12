@@ -26,6 +26,7 @@ use super::prepare::{
     Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, intent_dictionary,
     metadata_stream, output_intent_entries,
 };
+use super::signatures::{ForeignHandlers, Signatures, Site};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
     RELATIVE_COLORIMETRIC, RENDERING_INTENTS, SharedProfile, StandardEncodings,
@@ -460,6 +461,28 @@ pub enum Rewrite {
     /// neither of them settles stays refused, why the loss is the §7.4.9 fallback chain rather
     /// than any pixel, and what shapes of JP2 structure this declines to shift bytes inside.
     Jpeg2000ColourSpecifications,
+    /// Every signature the source carries loses its value; its field, widget and appearance stay.
+    ///
+    /// `doc/pdf-a-conversion-limits.md` section 3.6, built as [`super::signatures`] reads it:
+    /// each signature field's `/V` goes (§12.7.5.5), the permissions dictionary's `DocMDP` and
+    /// `UR3` entries go with the signatures they rested on (Table 263, §12.8.2.3), and the form's
+    /// `AppendOnly` flag is cleared because the output holds no signature it could describe
+    /// (Table 225). The widget and its `/AP` stay, because ISO 19005-2 section 6.3.3 requires
+    /// an appearance and §12.7.5.5 forbids the appearance to carry a validation status — so
+    /// what stays asserts nothing the file no longer has.
+    ///
+    /// **Never mechanical.** The conversion invalidates every signature whatever requirement
+    /// asked for the rewrite, so this is wanted whenever a non-conforming source carries one,
+    /// and it is wanted under [`super::Loss::SignatureAssertion`] — a person authorises it, and
+    /// the report names what went.
+    SignatureValueRemoved,
+    /// A permissions dictionary loses every key but `UR3` and `DocMDP`.
+    ///
+    /// ISO 19005-2 section 6.1.12 and ISO 19005-4 section 6.1.11. §12.8.6 makes each key the
+    /// name of a permission handler and Table 263 names the two the standard defines; a key
+    /// naming any other is one no conforming processor can consult, so nothing any reader did
+    /// ever turned on it. [`super::signatures::foreign_handlers`] is the reading.
+    ForeignPermissionHandlers,
 }
 
 impl Rewrite {
@@ -615,6 +638,17 @@ impl Rewrite {
                  used one, the boxes it directs a processor to ignore going with the rest; not a \
                  sample of the image is touched"
             }
+            Self::SignatureValueRemoved => {
+                "each signature field keeps its widget and appearance and loses its value — the \
+                 signature dictionary, and with it the digest and the certificate — the \
+                 permissions dictionary loses the DocMDP and UR3 entries that rested on those \
+                 signatures, and the form's AppendOnly flag is cleared"
+            }
+            Self::ForeignPermissionHandlers => {
+                "the permissions dictionary loses every key but UR3 and DocMDP, each naming a \
+                 permission handler ISO 32000 does not define and no conforming processor can \
+                 consult"
+            }
         }
     }
 
@@ -661,6 +695,8 @@ impl Rewrite {
             Self::SharedDestinationProfile => "shared-destination-profile",
             Self::SpotColorantEntry => "spot-colorant-entry",
             Self::Jpeg2000ColourSpecifications => "jpeg2000-colour-specifications",
+            Self::SignatureValueRemoved => "signature-value-removed",
+            Self::ForeignPermissionHandlers => "foreign-permission-handlers",
         }
     }
 }
@@ -718,6 +754,8 @@ pub(super) fn convert(
         shared_profile: prepared.owed.shared_profile.as_ref().ok(),
         colorants: prepared.owed.colorants.as_ref().ok(),
         specifications: prepared.owed.specifications.as_ref().ok(),
+        signatures: Some(&prepared.signatures),
+        foreign_handlers: prepared.owed.foreign_handlers.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1330,6 +1368,29 @@ enum Rewritten {
     Dropped,
 }
 
+/// Table 225's `AppendOnly` bit of `/SigFlags`: "[i]f set, the document contains signatures
+/// that may be invalidated if the PDF file is saved (written) in a way that alters its previous
+/// contents". The output contains none, so the bit comes off; bit 1, `SignaturesExist`, is a
+/// statement about the *fields*, which stay, and is left as the producer wrote it.
+///
+/// §12.7.3 numbers the positions "from 1 (low-order) to 32 (high-order)", so bit position 2 is
+/// the value 2. An entry that is not an integer states no flags and is left alone.
+fn clear_append_only(form: &mut Dictionary, applied: &mut BTreeMap<Rewrite, usize>) -> bool {
+    const APPEND_ONLY: i64 = 2;
+    let Some(flags) = form.get("SigFlags").and_then(Object::as_integer) else {
+        return false;
+    };
+    if flags & APPEND_ONLY == 0 {
+        return false;
+    }
+    form.insert(
+        Name::new(&b"SigFlags"[..]),
+        Object::Integer(flags & !APPEND_ONLY),
+    );
+    count(applied, Rewrite::SignatureValueRemoved);
+    true
+}
+
 /// The rewrites, applied one object at a time.
 struct Rewriter<'a> {
     /// The document being converted.
@@ -1384,6 +1445,10 @@ struct Rewriter<'a> {
     colorants: Option<&'a ColorantEntries>,
     /// The `JPXDecode` images whose colour specification boxes are reduced, where any are.
     specifications: Option<&'a Specifications>,
+    /// Every signature the source carries, and where the rewrite reaches each.
+    signatures: Option<&'a Signatures>,
+    /// The permissions dictionary's keys outside Table 263, where any are removed.
+    foreign_handlers: Option<&'a ForeignHandlers>,
 }
 
 impl Rewriter<'_> {
@@ -1526,6 +1591,18 @@ impl Rewriter<'_> {
         changed |= self.write_default_cmyk(id, &mut out, applied);
         changed |= self.complete_file_specification(&mut out, applied);
         changed |= self.owed_rewrites(id, &mut out, applied);
+        changed |= self.unsign(id, &mut out, applied);
+        if self.permissions_site() == Some(Site::Object(id)) {
+            changed |= self.edit_permissions(&mut out, applied);
+        }
+        if self
+            .signatures
+            .filter(|_| self.wants(Rewrite::SignatureValueRemoved))
+            .and_then(|signatures| signatures.form)
+            == Some(Site::Object(id))
+        {
+            changed |= clear_append_only(&mut out, applied);
+        }
         if self.wants(Rewrite::ToUnicode)
             && let Some(at) = self.to_unicode.and_then(|maps| maps.at.get(&id))
         {
@@ -2163,6 +2240,114 @@ impl Rewriter<'_> {
                 catalog.insert(Name::new(&b"Names"[..]), Object::Dictionary(names));
                 count(applied, Rewrite::AlternatePresentations);
                 changed = true;
+            }
+        }
+        changed |= self.edit_catalog_dictionaries(catalog, applied);
+        changed
+    }
+
+    /// §12.8.6's permissions dictionary and §12.7.3's interactive form dictionary, where the
+    /// catalog writes either directly: the same edits their own objects would take.
+    fn edit_catalog_dictionaries(
+        &self,
+        catalog: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self.permissions_site() == Some(Site::InCatalog)
+            && let Some(Object::Dictionary(permissions)) = catalog.get("Perms")
+        {
+            let mut permissions = permissions.clone();
+            if self.edit_permissions(&mut permissions, applied) {
+                catalog.insert(Name::new(&b"Perms"[..]), Object::Dictionary(permissions));
+                changed = true;
+            }
+        }
+        if self
+            .signatures
+            .filter(|_| self.wants(Rewrite::SignatureValueRemoved))
+            .and_then(|signatures| signatures.form)
+            == Some(Site::InCatalog)
+            && let Some(Object::Dictionary(form)) = catalog.get("AcroForm")
+        {
+            let mut form = form.clone();
+            if clear_append_only(&mut form, applied) {
+                catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// `doc/pdf-a-conversion-limits.md` section 3.6, at one signature field or widget: the
+    /// value goes, and nothing else in the dictionary is touched.
+    fn unsign(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(signatures) = self
+            .signatures
+            .filter(|_| self.wants(Rewrite::SignatureValueRemoved))
+        else {
+            return false;
+        };
+        if !signatures.values_at.contains(&id) || out.remove("V").is_none() {
+            return false;
+        }
+        count(applied, Rewrite::SignatureValueRemoved);
+        true
+    }
+
+    /// Where the permissions dictionary is, if either rewrite that edits it is wanted.
+    fn permissions_site(&self) -> Option<Site> {
+        let signed = self
+            .signatures
+            .filter(|_| self.wants(Rewrite::SignatureValueRemoved))
+            .and_then(|signatures| signatures.permissions);
+        let foreign = self
+            .foreign_handlers
+            .filter(|_| self.wants(Rewrite::ForeignPermissionHandlers))
+            .map(|handlers| handlers.at);
+        signed.or(foreign)
+    }
+
+    /// Both edits to §12.8.6's permissions dictionary, at whichever site holds it.
+    ///
+    /// The two are one function because they are one dictionary: a document wanting both gets
+    /// one edited dictionary rather than two writers overwriting each other. The `DocMDP` and
+    /// `UR3` entries go under [`Rewrite::SignatureValueRemoved`] — Table 263 makes each a
+    /// signature — and every other key under [`Rewrite::ForeignPermissionHandlers`]. What is
+    /// left may be empty, and stays: Table 263 makes every entry optional, so an empty
+    /// permissions dictionary states nothing and is not a shape the conversion has to answer for.
+    fn edit_permissions(
+        &self,
+        permissions: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self
+            .signatures
+            .filter(|_| self.wants(Rewrite::SignatureValueRemoved))
+            .is_some_and(|signatures| signatures.permissions.is_some())
+        {
+            for key in ["DocMDP", "UR3"] {
+                if permissions.remove(key).is_some() {
+                    count(applied, Rewrite::SignatureValueRemoved);
+                    changed = true;
+                }
+            }
+        }
+        if let Some(handlers) = self
+            .foreign_handlers
+            .filter(|_| self.wants(Rewrite::ForeignPermissionHandlers))
+        {
+            for key in &handlers.keys {
+                if permissions.remove(key).is_some() {
+                    count(applied, Rewrite::ForeignPermissionHandlers);
+                    changed = true;
+                }
             }
         }
         changed

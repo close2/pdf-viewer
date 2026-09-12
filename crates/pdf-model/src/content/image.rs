@@ -96,10 +96,13 @@ impl Interpreter<'_> {
             Object::Name(name) => Intent::read(name.as_bytes()),
             _ => state.intent,
         };
+        // And the page's §14.11.5 intent, for the same reason `Interpreter::conversion_under`
+        // gives: Table 87's `/ColorSpace` is parsed in `crate::image`, after this point.
         Conversion::new(
             self.compositing.clone(),
             state.black_point_under(intent).applies(),
         )
+        .under_output_intent(self.output_intent.as_ref())
     }
 
     /// §8.9.5.4 step d): which of a base image's `/Alternates` is drawn in its place.

@@ -1,8 +1,6 @@
 # Q59 — May a file that departs from the standard still claim the target?
 
 Source: `doc/rfc/0007` §4.7.2, raised by session 954 on the owner's request for departures.
-Status: **open** — answered when `A59-may-a-departed-file-still-claim-the-target.md` exists beside
-this file.
 
 ## Why it needs the owner
 

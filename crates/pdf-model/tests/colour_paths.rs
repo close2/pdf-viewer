@@ -560,6 +560,104 @@ fn an_output_intent_reaches_a_device_colour_however_it_is_set() {
     );
 }
 
+/// An output intent reaches the four routes that parse their own colour space.
+///
+/// ADR 1001 fixed the operator route and named the ones it could not reach: an image's
+/// `/ColorSpace` (§8.9.5.1, Table 87), an inline image's abbreviated one (§8.9.7), a shading's
+/// (§8.7.4.3, Table 77) — whether stated inline or by reference, which `shading::Cache` parses
+/// once — and the vertex colours of a mesh, which `mesh.rs` reads in the shading's space
+/// (§8.7.4.5.5). Every one of them parsed with no intent until session 987, so on a page
+/// carrying one they drew through the assumed press beside a fill drawn through the intent —
+/// the defect the previous test names, at the sites that test could not see, because it names
+/// no image, no inline image and no shading (ADR 1008).
+///
+/// Each route is asserted against the operator's colour by name, so that a route falling back
+/// to the assumed press fails on its own line rather than on a statistic. [`green_cyan_profile`]
+/// makes pure cyan sRGB's green primary, which the assumed press never produces.
+#[test]
+fn an_output_intent_reaches_an_image_an_inline_image_a_shading_and_a_mesh() {
+    // Two triangles over the whole page, every vertex pure cyan: `flag x y c m y k`, with
+    // `/Decode` mapping the eight-bit coordinates onto the page and the components onto 0..1.
+    let mesh_data = "00 00 00 FF000000  00 FF 00 FF000000  00 00 FF FF000000 \
+                     00 FF 00 FF000000  00 FF FF FF000000  00 00 FF FF000000 >";
+    let objects = format!(
+        "{}7 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+         /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /ASCIIHexDecode \
+         /Length 9 >>\nstream\nFF000000>\nendstream\nendobj\n\
+         8 0 obj\n<< /ShadingType 2 /ColorSpace /DeviceCMYK /Coords [0 0 20 0] \
+         /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0 0] /C1 [1 0 0 0] /N 1 >> \
+         /Extend [true true] >>\nendobj\n\
+         9 0 obj\n<< /PatternType 2 /Shading 8 0 R >>\nendobj\n\
+         10 0 obj\n/DeviceCMYK\nendobj\n\
+         11 0 obj\n<< /ShadingType 4 /ColorSpace 10 0 R /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 20 0 20 0 1 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{mesh_data}\nendstream\nendobj\n",
+        output_intent_objects(),
+        mesh_data.len()
+    );
+    let resources = "/XObject << /Im0 7 0 R >> /Shading << /Sh0 8 0 R /Sh1 11 0 R >> \
+                     /Pattern << /P0 9 0 R >>";
+    let with_intent = |content: &str| {
+        centre_colour(pdf_with_catalog(
+            &objects,
+            "/OutputIntents [5 0 R]",
+            resources,
+            content,
+        ))
+    };
+
+    let by_operator = with_intent("1 0 0 0 k 0 0 20 20 re f");
+    let (r, g, b) = by_operator;
+    assert!(
+        r <= 1 && g >= 254 && b <= 1,
+        "the intent's profile says cyan is green; `k` gave {by_operator:?}"
+    );
+    // An image's samples are eight-bit and cannot express a fraction exactly, so the image
+    // routes are held to two levels, as the first test in this file holds them; every other
+    // route states its colour as numbers and is held to the operator's exactly.
+    let within_two = |a: (u8, u8, u8), b: (u8, u8, u8)| {
+        a.0.abs_diff(b.0) <= 2 && a.1.abs_diff(b.1) <= 2 && a.2.abs_diff(b.2) <= 2
+    };
+
+    let by_image = with_intent("q 20 0 0 20 0 0 cm /Im0 Do Q");
+    assert!(
+        within_two(by_operator, by_image),
+        "an image XObject's /DeviceCMYK means what the intent says: {by_operator:?} against \
+         {by_image:?}"
+    );
+
+    let by_inline =
+        with_intent("q 20 0 0 20 0 0 cm BI /W 1 /H 1 /CS /CMYK /BPC 8 /F /AHx ID\nFF000000>\nEI Q");
+    assert!(
+        within_two(by_operator, by_inline),
+        "an inline image's /CMYK is the same space again: {by_operator:?} against {by_inline:?}"
+    );
+
+    let by_sh = with_intent("/Sh0 sh");
+    assert_eq!(
+        by_operator, by_sh,
+        "a shading's /ColorSpace stated inline reads the intent"
+    );
+
+    let by_pattern = with_intent("/Pattern cs /P0 scn 0 0 20 20 re f");
+    assert_eq!(
+        by_operator, by_pattern,
+        "and so does the same shading painted as a pattern"
+    );
+
+    let by_mesh = with_intent("/Sh1 sh");
+    assert_eq!(
+        by_operator, by_mesh,
+        "a mesh's vertex colours are read in a /ColorSpace stated by reference, which \
+         `shading::Cache` parses once — under the intent"
+    );
+
+    // And without the intent every one of them is the assumed press's process cyan, which
+    // is what says the agreement above was the intent's doing.
+    let without = centre_colour(pdf_with(&objects, resources, "/Sh1 sh"));
+    assert_eq!(without, (0, 173, 239));
+}
+
 /// An `ICCBased` image is converted through its profile, exactly as a fill in it is.
 ///
 /// ISO 32000-2 §8.6.5.5, and the whole of what this test is about: the profile is the

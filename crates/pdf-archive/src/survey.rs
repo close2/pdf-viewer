@@ -43,7 +43,8 @@
 //! - **§9.6.4**, *Type 3 fonts*, is **9.6.5** there, whose own 9.6.4 is *Font subsets*.
 //!
 //! `crate::table::fonts`'s module comment carries the whole of clause 9.6's mapping and why it
-//! shifted. Everything else this file cites agrees in both editions, with one exception that is
+//! shifted, and `crate::editions` holds every shift the crate cites in one table, under a test.
+//! Everything else this file cites agrees in both editions, with one exception that is
 //! not an error: **§Q.2 has no counterpart in ISO 32000-1:2008 at all**, which is precisely why
 //! ISO 19005-2 states the transparency method in an Annex A of its own and why
 //! `graphics/transparency-determined-by-the-parts-own-method` cites that annex rather than this

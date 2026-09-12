@@ -258,8 +258,20 @@ ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · today `not-this-target`
 
 ### `file-structure/permissions-dictionary-keys`
 ### `file-structure/document-signature-states-no-digest`
-ISO 19005-2 6.1.12 (both), ISO 19005-4 6.1.11 (the first) · all six / PDF/A-2 · `not-built-yet`
+ISO 19005-2 6.1.12 (both), ISO 19005-4 6.1.11 (the first) · all six / PDF/A-2 · **built in
+session 986** (ADR 1007): the first `Mechanical`, the second an authorised loss
 
+- **What was built, and what the entry below still proposes.** The report half of `preserve` is
+  built and is the limits document's section 3.6 verbatim: every signature the source carries is
+  named — where, who, when, what its `DocMDP` permitted, and what verifying it over the source
+  found — before its value goes, under `--authorise signature-assertion`. The `xmpMM:History`
+  entry, the appended page and the attached source are **not** built; they are `doc/rfc/0007`'s
+  configuration and wait on it. **And the first row is not a signature row at all**, which this
+  entry had lumped in with the second: a key outside Table 263 names a permission handler ISO 32000
+  does not define, so no conforming processor could ever consult it and removing it is
+  `Mechanical` — both corpus fail-cases for the row carry `/XX (value)` and no signature. The
+  second row's keys are entries of the signature dictionary the rewrite removes, so it is answered
+  by section 3.6's loss and not by a removal of its own.
 - **Mitigation** — `discard` the keys, and `preserve` what they *meant*, which is the limits
   document's section 3.6 and `doc/rfc/0007` section 5's signature row: write the signer, the signing
   time and whether the signature verified **before** the conversion into the report, into

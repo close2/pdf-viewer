@@ -18,6 +18,29 @@ use crate::json::Value;
 use super::decision::Decision;
 use super::fonts::{RestatedFont, SubstitutedFont};
 use super::prepare::{DestinationProfile, WrittenAppearance};
+use super::signatures::SourceSignature;
+
+/// What the conversion decided about the signatures the source carries, and what they were.
+///
+/// `doc/pdf-a-conversion-limits.md` section 3.6's report, and a field of its own rather than a
+/// row of [`Conversion::decided`] because it is not the answer to a requirement: a rewrite
+/// invalidates every signature whatever requirement asked for it, so the question is put by the
+/// conversion itself and is put whenever a non-conforming source carries one. The decision is
+/// the same kind of answer a requirement gets — [`Decision::Authorised`],
+/// [`Decision::Unauthorised`] or [`Decision::Refused`] — and stops the conversion the same way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureDecision {
+    /// What was decided: authorised, waiting for `--authorise signature-assertion`, or refused.
+    pub decision: Decision,
+    /// Each signature the source carries, named and verified over the source.
+    ///
+    /// Filled whatever the decision, so that a refused document's report still says what it
+    /// carried — which is the half of section 3.6's report a person can act on.
+    pub each: Vec<SourceSignature>,
+    /// How many places the rewrite touched: each value removed, each permissions entry, the
+    /// form's flag.
+    pub changed: usize,
+}
 
 /// One requirement the input failed, with what was decided and what was done about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +164,11 @@ pub struct Conversion {
     /// Section 4.9's second metric route, listed for the same reason: nothing on the page moved,
     /// and all the same the bytes of somebody's font program are not the bytes they were.
     pub restated: Vec<RestatedFont>,
+    /// The signatures the source carries and what was decided about them.
+    ///
+    /// `None` where the source carries none, or where it was copied rather than rewritten and
+    /// so keeps every one it has.
+    pub signatures: Option<SignatureDecision>,
 }
 
 impl Conversion {
@@ -150,6 +178,10 @@ impl Conversion {
         self.decided
             .iter()
             .all(|decided| decided.decision.proceeds())
+            && self
+                .signatures
+                .as_ref()
+                .is_none_or(|signed| signed.decision.proceeds())
     }
 
     /// The report as RFC 0002 section 4.5's JSON.
@@ -209,6 +241,12 @@ impl Conversion {
                 "restated_font_metrics".to_owned(),
                 Value::Array(self.restated.iter().map(restated_to_json).collect()),
             ),
+            (
+                "signatures".to_owned(),
+                self.signatures
+                    .as_ref()
+                    .map_or(Value::Null, SignatureDecision::to_json),
+            ),
         ])
     }
 
@@ -247,6 +285,19 @@ impl Conversion {
                 decided.places,
                 describe_decision(decided, repeated)
             );
+        }
+        if let Some(signed) = &self.signatures {
+            let _ = writeln!(
+                out,
+                "  the source carries {} signature(s), and a conversion rewrites every byte a \
+                 signature covered, so no output of it can carry them as signatures (ISO \
+                 32000-2 \u{a7}12.8.1)\n      {}",
+                signed.each.len(),
+                describe(signed.decision, signed.changed, false)
+            );
+            for signature in &signed.each {
+                let _ = writeln!(out, "      {}", describe_signature(signature));
+            }
         }
         if let Some(profile) = &self.profile {
             let _ = writeln!(
@@ -423,14 +474,67 @@ fn removed_to_json(property: &MisusedProperty) -> Value {
     ])
 }
 
+/// One signature of the source, in one line: where, who, when, and what verifying it found.
+///
+/// `doc/pdf-a-conversion-limits.md` section 3.6's line, worded without the word *valid* for the
+/// reason `pdf_model::signature` gives: what was checked is that the value, the certificate and
+/// the bytes belong together, and not who the signer is.
+fn describe_signature(signature: &SourceSignature) -> String {
+    use std::fmt::Write as _;
+    let mut out = signature.at.clone();
+    out.push_str(if signature.timestamp {
+        ", a document timestamp"
+    } else if signature.permitted.is_some() {
+        ", a certification signature"
+    } else {
+        ", a signature"
+    });
+    if let Some(name) = &signature.name {
+        let _ = write!(out, " by {name}");
+    }
+    if let Some(when) = &signature.signed_at {
+        let _ = write!(out, " at {when}");
+    }
+    if let Some(reason) = &signature.reason {
+        let _ = write!(out, ", stating the reason {reason:?}");
+    }
+    if let Some(permitted) = &signature.permitted {
+        let _ = write!(
+            out,
+            ", whose DocMDP entry had every processor permit {permitted} and nothing else"
+        );
+    }
+    let _ = write!(
+        out,
+        ": over the source, {}; {}; {}",
+        signature.coverage, signature.integrity, signature.authenticity
+    );
+    out
+}
+
+/// The signature decision and each signature, worded for a refusal a person reads.
+pub(super) fn describe_signatures(signed: &SignatureDecision) -> String {
+    let mut out = describe(signed.decision, signed.changed, false);
+    for signature in &signed.each {
+        out.push_str("; ");
+        out.push_str(&describe_signature(signature));
+    }
+    out
+}
+
 /// One decision, worded for a person.
 pub(super) fn describe_decision(decided: &Decided, repeated: bool) -> String {
-    match decided.decision {
+    describe(decided.decision, decided.changed, repeated)
+}
+
+/// One decision, worded for a person, wherever it was taken.
+fn describe(decision: Decision, changed: usize, repeated: bool) -> String {
+    match decision {
         Decision::Mechanical(rewrite) => {
             format!(
                 "changed, losing nothing: {} ({} done)",
                 rewrite.describe(),
-                decided.changed
+                changed
             )
         }
         Decision::Stated {
@@ -445,7 +549,7 @@ pub(super) fn describe_decision(decided: &Decided, repeated: bool) -> String {
             format!(
                 "changed, stating an interpretation the standard defines: {} ({} done)\n      {}",
                 rewrite.describe(),
-                decided.changed,
+                changed,
                 sentence
             )
         }
@@ -453,7 +557,7 @@ pub(super) fn describe_decision(decided: &Decided, repeated: bool) -> String {
             "changed with your authorisation: {} — {} ({} done)",
             rewrite.describe(),
             loss.describe(),
-            decided.changed
+            changed
         ),
         Decision::Unauthorised { loss, rewrite } => format!(
             "not done, because it loses something nobody authorised: {} — {}; \
@@ -464,6 +568,84 @@ pub(super) fn describe_decision(decided: &Decided, repeated: bool) -> String {
         ),
         Decision::Refused(because) => format!("refused: {}", because.sentence()),
     }
+}
+
+impl SignatureDecision {
+    /// The signatures and the decision as JSON.
+    fn to_json(&self) -> Value {
+        let mut fields = vec![
+            ("decision".to_owned(), Value::text(self.decision.word())),
+            ("changed".to_owned(), Value::count(self.changed)),
+        ];
+        match self.decision {
+            Decision::Authorised { loss, rewrite } | Decision::Unauthorised { loss, rewrite } => {
+                fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
+                fields.push(("loss".to_owned(), Value::text(loss.word())));
+                fields.push(("loses".to_owned(), Value::text(loss.describe())));
+            }
+            Decision::Refused(because) => {
+                fields.push(("because".to_owned(), Value::text(because.word())));
+                fields.push(("reason".to_owned(), Value::text(because.sentence())));
+            }
+            Decision::Mechanical(rewrite) | Decision::Stated { rewrite, .. } => {
+                fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
+            }
+        }
+        fields.push((
+            "each".to_owned(),
+            Value::Array(self.each.iter().map(signature_to_json).collect()),
+        ));
+        Value::Object(fields)
+    }
+}
+
+/// One signature of the source as JSON.
+fn signature_to_json(signature: &SourceSignature) -> Value {
+    Value::Object(vec![
+        ("reached".to_owned(), Value::text(signature.reached.word())),
+        ("at".to_owned(), Value::text(signature.at.clone())),
+        (
+            "name".to_owned(),
+            signature
+                .name
+                .as_ref()
+                .map_or(Value::Null, |name| Value::text(name.clone())),
+        ),
+        (
+            "signed_at".to_owned(),
+            signature
+                .signed_at
+                .as_ref()
+                .map_or(Value::Null, |when| Value::text(when.clone())),
+        ),
+        (
+            "reason".to_owned(),
+            signature
+                .reason
+                .as_ref()
+                .map_or(Value::Null, |reason| Value::text(reason.clone())),
+        ),
+        ("timestamp".to_owned(), Value::Bool(signature.timestamp)),
+        (
+            "permitted".to_owned(),
+            signature
+                .permitted
+                .as_ref()
+                .map_or(Value::Null, |permitted| Value::text(permitted.clone())),
+        ),
+        (
+            "byte_range".to_owned(),
+            Value::text(signature.coverage.clone()),
+        ),
+        (
+            "digest".to_owned(),
+            Value::text(signature.integrity.clone()),
+        ),
+        (
+            "verification".to_owned(),
+            Value::text(signature.authenticity.clone()),
+        ),
+    ])
 }
 
 impl Decided {

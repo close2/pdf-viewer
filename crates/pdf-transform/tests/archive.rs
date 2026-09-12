@@ -636,6 +636,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         metadata_property: false,
         annotation_printing: false,
         jpeg2000_colour_fallback: false,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -771,6 +772,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         metadata_property: false,
         annotation_printing: true,
         jpeg2000_colour_fallback: false,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -833,6 +835,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         metadata_property: true,
         annotation_printing: false,
         jpeg2000_colour_fallback: false,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -2701,6 +2704,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         metadata_property: false,
         annotation_printing: true,
         jpeg2000_colour_fallback: false,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3267,6 +3271,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         metadata_property: false,
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3302,6 +3307,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         metadata_property: false,
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3335,6 +3341,7 @@ fn two_specifications_marked_best_stay_refused() {
         metadata_property: false,
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -3361,6 +3368,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         metadata_property: false,
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
+        signature_assertion: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -3526,4 +3534,252 @@ fn one_program_disagreeing_in_both_directions_is_restated_in_both() {
         Some((1, 1)),
         "the report counts one glyph restated in each direction: {restated:?}"
     );
+}
+
+/// A form with one signed field, its widget and appearance, a lock, and a permissions dictionary
+/// enforcing the signature's `DocMDP` — `doc/pdf-a-conversion-limits.md` section 3.6's case.
+///
+/// The signature value is not a real CMS object, and that is the point of one of the report's
+/// three sentences: what verifying it over the source found is stated rather than assumed. The
+/// `reference` is the `DocMDP` signature reference dictionary's body, so a part 2 test can put
+/// ISO 19005-2 section 6.1.12's forbidden digest keys in it.
+fn a_signed_form(base: Conforming, reference: &str) -> Vec<u8> {
+    let widget = "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Approval) /F 4 \
+                  /Rect [10 10 90 90] /AP << /N 7 0 R >> /V 8 0 R /Lock 9 0 R >>";
+    let appearance =
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream";
+    let signature = format!(
+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+         /ByteRange [0 100 200 100] /Contents <0102> /Name (Test Signer) \
+         /M (D:20260912120000Z) /Reason (approval) /Reference [{reference}] >>"
+    );
+    let lock = "<< /Type /SigFieldLock /Action /All >>";
+    Conforming {
+        catalog: format!(
+            "{} /AcroForm << /Fields [6 0 R] /SigFlags 3 >> /Perms << /DocMDP 8 0 R >>",
+            base.catalog
+        ),
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            widget.to_owned(),
+            appearance.to_owned(),
+            signature,
+            lock.to_owned(),
+        ],
+        ..base
+    }
+    .build()
+}
+
+/// The `DocMDP` reference every signed fixture carries, with the changes it permits.
+const DOC_MDP_REFERENCE: &str = "<< /Type /SigRef /TransformMethod /DocMDP \
+                                 /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >>";
+
+/// The signature decision the conversion reports, which every signed test reads.
+fn signatures(report: &Report) -> &pdf_transform::archive::SignatureDecision {
+    conversion(report)
+        .signatures
+        .as_ref()
+        .expect("a rewritten source carrying a signature is reported")
+}
+
+#[test]
+fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signature() {
+    // ISO 19005-4 has no row about a signature's byte range and its section 6.1.11 admits
+    // DocMDP, so nothing this fixture fails names the signature: what fails is the catalog's
+    // Requirements key (section 6.12), a mechanical removal. The rewrite that removes it moves
+    // every byte the signature covered all the same — §12.8.1 — so section 3.6's question is
+    // put by the conversion itself, and the answer without authorisation is no file.
+    let source = a_signed_form(
+        Conforming {
+            catalog: "/Requirements [<< /Type /Requirement /S /EnableJavaScripts >>]".to_owned(),
+            ..Conforming::default()
+        },
+        DOC_MDP_REFERENCE,
+    );
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = to_part_four(&source);
+    let signed = signatures(&report);
+    assert_eq!(
+        signed.decision,
+        Decision::Unauthorised {
+            loss: Loss::SignatureAssertion,
+            rewrite: Rewrite::SignatureValueRemoved,
+        }
+    );
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert!(
+        report
+            .refused
+            .iter()
+            .any(|declined| declined.subject.contains("signature(s)")),
+        "the refusal names the signatures as its subject"
+    );
+    // Section 3.6's line, computed over the source before anything moved.
+    assert_eq!(signed.each.len(), 1);
+    let signature = &signed.each[0];
+    assert_eq!(signature.at, "Approval");
+    assert_eq!(signature.name.as_deref(), Some("Test Signer"));
+    assert_eq!(signature.signed_at.as_deref(), Some("D:20260912120000Z"));
+    assert_eq!(signature.reason.as_deref(), Some("approval"));
+    assert_eq!(
+        signature.permitted.as_deref(),
+        Some("no change at all"),
+        "Table 257's P 1, which the permissions dictionary had every processor enforce"
+    );
+    assert!(
+        signature.coverage.contains("stops") && signature.coverage.contains("before the end"),
+        "a range the source got wrong is stated: {}",
+        signature.coverage
+    );
+    assert!(
+        signature.integrity.contains("could not be read"),
+        "a value that is not a CMS object is said to be one: {}",
+        signature.integrity
+    );
+    assert!(
+        !conversion(&report).render().contains("valid"),
+        "nothing this program prints about a signature uses the word"
+    );
+
+    let authorised = Authorisations {
+        signature_assertion: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    let signed = signatures(&report);
+    assert_eq!(
+        signed.decision,
+        Decision::Authorised {
+            loss: Loss::SignatureAssertion,
+            rewrite: Rewrite::SignatureValueRemoved,
+        }
+    );
+    assert_eq!(
+        signed.changed, 3,
+        "the field's value, the permissions entry, and the form's AppendOnly flag"
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    the_field_stays_unsigned_with_its_appearance(&output);
+    assert!(
+        !String::from_utf8_lossy(&output).contains("Requirements"),
+        "the mechanical rewrite happened too"
+    );
+}
+
+/// §12.7.5.5: the field and its widget stay, with the appearance and the lock; what goes is
+/// the value. Table 263: the permissions entry that rested on it goes. Table 225: the
+/// `AppendOnly` bit comes off and `SignaturesExist` stays, because the field does.
+fn the_field_stays_unsigned_with_its_appearance(output: &[u8]) {
+    let document =
+        Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("the output opens");
+    let catalog = document.catalog().expect("a catalog");
+    let form = document.get_key(&catalog, "AcroForm");
+    let form = form.as_dict().expect("the form stays");
+    assert_eq!(document.get_key(form, "SigFlags").as_integer(), Some(1));
+    let fields = document.get_key(form, "Fields");
+    let field = document.resolve(&fields.as_array().expect("fields")[0]);
+    let field = field.as_dict().expect("the field stays");
+    assert!(field.get("V").is_none(), "the signature dictionary is gone");
+    assert!(field.get("AP").is_some(), "the appearance stays");
+    assert!(
+        field.get("Lock").is_some(),
+        "the lock describes the next signing and stays"
+    );
+    assert_eq!(
+        document.get_key(field, "T").as_string(),
+        Some(&b"Approval"[..])
+    );
+    let perms = document.get_key(&catalog, "Perms");
+    let perms = perms
+        .as_dict()
+        .expect("an empty permissions dictionary stays");
+    assert!(
+        perms.is_empty(),
+        "the DocMDP entry rested on the signature and is gone"
+    );
+    let text = String::from_utf8_lossy(output);
+    assert!(
+        !text.contains("ByteRange") && !text.contains("Test Signer"),
+        "the signature object is reachable from nothing and is not carried"
+    );
+}
+
+#[test]
+fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
+    // ISO 19005-2 section 6.1.12's second sentence forbids DigestMethod, DigestLocation and
+    // DigestValue in a DocMDP signature's reference dictionaries. They are entries of the
+    // signature dictionary the rewrite removes, so the row is answered by section 3.6's loss
+    // and not by a removal of its own — and a part 2 target is what binds the row.
+    let source = a_signed_form(
+        Conforming::part_two(),
+        "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /MD5 \
+         /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>",
+    );
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert_eq!(
+        decision(
+            &report,
+            "file-structure/document-signature-states-no-digest"
+        ),
+        Decision::Unauthorised {
+            loss: Loss::SignatureAssertion,
+            rewrite: Rewrite::SignatureValueRemoved,
+        }
+    );
+    assert!(output.is_none());
+    assert_eq!(
+        signatures(&report).each[0].permitted.as_deref(),
+        Some("form filling and signing")
+    );
+
+    let authorised = Authorisations {
+        signature_assertion: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(
+            &report,
+            "file-structure/document-signature-states-no-digest"
+        ),
+        Decision::Authorised {
+            loss: Loss::SignatureAssertion,
+            rewrite: Rewrite::SignatureValueRemoved,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(!String::from_utf8_lossy(&output).contains("DigestMethod"));
+}
+
+#[test]
+fn a_permissions_key_the_standard_does_not_define_is_removed_losing_nothing() {
+    // ISO 19005-2 section 6.1.12 and ISO 19005-4 section 6.1.11 admit UR3 and DocMDP and no
+    // other key. §12.8.6 makes each key the name of a permission handler and Table 263 names
+    // the two the standard defines, so a key naming any other is one no conforming processor
+    // can consult: removing it changes what no reader could see.
+    let source = Conforming {
+        catalog: "/Perms << /XX (value) >>".to_owned(),
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "file-structure/permissions-dictionary-keys"),
+        Decision::Mechanical(Rewrite::ForeignPermissionHandlers)
+    );
+    assert!(
+        conversion(&report).signatures.is_none(),
+        "no signature is in question: the key is not one"
+    );
+    let output = output.expect("mechanical, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(!String::from_utf8_lossy(&output).contains("/XX"));
 }

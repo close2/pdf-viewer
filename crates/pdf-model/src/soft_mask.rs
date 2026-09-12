@@ -65,15 +65,20 @@ pub(crate) struct SoftMaskRequest {
     pub departures: Vec<String>,
 }
 
-/// Reads `/SMask` from a graphics state parameter dictionary.
+/// Reads `/SMask` from a graphics state parameter dictionary on a page whose §14.11.5 output
+/// intent is `output_intent`.
 ///
-/// `presses` is the interpretation's own route cache, and it is a parameter rather than a
-/// local for a reason worth stating: the route into a three-component *table* profile is
-/// 36 000 profile evaluations for the conversion out and as many again for §11.5.3's `Y`
-/// (ADR 0851), while a page can name one mask per `gs` and `6081357.pdf` names 912. Built
-/// here, that would be a profile sampled once per soft-mask dictionary; asked of
-/// [`Presses::rgb_route`], it is sampled once per interpretation per space.
-pub(crate) fn entry(document: &Document, dict: &Dictionary, presses: &Presses) -> SoftMaskEntry {
+/// `output_intent` is what `crate::content`'s `output_intent_space` answered for the page,
+/// and it reaches the group's `/CS` through `ColourSpace::parse_with_output_intent` exactly
+/// as it reaches a fill's space: a `/Luminosity` group stating `/CS /DeviceCMYK` on a page
+/// whose intent is a four-component profile is composited in that press, and §11.5.3's `Y`
+/// is the press's, rather than §10.4.2.3's approximation of an assumed one.
+pub(crate) fn entry_with_output_intent(
+    document: &Document,
+    dict: &Dictionary,
+    presses: &Presses,
+    output_intent: Option<&ColourSpace>,
+) -> SoftMaskEntry {
     match document.get_key(dict, "SMask") {
         Object::Null => SoftMaskEntry::None,
         // Every other name is undefined here; `/None` is the only one Table 57 gives.
@@ -82,13 +87,18 @@ pub(crate) fn entry(document: &Document, dict: &Dictionary, presses: &Presses) -
             "/SMask /{}, where Table 57 defines only /None",
             String::from_utf8_lossy(name.as_bytes())
         )),
-        Object::Dictionary(mask) => read(document, &mask, presses),
+        Object::Dictionary(mask) => read(document, &mask, presses, output_intent),
         other => SoftMaskEntry::Unusable(format!("/SMask is {}", type_of(&other))),
     }
 }
 
 /// Reads a soft-mask dictionary's four entries.
-fn read(document: &Document, mask: &Dictionary, presses: &Presses) -> SoftMaskEntry {
+fn read(
+    document: &Document,
+    mask: &Dictionary,
+    presses: &Presses,
+    output_intent: Option<&ColourSpace>,
+) -> SoftMaskEntry {
     // Table 142's `/G` is required, and is a stream: a form XObject with a `/Group`.
     let group = document.get_key(mask, "G");
     let Some(group) = group.as_stream().cloned() else {
@@ -124,7 +134,14 @@ fn read(document: &Document, mask: &Dictionary, presses: &Presses) -> SoftMaskEn
                 None,
                 Vec::new(),
             ),
-            b"Luminosity" => luminosity(document, mask, &space, presses, transfer.as_ref()),
+            b"Luminosity" => luminosity(
+                document,
+                mask,
+                &space,
+                presses,
+                transfer.as_ref(),
+                output_intent,
+            ),
             other => {
                 return SoftMaskEntry::Unusable(format!(
                     "/SMask /S /{}, where Table 142 defines /Alpha and /Luminosity",
@@ -158,6 +175,7 @@ fn luminosity(
     space: &Object,
     presses: &Presses,
     transfer: Option<&Transfer>,
+    output_intent: Option<&ColourSpace>,
 ) -> (
     SoftMaskKind,
     Compositing,
@@ -166,7 +184,13 @@ fn luminosity(
     Option<Color>,
     Vec<String>,
 ) {
-    let space = ColourSpace::parse(document, space, &Dictionary::new());
+    // §11.6.6 makes the group's `/CS` a colour space like any other — "[t]he colour space
+    // into which colours shall be converted when painted into the group" — so a device
+    // family named here means what §8.6.5.6's default and §14.11.5's intent say it means,
+    // as it does for the page's own group. No resource dictionary: a group attributes
+    // dictionary is not drawn from one, so a name here can only be a family's.
+    let space =
+        ColourSpace::parse_with_output_intent(document, space, &Dictionary::new(), output_intent);
     let scale = space.as_ref().and_then(ink_scale);
     let route = match (&space, scale) {
         (Some(space), None) => GreyRoute::of(space).map(Arc::new),
@@ -609,5 +633,111 @@ fn type_of(object: &Object) -> &'static str {
         Object::Dictionary(_) => "a dictionary",
         Object::Stream(_) => "a stream",
         Object::Reference(_) => "an unresolved reference",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Write as _;
+    use std::sync::Arc;
+
+    use pdf_syntax::{Document, Object, ObjectId};
+
+    use super::{SoftMaskEntry, entry_with_output_intent};
+    use crate::colour::{ColourSpace, Compositing, Half, InkScale, PressIdentity, Presses};
+
+    /// A document whose object 5 is a `/Luminosity` mask group stating `/CS /DeviceCMYK`, and
+    /// whose object 6 is the `gs` dictionary naming it.
+    fn document_with_a_cmyk_mask_group() -> Document {
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] >>".to_owned(),
+            "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
+             /Group << /S /Transparency /CS /DeviceCMYK >> /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+            "<< /SMask << /S /Luminosity /G 5 0 R >> >>".to_owned(),
+        ];
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{object}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = writeln!(out, "xref\n0 {size}");
+        out.push_str("0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).expect("the fixture is a valid PDF")
+    }
+
+    /// A `/Luminosity` group's `/DeviceCMYK` is the output intent's press where the page has
+    /// one, and the assumed press's ink where it has none.
+    ///
+    /// §11.6.6 makes the group's `/CS` "[t]he colour space into which colours shall be
+    /// converted when painted into the group", and §14.11.5's intent says what a device space
+    /// means on the page, so the two together put the group in the intent's press — the same
+    /// answer `crate::content::transparency::page_press` gives the page's own group. This is
+    /// the unit-level half of that claim: the interpreter-level half waits on
+    /// `crate::content::ext_gstate` handing its intent to [`entry_with_output_intent`], which is
+    /// the one call site (ADR 1008).
+    #[test]
+    fn a_luminosity_groups_device_cmyk_is_the_output_intents_press() {
+        let document = document_with_a_cmyk_mask_group();
+        let Object::Dictionary(gs) = document.get(ObjectId::new(6, 0)) else {
+            panic!("object 6 is the graphics state parameter dictionary");
+        };
+        // Both directions, because a press composites *into* its profile: `Press::luminance`
+        // answers only for a profile with a "from CIE" table, which §8.6.5.5 requires of a
+        // blending space, and a one-way intent leaves the group on the device route with the
+        // departure reported.
+        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+            .expect("the fixture profile parses");
+        let identity = profile.identity();
+        let intent = ColourSpace::Icc {
+            profile: Arc::new(profile),
+        };
+        let presses = Presses::default();
+
+        let SoftMaskEntry::Mask(under_intent) =
+            entry_with_output_intent(&document, &gs, &presses, Some(&intent))
+        else {
+            panic!("the mask is usable");
+        };
+        match &under_intent.compositing {
+            Compositing::Subtractive(Half::Chromatic, press) => assert_eq!(
+                press.identity(),
+                PressIdentity::Profile(identity),
+                "the group composites in the intent's own press"
+            ),
+            other => panic!("the group's /DeviceCMYK should be the intent's press, not {other:?}"),
+        }
+        assert!(
+            under_intent.luminance.is_some() && under_intent.black_backdrop.is_some(),
+            "and §11.5.3's Y is the press's grid over four components, with the black half's \
+             backdrop beside it"
+        );
+
+        let SoftMaskEntry::Mask(without) = entry_with_output_intent(&document, &gs, &presses, None)
+        else {
+            panic!("the mask is usable");
+        };
+        assert!(
+            matches!(
+                without.compositing,
+                Compositing::Luminosity(InkScale::Double)
+            ),
+            "with no intent the same group is §10.4.2.3's ink at the assumed press's scale, \
+             not {:?}",
+            without.compositing
+        );
     }
 }

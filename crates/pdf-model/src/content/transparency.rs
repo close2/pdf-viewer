@@ -127,12 +127,20 @@ pub(super) fn any_command(commands: &[Command], wanted: &dyn Fn(&Command) -> boo
 }
 
 /// Whether a command asks to be blended with what is under it, rather than painted over it.
+///
+/// A [`Command::Shaped`] blends as its object does: the shape half is drawn Normal by
+/// construction ([`stated_shape`]), and the object is what §11.3.3 composites. **Until the
+/// nine-hundred-and-eighty-eighth session a `Shaped` fell to the arm below**, so a knockout
+/// group drawn on transparency with a stated element was reported as "non-isolated, and an
+/// element blends with the backdrop it excludes" whenever Table 145 said `/I false` — a
+/// report about a blend mode that nothing carried (ADR 1009).
 pub(super) fn command_blends(command: &Command) -> bool {
     match command {
         Command::Fill { blend, .. }
         | Command::Stroke { blend, .. }
         | Command::Image { blend, .. }
         | Command::Group { blend, .. } => *blend != BlendMode::Normal,
+        Command::Shaped { object, .. } => command_blends(object),
         // `Command` is non-exhaustive. A command whose blending is unknown counts as
         // blending, because both callers decide whether to *report*: an unnecessary report
         // is recoverable, a missed one is a page drawn wrong in silence.
@@ -1280,25 +1288,74 @@ fn transparent_knockout_elements(commands: &[Command], alpha: AlphaSource) -> Op
 /// standard defines a value; the condition is about the fractional pixel a rasteriser makes
 /// of an edge, and it is held exactly rather than allowed as anti-aliasing residue.
 ///
-/// Every element has to be elementary: a nested group's own elements blend against what the
-/// group is built on, which this move changes.
+/// # Two more cases the same line settles, and a group with alpha at its `Do`
+///
+/// **An element of zero opacity has `wᵢ = 0` everywhere** — §11.6.4.4's constant is a
+/// factor of its opacity, and under `/AIS true` of its shape — so it contributes no colour
+/// to `K` and its own mode is applied to nothing; it is still an element of the group, and
+/// under the opacity reading it still knocks out what is under it (§11.4.6's NOTE 5: "[a]
+/// shape value of 1.0 (inside) yields the colour and opacity that result from compositing
+/// the object with the initial backdrop", which for opacity 0 is the backdrop). So only the
+/// elements that carry colour have to share the mode, and **where exactly one does**,
+/// `K / Σwᵢ` is that element's colour at every pixel and *any* mode moves, §11.3.5.3's
+/// non-separable ones included. `issue18032.pdf`'s knockout group is that shape: a nested
+/// group holding a shading, invoked under `/BM /Color`, and a nested group invoked at `ca 0`
+/// cutting a hole in it.
+///
+/// **A nested group may be an element** where it is isolated: its own elements are then
+/// drawn on §11.4.5's transparency whichever construction this group takes, so its colour
+/// at a pixel is the same `Cᵢ` in both, and the mode this move takes off it is the one at
+/// its own `Do`. A non-isolated one is refused — under §11.4.6's own backdrop it is seeded
+/// from that backdrop and on transparency from nothing, which is a different picture.
+///
+/// **And a constant alpha `w_g` and a mask at the group's own `Do`** (a form's, never an
+/// implicit group's) pass through: §11.4.4's final composite is `(1 − w_g α_K) B + w_g × (…)`
+/// on both sides of the equality, the same collapse ADR 0237 derived, so the condition is
+/// unchanged. The mode at that `Do` has to be Normal — the caller's condition — because the
+/// cancellation is the Normal blend function's.
 fn blend_at_the_do(commands: &[Command]) -> Option<BlendMode> {
     let mut shared = None;
+    let mut coloured = Vec::with_capacity(commands.len());
     for command in commands {
-        let blend = match command {
-            Command::Fill { blend, .. }
-            | Command::Stroke { blend, .. }
-            | Command::Image { blend, .. } => *blend,
-            _ => return None,
-        };
+        if !carries_colour(command)? {
+            continue;
+        }
+        coloured.push(command);
         match shared {
-            None => shared = Some(blend),
-            Some(mode) if mode == blend => {}
+            None => shared = Some(command.blend()),
+            Some(mode) if mode == command.blend() => {}
             Some(_) => return None,
         }
     }
     let blend = shared?;
-    (affine_in_the_source(blend) || one_solid_colour(commands)).then_some(blend)
+    (affine_in_the_source(blend) || coloured.len() == 1 || one_solid_colour(&coloured))
+        .then_some(blend)
+}
+
+/// Whether an element of a knockout group can contribute colour to the group's accumulation
+/// — `Some(false)` for one whose §11.4.6 weight is zero at every pixel — or `None` for an
+/// element [`blend_at_the_do`]'s argument does not cover.
+///
+/// Zero everywhere is a *constant* of zero: a solid paint's alpha, an image's or a nested
+/// group's constant. A soft mask alone is not, because it is zero only where it is zero. A
+/// shading's constant is folded into its colours (`Shading::with_alpha`) and is read as
+/// carrying colour, which errs towards refusing the move.
+fn carries_colour(command: &Command) -> Option<bool> {
+    Some(match command {
+        Command::Fill { paint, .. } | Command::Stroke { paint, .. } => match paint {
+            Paint::Solid(colour) => colour.a > 0.0,
+            Paint::Shading(_) => true,
+            // `Paint` is non-exhaustive: a paint whose opacity is unknown refuses the move.
+            _ => return None,
+        },
+        Command::Image { alpha, .. }
+        | Command::Group {
+            alpha,
+            isolated: true,
+            ..
+        } => *alpha > 0.0,
+        _ => return None,
+    })
 }
 
 /// Whether §11.3.5.2's blend function is affine in its source component for a fixed
@@ -1325,7 +1382,7 @@ const fn affine_in_the_source(blend: BlendMode) -> bool {
 /// The colour is compared bit for bit: the parts of one `B` come from the same `rg` and
 /// `RG` operands, and a producer that meant two colours to be the same wrote the same
 /// numbers.
-fn one_solid_colour(commands: &[Command]) -> bool {
+fn one_solid_colour(commands: &[&Command]) -> bool {
     let mut seen: Option<[u32; 3]> = None;
     commands.iter().all(|command| {
         let (Command::Fill { paint, .. } | Command::Stroke { paint, .. }) = command else {
@@ -1345,14 +1402,22 @@ fn one_solid_colour(commands: &[Command]) -> bool {
     })
 }
 
-/// An elementary element with its blend mode taken off, for [`blend_at_the_do`]'s group
-/// to carry instead — or `None` for anything that is not one.
+/// An element with its blend mode taken off, for [`blend_at_the_do`]'s group to carry
+/// instead — or `None` for anything that function does not admit.
+///
+/// A nested group loses the mode at its own `Do` and nothing inside it: its elements'
+/// modes act on the transparency it is built on, which the move leaves as it was.
 fn without_blend(command: &Command) -> Option<Command> {
     let mut stripped = command.clone();
     match &mut stripped {
         Command::Fill { blend, .. }
         | Command::Stroke { blend, .. }
-        | Command::Image { blend, .. } => {
+        | Command::Image { blend, .. }
+        | Command::Group {
+            blend,
+            isolated: true,
+            ..
+        } => {
             *blend = BlendMode::Normal;
         }
         _ => return None,
@@ -1388,6 +1453,112 @@ fn knockout_can_show(commands: &[Command]) -> bool {
         painted.push(bounds);
     }
     false
+}
+
+/// What §11.4.6 made of a knockout group's elements — see [`knockout_construction`].
+struct KnockoutConstruction {
+    /// The elements as the display list states them, rewritten where a shape had to be.
+    commands: Vec<Command>,
+    /// Whether the group goes to the backends with `knockout: true`.
+    knockout: bool,
+    /// Whether it goes with `isolated: false` beside it — §11.4.6's own backdrop (ADR 0327).
+    backdrop_composited: bool,
+    /// The mode at the group's `Do`: the one in force there, or the one its elements gave up.
+    blend: BlendMode,
+    /// Whether §11.4.6's rule could change a pixel at all ([`knockout_can_show`]).
+    knockout_shows: bool,
+}
+
+/// §11.4.6's three constructions for a form `XObject`'s knockout group, tried in order, and
+/// the flat drawing with a report where none applies (ISO 32000-2 §11.4.6, §11.4.4, §11.6.4.3).
+///
+/// `alpha` is the one reading of §11.6.4.3's `/AIS` the content painted under, or `None`:
+/// the shape §11.4.6 weights by is built one way under each reading, so a group whose
+/// content painted under both is refused. `backdrop_transparent` is NOTE 6's answer for a
+/// group that is a direct element of a knockout group whose initial backdrop is transparent,
+/// and `enclosing_knockout` whether there is such an enclosing group at all.
+///
+/// - **On transparency**, where the group is isolated, NOTE 6 makes it so, or nothing in it
+///   blends: §11.4.5's group stands in for the non-isolated one exactly, by §11.4.4's NOTE 3
+///   (the backdrop is composited in and removed again). An element whose shape is its
+///   coverage draws bare and every other states it ([`knockout_elements`]).
+/// - **The mode at the `Do`**, where the elements that carry colour share one blend mode
+///   that commutes with the weighted average ([`blend_at_the_do`]): the mode moves from
+///   the elements to the group's `Do`, the elements draw Normal on transparency, and every
+///   backend draws the result. ADR 1000 built this for §11.7.4.4's and §9.3.8's implicit
+///   groups and priced this caller; ADR 1009 takes it, and `issue18032.pdf` is the page.
+///   Tried before the construction below because two backends refuse that one.
+/// - **The group's own backdrop**: "[a] nonisolated knockout group composites its topmost
+///   enclosing element with the group's backdrop." Where an element blends and no mode
+///   moves, the group goes to the backends with `isolated: false` beside `knockout: true`,
+///   every element a `Command::Shaped`, and a backend retains the initial backdrop beside
+///   the accumulation (ADR 0327). Three conditions bound it, each the clause's: the `Do`'s
+///   mode is Normal, because the final composite's cancellation against §11.4.4's backdrop
+///   removal is the Normal blend function's (ADR 0237's argument, unchanged by knockout);
+///   no enclosing knockout group, because an element of one is weighted by its own shape,
+///   which `Command::Group` does not carry; and every element's shape statable, because the
+///   weighted average's factor has to come from somewhere.
+///
+/// The second construction shares the first of those conditions — the `Do` has to be Normal
+/// for the group to have a mode to give away — and its constant alpha and mask pass through
+/// the collapse unchanged (`blend_at_the_do`). It does not share the second: an element of an
+/// enclosing knockout group is composited with that group's initial backdrop, which NOTE 6
+/// makes this group's own, so the derivation is the same one.
+fn knockout_construction(
+    group: &TransparencyGroup,
+    commands: Vec<Command>,
+    alpha: Option<AlphaSource>,
+    backdrop_transparent: bool,
+    enclosing_knockout: bool,
+    outer_blend: BlendMode,
+) -> KnockoutConstruction {
+    // Whether §11.4.6's rule can change a pixel of this group, which decides whether its
+    // initial backdrop and §11.4.4's immediate one are the same thing. Asked of the file's
+    // own elements, before the rewrite that turns any of them into a `Command::Shaped` whose
+    // bounds and blending this predicate cannot read.
+    let knockout_shows = group.knockout && knockout_can_show(&commands);
+    let mut drawn = KnockoutConstruction {
+        commands,
+        knockout: false,
+        backdrop_composited: false,
+        blend: outer_blend,
+        knockout_shows,
+    };
+    let Some(alpha) = alpha.filter(|_| group.knockout) else {
+        return drawn;
+    };
+    let commands = &drawn.commands;
+    if group.isolated || backdrop_transparent || !any_command(commands, &command_blends) {
+        if knockout_shape_is_coverage(commands, alpha) {
+            drawn.knockout = true;
+        } else if let Some(elements) = knockout_elements(commands, alpha) {
+            drawn.commands = elements;
+            drawn.knockout = true;
+        }
+    } else if knockout_shows && outer_blend == BlendMode::Normal {
+        // The third condition is what keeps `note_group_structure` honest rather than a
+        // limit of the construction: a nested isolated group's inner elements blend against
+        // its own transparency either way, but the report reads a group's tree, and a mode
+        // left anywhere in it would be named as blending with the backdrop this group
+        // excludes.
+        if let Some(mode) = blend_at_the_do(commands)
+            && let Some(stripped) = commands
+                .iter()
+                .map(without_blend)
+                .collect::<Option<Vec<_>>>()
+            && !any_command(&stripped, &command_blends)
+            && let Some(elements) = transparent_knockout_elements(&stripped, alpha)
+        {
+            drawn.commands = elements;
+            drawn.knockout = true;
+            drawn.blend = mode;
+        } else if !enclosing_knockout && let Some(elements) = stated_elements(commands, alpha) {
+            drawn.commands = elements;
+            drawn.knockout = true;
+            drawn.backdrop_composited = true;
+        }
+    }
+    drawn
 }
 
 /// What §11.4.7's page group asks a page to composite in.
@@ -2273,51 +2444,20 @@ impl Interpreter<'_> {
         // alone rather than folded into it: it is the same arithmetic in one draw instead
         // of two, and it is what §9.3.8's text objects are made of.
 
-        // Whether §11.4.6's rule can change a pixel of this group, which decides below whether
-        // its initial backdrop and §11.4.4's immediate one are the same thing. Asked of the
-        // file's own elements, before the rewrite that turns any of them into a
-        // `Command::Shaped` whose bounds and blending this predicate cannot read.
-        let knockout_shows = group.knockout && knockout_can_show(&commands);
-        let mut commands = commands;
-        let mut knockout = false;
-        // §11.4.6 on the group's own backdrop: "[a] nonisolated knockout group composites
-        // its topmost enclosing element with the group's backdrop." Where an element blends,
-        // that backdrop cannot be substituted by §11.4.5's transparent one — and since the
-        // four-hundred-and-ninety-second session it is *stated* instead: the group goes to
-        // the backends with `isolated: false` beside `knockout: true`, every element a
-        // `Command::Shaped`, and a backend retains the initial backdrop beside the
-        // accumulation (ADR 0327). Three conditions bound it, each the clause's:
-        // `outer.blend == Normal` because the final composite's cancellation against
-        // §11.4.4's backdrop removal is the Normal blend function's (ADR 0237's argument,
-        // unchanged by knockout); `!enclosing_knockout` because an element of a knockout
-        // group is weighted by its own shape, which `Command::Group` does not carry; and
-        // every element's shape statable, because the weighted average's factor has to
-        // come from somewhere.
-        //
-        // And a fourth, which is §11.6.4.3's: the shape §11.4.6 weights by is built one way
-        // under each reading of `/AIS`, so a group whose content painted under both is
-        // refused. `alpha_sources.settled()` is that question, and both of its answers draw.
-        let mut backdrop_composited = false;
-        if group.knockout
-            && let Some(alpha) = alpha_sources.settled()
-        {
-            if group.isolated || backdrop_transparent || !any_command(&commands, &command_blends) {
-                if knockout_shape_is_coverage(&commands, alpha) {
-                    knockout = true;
-                } else if let Some(elements) = knockout_elements(&commands, alpha) {
-                    commands = elements;
-                    knockout = true;
-                }
-            } else if knockout_shows
-                && !enclosing_knockout
-                && outer.blend == BlendMode::Normal
-                && let Some(elements) = stated_elements(&commands, alpha)
-            {
-                commands = elements;
-                knockout = true;
-                backdrop_composited = true;
-            }
-        }
+        let KnockoutConstruction {
+            commands,
+            knockout,
+            backdrop_composited,
+            blend,
+            knockout_shows,
+        } = knockout_construction(
+            group,
+            commands,
+            alpha_sources.settled(),
+            backdrop_transparent,
+            enclosing_knockout,
+            outer.blend,
+        );
         // §11.4.4's own model, for the group NOTE 5 could not flatten: the elements
         // composite onto the backdrop the group is painted over, and the display list says
         // so rather than substituting §11.4.5's transparent one. The three conditions are
@@ -2341,7 +2481,8 @@ impl Interpreter<'_> {
         //   from the page would put the backdrop in twice. Every group that reaches the
         //   condition above already satisfies this one — a knockout group is drawn only when
         //   it is isolated or when nothing in it blends — and it is stated rather than
-        //   derived because a `Command::Shaped` reads as blending to `command_blends`.
+        //   derived because the flag is a fact about what this group *became*, which the
+        //   element list no longer says once its parts are `Command::Shaped`.
         // - **Not inside a knockout group.** A knockout group's element is weighted by its
         //   own shape, which is a quantity this command does not carry.
         //
@@ -2396,7 +2537,8 @@ impl Interpreter<'_> {
             // mask to multiple objects, it is usually best to define the objects as a
             // transparency group and apply the mask to the group as a whole."
             mask: outer.soft_mask,
-            blend: outer.blend,
+            // The mode in force at the `Do`, or the one the elements gave up to it.
+            blend,
             knockout,
             blending: pair.map(Box::new),
         });
@@ -3045,6 +3187,7 @@ mod tests {
         reason = "test code: the arithmetic is on a 100-unit page and 0..=255 levels"
     )]
 
+    use std::fmt::Write as _;
     use std::sync::Arc;
 
     use pdf_render::{
@@ -3157,6 +3300,10 @@ mod tests {
         );
         assert_eq!(answer.blend, BlendMode::Normal);
         assert_eq!(answer.elements.len(), 2);
+        assert!(
+            !answer.elements.iter().any(super::command_blends),
+            "a stated element blends as its object does, and these paint Normal"
+        );
         for element in &answer.elements {
             let Command::Shaped { object, shape } = element else {
                 panic!("a masked part states its shape beside itself: {element:?}");
@@ -3313,6 +3460,272 @@ mod tests {
             pixel(&flat, 45, 45),
             [0, 76, 0],
             1,
+        );
+    }
+
+    /// An element of zero opacity contributes no colour, so it neither has to share the
+    /// mode nor stops a non-affine one moving: with one coloured element left, `K / Σwᵢ`
+    /// is that element's colour and any mode is exact at the `Do` (ADR 1009). A nested
+    /// group counts where it is isolated and refuses the move where it is not.
+    #[test]
+    fn a_part_of_zero_opacity_lets_any_mode_move_to_the_do() {
+        let blue = Color {
+            r: 0.0,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        let hole = Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.0,
+        };
+        let parts = vec![
+            fill([10.0, 10.0, 60.0, 60.0], blue, BlendMode::Difference, None),
+            fill([30.0, 30.0, 80.0, 80.0], hole, BlendMode::Normal, None),
+        ];
+        let answer = implicit_knockout_group(&parts, Some(AlphaSource::Opacity), true)
+            .expect("one coloured part under any mode moves it to the Do");
+        assert!(answer.isolated);
+        assert_eq!(answer.blend, BlendMode::Difference);
+
+        let nested = |isolated| Command::Group {
+            commands: vec![fill(
+                [10.0, 10.0, 60.0, 60.0],
+                blue,
+                BlendMode::Normal,
+                None,
+            )],
+            alpha: 1.0,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Color,
+            isolated,
+            knockout: false,
+            alpha_is_shape: true,
+            blending: None,
+        };
+        assert_eq!(
+            super::blend_at_the_do(&[nested(true), parts[1].clone()]),
+            Some(BlendMode::Color),
+            "an isolated nested group is one coloured element under its own Do's mode"
+        );
+        assert_eq!(
+            super::blend_at_the_do(&[nested(false), parts[1].clone()]),
+            None,
+            "a non-isolated one is seeded differently under the two constructions"
+        );
+        assert_eq!(
+            super::blend_at_the_do(&two_parts(BlendMode::Difference)),
+            None,
+            "two coloured parts under a mode that is not affine still cannot move it"
+        );
+    }
+
+    /// A form's knockout group carries a constant alpha at its `Do`, and the mode moved
+    /// there is still §11.4.6's own-backdrop picture pixel for pixel — the claim ADR 1000
+    /// §7 priced and did not draw.
+    ///
+    /// Over an opaque red page, blue at 1.0 under `Difference` composited with the page is
+    /// magenta `(1, 0, 1)`; a part of zero opacity over `[30.5, 30]–[80, 80]` knocks the
+    /// blue out to the page inside its shape. At the group's `Do` with `ca ½`: the blue
+    /// part alone gives `½ red + ½ magenta = (1, 0, ½)`; the hole gives red; and on the
+    /// half-covered column 30 the blue part's weight is ½, so both constructions give
+    /// `¾ red + ¼ magenta = (1, 0, ¼)` — the collapse `(1 − w_g α_K) B + w_g (…)` on each side.
+    #[test]
+    fn the_mode_at_the_do_survives_a_constant_alpha_at_the_do() {
+        let blue = Color {
+            r: 0.0,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        let hole = Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.0,
+        };
+        let parts = vec![
+            fill([10.0, 10.0, 60.0, 60.0], blue, BlendMode::Difference, None),
+            fill([30.5, 30.0, 80.0, 80.0], hole, BlendMode::Difference, None),
+        ];
+        let group = |commands, blend, isolated| Command::Group {
+            commands,
+            alpha: 0.5,
+            clip: None,
+            mask: None,
+            blend,
+            isolated,
+            knockout: true,
+            alpha_is_shape: false,
+            blending: None,
+        };
+        let own_backdrop = render(vec![group(
+            super::stated_elements(&parts, AlphaSource::Opacity).expect("statable shapes"),
+            BlendMode::Normal,
+            false,
+        )]);
+        let mode = super::blend_at_the_do(&parts).expect("one coloured part");
+        let stripped = parts
+            .iter()
+            .map(super::without_blend)
+            .collect::<Option<Vec<_>>>()
+            .expect("elementary parts");
+        let at_the_do = render(vec![group(
+            super::transparent_knockout_elements(&stripped, AlphaSource::Opacity)
+                .expect("statable shapes"),
+            mode,
+            true,
+        )]);
+        assert_close(
+            "the blue part alone, at half",
+            pixel(&at_the_do, 15, 50),
+            [255, 0, 128],
+            1,
+        );
+        assert_close(
+            "the hole: knocked out to the page",
+            pixel(&at_the_do, 45, 45),
+            [255, 0, 0],
+            1,
+        );
+        assert_close(
+            "the half-covered column",
+            pixel(&at_the_do, 30, 45),
+            [255, 0, 64],
+            2,
+        );
+        let differing = own_backdrop
+            .data
+            .iter()
+            .zip(&at_the_do.data)
+            .filter(|(own, moved)| (i32::from(**own) - i32::from(**moved)).abs() > 1)
+            .count();
+        assert_eq!(
+            differing, 0,
+            "the two constructions are one picture, and {differing} channel values differ"
+        );
+    }
+
+    /// A page of `MediaBox [0 0 100 100]` holding one form `/Fm` under `group`, with three
+    /// graphics states: `/GB` Multiply, `/GD` Difference and `/GZ` a non-stroking alpha of 0.
+    fn form_fixture(group: &str, form: &str, page: &str) -> Vec<u8> {
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+             /Resources << /ExtGState << /GB << /BM /Multiply >> /GD << /BM /Difference >> \
+             /GZ << /ca 0 >> >> /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+             5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {group} \
+             /Length {} >>\nstream\n{form}\nendstream\nendobj\n",
+            page.len() + 1,
+            form.len() + 1,
+        );
+        let header = "%PDF-1.7\n";
+        let mut bytes = header.as_bytes().to_vec();
+        bytes.extend_from_slice(body.as_bytes());
+        let xref = bytes.len();
+        let padded = format!("\n{body}");
+        let mut table = String::from("xref\n0 6\n0000000000 65535 f \n");
+        for number in 1..=5 {
+            let marker = format!("\n{number} 0 obj\n");
+            let offset = padded.find(&marker).expect("every object is written") + header.len();
+            writeln!(table, "{offset:010} 00000 n ").expect("a String never fails to write");
+        }
+        write!(
+            table,
+            "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+        )
+        .expect("a String never fails to write");
+        bytes.extend_from_slice(table.as_bytes());
+        bytes
+    }
+
+    fn interpret_fixture(bytes: Vec<u8>) -> crate::Interpretation {
+        let document = pdf_syntax::Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = crate::Pages::new(&document).get(0).expect("page one");
+        crate::interpret(&document, &page)
+    }
+
+    fn page_pixel(interpretation: &crate::Interpretation, x: u32, y: u32) -> [u8; 3] {
+        let list = &interpretation.display_list;
+        let target = TargetSpec::for_page(list, 1.0, 1 << 20).expect("a 100x100 target");
+        let raster = CpuRasterizer::new()
+            .rasterize(list, target)
+            .expect("the fixture rasterises");
+        pixel(&raster, x, y)
+    }
+
+    /// A form `XObject`'s non-isolated knockout group whose coloured elements share a mode
+    /// takes it to its `Do` and is an isolated group to every backend — the caller ADR 1000
+    /// §7 left on §11.4.6's own backdrop. Cyan under Multiply over a yellow page is green,
+    /// and a magenta fill at `ca 0` over it is a hole showing the page; `Difference` under
+    /// two colours is the control that still takes the own-backdrop construction.
+    #[test]
+    fn a_forms_knockout_group_takes_a_shared_mode_to_its_do() {
+        let drawn = interpret_fixture(form_fixture(
+            "/Group << /S /Transparency /I false /K true >>",
+            "/GB gs 0 1 1 rg 20 20 60 60 re f /GZ gs 1 0 1 rg 30 30 60 60 re f",
+            "1 1 0 rg 0 0 100 100 re f /Fm Do",
+        ));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert!(
+            drawn.display_list.commands().iter().any(|command| matches!(
+                command,
+                Command::Group {
+                    isolated: true,
+                    knockout: true,
+                    blend: BlendMode::Multiply,
+                    ..
+                }
+            )),
+            "the mode is at the group's Do and the group is on transparency: {:?}",
+            drawn.display_list.commands()
+        );
+        assert_close(
+            "cyan multiplied with the page",
+            page_pixel(&drawn, 25, 75),
+            [0, 255, 0],
+            1,
+        );
+        assert_close(
+            "the hole, knocked out to the page",
+            page_pixel(&drawn, 50, 50),
+            [255, 255, 0],
+            1,
+        );
+        assert_close(
+            "the page where the group does not mark",
+            page_pixel(&drawn, 5, 95),
+            [255, 255, 0],
+            1,
+        );
+
+        let control = interpret_fixture(form_fixture(
+            "/Group << /S /Transparency /I false /K true >>",
+            "/GD gs 0 1 1 rg 20 20 60 60 re f 1 0 1 rg 30 30 60 60 re f",
+            "1 1 0 rg 0 0 100 100 re f /Fm Do",
+        ));
+        assert!(control.is_complete(), "{:?}", control.unsupported);
+        assert!(
+            control
+                .display_list
+                .commands()
+                .iter()
+                .any(|command| matches!(
+                    command,
+                    Command::Group {
+                        isolated: false,
+                        knockout: true,
+                        blend: BlendMode::Normal,
+                        ..
+                    }
+                )),
+            "two colours under Difference keep §11.4.6's own backdrop: {:?}",
+            control.display_list.commands()
         );
     }
 }

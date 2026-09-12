@@ -1,8 +1,6 @@
 # Q60 — Should the project obtain ISO 19005-3, which is the standard's own answer here?
 
 Source: `doc/rfc/0007` §4.7.4, raised by session 954.
-Status: **open** — answered when `A60-should-the-project-obtain-iso-19005-3.md` exists beside this
-file.
 
 ## Why it needs the owner
 

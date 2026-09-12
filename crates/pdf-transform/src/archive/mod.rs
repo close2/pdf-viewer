@@ -59,14 +59,18 @@
 //!   the whole corpus that no width ever changed. [`fonts`] is both halves, and
 //!   `--no-substitute` is section 4.9's flag for the curator who would rather be told.
 //!
-//! **And three losses a caller authorises before the run** (section 3), because a batch tool has
+//! **And the losses a caller authorises before the run** (section 3), because a batch tool has
 //! nobody to ask: `--authorise metadata-property` takes out an XMP property whose own predefined
 //! schema does not define the value it holds (section 3.9), `--authorise annotation-printing`
-//! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7), and
+//! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7),
 //! `--authorise jpeg2000-colour-fallback` keeps only the colour space specification a JPEG 2000
-//! image uses, dropping the ones the part directs a processor to ignore ([`jpeg2000`]). Each
-//! names in the report exactly what it did — [`Conversion::removed`] and the flag's own count —
-//! because a loss nobody can see afterwards is the failure section 3 exists against.
+//! image uses, dropping the ones the part directs a processor to ignore ([`jpeg2000`]), and
+//! `--authorise signature-assertion` lets a signed source be rewritten at all — every signature
+//! loses its value and keeps its field and appearance, and the report names each one, its
+//! signer, its time and what verifying it over the source found (section 3.6, [`signatures`]).
+//! Each names in the report exactly what it did — [`Conversion::removed`],
+//! [`Conversion::signatures`] and the flag's own count — because a loss nobody can see
+//! afterwards is the failure section 3 exists against.
 //!
 //! **Everything else is refused by name**: the fonts section 4.9 cannot answer — a composite font
 //! nothing embedded (section 2.1), a page that draws a glyph its own embedded program has not got
@@ -107,6 +111,7 @@
 //! | [`rewrite`] | the rewrites themselves, one object at a time, and the serializer walk |
 //! | [`to_unicode`] | the `/ToUnicode` `CMap` a font's own encoding derives, and what it cannot |
 //! | [`fonts`] | the face a font that embedded none is given, and the advances restated in it |
+//! | [`signatures`] | every signature the source carries, verified over the source and named before its value goes |
 //! | [`report`] | what was decided and done, worded for a person and for `--json` |
 //! | this file | the three stages in order, the plan they run from, and the output's version |
 //!
@@ -125,10 +130,11 @@ mod jpeg2000;
 mod prepare;
 mod report;
 mod rewrite;
+mod signatures;
 mod sites;
 mod to_unicode;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
 use pdf_archive::{Outcome, Target, Verdict};
@@ -142,8 +148,9 @@ pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
-pub use report::{Achieved, Conversion, Decided, NotChecked};
+pub use report::{Achieved, Conversion, Decided, NotChecked, SignatureDecision};
 pub use rewrite::Rewrite;
+pub use signatures::{Reached, SourceSignature};
 
 use decision::decide;
 use prepare::{
@@ -231,9 +238,9 @@ pub(crate) fn run(
     // the day `signatures/digest-covers-the-whole-file` became checkable (ADR 1006), and until
     // then this verb had been writing conforming signed sources as files whose signatures
     // lied. The identity conversion is the honest one: nothing moves, nothing is lost, and
-    // the report says the document conformed already. What a *non*-conforming signed source
-    // owes is `doc/pdf-a-conversion-limits.md` section 3.6's report, which is not built; such
-    // a document is refused by the output's verdict with the regression named.
+    // the report says the document conformed already. A *non*-conforming signed source takes
+    // `doc/pdf-a-conversion-limits.md` section 3.6's route instead — [`signatures`] — and its
+    // report says what each signature asserted before the value went.
     if input.verdict() == Verdict::Conforms {
         let (mut conversion, _, _) = decide_every_failure(plan, document, &input);
         conversion.achieved = Some(Achieved {
@@ -259,6 +266,19 @@ pub(crate) fn run(
                 page: None,
                 subject: format!("{} ({})", decided.requirement, decided.citation),
                 detail: describe_decision(decided, false),
+            });
+        }
+        if let Some(signed) = &conversion.signatures
+            && !signed.decision.proceeds()
+        {
+            report.refused.push(Declined {
+                source: plan.source,
+                page: None,
+                subject: format!(
+                    "the {} signature(s) this source carries (ISO 32000-2 \u{a7}12.8.1)",
+                    signed.each.len()
+                ),
+                detail: report::describe_signatures(signed),
             });
         }
         report.archive = Some(conversion);
@@ -318,6 +338,7 @@ fn decide_every_failure(
         appearances: Vec::new(),
         substituted: Vec::new(),
         restated: Vec::new(),
+        signatures: None,
     };
     let prepared = Prepared::of(plan, document, input);
     let mut version = None;
@@ -344,7 +365,39 @@ fn decide_every_failure(
             changed: 0,
         });
     }
+    conversion.signatures = signature_decision(plan, &prepared);
     (conversion, version, prepared)
+}
+
+/// `doc/pdf-a-conversion-limits.md` section 3.6's question, put by the conversion itself.
+///
+/// Not a row of the decision table, because no requirement asks it: a rewrite invalidates every
+/// signature whatever requirement asked for the rewrite, and a part 4 target has no row that
+/// would notice. So it is asked whenever a source that will be rewritten carries a signature,
+/// and answered the way a `Loses` row is — refused where the rewrite cannot reach every
+/// signature, authorised where the caller said so, and otherwise the question a person has to
+/// answer.
+fn signature_decision(plan: &ArchivePlan, prepared: &Prepared) -> Option<SignatureDecision> {
+    let found = &prepared.signatures;
+    if found.each.is_empty() {
+        return None;
+    }
+    let decision = match found.obstacle {
+        Some(because) => Decision::Refused(because),
+        None if plan.authorised.grants(Loss::SignatureAssertion) => Decision::Authorised {
+            loss: Loss::SignatureAssertion,
+            rewrite: Rewrite::SignatureValueRemoved,
+        },
+        None => Decision::Unauthorised {
+            loss: Loss::SignatureAssertion,
+            rewrite: Rewrite::SignatureValueRemoved,
+        },
+    };
+    Some(SignatureDecision {
+        decision,
+        each: found.each.clone(),
+        changed: 0,
+    })
 }
 
 /// What stage 3 produced: a file, or a refusal to write one.
@@ -377,11 +430,7 @@ fn apply_the_decisions(
             ))
         })?,
     };
-    let wanted: BTreeSet<Rewrite> = conversion
-        .decided
-        .iter()
-        .filter_map(|decided| decided.decision.rewrite())
-        .collect();
+    let wanted = rewrites_wanted(conversion);
     // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition
     // and now two rewrites: the output intent names it as its destination profile, and the
     // `/DefaultCMYK` names the same object as its alternate space.
@@ -437,12 +486,16 @@ fn apply_the_decisions(
             decided.changed = converted.applied.get(&rewrite).copied().unwrap_or(0);
         }
     }
+    count_signature_places(conversion, &converted.applied);
 
-    let achieved = hold_the_output_to_the_target(&converted.bytes, input, plan)?;
+    let (output, achieved) = hold_the_output_to_the_target(&converted.bytes, input, plan)?;
     let stands = achieved.conforms;
     let declined = declined_output(plan, &achieved);
     conversion.achieved = Some(achieved);
     if !stands {
+        return Ok(Written::Refused(declined));
+    }
+    if let Some(declined) = a_signature_remains(plan, &wanted, &output) {
         return Ok(Written::Refused(declined));
     }
 
@@ -480,6 +533,62 @@ fn apply_the_decisions(
                 .count(),
         },
     }))
+}
+
+/// Every rewrite the decisions call for: one per proceeding requirement, and the signature
+/// rewrite where the conversion itself asked for it.
+fn rewrites_wanted(conversion: &Conversion) -> BTreeSet<Rewrite> {
+    let mut wanted: BTreeSet<Rewrite> = conversion
+        .decided
+        .iter()
+        .filter_map(|decided| decided.decision.rewrite())
+        .collect();
+    if let Some(rewrite) = conversion
+        .signatures
+        .as_ref()
+        .and_then(|signed| signed.decision.rewrite())
+    {
+        wanted.insert(rewrite);
+    }
+    wanted
+}
+
+/// How many places the signature rewrite touched, into the report.
+fn count_signature_places(conversion: &mut Conversion, applied: &BTreeMap<Rewrite, usize>) {
+    if let Some(signed) = &mut conversion.signatures
+        && let Some(rewrite) = signed.decision.rewrite()
+    {
+        signed.changed = applied.get(&rewrite).copied().unwrap_or(0);
+    }
+}
+
+/// Section 3.6's proof: a report that says the assertion is gone may not sit beside an output
+/// that still carries it. The output is walked the same three ways the source was, and a
+/// signature still found refuses the file by name.
+fn a_signature_remains(
+    plan: &ArchivePlan,
+    wanted: &BTreeSet<Rewrite>,
+    output: &Document,
+) -> Option<Declined> {
+    if !wanted.contains(&Rewrite::SignatureValueRemoved) {
+        return None;
+    }
+    let left = signatures::remaining(output);
+    if left.is_empty() {
+        return None;
+    }
+    Some(Declined {
+        source: plan.source,
+        page: None,
+        subject: "the converted file would still carry a signature".to_owned(),
+        detail: format!(
+            "the conversion undertook to remove every signature the source carries and the \
+             output still holds {}: {}. No file is written, because the report would say the \
+             cryptographic assertion was gone from a file that still states it",
+            left.len(),
+            left.join(", ")
+        ),
+    })
 }
 
 /// The source written to the sink byte for byte, for a document that already conforms.
@@ -559,11 +668,14 @@ fn declined_output(plan: &ArchivePlan, achieved: &Achieved) -> Declined {
 }
 
 /// Holds the bytes just written to the same target, and says how they differ from the input.
+///
+/// The opened output is handed back with the verdict, because section 3.6's proof walks it
+/// too and a document is opened once.
 fn hold_the_output_to_the_target(
     bytes: &[u8],
     input: &pdf_archive::Report,
     plan: &ArchivePlan,
-) -> Result<Achieved, Refusal> {
+) -> Result<(Document, Achieved), Refusal> {
     let output = Document::open(bytes.to_vec()).map_err(|error| {
         Refusal::Assembly(format!("the converted document does not re-open: {error}"))
     })?;
@@ -580,12 +692,13 @@ fn hold_the_output_to_the_target(
         .filter(|id| met.contains(*id))
         .copied()
         .collect();
-    Ok(Achieved {
+    let achieved = Achieved {
         conforms: held.verdict() == Verdict::Conforms,
         still_failing,
         regressions,
         checked: held.checked(),
-    })
+    };
+    Ok((output, achieved))
 }
 
 /// The version the output's header states, or why it cannot be stated.

@@ -35,6 +35,7 @@
 
 pub mod clarification;
 pub mod coverage;
+pub mod editions;
 pub mod errata;
 pub mod examination;
 pub mod finding;
@@ -48,8 +49,9 @@ use pdf_syntax::Document;
 
 pub use crate::clarification::Clarification;
 pub use crate::coverage::{
-    Binding, Carried, Reading, Sentence, Subclause, frontier, readings, subclauses,
+    Binding, Carried, Ground, Reading, Sentence, Subclause, frontier, readings, subclauses,
 };
+pub use crate::editions::{Earlier, SHIFTS, Shift, shift_of};
 pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, Where};

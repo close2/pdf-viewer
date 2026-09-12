@@ -808,19 +808,95 @@ impl RgbRoute {
 /// image sample, shading ramp or mesh vertex by any route. Pairing the flag with the target
 /// that was already threaded through all three is what made that a compile error rather than a
 /// habit: there is no longer a `paint` call that can omit it.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// **And a third thing since session 987, which is not a property of the colour, the target or
+/// the object but of the page**: §14.11.5's output intent, where the document states one this
+/// tree reads. `ColourSpace::device_family` ranks it between §8.6.5.6's default and the device
+/// space itself, so it decides what `/DeviceCMYK` *means* — and an image's, a shading's and a
+/// mesh's colour spaces are parsed where their samples are converted, in `crate::image`,
+/// `crate::shading` and `crate::mesh`, after the interpreter has handed the work over. Until
+/// that session those three routes parsed with no intent, so on a page with one an image in
+/// `DeviceCMYK` drew through the assumed press beside a fill drawn through the intent (ADR
+/// 1001's finding at the sites it could not reach; ADR 1008). Carrying the intent in the same
+/// value as the target and the black point is what makes the omission a type error rather than
+/// a habit, exactly as pairing the flag with the target did for §8.6.5.9.
+#[derive(Debug, Clone)]
 pub struct Conversion {
     /// What the converted colour is composited into.
     into: Compositing,
     /// Whether black point compensation applies, per §8.6.5.9.
     black_point: bool,
+    /// The profile §14.11.5's output intent names for this page, if it names one this tree
+    /// reads.
+    ///
+    /// A profile rather than a [`ColourSpace`] because Table 401 makes an intent's
+    /// `/DestOutputProfile` "[a]n ICC profile stream" and nothing else, and because the
+    /// caches keyed on a conversion — `shading::Cache`, `image::RasterCache` — need an
+    /// identity to compare, which [`crate::icc::Profile::identity`] is.
+    output_intent: Option<Arc<crate::icc::Profile>>,
 }
 
+/// What distinguishes one [`Conversion`] from another, for the caches keyed on one.
+///
+/// Written out for [`Compositing`]'s reason: the intent is behind an `Arc`, and two `Arc`s of
+/// one profile — one per interpretation of the same page — are one intent. Every derived trait
+/// below goes through here, which keeps them agreeing with equality.
+type ConversionKey<'a> = (&'a Compositing, bool, Option<u128>);
+
 impl Conversion {
-    /// A conversion into `into`, compensating or not as §8.6.5.9's parameters decide.
+    /// This value as the tuple every trait below is defined on.
+    fn key(&self) -> ConversionKey<'_> {
+        (
+            &self.into,
+            self.black_point,
+            self.output_intent
+                .as_ref()
+                .map(|profile| profile.identity()),
+        )
+    }
+
+    /// A conversion into `into`, compensating or not as §8.6.5.9's parameters decide, on a
+    /// page with no output intent.
+    ///
+    /// The interpreter's two constructors — `Interpreter::conversion_under` and
+    /// `Interpreter::image_conversion` — put the page's intent on afterwards through
+    /// [`Self::under_output_intent`]; a conversion built anywhere else is for a colour that
+    /// has no page, or a mask read for its coverage, and states no intent honestly.
     #[must_use]
     pub fn new(into: Compositing, black_point: bool) -> Self {
-        Self { into, black_point }
+        Self {
+            into,
+            black_point,
+            output_intent: None,
+        }
+    }
+
+    /// The same conversion on a page whose output intent is `intent`.
+    ///
+    /// `intent` is what `crate::content`'s `output_intent_space` answered — an
+    /// [`ColourSpace::Icc`] built from the `/DestOutputProfile`, or nothing. It is typed as a
+    /// space because that is what `ColourSpace::device_family` substitutes for a device
+    /// family, and what `crate::content::transparency` hands `press_for_entry`; only its
+    /// profile is kept here, and a space of any other variant is not an output intent by
+    /// Table 401's definition and is not carried.
+    #[must_use]
+    pub fn under_output_intent(mut self, intent: Option<&ColourSpace>) -> Self {
+        self.output_intent = match intent {
+            Some(ColourSpace::Icc { profile }) => Some(Arc::clone(profile)),
+            Some(_) | None => None,
+        };
+        self
+    }
+
+    /// What §14.11.5's output intent says this page's device colours mean, if it says.
+    ///
+    /// The argument [`ColourSpace::parse_with_output_intent`] takes, answered as a space
+    /// because that function substitutes it for a device family. A refcount, not a copy.
+    #[must_use]
+    pub fn output_intent(&self) -> Option<ColourSpace> {
+        self.output_intent.as_ref().map(|profile| ColourSpace::Icc {
+            profile: Arc::clone(profile),
+        })
     }
 
     /// A conversion onto the device with compensation on.
@@ -841,16 +917,46 @@ impl Conversion {
         &self.into
     }
 
-    /// The same black point decision, composited into something else.
+    /// The same black point decision and the same page, composited into something else.
     #[must_use]
     pub fn into_target(&self, into: Compositing) -> Self {
-        Self::new(into, self.black_point)
+        Self {
+            into,
+            black_point: self.black_point,
+            output_intent: self.output_intent.clone(),
+        }
     }
 
     /// The colour `values` become, through [`Compositing::paint`].
     #[must_use]
     pub fn paint(&self, space: &ColourSpace, values: &[f32]) -> Color {
         self.into.paint(space, values, self.black_point)
+    }
+}
+
+impl PartialEq for Conversion {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for Conversion {}
+
+impl PartialOrd for Conversion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Conversion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key().cmp(&other.key())
+    }
+}
+
+impl std::hash::Hash for Conversion {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key().hash(state);
     }
 }
 
@@ -1003,7 +1109,16 @@ pub enum ColourSpace {
     /// A colour space defined by an embedded ICC profile.
     Icc {
         /// The parsed profile.
-        profile: Box<crate::icc::Profile>,
+        ///
+        /// Shared rather than owned, because a space is *cloned* wherever it is selected —
+        /// [`Self::device_family`] answers with a copy of the output intent for every `k`
+        /// and every `cs` naming a device family, and the interpreter keeps a copy in the
+        /// graphics state — and a parsed press profile is hundreds of kilobytes of lookup
+        /// table. Measured in session 987 on 4000 `k` operators under `issue20513.pdf`'s
+        /// 718 KB CMYK intent: 1.80 G instructions with the copy against 27.7 M for the same
+        /// page with no intent, 95% of them in `memcpy`; a refcount makes the clone a pointer
+        /// and the profile is parsed and held once (ADR 1008).
+        profile: Arc<crate::icc::Profile>,
     },
     /// A pattern space, which carries no colour of its own.
     ///
@@ -1214,7 +1329,7 @@ impl ColourSpace {
             && let Some(profile) = crate::icc::Profile::parse(&decoded.data)
         {
             return Some(Self::Icc {
-                profile: Box::new(profile),
+                profile: Arc::new(profile),
             });
         }
 
@@ -1476,6 +1591,20 @@ impl ColourSpace {
         let table = document.get_key(resources, "ColorSpace");
         let entry = table.as_dict()?.get(key)?;
         Self::parse_at(document, entry, resources, intent, depth.saturating_add(1))
+    }
+
+    /// The identity of this space's profile, where the space is an [`Self::Icc`].
+    ///
+    /// What a cache keyed on a space *stated as an output intent* compares — `shading::Cache`
+    /// keys a parsed `/ColorSpace` reference on it — because an intent is a profile by Table
+    /// 401's definition and [`crate::icc::Profile::identity`] is what tells two apart. `None`
+    /// for every other space.
+    #[must_use]
+    pub fn profile_identity(&self) -> Option<u128> {
+        match self {
+            Self::Icc { profile } => Some(profile.identity()),
+            _ => None,
+        }
     }
 
     /// Which of §11.3.4's two calibrated one-component spaces this is, if either.

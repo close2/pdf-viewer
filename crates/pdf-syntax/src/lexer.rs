@@ -157,10 +157,13 @@ pub struct HexadecimalStrings {
 /// A number ISO 32000-2 §7.3.3 does not spell, read anyway, and what reading it left out.
 ///
 /// The clause writes both numeric forms as decimal digits with an optional sign and an
-/// optional PERIOD, and [`Lexer::read_number`] reads a run that departs from that — `--5`,
-/// `1.2.3`, `12pt` — as the number its leading part spells, because a content stream still
-/// has to draw. What that costs is recorded here rather than lost: the run as the file wrote
-/// it, and the tail the value does not account for.
+/// optional PERIOD, and [`Lexer::read_number`] reads a run that departs from that — `1.2.3`,
+/// `1-2`, `12pt` — as the number the clause's own grammar spells off its front, because a
+/// content stream still has to draw. What that costs is recorded here rather than lost: the
+/// run as the file wrote it, and the tail the value does not account for. **The tail is never
+/// empty**: a run the grammar reads whole is a number the clause spells and leaves no salvage,
+/// and a run the grammar reads nothing of — `--5`, `.-1` — is no salvage either but the
+/// keyword it lexically is, which is where [`salvage_number`] says why.
 ///
 /// **The lexer records the tail and does not judge it**, because judging it takes a vocabulary
 /// this crate does not have. §7.2.3 makes the whole run one token and §7.3.3 makes it no
@@ -174,9 +177,8 @@ pub struct HexadecimalStrings {
 pub struct Salvage<'a> {
     /// The whole run of regular characters, as written.
     pub run: &'a [u8],
-    /// The bytes of `run` the salvaged value does not account for: empty where every byte was
-    /// read (`--5` collapses its signs and drops nothing), the run itself where nothing before
-    /// its first digit could be read as a number (`.-1`, which is read as zero).
+    /// The bytes of `run` the salvaged value does not account for — `.3` of `1.2.3`, `-2` of
+    /// `1-2`, `pt` of `12pt` — never empty, and never the whole run.
     pub dropped: &'a [u8],
 }
 
@@ -605,15 +607,15 @@ impl<'a> Lexer<'a> {
         out
     }
 
-    /// Reads a number, or the keyword a run stating no digit lexically is.
+    /// Reads a number, or the keyword a run spelling none lexically is.
     ///
-    /// Accepts the malformed forms that occur in practice: multiple signs, a sign after
-    /// digits, several decimal points. A run that states no digit at all is not a number
-    /// and is returned as the keyword it lexically is; see the condition below for why.
-    ///
-    /// A run that *does* state a digit and still salvages nothing — `.-1`, where the sign
-    /// arrives after the point and before any digit — keeps the older reading of zero.
-    /// That is a different question from this one and the corpus offers no witness for it.
+    /// Three readings, tried in order: §7.3.3's own fixed format off the cursor, the standard
+    /// library's parse of the whole run (which adds the exponential form the clause forbids a
+    /// *writer*), and [`salvage_number`] — the clause's grammar read off the front of a run
+    /// it does not spell whole, `1.2.3` as 1.2 and `12pt` as 12. A run the grammar reads
+    /// nothing of is no number at all, whether it states a digit somewhere (`.-1`, `--5`) or
+    /// nowhere (`.`, `-`), and comes back as the keyword it lexically is; the condition below
+    /// and the salvage's doc comment say why.
     fn read_number(&mut self) -> Token<'a> {
         // §7.3.3's fixed format is read **straight off the cursor**, before the run this
         // function used to find first. Both statements are about the same bytes, so finding
@@ -721,18 +723,16 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Salvage a leading numeric prefix from forms like `--5` or `1.2.3`. What the salvage
-        // leaves out is recorded beside the token rather than lost — see [`Salvage`] for who
-        // reads it and why the lexer itself does not judge it.
+        // Salvage the number §7.3.3's grammar spells off the front of the run — `1.2.3`,
+        // `12pt`. What the salvage leaves out is recorded beside the token rather than lost;
+        // see [`Salvage`] for who reads it and why the lexer itself does not judge it.
         let Some((value, read)) = salvage_number(raw) else {
-            // A digit is present — the condition above saw to that — but nothing before it
-            // could be read as one. See this function's doc comment for why that keeps the
-            // older reading rather than joining the case below.
-            self.salvage = Some(Salvage {
-                run: raw,
-                dropped: raw,
-            });
-            return Token::Integer(0);
+            // A digit is present — the condition above saw to that — but the grammar reads
+            // nothing before it: `.-1`, `--5`, `-x1`. That is the same run as `.` with a digit
+            // further along, and it takes the same answer, the keyword §7.2.3 makes it. It was
+            // `Integer(0)` until the nine-hundred-and-ninetieth session — the zero ADR 0303
+            // took out of the digit-less run, surviving one condition below it (ADR 1011).
+            return Token::Keyword(raw);
         };
         self.salvage = Some(Salvage {
             run: raw,
@@ -885,75 +885,89 @@ fn fixed_format_number(raw: &[u8]) -> Option<(Fixed, usize)> {
     }
 }
 
-/// Extracts a usable number from a malformed numeric token, and says how many bytes it read.
+/// Reads the number ISO 32000-2 §7.3.3's grammar spells off the front of a run it does not
+/// spell whole, and says how many bytes that number covers.
 ///
-/// `--5` yields -5 over all three bytes, `1.2.3` yields 1.2 over the first three, `-` yields
-/// nothing. Real files contain all of these. The count is what lets a caller see the tail the
+/// `1.2.3` yields 1.2 over the first three bytes, `1-2` yields 1 over the first, `12pt` 12
+/// over the first two; `--5`, `.-1` and `-x1` yield nothing, because the grammar reads not
+/// one byte of any of them before it stops. The count is what lets a caller see the tail the
 /// value leaves out — [`Salvage::dropped`] — and is the whole reason this returns a pair.
 ///
-/// A repeated leading sign collapses to one rather than invalidating the number:
-/// producers emit `--5` by prepending a minus to an already-negative value, and both
-/// Acrobat and pdf.js read it as -5. Reading it as +5 would silently mirror geometry.
-#[expect(
-    clippy::match_same_arms,
-    reason = "the two `break` arms have different guards for different reasons — a stray \
-              sign versus a second decimal point — and merging them into one guard \
-              obscures both, as an earlier attempt that broke `1.5` demonstrated"
-)]
+/// # What decides this, and what does not
+///
+/// **No clause makes a value of any of these runs.** §7.2.3 makes each one token — a run of
+/// regular characters ends only at white space or a delimiter — and §7.3.3 makes it no number:
+///
+/// > An integer shall be written as one or more decimal digits optionally preceded by a sign.
+///
+/// > A real value shall be written as one or more decimal digits with an optional sign and a
+/// > leading, trailing, or embedded PERIOD (2Eh) (decimal point).
+///
+/// Errata Collection 3's Issue #327 closes both forms with a railroad diagram admitting no
+/// other production. A file that writes one of these runs is outside the standard, which
+/// describes valid files and says nothing about the rest; so what a reader does here is a
+/// **choice**, and this is it, stated as one:
+///
+/// - **The prefix the clause's grammar spells is read, and the rest is recorded.** One
+///   optional sign, decimal digits, at most one PERIOD, stopping at the first byte outside
+///   that — the same scan as [`fixed_format_number`] without its digit bound. A content
+///   stream that wrote `12pt` still has to draw, and the tail costs no mark where it names no
+///   operator; where it does name one, `pdf-model`'s content reader hands the interpreter the
+///   whole run as the keyword it is (ADR 1004). That is the leniency ADR 0303 kept, and it is
+///   the only one there is.
+/// - **A run the grammar reads nothing of is a keyword**, not a number. `--5` was read as −5
+///   until the nine-hundred-and-ninetieth session, on a comment saying that "both Acrobat and
+///   pdf.js read it as −5" — a reference implementation named as the *reason* for a behaviour,
+///   which is the direction of inference `CLAUDE.md` principle 5 forbids outright — and `.-1`
+///   was `0`, the zero ADR 0303 took out of the run holding no digit, surviving one condition
+///   below it. Neither value is one the run spells: the grammar's prefix of both is empty, and a
+///   value invented for an empty prefix is the plausible fallback trap 5 forbids, for a run the
+///   file may have meant as anything. Both now take the answer `.` and `-` already take — the
+///   keyword §7.2.3 makes them, which the parser refuses where an object was expected and the
+///   interpreter reports as an operator it does not know, dropping the operands before it
+///   (ADR 0302's rule) — and the report is what a damaged stream is owed.
+///
+/// **The population, counted before the choice was believed** (ADR 1011): over every page
+/// content stream of `doc/pdf.js`'s 974 documents and `doc/corpora/`'s 275, the repeated-sign
+/// shape occurs six times in four documents and the empty-prefix shape 264 times in eleven —
+/// every one of them in `format-corpus`'s deliberately damaged govdocs set, in a stream whose
+/// surrounding bytes are already garbage, and not once in a file a producer wrote. No file on
+/// this disk writes `--5` by "prepending a minus to an already-negative value", which is what
+/// the old comment said producers do.
+// **Kept out of line on a measurement, not a hunch.** The nine-hundred-and-ninetieth session
+// rewrote this function without its `String`, which made it small enough for the compiler to
+// inline into `read_number` — and that reshaped the register allocation of the path every
+// *well-formed* number takes, by a few instructions per token. On `Document::open`, which
+// lexes every cross-reference entry and trailer, the launch gate's `open_kinstructions` rose
+// from 26 748.8 to 26 773.8 thousand on `Well-Tagged-PDF-WTPDF-1.0.pdf` (band top 26 760) and
+// from 185 357.6 to 185 492.1 thousand on `ISO_32000-2_sponsored_EC3.pdf` (band top 185 424):
+// 0.04% each, in a figure with no clock in it, run alone, and gone with HEAD's lexer swapped
+// in. With this attribute both figures are back inside their bands. What it costs is one call
+// on the *malformed* path only — a run the grammar cannot read whole, which no conforming file
+// holds — so the trade is a few instructions on the salvage against a few on every number.
+// (ADR 1011 §4, and the merge that measured it.)
+#[inline(never)]
 fn salvage_number(text: &[u8]) -> Option<(f64, usize)> {
-    let mut cleaned = String::with_capacity(text.len());
-    let mut seen_dot = false;
-    let mut seen_digit = false;
-    let mut in_leading_signs = true;
-    let mut read = text.len();
-
-    // Bytes rather than `char`s, and the two walks are the same walk: every byte the loop
-    // keeps is ASCII, and any other byte — including each byte of a multi-byte sequence —
-    // terminates the number exactly where a decoded character would have.
-    for (at, &byte) in text.iter().enumerate() {
+    let mut read = usize::from(matches!(text.first(), Some(b'-' | b'+')));
+    let mut digits = 0usize;
+    let mut point = false;
+    while let Some(&byte) = text.get(read) {
         match byte {
-            b'-' | b'+' if in_leading_signs => {
-                // Only the first sign counts; later ones in the run are dropped.
-                if cleaned.is_empty() {
-                    cleaned.push(char::from(byte));
-                }
-            }
-            // Anything else that cannot extend the number terminates it. A sign after
-            // the digits have started is not ignored: `1-2` is two numbers jammed
-            // together in the wild, and taking the first is closer to what was meant
-            // A sign once the number has started terminates it: `1-2` is two numbers
-            // jammed together in the wild, and taking the first is closer to what was
-            // meant than reading `12`.
-            b'-' | b'+' => {
-                read = at;
-                break;
-            }
-            // A second decimal point likewise ends the number rather than being ignored.
-            b'.' if seen_dot => {
-                read = at;
-                break;
-            }
-            b'.' => {
-                in_leading_signs = false;
-                seen_dot = true;
-                cleaned.push('.');
-            }
-            b'0'..=b'9' => {
-                in_leading_signs = false;
-                seen_digit = true;
-                cleaned.push(char::from(byte));
-            }
-            _ => {
-                read = at;
-                break;
-            }
+            b'0'..=b'9' => digits = digits.saturating_add(1),
+            b'.' if !point => point = true,
+            // A second sign, a second point, a letter, a byte above 127: the grammar ends
+            // here, and so does the number.
+            _ => break,
         }
+        read = read.saturating_add(1);
     }
-
-    if !seen_digit {
+    if digits == 0 {
         return None;
     }
-    cleaned
+    // Every byte before `read` is ASCII and spells one sign, digits and at most one point,
+    // which `f64::from_str` accepts — so neither step can refuse, and neither is unwrapped.
+    let prefix = std::str::from_utf8(text.get(..read)?).ok()?;
+    prefix
         .parse::<f64>()
         .ok()
         .map(|value| (within_the_representation(value), read))
@@ -1052,11 +1066,64 @@ mod tests {
         assert_eq!(tokens(b".5 -.5"), vec![Token::Real(0.5), Token::Real(-0.5)]);
     }
 
-    /// Malformed numbers occur in real files; other viewers accept them, so we must.
+    /// **A run §7.3.3 does not spell whole is read as far as its grammar reaches, and no
+    /// further.** The clause's forms are one optional sign, decimal digits and at most one
+    /// PERIOD; the salvage is that grammar off the front of the run, which is the one leniency
+    /// [`super::salvage_number`] states and the choice it argues. Nothing here is derived from
+    /// what another reader does with these runs — this test's doc comment said "other viewers
+    /// accept them, so we must" from the lexer's first commit until the nine-hundred-and-
+    /// ninetieth session, which is `CLAUDE.md` principle 5's forbidden direction of inference
+    /// written down as a test's reason (ADR 1011).
     #[test]
     fn malformed_numbers_salvage_a_leading_value() {
-        assert_eq!(tokens(b"--5"), vec![Token::Integer(-5)]);
         assert_eq!(tokens(b"1.2.3"), vec![Token::Real(1.2)]);
+        assert_eq!(tokens(b"1-2"), vec![Token::Integer(1)]);
+        assert_eq!(tokens(b"1.5-2"), vec![Token::Real(1.5)]);
+        assert_eq!(tokens(b"12pt"), vec![Token::Integer(12)]);
+        assert_eq!(tokens(b"-.5x"), vec![Token::Real(-0.5)]);
+        assert_eq!(tokens(b"+7."), vec![Token::Real(7.0)]);
+    }
+
+    /// **A run the grammar reads nothing of is the keyword it lexically is, digit or no digit.**
+    ///
+    /// `--5` was −5 and `.-1` was 0 until the nine-hundred-and-ninetieth session, and neither is
+    /// a value the run spells: the grammar's prefix of both is empty, exactly as it is for `.`
+    /// and `-`, which ADR 0303 made keywords. A second sign before the first digit is not a
+    /// sign the clause's "optionally preceded by a sign" admits, so a value read past it is an
+    /// invention — and an invented value that draws is the fallback trap 5 forbids. The parser
+    /// refuses the keyword where an object was expected and the interpreter reports it as an
+    /// operator it does not know (ADR 1011).
+    #[test]
+    fn a_run_the_grammar_reads_nothing_of_is_a_keyword() {
+        for run in [
+            &b"--5"[..],
+            b"-+5",
+            b"+-5",
+            b"++5",
+            b".-1",
+            b".+1",
+            b"..1",
+            b"-x1",
+            b"-.-1",
+        ] {
+            assert_eq!(
+                tokens(run),
+                vec![Token::Keyword(run)],
+                "{} spells no number before its first byte outside the grammar",
+                String::from_utf8_lossy(run)
+            );
+            let mut lexer = Lexer::new(run);
+            let _ = lexer.next_token();
+            assert_eq!(
+                lexer.salvaged(),
+                None,
+                "a keyword is not a salvage — nothing was read out of {}",
+                String::from_utf8_lossy(run)
+            );
+        }
+        // And the same bytes with the clause's own spelling are the numbers they state.
+        assert_eq!(tokens(b"-5"), vec![Token::Integer(-5)]);
+        assert_eq!(tokens(b"-.1"), vec![Token::Real(-0.1)]);
     }
 
     /// **A long number states a value, not a different value.**
@@ -1171,10 +1238,11 @@ mod tests {
         // A magnitude too *small* is not the same question: zero is the correctly rounded
         // value of this decimal rather than a substitute for it.
         assert_eq!(tokens(b"1e-400"), vec![Token::Real(0.0)]);
-        // The salvage path reaches the same bound: `--` collapses to one sign, and what is left
-        // still overflows.
-        let mut salvaged = vec![b'-', b'-'];
+        // The salvage path reaches the same bound: the grammar's prefix of this run stops at
+        // the second point, and what it read still overflows.
+        let mut salvaged = vec![b'-'];
         salvaged.extend_from_slice(&four_hundred_nines);
+        salvaged.extend_from_slice(b".5.5");
         assert_eq!(tokens(&salvaged), vec![Token::Real(-f64::MAX)]);
     }
 
@@ -1239,9 +1307,10 @@ mod tests {
     /// §7.3.3's two forms are read whole and leave no salvage; every departure from them that
     /// still yields a number records the run and the tail the value does not cover, which is
     /// what lets a consumer with an operator vocabulary tell `12pt` from `5f` without the lexer
-    /// having to know one. The four shapes are the four `salvage_number` distinguishes: a run
-    /// read whole after its signs collapse, a run cut at a second point, a run cut at a letter,
-    /// and a run whose first digit comes too late for anything before it to be a number.
+    /// having to know one. The three shapes are where `salvage_number`'s scan can stop: at a
+    /// second point, at a sign after the digits, and at a byte that is neither. A run whose
+    /// grammar-prefix is empty is a keyword and records nothing —
+    /// [`a_run_the_grammar_reads_nothing_of_is_a_keyword`] holds that side.
     #[test]
     fn what_a_salvage_dropped_is_recorded_beside_the_token() {
         let salvage_of = |input: &'static [u8]| {
@@ -1268,15 +1337,15 @@ mod tests {
             );
         }
         assert_eq!(
-            salvage_of(b"--5"),
+            salvage_of(b"1.5-2"),
             (
-                Some(Token::Integer(-5)),
+                Some(Token::Real(1.5)),
                 Some(Salvage {
-                    run: b"--5",
-                    dropped: b""
+                    run: b"1.5-2",
+                    dropped: b"-2"
                 })
             ),
-            "a repeated sign is a departure with nothing left out"
+            "a sign after the digits ends the number"
         );
         assert_eq!(
             salvage_of(b"1.2.3"),
@@ -1307,17 +1376,6 @@ mod tests {
                     dropped: b"pt"
                 })
             )
-        );
-        assert_eq!(
-            salvage_of(b".-1"),
-            (
-                Some(Token::Integer(0)),
-                Some(Salvage {
-                    run: b".-1",
-                    dropped: b".-1"
-                })
-            ),
-            "a run read as zero accounts for none of its bytes"
         );
         // And the record is about the token just returned, never about an earlier one.
         let mut lexer = Lexer::new(b"5f 6");

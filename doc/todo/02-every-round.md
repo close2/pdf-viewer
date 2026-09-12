@@ -686,6 +686,14 @@ it** — a question that lives only in a history file or an ADR is a question no
 `Q` file says; the one rounds forget is **what the tree does meanwhile**, and naming it is what
 keeps a question from reading like a blocker when it is not.
 
+An answer is an `A` file of the same name whose three-line header — `Status`, `Given`,
+`Owes` — is the index, because an `A` file means **the owner has spoken**, not that the
+question is settled: answers can defer (`A03`), dissolve the question (`A19`, `A49`),
+answer half of it (`A51`), or be replaced by a later one (`A15`, `A17` → `A46`). A round
+transcribing an answer given in conversation writes the header and quotes the owner
+verbatim, and never paraphrases the round's own reading in the owner's voice.
+`tools/state.sh questions` prints the whole index; the same `README.md` owns the rest.
+
 ## 7. Three habits these rounds added, which belong here rather than in a trap
 
 - **A closed form taken from one renderer is not a limit.** `doc/todo/00`'s step 6 climbs a

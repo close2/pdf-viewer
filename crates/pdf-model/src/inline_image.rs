@@ -583,7 +583,11 @@ fn unfiltered_length(document: &Document, dict: &Dictionary) -> Option<usize> {
         .ok()?;
         let space = document.get_key(dict, "ColorSpace");
         // The resource lookup has already happened, so nothing here names anything outside
-        // itself and an empty resource dictionary is the honest argument to pass.
+        // itself and an empty resource dictionary is the honest argument to pass. No output
+        // intent either, for the same reason `crate::image::short_of_its_grid` gives: a count
+        // of components is the same under any intent, since `ColourSpace::device_family`
+        // substitutes one only for a family with as many. The space's *meaning* is read once,
+        // in `crate::image::decode_parts`, under the intent the interpreter hands it.
         let components =
             crate::colour::ColourSpace::parse(document, &space, &Dictionary::new())?.components();
         (bits, components)
