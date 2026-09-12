@@ -114,6 +114,124 @@ pub(super) fn departure_history(departures: &[Departed]) -> Option<String> {
     Some(out)
 }
 
+/// What became of one attempt to derive an artefact with an external program.
+///
+/// `doc/questions/A55` and `doc/rfc/0007` section 4.1: a tool can produce a result, decline one, or
+/// fail — and a fourth outcome is this converter's own, where what came back is not what the tool
+/// promised (section 4.2, *what comes back is not trusted*).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DerivedOutcome {
+    /// The tool produced what it promised, and the derived artefact is in the output.
+    Attached,
+    /// The tool exited with the declining status, which is *not this one* rather than a failure.
+    Declined,
+    /// The tool's declared media type is not what it returned, so nothing was used.
+    NotWhatItPromised,
+    /// The tool could not be run, ran and failed, overran its timeout or its output limit.
+    Failed(String),
+}
+
+impl DerivedOutcome {
+    /// A stable word for the report's machine-readable form.
+    #[must_use]
+    pub const fn word(&self) -> &'static str {
+        match self {
+            Self::Attached => "attached",
+            Self::Declined => "declined",
+            Self::NotWhatItPromised => "not-what-it-promised",
+            Self::Failed(_) => "failed",
+        }
+    }
+}
+
+/// One artefact a `derive` remedy made, and everything `doc/questions/A55` asks be said about it.
+///
+/// The answer's condition, in its own words: *the report says, per document, what was derived, from
+/// what, and by which tool*. The digest and the resolved program path are `doc/rfc/0007` section
+/// 4.4's, so a re-run can be **checked** even though it cannot be **guaranteed**.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Derived {
+    /// The requirement the derivation answered.
+    pub site: &'static str,
+    /// The embedded file's own name, as the source states it.
+    pub attachment: String,
+    /// The media type the source stated for it, where it stated one.
+    pub was: Option<String>,
+    /// The `[tool.…]` block's name.
+    pub tool: String,
+    /// The program as it was declared and, once run, as the operating system resolved it.
+    pub program: String,
+    /// The media type the tool promised.
+    pub expects: String,
+    /// The SHA-256 of what came back, lower-case hexadecimal.
+    pub digest: String,
+    /// How many bytes came back.
+    pub bytes: usize,
+    /// What the tool wrote to standard error, bounded. Section 4.1: a tool's own explanation of
+    /// why it declined is the most useful thing a report can carry.
+    pub stderr: String,
+    /// What became of it.
+    pub outcome: DerivedOutcome,
+}
+
+/// One fact the operator stated that the document does not.
+///
+/// `doc/rfc/0007` section 5b.1's obligation: the report states the supplied value beside the
+/// requirement it answered, because `supply` is the one remedy kind the converter cannot get wrong
+/// and the person can.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuppliedFact {
+    /// The requirement it answered.
+    pub site: &'static str,
+    /// What it is about — an embedded file's own name.
+    pub subject: String,
+    /// What the operator said it is.
+    pub value: String,
+}
+
+impl Derived {
+    /// One derived artefact as JSON.
+    fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("requirement".to_owned(), Value::text(self.site)),
+            (
+                "attachment".to_owned(),
+                Value::text(self.attachment.clone()),
+            ),
+            (
+                "was".to_owned(),
+                self.was.as_ref().map_or(Value::Null, Value::text),
+            ),
+            ("tool".to_owned(), Value::text(self.tool.clone())),
+            ("program".to_owned(), Value::text(self.program.clone())),
+            ("expects".to_owned(), Value::text(self.expects.clone())),
+            ("digest".to_owned(), Value::text(self.digest.clone())),
+            ("bytes".to_owned(), Value::count(self.bytes)),
+            ("stderr".to_owned(), Value::text(self.stderr.clone())),
+            ("outcome".to_owned(), Value::text(self.outcome.word())),
+            (
+                "warns".to_owned(),
+                Value::text(crate::archive::DERIVED_NOT_ORIGINAL),
+            ),
+        ])
+    }
+}
+
+impl SuppliedFact {
+    /// One supplied fact as JSON.
+    fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("requirement".to_owned(), Value::text(self.site)),
+            ("subject".to_owned(), Value::text(self.subject.clone())),
+            ("value".to_owned(), Value::text(self.value.clone())),
+            (
+                "warns".to_owned(),
+                Value::text(crate::archive::SUPPLIED_BY_THE_OPERATOR),
+            ),
+        ])
+    }
+}
+
 /// One requirement the input failed, with what was decided and what was done about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Decided {
@@ -248,6 +366,18 @@ pub struct Conversion {
     /// the output *not* conform on purpose, so the report says so in those words — the whole of
     /// what keeps a departed file from passing as a conforming one it is not.
     pub departures: Vec<Departed>,
+    /// Every artefact a `derive` remedy made, with the tool that made it.
+    ///
+    /// **`doc/questions/A55`'s condition on the whole mode.** Empty for every conversion that
+    /// derives nothing, which is every conversion until an operator's configuration names both a
+    /// site and a tool. Where it is not empty the report says, in the answer's own words, that
+    /// *this is derived, not original* — and the same sentence goes into the file's `xmpMM:History`,
+    /// so the archive carries the fact rather than relying on a report nobody kept.
+    pub derived: Vec<Derived>,
+    /// Every fact the operator's configuration stated that the document does not.
+    ///
+    /// `doc/rfc/0007` section 5b.1. Empty until a configuration supplies one.
+    pub supplied: Vec<SuppliedFact>,
 }
 
 impl Conversion {
@@ -330,6 +460,14 @@ impl Conversion {
                 "departures".to_owned(),
                 Value::Array(self.departures.iter().map(Departed::to_json).collect()),
             ),
+            (
+                "derived".to_owned(),
+                Value::Array(self.derived.iter().map(Derived::to_json).collect()),
+            ),
+            (
+                "supplied".to_owned(),
+                Value::Array(self.supplied.iter().map(SuppliedFact::to_json).collect()),
+            ),
         ])
     }
 
@@ -341,6 +479,14 @@ impl Conversion {
     /// omitted, so that a reader who has learned to look for it can see it is empty rather than
     /// absent.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one report, in the order a person reads it: what was already met, what was \
+                  decided, the signatures, the profile, the provenance, what was written, the \
+                  departures, the configured remedies, the verdict. The sections that carry a \
+                  list of their own are functions; the spine is this, and a spine split in two \
+                  would be a reader's problem rather than a writer's"
+    )]
     pub fn render(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
@@ -405,6 +551,7 @@ impl Conversion {
         }
         out.push_str(&self.render_what_was_written());
         out.push_str(&self.render_departures());
+        out.push_str(&self.render_configured());
         if let Some(achieved) = &self.achieved {
             let verdict = if achieved.conforms {
                 "conforms"
@@ -450,6 +597,77 @@ impl Conversion {
 }
 
 impl Conversion {
+    /// What a `derive` remedy made and what a `supply` remedy stated, per document.
+    ///
+    /// **`doc/questions/A55`'s condition, in the answer's own words**: the report says *what was
+    /// derived, from what, and by which tool*, and it says *this is derived, not original* rather
+    /// than leaving a reader to infer it — a PDF/A file whose attachment has become something a
+    /// program made is a different document from the one that went in. The digest and the resolved
+    /// program are `doc/rfc/0007` section 4.4's, so a re-run can be checked.
+    ///
+    /// And `doc/rfc/0007` section 5b.1's, which is `supply`'s alone: the supplied value is stated
+    /// beside the requirement it answered, because it is the one remedy the converter cannot get
+    /// wrong and the person can.
+    fn render_configured(&self) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+        if !self.derived.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} artefact(s) a configured tool derived — {}:",
+                self.derived.len(),
+                crate::archive::DERIVED_NOT_ORIGINAL
+            );
+            for row in &self.derived {
+                let _ = writeln!(
+                    out,
+                    "      {} ({}) {} by the tool {:?} ({}), answering {}",
+                    row.attachment,
+                    row.was.as_deref().unwrap_or("of no stated media type"),
+                    match &row.outcome {
+                        DerivedOutcome::Attached => format!(
+                            "became {} of {} byte(s), SHA-256 {}",
+                            row.expects, row.bytes, row.digest
+                        ),
+                        DerivedOutcome::Declined =>
+                            "was declined by the tool, so it is unchanged and the requirement \
+                             stays refused"
+                                .to_owned(),
+                        DerivedOutcome::NotWhatItPromised => format!(
+                            "was not converted: what came back is not the {} the tool promised, \
+                             and doc/rfc/0007 section 4.2 does not trust it",
+                            row.expects
+                        ),
+                        DerivedOutcome::Failed(sentence) =>
+                            format!("was not converted: {sentence}"),
+                    },
+                    row.tool,
+                    row.program,
+                    row.site
+                );
+                if !row.stderr.is_empty() {
+                    let _ = writeln!(out, "          the tool said: {}", row.stderr.trim_end());
+                }
+            }
+        }
+        if !self.supplied.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} value(s) this configuration supplied — {}:",
+                self.supplied.len(),
+                crate::archive::SUPPLIED_BY_THE_OPERATOR
+            );
+            for row in &self.supplied {
+                let _ = writeln!(
+                    out,
+                    "      {} is stated to be {}, answering {}",
+                    row.subject, row.value, row.site
+                );
+            }
+        }
+        out
+    }
+
     /// The two lists the owner's conditions make part of the report rather than of a diff.
     ///
     /// `doc/questions/A21` asks for every appearance written and
@@ -667,7 +885,7 @@ fn removed_to_json(property: &MisusedProperty) -> Value {
 /// One signature of the source, in one line: where, who, when, and what verifying it found.
 ///
 /// `doc/pdf-a-conversion-limits.md` section 3.6's line, worded without the word *valid* for the
-/// reason `pdf_model::signature` gives: what was checked is that the value, the certificate and
+/// reason `pdf_signature::signature` gives: what was checked is that the value, the certificate and
 /// the bytes belong together, and not who the signer is.
 fn describe_signature(signature: &SourceSignature) -> String {
     use std::fmt::Write as _;
@@ -757,6 +975,17 @@ fn describe(decision: Decision, changed: usize, repeated: bool) -> String {
             loss.word()
         ),
         Decision::Refused(because) => format!("refused: {}", because.sentence()),
+        Decision::Configured {
+            kind,
+            rewrite,
+            warns,
+        } => format!(
+            "changed, because this configuration answered it with `{}`: {} ({} done)\n      {}",
+            kind.word(),
+            rewrite.describe(),
+            changed,
+            warns
+        ),
     }
 }
 
@@ -777,7 +1006,9 @@ impl SignatureDecision {
                 fields.push(("because".to_owned(), Value::text(because.word())));
                 fields.push(("reason".to_owned(), Value::text(because.sentence())));
             }
-            Decision::Mechanical(rewrite) | Decision::Stated { rewrite, .. } => {
+            Decision::Mechanical(rewrite)
+            | Decision::Stated { rewrite, .. }
+            | Decision::Configured { rewrite, .. } => {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
             }
         }
@@ -868,6 +1099,15 @@ impl Decided {
             Decision::Refused(because) => {
                 fields.push(("because".to_owned(), Value::text(because.word())));
                 fields.push(("reason".to_owned(), Value::text(because.sentence())));
+            }
+            Decision::Configured {
+                kind,
+                rewrite,
+                warns,
+            } => {
+                fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
+                fields.push(("remedy".to_owned(), Value::text(kind.word())));
+                fields.push(("warns".to_owned(), Value::text(warns)));
             }
         }
         Value::Object(fields)

@@ -7,7 +7,7 @@
 //!
 //! # Why a compute pass over a buffer rather than a raster
 //!
-//! `doc/spike-function-paint.md` §5 measured 246 044 texels off by one between RADV and an
+//! `raster/doc/spike-function-paint.md` §5 measured 246 044 texels off by one between RADV and an
 //! independent evaluation, and none of them were the program: they were ADR 0006's 8-bit
 //! store conversion, one step, on one adapter. A raster puts that conversion between the
 //! shader and the assertion and costs the test all of its resolution. Writing `vec4<f32>` to

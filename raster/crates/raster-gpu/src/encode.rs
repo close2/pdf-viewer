@@ -216,7 +216,7 @@ struct Encoder<'a> {
     /// produced is not an adversary's key, and `SipHash`'s per-process seed is a
     /// liability rather than a defence here. Only `len()` is ever read, so the iteration
     /// order this changes reaches nothing. Measured on the dense-text archetype (4 320
-    /// fills, callgrind, `doc/PLAN.md` 2026-08-14): 1.65 M of a 19.70 M-instruction
+    /// fills, callgrind, `raster/doc/PLAN.md` 2026-08-14): 1.65 M of a 19.70 M-instruction
     /// encode was `SipHash` on this one set, and swapping the hasher took **0.56 M**
     /// of it — the remainder is the probing, which is `hashbrown`'s either way.
     distinct_outlines: FastSet<u32>,

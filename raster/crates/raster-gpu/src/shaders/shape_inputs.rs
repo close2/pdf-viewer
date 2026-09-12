@@ -144,7 +144,7 @@ fn a_shape_pass_cannot_reach_the_soft_mask() {
 
 /// **The control.** The same shaders' `fs_main` *does* reach the mask, so the assertion
 /// above is about where the mask is applied and not about a lane that stopped applying
-/// it (`doc/HANDOVER.md`: a gate whose assertion is an absence needs a control).
+/// it (`raster/doc/HANDOVER.md`: a gate whose assertion is an absence needs a control).
 #[test]
 fn the_source_pass_still_reads_the_soft_mask() {
     let mut silent = Vec::new();

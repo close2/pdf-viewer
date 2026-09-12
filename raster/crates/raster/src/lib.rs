@@ -12,13 +12,13 @@
 //! **M1.** A device (headless and surface-attached), the three targets of the brief's
 //! §2.4, analytically-covered axis-aligned rectangles, timestamped and truthful
 //! frames, and the startup split of §7. The requirements are in
-//! `doc/RENDER_LIBRARY.md`, the order of work in `doc/PLAN.md`, and `doc/adr/0003`
+//! `raster/doc/RENDER_LIBRARY.md`, the order of work in `raster/doc/PLAN.md`, and `raster/doc/adr/0003`
 //! says what a module may contain before the milestone that fills it.
 //!
 //! # The shape of the API
 //!
 //! Two halves, and the split is enforced by the dependency graph rather than by review
-//! (`doc/adr/0001`):
+//! (`raster/doc/adr/0001`):
 //!
 //! - [`scene`] — what is to be drawn. **No viewport, no resolution, no device transform, no
 //!   target size**, and no device: a scene is `Send + Sync`, cheap to clone, and built on

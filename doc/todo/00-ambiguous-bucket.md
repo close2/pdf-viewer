@@ -701,6 +701,36 @@ directory (they agree with a consensus, so the gate deletes it) and are the four
 counts and cannot measure; and every figure is a *difference between two programs*, so a
 reference re-rendered by a newer binary moves a row with nothing of ours having changed.
 
+**`bug1050040.pdf` −11.272 was re-opened in the thousand-and-second session, and the refusal that
+costs it has two witnesses it had never been shown.** ADR 0836 refuses this file on RFC 1950's
+Adler-32 alone, and the sentence it prints — "these are not the bytes that were compressed" — is a
+claim two other statements can test. Both agree with it, and one of them is the standard's own:
+
+- **ISO 32000-2 §9.9's Table 125.** `/Length1` is "the entire TrueType font program, after it has
+  been decoded using the filters specified by the stream's Filter entry, if any", and this file
+  states **59212** where the filter delivers **59211**. The clause states the extent independently
+  of the filter, and here it states the same damage.
+- **The font's own per-table `checkSum` fields.** Of the thirteen tables, `cvt `, `fpgm`, `hhea`,
+  `hmtx` and `prep` — every table ending before byte 12951 — check correctly **in place**;
+  `loca`, `cmap`, `post`, `name`, `maxp`, `OS/2` and `head` check correctly **exactly one byte
+  early**; and `glyf`, which spans 12952 to 52932, checks at no offset at all. So one byte is
+  missing from inside the outline table, and `loca`'s offsets point one byte past where the
+  outlines now are.
+
+Three independent statements of one missing byte, and §7.4.4.1 is why the first of them counts:
+the Flate method "is fully defined in Internet RFC 1950 , and Internet RFC 1951", and RFC 1950's
+own compliance clause requires a decompressor to check ADLER32 and provide an error indication.
+So the refusal is right and ADR 0459's rule decides the page — "a page missing marks and saying so
+beats a page carrying marks nobody wrote" — with the bytes named rather than assumed. The four
+references draw the line legibly and identically, which is evidence about how far into `glyf` the
+damage sits and not about the file being sound.
+
+**What the reading leaves owed is small and specific.** `pdf_font::program::whole_program` consults
+Table 125's `/Length1` on `Damage::Truncated` and not on `Damage::CheckValue`, where on this witness
+it would have corroborated the check value exactly. A round that ever wants to soften the
+check-value refusal has to answer `/Length1` as well — and on this file `/Length1` is on the
+refusal's side.
+
 **And the sixteen incomplete names were opened instead of passed over, which is ADR 0433's own
 instruction and had never been carried to the end.** Eleven are that ADR's §9.7.5.2 population.
 Two are ADR 0836's check-value refusal (`bug1050040.pdf` −11.272 and `issue13316_reduced.pdf`

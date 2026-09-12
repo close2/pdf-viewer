@@ -5,7 +5,7 @@
 //!
 //! `Style::of` maps both stages onto the function lane's generated pipelines, and
 //! `pipeline::function` compiles them — and until this file **nothing drew one**
-//! (`doc/notes-function-wiring.md` §4.5; `doc/notes-function-tests.md` §5 names the same
+//! (`raster/doc/notes-function-wiring.md` §4.5; `raster/doc/notes-function-tests.md` §5 names the same
 //! hole from the other side). `tests/function_knockout.rs` draws the pair only as the two
 //! halves a *knockout group* runs together, and the builder refuses a staged mark inside
 //! such a group, so the two constructions are disjoint: nothing a knockout fixture asserts
@@ -36,7 +36,7 @@
 //!
 //! # The fixture, and why it is not an opaque one
 //!
-//! `doc/notes-function-tests.md` §1.4: for a source of alpha 1, §11.4.6's replacement and an
+//! `raster/doc/notes-function-tests.md` §1.4: for a source of alpha 1, §11.4.6's replacement and an
 //! ordinary premultiplied over-composite are the same arithmetic, and a function paint is
 //! opaque wherever it marks *inside its domain*. So the only construction that can tell the
 //! staged pair from source-over on this paint is §8.7.4.5.2's `Background` at an alpha below
@@ -187,7 +187,7 @@ fn function_mark(
 ///
 /// The element's `Background` is alpha ½, so outside the transformed domain rectangle it has
 /// shape 1 at opacity ½ — the only construction on this paint where the staged pair and an
-/// ordinary over-composite disagree (`doc/notes-function-tests.md` §1.4). The control is
+/// ordinary over-composite disagree (`raster/doc/notes-function-tests.md` §1.4). The control is
 /// that same element as one `Compose::SrcOver` mark, measured against the same line, and it
 /// **must miss it**: a fixture where the two readings agree holds nothing.
 #[test]

@@ -57,6 +57,7 @@ use std::sync::{Arc, Mutex};
 use pdf_model::icc::Identification;
 use pdf_transform::archive::{ArchivePlan, Authorisations, Configuration, Loss, sites};
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
+use pdf_transform::executor::execute;
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::merge::{Input, MergePlan};
 use pdf_transform::optimize::OptimizePlan;
@@ -412,10 +413,34 @@ fn run() -> Result<Exit, Failure> {
     }
     ask_before_the_operation(&plan, &sources, &mut policy, &budget)?;
 
-    let report = if to_stdout {
-        apply(&plan, &sources, &StdoutSinks::default(), &policy, &budget)?
-    } else {
-        apply(&plan, &sources, &FileSinks, &policy, &budget)?
+    let mut plan = plan;
+    let mut passes = 0_usize;
+    let report = loop {
+        let report = if to_stdout {
+            apply(&plan, &sources, &StdoutSinks::default(), &policy, &budget)?
+        } else {
+            apply(&plan, &sources, &FileSinks, &policy, &budget)?
+        };
+        // **`doc/questions/A54`, in one command.** The owner's doubt about the recommendation was
+        // that "a normal user would expect it just to happen", and this loop is what makes that
+        // true while `apply` itself starts nothing: a pass that needs an external program returns
+        // the invocations as data, this program runs them through the one shared executor, puts
+        // the results in the plan and applies again. The caller *is* our own converter program.
+        if report.requested.is_empty() {
+            break report;
+        }
+        passes = passes.saturating_add(1);
+        if passes > MOST_TOOL_PASSES {
+            return Err(Failure::Usage(format!(
+                "this configuration still asks for a tool after {MOST_TOOL_PASSES} passes, which \
+                 means a request is being asked for and never answered. That is a defect rather \
+                 than a configuration mistake; the bound is here so it stops rather than runs \
+                 forever (CLAUDE.md principle 3)"
+            )));
+        }
+        if !carry_out_the_requests(&report, &mut plan)? {
+            break report;
+        }
     };
 
     for warning in &report.warnings {
@@ -441,6 +466,50 @@ fn run() -> Result<Exit, Failure> {
         arguments.switch("--strict"),
         arguments.switch("--quiet-warnings"),
     ))
+}
+
+/// How many times a plan may come back asking for a tool before this program refuses to try again.
+///
+/// A request's identifier is a function of the document, so the set a conversion asks for is stable
+/// and one extra pass is all a correct implementation ever needs. The bound is a ceiling on a
+/// defect, not on a configuration: `CLAUDE.md` principle 3's rule that a loop over untrusted input
+/// has an explicit budget, applied to a loop whose input is our own.
+const MOST_TOOL_PASSES: usize = 4;
+
+/// Runs every invocation the last pass asked for, and puts the results in the plan.
+///
+/// **The one loop that starts a process, in the one program that ships this verb today.**
+/// `doc/questions/A54` puts the executor in every consumer this project ships — this command-line
+/// program, the KIO worker and the FUSE filesystem — and all three reach `pdf_transform::apply`
+/// the same way, so this loop is what the other two gain when RFC 0003's round comes:
+/// `crates/pdf-vfs`'s commit path is where theirs goes, because `pdf-fuse` and `pdf-vfs-ffi` both
+/// hold their converter through it rather than calling `apply` themselves.
+///
+/// `Ok(false)` where nothing new was learned — every request already had a result — which stops the
+/// loop rather than repeating a pass that would ask for the same thing again.
+fn carry_out_the_requests(report: &Report, plan: &mut Plan) -> Result<bool, Failure> {
+    let Plan::Archive(archive) = plan else {
+        // No other verb asks for one, and a verb that did would need its own field: a request is
+        // returned by the plan that wants it, so there is nothing here to guess at.
+        return Ok(false);
+    };
+    let mut new = false;
+    for request in &report.requested {
+        if archive.tool_outputs.get(&request.id).is_some() {
+            continue;
+        }
+        eprintln!(
+            "running the tool {:?} ({}) over {} — doc/rfc/0007 section 4.5: {}",
+            request.tool,
+            request.program.display(),
+            request.subject,
+            pdf_transform::archive::UNTRUSTED_INPUT_WARNING
+        );
+        let result = execute(request).map_err(|error| Failure::Usage(error.to_string()))?;
+        archive.tool_outputs.insert(result);
+        new = true;
+    }
+    Ok(new)
 }
 
 /// The plan the verb and its flags describe.
@@ -577,7 +646,7 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
     // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
     // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
     // the departures it names.
-    let (departures, claim) = read_config(arguments, target, &mut authorised)?;
+    let read = read_config(arguments, target, &mut authorised)?;
     Ok(ArchivePlan {
         source: 0,
         names,
@@ -585,9 +654,24 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         authorised,
         profile: output_intent_profile(arguments)?,
         substitute_fonts: !arguments.switch("--no-substitute"),
-        departures,
-        claim_conformance: claim,
+        departures: read.departures,
+        claim_conformance: read.claim_conformance,
+        derivations: read.derivations,
+        supplies: read.supplies,
+        tool_outputs: pdf_transform::tool::ToolOutputs::new(),
     })
+}
+
+/// What `--config` contributed to the plan, beyond the authorisations it folded in.
+struct FromConfig {
+    /// The departures it names.
+    departures: Vec<pdf_transform::archive::Departure>,
+    /// Whether the output still claims the target (`--claim-conformance`, `A59`).
+    claim_conformance: bool,
+    /// The `derive` remedies it names, each with the tool it declares.
+    derivations: Vec<pdf_transform::archive::Derivation>,
+    /// The `supply` remedies it names.
+    supplies: Vec<pdf_transform::archive::Supply>,
 }
 
 /// Reads `--config <file>`, folds its built `discard` remedies into `authorised`, and returns its
@@ -603,10 +687,15 @@ fn read_config(
     arguments: &Arguments,
     target: pdf_archive::Target,
     authorised: &mut Authorisations,
-) -> Result<(Vec<pdf_transform::archive::Departure>, bool), Failure> {
+) -> Result<FromConfig, Failure> {
     let claim = arguments.switch("--claim-conformance");
     let Some(path) = arguments.value(&["--config"]) else {
-        return Ok((Vec::new(), claim));
+        return Ok(FromConfig {
+            departures: Vec::new(),
+            claim_conformance: claim,
+            derivations: Vec::new(),
+            supplies: Vec::new(),
+        });
     };
     let path = PathBuf::from(path);
     let text =
@@ -636,7 +725,27 @@ fn read_config(
             unbuilt.remedy.word()
         );
     }
-    Ok((departures, claim))
+    let derivations = config.derivations(target);
+    let supplies = config.supplies(target);
+    // **`doc/questions/A56`'s warning, where the operator meets it.** The answer put it at the
+    // configuration site rather than in a security document nobody opens, and the two places an
+    // operator meets a tool are the `[tool.…]` block they wrote and this line: a run that is about
+    // to start somebody else's program over an untrusted document says so before it does.
+    for tool in config.tools() {
+        eprintln!(
+            "note: {} declares the tool {:?} as {} — {}",
+            path.display(),
+            tool.name,
+            tool.program.display(),
+            pdf_transform::archive::UNTRUSTED_INPUT_WARNING
+        );
+    }
+    Ok(FromConfig {
+        departures,
+        claim_conformance: claim,
+        derivations,
+        supplies,
+    })
 }
 
 /// `--remedy-sites --to <target>`: every refusal site the target binds, from the decision table.
@@ -663,9 +772,21 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
          `stop`; a remedy a target does not admit is an error naming both.",
         sites.len()
     );
+    let mut takes_a_tool = 0_usize;
     for site in &sites {
         let remedy = match site.built_discard {
             Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
+            None if site.takes_a_tool => {
+                "derive, with `tool = \"<name>\"` and a [tool.<name>] block — never a default, and \
+                 refused unless the configuration names the site AND the tool (doc/questions/A55); \
+                 departable (doc/rfc/0007 section 4.7)"
+                    .to_owned()
+            }
+            None if site.takes_a_supplied_fact => {
+                "supply, with `media-types = { \".ext\" = \"type/subtype\" }` — the operator states \
+                 what their own attachments are, reported and recorded as theirs"
+                    .to_owned()
+            }
             None if site.departable => {
                 "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
                     .to_owned()
@@ -673,6 +794,24 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             None => "stop; the catalogued remedy is not built yet".to_owned(),
         };
         println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
+        if site.takes_a_tool {
+            // **`doc/questions/A56`.** The warning lives where an operator configures a tool rather
+            // than in a security document nobody opens, and this listing is one of the two places
+            // they meet one — the `[tool.…]` block they write is the other.
+            println!(
+                "      warning: {} — doc/rfc/0007 section 4.5",
+                pdf_transform::archive::UNTRUSTED_INPUT_WARNING
+            );
+            takes_a_tool = takes_a_tool.saturating_add(1);
+        }
+    }
+    if takes_a_tool > 0 {
+        println!(
+            "\n{takes_a_tool} of these sites can be answered with an external program. \
+             {}: no confinement is offered for it, because a profile written against no \
+             particular program is a guess (doc/questions/A56).",
+            pdf_transform::archive::UNTRUSTED_INPUT_WARNING
+        );
     }
     Ok(())
 }
@@ -1445,6 +1584,41 @@ archive:
                            or restated to the widths the file states; no glyph moves either way.
                            Batch archiving wants the default; a curator checking one document
                            may want the flag
+  --remedy-sites           print every refusal site this target binds, with the remedy each one
+                           admits, and stop. The list is generated from the same table the
+                           converter decides from, so a site cannot exist undocumented and a
+                           configuration naming one that does not exist is an error rather than
+                           an ignored line
+  --config <file>          a remedy configuration: a refusal answered in advance, per site, so a
+                           queue does not stop for a person (doc/rfc/0007). A site absent from
+                           the file behaves exactly as without it, so installing one changes no
+                           pipeline until it names a site. The remedy words are stop (the default
+                           everywhere), discard, preserve, derive and supply; --remedy-sites says
+                           which of them each site admits, and a site whose remedy this version
+                           cannot carry out is named on stderr and stays refused.
+                           A `derive` site names a program in a [tool.<name>] block and is
+                           refused unless it names the site AND the tool. THE PROGRAM IS YOUR
+                           CHOICE AND THE DOCUMENT IS NOT: this runs a program you chose, on a
+                           document you did not write. No confinement is offered for it. This
+                           program never starts it from inside the conversion — the conversion
+                           returns the invocation as data and this program runs it between two
+                           passes, so one command still does the whole thing. What a tool made is
+                           reported per document in the words 'this is derived, not original',
+                           with the tool, the program and a SHA-256 of what came back, and the
+                           same is written into the file's own xmpMM:History.
+                           A `supply` site states a fact the document does not — an attachment's
+                           media type — which is recorded as the operator's in both places too.
+                           doc/profiles/ ships five configurations; derive-attachments.toml is the
+                           worked example of a tool
+  --depart-from-the-standard
+                           required before a configuration's departure is carried out: a departure
+                           produces a file that does NOT conform, on purpose, and the intent to go
+                           against the standard belongs at the call site rather than only in a
+                           file that can be inherited or copied between teams
+  --claim-conformance      a departed file keeps the PDF/A identification anyway. By default it is
+                           left off, so the file does not claim what it has not earned; a
+                           downstream validator fails it either way, and the only difference is
+                           whether the file lied before it failed
   the document is validated against the target, one decision is taken per requirement it fails,
   and the rewrites those decisions call for are applied — then the output is validated again and
   is **not written** if it fails a requirement the source met. The report says, per document,

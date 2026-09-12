@@ -5,7 +5,7 @@
 //! fragment shader written in another language" — is an intuition rather than a
 //! number. This example is the number. It is **not** a library feature and nothing in
 //! `crates/raster-gpu/src` changed to host it; the write-up is
-//! `doc/spike-function-paint.md`.
+//! `raster/doc/spike-function-paint.md`.
 //!
 //! It measures the two shapes their §4 leaves to us, on their two witness programs,
 //! on both adapters:
@@ -168,7 +168,7 @@ fn generated_source(evaluate: &str) -> String {
 }
 
 /// How many times each shader is compiled, so the compile column has a minimum
-/// rather than a sample. `doc/HANDOVER.md`: quote minima, never a single wall clock.
+/// rather than a sample. `raster/doc/HANDOVER.md`: quote minima, never a single wall clock.
 const COMPILE_ROUNDS: usize = 3;
 
 /// Compile every shape this adapter will draw with, round-robin, keeping minima.
@@ -195,7 +195,7 @@ fn compile_all(gpu: &Gpu, cases: &[Case]) -> (Paint, Vec<Option<Paint>>) {
     // Which shader a process compiles *first* is a question and not a detail: with a
     // cold driver cache the first pipeline of a process pays what the driver defers
     // until then, and attributing that to whichever shader happened to be first is
-    // exactly the mistake `doc/HANDOVER.md` warns about. The order is switchable so
+    // exactly the mistake `raster/doc/HANDOVER.md` warns about. The order is switchable so
     // the question can be answered rather than argued.
     if std::env::var_os("QUORRA_FUNCTION_PAINT_ORDER").is_some() {
         sources.reverse();

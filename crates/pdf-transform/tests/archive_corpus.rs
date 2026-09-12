@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{ArchivePlan, Authorisations, Decision, Loss};
+use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
 
 /// Every target, with the corpus directory whose documents were written for it.
@@ -205,6 +206,9 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 substitute_fonts: true,
                 departures: Vec::new(),
                 claim_conformance: false,
+                derivations: Vec::new(),
+                supplies: Vec::new(),
+                tool_outputs: ToolOutputs::new(),
             }),
             &[Source::new(bytes)],
             &sinks,

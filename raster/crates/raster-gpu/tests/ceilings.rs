@@ -1,7 +1,7 @@
 //! What a document-derived number does when it reaches the top of its range: a value,
 //! never an abort, and never a plausible-looking wrong page.
 //!
-//! `doc/notes-ceilings-audit.md` is the round this file witnesses. The question it answers
+//! `raster/doc/notes-ceilings-audit.md` is the round this file witnesses. The question it answers
 //! is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1:
 //!
 //! > If raster has an equivalent ceiling anywhere in strip generation, the thing to check

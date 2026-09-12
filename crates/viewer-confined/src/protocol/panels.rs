@@ -903,6 +903,11 @@ pub(super) fn encode_thumbnail(writer: &mut Writer, thumbnail: &Thumbnail) {
         height,
         data,
         interpolate,
+        // §12.3.4's thumbnail is a picture of a page, not a page's image: nothing in §11
+        // composites it, so its alpha states the rectangle it covers and nothing else. Read
+        // out of the pattern rather than ignored with `..`, so that a field added to the
+        // struct is a build failure here and a decision rather than a silent default.
+        sample_alpha: _,
     } = image;
     writer
         .u32(*width)
@@ -945,6 +950,10 @@ pub(super) fn decode_thumbnail(reader: &mut Reader<'_>) -> Result<Thumbnail, Pro
             height,
             data: data.into(),
             interpolate: reader.bool("a thumbnail's interpolation")?,
+            // Not on the wire, for the reason the encoder gives: a thumbnail's alpha is the
+            // rectangle it covers, which is what `Shape` says, and a byte carrying one
+            // constant would be a byte an untrusted side could contradict.
+            sample_alpha: pdf_render::SampleAlpha::Shape,
         },
         permitted_colour_space: reader.bool("a thumbnail's colour space flag")?,
         permitted_subtype: reader.bool("a thumbnail's subtype flag")?,

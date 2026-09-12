@@ -44,6 +44,9 @@ libfuzzer-sys = "0.4"
 pdf-syntax = { path = "../crates/pdf-syntax" }
 pdf-font = { path = "../crates/pdf-font" }
 pdf-model = { path = "../crates/pdf-model" }
+# The `cms` and `x509` targets fuzz §12.8's ASN.1 and its four signature families, which left
+# `pdf-model` for their own crate in the thousandth session (ADR 1020).
+pdf-signature = { path = "../crates/pdf-signature" }
 # ADR 0607's payload is a `pdf_render::DisplayList`, so the target that fuzzes its decoder needs
 # the vocabulary to state what a decoded list must satisfy — see `display_list.rs`.
 pdf-render = { path = "../crates/pdf-render" }

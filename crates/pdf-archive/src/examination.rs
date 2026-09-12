@@ -41,6 +41,7 @@ use std::cell::OnceCell;
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
+use crate::reach::{Exempt, Reach};
 use crate::survey::Survey;
 use crate::table::file_structure::HexadecimalSpan;
 use crate::target::Target;
@@ -64,6 +65,10 @@ pub struct Examination<'a> {
     pages: OnceCell<Vec<pdf_model::Page>>,
     /// Every span of the file that is PDF syntax, lexed once; see [`Self::hexadecimal_spans`].
     spans: OnceCell<Vec<HexadecimalSpan>>,
+    /// What the file reaches from its trailer, walked once; see [`Self::reaches`].
+    reach: OnceCell<Reach>,
+    /// Section 6.2.2's exempt population, computed once; see [`Self::exempt`].
+    exempt: OnceCell<Exempt>,
 }
 
 /// One annotation, with the page it is on and the object it was reached through.
@@ -93,7 +98,34 @@ impl<'a> Examination<'a> {
             annotations: OnceCell::new(),
             pages: OnceCell::new(),
             spans: OnceCell::new(),
+            reach: OnceCell::new(),
+            exempt: OnceCell::new(),
         }
+    }
+
+    /// What the file reaches from its trailer, and what nothing reaches, walked once.
+    ///
+    /// **The one shared answer here that is not an enumeration.** `survey`, `objects`,
+    /// `annotations`, `pages` and `spans` are each a flat list a predicate filters; this is a
+    /// *relationship* between objects, and a requirement about one — is anything using this
+    /// resource, does any route reach this object — cannot be answered by a predicate holding one
+    /// object at a time however carefully it is written. `doc/reviews/984` finding 5 is the
+    /// argument, `crate::reach` the walk, and `doc/adr/1021` the decision.
+    ///
+    /// Nothing on a report's path asks for it: it is computed when the first caller needs it, for
+    /// the reason every other field here is lazy.
+    pub fn reaches(&self) -> &Reach {
+        self.reach.get_or_init(|| Reach::of(self))
+    }
+
+    /// ISO 19005 section 6.2.2's exempt population: what only an unreferenced name reaches.
+    ///
+    /// Two walks rather than one — see [`Exempt`] — so it costs about twice [`Self::reaches`],
+    /// plus a decode of every content stream that a resources dictionary is associated with. It
+    /// is asked for only where a row the exemption narrows has already failed, which
+    /// `crate::judge` states and is why the cost falls on the documents that need it.
+    pub fn exempt(&self) -> &Exempt {
+        self.exempt.get_or_init(|| Exempt::of(self, self.reaches()))
     }
 
     /// The content survey, walked once however many requirements ask for it.

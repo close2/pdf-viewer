@@ -334,5 +334,47 @@ if [ -n "$(git stash list 2>/dev/null)" ]; then
     printf '    blind; doc/environment.md says how one round took a neighbour half-finished edit\n'
 fi
 
+# 7. The conformance checker reads the Rust under a *list* of directories, and this workspace's
+#    members are a *glob*. The two are different populations and only one of them grows when a
+#    sub-project is folded in: `raster/crates/*` joined `members` on 2026-09-06 and
+#    `SOURCE_ROOTS` did not, so every clause citation and every quotation in that sub-project has
+#    been outside the gate that checks citations and quotations ever since — and the checker's
+#    output looked exactly as it always had, because a directory nobody reads produces no
+#    findings. Trap 25, with the population on the instrument's side rather than the tree's, and
+#    session 985's `--workspace` lesson in a second shape.
+#
+#    **Both sides are derived**: the roots off the checker's own source, the members off the
+#    workspace manifest. A hand-written copy of either here would be the same defect one file
+#    further on.
+roots=$(sed -n 's/^pub const SOURCE_ROOTS[^=]*= *\[\(.*\)\];/\1/p' tools/conformance/src/lib.rs |
+        tr -d '" ' | tr ',' '\n' | grep -v '^$')
+#    `awk` rather than a `sed` range, because a range whose end pattern is on the *start* line
+#    runs to the next one instead — which quietly swept `resolver = "3"` in as a member.
+members=$(awk '/^members *= *\[/ { found = 1 } found { print; if (/\]/) exit }' Cargo.toml |
+          grep -oE '"[^"]+"' | tr -d '"' | sed 's|/\*$||' | sort -u)
+if [ -z "$roots" ] || [ -z "$members" ]; then
+    fail "SOURCE_ROOTS or the workspace members could not be read — this check has nothing to compare"
+else
+    unread=
+    for member in $members; do
+        covered=0
+        for root in $roots; do
+            case $member in "$root" | "$root"/*) covered=1 ;; esac
+        done
+        [ "$covered" -eq 1 ] || unread="$unread $member"
+    done
+    if [ -z "$unread" ]; then
+        pass "every workspace member is under a directory the conformance checker scans"
+    else
+        fail "workspace members the conformance checker never reads:$unread"
+        for member in $unread; do
+            printf '    %s: %s clause citations in %s Rust files, unchecked\n' "$member" \
+                   "$(grep -rhoE '§[0-9]+(\.[0-9]+)*' "$member" --include=*.rs 2>/dev/null | wc -l)" \
+                   "$(find "$member" -name '*.rs' 2>/dev/null | wc -l)"
+        done
+        printf '    tools/conformance/src/lib.rs SOURCE_ROOTS, and pointers.rs ROOTED_HEADS with it\n'
+    fi
+fi
+
 printf '\n'
 exit $status

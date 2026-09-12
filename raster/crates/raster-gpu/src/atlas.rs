@@ -777,7 +777,7 @@ mod tests {
     /// instead — not a frame that fails.
     ///
     /// A zero extent is what a mark that rounds to no pixel in one axis produces, and
-    /// `doc/PLAN.md` states that a blank scene and the zero-length buffer slice that
+    /// `raster/doc/PLAN.md` states that a blank scene and the zero-length buffer slice that
     /// follows from one are both legitimate. What must not happen is the packing
     /// arithmetic running on it: a zero-width shelf entry would sit at the same cursor as
     /// its neighbour, and a zero-height one would open a shelf that every later tile is

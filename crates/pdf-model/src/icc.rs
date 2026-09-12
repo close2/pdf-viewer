@@ -439,7 +439,11 @@ pub fn computed_id(data: &[u8]) -> Option<[u8; 16]> {
         return None;
     }
     let profile = data.get(..size)?;
-    let mut hasher = crate::cms::Digest::Md5.hasher();
+    // MD5 here is ICC.1 section 7.2.18's choice, not §12.8.3's: the profile identifier is a
+    // content hash and nothing in it is a signature. It is computed with `md-5` directly rather
+    // than through `pdf_signature::cms::Digest`, which is why this crate no longer reaches into
+    // the signature stack for a hash function (ADR 1020).
+    let mut hasher = <md5::Md5 as md5::Digest>::new();
     let zeros = [0u8; 16];
     for piece in [
         profile.get(..44)?,
@@ -450,9 +454,12 @@ pub fn computed_id(data: &[u8]) -> Option<[u8; 16]> {
         &zeros[..16],
         profile.get(100..)?,
     ] {
-        hasher.update(piece);
+        <md5::Md5 as md5::Digest>::update(&mut hasher, piece);
     }
-    hasher.finish().try_into().ok()
+    <md5::Md5 as md5::Digest>::finalize(hasher)
+        .as_slice()
+        .try_into()
+        .ok()
 }
 
 /// The sixteen bytes that identify a profile: the ones it states, or failing that the ones its

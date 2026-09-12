@@ -11,7 +11,9 @@ seeds that target, which is worth 3010 -> 4351 covered edges on its own (ADR 026
 **Why a script and not a checked-in directory.** `fuzz/corpus` is gitignored by policy — the
 corpora are large and machine-generated — so a seeded target needs a *recipe*, which the `sfnt`,
 `xmp`, `confined_wire` and `x509` targets each have. This is that recipe for `page`, and for
-`document` and `crypt`, whose input is a whole file in exactly the same sense.
+`document`, `crypt` and `serialize`, whose input is a whole file in exactly the same sense —
+`serialize` most sharply of the four, because it returns at its first `Document::open`
+failure and so reaches the writer only on an input that was already a document.
 
 **Why it matters more here than anywhere else.** A from-scratch input reaches
 `pdf_model::interpret` only by inventing a header, a page tree, a content stream and a resource

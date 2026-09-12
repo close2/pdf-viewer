@@ -1,7 +1,7 @@
 //! The two shapes that make a frame ask for more coverage sheet than an adapter has,
 //! stated as measurements a test can take through the public API.
 //!
-//! `doc/notes-tiling-ceiling.md` is the round these witness and `doc/notes-tiling-bound.md`
+//! `raster/doc/notes-tiling-ceiling.md` is the round these witness and `raster/doc/notes-tiling-bound.md`
 //! the round that acted on it. Two pages of the caller's corpus refused with
 //! [`RenderError::ScratchExhausted`] from 2× magnification upwards, and the two causes
 //! were different — which is the whole finding, and is why this file has two halves:
@@ -346,7 +346,7 @@ fn a_bounded_tile_draws_every_pixel_the_chain_admits() {
 ///
 /// **And the refusal accounts for the frame that met the wall** (ADR 0057). A refused
 /// frame has no `Counters`, so until the variant carried the sheet it had reached, every
-/// number in `doc/notes-tiling-ceiling.md` §1 had to be obtained by patching the crate:
+/// number in `raster/doc/notes-tiling-ceiling.md` §1 had to be obtained by patching the crate:
 /// `limit` alone is a property of this adapter and says nothing about the page. The
 /// assertions below are the three questions that were unanswerable — which axis
 /// overflowed, by how much, and how far the byte budget was from mattering.

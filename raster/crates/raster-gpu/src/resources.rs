@@ -630,7 +630,7 @@ impl ResourceStore {
     ///
     /// An unknown or already-released id is an error, not a no-op: a double release
     /// is a caller bug, and hiding it would hide the defect (the departure from the
-    /// brief's `()`-returning signature is recorded in `doc/PLAN.md`, integration
+    /// brief's `()`-returning signature is recorded in `raster/doc/PLAN.md`, integration
     /// note 7).
     pub(crate) fn release(&mut self, id: ResourceId) -> Result<(), DeviceError> {
         let freed = match id {

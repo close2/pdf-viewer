@@ -3,8 +3,8 @@
 Status: **standing** — a capability list, not a plan. Every sentence below is something the
 program does today.
 Read by: a round asking whether the program already does the thing it is about to build, or which
-clause a capability came from. **Not read to run a gate or to take a decision**, which is why it
-is no longer in `doc/HANDOVER.md`.
+clause a capability came from. **Not read to run a gate or to take a decision**, which is why
+`doc/HANDOVER.md` points at it rather than holding it.
 
 **It carries no counts.** `tools/state.sh` prints those; a population named here is named because
 a *claim* rests on which population it is (ADR 0405), never as bookkeeping.
@@ -55,7 +55,7 @@ out loud when it opens, since following it is refused and naming it never needed
 (ADR 0918) — §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
 
-It is **used**, which is a separate claim from the one above and was owed for a long time — and
+It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
 what came back, which is the first thing in this tree that clicks, and it found a press that set
 no selection anchor at all (ADR 0421). A
@@ -134,8 +134,7 @@ miniature fitted above §12.4.2's label and **fetched only for the rows about to
 `CLAUDE.md` section 2 reaching a panel rather than a preference — Table 29's `/PageMode /UseThumbs`
 opens that tab as a document opens, so the whole list was on the launch path until ADR 0564; and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
 than to the page the first bead sits on, because activating one composes §12.6.4.7's own thread
-action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread —
-and this sentence said "not one corpus document" for as long as the panel has existed**, while four
+action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread**, while four
 documents under `doc/corpora/` state one with 115 beads between them, two of them named for the
 fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier, **and it does so in all three windows** — the two native hosts ship the same compiled-in standard 14
 font programs and had no surface for their licences at all (ADR 0526). **What a key means is one
@@ -258,12 +257,11 @@ pass.
   bridge: **one hand-written `unsafe` token in this crate**, the `unsafe extern "C++"` header `cxx`
   requires, under `#![deny(unsafe_code)]` with one exemption on `mod bridge` and a test asserting
   its position — and asserting that the crates lifting the denial are exactly the ones the
-  workspace names, every other crate still *forbidding* it. **This sentence read "one hand-written
-  `unsafe` token in the tree" and "no other crate lifts the denial", and both were widenings of a
-  true claim about one crate** — a C ABI writes its entry points as `pub unsafe extern "C" fn` by
-  the hundred, which is what a C ABI is. **The list is read off the test rather than counted here**,
-  because the test is named for its own length and the name moved twice while this sentence said
-  *no other*: `only_the_three_named_crates_in_the_tree_lift_the_denial`, as this is written. It brought **`crates/viewer-host`**,
+  workspace names, every other crate still *forbidding* it. **The claim is about this crate rather
+  than about the tree**: a C ABI writes its entry points as `pub unsafe extern "C" fn` by the
+  hundred, which is what a C ABI is, and the crates that lift the denial are read off the test
+  rather than counted here — `only_the_three_named_crates_in_the_tree_lift_the_denial`.
+  It brought **`crates/viewer-host`**,
   because the second host wanted four of `viewer-gtk`'s modules unchanged — the panel rows, the
   control decision, §12.7.6.4's file policy and the launch timeline named no GTK type. ADR 0246.
   **That crate's newest module is the one that decided the *shape* of a thread for both hosts**:
@@ -288,24 +286,21 @@ pass.
   compile in every consumer" into "fails to start, once, naming the number that moved", which is
   weaker and is the strongest thing C admits. **How ADR 0346 landed is the shape's own evidence**:
   two thirds of the ABI arrived in one round and `QUORRA_EVENT_KIND_COUNT` did not move, because a
-  `Command` is a symbol and only an `Event` is a number. **What that round could then claim — that
-  the entry points *are* the whole vocabulary — has decayed and is counted rather than repeated**:
-  `tools/state.sh hosts` says how much of `Command` and `Query` a C caller reaches and names what
-  it does not, which is the instrument ADR 0509 added when the claim was found stale. **Every `Query`
+  `Command` is a symbol and only an `Event` is a number. **How much of `Command` and `Query` a C
+  caller reaches is counted rather than claimed**: `tools/state.sh hosts` says, and names what it
+  does not (ADR 0509). **Every `Query`
   reaches a symbol again**, and the sentence is now held up by a
   test rather than by a round's care: `every_query_reaches_the_abi.rs` matches exhaustively over the
   enum, so a question added to the boundary fails to compile in this crate (ADR 0576). **And
-  `tools/state.sh windows` asks the same question of each window** — the parity instrument
-  "all three hosts stay level" had never had (ADR 0577). **It prints the *reading* beside the count**, one line per unreached variant saying whether it is a
+  `tools/state.sh windows` asks the same question of each window** — the instrument for "all three
+  hosts stay level" (ADR 0577). **It prints the *reading* beside the count**, one line per unreached variant saying whether it is a
   debt and why, checked in both directions — because a count of what a window does not reach is not
   a list of debts, and two rounds read "eleven queries" off it and walked past a window that could
   not turn a document's restrictions off (ADRs 0603, 0604). ADRs 0247, 0509.
 
-**The freeze's three amendments came first and one of them was a bug.** `Answer::Field`'s password
-value was supposed to be a sentence in a doc comment; reading Table 231 bit 14 for it found a
-second sentence nobody had read, and **this program wrote a person's typed password into the file
-it saved** — against that table's own NOTE — and no longer does: `save` writes neither the value
-nor the appearance for such a field and reports each one it withheld. ADR 0247.
+**A password field's value does not reach the file it is saved into.** Table 231 bit 14's own
+NOTE is the reason: `save` writes neither the value nor the appearance for such a field, and
+reports each one it withheld. ADR 0247.
 
 **And a *program* can ask it questions.** `tools/pdf-retrieve` is JSON on stdout over the readers
 this tree already had, and what it adds is the three joins between them `doc/todo/63` named:
@@ -503,11 +498,11 @@ one document and holds every surviving page to its source page under the rotatio
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the
 third needs the trust store the whole clause had been refused for. `Signature::integrity`
 recomputes the digest over §12.8.1's `/ByteRange` — with the algorithms Table 260 and Table 256
-name — and compares it with what `pdf_model::cms` reads out of §12.8.3.3's `SignedData`, over a
+name — and compares it with what `pdf_signature::cms` reads out of §12.8.3.3's `SignedData`, over a
 bounded in-tree X.690 reader that allocates nothing (ADR 0215). `Signature::authenticity` then
 finds the certificate the `SignerInfo` names among the ones the signature itself carries, reads its
-key with `pdf_model::x509` and verifies with `pdf_model::pkcs1`, `pdf_model::pss`,
-`pdf_model::dsa`, `pdf_model::ecdsa` or `pdf_model::eddsa` — RFC 8017's RSASSA-PKCS1-v1_5 and
+key with `pdf_signature::x509` and verifies with `pdf_signature::pkcs1`, `pdf_signature::pss`,
+`pdf_signature::dsa`, `pdf_signature::ecdsa` or `pdf_signature::eddsa` — RFC 8017's RSASSA-PKCS1-v1_5 and
 RSASSA-PSS, the latter over the `RSASSA-PSS-params` the signature's own algorithm identifier
 carries; FIPS 186-4's DSA; ANSI X9.62's ECDSA over RFC 5753's `ECDSA-Sig-Value`; and RFC 8032's
 Ed25519, which signs the message rather than a digest of it. **That is all three of Table 260's

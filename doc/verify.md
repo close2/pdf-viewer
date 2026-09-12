@@ -41,6 +41,20 @@ cargo run --release -p pdfref --bin undrawn -- <the oracle gate's log>
   # trap 25's mirror). It prints the denominator and exits non-zero on a page it cannot measure
   # rather than dropping the row; it **reports** the alarm and does not ratchet it, because the
   # groups live in the gate and a note is a person's (trap 39). ~3 min, renders nothing.
+RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets -- --force-warn clippy::cognitive_complexity
+  # **The lint `clippy.toml` configured and no crate ever enabled.** `clippy::cognitive_complexity`
+  # is a nursery lint and the workspace names it nowhere, so its threshold was a setting for an
+  # instrument that had never run once. This is the line that runs it. `--force-warn` rather than
+  # `-W` is what keeps it a warning under the `-D warnings` the gate sets, so the whole workspace
+  # is judged instead of the run stopping at the first crate that trips it.
+  #
+  # **Read the metric before reading the count**, because it is not the one the name suggests: it
+  # counts `if` expressions and subtracts returns, so a `match` of any width and a nesting of any
+  # depth both score nothing. Both were measured against planted functions under this tree's own
+  # `clippy.toml` before the threshold was deleted (trap 13) — a seventy-five-arm `match` scores
+  # nothing, sixty sequential `if`s score sixty-one. That is why `clippy.toml` no longer carries a
+  # threshold: the lint cannot see the shape this tree's long functions have, and a number nobody
+  # can act on is worse than no number. ADR 1024. Minutes, and it renders nothing.
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
 # The two platforms without a confinement, checked the way CI checks them. **`RUSTFLAGS` is not
 # optional**: the workspace's lints are `warn` so that a local build stays usable and CI turns them
@@ -317,7 +331,7 @@ tools/state.sh accessibility
   # untagged page honestly gives. It found a defect on its first run (ADR 0342). Every capability
   # count has a floor and every defect class a ceiling; `crates/viewer-core/tests/accessibility_census.rs`
   # is the instrument and its two un-ignored tests keep the classification from rotting between runs
-cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
+cargo run --release -p pdf-signature --example signature_algorithm_census -- @/tmp/paths
   # Table 260's three algorithm families and the fourth ISO/TS 32002 adds, as documents actually
   # state them, over as large a population as this machine can reach — `find -L corpus-cache
   # doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths` is 67 460 files and about a
@@ -494,6 +508,14 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # fork-mode parent prints no `INITED` and the wrapper says so rather than subtracting against
 # nothing. ADR 0747.
 #
+# **A fuzz target does not run under `tools/bounded.sh`, and the failure looks like a build
+# error.** `cargo fuzz` builds with AddressSanitizer, which reserves about 15 TiB of shadow memory
+# before `main`; the wrapper's `RLIMIT_DATA` counts exactly those private anonymous mappings, so the
+# process dies with `ReserveShadowMemoryRange failed` having printed no coverage line at all — which
+# `tools/fuzz.sh` then reports as "nothing here can say whether it fuzzed", correctly and
+# indistinguishably from a compile failure (trap 24). Run a fuzz target directly: libFuzzer bounds
+# itself with `-rss_limit_mb`, which the invocations below carry where they need one. ADR 1024.
+#
 # **`fuzz/corpus` and `fuzz/artifacts` are gitignored, so whether a target is seeded is a fact
 # about this disk and not about the repository** — no gate can read it out of the tree, which is
 # why the wrapper asks the directory. Two consequences a round meets. A **fresh worktree had
@@ -509,6 +531,20 @@ cd fuzz && cargo +nightly fuzz run variable_text -- -runs=50000   # §12.7.4.3's
 cd fuzz && cargo +nightly fuzz run forms_data    -- -runs=50000   # §12.7.8's FDF, §7.9.4's dates
 cd fuzz && cargo +nightly fuzz run object        -- -runs=50000   # §7.3's object grammar
 cd fuzz && cargo +nightly fuzz run document      -- -runs=50000   # §7.5's file structure
+cd fuzz && cargo +nightly fuzz run serialize     -- -runs=50000   # §7.5's structure on the way
+  # *out*, which is the half of that clause this project became answerable for when RFC 0002's
+  # serializer landed: a document opened, every object copied into an assembly, the assembly
+  # written as a whole file, and the result opened again by this reader. A crash is a defect; so
+  # is a file this reader wrote and cannot open, which is why the target is the round trip.
+  # **Seed it from real documents**, for `document`'s reason and more sharply: the target returns
+  # at the first `Document::open` failure, so from nothing it never reaches the serializer at all.
+  #   find -L doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
+  #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/serialize
+  # **This line is here because its absence was invisible.** The target arrived with the
+  # serializer and this file never named it, so `tools/fuzz.sh serialize` refused to run it — and
+  # `tools/fuzz.sh --list` printed the refusal in a row and exited 0, which is trap 25's shape
+  # with the sweep's own report as the thing nobody read. `--list` now exits non-zero on a target
+  # this file does not name, and that is what found this one (ADR 1024).
 cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=4096 -timeout=60
   # **clauses 8, 9 and 11** — a whole document through `pdf_model::interpret`, which nothing
   # reached until the four-hundred-and-twenty-eighth: `nm` finds `pdf_model::interpret` in one of
@@ -677,7 +713,7 @@ cd fuzz && cargo +nightly fuzz run display_list  -- -max_total_time=600 -rss_lim
   # every merge. Bounded, it is a few hundred real pages in a few megabytes. Unseeded the target
   # reaches an empty list and little else, since a table count is eight bytes
 cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's signature value:
-  # `pdf_model::der`'s X.690 reader and `pdf_model::cms`'s RFC 5652 SignedData, the tree's only
+  # `pdf_signature::der`'s X.690 reader and `pdf_signature::cms`'s RFC 5652 SignedData, the tree's only
   # ASN.1, and the reader every signed document goes through before `x509` sees a certificate.
   # **Seed its corpus** from every CMS object this tree already holds, which since the
   # eight-hundred-and-twenty-fifth is what `fuzz/seed_cms.py` collects, by three routes at once:
@@ -708,10 +744,10 @@ cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's 
   # again in the three-hundred-and-ninety-second, after its `SignerInfo` gained a signature and an
   # identifier
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
-  # the verifications that run on the key inside it: `pdf_model::x509` walks RFC 5280's
-  # structure and `pdf_model::pkcs1`, `pdf_model::pss` and `pdf_model::dsa` run the tree's only
+  # the verifications that run on the key inside it: `pdf_signature::x509` walks RFC 5280's
+  # structure and `pdf_signature::pkcs1`, `pdf_signature::pss` and `pdf_signature::dsa` run the tree's only
   # loops whose trip counts come out of numbers in the file. Since the six-hundred-and-eighty-ninth
-  # it also reaches `pdf_model::ecdsa` and `pdf_model::eddsa`, whose arms assert the same thing on
+  # it also reaches `pdf_signature::ecdsa` and `pdf_signature::eddsa`, whose arms assert the same thing on
   # every signature shape a certificate's curve admits, including BSI TR-03111's plain `r ‖ s`. The property that matters is the last one — the target
   # verifies against a digest *it* chose, so `Ok(true)` would be a defect in the comparison rather
   # than a lucky input.

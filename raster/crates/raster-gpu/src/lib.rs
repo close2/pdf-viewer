@@ -2,7 +2,7 @@
 //!
 //! This crate turns a [`Scene`] plus a viewport into a frame, on a GPU, through `wgpu`.
 //! It is the half of raster that knows about resolution — and the scene crate beside it
-//! is the half that must never learn (`doc/adr/0001`).
+//! is the half that must never learn (`raster/doc/adr/0001`).
 //!
 //! [`Scene`]: ../raster_scene/scene/index.html
 //!
@@ -26,8 +26,8 @@
 //!
 //! # State
 //!
-//! All nine milestones are implemented; `doc/PLAN.md`'s "Where we are" is the current
-//! state and `doc/adr/` the decisions behind it.
+//! All nine milestones are implemented; `raster/doc/PLAN.md`'s "Where we are" is the current
+//! state and `raster/doc/adr/` the decisions behind it.
 
 #![forbid(unsafe_code)]
 
@@ -83,5 +83,5 @@ pub use viewport::Viewport;
 /// name the types [`Device::wgpu`] hands it — and a windowing host the
 /// [`wgpu::SurfaceTarget`] that [`Device::for_surface`] takes — without a second
 /// `wgpu` dependency whose version could skew (integration note 4 in
-/// `doc/PLAN.md`).
+/// `raster/doc/PLAN.md`).
 pub use wgpu;

@@ -46,9 +46,9 @@
 
 use std::collections::BTreeMap;
 
-use pdf_model::cms::{self, SignatureAlgorithm};
-use pdf_model::signature::{Authenticity, Signature, permissions, signatures};
-use pdf_model::x509::{self, PublicKey};
+use pdf_signature::cms::{self, SignatureAlgorithm};
+use pdf_signature::signature::{Authenticity, Signature, permissions, signatures};
+use pdf_signature::x509::{self, PublicKey};
 use pdf_syntax::Document;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
@@ -386,7 +386,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
 /// An unreadable encoding answers `false`: a value that cannot be walked has not been shown to
 /// use the indefinite form, and this census counts what a file *states*.
 fn states_indefinite_length(contents: &[u8]) -> bool {
-    fn any(mut reader: pdf_model::der::Reader<'_>) -> bool {
+    fn any(mut reader: pdf_signature::der::Reader<'_>) -> bool {
         while let Ok(Some(value)) = reader.next_value() {
             if value.had_indefinite_length() {
                 return true;
@@ -400,7 +400,7 @@ fn states_indefinite_length(contents: &[u8]) -> bool {
         }
         false
     }
-    pdf_model::der::Reader::new(contents).is_ok_and(any)
+    pdf_signature::der::Reader::new(contents).is_ok_and(any)
 }
 
 /// One map printed largest first, which is the order a population reads in.

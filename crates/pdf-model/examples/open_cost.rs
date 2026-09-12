@@ -179,7 +179,7 @@ fn main() {
     println!("{:8.3} ms  attachments     (§7.11.4, {files})", ms(started));
 
     let started = Instant::now();
-    let signatures = pdf_model::signature::signatures(&document).len();
+    let signatures = pdf_signature::signature::signatures(&document).len();
     println!(
         "{:8.3} ms  signatures      (§12.8, {signatures})",
         ms(started)

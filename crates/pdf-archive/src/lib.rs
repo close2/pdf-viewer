@@ -40,6 +40,7 @@ pub mod errata;
 pub mod examination;
 pub mod finding;
 pub mod iso_8601;
+pub mod reach;
 pub mod report;
 pub mod requirement;
 pub mod survey;
@@ -56,6 +57,7 @@ pub use crate::editions::{Earlier, SHIFTS, Shift, shift_of};
 pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, Where};
+pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::interaction::{MissingAppearance, annotations_without_an_appearance};
@@ -89,6 +91,26 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
         Check::Implemented(predicate) => {
             let mut findings = Findings::default();
             predicate(examination, &mut findings);
+            // ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2, last sentence: a named
+            // resource the associated content stream never references is not used for rendering
+            // and is outside this requirement's population, unless the part's own carve-out
+            // keeps the clause. `reach::exemption_narrows` reads the two carve-outs; the
+            // predicate is run a second time rather than filtered afterwards, because a report
+            // holds a prefix of what a predicate found and a filter over a prefix cannot say
+            // what the whole of it was. It runs again only where the row has already failed, at
+            // a place that names an object, and the document has an exempt object at all — so a
+            // document with none, which is most of them, pays one walk and no second predicate.
+            // `Findings::named_an_object` carries the measurement that makes the second of those
+            // three tests worth making.
+            if !findings.met()
+                && findings.named_an_object()
+                && reach::exemption_narrows(requirement.clauses, target)
+                && !examination.exempt().is_empty()
+            {
+                let mut narrowed = Findings::exempting(examination.exempt().shared());
+                predicate(examination, &mut narrowed);
+                findings = narrowed;
+            }
             if findings.met() {
                 Outcome::Met
             } else {

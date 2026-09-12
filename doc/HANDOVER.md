@@ -6,14 +6,16 @@ truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it r
 definition of right.
 
 **This file is an index and nothing else.** It says which file this round opens and which traps
-this round is in a position to spring; everything it used to state in full now lives one hop away,
-in the file a round with that job opens. It carries no numbers — `tools/state.sh` prints those,
-and `doc/traps/instruments-and-reports.md` says how to read them (ADR 0281).
+this round is in a position to spring; everything it points at is stated in full one hop away, in
+the file a round with that job opens. It carries no numbers — `tools/state.sh` prints those, and
+`doc/traps/instruments-and-reports.md` says how to read them (ADR 0281).
 
 **A lesson lives here exactly once**: in a trap if it changes how you write code, in
 [`doc/habits.md`](habits.md) if it changes how you work. A session's narrative belongs in its ADR
-and in [`doc/history/`](history/README.md), nowhere else. This file has been halved five times; if
-you find yourself retelling a session here, you are undoing that (ADRs 0232, 0281, 0428).
+and in [`doc/history/`](history/README.md), nowhere else. If you find yourself retelling a session
+here, you are undoing what this file is — and `CLAUDE.md`'s comment rule says the same of every
+sentence in it: the current reason, the ADR by number, and a retired sentence deleted rather than
+annotated (ADRs 0232, 0281, 0428, 0974, 0983, 1023).
 
 **And the round's own record is one *new file*, never an edit to an existing one.** Write
 `doc/history/<session>-<slug>.md`, named so that `ls` sorts it last, and write nothing about the
@@ -77,8 +79,8 @@ meant to be.
 tenth. If this round adds a report, **trap 11** is what stops it firing on a condition the clause
 does not state.
 
-Each group file also carries the standing facts about its own area — what used to be this file's
-"Things worth knowing", now beside the traps that are about the same machinery.
+Each group file also carries the standing facts about its own area, beside the traps that are
+about the same machinery.
 
 **Every trap keeps its number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and
 dozens of ADRs cite them by number, and an ADR is not edited to follow a file that moved underneath

@@ -8,7 +8,7 @@
 //! the same shape with a frame around the body.
 //!
 //! The signatures are the brief's §2.3, argument for argument, with the one divergence
-//! `doc/PLAN.md` integration note 8 records: the `mask` parameter comes last.
+//! `raster/doc/PLAN.md` integration note 8 records: the `mask` parameter comes last.
 
 use std::sync::Arc;
 

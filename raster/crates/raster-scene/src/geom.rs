@@ -30,7 +30,7 @@
 //!
 //! # The three parts, and what each one's one thing is
 //!
-//! The parts are private modules re-exported from here (`doc/adr/0051`), so
+//! The parts are private modules re-exported from here (`raster/doc/adr/0051`), so
 //! `raster_scene::geom::Affine` and `raster_scene::Affine` both resolve exactly as they
 //! did and **no new public path exists**. rustdoc inlines a re-export from a private
 //! module, so this list is the only place the division survives into the documentation:

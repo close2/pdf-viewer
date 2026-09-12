@@ -101,8 +101,8 @@ certificate reader and an RSA verification, and `rsa`, `p256`/`p384` and `x509-c
 declined: `rsa` 0.9.10 brings **31** packages including a second `digest` 0.10 hash stack beside
 this tree's 0.11, `rsa` 0.10 is a release candidate, `p256`+`p384` bring **28** and cover two of the
 five curves RFC 5480 names, and `x509-cert`'s strict DER would refuse the four corpus signatures
-that state indefinite lengths. Both modules are in tree — `pdf_model::x509` at 213 lines of code and
-`pdf_model::pkcs1` at 356 — under `#![forbid(unsafe_code)]`, and **`cargo deny check` is clean on
+that state indefinite lengths. Both modules are in tree — `pdf_signature::x509` at 213 lines of code and
+`pdf_signature::pkcs1` at 356 — under `#![forbid(unsafe_code)]`, and **`cargo deny check` is clean on
 all four checks with no package added and the licence position unchanged**. ADR 0229 has the
 argument, including what would change the answer: an ECDSA or DSA signature arriving in a real file.
 

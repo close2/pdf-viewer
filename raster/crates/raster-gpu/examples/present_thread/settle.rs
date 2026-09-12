@@ -24,7 +24,7 @@
 //! So the honest statement is that **no synchronisation is available at this seam** — not
 //! "none was looked for". Under `Xvfb` stages 2 to 4 do not exist and a 300 ms wall clock
 //! was always enough; through a real compositor at load average 25 it was not, and
-//! `doc/notes-present-rate.md` §4 has the capture that read one picture behind. A
+//! `raster/doc/notes-present-rate.md` §4 has the capture that read one picture behind. A
 //! convergence criterion is therefore not a workaround for a missing wait. It is the
 //! instrument.
 //!
@@ -82,7 +82,7 @@ use crate::xwd::{self, Shot};
 ///
 /// That is about **five refreshes** between a present and a readable window. Sixty-four is
 /// an order of magnitude above it, and since each round carries one present the bound is
-/// also at least 64 refreshes — 533 ms at the 119.96 Hz of `doc/notes-present-rate.md` —
+/// also at least 64 refreshes — 533 ms at the 119.96 Hz of `raster/doc/notes-present-rate.md` —
 /// *plus* 64 `xwd` round trips. A window that has not settled by then is not slow; it is
 /// not settling.
 const ROUNDS: usize = 64;
@@ -274,7 +274,7 @@ fn run(
 /// the absence is not there (`HANDOVER.md`).
 ///
 /// It states all three conclusions over synthetic captures, and the first is the defect of
-/// `doc/notes-present-rate.md` §4: a window that is stale **and stable** — every capture
+/// `raster/doc/notes-present-rate.md` §4: a window that is stale **and stable** — every capture
 /// agreeing with every other, all of them showing the previous picture — must read
 /// `NotYet` for ever. A criterion that said `Landed` there is the 300 ms wall clock with
 /// more code, and would accept exactly the capture that failed once in five real-display

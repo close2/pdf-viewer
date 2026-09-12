@@ -1,6 +1,6 @@
 //! The named pages, and what each is recorded to cost.
 //!
-//! Seven of them are `doc/corpus-profile.md`'s archetypes and are gated as a set by
+//! Seven of them are `raster/doc/corpus-profile.md`'s archetypes and are gated as a set by
 //! `crates/raster-gpu/tests/archetypes.rs`. The two after them are pages an instrument
 //! draws that are **not** archetypes, and they are named here rather than left inline so
 //! that the difference is visible: each of them was, until 2026-08-17, a copy inside an
@@ -101,7 +101,7 @@ pub const MEDIAN_PAGE: Archetype = Archetype {
 /// rather than failing: the chain's box costs more than the twenty small tiles it would
 /// serve, which is the clause of that ADR written for exactly this shape — a `q W n`
 /// around a line of text. (Before 2026-08-17 this row read 40 tiles and **2 regions** for
-/// a page whose clips met **0 of 40** marks; `doc/notes-clipped-instrument.md` §3.)
+/// a page whose clips met **0 of 40** marks; `raster/doc/notes-clipped-instrument.md` §3.)
 pub const DENSE_TEXT: Archetype = Archetype {
     name: "dense text",
     commands: 4_320,
@@ -285,7 +285,7 @@ pub const CALLERS_DRAWING: Archetype = Archetype {
 ///
 /// **Nothing about it is changed here.** ADR 0054's thread sweep was measured on this
 /// page, and re-cutting it would invalidate that measurement in the same round that
-/// moved it — which is the trap `doc/notes-clipped-instrument.md` §3.4 names.
+/// moved it — which is the trap `raster/doc/notes-clipped-instrument.md` §3.4 names.
 ///
 /// **Whether the sweep should run on the archetype instead was measured on 2026-08-23 and
 /// declined**, and the reason is that the two pages differ by less than the sweep can

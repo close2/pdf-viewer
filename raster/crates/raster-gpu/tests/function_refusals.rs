@@ -5,7 +5,7 @@
 
 //! Every refusal ground, on a program that reaches it.
 //!
-//! `doc/spike-function-paint.md` §6 states the rule this file exists to keep: **a ground
+//! `raster/doc/spike-function-paint.md` §6 states the rule this file exists to keep: **a ground
 //! nobody can reach is not a ground.** So there is exactly one test per variant of
 //! `FunctionRefusal`, each named for the program's defect rather than for the variant, and the
 //! file is expected to grow a test whenever the enum grows a variant.

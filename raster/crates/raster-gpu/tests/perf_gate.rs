@@ -6,7 +6,7 @@
 //! reads `Timings::execute` from timestamp queries and skips (loudly) when the
 //! adapter has none.
 //!
-//! The thresholds are set from the measured M1 numbers in `doc/PLAN.md` (fastest of
+//! The thresholds are set from the measured M1 numbers in `raster/doc/PLAN.md` (fastest of
 //! ten, release build, 2026-08-02): encode 0.035 ms on either adapter; execute
 //! 0.048 ms on RADV and 2.6 ms on llvmpipe for this scene at this scale. The gates
 //! are ~10-20x those values — wide enough for a loaded CI runner and a debug-built

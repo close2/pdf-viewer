@@ -1,6 +1,6 @@
 //! The three measurements, and the discipline they are taken under.
 //!
-//! `doc/HANDOVER.md`: "Wall clocks lie under load, and this machine is somebody's
+//! `raster/doc/HANDOVER.md`: "Wall clocks lie under load, and this machine is somebody's
 //! desktop." So every variant is run round-robin, so drift falls on all of them
 //! equally, and what is quoted is the **minimum** of the rounds rather than a mean.
 //! The device column is a timestamp query, which load cannot touch at all.

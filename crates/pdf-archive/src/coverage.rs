@@ -2068,7 +2068,9 @@ static READINGS: &[Reading] = &[
                        used for rendering and is exempt from every requirement of this part",
                 carried: Carried::Scoping(
                     "it narrows the population every other row reaches, which the table honours \
-                     in each predicate rather than in a row",
+                     where a requirement's clause is known rather than in a row: \
+                     `crate::reach::Exempt` is the population and `reach::exemption_narrows` the \
+                     carve-out TechNote 0010 A010 leaves of it, sections 6.1.2 to 6.1.13",
                 ),
             },
             Sentence {
@@ -4146,7 +4148,9 @@ static READINGS: &[Reading] = &[
                        but the four object-syntax subclauses",
                 carried: Carried::Scoping(
                     "it narrows the population every other row reaches, which the table honours \
-                     in each predicate rather than in a row",
+                     where a requirement's clause is known rather than in a row: \
+                     `crate::reach::Exempt` is the population and `reach::exemption_narrows` the \
+                     carve-out this part publishes, sections 6.1.6 to 6.1.9",
                 ),
             },
         ],

@@ -6,7 +6,7 @@
 //! which is the right isolation for the question, and a caveat the write-up states.
 //!
 //! Every duration here is a timestamp query where the adapter has them, because
-//! `doc/HANDOVER.md`'s standing trap is that wall clocks lie on this machine. The one
+//! `raster/doc/HANDOVER.md`'s standing trap is that wall clocks lie on this machine. The one
 //! wall clock that cannot be avoided is the shader compile, which happens on the host.
 
 use std::time::{Duration, Instant};

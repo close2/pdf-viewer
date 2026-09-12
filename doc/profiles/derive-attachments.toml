@@ -1,0 +1,101 @@
+# derive-attachments — let a program you name turn an attachment into a PDF, and say so.
+#
+# doc/rfc/0007 section 3's own example, made real. The refusal it answers is the catalogue's
+# flagship (doc/pdf-a-mitigations.md section 11): ISO 19005-2 section 6.8 and ISO 19005-4 section
+# 6.9 require an embedded file to itself conform to a part of ISO 19005, and a spreadsheet does
+# not — so a document carrying one is refused, whatever else is right with it. PDF/A-4f and
+# PDF/A-4e lift the rule and need no remedy; every other target needs this one or `discard`.
+#
+# WHAT YOU ARE AGREEING TO. The attachment in the archive is no longer the attachment that went
+# in: it is what your program made from it. The owner's answer A55 offers this mode on four terms,
+# and all four are enforced rather than advised —
+#
+#   1. it is never a default: a site absent from a configuration is `stop`;
+#   2. it is refused unless the configuration names the site AND the tool, by name and by line;
+#   3. every document's report says, in these words, "this is derived, not original", with what was
+#      derived, from what, by which tool, and the SHA-256 of what came back;
+#   4. the file's own xmpMM:History records the same, so the archive carries the fact rather than
+#      relying on a report nobody kept.
+#
+# A PDF/A file whose attachment has become a rendering of itself is a different document from the
+# one that went in. This converter may produce it; it may not pretend otherwise.
+
+[profile]
+name = "derive-attachments"
+sentence = "An attachment the target refuses becomes a PDF your program made, and the archive says so."
+catalogue = "doc/pdf-a-mitigations.md"
+default = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# The two spellings of one rule. Part 2 states it in its clause 6.8; PDF/A-4's plain profile states
+# it in clause 6.9 under an identifier of its own, because 4f and 4e lift it. Naming both is how one
+# file works at five of the six targets; at 4f and 4e neither requirement arises and both rows are
+# simply never consulted.
+# ---------------------------------------------------------------------------------------------
+
+[site."embedded-files/embedded-file-is-itself-pdfa"]
+remedy = "derive"
+tool = "office-to-pdf"
+# A57: on-failure names ONE alternative, never a chain. `stop` is the only one this version
+# carries out — dropping an attachment is a rewrite of the embedded-file name tree that nobody has
+# written, and offering it here would be selling a permanent hole in an archive to save an
+# afternoon of ours.
+on-failure = "stop"
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
+remedy = "derive"
+tool = "office-to-pdf"
+on-failure = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# A fact only you hold. ISO 19005-4 clause 6.9, by way of ISO 32000-2 §14.13.2, asks an associated
+# file's stream for a /Subtype that is a MIME media type — and nothing in a file specification
+# states one: an extension is a convention rather than a declaration, so reading it as one would be
+# this converter asserting what your bytes are. You know. Say so here.
+#
+# The archive then asserts these media types on your authority, and the report and the file's own
+# xmpMM:History both record that the value came from this file rather than from the document.
+# `unlisted = "stop"` is the only value built: an attachment whose extension is not in the table
+# leaves its requirement refused, because guessing is the one thing this remedy exists to avoid.
+# ---------------------------------------------------------------------------------------------
+
+[site."embedded-files/associated-file-media-type"]
+remedy = "supply"
+media-types = { ".csv" = "text/csv", ".xml" = "application/xml", ".txt" = "text/plain", ".pdf" = "application/pdf" }
+unlisted = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# The program. EDIT THE PATH: this is a declaration of a program on your machine, not one this
+# project ships.
+#
+#   this runs a program you chose, on a document you did not write
+#
+# That sentence is the owner's answer A56 and it is the whole of what is offered: no confinement.
+# This project confines its own renderer under seccomp-BPF and Landlock because it must, and it
+# cannot hold somebody else's program to that standard — LibreOffice will not run under our
+# profile. A confinement profile written against no particular program is a guess, and offering one
+# for the few tools that would run under it invites the belief that it is offered for all. What is
+# done instead, every time, is doc/rfc/0007 section 4.5 item by item: the converter makes the
+# working directory, passes only paths inside it, removes it afterwards, puts NOTHING derived from
+# the document into the arguments, runs the program directly rather than through a shell, and
+# bounds the result before reading a byte of it.
+#
+# Both bounds are required and neither has a default: the right value is a property of your tool,
+# and a wrong default would be worse than an absent one (section 4.3).
+#
+# The placeholders the converter substitutes are {in}, {out}, {site} and {target}. {in} is the file
+# the converter wrote your attachment's bytes into; {out} is a directory it made, and the one file
+# your program leaves there is the result. A tool given no {out} writes its result on standard
+# output instead. The attachment also arrives on standard input, so a filter needs no placeholder
+# at all. {media-type} is deliberately not substituted: the only media type available here is the
+# document's own, and section 4.1 keeps document-derived strings out of arguments.
+#
+# A tool that means "not this one" rather than "I failed" exits 69.
+# ---------------------------------------------------------------------------------------------
+
+[tool.office-to-pdf]
+program = "/usr/bin/soffice"
+args = ["--headless", "--convert-to", "pdf", "--outdir", "{out}", "{in}"]
+expects = "application/pdf"
+timeout = "60s"
+output-limit = "256MiB"

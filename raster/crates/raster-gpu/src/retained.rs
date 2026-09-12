@@ -5,7 +5,7 @@
 //! A steady dense-text encode is **78 % recording** by instruction count, and over 40 %
 //! of recording is a pure function of `(scene, viewport)` — the outline bounds, the
 //! sub-pixel phase, the atlas keys, the lane choice, the instance bytes
-//! (`doc/PLAN.md`, 2026-08-14). A person reading a page pays all of it again on every
+//! (`raster/doc/PLAN.md`, 2026-08-14). A person reading a page pays all of it again on every
 //! frame for an answer that cannot differ. ADR 0045 priced the alternative on a
 //! throwaway prototype at **0.154 ms against 1.538**; this module is that prototype
 //! built, and `examples/retained.rs` is the same measurement through the real API.

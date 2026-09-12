@@ -14,7 +14,7 @@
 //!
 //! The document is not ours. The **scene** is, and it is the object an embedder would
 //! share the same way: `RENDER_LIBRARY.md` §2.3 requires it to be `Send + Sync` and cheap
-//! to clone, and `doc/adr/0001` makes that structural — a [`Scene`] is an `Arc` around
+//! to clone, and `raster/doc/adr/0001` makes that structural — a [`Scene`] is an `Arc` around
 //! immutable data, with no interior mutability and no cache under it to be unlinearisable.
 //!
 //! # Why this is not only a compile-time assertion

@@ -44,7 +44,7 @@
 //! requires the three frames to be identical to the byte. That is stronger than a
 //! tolerance and it is exactly the clause: the placement changed, the pattern did not.
 //!
-//! # Which lane each fixture means (`doc/HANDOVER.md`'s lane trap)
+//! # Which lane each fixture means (`raster/doc/HANDOVER.md`'s lane trap)
 //!
 //! The three marks take three different paths to the same paint, and each test says which
 //! by asserting counters rather than by assuming:

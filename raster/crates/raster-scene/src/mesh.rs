@@ -1,7 +1,7 @@
 //! Meshes: shading types the caller has already rasterised.
 //!
 //! [`MeshSpec`] is real as of M2 because `Device::upload_mesh` validates it at upload
-//! time; drawing a mesh is M7's work (`doc/PLAN.md`).
+//! time; drawing a mesh is M7's work (`raster/doc/PLAN.md`).
 //!
 //! # Why a mesh arrives as pixels (§1.1 of the brief, integration note 5)
 //!

@@ -17,7 +17,7 @@
 //! - **Round-robin, one frame of each variant per round.** Contiguous per-variant blocks
 //!   put a factor of three between two runs of `examples/rect_lane.rs` at load 85; drift
 //!   has to fall on both variants or it is not measurement.
-//! - **Minima, never means.** `doc/HANDOVER.md`'s first trap: this machine is somebody's
+//! - **Minima, never means.** `raster/doc/HANDOVER.md`'s first trap: this machine is somebody's
 //!   desktop, and the medians here carry outliers of several milliseconds on *both*
 //!   variants. The load average is printed beside the numbers so a reader can discount
 //!   the run rather than the conclusion.
@@ -101,7 +101,7 @@ struct Record {
 }
 
 /// Minimum, second, third and median of a column, in milliseconds — the four numbers
-/// `doc/PLAN.md`'s round-robin tables are read from.
+/// `raster/doc/PLAN.md`'s round-robin tables are read from.
 fn column(records: &[Record], of: impl Fn(&Record) -> Duration) -> String {
     let mut values: Vec<f64> = records.iter().map(|r| of(r).as_secs_f64() * 1e3).collect();
     values.sort_by(f64::total_cmp);

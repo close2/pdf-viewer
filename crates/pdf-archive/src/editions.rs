@@ -78,6 +78,11 @@ pub static SHIFTS: &[Shift] = &[
         subject: "the character set; ISO 32000-1's own 7.2.3 is *Comments*",
     },
     Shift {
+        clause: "7.7.2",
+        earlier: Earlier::NumberedAndRetitled("7.7.2"),
+        subject: "the document catalog dictionary, which ISO 32000-1:2008 states at the same                   number under the title *Document Catalog*; the number resolves and the title                   does not, which is the shape a reader checking a citation notices last",
+    },
+    Shift {
         clause: "9.6.4",
         earlier: Earlier::Numbered("9.6.5"),
         subject: "Type 3 fonts; ISO 32000-1's own 9.6.4 is *Font subsets*, the subclause \

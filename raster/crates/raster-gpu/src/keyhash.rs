@@ -13,7 +13,7 @@
 //! **0.627 ms** where the same tree without either change reads 0.940. The 0.746 in the
 //! table is this hasher's own arrival and is left as recorded: the page has since gained
 //! ADR 0044's chords, so the rows compare to each other and not to today.
-//! `doc/PLAN.md`'s entry for the date has both measurements and their instruments.
+//! `raster/doc/PLAN.md`'s entry for the date has both measurements and their instruments.
 //!
 //! The standard library's default is `SipHash` 1-3 with a
 //! per-process random seed: a good default, chosen against hash-flooding by hostile

@@ -1423,11 +1423,11 @@ fn measure(path: &Path) -> Answers {
     }
 
     // §12.7.5.5 and §12.8.2.4, the pair ADR 0403 corrected, re-asked over the wider population.
-    let locks = pdf_model::signature::field_locks(&document);
+    let locks = pdf_signature::signature::field_locks(&document);
     if !locks.is_empty() {
         answers.field_lock = Some(format!("{locks:?}"));
     }
-    let covered = pdf_model::signature::field_mdp(&document);
+    let covered = pdf_signature::signature::field_mdp(&document);
     if !covered.is_empty() {
         answers.field_mdp = Some(format!("{covered:?}"));
     }
@@ -1454,12 +1454,12 @@ fn measure(path: &Path) -> Answers {
             .as_dict()
             .is_some_and(|perms| !document.get_key(perms, "DocMDP").is_null())
     });
-    let certifications = pdf_model::signature::signatures(&document)
+    let certifications = pdf_signature::signature::signatures(&document)
         .iter()
         .filter(|signature| signature.certification)
         .count();
     if states_perms_doc_mdp || certifications > 0 {
-        let bound = match pdf_model::signature::permissions(&document).doc_mdp {
+        let bound = match pdf_signature::signature::permissions(&document).doc_mdp {
             Some(level) => format!("/Perms binds {level:?}"),
             None if states_perms_doc_mdp => {
                 "a /Perms /DocMDP this tree reads no level out of".to_owned()

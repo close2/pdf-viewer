@@ -135,6 +135,7 @@ impl Interpreter<'_> {
                     &parts,
                     self.alpha_sources.settled(),
                     self.inside_knockout,
+                    self.image_masks.shape_masks(),
                 ) {
                     self.draw(Command::Group {
                         commands: group.elements,

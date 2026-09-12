@@ -23,6 +23,9 @@ repository.workspace = true
 [dependencies]
 pdf-font.workspace = true
 pdf-model.workspace = true
+# §12.8 was extracted from `pdf-model` into its own crate in the thousandth session (ADR 1020);
+# this crate reads signatures, so it names it directly.
+pdf-signature.workspace = true
 pdf-syntax.workspace = true
 
 [lints]

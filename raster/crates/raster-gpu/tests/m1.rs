@@ -1,10 +1,10 @@
 //! The M1 harness: goldens against a CPU reference, byte-equality gates, and the
-//! truth-telling tests of `doc/PLAN.md` M1.
+//! truth-telling tests of `raster/doc/PLAN.md` M1.
 //!
 //! # Where the expected values come from
 //!
 //! ISO 32000-2 does not define anti-aliasing, so there is no clause to derive a golden
-//! from; the coverage rule is raster's own documented choice (`doc/adr/0005`): a
+//! from; the coverage rule is raster's own documented choice (`raster/doc/adr/0005`): a
 //! pixel's coverage is the exact area of its unit cell inside the rectangle, the
 //! source is premultiplied and scaled by that coverage, and compositing is the
 //! premultiplied over operator quantised to 8 bits per channel between commands.
@@ -193,7 +193,7 @@ fn golden_viewport() -> Viewport<'static> {
 }
 
 /// The reference rasteriser: the documented coverage and compositing rule of
-/// `doc/adr/0005`, implemented independently of the GPU path (same definition, second
+/// `raster/doc/adr/0005`, implemented independently of the GPU path (same definition, second
 /// implementation — which is what makes the comparison a check and not a tautology).
 fn cpu_reference(scene: &Scene, viewport: &Viewport<'_>) -> Reference {
     let width = viewport.width as usize;

@@ -16,7 +16,7 @@
 //! one that rasterises tiles — and the warm column the fastest of ten after it.
 //!
 //! Run: `cargo run --release -p raster-gpu --example floor`
-//! The numbers land in `doc/PLAN.md`; RADV and llvmpipe both matter.
+//! The numbers land in `raster/doc/PLAN.md`; RADV and llvmpipe both matter.
 
 // The f64→f32 casts build scene coordinates bounded by the page size; exact there.
 #![allow(
@@ -396,7 +396,7 @@ fn main() {
         // for frame timing and wrong for the instance number: the second device
         // finds the driver loader warm and reads a fraction of the true cost.
         // `examples/startup.rs` measures bring-up one configuration per process,
-        // and is where the startup numbers in `doc/PLAN.md` come from (ADR 0014).
+        // and is where the startup numbers in `raster/doc/PLAN.md` come from (ADR 0014).
         println!(
             "startup (frame harness; see examples/startup.rs for bring-up): \
              instance {:.2} ms, adapter {:.2} ms, device {:.2} ms \

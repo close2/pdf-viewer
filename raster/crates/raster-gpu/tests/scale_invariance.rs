@@ -1,6 +1,6 @@
 //! One page at 1×, 2× and 4×, and the property that must hold at each.
 //!
-//! `doc/notes-ceilings-audit.md` §5 is the round this file witnesses, and the reason it
+//! `raster/doc/notes-ceilings-audit.md` §5 is the round this file witnesses, and the reason it
 //! exists is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1 on hayro's
 //! `#40`/`#8`/`#63` — three crashes that appear at scale 2 and not at scale 1:
 //!
@@ -22,7 +22,7 @@
 //! **The golden line above is history as of 2026-08-22**, and it is left standing because
 //! it is what this file was written against: `m1.rs`'s
 //! `golden_matches_cpu_reference_at_every_magnification` now runs that comparison at 2× and
-//! 4× as well (ADR 0072, `doc/notes-scale-reference.md`). The division between the two
+//! 4× as well (ADR 0072, `raster/doc/notes-scale-reference.md`). The division between the two
 //! files is deliberate and is the one below — *this* file states properties that hold at
 //! any scale over three lanes, and `m1.rs` compares bytes against the reference over the
 //! one lane its reference implements. Neither subsumes the other: a reference comparison
@@ -48,7 +48,7 @@
 //! flattening tolerance is stated in device pixels), a stroke (whose expansion is the
 //! arithmetic `raster::direction` does, and whose device delta grows with `s`), and a fill
 //! under a non-rectangular clip (the residue path, which is what the corpus's two
-//! refusals at 2× are about — `doc/notes-tiling-ceiling.md`).
+//! refusals at 2× are about — `raster/doc/notes-tiling-ceiling.md`).
 
 // Test-file lint policy as in m1.rs.
 #![allow(
@@ -268,7 +268,7 @@ fn a_stroke_deposits_its_own_band_at_every_magnification() {
 /// **A fill under a non-rectangular clip covers the intersection at every magnification.**
 ///
 /// The residue path is where the caller's corpus starts refusing at 2× and not at 1×
-/// (`doc/notes-tiling-ceiling.md`), and it is the one lane whose *tile* is a chain's
+/// (`raster/doc/notes-tiling-ceiling.md`), and it is the one lane whose *tile* is a chain's
 /// device region rather than the mark's own box — so it is the lane where a device-space
 /// quantity is most likely to be assumed into a range only scale 1 guarantees.
 ///

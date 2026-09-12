@@ -63,13 +63,28 @@ seeds_in() {
     find "$dir" -maxdepth 1 -type f | wc -l
 }
 
+# `--list` is a *sweep*, and a sweep that prints a finding and exits 0 is a finding nobody reads.
+# `serialize` arrived with RFC 0002's serializer and `doc/verify.md` never named it, so the row
+# below said NO INVOCATION from the day it was written — printed by every round that ran this,
+# above an exit status that said the tree was fine. Trap 25's answer is the one applied here: a
+# member the sweep cannot measure is a non-zero exit rather than a row it quietly drops. A *seed*
+# count of zero is not one of those, deliberately — `fuzz/corpus` is gitignored, so on a fresh
+# clone every target reads zero and that is a fact about the disk rather than about the tree.
+# ADR 1024.
 if [ "${1:-}" = "--list" ]; then
     printf '%-16s %8s   %s\n' target seeds 'doc/verify.md'
+    undocumented=
     for t in $(targets); do
         args=$(documented_arguments "$t")
+        [ -n "$args" ] || undocumented="$undocumented $t"
         printf '%-16s %8s   %s\n' "$t" "$(seeds_in "$t")" \
             "${args:-NO INVOCATION — this target is in fuzz/Cargo.toml and not in doc/verify.md}"
     done
+    if [ -n "$undocumented" ]; then
+        printf '\nno doc/verify.md line, so tools/fuzz.sh refuses them and nothing fuzzes them:%s\n' \
+               "$undocumented" >&2
+        exit 1
+    fi
     exit 0
 fi
 

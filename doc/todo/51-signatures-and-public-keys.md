@@ -12,7 +12,7 @@ the census rather than reading a number here**:
 
 ```sh
 find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths
-cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
+cargo run --release -p pdf-signature --example signature_algorithm_census -- @/tmp/paths
 ```
 
 **`find -L`, and the `-L` is not decoration.** In a parallel worktree `corpus-cache` is a *symlink*
@@ -20,10 +20,10 @@ into the main checkout, and `find` without it descends nothing and reports zero 
 zero of exactly the shape this file warns about, met by the six-hundred-and-eighty-ninth session.
 
 Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 §5.1, ISO/TS 32002 §5.1
-Code: `crates/pdf-model/src/signature.rs`, `crates/pdf-model/src/cms.rs`,
-`crates/pdf-model/src/der.rs`, `crates/pdf-model/src/x509.rs`, `crates/pdf-model/src/pkcs1.rs`,
-`crates/pdf-model/src/pss.rs`, `crates/pdf-model/src/dsa.rs`, `crates/pdf-model/src/ecdsa.rs`,
-`crates/pdf-model/src/eddsa.rs`, `crates/pdf-model/src/bigint.rs`, `crates/pdf-syntax/src/crypt.rs`
+Code: `crates/pdf-signature/src/signature.rs`, `crates/pdf-signature/src/cms.rs`,
+`crates/pdf-signature/src/der.rs`, `crates/pdf-signature/src/x509.rs`, `crates/pdf-signature/src/pkcs1.rs`,
+`crates/pdf-signature/src/pss.rs`, `crates/pdf-signature/src/dsa.rs`, `crates/pdf-signature/src/ecdsa.rs`,
+`crates/pdf-signature/src/eddsa.rs`, `crates/pdf-signature/src/bigint.rs`, `crates/pdf-syntax/src/crypt.rs`
 
 ## Signature validation (§12.8.3) — 5 ledger rows, and it used to be 17
 
@@ -51,7 +51,7 @@ as dotted decimal by `x509::dotted` rather than as a word, because this tree hol
 not the documents that assign those numbers.
 
 ISO/TS 32002 section 5.1.3's Table 3 names six ECDSA curves and its Table 4 two EdDSA ones.
-`pdf_model::ecdsa` computes P-256, P-384 and P-521; `pdf_model::eddsa` computes Ed25519. The other
+`pdf_signature::ecdsa` computes P-256, P-384 and P-521; `pdf_signature::eddsa` computes Ed25519. The other
 four are refused, and **the refusal is a fact about crates.io rather than about the standard**
 (measured 2026-08-23, ADR 0532 — re-derive it before believing it):
 
@@ -127,7 +127,7 @@ would need, and §12.8.3.3.2's revocation attribute is named where a signature c
 either is what is missing. Add to it a policy for what a viewer does with a signature that fails,
 which `doc/todo/38`'s four levels are the natural shape for.
 
-**What already exists that question 3 would build on**: `pdf_model::x509` reads a certificate's
+**What already exists that question 3 would build on**: `pdf_signature::x509` reads a certificate's
 issuer, subject, serial number and key, and `Certificate::is_named_by` matches a signer to one.
 What it deliberately does *not* read is every field a trust decision needs — validity dates, basic
 constraints, key usage, the issuer's signature over the certificate — and that is a choice to

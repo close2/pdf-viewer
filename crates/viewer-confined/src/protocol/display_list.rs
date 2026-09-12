@@ -70,8 +70,9 @@ use std::sync::Arc;
 use pdf_render::{
     BlackHalf, BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners,
     DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin,
-    Luminance, MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Ramp, Rect, Shading, ShadingKind,
-    Size, SoftMask, SoftMaskId, SoftMaskKind, Stop, Stroke, Transfer, Transform, Triangle,
+    Luminance, MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Ramp, Rect, SampleAlpha, Shading,
+    ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind, Stop, Stroke, Transfer, Transform,
+    Triangle,
 };
 
 use super::{ProtocolError, Reader, Writer};
@@ -721,6 +722,7 @@ fn write_command(
                     writer.u8(1);
                     writer.u32(decoded.width).u32(decoded.height);
                     writer.bool(decoded.interpolate);
+                    writer.u8(sample_alpha_tag(decoded.sample_alpha));
                     writer.u32(tables.samples.intern("image samples", &decoded.data)?);
                 }
                 ImageSource::AtDeviceScale(_) => return Err(Uncodable::DeferredImage),
@@ -1079,6 +1081,33 @@ fn fill_rule_tag(rule: FillRule) -> u8 {
     }
 }
 
+/// Which of ISO 32000-2 §11.3.7.2's two quantities a raster's alpha carries.
+///
+/// Written out both ways for [`blend_tag`]'s reason: the enumeration is closed, so naming every
+/// variant is what makes an addition to it a build failure here rather than a kind that crossed
+/// the wire as a different one. A kind is not recoverable from the samples — a stencil's
+/// `{0, 255}` and a one-bit soft mask's are the same bytes — so it is on the wire or it is lost,
+/// and §11.4.6's knockout on the host side reads it (ADR 1022).
+fn sample_alpha_tag(alpha: SampleAlpha) -> u8 {
+    match alpha {
+        SampleAlpha::Shape => 0,
+        SampleAlpha::Opacity => 1,
+        SampleAlpha::Both => 2,
+    }
+}
+
+fn read_sample_alpha(reader: &mut Reader<'_>) -> Result<SampleAlpha, ProtocolError> {
+    match reader.u8("an image's alpha kind")? {
+        0 => Ok(SampleAlpha::Shape),
+        1 => Ok(SampleAlpha::Opacity),
+        2 => Ok(SampleAlpha::Both),
+        value => Err(ProtocolError::Unrecognised {
+            what: "an image's alpha kind",
+            value: u32::from(value),
+        }),
+    }
+}
+
 /// The sixteen modes of §11.3.5, in the order the standard's own table lists them.
 ///
 /// Written out both ways rather than derived from the discriminant: `BlendMode` is a closed
@@ -1434,12 +1463,14 @@ fn read_image(
             let width = reader.u32("an image's width")?;
             let height = reader.u32("an image's height")?;
             let interpolate = reader.bool("an image's interpolation")?;
+            let sample_alpha = read_sample_alpha(reader)?;
             let data = read_shared(reader, "an image's samples", samples)?;
             let image = Image {
                 width,
                 height,
                 data,
                 interpolate,
+                sample_alpha,
             };
             // The invariant every backend indexes by, checked here rather than assumed there:
             // `fuzz/fuzz_targets/confined_wire.rs` already asserts the same of a `Raster`, and
@@ -1943,6 +1974,9 @@ mod tests {
             height: size,
             data: vec![0x7F; (size as usize) * (size as usize) * 4].into(),
             interpolate: true,
+            // Not `Shape`, so that a codec which dropped the field would fail the round trip
+            // rather than agree with its default (ADR 1022).
+            sample_alpha: SampleAlpha::Opacity,
         }
     }
 
@@ -1974,6 +2008,10 @@ mod tests {
     impl ImageAtDeviceScale for Deferred {
         fn samples(&self, _grid: Grid) -> Image {
             an_image(1)
+        }
+
+        fn sample_alpha(&self) -> SampleAlpha {
+            SampleAlpha::Opacity
         }
     }
 
@@ -2696,7 +2734,8 @@ mod tests {
             .u8(1)
             .u32(1)
             .u32(1)
-            .bool(false);
+            .bool(false)
+            .u8(sample_alpha_tag(SampleAlpha::Shape));
         writer.u32(0);
         write_transform(&mut writer, Transform::IDENTITY);
         writer.f32(1.0).u8(1).u32(0);
@@ -2729,7 +2768,8 @@ mod tests {
             .u8(1)
             .u32(4)
             .u32(4)
-            .bool(false);
+            .bool(false)
+            .u8(sample_alpha_tag(SampleAlpha::Shape));
         writer.u32(0);
         write_transform(&mut writer, Transform::IDENTITY);
         writer.f32(1.0).u8(0).u8(0).u8(0);

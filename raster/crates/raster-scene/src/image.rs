@@ -2,9 +2,9 @@
 //!
 //! [`ImageSpec`] is real as of M2 because `Device::upload_image` validates it at
 //! upload time; the *drawing* of images — the image lane's quad, the alpha, the
-//! per-command filter — is M7's work (`doc/PLAN.md`).
+//! per-command filter — is M7's work (`raster/doc/PLAN.md`).
 //!
-//! # The filtering decision (§4.5 of the brief, integration note 1 in `doc/PLAN.md`)
+//! # The filtering decision (§4.5 of the brief, integration note 1 in `raster/doc/PLAN.md`)
 //!
 //! ISO 32000-2 §8.9.5.3's `/Interpolate` and the caller's documented
 //! area-averaging departure from §10.7.4 are decisions settled upstream, and in the

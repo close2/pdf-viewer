@@ -1,8 +1,8 @@
 //! Fuzzes ISO 32000-2 §12.8.3.3's signature value — the tree's only ASN.1 over untrusted bytes.
 //!
 //! A signature's `/Contents` is a byte string a stranger wrote, and from the
-//! three-hundred-and-seventy-seventh session this program *parses* it: `pdf_model::der` reads
-//! X.690's tag-length-value encoding and `pdf_model::cms` reads RFC 5652's `SignedData` out of
+//! three-hundred-and-seventy-seventh session this program *parses* it: `pdf_signature::der` reads
+//! X.690's tag-length-value encoding and `pdf_signature::cms` reads RFC 5652's `SignedData` out of
 //! it. ADR 0215 committed to this target with the code, on the rule this project already applies
 //! to every parser it writes — a reader of hostile input that is not fuzzed is a reader whose
 //! bounds are a claim.
@@ -33,8 +33,8 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_model::cms::signed_data;
-use pdf_model::der::{MAX_VALUE, Reader};
+use pdf_signature::cms::signed_data;
+use pdf_signature::der::{MAX_VALUE, Reader};
 
 /// `cms`'s own ceiling on a signer's attribute lists, which is private to that module and is
 /// restated here so this target checks the bound rather than trusting it — and so that

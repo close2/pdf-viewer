@@ -22,7 +22,7 @@
 //! is about every non-solid paint, and `encode_stroke`'s non-solid arm is the door the
 //! measured population actually arrives through: 209 of the corpus's 559 rare-painted
 //! coverage tiles are not under a residue clip, and the pages that carry the largest share
-//! of them are pattern-painted *text* and *strokes* (`doc/notes-rare-lane.md` §4). An
+//! of them are pattern-painted *text* and *strokes* (`raster/doc/notes-rare-lane.md` §4). An
 //! assertion that covers a quarter of what it claims is the shape `tests/shader_copies.rs`
 //! was found in — it named 8 shaders where the tree had 10, compared five, and passed.
 //!
@@ -39,7 +39,7 @@
 //!
 //! "The two frames are equal" reads the same on a device where nothing takes the device
 //! lane at all — a fixture comparing one lane with itself, which is the trap
-//! `doc/HANDOVER.md` records from `m45.rs`. So
+//! `raster/doc/HANDOVER.md` records from `m45.rs`. So
 //! [`the_setting_does_reach_the_same_geometry_when_its_paint_is_solid`] draws the *same two
 //! shapes* with a solid paint and asserts the settings **disagree** there. The two tests
 //! are one statement: the setting reaches this geometry, and does not reach this paint.
@@ -239,7 +239,7 @@ fn differing(a: &[u8], b: &[u8], columns: std::ops::Range<u32>) -> u32 {
 /// are the same bytes — and the sheet holds the same two tiles.
 ///
 /// `Counters::tiles` is asserted beside the pixels because it is the exact-arithmetic half
-/// of the same statement (`doc/HANDOVER.md`: a claim about "how many" is a count and is
+/// of the same statement (`raster/doc/HANDOVER.md`: a claim about "how many" is a count and is
 /// exact): both lanes seat one tile per mark, so an equal count is not on its own evidence
 /// that the same lane ran — which is what the control below is for.
 #[test]

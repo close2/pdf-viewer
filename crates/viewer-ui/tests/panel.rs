@@ -1076,6 +1076,8 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
             .as_slice(),
         ),
         interpolate: false,
+        // §12.3.4's thumbnail, whose alpha is the rectangle it covers (ADR 1022).
+        sample_alpha: pdf_render::SampleAlpha::Shape,
     };
     // **The panel is fetched a row at a time since the seven-hundred-and-fourth session**, so what
     // a fixture supplies is what a host has *already* fetched — `viewer_host::Miniatures`, filled

@@ -223,7 +223,7 @@ fn many_marks_under_the_floor_never_accumulate() {
 /// The control for the test above: the same stack, above the floor, does accumulate.
 ///
 /// Without this the assertion "the page is still 255" is satisfied by a fixture that draws
-/// nothing at all — the trap `tests/no_ink.rs` names and `doc/HANDOVER.md` states as a
+/// nothing at all — the trap `tests/no_ink.rs` names and `raster/doc/HANDOVER.md` states as a
 /// rule. Four levels a mark over two hundred marks leaves the page nearly black.
 #[test]
 fn the_same_stack_above_the_floor_darkens_the_page() {

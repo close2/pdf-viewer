@@ -22,7 +22,7 @@
 //! and `roll` become free renames and emit no code at all — is cleaner and is *not* taken.
 //! It would declare one `var` per instruction: 482 of them for the caller's seven-segment
 //! witness against 8, on a shader whose measured cold compile is 6.3 ms
-//! (`doc/spike-function-paint.md` §3) and whose compile cost sits on the caller's
+//! (`raster/doc/spike-function-paint.md` §3) and whose compile cost sits on the caller's
 //! first-frame path. Trading a measured number for an unmeasured elegance is what
 //! CLAUDE.md principle 2 forbids; this is the shape the spike measured.
 
@@ -172,11 +172,11 @@ impl SlotType {
 }
 
 /// How closely an independent processor evaluation of the same program can be expected to
-/// agree with the device's — `doc/adr/0053` §3's classification.
+/// agree with the device's — `raster/doc/adr/0053` §3's classification.
 ///
 /// The distinction is **not** which operators a program uses. It is whether an operator
 /// whose two implementations may differ can reach one that turns a small difference into a
-/// large one. `doc/research-function-paint-arithmetic.md` §3.4 states why there is no third
+/// large one. `raster/doc/research-function-paint-arithmetic.md` §3.4 states why there is no third
 /// answer:
 ///
 /// > Any inexact operator anywhere upstream of any comparison, branch or truncation makes
@@ -193,7 +193,7 @@ pub enum Agreement {
     /// reassociate and fuse the arithmetic of the straight-line expression a generated
     /// shader hands it; §15.7.4.1 gives `div` 2.5 ULP where IEEE 754 gives the host correct
     /// rounding; and ADR 0006's store rounding still sits between the shader and the texel
-    /// (`doc/spike-function-paint.md` §5 measured 246 044 texels off by one from that step
+    /// (`raster/doc/spike-function-paint.md` §5 measured 246 044 texels off by one from that step
     /// alone). The claim is that the disagreement stays *bounded and small*, which for a
     /// program with no amplifier in it is a property of the program rather than an
     /// observation about the two documents that happened to be measured.

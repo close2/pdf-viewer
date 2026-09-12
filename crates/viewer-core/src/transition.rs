@@ -195,6 +195,9 @@ pub fn drawable(raster: &Raster) -> Option<Image> {
         // §8.9.5.3's `/Interpolate` is about a low-resolution image blown up; this one is the
         // viewport's own pixels drawn at the viewport's own size, so there is nothing to smooth.
         interpolate: false,
+        // A page's own pixels are not a document's image, and nothing in §11 reads their
+        // alpha; the rectangle they cover is all they state, which is `Shape`.
+        sample_alpha: pdf_render::SampleAlpha::Shape,
     })
 }
 

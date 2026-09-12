@@ -1,7 +1,7 @@
 //! The ISO 32000-2 §7.10.5 conformance corpus, and the reference evaluator that is its
 //! oracle.
 //!
-//! `doc/adr/0053` decided that a §8.7.4.5.2 type 1 shading whose function is a type 4
+//! `raster/doc/adr/0053` decided that a §8.7.4.5.2 type 1 shading whose function is a type 4
 //! program is worth evaluating on the device, and closed with the condition this crate
 //! satisfies: *"the classification needs a conformance test per dangerous and per safe
 //! operator before it is a contract"*. A corpus is what turns a reading of a clause into
@@ -34,7 +34,7 @@
 //! | [`Undefined`](case::Expectation::Undefined) | **neither document defines anything**, and the case says so instead of guessing |
 //! | [`Refused`](case::Expectation::Refused) | the program is refused before a frame is drawn |
 //!
-//! The third is the one this crate exists to protect. `doc/notes-function-conformance.md`
+//! The third is the one this crate exists to protect. `raster/doc/notes-function-conformance.md`
 //! lists every case that lands there.
 //!
 //! # Running a case on a device

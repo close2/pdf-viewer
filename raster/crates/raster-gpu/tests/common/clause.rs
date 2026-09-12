@@ -17,7 +17,7 @@
 //! that measure it — `knockout_blend.rs`, `staged_compose.rs`, `function_knockout.rs` and
 //! `function_staged.rs` — share this one arithmetic rather than four copies of it. It was
 //! four copies until this module existed, three of them identical to the character;
-//! `doc/HANDOVER.md` listed the merge and named its obstacle, which was that each copy
+//! `raster/doc/HANDOVER.md` listed the merge and named its obstacle, which was that each copy
 //! indexed its raster through its own file's `SIZE`.
 //!
 //! **The obstacle is removed rather than worked around**: the clause's line is stated over

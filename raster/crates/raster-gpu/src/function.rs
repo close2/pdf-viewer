@@ -1,7 +1,7 @@
 //! A paint the device evaluates: ISO 32000-2 §7.10.5 type 4 functions, admitted and lowered
 //! to WGSL.
 //!
-//! `doc/adr/0053` is the decision this implements and `doc/spike-function-paint.md` the
+//! `raster/doc/adr/0053` is the decision this implements and `raster/doc/spike-function-paint.md` the
 //! measurement under it. In one sentence: a §8.7.4.5.2 type 1 shading whose function is a
 //! PostScript calculator program reaches the caller's device today as a **grid of sampled
 //! pixels**, costing them 1 142.8 ms of scene building and a four-megabyte upload per zoom
@@ -91,7 +91,7 @@ pub const ENTRY_POINT: &str = "raster_function_evaluate";
 ///
 /// The generated shader's length is linear in the program's, and its *compile* is what sits
 /// on the caller's first-frame path — measured at 6.3 ms cold for a 482-instruction witness
-/// (`doc/spike-function-paint.md` §3). This bound keeps the worst case around a megabyte of
+/// (`raster/doc/spike-function-paint.md` §3). This bound keeps the worst case around a megabyte of
 /// WGSL rather than around a gigabyte; ISO 32000-2 states no limit, so it is ours, and the
 /// two witnesses that exist need 482 and 311.
 pub const MAX_PROGRAM_LENGTH: usize = 8192;

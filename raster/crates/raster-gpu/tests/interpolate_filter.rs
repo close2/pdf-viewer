@@ -1,5 +1,5 @@
 //! The filter decision arrives on the command, and this lane executes it rather than
-//! re-taking it (ISO 32000-2 §8.9.5.3, `doc/PLAN.md` integration note 1).
+//! re-taking it (ISO 32000-2 §8.9.5.3, `raster/doc/PLAN.md` integration note 1).
 //!
 //! # Where the question comes from
 //!

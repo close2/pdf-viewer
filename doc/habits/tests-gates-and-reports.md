@@ -7,6 +7,14 @@ which gates a change actually needs.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **On a shared machine, stop a run by its pid, never by a pattern.** `pkill -f 'cargo …'` written
+  to stop one round's own gate sequence matched that round's shell as well, and would have matched
+  any sibling's `cargo` had the pattern been a word wider (session 997). A background sequence
+  started with `setsid nohup script.sh &` has a pid the shell's `$!` does **not** report — that is
+  the wrapper's — so record `pgrep -f "bash .*script.sh"` at launch and kill or watch *that*. The
+  merge of rounds 992–997 lost three monitors to the same mistake before it wrote this down (ADR
+  1016's round and `doc/history/998`).
+
 - **A non-exhaustive `_ => true` arm in a predicate is a report that fires on every variant added
   after it.** `command_blends` fell to `_ => true` for `Command::Shaped`, so any `/I false` knockout
   group drawn on transparency with a stated element reported a blend nothing carried, since ADR 0234

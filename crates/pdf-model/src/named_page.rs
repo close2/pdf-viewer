@@ -78,7 +78,7 @@ pub struct NamedPages {
 
 /// One place a document contradicts §12.7.7's own rule about the pages it names.
 ///
-/// A question rather than a verdict, exactly as [`crate::signature`]'s attestations are: the
+/// A question rather than a verdict, exactly as [`pdf_signature::signature`]'s attestations are: the
 /// clause states what a *writer* shall do, so a reader meeting a breach has found a malformed
 /// file and not an instruction.
 #[derive(Debug, Clone, PartialEq, Eq)]

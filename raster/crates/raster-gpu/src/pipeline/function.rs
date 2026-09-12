@@ -24,10 +24,10 @@
 //!
 //! # Nothing here is on the launch path
 //!
-//! `doc/PLAN.md` §1.8: nothing on the launch path waits for warmth. A generated pipeline
+//! `raster/doc/PLAN.md` §1.8: nothing on the launch path waits for warmth. A generated pipeline
 //! **cannot** be in the warm set — the program does not exist when the device is
 //! constructed — so it compiles on the first frame that draws it, at the 6.3 ms
-//! `doc/spike-function-paint.md` §3 measured cold for a 482-instruction witness, and that
+//! `raster/doc/spike-function-paint.md` §3 measured cold for a 482-instruction witness, and that
 //! frame names the cost in its own `Timings::phases` like every other first-use compile.
 //! A caller that wants the compile off its first frame uploads the program early: the
 //! upload is what admits it, and admission is the expensive question a page cannot pay

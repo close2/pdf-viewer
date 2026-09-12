@@ -19,7 +19,7 @@
 //!
 //! - **A texture target, not a readback.** Copying a 52 MB page out and demultiplying it
 //!   is 15-20 ms paid identically by both lanes, and it hides what is being compared.
-//! - **Distinct outlines as well as one shared.** `doc/corpus-profile.md` measured 1.33
+//! - **Distinct outlines as well as one shared.** `raster/doc/corpus-profile.md` measured 1.33
 //!   placements per distinct outline at the median of the caller's 995 pages, so a page
 //!   whose glyphs are all new is the *normal* case and not a pathology — and it is the
 //!   case where the atlas cannot help however large it is.

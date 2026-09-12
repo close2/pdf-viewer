@@ -13,7 +13,7 @@
 //! scene boundary already applies to all of them. A second copy here would be a second
 //! definition of a valid rectangle.
 //!
-//! Three of the spike's six grounds (`doc/spike-function-paint.md` §6) are absent, and
+//! Three of the spike's six grounds (`raster/doc/spike-function-paint.md` §6) are absent, and
 //! their absence is the point: "an operator outside Table 42", "unbalanced braces" and "a
 //! procedure that is not an `if`/`ifelse` operand" were grounds because the spike compiled
 //! PostScript *text*. We are handed [`FnOp`](raster_scene::FnOp), a closed enum with no

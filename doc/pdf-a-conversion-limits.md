@@ -290,6 +290,26 @@ The decision tree, in the order a converter should try it:
    claim to be PDF/A-2; `--claim-conformance` keeps the claim anyway, which a validator fails either
    way. The departure is recorded in the file's own `xmpMM:History`, and the command line must carry
    `--depart-from-the-standard` (§4.7.3). `doc/profiles/factur-x.toml` is the shipped example.
+   **And session 999 built the first branch of step 1 for attachments that are not PDFs at all**,
+   which is `doc/rfc/0007` §2's `derive` and the owner's `A55`: a configuration's
+   `[site."embedded-files/embedded-file-is-itself-pdfa"]` (or its plain-PDF/A-4 sibling) with
+   `remedy = "derive"` and `tool = "<name>"` hands the attachment's bytes to a program the operator
+   declared, and the PDF it returns replaces the attachment. Four things make that honest rather
+   than convenient, and all four are enforced: it is never a default; it is refused unless the
+   configuration names the site **and** the tool; the report says, per document and in the owner's
+   own words, *this is derived, not original*, with what was derived, from what, by which tool and
+   the SHA-256 of what came back; and the file's own `xmpMM:History` records the same, so the
+   archive carries the fact instead of a report nobody kept. The attachment in the output is a
+   different document from the one that went in, and this converter says so rather than pretending
+   otherwise. `doc/profiles/derive-attachments.toml` is the shipped example.
+
+   **The program is never started by `apply`.** `A54` settled that: the conversion returns the
+   invocation as a data value and the *caller* runs it, through one shared executor that every
+   consumer this project ships uses, so a user still types one command and the remedies happen —
+   and a recorded tool output replays a conversion with no process created at all, which is what
+   keeps RFC 0002 §9's determinism claim true of a tool-invoking run. By `A56` no confinement is
+   offered for somebody else's program, and the warning lives where an operator declares one:
+   *this runs a program you chose, on a document you did not write*.
 3. **Dropping is Ask, always**, listing every file dropped by name and size, and recording the
    removal in `xmpMM:History` — which ISO 19005-2 §6.6.6 explicitly asks a converter to do, its
    own example of a thing to record being objects that were not retained.
@@ -420,7 +440,7 @@ invalidates every one of them, and nothing can prevent that.**
     was reached (field, widget, `DocMDP`, `UR3`), its `/Name`, its `/M`, its `/Reason`, what its
     `DocMDP` permitted, what its `/ByteRange` covered of the source, whether the bytes still hash
     to the digest it records, and whether the value verifies under the certificate the file
-    carries. Nothing in it says *valid*, for `pdf_model::signature`'s reason. A range the source
+    carries. Nothing in it says *valid*, for `pdf_signature::signature`'s reason. A range the source
     got wrong is stated there rather than dropped with the rest, which is what ADR 1003's row
     was waiting for.
   - **The output is proved before it is written**: walked the same three ways as the source,

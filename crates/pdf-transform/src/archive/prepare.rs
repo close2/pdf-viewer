@@ -142,6 +142,23 @@ pub(super) const REMOVED_PROPERTIES_ACTION: &str = "converted";
 /// something a reader of the archive can understand two years on.
 pub(super) const DEPARTED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when a tool derived an artefact.
+///
+/// `doc/questions/A55` makes the record one of the four terms the mode is offered on: the *archive*
+/// carries the fact that part of it is derived rather than original, instead of that fact living
+/// only in a report somebody may not have kept. The word is `converted`, like every other recorded
+/// action here — ISO 19005-4 section 6.7.5's history records what a converter did — and the
+/// parameters carry the owner's own sentence, *this is derived, not original*, with what was
+/// derived, from what, and by which tool.
+pub(super) const DERIVED_ACTION: &str = "converted";
+
+/// The action this conversion records in `xmpMM:History` for a fact the operator supplied.
+///
+/// `doc/rfc/0007` section 5b.1's obligation, which `supply` carries and the other four remedy kinds
+/// do not: it is the one kind the converter cannot get wrong and the person can, so the file itself
+/// records that a human rather than the document is the value's source.
+pub(super) const SUPPLIED_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
 ///
 /// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE both give font
@@ -566,6 +583,30 @@ pub(super) struct Prepared {
     /// because a reader of this struct should be able to see which of its parts are the two
     /// constructions this verb was built around and which are the lossless rewrites it grew.
     pub(super) owed: Owed,
+    /// Whether this document's packet took the `xmpMM:History` entries this conversion has to
+    /// record.
+    ///
+    /// **The condition on both configured remedies.** `doc/questions/A55` makes an `xmpMM:History`
+    /// record part of the permission to derive at all, and `doc/rfc/0007` section 5b.1 makes the
+    /// same demand of a supplied fact — so a document whose packet will not take the entry does not
+    /// get the remedy either, exactly as `doc/questions/A48`'s constructions do not. The permission
+    /// and its condition are one thing.
+    pub(super) recorded_provenance: bool,
+}
+
+/// What this conversion has to write into the document's own provenance.
+///
+/// One argument rather than three, and the three are one question: *what does a reader of this
+/// archive need told about how it was made that the file itself should say?* Each is `None` where
+/// the conversion did none of that thing.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Provenance<'a> {
+    /// The applied departures (`doc/rfc/0007` section 4.7.3).
+    pub(super) departure: Option<&'a str>,
+    /// The derived artefacts (`doc/questions/A55`).
+    pub(super) derived: Option<&'a str>,
+    /// The facts the operator supplied (`doc/rfc/0007` section 5b.1).
+    pub(super) supplied: Option<&'a str>,
 }
 
 impl Prepared {
@@ -581,7 +622,7 @@ impl Prepared {
         document: &Document,
         input: &pdf_archive::Report,
         omit_identification: bool,
-        departure_history: Option<&str>,
+        provenance: Provenance<'_>,
     ) -> Self {
         let failed: BTreeSet<&'static str> =
             input.failures().map(|judgement| judgement.id).collect();
@@ -650,7 +691,9 @@ impl Prepared {
                 // Edited when the schema is wanted or when it is deliberately omitted (`A59`).
                 schema: wanted(Rewrite::IdentificationSchema) || omit_identification,
                 omit_identification,
-                departure: departure_history,
+                departure: provenance.departure,
+                derived: provenance.derived,
+                supplied: provenance.supplied,
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
@@ -662,6 +705,7 @@ impl Prepared {
             },
         );
         let recorded_it = now.is_some() && metadata.is_ok();
+        let recorded_provenance = recorded_it;
         let nothing_removed = properties
             .as_ref()
             .is_ok_and(|cleaned| cleaned.removed.is_empty());
@@ -702,6 +746,7 @@ impl Prepared {
             structure,
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
+            recorded_provenance,
         }
     }
 
@@ -1589,6 +1634,10 @@ struct Recording<'a> {
     /// archive carries the fact rather than relying on a report nobody kept. `None` for a
     /// conversion that departed from nothing.
     departure: Option<&'a str>,
+    /// What a `derive` remedy made, where anything was derived (`doc/questions/A55`).
+    derived: Option<&'a str>,
+    /// What the operator stated that the document does not (`doc/rfc/0007` section 5b.1).
+    supplied: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -1672,6 +1721,20 @@ fn the_packet(
             events.push(xmp::Event {
                 action: DEPARTED_ACTION,
                 parameters: departure,
+                when,
+            });
+        }
+        if let Some(derived) = recording.derived {
+            events.push(xmp::Event {
+                action: DERIVED_ACTION,
+                parameters: derived,
+                when,
+            });
+        }
+        if let Some(supplied) = recording.supplied {
+            events.push(xmp::Event {
+                action: SUPPLIED_ACTION,
+                parameters: supplied,
                 when,
             });
         }

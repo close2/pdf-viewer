@@ -7,13 +7,13 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Color, Command, FillRule, Paint, Path, PathCommand, Point, Rect, SoftMaskId,
-    Transform,
+    BlendMode, Color, Command, FillRule, Paint, Path, PathCommand, Point, Rect, SampleAlpha,
+    SoftMaskId, Transform,
 };
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use crate::colour::{ColourSpace, Compositing, InkScale, Press, Presses};
-use crate::image::{DrawnAlphas, SampleAlpha};
+use crate::image::ShapeMasks;
 use crate::page::Page;
 
 use super::colour::output_intent_space;
@@ -636,9 +636,10 @@ struct GroupDrawn {
 ///   applies it as coverage — the one place the conflation is visible, and
 ///   `knockout_smask.pdf` is the page that shows it.
 /// - **No per-sample alpha.** An image's transparency may be §8.9.6.2's stencil, which is
-///   shape, or §11.6.5.2's `/SMask`, which is opacity, and one RGBA raster cannot say which
-///   — the interpreter's record can (`image::DrawnAlphas`), and [`stated_shape`] reads it,
-///   but a bare draw reads the raster. A shading that does not extend leaves its region
+///   shape, or §11.6.5.2's `/SMask`, which is opacity, and one RGBA raster's *samples* cannot
+///   say which — the raster's own [`pdf_render::Image::sample_alpha`] does, and
+///   [`stated_shape`] reads it, but a bare draw reads the samples. A shading that does not
+///   extend leaves its region
 ///   unpainted, which is a shape of zero. A *constant* alpha is unambiguously opacity, so it
 ///   is allowed.
 /// - **No nested group.** A group's result reaches the backends as a raster, so its shape
@@ -806,9 +807,13 @@ fn element_shape_is_coverage(command: &Command, alpha: AlphaSource) -> bool {
 /// §11.6.4.2's shape of one element, as a command whose alpha *is* that shape.
 ///
 /// Which of the two constructions below applies is §11.6.4.3's and §11.6.4.4's `/AIS`.
-fn stated_shape(command: &Command, alpha: AlphaSource, drawn: &DrawnAlphas) -> Option<Command> {
+fn stated_shape(
+    command: &Command,
+    alpha: AlphaSource,
+    shape_masks: &ShapeMasks,
+) -> Option<Command> {
     match alpha {
-        AlphaSource::Opacity => shape_without_the_mask_and_the_constants(command, drawn),
+        AlphaSource::Opacity => shape_without_the_mask_and_the_constants(command, shape_masks),
         AlphaSource::Shape => shape_the_alpha_already_is(command),
     }
 }
@@ -946,25 +951,28 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
 ///   `Shading::opaque` is the shape §11.6.4.2 states for a `sh`: "1.0 inside and 0.0 outside
 ///   the bounds of the shading's painti ng geometry".
 /// - **An image.** Its alpha is §8.9.6.2's stencil or §8.9.6.3's explicit mask, which are
-///   shape, or §11.6.5.2's `/SMask`, which is opacity, and the raster cannot say which — the
-///   interpreter recorded which as it drew the image (`image::DrawnAlphas`). For a *shape*
+///   shape, or §11.6.5.2's `/SMask`, which is opacity, and the samples cannot say which — the
+///   raster carries the kind as a field, decided where the masks were applied
+///   (`pdf_render::Image::sample_alpha`, ADR 1022). For a *shape*
 ///   the image is its own shape, drawn at alpha 1.0; for an *opacity* the shape is the
 ///   clause's "1.0 inside the image rectangle and 0.0 outside it", which is the unit square
 ///   under the image's transform, filled — the same path and the same coverage every
 ///   backend draws the image itself through.
 ///
 /// `None` where this renderer cannot separate the two, which is where the report stands: a
-/// stencil under an `/SMask` of its own, whose alpha is the product; an image this run did
-/// not draw, which has no record; and a paint of a kind this crate does not know.
+/// stencil under an `/SMask` of its own, whose alpha is the product, and a paint of a kind
+/// this crate does not know. **An image drawn outside this run used to be a third**, because
+/// the kind was a record the interpreter wrote as it drew; a raster carries its own now,
+/// wherever it came from (ADR 1022).
 ///
 /// A [`Command::Shaped`] answers with the shape it already carries: an inner knockout group's
 /// elements arrive stated. A soft mask the interpreter built out of a stencil is kept rather
-/// than removed, for the reason [`DrawnAlphas::mask_is_shape`] gives: that mask *is* shape.
+/// than removed, for the reason [`ShapeMasks::contains`] gives: that mask *is* shape.
 fn shape_without_the_mask_and_the_constants(
     command: &Command,
-    drawn: &DrawnAlphas,
+    shape_masks: &ShapeMasks,
 ) -> Option<Command> {
-    let shape_mask = |mask: &Option<SoftMaskId>| mask.filter(|id| drawn.mask_is_shape(*id));
+    let shape_mask = |mask: &Option<SoftMaskId>| mask.filter(|id| shape_masks.contains(*id));
     match command {
         Command::Fill {
             path,
@@ -1005,7 +1013,7 @@ fn shape_without_the_mask_and_the_constants(
             transform,
             clip,
             ..
-        } => match drawn.alpha_of(image)? {
+        } => match image.sample_alpha() {
             SampleAlpha::Shape => Some(Command::Image {
                 image: image.clone(),
                 transform: *transform,
@@ -1033,7 +1041,7 @@ fn shape_without_the_mask_and_the_constants(
         Command::Group { commands, clip, .. } => Some(Command::Group {
             commands: commands
                 .iter()
-                .map(|command| shape_without_the_mask_and_the_constants(command, drawn))
+                .map(|command| shape_without_the_mask_and_the_constants(command, shape_masks))
                 .collect::<Option<_>>()?,
             alpha: 1.0,
             clip: *clip,
@@ -1093,7 +1101,7 @@ fn unit_square() -> Path {
 fn knockout_elements(
     commands: &[Command],
     alpha: AlphaSource,
-    drawn: &DrawnAlphas,
+    shape_masks: &ShapeMasks,
 ) -> Option<Vec<Command>> {
     commands
         .iter()
@@ -1105,7 +1113,7 @@ fn knockout_elements(
             }
             Some(Command::Shaped {
                 object: Box::new(command.clone()),
-                shape: Box::new(stated_shape(command, alpha, drawn)?),
+                shape: Box::new(stated_shape(command, alpha, shape_masks)?),
             })
         })
         .collect()
@@ -1122,7 +1130,7 @@ fn knockout_elements(
 fn stated_elements(
     commands: &[Command],
     alpha: AlphaSource,
-    drawn: &DrawnAlphas,
+    shape_masks: &ShapeMasks,
 ) -> Option<Vec<Command>> {
     commands
         .iter()
@@ -1132,7 +1140,7 @@ fn stated_elements(
             }
             Some(Command::Shaped {
                 object: Box::new(command.clone()),
-                shape: Box::new(stated_shape(command, alpha, drawn)?),
+                shape: Box::new(stated_shape(command, alpha, shape_masks)?),
             })
         })
         .collect()
@@ -1200,11 +1208,11 @@ fn paired(first: &[Command], second: &[Command]) -> bool {
 fn unstatable_shape(
     commands: &[Command],
     alpha: AlphaSource,
-    drawn: &DrawnAlphas,
+    shape_masks: &ShapeMasks,
 ) -> Option<&'static str> {
     commands.iter().find_map(|command| {
         if element_shape_is_coverage(command, alpha)
-            || stated_shape(command, alpha, drawn).is_some()
+            || stated_shape(command, alpha, shape_masks).is_some()
         {
             return None;
         }
@@ -1212,13 +1220,10 @@ fn unstatable_shape(
             (Command::Group { .. }, AlphaSource::Shape) => {
                 "a non-isolated group, whose accumulated alpha carries its backdrop's (§11.4.4)"
             }
-            (Command::Image { image, .. }, _) => match drawn.alpha_of(image) {
-                Some(SampleAlpha::Both) => {
-                    "an image mask under a soft mask of its own, whose samples multiply shape \
-                     by opacity"
-                }
-                _ => "an image drawn outside this run, whose alpha's kind was not recorded",
-            },
+            (Command::Image { .. }, _) => {
+                "an image mask under a soft mask of its own, whose samples multiply shape \
+                 by opacity"
+            }
             (Command::Fill { .. } | Command::Stroke { .. }, _) => {
                 "a paint this renderer cannot describe the shape of"
             }
@@ -1291,17 +1296,12 @@ pub(super) fn implicit_knockout_group(
     commands: &[Command],
     alpha: Option<AlphaSource>,
     inside_knockout: bool,
+    shape_masks: &ShapeMasks,
 ) -> Option<ImplicitKnockout> {
-    // No record of what an image's alpha is made of reaches this function, so an image among
-    // the parts — a Type 3 glyph drawn as a stencil — keeps the callers' report. The callers
-    // are `path.rs` and `text.rs`, which were not the round's that gave the form caller its
-    // record (ADR 1017); handing them `Interpreter::image_masks.drawn()` is the one change
-    // owed, and it is three lines at each of the three sites.
-    let drawn = DrawnAlphas::default();
     let alpha = alpha?;
     if !any_command(commands, &command_blends) {
         return Some(ImplicitKnockout {
-            elements: transparent_knockout_elements(commands, alpha, &drawn)?,
+            elements: transparent_knockout_elements(commands, alpha, shape_masks)?,
             blend: BlendMode::Normal,
             isolated: true,
         });
@@ -1312,7 +1312,7 @@ pub(super) fn implicit_knockout_group(
             .map(without_blend)
             .collect::<Option<Vec<_>>>()?;
         return Some(ImplicitKnockout {
-            elements: transparent_knockout_elements(&stripped, alpha, &drawn)?,
+            elements: transparent_knockout_elements(&stripped, alpha, shape_masks)?,
             blend,
             isolated: true,
         });
@@ -1321,7 +1321,7 @@ pub(super) fn implicit_knockout_group(
         return None;
     }
     Some(ImplicitKnockout {
-        elements: stated_elements(commands, alpha, &drawn)?,
+        elements: stated_elements(commands, alpha, shape_masks)?,
         blend: BlendMode::Normal,
         isolated: false,
     })
@@ -1337,11 +1337,11 @@ pub(super) fn implicit_knockout_group(
 fn transparent_knockout_elements(
     commands: &[Command],
     alpha: AlphaSource,
-    drawn: &DrawnAlphas,
+    shape_masks: &ShapeMasks,
 ) -> Option<Vec<Command>> {
     match alpha {
-        AlphaSource::Opacity => knockout_elements(commands, alpha, drawn),
-        AlphaSource::Shape => stated_elements(commands, alpha, drawn),
+        AlphaSource::Opacity => knockout_elements(commands, alpha, shape_masks),
+        AlphaSource::Shape => stated_elements(commands, alpha, shape_masks),
     }
 }
 
@@ -1595,7 +1595,7 @@ fn knockout_construction(
     backdrop_transparent: bool,
     enclosing_knockout: bool,
     outer_blend: BlendMode,
-    drawn: &DrawnAlphas,
+    shape_masks: &ShapeMasks,
 ) -> KnockoutConstruction {
     // Whether §11.4.6's rule can change a pixel of this group, which decides whether its
     // initial backdrop and §11.4.4's immediate one are the same thing. Asked of the file's
@@ -1616,7 +1616,7 @@ fn knockout_construction(
     if group.isolated || backdrop_transparent || !any_command(commands, &command_blends) {
         if knockout_shape_is_coverage(commands, alpha) {
             construction.knockout = true;
-        } else if let Some(elements) = knockout_elements(commands, alpha, drawn) {
+        } else if let Some(elements) = knockout_elements(commands, alpha, shape_masks) {
             construction.commands = elements;
             construction.knockout = true;
         }
@@ -1632,13 +1632,13 @@ fn knockout_construction(
                 .map(without_blend)
                 .collect::<Option<Vec<_>>>()
             && !any_command(&stripped, &command_blends)
-            && let Some(elements) = transparent_knockout_elements(&stripped, alpha, drawn)
+            && let Some(elements) = transparent_knockout_elements(&stripped, alpha, shape_masks)
         {
             construction.commands = elements;
             construction.knockout = true;
             construction.blend = mode;
         } else if !enclosing_knockout
-            && let Some(elements) = stated_elements(commands, alpha, drawn)
+            && let Some(elements) = stated_elements(commands, alpha, shape_masks)
         {
             construction.commands = elements;
             construction.knockout = true;
@@ -2544,7 +2544,7 @@ impl Interpreter<'_> {
             backdrop_transparent,
             enclosing_knockout,
             outer.blend,
-            self.image_masks.drawn(),
+            self.image_masks.shape_masks(),
         );
         // §11.4.4's own model, for the group NOTE 5 could not flatten: the elements
         // composite onto the backdrop the group is painted over, and the display list says
@@ -3244,7 +3244,7 @@ impl Interpreter<'_> {
             // where there is not, the third is the answer by construction.
             let refusal = if let Some(element) = alpha_sources
                 .settled()
-                .and_then(|alpha| unstatable_shape(commands, alpha, self.image_masks.drawn()))
+                .and_then(|alpha| unstatable_shape(commands, alpha, self.image_masks.shape_masks()))
             {
                 element
             } else if !isolated_by_clause && any_command(commands, &command_blends) {
@@ -3285,7 +3285,7 @@ mod tests {
     use render_cpu::CpuRasterizer;
 
     use super::{AlphaSource, ImplicitKnockout, implicit_knockout_group};
-    use crate::image::DrawnAlphas;
+    use crate::image::ShapeMasks;
 
     const RED: Color = Color {
         r: 1.0,
@@ -3381,8 +3381,13 @@ mod tests {
             fill([10.0, 10.0, 60.0, 60.0], RED, BlendMode::Normal, mask),
             fill([30.0, 30.0, 80.0, 80.0], RED, BlendMode::Normal, mask),
         ];
-        let answer = implicit_knockout_group(&parts, Some(AlphaSource::Opacity), true)
-            .expect("a masked pair is drawable");
+        let answer = implicit_knockout_group(
+            &parts,
+            Some(AlphaSource::Opacity),
+            true,
+            &ShapeMasks::default(),
+        )
+        .expect("a masked pair is drawable");
         assert!(
             answer.isolated,
             "nothing blends, so §11.4.4's NOTE 3 makes transparency exact"
@@ -3408,14 +3413,106 @@ mod tests {
         }
     }
 
+    /// An image among the parts states its shape, because the raster says what its alpha is.
+    ///
+    /// ISO 32000-2 §11.7.4.4's and §9.3.8's implicit knockout group is built by `path.rs` and
+    /// `text.rs`, and until ADR 1022 neither could state an image's shape: the kind of an
+    /// image's alpha was a record the interpreter kept beside the drawing and those two callers
+    /// were not handed it, so a stencil glyph or a masked image among the parts refused the
+    /// whole group and the parts were composited one by one — §11.6.2's report. The kind is a
+    /// field of the raster now, so `implicit_knockout_group` reads it off the command.
+    ///
+    /// The picture is §11.4.6's two stages over an element whose alpha is **opacity**. A 2×1
+    /// image whose left sample is transparent and whose right is green covers the same square
+    /// as an opaque blue part below it. §11.6.4.2 gives such an image the shape "1.0 inside
+    /// the image rectangle and 0.0 outside it", so the blue is knocked out under the *whole*
+    /// square, and §11.4.6's NOTE 5 says what a shape of 1.0 at an opacity of 0 leaves — "the
+    /// colour and opacity that result from compositing the object with the initial backdrop",
+    /// which on this isolated group's transparent backdrop is nothing. So the page shows
+    /// through on the left and the image on the right. Drawn flat, or with the image's alpha
+    /// read as its shape, the left half would still be blue.
+    #[test]
+    fn an_image_among_the_parts_states_the_shape_its_raster_names() {
+        let samples = pdf_render::Image {
+            width: 2,
+            height: 1,
+            data: Arc::from([0, 0, 0, 0, 0, 255, 0, 255].as_slice()),
+            interpolate: false,
+            // §11.6.4.3's mask opacity: what `image::decode_parts` states for an image with an
+            // `/SMask` of its own.
+            sample_alpha: pdf_render::SampleAlpha::Opacity,
+        };
+        let parts = vec![
+            fill(
+                [20.0, 20.0, 80.0, 80.0],
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 1.0,
+                    a: 1.0,
+                },
+                BlendMode::Normal,
+                None,
+            ),
+            Command::Image {
+                image: samples.into(),
+                transform: Transform::scale(60.0, 60.0).then(Transform::translate(20.0, 20.0)),
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            },
+        ];
+        let answer = implicit_knockout_group(
+            &parts,
+            Some(AlphaSource::Opacity),
+            true,
+            &ShapeMasks::default(),
+        )
+        .expect("an image states the shape its raster names");
+        assert!(
+            answer.isolated,
+            "nothing blends, so §11.4.4's NOTE 3 applies"
+        );
+        let Some(Command::Shaped { shape, .. }) = answer.elements.get(1) else {
+            panic!(
+                "the image states its shape beside itself: {:?}",
+                answer.elements
+            );
+        };
+        assert!(
+            matches!(**shape, Command::Fill { .. }),
+            "an image whose alpha is opacity has the clause's rectangle for a shape: {shape:?}"
+        );
+
+        let raster = render(vec![group_of(answer)]);
+        assert_close(
+            "the image's shape knocks the blue out where its opacity is 0 (NOTE 5)",
+            pixel(&raster, 35, 50),
+            [255, 0, 0],
+            1,
+        );
+        assert_close(
+            "and the image itself is drawn where it is opaque",
+            pixel(&raster, 65, 50),
+            [0, 255, 0],
+            1,
+        );
+    }
+
     /// Parts sharing one mode carry it at the `Do` where the mode commutes with §11.4.6's
     /// weighted average, or where every part is one colour; otherwise the group is
     /// §11.4.6's own backdrop, which an element of a knockout group cannot take (NOTE 6).
     #[test]
     fn parts_sharing_a_mode_carry_it_at_the_do_where_that_is_the_same_picture() {
         let opacity = Some(AlphaSource::Opacity);
-        let multiply = implicit_knockout_group(&two_parts(BlendMode::Multiply), opacity, true)
-            .expect("Multiply is affine in its source");
+        let multiply = implicit_knockout_group(
+            &two_parts(BlendMode::Multiply),
+            opacity,
+            true,
+            &ShapeMasks::default(),
+        )
+        .expect("Multiply is affine in its source");
         assert!(multiply.isolated);
         assert_eq!(multiply.blend, BlendMode::Multiply);
         assert!(
@@ -3435,14 +3532,16 @@ mod tests {
                 None,
             ),
         ];
-        let difference = implicit_knockout_group(&same_colour, opacity, true)
-            .expect("one colour under any mode is one colour after averaging");
+        let difference =
+            implicit_knockout_group(&same_colour, opacity, true, &ShapeMasks::default())
+                .expect("one colour under any mode is one colour after averaging");
         assert!(difference.isolated);
         assert_eq!(difference.blend, BlendMode::Difference);
 
         let differing = two_parts(BlendMode::Difference);
-        let own_backdrop = implicit_knockout_group(&differing, opacity, false)
-            .expect("§11.4.6's own backdrop draws what the move cannot");
+        let own_backdrop =
+            implicit_knockout_group(&differing, opacity, false, &ShapeMasks::default())
+                .expect("§11.4.6's own backdrop draws what the move cannot");
         assert!(!own_backdrop.isolated);
         assert_eq!(own_backdrop.blend, BlendMode::Normal);
         assert!(
@@ -3453,11 +3552,11 @@ mod tests {
             "every element of a group on its own backdrop states its shape"
         );
         assert!(
-            implicit_knockout_group(&differing, opacity, true).is_none(),
+            implicit_knockout_group(&differing, opacity, true, &ShapeMasks::default()).is_none(),
             "inside a knockout group the immediate backdrop is not the initial one (NOTE 6)"
         );
         assert!(
-            implicit_knockout_group(&differing, None, false).is_none(),
+            implicit_knockout_group(&differing, None, false, &ShapeMasks::default()).is_none(),
             "content painted under both readings of /AIS has no one shape to state"
         );
     }
@@ -3474,8 +3573,13 @@ mod tests {
     #[test]
     fn the_mode_at_the_do_is_the_clauses_own_arithmetic() {
         let parts = two_parts(BlendMode::Multiply);
-        let answer = implicit_knockout_group(&parts, Some(AlphaSource::Opacity), true)
-            .expect("Multiply moves to the Do");
+        let answer = implicit_knockout_group(
+            &parts,
+            Some(AlphaSource::Opacity),
+            true,
+            &ShapeMasks::default(),
+        )
+        .expect("Multiply moves to the Do");
         let grouped = render(vec![group_of(answer)]);
         assert_close(
             "the first part alone",
@@ -3526,8 +3630,13 @@ mod tests {
             fill([10.0, 10.0, 60.0, 60.0], blue, BlendMode::Multiply, None),
             fill([30.0, 30.0, 80.0, 80.0], green, BlendMode::Normal, None),
         ];
-        let answer = implicit_knockout_group(&parts, Some(AlphaSource::Opacity), false)
-            .expect("§11.4.6's own backdrop");
+        let answer = implicit_knockout_group(
+            &parts,
+            Some(AlphaSource::Opacity),
+            false,
+            &ShapeMasks::default(),
+        )
+        .expect("§11.4.6's own backdrop");
         assert!(!answer.isolated);
         let grouped = render(vec![group_of(answer)]);
         assert_close(
@@ -3574,8 +3683,13 @@ mod tests {
             fill([10.0, 10.0, 60.0, 60.0], blue, BlendMode::Difference, None),
             fill([30.0, 30.0, 80.0, 80.0], hole, BlendMode::Normal, None),
         ];
-        let answer = implicit_knockout_group(&parts, Some(AlphaSource::Opacity), true)
-            .expect("one coloured part under any mode moves it to the Do");
+        let answer = implicit_knockout_group(
+            &parts,
+            Some(AlphaSource::Opacity),
+            true,
+            &ShapeMasks::default(),
+        )
+        .expect("one coloured part under any mode moves it to the Do");
         assert!(answer.isolated);
         assert_eq!(answer.blend, BlendMode::Difference);
 
@@ -3652,7 +3766,7 @@ mod tests {
             blending: None,
         };
         let own_backdrop = render(vec![group(
-            super::stated_elements(&parts, AlphaSource::Opacity, &DrawnAlphas::default())
+            super::stated_elements(&parts, AlphaSource::Opacity, &ShapeMasks::default())
                 .expect("statable shapes"),
             BlendMode::Normal,
             false,
@@ -3667,7 +3781,7 @@ mod tests {
             super::transparent_knockout_elements(
                 &stripped,
                 AlphaSource::Opacity,
-                &DrawnAlphas::default(),
+                &ShapeMasks::default(),
             )
             .expect("statable shapes"),
             mode,
@@ -4072,8 +4186,8 @@ mod tests {
     /// made of the stencil (ADR 0151), and that mask is §8.9.6.2's shape rather than
     /// §11.6.4.3's opacity — so stating the element's shape keeps it where every other mask
     /// comes off. The same stencil as the first test, painted with a red shading pattern at
-    /// `ca ½`: the same two pixels, and without the record the right half would be knocked
-    /// out to the page.
+    /// `ca ½`: the same two pixels, and without the record ([`crate::image::ShapeMasks`]) the
+    /// right half would be knocked out to the page.
     #[test]
     fn a_stencil_painted_through_a_pattern_keeps_its_shape() {
         let drawn = interpret_fixture(knockout_form_fixture(

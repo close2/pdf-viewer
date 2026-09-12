@@ -21,7 +21,7 @@
 //! Seven items, seven modules, and this list is the only place the seam survives:
 //! rustdoc inlines a re-export from a private module, so a reader of the published
 //! documentation sees all seven types here and *cannot see the modules that own them*
-//! (`doc/adr/0051` cost 1). The modules are private and re-exported, so
+//! (`raster/doc/adr/0051` cost 1). The modules are private and re-exported, so
 //! `raster_gpu::error::RenderError` resolves exactly as it always has and
 //! `raster_gpu::error::render::RenderError` is not a path anybody can write — the split
 //! is a decision about who reviews what, not about what a caller may name.
@@ -45,7 +45,7 @@
 //!
 //! # A § with no standard in front of it
 //!
-//! In this module a bare `§n` is `doc/RENDER_LIBRARY.md`, the brief the library exists to
+//! In this module a bare `§n` is `raster/doc/RENDER_LIBRARY.md`, the brief the library exists to
 //! satisfy, and every clause of the specification is written in full — `ISO 32000-2
 //! §7.10.5`. The one exception is that clause's own shorthand: once a module comment has
 //! written it out, "a §7.10.5 program" is what the rest of the tree calls a type 4

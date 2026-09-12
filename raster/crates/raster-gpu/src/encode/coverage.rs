@@ -249,7 +249,7 @@ impl Encoder<'_> {
     /// are rasterised on the CPU: **35 marks on 7 pages of the caller's 954-page corpus at
     /// scale 1, 26 on 2 pages at 4× and 16 on 1 page at 8×**, each of them under a quarter
     /// pixel across and so among the smallest tiles the sheet ever holds
-    /// (`doc/notes-thin-mark-options.md` §2.2).
+    /// (`raster/doc/notes-thin-mark-options.md` §2.2).
     ///
     /// Measured on RADV at sixteen samples by `tests/lane_crossover.rs`, with the lane
     /// forced either way — a page of star outlines at 3 600 × 3 600, drawn to a texture

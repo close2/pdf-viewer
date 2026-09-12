@@ -268,6 +268,8 @@ mod tests {
             height: 100,
             data: vec![0u8; 200 * 100 * 4].into(),
             interpolate: false,
+            // A viewport's own pixels, whose alpha nothing in §11 reads: the rectangle.
+            sample_alpha: pdf_render::SampleAlpha::Shape,
         }
     }
 

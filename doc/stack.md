@@ -33,7 +33,15 @@ so the shaper question is moot until a glyph source exists, and the ADR prices b
 
 ## The public-key *constructions* are in the tree; the arithmetic under them no longer is
 
-§12.8's signature verification keeps `crates/pdf-model`'s `pkcs1`, `pss`, `dsa`, `x509`, `cms`
+**Where they live: `crates/pdf-signature`, and nowhere else.** The ten modules were `pdf-model`'s
+until the thousandth session, and the twelve cryptographic packages below went with them — so a
+crate that names `pdf-signature` is a crate that verifies a signature, and every other consumer of
+this tree's dependency table can be read against that one line (ADR 1020,
+`doc/reviews/984-direction-and-boundaries.md` finding 1). `pdf-model` still depends on the crate,
+for §12.8.2.2's `/DocMDP` level and §12.8.6's usage rights alone, which is why the packages are
+still reachable from the page tree; ADR 1020 names the two call sites and prices removing them.
+
+§12.8's signature verification keeps `crates/pdf-signature`'s `pkcs1`, `pss`, `dsa`, `x509`, `cms`
 and `der` — the schemes, the budgets, the refusal names and the BER-tolerant reader — and runs
 their modular arithmetic on **`crypto-bigint`**, RustCrypto's big-integer package, behind the seam
 `bigint.rs` keeps (an owner decision, 2026-08-14; ADR 0331 supersedes ADR 0314's in-tree choice
@@ -76,7 +84,7 @@ a dependency needs from those three ADRs:
     "SHAKE256 has no second reading" as a claim that had outlived its reason.
   - **`curve25519-dalek`'s SIMD backend carries `unsafe`**, selected by its build script on
     x86_64. This is the same shape as `sha2`, `cmov`, `block-buffer` and `hybrid-array`, all
-    already on `pdf-model`'s path, and `#![forbid(unsafe_code)]` is unchanged: it is
+    already on `pdf-signature`'s path, and `#![forbid(unsafe_code)]` is unchanged: it is
     compiler-enforced over *this project's* source. Written down beside the dependency in
     `Cargo.toml` rather than left to be discovered.
 - **The one dependency that was owed is spent, and cost twice what this file predicted** (ADR

@@ -14,34 +14,45 @@
 //!
 //! # What it does today, and what it is shaped for
 //!
-//! The owner's answers `A54`–`A60` (2026-09-12) draw the line this round builds to. Two remedies
+//! The owner's answers `A54`–`A60` (2026-09-12) draw the line this file builds to. Four remedies
 //! reach a real conversion:
 //!
 //! - **`discard`**, where the site is one of the seven `doc/pdf-a-conversion-limits.md` section 3
 //!   losses — it becomes the [`Authorisations`] entry a caller would otherwise type on the command
 //!   line, so a configuration authorising `image-smoothing` and `--authorise image-smoothing`
 //!   convert the same document identically.
+//! - **`derive`** at [`DERIVABLE`]'s two sites: an embedded file the target refuses becomes what a
+//!   program the configuration declares made from it. `A55` is the permission and its four terms;
+//!   [`super::remedies`] carries them out and `A54`'s request-and-executor shape is why nothing
+//!   here starts a process.
+//! - **`supply`** at [`SUPPLIABLE`]'s one: the operator states the media type of their own
+//!   attachments, which nothing in a file specification states and which this converter may not
+//!   infer from an extension.
 //! - **A departure** (section 4.7), the first of which accepts XML and only XML attachments when
 //!   the target is `PDF/A-2` — `A60`'s case, `ZUGFeRD` and `Factur-X`'s, and the only route an operator
 //!   has now that part 3 is not a target.
 //!
-//! Every other remedy the catalogue names — `preserve`, `derive`, `supply`, and `discard` on a
-//! site whose lossless rewrite is unbuilt — is **recognised, validated and enumerated but not yet
-//! applied**: naming one leaves that site's requirement refused with the sentence it already
-//! carries, so the configuration promises nothing it cannot keep (`CLAUDE.md` principle 1, and the
-//! round's own rule — *a promise nothing will keep is worse than a refusal with a sentence*). The
-//! next converter round builds `derive` and the external-tool executor (`A54`, `A56`); appending
-//! pages waits on session 994's authoring amendment (`A58`); `supply` waits on its own machinery
-//! (catalogue section 0.2). The format is built so each slots in without a reader change.
+//! Every other remedy the catalogue names — `preserve` everywhere, and `derive`, `supply` or
+//! `discard` at a site whose rewrite is unbuilt — is **recognised, validated and enumerated but
+//! not yet applied**: naming one leaves that site's requirement refused with the sentence it
+//! already carries, so the configuration promises nothing it cannot keep (`CLAUDE.md` principle 1,
+//! and the round's own rule — *a promise nothing will keep is worse than a refusal with a
+//! sentence*). Appending pages waits on the authoring amendment `doc/adr/1014` made (`A58`), which
+//! is what every `preserve` row needs. The format is built so each slots in without a reader
+//! change.
 //!
 //! Installing a configuration therefore changes no pipeline unless it authorises a built loss or
 //! names a departure — which is `doc/adr/0954`'s requirement that `stop` stay every site's default.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+use std::time::Duration;
 
 use pdf_archive::{Target, table};
 use pdf_syntax::Document;
 use pdf_syntax::object::ObjectId;
+
+use crate::tool::{Bounds, PLACEHOLDERS, Tool};
 
 use super::decision::{Answer, Loss, REMEDIES};
 use super::toml::{self, Value};
@@ -93,13 +104,22 @@ impl Kind {
         .find(|kind| kind.word() == word)
     }
 
-    /// Whether this round can carry out a remedy of this kind at a site whose loss is built.
+    /// Whether a remedy of this kind reaches a real conversion at the sites that admit it.
     ///
-    /// Only `stop` (a no-op) and `discard` (an authorised loss) reach a real conversion today; the
-    /// module comment says why the other three are recognised but not applied.
+    /// `stop` is a no-op, `discard` is an authorised loss, `derive` runs a declared tool over one
+    /// of [`DERIVABLE`]'s two sites and `supply` writes the operator's own fact at
+    /// [`SUPPLIABLE`]'s one. **`preserve` is the kind nothing carries out yet**: it needs the
+    /// append-as-pages mechanism `doc/adr/1014` opened and `doc/rfc/0007` section 4.6.1 specifies,
+    /// which is a converter round of its own.
+    ///
+    /// *Which sites* admit each is the question [`Configuration::unbuilt`] answers; this is only
+    /// the kind.
     #[must_use]
     pub const fn is_built(self) -> bool {
-        matches!(self, Self::Stop | Self::Discard)
+        matches!(
+            self,
+            Self::Stop | Self::Discard | Self::Derive | Self::Supply
+        )
     }
 }
 
@@ -198,6 +218,97 @@ pub enum ConfigError {
         /// The requirement.
         requirement: String,
     },
+    /// A `derive` site names no `tool`, which `A55` makes a condition rather than a convenience.
+    ///
+    /// **The guardrail, as an error.** The owner's answer requires a `derive` remedy to be
+    /// unreachable "without the configuration naming the site *and* the tool": a site alone is
+    /// half of an instruction, and a converter that read it as *derive somehow* would be deriving
+    /// content by accident, which is the one thing `A55` rules out.
+    #[error(
+        "line {line}: the site {site:?} answers with `derive` and names no tool. Deriving content \
+         makes something that was not in the document before, so the owner's answer A55 requires \
+         the configuration to name the site *and* the tool: add `tool = \"<name>\"` and a \
+         [tool.<name>] block declaring the program"
+    )]
+    DeriveWithoutTool {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+    },
+    /// A site references a tool no `[tool.…]` block declares.
+    #[error(
+        "line {line}: the site {site:?} names the tool {tool:?}, and this configuration declares \
+         no [tool.{tool}] block. Every external program a configuration can run is declared in \
+         one place so a reviewer can read them all at once — doc/rfc/0007 section 3"
+    )]
+    UndeclaredTool {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// The name it referenced.
+        tool: String,
+    },
+    /// A `[tool.…]` block omits a key it cannot have a default for.
+    #[error("line {line}: the tool {tool:?} states no {key}. {why}")]
+    ToolWithout {
+        /// The 1-based line.
+        line: usize,
+        /// The tool's name.
+        tool: String,
+        /// The missing key.
+        key: &'static str,
+        /// Why it has no default.
+        why: &'static str,
+    },
+    /// A `[tool.…]` key holds a value this reader cannot make sense of.
+    #[error("line {line}: the tool {tool:?} states {key} as {value:?}, which is not {wanted}")]
+    ToolValue {
+        /// The 1-based line.
+        line: usize,
+        /// The tool's name.
+        tool: String,
+        /// The key.
+        key: &'static str,
+        /// What was written.
+        value: String,
+        /// What the key wants.
+        wanted: &'static str,
+    },
+    /// An argument holds a placeholder outside section 4.1's vocabulary.
+    #[error(
+        "line {line}: the tool {tool:?} writes {placeholder} in its args, which is no placeholder \
+         this converter substitutes. The vocabulary is {{in}}, {{out}}, {{site}} and {{target}}; \
+         {{media-type}} is deliberately not among them, because the only media type available at \
+         a site that runs a tool is the document's own, and doc/rfc/0007 section 4.1 keeps \
+         document-derived strings out of args"
+    )]
+    UnknownPlaceholder {
+        /// The 1-based line.
+        line: usize,
+        /// The tool's name.
+        tool: String,
+        /// What was written.
+        placeholder: String,
+    },
+    /// A site's remedy is one this version carries out, and one of its keys asks for a shape of it
+    /// that is not built.
+    ///
+    /// **A refusal with a sentence rather than a promise nothing keeps.** A configuration key this
+    /// converter read and then ignored would be the worse failure of the two, and it is the one the
+    /// whole feature exists to remove.
+    #[error("line {line}: the site {site:?} asks for {asked}, and {why}")]
+    NotBuiltThatWay {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// What the configuration asked for.
+        asked: String,
+        /// What is built instead.
+        why: &'static str,
+    },
 }
 
 /// A departure from one requirement, narrowed by a declarative predicate.
@@ -288,6 +399,91 @@ pub struct Unbuilt {
     pub remedy: Kind,
 }
 
+/// One `derive` remedy the configuration named, with the program it names and its fallback.
+///
+/// `doc/questions/A55`, and the type is the guardrail: it cannot be built without a [`Tool`], so
+/// "never reachable without the configuration naming the site *and* the tool" is a property of
+/// the shape rather than of a check somebody has to remember to run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Derivation {
+    /// The requirement identifier the derivation answers.
+    pub site: String,
+    /// The program, as the `[tool.…]` block declares it.
+    pub tool: Tool,
+    /// What is done where the tool declines or fails — `A57`: one alternative, never a chain.
+    pub on_failure: Kind,
+}
+
+/// One fact the operator states that the document does not.
+///
+/// `doc/pdf-a-mitigations.md` section 0.2's fifth remedy kind. **The operator is the source**, which
+/// is the whole of what separates it from every other kind: nothing is lost, nothing moves, and
+/// nothing is computed from the document — a person has put their own knowledge into the file. So
+/// it carries an obligation the other four do not, and section 5b.1 of `doc/rfc/0007` states it:
+/// the report names the supplied value beside the requirement it answered, and `xmpMM:History`
+/// records that a human rather than the document is its source.
+///
+/// One variant today. A second site adds a second variant, which is a compile error everywhere the
+/// kind must be answered — the same construction `Authorisations` uses, and for the same reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Supplied {
+    /// `embedded-files/associated-file-media-type`: what the operator's own attachments are.
+    ///
+    /// ISO 19005-4 section 6.9 asks an associated file's stream for a `/Subtype` that is a MIME
+    /// media type, and nothing in a file specification states one — an extension is a convention
+    /// rather than a declaration, so reading it as one would be this converter asserting what the
+    /// bytes are. An operator whose pipeline produces the attachments does know.
+    MediaTypes {
+        /// Extension (with its full stop) to media type, in the order the file wrote them.
+        by_extension: Vec<(String, String)>,
+    },
+}
+
+/// One `supply` remedy the configuration named.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Supply {
+    /// The requirement identifier it answers.
+    pub site: String,
+    /// The operator's fact.
+    pub fact: Supplied,
+}
+
+/// The two requirements a built `derive` may name.
+///
+/// `doc/pdf-a-mitigations.md` section 11's flagship entry and `doc/rfc/0007` section 5's first row:
+/// an embedded file that is not itself PDF/A, derived into one with a declared tool. The plain
+/// PDF/A-4 profile states the same rule under its own identifier; 4f and 4e lift it outright and
+/// need no remedy at all.
+const DERIVABLE: [&str; 2] = [
+    "embedded-files/embedded-file-is-itself-pdfa",
+    "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
+];
+
+/// Why a `derive` at an embedded-file site needs a tool that makes a PDF.
+const WANTS_A_PDF: &str = "the requirement it answers is that the embedded file itself conform to \
+     a part of ISO 19005, so the only artefact that can answer it is a PDF: declare the tool with \
+     expects = \"application/pdf\"";
+
+/// Why `on-failure` at a built `derive` site takes only `stop` this version.
+const ONLY_STOP_ON_FAILURE: &str = "the only on-failure this version carries out is `stop`. \
+     Dropping an attachment is a rewrite of the embedded-file name tree that nobody has written, \
+     and offering it here would be selling a permanent hole in somebody's archive to get past an \
+     afternoon of ours (doc/pdf-a-mitigations.md section 0.2)";
+
+/// Why `unlisted` at a built `supply` site takes only `stop` this version.
+const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is `stop`: an \
+     attachment whose extension your table does not name leaves its requirement refused, which is \
+     what `stop` is. Naming its extension is the answer, and guessing the type would be the one \
+     thing `supply` exists to avoid";
+
+/// The one requirement a built `supply` may name.
+///
+/// `doc/pdf-a-mitigations.md` section 11's `embedded-files/associated-file-media-type`, which its own
+/// entry calls "a good test of the owner's question" and says passes cleanly: the operator needs to
+/// know what their own attachments are, types nothing about any individual document, and can read
+/// the cost in one line — *the archive asserts these media types on our authority*.
+const SUPPLIABLE: [&str; 1] = ["embedded-files/associated-file-media-type"];
+
 /// One remedy configuration, read from a file and validated against a target.
 ///
 /// The two things a conversion consumes are [`Self::authorisations`] and [`Self::departures`]; the
@@ -296,10 +492,35 @@ pub struct Unbuilt {
 pub struct Configuration {
     /// The profile's own name, where the file is a shipped profile (`[profile] name`).
     pub name: Option<String>,
-    /// Every site the file named, in file order, with the remedy it chose.
-    sites: Vec<(String, Kind)>,
+    /// Every site the file named, in file order, with the remedy it chose and its keys.
+    sites: Vec<Row>,
+    /// Every external program the file declares, by the name a site references it under.
+    tools: BTreeMap<String, Tool>,
     /// The departures the file states.
     pub departures: Vec<Departure>,
+}
+
+/// One `[site."…"]` table, read.
+///
+/// The site-specific keys live here rather than in five parallel maps because
+/// `doc/rfc/0007` section 3 makes them a property of the site: a reader that split them would have
+/// to put them back together to answer any question about one row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Row {
+    /// The requirement identifier.
+    site: String,
+    /// The remedy word.
+    remedy: Kind,
+    /// The `[tool.…]` block this row references, where it references one.
+    tool: Option<String>,
+    /// `on-failure` — `A57`: one alternative, never a chain. `stop` where the row states none.
+    on_failure: Kind,
+    /// `media-types`, the `supply` table this version reads.
+    media_types: Vec<(String, String)>,
+    /// `unlisted` — what happens to a subject the supplied table does not name.
+    unlisted: Kind,
+    /// The 1-based line its header sits on, for an error a person can find.
+    line: usize,
 }
 
 impl Configuration {
@@ -317,9 +538,10 @@ impl Configuration {
             .map(|requirement| requirement.id)
             .collect();
         let mut name = None;
-        let mut sites: Vec<(String, Kind)> = Vec::new();
+        let mut sites: Vec<Row> = Vec::new();
         let mut seen_sites: BTreeSet<String> = BTreeSet::new();
         let mut departures = Vec::new();
+        let mut tools: BTreeMap<String, Tool> = BTreeMap::new();
         for tbl in &tables {
             match tbl.path.first().map(String::as_str) {
                 Some("profile") => {
@@ -346,11 +568,12 @@ impl Configuration {
                     check_fallback(tbl, &site)?;
                     check_target_qualifier(tbl, &site)?;
                     check_key_shapes(tbl, &site)?;
+                    let row = row(tbl, site, remedy)?;
                     // The target qualifier decides *whether this row applies* to the conversion:
                     // an unqualified row is the default, a qualified one wins for its target. A
                     // row for another target is read (and validated) but does not answer here.
-                    if applies_to(tbl, target) && seen_sites.insert(site.clone()) {
-                        sites.push((site, remedy));
+                    if applies_to(tbl, target) && seen_sites.insert(row.site.clone()) {
+                        sites.push(row);
                     }
                 }
                 Some("depart") => {
@@ -358,14 +581,69 @@ impl Configuration {
                         departures.push(departure);
                     }
                 }
-                // `[tool.…]` is read by the next converter round's executor (`A54`); this round
-                // parses past it so a configuration shipped with a tool declaration still loads.
+                Some("tool") => {
+                    let declared = declared_tool(tbl)?;
+                    tools.insert(declared.name.clone(), declared);
+                }
                 _ => {}
+            }
+        }
+        // **The second half of `A55`'s guardrail**, and it is checked after every table has been
+        // read rather than at the row: a `[tool.…]` block may be written below the site that
+        // names it, and an error that depended on the order lines appear in would be an error
+        // about this reader rather than about the configuration.
+        for row in &sites {
+            if let Some(named) = &row.tool {
+                let Some(tool) = tools.get(named) else {
+                    return Err(ConfigError::UndeclaredTool {
+                        line: row.line,
+                        site: row.site.clone(),
+                        tool: named.clone(),
+                    });
+                };
+                // The requirement a built `derive` answers is *that the embedded file conform to a
+                // part of ISO 19005*, so a tool that promises anything else could not answer it —
+                // and a configuration whose tool makes a spreadsheet into a spreadsheet is a
+                // mistake worth naming before a conversion rather than after one.
+                if row.remedy == Kind::Derive
+                    && DERIVABLE.contains(&row.site.as_str())
+                    && tool.expects != "application/pdf"
+                {
+                    return Err(ConfigError::NotBuiltThatWay {
+                        line: row.line,
+                        site: row.site.clone(),
+                        asked: format!("a tool promising {}", tool.expects),
+                        why: WANTS_A_PDF,
+                    });
+                }
+            }
+            if row.remedy == Kind::Derive
+                && DERIVABLE.contains(&row.site.as_str())
+                && row.on_failure != Kind::Stop
+            {
+                return Err(ConfigError::NotBuiltThatWay {
+                    line: row.line,
+                    site: row.site.clone(),
+                    asked: format!("on-failure = \"{}\"", row.on_failure.word()),
+                    why: ONLY_STOP_ON_FAILURE,
+                });
+            }
+            if row.remedy == Kind::Supply
+                && SUPPLIABLE.contains(&row.site.as_str())
+                && row.unlisted != Kind::Stop
+            {
+                return Err(ConfigError::NotBuiltThatWay {
+                    line: row.line,
+                    site: row.site.clone(),
+                    asked: format!("unlisted = \"{}\"", row.unlisted.word()),
+                    why: ONLY_STOP_UNLISTED,
+                });
             }
         }
         Ok(Self {
             name,
             sites,
+            tools,
             departures,
         })
     }
@@ -380,10 +658,10 @@ impl Configuration {
     pub fn authorisations(&self, target: Target) -> Authorisations {
         let losses = loss_sites();
         let mut authorised = Authorisations::default();
-        for (site, remedy) in &self.sites {
-            if *remedy == Kind::Discard
-                && let Some(loss) = losses.get(site.as_str())
-                && requirement_binds(site, target)
+        for row in &self.sites {
+            if row.remedy == Kind::Discard
+                && let Some(loss) = losses.get(row.site.as_str())
+                && requirement_binds(&row.site, target)
             {
                 authorised.authorise(*loss);
             }
@@ -396,19 +674,71 @@ impl Configuration {
     pub fn unbuilt(&self, target: Target) -> Vec<Unbuilt> {
         let losses = loss_sites();
         let mut out = Vec::new();
-        for (site, remedy) in &self.sites {
-            if *remedy == Kind::Stop || !requirement_binds(site, target) {
+        for row in &self.sites {
+            if row.remedy == Kind::Stop || !requirement_binds(&row.site, target) {
                 continue;
             }
-            let built = *remedy == Kind::Discard && losses.contains_key(site.as_str());
+            let built = match row.remedy {
+                Kind::Discard => losses.contains_key(row.site.as_str()),
+                Kind::Derive => self.derivation(row).is_some(),
+                Kind::Supply => supplied(row).is_some(),
+                Kind::Stop | Kind::Preserve => false,
+            };
             if !built {
                 out.push(Unbuilt {
-                    site: site.clone(),
-                    remedy: *remedy,
+                    site: row.site.clone(),
+                    remedy: row.remedy,
                 });
             }
         }
         out
+    }
+
+    /// Every `derive` remedy this conversion carries out.
+    ///
+    /// A row naming a site outside [`DERIVABLE`] is not one: its requirement stays refused with the
+    /// sentence it already carries, and [`Self::unbuilt`] names it so the operator sees their
+    /// intent was read rather than ignored.
+    #[must_use]
+    pub fn derivations(&self, target: Target) -> Vec<Derivation> {
+        self.sites
+            .iter()
+            .filter(|row| requirement_binds(&row.site, target))
+            .filter_map(|row| self.derivation(row))
+            .collect()
+    }
+
+    /// Every `supply` remedy this conversion carries out.
+    #[must_use]
+    pub fn supplies(&self, target: Target) -> Vec<Supply> {
+        self.sites
+            .iter()
+            .filter(|row| requirement_binds(&row.site, target))
+            .filter_map(supplied)
+            .collect()
+    }
+
+    /// Every external program this configuration can run, in name order.
+    ///
+    /// What a reviewer reads to see the whole of what a configuration may start —
+    /// `doc/rfc/0007` section 3's reason for declaring tools once and referencing them by name.
+    pub fn tools(&self) -> impl Iterator<Item = &Tool> {
+        self.tools.values()
+    }
+
+    /// One row as a built derivation, where it is one.
+    fn derivation(&self, row: &Row) -> Option<Derivation> {
+        if row.remedy != Kind::Derive || !DERIVABLE.contains(&row.site.as_str()) {
+            return None;
+        }
+        // The tool is required of *every* `derive` row by [`ConfigError::DeriveWithoutTool`], so
+        // reaching here without one is impossible; the `?` states that rather than asserting it.
+        let tool = self.tools.get(row.tool.as_ref()?)?;
+        Some(Derivation {
+            site: row.site.clone(),
+            tool: tool.clone(),
+            on_failure: row.on_failure,
+        })
     }
 
     /// The departures that bind the target and this round can carry out.
@@ -459,6 +789,230 @@ fn site_remedy(tbl: &toml::Table, site: &str) -> Result<Kind, ConfigError> {
         site: site.to_owned(),
         remedy: word.to_owned(),
     })
+}
+
+/// One `[site."…"]` table read into a [`Row`], with `A55`'s guardrail applied.
+fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError> {
+    let tool = tbl.get("tool").and_then(Value::as_text).map(str::to_owned);
+    // **`A55`, as a refusal rather than a warning.** A `derive` row naming no tool is half an
+    // instruction, and the half it states is the dangerous one: *make something that was not in
+    // the document*. The owner's answer requires the site **and** the tool, so the site alone is
+    // an error naming the site.
+    if remedy == Kind::Derive && tool.is_none() {
+        return Err(ConfigError::DeriveWithoutTool {
+            line: tbl.line,
+            site,
+        });
+    }
+    let on_failure = tbl
+        .get("on-failure")
+        .and_then(Value::as_text)
+        .and_then(Kind::parse)
+        .unwrap_or(Kind::Stop);
+    let unlisted = tbl
+        .get("unlisted")
+        .and_then(Value::as_text)
+        .and_then(Kind::parse)
+        .unwrap_or(Kind::Stop);
+    let media_types = tbl
+        .get("media-types")
+        .and_then(Value::as_map)
+        .map(<[(String, String)]>::to_vec)
+        .unwrap_or_default();
+    Ok(Row {
+        site,
+        remedy,
+        tool,
+        on_failure,
+        media_types,
+        unlisted,
+        line: tbl.line,
+    })
+}
+
+/// One row as a built `supply`, where it is one.
+///
+/// An empty table is **not** an error: `doc/profiles/keep-everything.toml` writes `role-map = { }`
+/// with the note *an empty map stops*, and the same reading holds here — an operator who has not
+/// yet filled the table in has stated no fact, so the site keeps its refusal and [`Configuration::unbuilt`]
+/// says so. Erroring instead would make a half-written profile unloadable rather than inert.
+fn supplied(row: &Row) -> Option<Supply> {
+    if row.remedy != Kind::Supply || !SUPPLIABLE.contains(&row.site.as_str()) {
+        return None;
+    }
+    if row.media_types.is_empty() {
+        return None;
+    }
+    Some(Supply {
+        site: row.site.clone(),
+        fact: Supplied::MediaTypes {
+            by_extension: row.media_types.clone(),
+        },
+    })
+}
+
+/// One `[tool."…"]` block read into a [`Tool`].
+///
+/// Every key but `args` is required, and `doc/rfc/0007` section 4.3 states the reason for the two
+/// that look like they could have defaults: *the right value is a property of the tool and a wrong
+/// default is worse than an absent one*.
+fn declared_tool(tbl: &toml::Table) -> Result<Tool, ConfigError> {
+    let name = tbl.path.get(1).cloned().unwrap_or_default();
+    let missing = |key: &'static str, why: &'static str| ConfigError::ToolWithout {
+        line: tbl.line,
+        tool: name.clone(),
+        key,
+        why,
+    };
+    let wrong = |key: &'static str, value: String, wanted: &'static str| ConfigError::ToolValue {
+        line: tbl.line,
+        tool: name.clone(),
+        key,
+        value,
+        wanted,
+    };
+    let program = tbl
+        .get("program")
+        .and_then(Value::as_text)
+        .ok_or_else(|| missing("program", NO_PROGRAM))?;
+    let args: Vec<String> = tbl
+        .get("args")
+        .and_then(Value::as_list)
+        .map(|items| items.into_iter().map(str::to_owned).collect())
+        .unwrap_or_default();
+    for argument in &args {
+        if let Some(unknown) = unknown_placeholder(argument) {
+            return Err(ConfigError::UnknownPlaceholder {
+                line: tbl.line,
+                tool: name.clone(),
+                placeholder: unknown,
+            });
+        }
+    }
+    let expects = tbl
+        .get("expects")
+        .and_then(Value::as_text)
+        .ok_or_else(|| missing("expects", NO_EXPECTS))?;
+    if !is_media_type(expects) {
+        return Err(wrong("expects", expects.to_owned(), "a MIME media type"));
+    }
+    let timeout = tbl
+        .get("timeout")
+        .and_then(Value::as_text)
+        .ok_or_else(|| missing("timeout", NO_TIMEOUT))?;
+    let timeout = duration(timeout).ok_or_else(|| {
+        wrong(
+            "timeout",
+            timeout.to_owned(),
+            "a time such as 60s, 5m or 2h",
+        )
+    })?;
+    let limit = tbl
+        .get("output-limit")
+        .and_then(Value::as_text)
+        .ok_or_else(|| missing("output-limit", NO_OUTPUT_LIMIT))?;
+    let output_limit = size(limit).ok_or_else(|| {
+        wrong(
+            "output-limit",
+            limit.to_owned(),
+            "a size such as 64MiB, 512KiB or 1GiB",
+        )
+    })?;
+    Ok(Tool {
+        name,
+        program: PathBuf::from(program),
+        args,
+        expects: expects.to_owned(),
+        bounds: Bounds {
+            timeout,
+            output_limit,
+        },
+    })
+}
+
+/// Why `program` has no default.
+const NO_PROGRAM: &str = "a tool is a program on this operator's machine and there is nothing to \
+     guess; write the path the operating system will execute";
+
+/// Why `expects` has no default.
+const NO_EXPECTS: &str = "doc/rfc/0007 section 4.2: what comes back is not trusted, so the tool \
+     declares what it promises to produce and the converter checks it — a tool returning something \
+     other than what it promised would otherwise put arbitrary bytes into an archive";
+
+/// Why `timeout` has no default.
+const NO_TIMEOUT: &str = "doc/rfc/0007 section 4.3: an external program is unbounded by nature, \
+     and the right timeout is a property of the tool, so a wrong default would be worse than an \
+     absent one";
+
+/// Why `output-limit` has no default.
+const NO_OUTPUT_LIMIT: &str = "doc/rfc/0007 section 4.3, the same argument as the timeout's: what \
+     a tool may produce is a property of the tool, and a result past the limit is a failure named \
+     rather than a truncation carried into an archive";
+
+/// The first `{…}` in an argument that is not one this converter substitutes.
+fn unknown_placeholder(argument: &str) -> Option<String> {
+    let mut rest = argument;
+    while let Some(open) = rest.find('{') {
+        let after = rest.get(open..)?;
+        let close = after.find('}')?;
+        let placeholder = after.get(..=close)?;
+        if !PLACEHOLDERS.contains(&placeholder) {
+            return Some(placeholder.to_owned());
+        }
+        rest = after.get(close.saturating_add(1)..)?;
+    }
+    None
+}
+
+/// Whether a string is a MIME media type as Internet RFC 2046 composes one: a type and a subtype.
+fn is_media_type(value: &str) -> bool {
+    let mut halves = value.splitn(2, '/');
+    let (Some(top), Some(sub)) = (halves.next(), halves.next()) else {
+        return false;
+    };
+    let token = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() && byte != b'/')
+    };
+    token(top) && token(sub)
+}
+
+/// A time written as a count and a unit: `500ms`, `60s`, `5m`, `2h`.
+fn duration(value: &str) -> Option<Duration> {
+    for (suffix, scale) in [
+        ("ms", Duration::from_millis(1)),
+        ("s", Duration::from_secs(1)),
+        ("m", Duration::from_mins(1)),
+        ("h", Duration::from_hours(1)),
+    ] {
+        let Some(count) = value.strip_suffix(suffix) else {
+            continue;
+        };
+        let count: u32 = count.parse().ok()?;
+        return scale.checked_mul(count);
+    }
+    None
+}
+
+/// A size written as a count and a binary unit: `4096B`, `512KiB`, `256MiB`, `1GiB`.
+fn size(value: &str) -> Option<u64> {
+    // Longest suffix first: every one of the three binary units ends in `B`, so testing `B`
+    // before them would read `512KiB` as a count of `512Ki` bytes and refuse it.
+    for (suffix, scale) in [
+        ("KiB", 1_u64 << 10),
+        ("MiB", 1 << 20),
+        ("GiB", 1 << 30),
+        ("B", 1),
+    ] {
+        let Some(count) = value.strip_suffix(suffix) else {
+            continue;
+        };
+        let count: u64 = count.parse().ok()?;
+        return count.checked_mul(scale);
+    }
+    None
 }
 
 /// `A57`: `on-failure` picks one alternative, not a chain.
@@ -642,7 +1196,7 @@ fn requirement_binds(id: &str, target: Target) -> bool {
 /// relationship.
 ///
 /// The population is ISO 19005-2 section 6.8's — every file specification dictionary carrying an
-/// `/EF`. The media type is the embedded stream's own `/Subtype`, which §7.11.4.2 makes a MIME
+/// `/EF`. The media type is the embedded stream's own `/Subtype`, which §7.11.4.1's Table 44 makes a MIME
 /// media type; the relationship is §7.11.3's Table 43 `/AFRelationship`, defaulting to
 /// `Unspecified`. Walking every object with an `/EF` mirrors what the validator's predicate does,
 /// so *only XML* means only XML by the same reckoning the requirement was failed on.
@@ -677,7 +1231,11 @@ fn embedded_files(document: &Document) -> Vec<(String, Option<String>, String)> 
 }
 
 /// A file specification's own name, for a report a person reads.
-fn specification_name(
+///
+/// §7.11.3's Table 43 makes `/UF` and `/F` the same file name written twice in two types, and the
+/// Unicode one is preferred where the file states both — `pdf_syntax::text_string` is §7.9.2.2's
+/// decoding. Shared with [`super::remedies`], which needs the same name for the same file.
+pub(super) fn specification_name(
     document: &Document,
     specification: &pdf_syntax::object::Dictionary,
 ) -> String {
@@ -706,7 +1264,30 @@ pub struct Site {
     pub built_discard: Option<Loss>,
     /// Whether this site is one of the two the XML departure may name.
     pub departable: bool,
+    /// Whether a configuration may answer this site with `derive`, which runs an external program.
+    ///
+    /// **The flag `--remedy-sites` prints [`UNTRUSTED_INPUT_WARNING`] beside**, which is
+    /// `doc/questions/A56`'s answer: the warning lives where an operator configures a tool rather
+    /// than in a security document nobody opens, and the two places an operator meets a tool are
+    /// the shipped profiles' `[tool.…]` blocks and this list.
+    pub takes_a_tool: bool,
+    /// Whether a configuration may answer this site with `supply` — the operator's own fact.
+    pub takes_a_supplied_fact: bool,
 }
+
+/// What an operator is agreeing to when they declare a `[tool.…]` block.
+///
+/// **`doc/questions/A56`, in the owner's chosen shape.** Of the options put, the owner chose *no
+/// offer in the first version, warn at the configuration site*: this project cannot confine
+/// somebody else's program to the standard `CLAUDE.md` principle 3 holds its own renderer to —
+/// `LibreOffice` will not run under our seccomp profile — and a confinement profile written against
+/// no particular program is a guess. So the honest thing is the sentence, in the place where the
+/// decision is actually made.
+///
+/// It is printed by `--remedy-sites` for every site that takes a tool, and written above every
+/// `[tool.…]` block in `doc/profiles/`.
+pub const UNTRUSTED_INPUT_WARNING: &str =
+    "this runs a program you chose, on a document you did not write";
 
 /// Every refusal site the target binds, in clause order, for the enumeration.
 ///
@@ -733,6 +1314,8 @@ pub fn sites(target: Target) -> Vec<Site> {
                     .unwrap_or_else(|| requirement.id.to_owned()),
                 built_discard: losses.get(requirement.id).copied(),
                 departable: Departure::SUPPORTED.contains(&requirement.id),
+                takes_a_tool: DERIVABLE.contains(&requirement.id),
+                takes_a_supplied_fact: SUPPLIABLE.contains(&requirement.id),
             })
         })
         .collect()
@@ -868,6 +1451,143 @@ reason = \"Factur-X invoices; our archive accepts them\"
         assert_eq!(built[0].media_types, vec!["application/xml", "text/xml"]);
         // At PDF/A-4f the embedding rule is lifted, so the departure does not apply.
         assert!(config.built_departures(Target::Four(Flavour::F)).is_empty());
+    }
+
+    #[test]
+    fn a_derive_naming_only_the_site_is_refused_by_name() {
+        // **`doc/questions/A55`'s guardrail, as a test.** The owner's answer makes `derive`
+        // unreachable "without the configuration naming the site *and* the tool": a site alone
+        // states half an instruction, and the half it states is *make something that was not in
+        // the document*. So it is an error naming the site rather than a remedy taken on faith.
+        let text = "\
+[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
+remedy = \"derive\"
+";
+        let error = Configuration::read(text, Target::Four(Flavour::Plain))
+            .expect_err("a derive with no tool");
+        let ConfigError::DeriveWithoutTool { site, .. } = &error else {
+            panic!("the site is named: {error}");
+        };
+        assert_eq!(
+            site,
+            "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"
+        );
+        assert!(error.to_string().contains("A55"), "{error}");
+    }
+
+    #[test]
+    fn a_site_naming_a_tool_no_block_declares_is_refused() {
+        let text = "\
+[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
+remedy = \"derive\"
+tool = \"office-to-pdf\"
+";
+        let error = Configuration::read(text, Target::Four(Flavour::Plain))
+            .expect_err("an undeclared tool");
+        assert!(
+            matches!(error, ConfigError::UndeclaredTool { .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_tool_declaration_reads_and_the_keys_with_no_default_are_required() {
+        let text = "\
+[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
+remedy = \"derive\"
+tool = \"office-to-pdf\"
+
+[tool.office-to-pdf]
+program = \"/usr/bin/soffice\"
+args = [\"--headless\", \"--convert-to\", \"pdf\", \"--outdir\", \"{out}\", \"{in}\"]
+expects = \"application/pdf\"
+timeout = \"60s\"
+output-limit = \"256MiB\"
+";
+        let config =
+            Configuration::read(text, Target::Four(Flavour::Plain)).expect("the declaration reads");
+        let derivations = config.derivations(Target::Four(Flavour::Plain));
+        assert_eq!(derivations.len(), 1);
+        let tool = &derivations[0].tool;
+        assert_eq!(tool.bounds.timeout, Duration::from_mins(1));
+        assert_eq!(tool.bounds.output_limit, 256 << 20);
+        // A tool given `{out}` writes there; one that is not writes to standard output.
+        assert_eq!(tool.delivery(), crate::tool::Delivery::OutputDirectory);
+        assert!(config.unbuilt(Target::Four(Flavour::Plain)).is_empty());
+
+        for missing in ["program", "expects", "timeout", "output-limit"] {
+            let without: String = text
+                .lines()
+                .filter(|line| !line.starts_with(missing))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let error = Configuration::read(&without, Target::Four(Flavour::Plain))
+                .expect_err("a key with no default");
+            assert!(
+                matches!(error, ConfigError::ToolWithout { key, .. } if key == missing),
+                "{missing}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_placeholder_outside_the_vocabulary_is_refused_and_names_the_one_left_out() {
+        let text = "\
+[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
+remedy = \"derive\"
+tool = \"t\"
+
+[tool.t]
+program = \"/bin/true\"
+args = [\"{media-type}\"]
+expects = \"application/pdf\"
+timeout = \"1s\"
+output-limit = \"1MiB\"
+";
+        let error = Configuration::read(text, Target::Four(Flavour::Plain))
+            .expect_err("an unknown placeholder");
+        let ConfigError::UnknownPlaceholder { placeholder, .. } = &error else {
+            panic!("{error}");
+        };
+        assert_eq!(placeholder, "{media-type}");
+        // The sentence says why that one in particular is not substituted: the only media type
+        // available at a site running a tool is the document's own, and section 4.1 keeps
+        // document-derived strings out of args.
+        assert!(error.to_string().contains("document-derived"), "{error}");
+    }
+
+    #[test]
+    fn a_supply_whose_table_is_empty_stops_rather_than_erroring() {
+        // `doc/profiles/keep-everything.toml` writes `role-map = { }` with the note *an empty map
+        // stops*, and the same reading holds here: an operator who has not filled the table in has
+        // stated no fact, so the site keeps its refusal and the configuration still loads.
+        let text = "[site.\"embedded-files/associated-file-media-type\"]\nremedy = \"supply\"\n";
+        let target = Target::Four(Flavour::F);
+        let config = Configuration::read(text, target).expect("it reads");
+        assert!(config.supplies(target).is_empty());
+        assert_eq!(config.unbuilt(target).len(), 1);
+    }
+
+    #[test]
+    fn a_derive_whose_tool_promises_something_other_than_a_pdf_is_refused() {
+        let text = "\
+[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
+remedy = \"derive\"
+tool = \"t\"
+
+[tool.t]
+program = \"/bin/true\"
+args = []
+expects = \"text/csv\"
+timeout = \"1s\"
+output-limit = \"1MiB\"
+";
+        let error = Configuration::read(text, Target::Four(Flavour::Plain))
+            .expect_err("a tool that cannot answer the requirement");
+        assert!(
+            matches!(error, ConfigError::NotBuiltThatWay { .. }),
+            "{error}"
+        );
     }
 
     #[test]

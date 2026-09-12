@@ -81,7 +81,7 @@
 //! Of the 559 lines, **313 carry code and 96 of those are the tests**; sixty are this
 //! comment, which is the design argument the caller's `doc/QUORRA_ENCODE_THREADS.md`
 //! asked for and the reason a reader can check the determinism claim at all.
-//! `doc/HANDOVER.md` recorded that this file "was left because ADR 0054 had landed in it
+//! `raster/doc/HANDOVER.md` recorded that this file "was left because ADR 0054 had landed in it
 //! two commits earlier" — that reason has expired, and this paragraph replaces it with
 //! one that does not.
 
@@ -121,7 +121,7 @@ pub(super) fn in_flight_limit(frame_budget_bytes: u64) -> u64 {
 ///
 /// A weight rather than a job count, because six 40 000-segment fills are more work
 /// than six thousand triangles and the fan-out should take the first. The measurement
-/// that set it is in `doc/notes-encode-threads.md`; the median corpus page (twelve
+/// that set it is in `raster/doc/notes-encode-threads.md`; the median corpus page (twelve
 /// marks, ninety-six segments) is two orders of magnitude below it, which is the
 /// property the caller's §4 asks for by name.
 const PARALLEL_FLOOR_SEGMENTS: u64 = 4_096;

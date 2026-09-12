@@ -6,7 +6,7 @@
 //! side of that seam and says so in its own comment.
 //!
 //! The layers are `PLAN.md`'s M9 entry — a page, a selection, a sidebar and a modal
-//! card — sized from the caller's own tree in `doc/notes-present-quad.md` §1. They are
+//! card — sized from the caller's own tree in `raster/doc/notes-present-quad.md` §1. They are
 //! carried here at **their** window (2048 × 2560) purely so that
 //! [`the_shapes_are_the_ones_adr_0058_counted`] can check this file's arithmetic against
 //! ADR 0058's published totals; the run measures at whatever window the display can
@@ -31,7 +31,7 @@ pub(crate) struct Shape {
 /// The caller's four layers at the caller's own 2048 × 2560 — their §2's 1280 × 1600
 /// window at a device scale of 1.6.
 ///
-/// **The selection's extent was recovered rather than read.** `doc/notes-present-quad.md`
+/// **The selection's extent was recovered rather than read.** `raster/doc/notes-present-quad.md`
 /// §1 records the other three from the caller's tree and leaves the selection at "see
 /// below", because a selection has no natural size; what it does record is the totals its
 /// instrument produced, and two of those rows (with the modal and without it) give the
@@ -210,7 +210,7 @@ pub(crate) fn the_shapes_are_the_ones_adr_0058_counted() {
         assert_eq!(
             got, want,
             "{label}: this file's shapes draw {got} fragments at {width} x {height}; \
-             ADR 0058 and doc/notes-present-quad.md §2 count {want}",
+             ADR 0058 and raster/doc/notes-present-quad.md §2 count {want}",
         );
     };
     same(

@@ -35,7 +35,7 @@ pub fn black() -> Paint {
 /// **What this fixture is, and is not.** It exercises the analytic rectangle lane through
 /// the command nothing sends: measured over the caller's 995-page corpus **not one page
 /// emits a single `Command::Rect`** — every rectangle a real document draws arrives as a
-/// `Fill` whose outline happens to be one (`doc/corpus-profile.md`). Since ADR 0047 such
+/// `Fill` whose outline happens to be one (`raster/doc/corpus-profile.md`). Since ADR 0047 such
 /// a fill takes this same lane, so the lane below is no longer unused by documents; what
 /// stays true is that they enter it by the other door, and that a page of nothing but
 /// rectangles is a floor measurement rather than a page measurement. The page shapes

@@ -57,7 +57,7 @@
 
 use pdf_syntax::{Document, Permissions};
 
-use crate::signature::Modification;
+use pdf_signature::signature::Modification;
 
 /// One position of §7.6.4.2's Table 22, named whether or not anything here consumes it.
 ///
@@ -175,7 +175,7 @@ impl Bit {
 /// One variant per verb this program has and that a clause names, which is deliberately not the
 /// whole of Table 22: an operation nothing here performs is an operation no restriction can bite
 /// on, and an enum arm for it would claim otherwise. The same discipline
-/// [`crate::signature::Right`] follows. The bits themselves are all named, in [`Bit`], so that
+/// [`pdf_signature::signature::Right`] follows. The bits themselves are all named, in [`Bit`], so that
 /// the absence of an arm is legible as a decision about this program rather than a reading of
 /// the table that stopped early.
 ///
@@ -391,7 +391,7 @@ pub fn asserted(
     annotation: Option<pdf_syntax::ObjectId>,
 ) -> Vec<Restriction> {
     let mut out = Vec::new();
-    if let Some(level) = crate::signature::permissions(document).doc_mdp
+    if let Some(level) = pdf_signature::signature::permissions(document).doc_mdp
         && !certification_permits(level, operation)
     {
         out.push(Restriction::Certified { level });
@@ -404,13 +404,13 @@ pub fn asserted(
     if operation == Operation::FillInForm
         && let Some(field) = field
     {
-        if crate::signature::field_locks(document)
+        if pdf_signature::signature::field_locks(document)
             .iter()
             .any(|lock| lock.covers(field))
         {
             out.push(Restriction::FieldLocked);
         }
-        if crate::signature::field_mdp(document)
+        if pdf_signature::signature::field_mdp(document)
             .iter()
             .any(|covered| covered.covers(field))
         {

@@ -70,6 +70,8 @@ fn quadrants() -> Image {
         // sampler draws four flat rectangles and a placement error moves an edge rather
         // than shading it.
         interpolate: false,
+        // Four opaque samples and no mask: §11.6.4.2's rectangle, which is `Shape`.
+        sample_alpha: pdf_render::SampleAlpha::Shape,
     }
 }
 

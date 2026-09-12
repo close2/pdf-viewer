@@ -1,6 +1,6 @@
 Status: complete
 Given: 2026-09-12, in conversation — transcribed by the round
-Owes: the warning at the tool-configuration site (acting round)
+Owes: none
 
 > The owner chose, of the options presented: *no offer in the first version, warn at the
 > configuration site*.

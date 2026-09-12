@@ -1,4 +1,4 @@
-//! The four shipped profiles, held to the configuration format they are written in.
+//! The shipped profiles, held to the configuration format they are written in.
 //!
 //! `doc/profiles/*.toml` are `doc/rfc/0007` section 5a's profiles — a configuration is a list of
 //! refusal sites with an answer beside each, and a profile is one this project ships. They were
@@ -29,11 +29,16 @@ const TARGETS: [Target; 6] = [
     Target::Four(Flavour::E),
 ];
 
-const PROFILES: [&str; 4] = [
+const PROFILES: [&str; 5] = [
     "refuse-any-loss",
     "as-if-printed",
     "only-metadata-loss",
     "keep-everything",
+    // `doc/rfc/0007` section 3's own example, made real by the round that built `derive` and
+    // `supply` — and the one shipped file that declares a `[tool.…]` block a site references, so
+    // it is where the format's guardrails are exercised by something an operator would actually
+    // install.
+    "derive-attachments",
 ];
 
 fn profile(name: &str) -> String {
@@ -71,4 +76,44 @@ fn refuse_any_loss_authorises_nothing() {
         pdf_transform::archive::Authorisations::default()
     );
     assert!(config.departures.is_empty());
+}
+
+#[test]
+fn every_profile_declaring_a_tool_carries_the_warning_the_owner_asked_for() {
+    // **`doc/questions/A56`, as a property of the shipped files rather than as a habit.** Of the
+    // options put, the owner chose *no offer in the first version, warn at the configuration
+    // site* — so the sentence lives where an operator declares a program, and a profile that grew
+    // a `[tool.…]` block without it would be one whose reader is never told. The other place the
+    // warning is printed is `archive --remedy-sites`, for a site that takes one.
+    for name in PROFILES {
+        let text = profile(name);
+        if !text.contains("[tool.") {
+            continue;
+        }
+        assert!(
+            text.contains(pdf_transform::archive::UNTRUSTED_INPUT_WARNING),
+            "{name}.toml declares a tool and does not say: {}",
+            pdf_transform::archive::UNTRUSTED_INPUT_WARNING
+        );
+    }
+}
+
+#[test]
+fn the_derive_profile_names_a_site_and_a_tool_together() {
+    // `doc/questions/A55`'s guardrail, read off a file an operator would install: a `derive` row
+    // that named only the site would not load at all — `ConfigError::DeriveWithoutTool` — so the
+    // shipped example cannot drift into being one.
+    let text = profile("derive-attachments");
+    let target = Target::Four(Flavour::Plain);
+    let config = Configuration::read(&text, target).expect("it loads");
+    let derivations = config.derivations(target);
+    assert_eq!(
+        derivations.len(),
+        1,
+        "one of the two spellings binds part 4"
+    );
+    assert_eq!(derivations[0].tool.name, "office-to-pdf");
+    assert_eq!(derivations[0].tool.expects, "application/pdf");
+    // And the `supply` it ships is built too, so the file promises nothing it cannot keep.
+    assert_eq!(config.supplies(Target::Four(Flavour::F)).len(), 1);
 }

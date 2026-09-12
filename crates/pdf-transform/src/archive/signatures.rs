@@ -43,11 +43,11 @@
 //!
 //! Section 3.6 asks that "[t]he report names each signature, its signer and whether it currently
 //! validates". Each [`SourceSignature`] is that line: `/Name`, `/M`, and the answers to §12.8.1's
-//! first two questions — [`pdf_model::signature::Signature::integrity`] and
+//! first two questions — [`pdf_signature::signature::Signature::integrity`] and
 //! [`Signature::authenticity`] — computed over the *source's* bytes, which is the only file the
 //! signature was ever a statement about. Its `/ByteRange` coverage is stated the same way, so a
 //! range the source got wrong is written into the report rather than dropped with the rest (ADR
-//! 1003). Nothing here uses the word *valid*, for the reason `pdf_model::signature` gives: a
+//! 1003). Nothing here uses the word *valid*, for the reason `pdf_signature::signature` gives: a
 //! matching digest and a verifying value prove the file and the certificate belong together, and
 //! say nothing about who the signer is.
 //!
@@ -73,7 +73,7 @@
 use std::collections::BTreeSet;
 
 use pdf_model::Pages;
-use pdf_model::signature::{
+use pdf_signature::signature::{
     self, Authenticity, Coverage, Integrity, Modification, Signature, Signed,
 };
 use pdf_syntax::object::{Dictionary, Object, ObjectId};

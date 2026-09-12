@@ -1,6 +1,6 @@
 //! Handles: uploaded once, referenced many times.
 //!
-//! `doc/RENDER_LIBRARY.md` §2.2 gives the reason these exist at all — **the 107 distinct
+//! `raster/doc/RENDER_LIBRARY.md` §2.2 gives the reason these exist at all — **the 107 distinct
 //! outlines of one dense page are uploaded once and referenced 5 933 times**, and a zoom
 //! must re-upload none of them. Separating upload from scene building is what makes that
 //! possible, and an identifier is what a scene carries instead of the data.
@@ -33,7 +33,7 @@ pub struct OutlineId(pub u32);
 ///
 /// Straight-alpha RGBA8, row-major, no padding — see §3, and note that the filtering
 /// decision is made upstream and reaches us resolved, not as the flag it came from
-/// (`doc/PLAN.md`, integration note 1).
+/// (`raster/doc/PLAN.md`, integration note 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageId(pub u32);
 

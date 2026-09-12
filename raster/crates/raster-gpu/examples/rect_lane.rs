@@ -31,7 +31,7 @@
 //! mark. Both are printed rather than assumed, because a lane that changed silently is
 //! how this example's own first version came to compare a computation with itself.
 //!
-//! The numbers before that change are in `doc/PLAN.md`'s 2026-08-14 entry and are the
+//! The numbers before that change are in `raster/doc/PLAN.md`'s 2026-08-14 entry and are the
 //! reason it was made: 0.13–0.49 µs a rectangle, on the population that is most of what
 //! a document's `re` operator produces.
 //!
@@ -58,7 +58,7 @@ use raster_scene::{
     Size,
 };
 
-/// The caller's window, and the size every number in `doc/PLAN.md` is quoted at.
+/// The caller's window, and the size every number in `raster/doc/PLAN.md` is quoted at.
 const WIDTH: u32 = 1191;
 const HEIGHT: u32 = 1684;
 
@@ -180,7 +180,7 @@ struct Lane {
 /// Time every scene once per round rather than each scene to exhaustion, so a load
 /// spike falls on all of them instead of on whichever was running.
 ///
-/// This machine is somebody's desktop and `doc/HANDOVER.md`'s first trap is that wall
+/// This machine is somebody's desktop and `raster/doc/HANDOVER.md`'s first trap is that wall
 /// clocks lie under load; ADR 0040 is the whole cost of not doing this. Contiguous
 /// blocks put a factor of three between two runs of this example at load 85.
 fn round_robin(
@@ -275,7 +275,7 @@ fn measure_size(device: &mut Device, target: &wgpu::Texture, n: u32, rounds: u32
 /// `cargo test` neither builds nor runs an example (ADR 0060); CI runs `--check` for
 /// every example named in `.github/workflows/ci.yml`. A single round is not a
 /// measurement and the numbers it prints are not one; the sweep's own rounds (400 and
-/// 60) are what `doc/PLAN.md`'s rows are read from.
+/// 60) are what `raster/doc/PLAN.md`'s rows are read from.
 fn main() {
     let check = std::env::args().any(|arg| arg == "--check");
     let adapters: &[&str] = if check {

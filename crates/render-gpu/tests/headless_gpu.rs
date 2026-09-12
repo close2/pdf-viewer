@@ -767,6 +767,8 @@ fn cpu_and_gpu_agree_on_an_image() {
             // same *sampler*: sixteen samples over 120x80 pixels is magnification, where
             // one backend filtering and the other not would be visible everywhere.
             interpolate: false,
+            // Opaque samples under no mask: §11.6.4.2's image rectangle, which is `Shape`.
+            sample_alpha: pdf_render::SampleAlpha::Shape,
         }
         .into(),
         // Deliberately not the whole page, and not square, so that an inverted or
@@ -1056,6 +1058,8 @@ fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
             height,
             data: data.into(),
             interpolate: false,
+            // Opaque samples under no mask: §11.6.4.2's image rectangle, which is `Shape`.
+            sample_alpha: pdf_render::SampleAlpha::Shape,
         }
         .into(),
         // Five samples per pixel across and ten down, so the two axes reduce by different
@@ -1532,6 +1536,9 @@ fn cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour() {
             data: data.into(),
             // §8.9.5.3's entry, which is the condition the sentence above is stated under.
             interpolate: true,
+            // §11.6.4.2: a stencil's alpha is its shape, "1.0 for painted areas and 0.0 for
+            // masked areas", which is what this fixture's alternating samples are.
+            sample_alpha: pdf_render::SampleAlpha::Shape,
         }
         .into(),
         transform: Transform::scale(160.0, 160.0).then(Transform::translate(20.0, 20.0)),

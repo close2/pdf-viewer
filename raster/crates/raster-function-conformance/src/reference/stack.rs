@@ -59,7 +59,7 @@ impl Stack {
     /// **The 0 is an integer**, and that is a second choice inside the first: a `0`
     /// written in a PostScript program scans as an integer, and an integer coerces into
     /// every numeric context where a real does not — `and`, `not`, `idiv`, `mod` and
-    /// `bitshift` all reject a real. `doc/notes-function-conformance.md` records it as a
+    /// `bitshift` all reject a real. `raster/doc/notes-function-conformance.md` records it as a
     /// question for the caller rather than as a reading of any clause.
     pub fn pop(&mut self) -> Value {
         let Some(value) = self.values.pop() else {

@@ -2,7 +2,7 @@
 //!
 //! # Why this crate exists
 //!
-//! A page is a measured object. `doc/corpus-profile.md` says what the caller's corpus
+//! A page is a measured object. `raster/doc/corpus-profile.md` says what the caller's corpus
 //! is made of; `crates/raster-gpu/tests/archetypes.rs` gates what each of those shapes
 //! costs; and half a dozen instruments in `crates/raster-gpu/examples/` measure the same
 //! shapes with a clock. Until 2026-08-17 each of those held its **own copy** of the

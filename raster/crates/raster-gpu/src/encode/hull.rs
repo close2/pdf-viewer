@@ -12,7 +12,7 @@
 //! returns are the bounds the direct computation returns, **bit for bit**, which is why
 //! no counter, no lane choice and no pixel moves.
 //!
-//! **The benchmark, and it is the whole justification** (`doc/adr/0045`, callgrind on
+//! **The benchmark, and it is the whole justification** (`raster/doc/adr/0045`, callgrind on
 //! the dense-text archetype — 4 320 commands, 818 outlines, 1191×1684, `Coverage::Cpu`,
 //! quantum 16, two warm-up encodes then one steady one):
 //!

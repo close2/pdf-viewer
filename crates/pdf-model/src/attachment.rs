@@ -137,7 +137,7 @@ pub struct Attachment {
     /// Table 45's `/CreationDate` and `/ModDate`, as the §7.9.4 date strings the file wrote.
     ///
     /// The file's own bytes, with [`Attachment::created_date`] and [`Attachment::modified_date`]
-    /// beside them for the parse — see [`crate::signature::Signature::signed_at`] for why both.
+    /// beside them for the parse — see [`pdf_signature::signature::Signature::signed_at`] for why both.
     pub created: Option<String>,
     /// The modification date, likewise.
     pub modified: Option<String>,

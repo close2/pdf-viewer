@@ -1,0 +1,53 @@
+[package]
+name = "pdf-signature"
+description = "ISO 32000-2 §12.8's digital signatures: the dictionaries, and the cryptography that answers them."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The object identifiers the elliptic-curve family is named by, as a second party's reading of
+# the registries that assign them rather than as digits typed from memory. Already in this graph
+# through `digest`; see the workspace manifest and ADR 0532.
+const-oid.workspace = true
+# §12.8.3's signature arithmetic: `bigint.rs` is a seam over this crate's `BoxedUint`, keeping
+# the budgets and refusal names ours while the multiplications are reviewed code. ADR 0331.
+crypto-bigint.workspace = true
+# The generic half of `ecdsa.rs`: one verification written once over the three curves below.
+ecdsa.workspace = true
+# ISO/TS 32002 Table 4's Ed25519, the EdDSA row its section 5.1.2 adds to Table 260. `eddsa.rs`
+# is the one place it is named; see the workspace manifest and ADR 0532.
+ed25519-dalek.workspace = true
+# One of §12.8.3's six digest functions, and the only one `sha1`/`sha2`/`sha3` do not carry.
+md-5.workspace = true
+# ISO/TS 32002 Table 3's first three curves, for `ecdsa.rs`. Three packages rather than one
+# because a curve crate is one curve; see the workspace manifest and ADR 0532.
+p256.workspace = true
+p384.workspace = true
+p521.workspace = true
+# §12.8.1's `/ByteRange` is a range of the file's bytes and Table 255 is a dictionary, so the
+# object reader is what this crate is built over. It is the only internal dependency, and
+# `pdf-model` is deliberately not among them: a signature is read from the object graph, never
+# from the page tree (ADR 1020).
+pdf-syntax.workspace = true
+# §12.8.3's six digest functions, between them and `md-5` above. `cms::Digest` is the one place
+# any of them is named; see the workspace manifest and ADR 0215.
+ripemd.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+# ISO/TS 32001's four, beside the base standard's six: three of them here and SHAKE256 in
+# `shake`, which is where `sha3` 0.12 moved it. Same `digest` 0.11 line as the three above; see
+# the workspace manifest and ADR 0390.
+sha3.workspace = true
+shake.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# `examples/signature_algorithm_census.rs` reads every corpus document; the walk is
+# embarrassingly parallel and the census is a measurement rather than a gate.
+rayon.workspace = true
+
+[lints]
+workspace = true

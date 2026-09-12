@@ -492,6 +492,9 @@ fn wrap(raster: Raster) -> Arc<DisplayList> {
             height,
             data: data.into(),
             interpolate: false,
+            // A screen of the viewer's own pixels, not a document's image: nothing in §11
+            // composites it, so its alpha states the rectangle it covers (ADR 1022).
+            sample_alpha: pdf_render::SampleAlpha::Shape,
         }
         .into(),
         transform: Transform::scale(page_width, page_height),

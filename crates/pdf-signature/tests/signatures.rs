@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_model::signature::{
+use pdf_signature::signature::{
     Authenticity, Coverage, Integrity, Right, Signature, UsageRights, permissions, signatures,
 };
 use pdf_syntax::Document;
@@ -139,10 +139,10 @@ fn the_corpus_states_the_fields_one_signature_covers() {
             continue;
         };
         let name = path.file_name().unwrap_or_default().to_string_lossy();
-        if !pdf_model::signature::field_locks(&document).is_empty() {
+        if !pdf_signature::signature::field_locks(&document).is_empty() {
             locks.push(name.to_string());
         }
-        let covered = pdf_model::signature::field_mdp(&document);
+        let covered = pdf_signature::signature::field_mdp(&document);
         if !covered.is_empty() {
             transforms.push(format!("{name}: {covered:?}"));
         }
@@ -635,8 +635,8 @@ fn flipped(signature: &Signature) -> Signature {
 /// says so** where it is not there, exactly as the pdf.js tests above do for their submodule.
 #[test]
 fn the_crawls_one_ecdsa_signature_verifies_under_its_own_p256_certificate() {
-    use pdf_model::ecdsa::Curve;
-    use pdf_model::signature::Family;
+    use pdf_signature::ecdsa::Curve;
+    use pdf_signature::signature::Family;
 
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../corpus-cache/safedocs/cc-main-2021-31/6100/6100006.pdf");

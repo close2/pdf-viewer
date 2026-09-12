@@ -82,7 +82,7 @@ const HEIGHT: u32 = 1684;
 /// **§6.2's page** — dense text at the corpus's p99 — and **the grouped shape**, whose
 /// first frame is the one that needs `Composite` and `Blit` for the surface's format.
 /// Both were private copies of the archetype generator in this file until 2026-08-17;
-/// the numbers `doc/PLAN.md` carries for the real-display row were taken on those copies,
+/// the numbers `raster/doc/PLAN.md` carries for the real-display row were taken on those copies,
 /// and the copies were re-cut with the fixture on the same day.
 const SHAPES: [&Archetype; 2] = [&DENSE_TEXT, &ARTWORK];
 
@@ -348,7 +348,7 @@ impl Measure {
                     assert_eq!(
                         recorded(&frame.counters()),
                         shape.recorded.expect("both shapes are priced pages"),
-                        "{}: this is not the page `doc/PLAN.md`'s real-display row is \
+                        "{}: this is not the page `raster/doc/PLAN.md`'s real-display row is \
                          attributed to",
                         shape.name,
                     );

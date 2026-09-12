@@ -3,13 +3,13 @@
 //! # This file asserts a behaviour it does not defend
 //!
 //! PLRM3's entry for the four order comparisons takes `num₁ num₂`, and its own sentence is
-//! the one `doc/notes-function-wiring.md` §2.3 quotes:
+//! the one `raster/doc/notes-function-wiring.md` §2.3 quotes:
 //!
 //! > If the operands are of other types … a `typecheck` error occurs.
 //!
 //! We do not raise it. On the operand stack a boolean *is* the `f32` `1.0` or `0.0`, the
 //! lowering emits the numeric comparison, and the shader answers with a value where the
-//! entry has none. That is a deliberate hold rather than an oversight — `doc/notes-function-wiring.md`
+//! entry has none. That is a deliberate hold rather than an oversight — `raster/doc/notes-function-wiring.md`
 //! §2.3 records why: it is the same shape as every other guarded error in
 //! `function_ops.wgsl` (a zero divisor, a negative `sqrt`), and ADR 0053 §3.2 already has
 //! the guard value open as a contract question with the caller. Changing one member of that
@@ -130,7 +130,7 @@ fn an_order_comparison_on_booleans_is_answered_numerically_today() {
 ///
 /// `eq`'s answer is the one that *is* derived from the specification — PLRM3: "Simple
 /// objects are equal if their types and values are the same", so a boolean and a number are
-/// never equal, and `doc/notes-function-wiring.md` §2.2 records the corpus case that found
+/// never equal, and `raster/doc/notes-function-wiring.md` §2.2 records the corpus case that found
 /// us answering the opposite. It is asserted here beside the unpinned three so that a
 /// reader can see which of the four rows carries a clause and which carry only a behaviour.
 #[test]

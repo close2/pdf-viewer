@@ -25,7 +25,7 @@
 //!
 //! # The fixture, and why it is built the way it is
 //!
-//! `doc/HANDOVER.md`: *a determinism fixture that does not overlap is not a determinism
+//! `raster/doc/HANDOVER.md`: *a determinism fixture that does not overlap is not a determinism
 //! fixture.* ADR 0054's first thread-count gate used a lattice where no two marks touched
 //! and it passed with an ordering drain removed. So this file does not argue that its
 //! marks overlap — [`the_nested_fixture_is_order_sensitive`] draws the same marks in the
@@ -315,7 +315,7 @@ fn draw(threads: usize, reversed: bool) -> (Vec<u8>, Counters) {
 ///
 /// The same marks at the same places with the same colours, emitted in the opposite
 /// order, must draw a different page. A fixture whose marks do not touch is identical
-/// under this transformation, so this is the property `doc/HANDOVER.md` says a determinism
+/// under this transformation, so this is the property `raster/doc/HANDOVER.md` says a determinism
 /// fixture must have — and the reason every equality below means something.
 #[test]
 fn the_nested_fixture_is_order_sensitive() {

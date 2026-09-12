@@ -31,7 +31,7 @@ use crate::error::SceneError;
 /// ISO 32000-2 bounds a type 4 function's length nowhere, so this is a deliberate choice
 /// of ours with its cost written down rather than a number read out of a clause.
 ///
-/// The anchor is `doc/spike-function-paint.md`: the largest type 4 program in either of
+/// The anchor is `raster/doc/spike-function-paint.md`: the largest type 4 program in either of
 /// the caller's two witnesses is **482 instructions**, and the generated shader for it
 /// took **6.3 ms** to compile with a cold driver cache. 8 192 is seventeen times that
 /// witness; extrapolating the compile cost linearly — an extrapolation, not a

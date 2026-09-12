@@ -1,7 +1,7 @@
 //! The content hash a generated pipeline is cached by.
 //!
 //! One responsibility: **a number that is the same for two programs that generate the same
-//! shader, and different otherwise.** `doc/adr/0053` makes the paint "a generated shader
+//! shader, and different otherwise.** `raster/doc/adr/0053` makes the paint "a generated shader
 //! cached by the program's hash", and this is that hash; the cache itself is not built here.
 //!
 //! # Why this is not [`crate::keyhash::KeyHasher`], and not `DefaultHasher`

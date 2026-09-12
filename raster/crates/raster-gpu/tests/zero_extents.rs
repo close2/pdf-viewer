@@ -1,7 +1,7 @@
 //! A zero-sized thing is a legal thing for a document to ask for, and each kind of it has
 //! its own answer.
 //!
-//! `doc/notes-ceilings-audit.md` §4 is the round this file witnesses, and the question is
+//! `raster/doc/notes-ceilings-audit.md` §4 is the round this file witnesses, and the question is
 //! the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1 on their `#351`,
 //! `#352` and `#357`:
 //!
@@ -9,7 +9,7 @@
 //! > every renderer answers eventually is whether the zero is caught at the top (where a
 //! > frame can be skipped) or at the bottom (where a `Vec` is indexed).
 //!
-//! `doc/PLAN.md` already states the intended answer — "a blank scene is a legitimate
+//! `raster/doc/PLAN.md` already states the intended answer — "a blank scene is a legitimate
 //! scene, and so is a zero-length buffer slice that follows from one" — so what is wanted
 //! here is whether it holds for every kind, gated rather than asserted in prose. **Two
 //! kinds of answer, and each test says which it is:**
@@ -204,7 +204,7 @@ fn a_soft_mask_whose_group_marks_nothing_masks_everything() {
 /// `/MediaBox` rounds to zero pixels in one axis, ours is a path whose device extent does.
 /// The fill itself still reaches `coverage_tile`, which returns `None` before a tile is
 /// charged or allocated — the "zero-length buffer slice that follows from a blank scene"
-/// `doc/PLAN.md` calls legitimate — while the *ink* the row shows is the resident
+/// `raster/doc/PLAN.md` calls legitimate — while the *ink* the row shows is the resident
 /// collapse table's mark, placed beside the fill by the encode (`tests/collapsed_fills.rs`
 /// holds the mark itself; this test holds that the degenerate coverage path underneath it
 /// neither charges nor refuses). The second mark is here so that a frame which gave up on

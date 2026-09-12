@@ -106,7 +106,7 @@ impl Worst {
 /// grid's own ¼ pitch, so the band's edges stood in exactly the same relation to the
 /// lattice at all four and phase 2's ladder came back with **one rung**. The run looked
 /// like a measurement and was the quantiser's fixed points, which is the trap
-/// `doc/notes-glyph-phase-carry.md` §2 records having already been paid for once. Seven
+/// `raster/doc/notes-glyph-phase-carry.md` §2 records having already been paid for once. Seven
 /// shares no factor with 2, 4, 8 or 16, which is every grid this instrument sweeps
 /// against.
 pub(crate) const CHECK_STEPS: u32 = 7;

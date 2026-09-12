@@ -1,8 +1,8 @@
 //! `Counters::lanes`: the instrument §11.2's census is taken with
-//! (`doc/notes-census.md`), beside ADR 0057's `Counters::coverage`, which is what the
+//! (`raster/doc/notes-census.md`), beside ADR 0057's `Counters::coverage`, which is what the
 //! census reads for the work a lane causes.
 //!
-//! §1.1 of `doc/PLAN.md` asserts that most of a page is repeated glyph outlines and
+//! §1.1 of `raster/doc/PLAN.md` asserts that most of a page is repeated glyph outlines and
 //! axis-aligned rectangles and that general curve filling is the *rare* case. That is the
 //! premise the whole architecture is arranged around, and every claim in this file is
 //! about the counter that can now say whether a given page agrees with it.
@@ -139,7 +139,7 @@ fn every_placement_of_one_shape_is_its_own_glyph_lane_mark() {
 
 /// A stroke never reaches the atlas — its expansion is a polygon, not the outline the
 /// cache keys on — so every stroke a page states is a path-lane mark. Over the caller's
-/// corpus that is **81 %** of the whole path lane (`doc/notes-census.md`), which is why
+/// corpus that is **81 %** of the whole path lane (`raster/doc/notes-census.md`), which is why
 /// the population is pinned here rather than left to the corpus alone.
 #[test]
 fn a_stroke_is_a_path_lane_mark() {

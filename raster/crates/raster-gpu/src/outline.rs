@@ -54,7 +54,7 @@
 //!
 //! `triangles` is a private module re-exported from here, so `crate::outline::`
 //! resolves every name it did before and nothing outside this file learned that the
-//! division happened (`doc/adr/0051`).
+//! division happened (`raster/doc/adr/0051`).
 
 use raster_scene::{Point, Segment};
 

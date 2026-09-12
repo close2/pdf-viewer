@@ -10,7 +10,7 @@
 //!   the right one of its two meanings without a run-time type tag;
 //! - **the count of every `copy`, `index` and `roll`**, because a generated shader cannot
 //!   name a slot it cannot compute;
-//! - **whether an inexact operator reaches an amplifier** — `doc/adr/0053` §3's
+//! - **whether an inexact operator reaches an amplifier** — `raster/doc/adr/0053` §3's
 //!   classification, and the reason a program can be accepted at all;
 //! - **whether the program pops an empty operand stack**, which is a decision rather than a
 //!   reading and must therefore be reported.

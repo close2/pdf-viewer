@@ -5,6 +5,9 @@
 //! one. That is the same discipline `tools/conformance` applies to this project's own claims,
 //! and the reason `doc/rfc/0006` argues the validator is the larger part of the value.
 
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
 use pdf_syntax::ObjectId;
 
 /// Where in a document a requirement failed.
@@ -82,15 +85,50 @@ pub struct Finding {
 pub struct Findings {
     kept: Vec<Finding>,
     seen: usize,
+    /// How many of those named an object, past the bound as well as inside it.
+    objects: usize,
+    /// Objects ISO 19005 section 6.2.2's exemption puts outside this requirement's population.
+    exempt: Option<Arc<BTreeSet<ObjectId>>>,
 }
 
 /// How many places one requirement reports before it starts counting instead.
 const MAX_KEPT: usize = 32;
 
 impl Findings {
+    /// The same, for a requirement section 6.2.2's exemption narrows.
+    ///
+    /// **A narrowing of the population, not a filter over the findings**, and the difference is
+    /// [`Self::truncated`]: a report keeps the first [`MAX_KEPT`] places and counts the rest, so
+    /// a filter applied afterwards could only ever see a prefix and would have to guess about
+    /// everything past it. An exempt object dropped here is never *seen*, which is what the
+    /// clause says — the resource is not used for rendering, so the requirement has nothing to
+    /// be met or failed about there.
+    ///
+    /// Only a finding that names an object is dropped. A requirement that reports a page or the
+    /// file for a fault whose subject is an exempt object keeps its finding, which over-reports
+    /// rather than under-reports — the direction `doc/todo/62` section 3 argues every unit of
+    /// risk in this work lies against.
+    #[must_use]
+    pub fn exempting(exempt: Arc<BTreeSet<ObjectId>>) -> Self {
+        Self {
+            kept: Vec::new(),
+            seen: 0,
+            objects: 0,
+            exempt: Some(exempt),
+        }
+    }
+
     /// Records a place the requirement was not met.
     pub fn record(&mut self, place: Where, what: impl Into<String>) {
+        if let Some(exempt) = self.exempt.as_ref()
+            && place.object.is_some_and(|id| exempt.contains(&id))
+        {
+            return;
+        }
         self.seen = self.seen.saturating_add(1);
+        if place.object.is_some() {
+            self.objects = self.objects.saturating_add(1);
+        }
         if self.kept.len() < MAX_KEPT {
             self.kept.push(Finding {
                 place,
@@ -109,6 +147,24 @@ impl Findings {
     #[must_use]
     pub const fn seen(&self) -> usize {
         self.seen
+    }
+
+    /// Whether any place this requirement reported names an object.
+    ///
+    /// **What makes the unreferenced-resource exemption affordable.** `crate::check` narrows a
+    /// failing requirement's population by running its predicate a second time against
+    /// [`Self::exempting`], and a requirement whose places are pages or the file itself can have
+    /// nothing withdrawn — [`Self::exempting`] drops a finding by its object and by nothing else.
+    /// Asking this first skips the second run for every such row. It counts past the bound as
+    /// well as inside it, because the answer has to be about what the predicate *found* rather
+    /// than about the prefix a report keeps.
+    ///
+    /// The measurement that put it here: a full PDF/A-4 report over ISO 32000-2's own
+    /// specification, whose dearest failing requirement reports a place per page over 1023 pages
+    /// and names no object at any of them.
+    #[must_use]
+    pub const fn named_an_object(&self) -> bool {
+        self.objects > 0
     }
 
     /// Whether the list is a prefix of what was found rather than the whole of it.

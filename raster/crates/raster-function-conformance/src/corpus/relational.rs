@@ -297,7 +297,7 @@ pub const CASES: &[Case] = &[
         &[Op::PushInt(63), Op::Not],
         &[-64.0],
         "PLRM3 ch. 8, `not`, by the same sentence: ¬63 = −64 in two's complement. This \
-         is the case `doc/spike-function-paint.md` §7 found the caller's evaluator \
+         is the case `raster/doc/spike-function-paint.md` §7 found the caller's evaluator \
          answering with 0.0, because its compiled form carries no type on a literal — \
          which is why the pinned vocabulary has both `PushInt` and `PushReal`.",
     ),

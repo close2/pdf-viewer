@@ -45,7 +45,7 @@ struct SolidFill<'a> {
     /// `&'a StoredOutline` and not a second `OutlineId` lookup: this is a borrow of the
     /// store, which the encoder holds as `&'a ResourceStore` for the whole frame, so it
     /// is independent of the `&mut self` the three lanes below need. Measured on the
-    /// caller's 58 009-mark page (callgrind, `doc/notes-fill-solid-lookup.md`): the
+    /// caller's 58 009-mark page (callgrind, `raster/doc/notes-fill-solid-lookup.md`): the
     /// second probe was **9.5 M instructions, 2.3 % of that page's `recording`**, and
     /// **5.8 % of the dense-text archetype's**.
     stored: &'a crate::resources::StoredOutline,

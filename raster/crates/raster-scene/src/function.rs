@@ -28,8 +28,8 @@
 //! a page whose whole content is one such shading costs them 1 142.8 ms of scene
 //! building. Evaluating it in a generated fragment shader costs 0.060 ms of device time
 //! for the same page. ADR 0053 is that decision and its evidence;
-//! `doc/spike-function-paint.md` is the measurement and
-//! `doc/research-function-paint-arithmetic.md` the clause work.
+//! `raster/doc/spike-function-paint.md` is the measurement and
+//! `raster/doc/research-function-paint-arithmetic.md` the clause work.
 //!
 //! # The compiled form, and what it is not
 //!
@@ -71,7 +71,7 @@
 //! evaluation of a function of any type: §7.3.3 defers to "the internal representations
 //! used in the computer on which the PDF processor is running", and PLRM3, asked the
 //! same question, defers to the hardware again. That silence is recorded in full in
-//! `doc/research-function-paint-arithmetic.md` §1.7, and it is why ADR 0053 refuses a
+//! `raster/doc/research-function-paint-arithmetic.md` §1.7, and it is why ADR 0053 refuses a
 //! program that can reach a transcendental on a path into a comparison instead of
 //! promising a tolerance nobody can derive.
 
@@ -180,7 +180,7 @@ pub enum FnOp {
     /// 0. If shift is negative, a right shift by –shift bits is performed."
     ///
     /// PLRM3, as we read it, does not state what a shift past the operand's width does;
-    /// `doc/research-function-paint-arithmetic.md` §5 records that as unverified rather
+    /// `raster/doc/research-function-paint-arithmetic.md` §5 records that as unverified rather
     /// than settled.
     Bitshift,
     /// `any1 any2 eq` — equality. PLRM3 defines it on values, with numeric coercion:

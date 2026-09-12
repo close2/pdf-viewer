@@ -7,10 +7,14 @@ msrv = "1.97"
 # geometry and paint structures.
 trivial-copy-size-limit = 16
 
-# A function this complex is a review problem, not a style problem. The parser will
-# have genuinely irreducible cases; those get an explicit `#[allow]` with a comment
-# naming the reason, which is the point — the exception becomes visible.
-cognitive-complexity-threshold = 20
+# `cognitive-complexity-threshold = 20` stood here for a lint no crate enables, with a comment
+# promising that irreducible cases would get "an explicit `#[allow]`" — trap 7, in the one file
+# that configures the linter. It is deleted rather than enabled, and the deletion was measured
+# first: `doc/verify.md` carries the command that turns the lint on over the whole workspace, and
+# what it prints is why. `clippy::cognitive_complexity` counts `if` expressions; a `match` of any
+# width and a nesting of any depth both score nothing — which is what this tree's long functions
+# are made of. A threshold for a lint that cannot see the shape it is aimed at is a number nobody
+# can act on. ADR 1024.
 
 # `.unwrap()` in tests is fine and idiomatic; the workspace lints deny it elsewhere.
 allow-unwrap-in-tests = true

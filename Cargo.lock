@@ -3136,6 +3136,7 @@ version = "0.1.0"
 dependencies = [
  "pdf-font",
  "pdf-model",
+ "pdf-signature",
  "pdf-syntax",
 ]
 
@@ -3164,20 +3165,14 @@ dependencies = [
 name = "pdf-model"
 version = "0.1.0"
 dependencies = [
- "const-oid",
  "criterion",
- "crypto-bigint",
- "ecdsa",
- "ed25519-dalek",
  "flate2",
  "iai-callgrind",
  "md-5",
- "p256",
- "p384",
- "p521",
  "pdf-font",
  "pdf-render",
  "pdf-sandbox",
+ "pdf-signature",
  "pdf-spec",
  "pdf-syntax",
  "pdfref",
@@ -3186,11 +3181,7 @@ dependencies = [
  "rayon",
  "read-fonts 0.42.1",
  "render-cpu",
- "ripemd",
- "sha1",
  "sha2",
- "sha3",
- "shake",
  "test-scenes",
  "thiserror 2.0.19",
  "xmlparser",
@@ -3231,6 +3222,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-signature"
+version = "0.1.0"
+dependencies = [
+ "const-oid",
+ "crypto-bigint",
+ "ecdsa",
+ "ed25519-dalek",
+ "md-5",
+ "p256",
+ "p384",
+ "p521",
+ "pdf-syntax",
+ "rayon",
+ "ripemd",
+ "sha1",
+ "sha2",
+ "sha3",
+ "shake",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "pdf-spec"
 version = "0.1.0"
 
@@ -3258,12 +3271,14 @@ dependencies = [
  "pdf-font",
  "pdf-model",
  "pdf-render",
+ "pdf-signature",
  "pdf-syntax",
  "pdfref",
  "png",
  "raster-compare",
  "rayon",
  "render-cpu",
+ "sha2",
  "thiserror 2.0.19",
  "viewer-core",
 ]
@@ -4863,6 +4878,7 @@ version = "0.1.0"
 dependencies = [
  "pdf-model",
  "pdf-render",
+ "pdf-signature",
  "pdf-syntax",
  "pdfref",
  "rayon",

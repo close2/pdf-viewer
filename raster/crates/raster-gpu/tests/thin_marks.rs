@@ -78,7 +78,7 @@
 //!   [`the_lane_is_declined_exactly_below_the_sample_spacing`] and
 //!   [`a_turned_hairline_stroke_is_declined_by_its_own_width`], which read the lane
 //!   from the frame's own counters rather than from its pixels. A fixture whose subject
-//!   is a lane choice has to assert the lane (`doc/HANDOVER.md`'s `m45.rs` trap), and a
+//!   is a lane choice has to assert the lane (`raster/doc/HANDOVER.md`'s `m45.rs` trap), and a
 //!   fixture whose subject is a *difference* has to show the difference is reachable —
 //!   so each of those two measures the width above the spacing as well and requires the
 //!   device lane to be taken there.
@@ -128,7 +128,7 @@ const SIZE: u32 = 64;
 /// (three vertices of `WindingVertex::STRIDE` each), so a mark has to be *long* before the
 /// device lane will draw it at all. A short bar would be the processor lane under both
 /// settings, and the comparison below would be one lane against itself — the trap
-/// `doc/HANDOVER.md` records from `m45.rs`.
+/// `raster/doc/HANDOVER.md` records from `m45.rs`.
 /// [`the_device_lane_really_is_what_draws_the_tall_bar`] is the control that says it is
 /// not.
 const TALL: u32 = 768;
@@ -151,7 +151,7 @@ const SUB_PIXEL_WIDTHS: [f32; 6] = [0.75, 0.5, 0.25, 0.125, 0.1, 0.05];
 /// band whose width is a multiple of the pitch contains the same number of sample rows
 /// *wherever it lands*, so the device lane draws its exact area at every position and the
 /// two tests below have been measuring the quantiser's own fixed points since they were
-/// written. That is the aliasing trap `doc/notes-glyph-phase-carry.md` §2 records having
+/// written. That is the aliasing trap `raster/doc/notes-glyph-phase-carry.md` §2 records having
 /// already been paid for once in the glyph phase, standing here in the coverage grid.
 ///
 /// These are the widths that can see it. 0.878 is the caller's own witness —
@@ -532,7 +532,7 @@ fn the_device_lanes_ink_is_quantised_to_one_sample_row() {
 }
 
 /// The **upper edge of the recorded gap below**, which is the width every option in
-/// `doc/notes-thin-mark-options.md` is priced against: at exactly one sample-column spacing
+/// `raster/doc/notes-thin-mark-options.md` is priced against: at exactly one sample-column spacing
 /// the device lane holds §10.7.4 at *every* sub-pixel position, where a tenth of a pixel
 /// holds it at four of ten.
 ///
@@ -625,7 +625,7 @@ fn a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes() {
 /// **The lane, read from the frame rather than from its pixels** — and the control that
 /// ADR 0070's condition fires *only* below the sample spacing.
 ///
-/// The subject here is a lane choice, so the lane is asserted (`doc/HANDOVER.md`'s
+/// The subject here is a lane choice, so the lane is asserted (`raster/doc/HANDOVER.md`'s
 /// `m45.rs` trap), and the subject is a *difference*, so the width above the spacing is
 /// measured too and required to miss: a condition that declined every thin mark, or none,
 /// fails one of these two halves. [`uploaded`] is the instrument and says why it needs no

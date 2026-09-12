@@ -1,6 +1,6 @@
 //! The corpus, family by family.
 //!
-//! The split is not alphabetical and not arbitrary: it is `doc/adr/0053`'s own
+//! The split is not alphabetical and not arbitrary: it is `raster/doc/adr/0053`'s own
 //! classification. [`arithmetic`] holds the operators two conformant implementations
 //! must agree on to the bit; [`transcendental`] holds the seven that ADR 0053 measured
 //! *disagreeing* between our two adapters — `sin`, `cos`, `exp`, `sqrt`, `div` and

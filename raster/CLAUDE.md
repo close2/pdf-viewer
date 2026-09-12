@@ -150,8 +150,16 @@ position rather than the habit:
 - Architecture is legible: clear layer boundaries, no circular dependencies, each
   crate with one stated responsibility.
 - Names say what things are. Comments say *why*, never *what*.
-- Every non-obvious decision gets an ADR in `doc/adr/` — the reasoning matters as much
-  as the result, and a decision whose cost is not written down has not been made.
+- Every non-obvious decision gets an ADR in `raster/doc/adr/` — the reasoning matters as
+  much as the result, and a decision whose cost is not written down has not been made.
+- **A pointer written in Rust under `raster/crates/` names its file from the repository
+  root**, so `raster/doc/adr/0053`, never `doc/adr/0053`. This sub-project was brought in
+  beside a tree that has a `doc/adr/`, a `doc/PLAN.md` and a `doc/HANDOVER.md` of its own,
+  and the ADR numbers collide: `doc/adr/0053` resolves, silently and wrongly, to the
+  caller's fifty-third. A pointer at one of *their* documents keeps the bare `doc/` it
+  always had, which is what makes the two distinguishable at a glance. The documents under
+  `raster/doc/` are read from inside this sub-project and go on citing each other
+  relatively. ADR 1024 of the caller's series has the argument.
 - Prefer the clear construction over the clever one.
 - A GPU renderer is where this principle is hardest and matters most: a shader is
   write-only code unless the invariant it relies on is stated beside it.

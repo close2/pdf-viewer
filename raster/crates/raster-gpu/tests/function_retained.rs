@@ -2,7 +2,7 @@
 //!
 //! `tests/retained_frame.rs` enumerates ADR 0045's invalidation list over the glyph, the
 //! coverage and the compositor lanes. It draws no function paint, and
-//! `doc/notes-function-wiring.md` §6 says so: *"A `Paint::Function` op replays like any
+//! `raster/doc/notes-function-wiring.md` §6 says so: *"A `Paint::Function` op replays like any
 //! other — it is an `Op` in a `LayerPlan` and carries no device handle beyond a raw id —
 //! but no test in `retained_frame.rs` draws one."* A replayed encode is a machine for
 //! producing a plausible-looking wrong page, which is principle 6's worst outcome, so

@@ -200,7 +200,7 @@ pub enum Control {
     ///
     /// No control to build and no value to type: the field's value "shall be a signature
     /// dictionary". What a host does with one is show whether it verifies, which
-    /// `pdf_model::signature` answers separately.
+    /// `pdf_signature::signature` answers separately.
     Signature,
     /// Table 226 makes `/FT` "(Required for terminal fields; inheritable)" and this field states
     /// none anywhere in its ancestry.

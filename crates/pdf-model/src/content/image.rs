@@ -305,11 +305,7 @@ impl Interpreter<'_> {
             &conversion,
             &mut self.image_masks,
         ) {
-            Ok(crate::image::Parts {
-                picture,
-                shortfall,
-                alpha,
-            }) => {
+            Ok(crate::image::Parts { picture, shortfall }) => {
                 // A filter that stopped on damaged data delivered the rows before it, and the
                 // report travels with the raster rather than being made here, so a second `Do`
                 // answered from the cache says it too: `image::Parts::shortfall` has the reading.
@@ -324,13 +320,12 @@ impl Interpreter<'_> {
                 // point every sample is. Done here rather than in `image::decode_parts` because a
                 // transfer belongs to the *graphics state* the image is drawn under and not to the
                 // image, and the same XObject drawn twice under two states is two pictures.
+                // What the alpha channel is made of travels in the raster itself
+                // (`pdf_render::Image::sample_alpha`, decided in `image::decode_parts`), so
+                // §10.5's transfer — which produces a new raster out of the old one's
+                // components — carries it forward with everything else the decode settled.
                 let image =
                     picture.source(|image| transferred_image(image, transfer.map(Arc::as_ref)));
-                // What the alpha channel is made of, recorded against the raster the command
-                // carries — after the transfer, which produced that raster — for the one reader
-                // that needs it: §11.4.6's knockout, which states an element's shape and has to
-                // know whether an image's alpha is one (`image::DrawnAlphas`).
-                self.image_masks.drawn_mut().record(&image, alpha);
                 self.draw(Command::Image {
                     image,
                     transform: state.transform,
@@ -462,8 +457,8 @@ impl Interpreter<'_> {
         // *shape* — "the shape shall be 1.0 for painted areas and 0.0 for masked areas"
         // (§11.6.4.2) — where every other mask a command carries is §11.6.4.3's opacity. A
         // knockout group states an element's shape by removing the opacity from it, and this
-        // is the one mask it must keep; the record is what tells it so (`image::DrawnAlphas`).
-        self.image_masks.drawn_mut().record_shape_mask(mask);
+        // is the one mask it must keep; the record is what tells it so (`image::ShapeMasks`).
+        self.image_masks.shape_masks_mut().record(mask);
 
         // The image's own unit square, which is the region the stencil can mark.
         let mut path = Path::new();

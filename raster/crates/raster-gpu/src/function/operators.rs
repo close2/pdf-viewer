@@ -3,8 +3,8 @@
 //!
 //! One responsibility: **the operator vocabulary and its arithmetic classification.** No
 //! walking, no emitting. The classification is a table because it is a table — the
-//! evidence for each row is `doc/research-function-paint-arithmetic.md` §3.2, and the two
-//! predicates below are the only thing `doc/adr/0053` §3's decision reads.
+//! evidence for each row is `raster/doc/research-function-paint-arithmetic.md` §3.2, and the two
+//! predicates below are the only thing `raster/doc/adr/0053` §3's decision reads.
 //!
 //! # The two properties, and why neither alone is dangerous
 //!

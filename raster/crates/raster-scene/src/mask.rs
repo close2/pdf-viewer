@@ -46,7 +46,7 @@ pub enum MaskKind {
 
 /// §11.6.5.1's `/TR`, sampled exactly: index by the derived mask byte, take the
 /// value. The caller samples its `Transfer` onto these 256 entries (integration
-/// note 3 in `doc/PLAN.md`); both endpoints are included by construction.
+/// note 3 in `raster/doc/PLAN.md`); both endpoints are included by construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transfer(pub [u8; 256]);
 

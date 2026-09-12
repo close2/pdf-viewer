@@ -248,6 +248,16 @@ pub enum Because {
     /// direction available. Unlike [`Self::NotBuiltYet`] the answer changes the moment the flag
     /// comes off, and unlike [`Self::NotThisTarget`] no other target helps.
     Declined(&'static str),
+    /// The caller's configuration answers this requirement with an external program, and the
+    /// program has not been run yet.
+    ///
+    /// **The fifth kind of *no*, and the only one that is about this pass rather than about the
+    /// world.** `doc/questions/A54`: `apply` returns the invocation as data and never starts a
+    /// process, so a conversion whose configuration names a tool is answered in two passes — the
+    /// first returns [`crate::Report::requested`], the caller executes it through the shared
+    /// executor, and the second is handed the results. A caller that applies once and stops sees
+    /// this; a caller that does what `quorra-transform archive` does never does.
+    AwaitingTool(&'static str),
 }
 
 impl Because {
@@ -258,7 +268,8 @@ impl Because {
             Self::TheFence(why)
             | Self::NotBuiltYet(why)
             | Self::NotThisTarget(why)
-            | Self::Declined(why) => why,
+            | Self::Declined(why)
+            | Self::AwaitingTool(why) => why,
         }
     }
 
@@ -270,6 +281,7 @@ impl Because {
             Self::NotBuiltYet(_) => "not-built-yet",
             Self::NotThisTarget(_) => "not-this-target",
             Self::Declined(_) => "declined",
+            Self::AwaitingTool(_) => "awaiting-tool",
         }
     }
 }
@@ -316,6 +328,29 @@ pub enum Decision {
     },
     /// section 2: no file is written, and the reason says which of three kinds of *no* this is.
     Refused(Because),
+    /// `doc/rfc/0007` section 2: the **operator's** configuration answered this requirement, and the
+    /// answer was carried out.
+    ///
+    /// **Not [`Self::Stated`]**, and the difference is the whole reason for a variant of its own.
+    /// A `Stated` decision writes down an interpretation the *standard* defines, which is
+    /// `doc/questions/A48`'s permitted half. These two do not:
+    ///
+    /// - `derive` makes a representation that was not in the document before, which stands on the
+    ///   far side of `A48`'s line by construction — the owner allowed it in `A55` on terms rather
+    ///   than by denying that it is what it is;
+    /// - `supply` writes a fact **the operator** holds and the document does not, which `A48` does
+    ///   not bind at all because it binds *this program's* guessing.
+    ///
+    /// Either way the file afterwards says something neither the producer nor the standard said,
+    /// and [`Self::warns`] is the sentence a person is owed about it.
+    Configured {
+        /// Which of `doc/rfc/0007` section 2's kinds.
+        kind: super::RemedyKind,
+        /// The rewrite that carries it out.
+        rewrite: Rewrite,
+        /// What the operator is agreeing to, in one sentence for a person.
+        warns: &'static str,
+    },
 }
 
 impl Decision {
@@ -324,7 +359,10 @@ impl Decision {
     pub const fn proceeds(self) -> bool {
         matches!(
             self,
-            Self::Mechanical(_) | Self::Stated { .. } | Self::Authorised { .. }
+            Self::Mechanical(_)
+                | Self::Stated { .. }
+                | Self::Authorised { .. }
+                | Self::Configured { .. }
         )
     }
 
@@ -334,7 +372,8 @@ impl Decision {
         match self {
             Self::Mechanical(rewrite)
             | Self::Stated { rewrite, .. }
-            | Self::Authorised { rewrite, .. } => Some(rewrite),
+            | Self::Authorised { rewrite, .. }
+            | Self::Configured { rewrite, .. } => Some(rewrite),
             Self::Unauthorised { .. } | Self::Refused(_) => None,
         }
     }
@@ -348,6 +387,7 @@ impl Decision {
             Self::Authorised { .. } => "authorised",
             Self::Unauthorised { .. } => "unauthorised",
             Self::Refused(_) => "refused",
+            Self::Configured { .. } => "configured",
         }
     }
 }
@@ -2279,9 +2319,12 @@ const fn constraint(decision: Decision) -> u8 {
     match decision {
         Decision::Mechanical(_) => 0,
         Decision::Stated { .. } => 1,
-        Decision::Authorised { .. } => 2,
-        Decision::Unauthorised { .. } => 3,
-        Decision::Refused(_) => 4,
+        // Above a statement and below a loss: a configured remedy leaves the file conforming and
+        // loses nothing, and all the same it is the one class where a person had to say yes.
+        Decision::Configured { .. } => 2,
+        Decision::Authorised { .. } => 3,
+        Decision::Unauthorised { .. } => 4,
+        Decision::Refused(_) => 5,
     }
 }
 

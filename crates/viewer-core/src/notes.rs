@@ -10,7 +10,7 @@
 //!
 //! Nothing here is an error and nothing here stops a document opening.
 
-use pdf_model::signature::PadesDeparture;
+use pdf_signature::signature::PadesDeparture;
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
@@ -366,7 +366,7 @@ pub(crate) fn restricted(
     standing: Standing,
 ) -> Vec<String> {
     use pdf_model::restriction::Restriction;
-    use pdf_model::signature::Modification;
+    use pdf_signature::signature::Modification;
 
     let tail = standing.tail(operation);
     restrictions
@@ -473,9 +473,9 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
 /// §12.8.1 puts a usage rights signature's dictionary in the permissions dictionary "(not from a
 /// signature field)", so the field walk cannot reach one and three corpus documents carry nothing
 /// else. A certification signature is normally in both and is said once.
-fn every_signature(document: &Document) -> Vec<pdf_model::signature::Signature> {
-    let permissions = pdf_model::signature::permissions(document);
-    let mut signatures = pdf_model::signature::signatures(document);
+fn every_signature(document: &Document) -> Vec<pdf_signature::signature::Signature> {
+    let permissions = pdf_signature::signature::permissions(document);
+    let mut signatures = pdf_signature::signature::signatures(document);
     for extra in [
         permissions.usage_rights_signature,
         permissions.doc_mdp_signature,
@@ -492,7 +492,7 @@ fn every_signature(document: &Document) -> Vec<pdf_model::signature::Signature> 
 
 /// What one signature says, what it covers, and whether the bytes under it moved.
 fn about_one(
-    signature: &pdf_model::signature::Signature,
+    signature: &pdf_signature::signature::Signature,
     document: &Document,
     length: u64,
     notes: &mut Vec<String>,
@@ -523,7 +523,7 @@ fn about_one(
             }
         ));
         match signature.coverage(length) {
-            pdf_model::signature::Coverage::WholeFile => {}
+            pdf_signature::signature::Coverage::WholeFile => {}
             // **Two different things wear one shape here, and Table 255 separates them.**
             // §12.8.1's NOTE 1 makes an uncovered tail the ordinary mechanism — an incremental
             // update appended after signing, which is how a signature stays meaningful while a
@@ -534,7 +534,7 @@ fn about_one(
             // two-hundred-and-seventy-eighth session — `doc/todo/01`'s fifth sweep, which asks
             // what the model implements that no host calls. It is still not a verdict on the
             // signature: this program has no trust store and says what the file states.
-            pdf_model::signature::Coverage::Unsigned { tail } => {
+            pdf_signature::signature::Coverage::Unsigned { tail } => {
                 if signature.must_cover_whole_file() {
                     notes.push(format!(
                         "{tail} bytes were appended after that signature and are not covered by \
@@ -548,7 +548,7 @@ fn about_one(
                     ));
                 }
             }
-            pdf_model::signature::Coverage::Malformed => {
+            pdf_signature::signature::Coverage::Malformed => {
                 notes.push("that signature's /ByteRange does not describe this file".to_owned());
             }
         }
@@ -590,7 +590,7 @@ fn about_one(
             // therefore ordinary rather than rare, which changes nothing this code does — the
             // note fires on the attribute and not on a population — and everything about what a
             // round may conclude from the three names above.
-            if cms.has_signed_attribute(pdf_model::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
+            if cms.has_signed_attribute(pdf_signature::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
                 notes.push(
                     "that signature carries revocation information with it \
                      (§12.8.3.3.2's adbe-revocationInfoArchival attribute), which this program \
@@ -632,22 +632,22 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
     // permit is refused with `Event::Refused` and its reason — and says so here as well, because
     // a field that will not take a value is otherwise a person typing into a document that
     // ignores them, and this is said before they start rather than after.
-    match pdf_model::signature::permissions(document).doc_mdp {
-        Some(pdf_model::signature::Modification::None) => notes.push(
+    match pdf_signature::signature::permissions(document).doc_mdp {
+        Some(pdf_signature::signature::Modification::None) => notes.push(
             "this document's author certified it as final (§12.8.2.2's /P 1), so no change to \
              it is permitted and none will be accepted"
                 .to_owned(),
         ),
-        Some(pdf_model::signature::Modification::FormFilling) => notes.push(
+        Some(pdf_signature::signature::Modification::FormFilling) => notes.push(
             "this document's author permitted only form filling and signing (§12.8.2.2's /P 2)"
                 .to_owned(),
         ),
-        Some(pdf_model::signature::Modification::FormFillingAndAnnotation) => notes.push(
+        Some(pdf_signature::signature::Modification::FormFillingAndAnnotation) => notes.push(
             "this document's author permitted form filling, signing and annotation \
              (§12.8.2.2's /P 3)"
                 .to_owned(),
         ),
-        Some(pdf_model::signature::Modification::Unknown(level)) => notes.push(format!(
+        Some(pdf_signature::signature::Modification::Unknown(level)) => notes.push(format!(
             "this document's /DocMDP states /P {level}, which Table 257 does not define; it is \
              read as permitting rather than as forbidding"
         )),
@@ -659,9 +659,9 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
     // remove that signature prior to writing the newly modified PDF." The note is said when the
     // document opens rather than when it is saved, because that is when a person can still
     // decide not to.
-    if let Some(rights) = pdf_model::signature::permissions(document).usage_rights {
-        let fills = rights.grants(pdf_model::signature::Right::FillInForm);
-        let saves = rights.grants(pdf_model::signature::Right::FullSave);
+    if let Some(rights) = pdf_signature::signature::permissions(document).usage_rights {
+        let fills = rights.grants(pdf_signature::signature::Right::FillInForm);
+        let saves = rights.grants(pdf_signature::signature::Right::FullSave);
         if fills && saves {
             notes.push(
                 "this document carries a usage rights signature (§12.8.2.3's /UR3, deprecated \
@@ -690,11 +690,11 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
 /// - and where the two disagree — a signature that verifies over a digest the bytes no longer
 ///   produce — the document is the thing that moved, which neither answer says on its own.
 fn verdicts(
-    signature: &pdf_model::signature::Signature,
+    signature: &pdf_signature::signature::Signature,
     document: &Document,
     notes: &mut Vec<String>,
 ) {
-    use pdf_model::signature::{Authenticity, Integrity, Signed};
+    use pdf_signature::signature::{Authenticity, Integrity, Signed};
     let integrity = signature.integrity(document.bytes());
     let authenticity = signature.authenticity(document.bytes());
     // **Question 1's answer can come from question 2**, and this is the one place it does. A
@@ -732,8 +732,8 @@ fn verdicts(
 }
 
 /// §12.8.1's first question in words: did the bytes under this signature move?
-fn changed(integrity: pdf_model::signature::Integrity) -> String {
-    use pdf_model::signature::Integrity;
+fn changed(integrity: pdf_signature::signature::Integrity) -> String {
+    use pdf_signature::signature::Integrity;
     match integrity {
         Integrity::Changed { digest } => format!(
             "the bytes that signature covers no longer hash to the {} digest it records — this \
@@ -792,10 +792,10 @@ fn not_checked(error: &dyn std::fmt::Display) -> String {
 /// no signature value, no bytes to hash, nothing readable — because a program that says one fact
 /// twice teaches a reader to skim.
 fn verifies(
-    authenticity: &pdf_model::signature::Authenticity,
-    integrity: pdf_model::signature::Integrity,
+    authenticity: &pdf_signature::signature::Authenticity,
+    integrity: pdf_signature::signature::Integrity,
 ) -> Option<String> {
-    use pdf_model::signature::{Authenticity, Integrity, Signed};
+    use pdf_signature::signature::{Authenticity, Integrity, Signed};
     Some(match authenticity {
         Authenticity::Verified {
             key_bits,
@@ -925,7 +925,7 @@ mod tests {
         assert!(said.contains("§C.4"), "{said}");
     }
 
-    /// Builds a document from object bodies numbered from 1, as `pdf_model::signature`'s tests do.
+    /// Builds a document from object bodies numbered from 1, as `pdf_signature::signature`'s tests do.
     fn document(objects: &[&str]) -> Document {
         use std::fmt::Write as _;
         let mut out = String::from("%PDF-1.7\n");

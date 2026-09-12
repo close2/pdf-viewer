@@ -391,3 +391,22 @@ running anything. So the numbers are not in the instruction files — `tools/sta
 them — and session bookkeeping is one file per round under `doc/history/`, which no round reads to do its
 work.
 ADR 0281 has the argument, ADR 0232 its predecessor.
+
+**And the same rule points the other way, at the prose beside the code: a comment carries the
+current reason and nothing about how it got there.** A comment states why the code is as it is
+*today* and cites by number the ADR that argued it; it does not say what the comment used to say,
+which session changed it, or that an earlier reading was wrong. A retired sentence is deleted
+rather than annotated — the retirement is `doc/adr/`'s and `doc/history/`'s, and both are still
+there to be read by anyone who wants them. The four navigational documents — `doc/PLAN.md`,
+`doc/crate-map.md`, `doc/state-of-play.md`, `doc/HANDOVER.md` — are written the same way, as *what
+is*. The reason is principle 4's, and it is the one measurement that decides between a correction
+appended and a correction applied: when the correction is appended, the first sentence a reader
+meets is the retired one, and **the reading cost of a function becomes the history of that
+function**. A student should learn from `run_reader` how a content stream is interpreted, not which
+session moved a classification into a table; `grep -rE "hundred-and-|session" --include=*.rs crates
+tools` is how much of that cost is still owed. What this does **not** bind: `doc/adr/`,
+`doc/history/` and `doc/reviews/` are *records*, they keep their chronology, and rewriting one for
+tidiness is the single thing a record may not have done to it. Nor does it bind a trap or a habit,
+each of which **is** an incident with a rule attached — there the history is the lesson, and
+deleting it deletes the reason anybody believes the rule. ADR 1023 states the rule, ADR 1005 §2
+priced it, and `doc/reviews/984-direction-and-boundaries.md` Finding 2 measured what it costs.

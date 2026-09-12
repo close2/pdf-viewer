@@ -1,12 +1,12 @@
 //! The gate: every case in the corpus, through the reference evaluator, against its own
 //! expectation.
 //!
-//! This is the test `doc/adr/0053` asked for before the classification could be a
+//! This is the test `raster/doc/adr/0053` asked for before the classification could be a
 //! contract. It is deliberately not a device test — there is no device here — and it is
 //! not a test of the evaluator either. It is a test of **agreement between two readings
 //! of the same clause**: the expectation was written from PLRM3's operator entry and the
 //! evaluator was written from the same entry, separately, and a disagreement means one
-//! of them misread it. Finding out which is the point; `doc/notes-function-conformance.md`
+//! of them misread it. Finding out which is the point; `raster/doc/notes-function-conformance.md`
 //! records what the corpus found on the way in.
 
 // Test-file lint policy as in the rest of this workspace's suites: a test panics on

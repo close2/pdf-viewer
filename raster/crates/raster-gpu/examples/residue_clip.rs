@@ -1,7 +1,7 @@
 //! What a page of curve-clipped marks costs to encode (ADR 0049).
 //!
 //! The artwork archetype — 900 commands, 185 curve clips, 600 commands under them — is
-//! the corpus's p99 clip shape and the row `doc/PLAN.md` carries for this seam. Its
+//! the corpus's p99 clip shape and the row `raster/doc/PLAN.md` carries for this seam. Its
 //! encode is where the residue clip lives, so this measures the encode and its geometry
 //! split rather than a frame: the device is about 4 % of a frame of this page, and a
 //! readback would put the largest single cost a frame has on top of the thing being
@@ -15,7 +15,7 @@
 //!
 //! - **Headless, into a `Target::Texture` created once**, so no surface, no vsync and no
 //!   copy-out is in the span.
-//! - **Minima, never means** (`doc/HANDOVER.md`'s first trap): this machine is somebody's
+//! - **Minima, never means** (`raster/doc/HANDOVER.md`'s first trap): this machine is somebody's
 //!   desktop. The load average is printed beside the numbers so a reader can discount the
 //!   run rather than the conclusion.
 //! - **The counters are printed with the clocks**, and `clip_residue_regions` +

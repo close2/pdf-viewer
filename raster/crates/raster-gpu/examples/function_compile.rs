@@ -1,7 +1,7 @@
 //! What a §7.10.5 program's generated shader costs to compile, by the program's length
 //! (ADR 0053).
 //!
-//! `doc/spike-function-paint.md` §3 is the only figure this feature has ever had — 6.3 ms
+//! `raster/doc/spike-function-paint.md` §3 is the only figure this feature has ever had — 6.3 ms
 //! for the seven-segment witness on RADV with a cold driver cache — and it was measured
 //! against the *spike's* emitter, not against `src/function/generate.rs`. This binary is
 //! that number taken here.
@@ -15,7 +15,7 @@
 //! `PipelineStore::function_pipeline` brackets exactly the three steps a cache miss pays —
 //! generate the WGSL, parse it, build the pipeline — and the frame that paid names the
 //! result in its own `Timings::phases` as `"function shader compile (first use)"`. So this
-//! reads a **direct span** of the work, which is what `doc/HANDOVER.md` asks for before any
+//! reads a **direct span** of the work, which is what `raster/doc/HANDOVER.md` asks for before any
 //! wall clock is believed. `pipeline.rs`'s `captured` blocks on the validation scope inside
 //! that span, so the driver's own compile is inside it too rather than deferred past the
 //! measurement.
@@ -73,7 +73,7 @@ use raster_scene::{
 const SIZE: u32 = 64;
 
 /// `pi_seven_segment.pdf`, the longer of the caller's two witnesses:
-/// `doc/spike-function-paint.md` §1's table gives 482 instructions and 23 branches. Both
+/// `raster/doc/spike-function-paint.md` §1's table gives 482 instructions and 23 branches. Both
 /// numbers are used — the first as a length to measure at, the second as the density that
 /// makes a program of that length shaped like a real one.
 const WITNESS_LENGTH: usize = 482;
@@ -93,7 +93,7 @@ const LENGTHS: [usize; 4] = [1, 121, WITNESS_LENGTH, 2 * WITNESS_LENGTH];
 /// every unit below leaves the stack exactly as it found it — `[x, y']`, both reals — so
 /// the two paths of a branch agree on their operand types and `analyse` can decide them
 /// (`function/typing.rs`). One trailing `PushReal` makes the three §7.10.1 components
-/// `Analysis::admits` requires, which since `doc/notes-function-wiring.md` §2.1 is an
+/// `Analysis::admits` requires, which since `raster/doc/notes-function-wiring.md` §2.1 is an
 /// equality rather than a floor.
 ///
 /// - a **straight** unit is `PushReal(c) add`, two instructions, and the sum accumulates

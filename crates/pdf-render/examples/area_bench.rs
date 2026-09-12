@@ -33,7 +33,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use pdf_render::{Image, Transform};
+use pdf_render::{Image, SampleAlpha, Transform};
 
 /// A fixture whose samples vary in every channel, so an averaging bug cannot hide behind a
 /// flat colour. `opaque` chooses between the common scanned-page case and one where the
@@ -53,6 +53,8 @@ fn make(width: u32, height: u32, opaque: bool) -> Image {
         height,
         data: data.into(),
         interpolate: false,
+        // A benchmark's fixture is nobody's document image; §11 never reads its alpha.
+        sample_alpha: SampleAlpha::Shape,
     }
 }
 

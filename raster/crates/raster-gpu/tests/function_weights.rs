@@ -4,7 +4,7 @@
 //!
 //! `function_lane.wgsl`'s fragment stage weights the paint by `base_weight`, which is
 //! `coverage × clip × soft mask` — three factors, and until this file **only the first was
-//! ever anything but 1** anywhere in the tree (`doc/notes-function-wiring.md` §4.5). The
+//! ever anything but 1** anywhere in the tree (`raster/doc/notes-function-wiring.md` §4.5). The
 //! line is textually the shading lane's, which is an argument that it works and is not
 //! evidence that it does: a lane that dropped the clip factor, or sampled the mask through
 //! the wrong placement, draws a plausible page and every existing function test stays green.

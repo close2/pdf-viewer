@@ -134,7 +134,7 @@ pub const DEFAULT_GLYPH_QUANTUM: u16 = 16;
 /// would move are **0.11 % of a frame's rasterised coverage at a page's own scale and
 /// 0.63 % at 4×** — a rare paint under a non-rectangular clip takes the processor lane
 /// under either setting anyway, and two thirds of what is left is glyph-sized, which is
-/// the shape class this lane is the accurate one for. `doc/notes-rare-lane.md` has the
+/// the shape class this lane is the accurate one for. `raster/doc/notes-rare-lane.md` has the
 /// numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Coverage {
@@ -312,7 +312,7 @@ pub struct Options {
     /// a [`std::thread::scope`] entered inside `Device::render` and left before it
     /// returns, and a frame whose geometry is below a measured floor does not enter one
     /// at all — so a small page pays nothing for a large page's lane
-    /// (`doc/notes-encode-threads.md` carries the floor and its measurement).
+    /// (`raster/doc/notes-encode-threads.md` carries the floor and its measurement).
     pub encode_threads: usize,
     /// How many samples the GPU lane takes per pixel, rounded down to a square and
     /// clamped to 4..=64 ([`DEFAULT_COVERAGE_SAMPLES`]).

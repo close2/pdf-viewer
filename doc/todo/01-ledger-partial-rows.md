@@ -1860,7 +1860,7 @@ is what this sweep got right about `Query::Find` in the four-hundred-and-thirtee
   correctly three lines down for `/Contents`, `/Subj` and `/QuadPoints`. Written in one sitting in
   the four-hundred-and-twenty-first, which is this sweep's block signature; the *first* run of it
   over `tools/` found them.
-- **`crates/pdf-model/src/signature.rs`** — "Table 259 also records the older `/UR`". Table 259 is
+- **`crates/pdf-signature/src/signature.rs`** — "Table 259 also records the older `/UR`". Table 259 is
   the FieldMDP transform parameters dictionary; `UR ( Deprecated in PDF 2.0 )` is a value of **Table
   256**'s `/TransformMethod`, and `/UR3` is **Table 263**'s key in the permissions dictionary. The
   comment had the *distinction* right and the table wrong, which is the shape that survives review.

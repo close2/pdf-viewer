@@ -7,6 +7,26 @@ anything this tree says about itself. `doc/ledger-and-claims.md` is where a fals
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A prediction in a review is a claim, and the round that acts on it measures rather than
+  confirms.** ADR 1005 §1 priced extracting `pdf-signature` as removing twelve cryptographic
+  packages from every consumer of the page tree — `tools/spec-errata` would stop compiling `p521`.
+  It does not: `cargo tree -p spec-errata -i p521` still prints `p521 → pdf-signature → pdf-model →
+  spec-errata`, because §12.8.2.2's `/DocMDP` and §12.8.6's usage rights are *restrictions on the
+  reader* and `restriction.rs` is where this tree collects those (ADR 1020). The extraction bought
+  legibility — 93,413 source lines to 84,046 — and the closure win needs a second step the round
+  then priced exactly: one type, `Permissions`, carrying two `Option<Signature>` fields, worth 33
+  packages. **The review was right about the shape and wrong about the number**, and only the
+  command could say so.
+
+- **A fixture that declares a resource its page never draws does not exercise the requirement it
+  names.** Twelve tests in the converter's suite stopped failing the moment the validator could
+  read ISO 19005-2 6.2.2's exemption (ADR 1021 §7) — their pages drew nothing, so every declared
+  `/XObject`, `/ExtGState`, `/Font` and `/ColorSpace` was exempt and the requirement never fired.
+  The builder draws what a fixture declares now, and a page that draws *deliberately* nothing says
+  so with its own empty stream and a reason. **Two of the twelve were a finding rather than a
+  fixture bug**: the rewrites they covered are reachable by no document at all — drawn, the
+  converter refuses; undrawn, the clause exempts (`doc/questions/Q62`).
+
 - **A loss caused by *serialising* has no requirement to key it by, and a census over requirements
   cannot count it.** The converter's decisions were keyed on failed rows; a rewrite invalidates
   every signature whatever row triggered it, and PDF/A-4 has no row about a signature's range at

@@ -199,7 +199,7 @@ impl std::fmt::Display for CoverageSheet {
     }
 }
 
-/// Which lane made the coverage for each mark this frame drew (`doc/PLAN.md` §1.1).
+/// Which lane made the coverage for each mark this frame drew (`raster/doc/PLAN.md` §1.1).
 ///
 /// §1.1's premise — that most of a page is repeated glyph outlines and axis-aligned
 /// rectangles, and that general curve filling is the *rare* case — is the assumption the
@@ -314,7 +314,7 @@ pub struct Counters {
     ///
     /// **A named part of [`LaneCounts::path`]**, which is the whole of it and therefore
     /// cannot say why any mark is there: over the corpus at 1× that lane is 81 % strokes
-    /// and 2.8 % this, and at 4× the proportions invert (`doc/notes-census.md` §4). §11.2's
+    /// and 2.8 % this, and at 4× the proportions invert (`raster/doc/notes-census.md` §4). §11.2's
     /// census needed the breakdown and had to build a throwaway instrument for it; this is
     /// the one reason-code worth keeping, because it is the only one that is a property of
     /// the *device's history* rather than of the page.
@@ -328,7 +328,7 @@ pub struct Counters {
     /// follows the frame does, once. Over the caller's corpus at 4× the second is the only
     /// case that occurs: 74 820 marks on 19 of 948 pages, not one of which asks for more
     /// than half the default atlas, and the worst of them asks for a tenth of it
-    /// (`doc/notes-atlas-budget.md`).
+    /// (`raster/doc/notes-atlas-budget.md`).
     ///
     /// Zero on a frame the atlas served and on a frame that asked it for nothing. A
     /// **replayed** frame reports what its retained encode did, exactly as

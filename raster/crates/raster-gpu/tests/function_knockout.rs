@@ -5,7 +5,7 @@
 //! `Style::of` hands the function lane the same erase/add pair every other lane draws a
 //! knockout element with, `function_lane.wgsl`'s `fs_shape` is written for it, and
 //! `pipeline::function` compiles all three styles from one module — and until this file
-//! nothing drew one (`doc/notes-function-wiring.md` §4.5). A pipeline that compiles, is
+//! nothing drew one (`raster/doc/notes-function-wiring.md` §4.5). A pipeline that compiles, is
 //! selected, and is never drawn is a path that works until someone looks.
 //!
 //! # Where the expected values come from

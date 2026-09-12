@@ -1,4 +1,4 @@
-//! A mesh reaches the target as the raster it already is (`doc/PLAN.md` integration
+//! A mesh reaches the target as the raster it already is (`raster/doc/PLAN.md` integration
 //! note 5).
 //!
 //! # Why this is a gate and not a paragraph

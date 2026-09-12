@@ -99,7 +99,7 @@
 //! being left to a caller to remember. [`Conversion`] is the report, and it reaches a caller
 //! through [`crate::Report::archive`] whether or not a file was written.
 //!
-//! # Six files, and the seam each is on
+//! # The files, and the seam each is on
 //!
 //! The three stages are the seam, because they are three different kinds of work over the same
 //! document, and a file that held two of them could not be read without reading both:
@@ -112,6 +112,7 @@
 //! | [`to_unicode`] | the `/ToUnicode` `CMap` a font's own encoding derives, and what it cannot |
 //! | [`fonts`] | the face a font that embedded none is given, and the advances restated in it |
 //! | [`signatures`] | every signature the source carries, verified over the source and named before its value goes |
+//! | [`remedies`] | what the *operator's* configuration answered, carried out over one document |
 //! | [`report`] | what was decided and done, worded for a person and for `--json` |
 //! | this file | the three stages in order, the plan they run from, and the output's version |
 //!
@@ -129,6 +130,7 @@ mod decision;
 mod fonts;
 mod jpeg2000;
 mod prepare;
+mod remedies;
 mod report;
 mod rewrite;
 mod signatures;
@@ -144,26 +146,31 @@ use pdf_model::Pages;
 use pdf_syntax::{Document, Version};
 
 use crate::pattern::{Fill, Pattern};
+use crate::tool::ToolOutputs;
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
-    ConfigError, Configuration, Coverage, Departure, Kind as RemedyKind, Site, Unbuilt, sites,
+    ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Site,
+    Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, sites,
 };
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
 pub use report::{
-    Achieved, Conversion, Decided, Departed, DepartureOutcome, NotChecked, SignatureDecision,
+    Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
+    SignatureDecision, SuppliedFact,
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
 
 use decision::decide;
 use prepare::{
-    DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, SUBSTITUTED_FONTS_ACTION,
+    DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
     substituted_fonts_recorded,
 };
+use remedies::Remedies;
+pub use remedies::{DERIVED_NOT_ORIGINAL, SUPPLIED_BY_THE_OPERATOR};
 use report::describe_decision;
 use rewrite::convert;
 
@@ -225,6 +232,24 @@ pub struct ArchivePlan {
     /// keeps the claim, which a downstream validator fails either way; the only difference is
     /// whether the file lied before it failed, and that is the operator's to own explicitly.
     pub claim_conformance: bool,
+    /// The `derive` remedies the caller's configuration named.
+    ///
+    /// `doc/questions/A55`, and the type is the guardrail: a [`Derivation`] cannot exist without
+    /// the tool it names, so *never reachable without the configuration naming the site and the
+    /// tool* is a property of the shape rather than of a check. Empty for every conversion that
+    /// derives nothing, which is every conversion until an operator's file says otherwise.
+    pub derivations: Vec<Derivation>,
+    /// The `supply` remedies the caller's configuration named — facts the document does not state.
+    pub supplies: Vec<Supply>,
+    /// What the caller's executor got back from the programs the derivations name.
+    ///
+    /// **`doc/questions/A54`'s second half.** The first pass over a document whose configuration
+    /// names a tool returns the invocations in [`crate::Report::requested`] and writes nothing; the
+    /// caller runs them through [`crate::executor::execute`] and applies again with the results
+    /// here. So `apply` starts no process, and a pass handed a full set of recorded results is a
+    /// pure function of its inputs — which is what makes a tool-invoking conversion replayable and
+    /// deterministic (RFC 0002 section 9).
+    pub tool_outputs: ToolOutputs,
 }
 
 /// Converts one document to the target and writes it.
@@ -238,6 +263,12 @@ pub struct ArchivePlan {
 /// all, and [`Refusal::Sink`] where the output cannot be written. A document that cannot be
 /// *converted* is not an error: it is [`Report::refused`] beside the conversion's own report,
 /// which is where a caller reads which requirement stopped it.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the three stages in order, with the configured remedies worked out between the \
+              first and the second. Splitting it would hide the order behind a call rather than \
+              show it, which is the same argument `Prepared::of` carries one file over"
+)]
 pub(crate) fn run(
     plan: &ArchivePlan,
     at: usize,
@@ -261,6 +292,26 @@ pub(crate) fn run(
     // *accept XML and only XML*.
     let (departed_ids, departures) = departures_over(plan, document, &input);
     let departure_history = report::departure_history(&departures);
+    // `doc/questions/A54`: the configured remedies that need an external program are worked out
+    // here as **data**. Nothing below starts a process; a request with no recorded result goes back
+    // to the caller in `report.requested`, and the requirement it answers stays refused for this
+    // pass with `Because::AwaitingTool`.
+    let remedies = Remedies::of(
+        document,
+        &input,
+        plan.target,
+        &plan.derivations,
+        &plan.supplies,
+        &plan.tool_outputs,
+    );
+    report.requested.clone_from(&remedies.pending);
+    let derived_history = remedies::derived_history(&remedies.derived_report);
+    let supplied_history = remedies::supplied_history(&remedies.supplied_report);
+    let provenance = Provenance {
+        departure: departure_history.as_deref(),
+        derived: derived_history.as_deref(),
+        supplied: supplied_history.as_deref(),
+    };
     // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
     // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
     // the claim anyway. Nothing departs unless the caller named a departure that covered the file.
@@ -284,7 +335,8 @@ pub(crate) fn run(
             &departed_ids,
             departures,
             false,
-            None,
+            Provenance::default(),
+            &Remedies::none(),
         );
         conversion.achieved = Some(Achieved {
             conforms: true,
@@ -305,7 +357,8 @@ pub(crate) fn run(
         &departed_ids,
         departures,
         omit_identification,
-        departure_history.as_deref(),
+        provenance,
+        &remedies,
     );
     if !conversion.proceeds() {
         for decided in &conversion.decided {
@@ -343,6 +396,7 @@ pub(crate) fn run(
         &mut conversion,
         version,
         &prepared,
+        &remedies,
         &departed_ids,
         omit_identification,
         sinks,
@@ -368,6 +422,7 @@ pub(crate) fn run(
 /// authorisations. The version is answered here rather than in the rewrite because the
 /// *feasibility* of the header rewrite depends on the document — [`version_for`] — and a
 /// decision that cannot be carried out is a refusal rather than a plan.
+#[allow(clippy::too_many_arguments)]
 fn decide_every_failure(
     plan: &ArchivePlan,
     document: &Document,
@@ -375,7 +430,8 @@ fn decide_every_failure(
     departed_ids: &BTreeSet<&'static str>,
     departures: Vec<Departed>,
     omit_identification: bool,
-    departure_history: Option<&str>,
+    provenance: Provenance<'_>,
+    remedies: &Remedies,
 ) -> (Conversion, Option<Version>, Prepared) {
     let mut conversion = Conversion {
         source: plan.source,
@@ -397,14 +453,10 @@ fn decide_every_failure(
         restated: Vec::new(),
         signatures: None,
         departures,
+        derived: remedies.derived_report.clone(),
+        supplied: remedies.supplied_report.clone(),
     };
-    let prepared = Prepared::of(
-        plan,
-        document,
-        input,
-        omit_identification,
-        departure_history,
-    );
+    let prepared = Prepared::of(plan, document, input, omit_identification, provenance);
     let mut version = None;
     for judgement in input.failures() {
         // A requirement the caller departed from does not stop the conversion and is not decided:
@@ -419,7 +471,11 @@ fn decide_every_failure(
             // reports no places rather than panicking.
             _ => 0,
         };
-        let mut decision = decide(input, judgement, plan.authorised, &prepared);
+        // **The operator's own answer comes first**, because it is an answer to a requirement the
+        // table refuses: a configured remedy that reached this document is what the conversion
+        // does about the requirement, and `decide` would only restate the refusal it replaces.
+        let mut decision = configured(remedies, judgement.id, &prepared)
+            .unwrap_or_else(|| decide(input, judgement, plan.authorised, &prepared));
         if decision.rewrite() == Some(Rewrite::FileHeader) {
             match version_for(document, plan.target) {
                 Ok(stated) => version = Some(stated),
@@ -438,6 +494,63 @@ fn decide_every_failure(
     conversion.signatures = signature_decision(plan, &prepared);
     (conversion, version, prepared)
 }
+
+/// The decision a configured remedy takes about one requirement, where one reached it.
+///
+/// Three answers, in the order they are reached:
+///
+/// - the remedy was carried out at **every** place the requirement failed, so the conversion
+///   changes the file and the decision carries the sentence a person is owed about it
+///   (`doc/questions/A55`'s *this is derived, not original*, and `supply`'s own);
+/// - the remedy needs a program the caller has not run yet, so the requirement is refused for this
+///   pass with [`Because::AwaitingTool`] and the invocation is in `report.requested`;
+/// - the configuration named nothing that reached this requirement, and `None` sends it to the
+///   decision table as before.
+///
+/// **A packet that will not take the provenance entry withdraws the remedy**, which is
+/// `doc/questions/A48`'s construction applied to `A55`'s: the permission and its condition are one
+/// thing, and a converter that kept the first while dropping the second would be helping itself to
+/// a licence it had not earned.
+fn configured(remedies: &Remedies, id: &'static str, prepared: &Prepared) -> Option<Decision> {
+    let kind = if remedies.derive_sites.contains(id) {
+        Some((
+            RemedyKind::Derive,
+            Rewrite::DerivedEmbeddedFile,
+            DERIVED_NOT_ORIGINAL,
+        ))
+    } else if remedies.supply_sites.contains(id) {
+        Some((
+            RemedyKind::Supply,
+            Rewrite::SuppliedMediaType,
+            SUPPLIED_BY_THE_OPERATOR,
+        ))
+    } else {
+        None
+    };
+    if let Some((kind, rewrite, warns)) = kind {
+        if !prepared.recorded_provenance {
+            return Some(Decision::Refused(Because::NotBuiltYet(NOT_RECORDED)));
+        }
+        return Some(Decision::Configured {
+            kind,
+            rewrite,
+            warns,
+        });
+    }
+    remedies
+        .pending
+        .iter()
+        .any(|request| request.site == id)
+        .then_some(Decision::Refused(Because::AwaitingTool(
+            remedies::AWAITING_TOOL,
+        )))
+}
+
+/// Why a configured remedy is withdrawn even though it could have been carried out.
+const NOT_RECORDED: &str = "this configuration answers this requirement with a remedy that is \
+     allowed on condition that it is recorded in the file's own xmpMM:History — doc/questions/A55 \
+     for a derived artefact, doc/rfc/0007 section 5b.1 for a fact the operator supplied — and this \
+     document's XMP packet will not take that entry, so the remedy is not carried out either";
 
 /// `doc/pdf-a-conversion-limits.md` section 3.6's question, put by the conversion itself.
 ///
@@ -487,6 +600,7 @@ fn apply_the_decisions(
     conversion: &mut Conversion,
     version: Option<Version>,
     prepared: &Prepared,
+    remedies: &Remedies,
     departed_ids: &BTreeSet<&'static str>,
     omit_identification: bool,
     sinks: &dyn Sinks,
@@ -553,7 +667,7 @@ fn apply_the_decisions(
     {
         conversion.removed.clone_from(&cleaned.removed);
     }
-    let converted = convert(document, plan.target, &wanted, version, prepared)?;
+    let converted = convert(document, plan.target, &wanted, version, prepared, remedies)?;
     for decided in &mut conversion.decided {
         if let Some(rewrite) = decided.decision.rewrite() {
             decided.changed = converted.applied.get(&rewrite).copied().unwrap_or(0);
@@ -636,7 +750,16 @@ fn rewrites_wanted(conversion: &Conversion, omit_identification: bool) -> BTreeS
         .departures
         .iter()
         .any(|departed| matches!(departed.outcome, DepartureOutcome::Applied { .. }));
-    if omit_identification || departed {
+    // And for the same reason, a conversion that derived an artefact or wrote a fact the operator
+    // supplied writes the packet whether or not a requirement asked for it: `doc/questions/A55` and
+    // `doc/rfc/0007` section 5b.1 both make the `xmpMM:History` entry a *condition* of the remedy,
+    // so the file itself carries what a report might not outlive.
+    let configured = conversion
+        .derived
+        .iter()
+        .any(|row| row.outcome == DerivedOutcome::Attached)
+        || !conversion.supplied.is_empty();
+    if omit_identification || departed || configured {
         wanted.insert(Rewrite::IdentificationSchema);
     }
     wanted

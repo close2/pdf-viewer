@@ -3,7 +3,7 @@
 //! §7 of the brief makes this module a startup-latency problem before it is a
 //! rendering problem. The caller renders page one on its CPU backend *while we
 //! initialise*, so what we cost before the first frame is what decides whether the
-//! handover is invisible. The rules, from the brief and `doc/PLAN.md` §1.8:
+//! handover is invisible. The rules, from the brief and `raster/doc/PLAN.md` §1.8:
 //!
 //! - **No pipeline compilation on the critical path of device construction.**
 //!   `PipelineStore::new` creates nothing on the GPU; the warm set compiles on a

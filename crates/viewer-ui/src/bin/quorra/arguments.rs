@@ -149,8 +149,10 @@ pub(crate) struct Arguments {
 ///
 /// Separate from `main` because the sandbox decision is one of them: it decides *where* this
 /// document's images are decoded, and a policy applied halfway through is not a policy.
-#[allow(clippy::too_many_lines)] // one loop, one arm per flag: the length is the
-// option count, and a split would put half the command line out of sight of the other
+#[expect(
+    clippy::too_many_lines,
+    reason = "one loop, one arm per flag: the length is the option count, and a split would put half the command line out of sight of the other"
+)]
 pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut path = None;
     let mut sandbox = true;

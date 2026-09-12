@@ -16,7 +16,7 @@
 //! - [`probe`] — a drawn raster turned into the number an assertion is written on;
 //! - [`bound`] — ADR 0006's cross-implementation bound, read at one pixel.
 //!
-//! [`clause`] and [`probe`] were listed in `doc/HANDOVER.md` as deliberately *not*
+//! [`clause`] and [`probe`] were listed in `raster/doc/HANDOVER.md` as deliberately *not*
 //! unified, and the recorded obstacle was the same sentence for both: each copy indexed a
 //! raster through its own file's `SIZE`, so one home for them looked like one home for
 //! `SIZE`. Read rather than quoted forward, that obstacle was two different mistakes.

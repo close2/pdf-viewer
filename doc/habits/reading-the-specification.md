@@ -7,6 +7,16 @@ reading into; `doc/errata-read.md` is what an erratum has moved.
 
 `doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
 
+- **A clause number is an edition's, and a clause that exists in one edition may not exist in the
+  other at all.** Session 1005 wrote "§8.8.2 says a conforming reader shall ignore a PostScript
+  XObject" into a test and a question; the conformance gate refused it within the minute. **ISO
+  32000-2 has no PostScript XObjects** — `grep -c` returns 0, and 8.8.1 says "[t]here are two types
+  of external objects", image and form. They live in ISO 32000-1:2008, 8.8.2, which is the edition
+  PDF/A-2 delegates to, and its sentence is stronger than the paraphrase: such fragments "shall
+  have no effect either when viewing the document on-screen or when printing it to a non-PostScript
+  device". **When a rule feels like common knowledge, that is the moment to check which edition
+  states it** — and the `§` convention exists so that the gate can.
+
 - **A clause's neighbour can answer a question the entry never asked.** Reading §9.9.1's *preceding*
   sentence — the TrueType tables that "shall always be present if present in the original TrueType
   font program", which lists `head`, `hhea`, `loca`, `maxp`, `cvt `, `prep`, `glyf`, `hmtx` and

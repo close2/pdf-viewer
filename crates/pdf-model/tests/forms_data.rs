@@ -821,7 +821,7 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
         .bytes;
     let reopened = Document::open(saved).expect("what was written is a PDF");
     assert!(
-        pdf_model::signature::permissions(&reopened)
+        pdf_signature::signature::permissions(&reopened)
             .usage_rights
             .is_some(),
         "filling in a field is what /Form [/FillIn] grants, so the signature stands"
@@ -839,7 +839,7 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
         .bytes;
     let reopened = Document::open(saved).expect("what was written is a PDF");
     assert!(
-        pdf_model::signature::permissions(&reopened)
+        pdf_signature::signature::permissions(&reopened)
             .usage_rights
             .is_none(),
         "/Form [/Import] does not grant filling in, so the signature is withdrawn"
@@ -877,7 +877,7 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
 #[test]
 fn a_certified_document_states_which_operation_its_author_forbade() {
     use pdf_model::restriction::{Operation, Restriction, asserted};
-    use pdf_model::signature::Modification;
+    use pdf_signature::signature::Modification;
 
     let final_document = Document::open(certified_form(1)).expect("the fixture is a valid PDF");
     for operation in [Operation::FillInForm, Operation::Annotate] {

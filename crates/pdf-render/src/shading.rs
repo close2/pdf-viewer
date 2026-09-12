@@ -1141,6 +1141,10 @@ impl MeshRaster {
                 // at 1:1, so no filter can be reached — and asking for one would let a
                 // backend blur the mesh against the transparent pixels outside it.
                 interpolate: false,
+                // A shading's own raster is not a document's image: its alpha is where
+                // the shading paints, which is §11.6.4.2's shape (ADR 1017's reading,
+                // `SampleAlpha`'s own doc comment).
+                sample_alpha: crate::SampleAlpha::Shape,
             },
         })
     }
@@ -1373,6 +1377,10 @@ impl RadialRaster {
                 // Nearest sampling, for `MeshRaster`'s reason: the raster is already at
                 // device resolution and drawn at 1:1, so no filter can be reached.
                 interpolate: false,
+                // A shading's own raster is not a document's image: its alpha is where
+                // the shading paints, which is §11.6.4.2's shape (ADR 1017's reading,
+                // `SampleAlpha`'s own doc comment).
+                sample_alpha: crate::SampleAlpha::Shape,
             },
         })
     }
@@ -1531,6 +1539,10 @@ impl ShadingRaster {
                 // Nearest sampling, for [`MeshRaster`]'s reason: the raster is already at
                 // device resolution and drawn at 1:1, so no filter can be reached.
                 interpolate: false,
+                // A shading's own raster is not a document's image: its alpha is where
+                // the shading paints, which is §11.6.4.2's shape (ADR 1017's reading,
+                // `SampleAlpha`'s own doc comment).
+                sample_alpha: crate::SampleAlpha::Shape,
             },
         })
     }

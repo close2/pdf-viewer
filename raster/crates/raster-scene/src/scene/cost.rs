@@ -34,7 +34,7 @@ pub struct Cost {
     /// Distinct, not referencing: CLAUDE.md's rule is to instrument the count of distinct
     /// keys rather than the hit rate, and this is exactly the number a device pays for —
     /// **one generated shader per distinct program**, 6.3 ms of cold pipeline compile
-    /// each (`doc/spike-function-paint.md`). A thousand fills sharing one identifier
+    /// each (`raster/doc/spike-function-paint.md`). A thousand fills sharing one identifier
     /// compile one shader and count one here; a hundred fills naming a hundred
     /// identifiers is a hundred, and that is the page a caller wants to hear about before
     /// the frame rather than during it.

@@ -3,7 +3,7 @@
 //! # Why this file exists
 //!
 //! Every other function test runs the default [`Coverage::Cpu`]
-//! (`doc/notes-function-wiring.md` §4.5), so one of the two settings a caller can put a
+//! (`raster/doc/notes-function-wiring.md` §4.5), so one of the two settings a caller can put a
 //! device in had never drawn this paint at all.
 //!
 //! # What the two settings are allowed to differ by here, and why it is not ADR 0016's
@@ -58,7 +58,7 @@ const SIZE: u32 = 192;
 /// A small atlas, as in `tests/coverage_lanes.rs`: 64 KiB admits tiles of 8 KiB
 /// (ADR 0024's eighth), so the solid mark below is refused by the cache and the GPU lane
 /// is a live option for it. Without that, `take_gpu_lane`'s fourth condition declines and
-/// the frame would compare one lane with itself — the trap `doc/HANDOVER.md` records from
+/// the frame would compare one lane with itself — the trap `raster/doc/HANDOVER.md` records from
 /// `m45.rs`.
 const TINY_ATLAS: u64 = 64 * 1024;
 

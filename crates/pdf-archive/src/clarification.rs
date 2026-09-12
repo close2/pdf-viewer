@@ -54,6 +54,13 @@
 //! each *widen* a rule — A002 by binding a part whose own text does not state the sentence, A028
 //! by taking away a licence the base standard's own reading of §8.6.5.6 would give.
 //!
+//! **A third shape arrived with A010, and it is the reason [`CLARIFICATIONS`] is not the whole
+//! record.** That item changes no row's reading at all: it narrows the *population* every row of
+//! the part reaches, by carving a range of clauses out of an exemption section 6.2.2 states. A
+//! table keyed by requirement identifier has no key for it, so it is recorded in this module's
+//! list below with the argument, and the reading itself lives in [`crate::reach`] beside the code
+//! that applies it. ADR 1021.
+//!
 //! **A row a clarification only confirms is carried here too**, and that is deliberate. The
 //! citation is what tells a reader which of two available readings of a published sentence this
 //! crate applied — whether `q` nesting was summed across a form `XObject`, whether one painting
@@ -147,31 +154,42 @@
 //! - **A025** — an embedded `CMap`'s `usecmap` may name only a predefined `CMap`, which is
 //!   `fonts/cmap-uses-only-predefined-cmaps`.
 //!
-//! **Owed**, each with the row it would touch and what it would take:
+//! **Taken, and not row-shaped** — the first item of this note whose subject is not one
+//! requirement, which is why it is here rather than in [`CLARIFICATIONS`]:
 //!
-//! - **A010** — an unreferenced named resource is exempt from the part *except* its file-structure
-//!   and implementation-limit subclauses, sections 6.1.2 to 6.1.13, and shall still conform to the
-//!   base standard. No row states the exemption. Half of it holds here by construction: the rows
-//!   that read `crate::survey` never see a resource nothing references, because the walk reaches a
-//!   form `XObject` only through the `Do` that names it. The other half does not — the rows that
-//!   walk every object a cross-reference section names judge an unreferenced image or font like any
-//!   other, which is right for sections 6.1.2 to 6.1.13 and an over-report for everything else.
-//!   Taking it means the survey recording *which* names each resources dictionary had referenced,
-//!   and the object-walking rows reading that set; it is a predicate to write rather than a rule to
-//!   withdraw, and it is the one item of this note that could move `over` off zero in either
-//!   direction. **Session 943 deferred it deliberately**, and ADR 0935 carries the argument: what
-//!   is missing here is section 6.2.2's *published* exemption rather than A010, which only narrows
-//!   it; and exempting an object requires proving it is reachable no other way, which no fact this
-//!   crate holds today can decide. Getting that wrong withdraws real failures in silence, which is
-//!   the one direction a validator may not move by accident. **Session 944 measured how much is
-//!   being deferred**, and the answer is `doc/todo/62` with `examples/unreferenced.rs` as the
-//!   command that recounts it. What it found: over `doc/veraPDF-corpus`'s six targets, every
-//!   document whose verdict turns on an object this exemption reaches fails under a clause the
-//!   applicable carve-out **keeps** — part 4's own published sections 6.1.6 to 6.1.9, and part
-//!   2's under A010. So the exemption *with* A010 moves nothing here, and part 2's published
-//!   sentence *without* it would withdraw failures this crate and the corpus agree on. **A010 is
-//!   what makes the exemption safe rather than a refinement to add after it**, which reverses the
-//!   order ADR 0935 proposed. ADR 0941.
+//! - **A010** — an unreferenced named resource is exempt from the part *except* its
+//!   file-structure and implementation-limit subclauses, sections 6.1.2 to 6.1.13, and shall
+//!   still conform to the base standard. **The exemption it narrows is section 6.2.2's own last
+//!   sentence, and neither was stated here until session 1001.** Half of it had always held by
+//!   construction: the rows that read `crate::survey` never see a resource nothing references,
+//!   because the walk reaches a form `XObject` only through the `Do` that names it. The other
+//!   half is now [`crate::reach`] — `Exempt` computes the population, which is a question about
+//!   the whole file that no predicate holding one object could answer, and
+//!   `reach::exemption_narrows` reads A010's carve-out for part 2 and the published one for
+//!   part 4. `crate::check` applies it to a failing requirement.
+//!
+//!   **A010 is what makes the exemption safe rather than a refinement to add after it.**
+//!   Session 944 measured what part 2's published sentence *without* A010 would withdraw and the
+//!   answer was real failures this crate and the corpus agree on, every one of them under a
+//!   clause A010 keeps; so the two landed in one commit, as `doc/todo/62` section 3 says they
+//!   had to. With the carve-outs in place the corpus moves not at all — the same measurement
+//!   from the other side, and `CLAUDE.md`'s two denominators again.
+//!
+//!   **Why it has no [`CLARIFICATIONS`] entry.** That table is keyed by requirement identifier
+//!   because every item before this one resolves a reading of one rule, and a judgement prints
+//!   the resolution beside the row it bears on. A010 bears on *every* row of the two parts at
+//!   once, by narrowing the population they are all about; there is no row it belongs to, and
+//!   hanging it on a neighbouring one — section 6.2.2's own rows are the temptation — would tell
+//!   a reader it changes that rule's reading, which it does not. So the record is here, the
+//!   reading is in [`crate::reach`] beside the code that applies it, and the audit of it is
+//!   `crate::coverage`'s two `Scoping` sentences at section 6.2.2. ADR 1021.
+//!
+//!   What is left owed is A010's **second** sentence, and it is the one part of this work that
+//!   could *add* a failure: an unreferenced resource shall still conform to the base standard.
+//!   `reach::exemption_narrows` keeps section 5.1 out of the narrowing for exactly that reason,
+//!   and section 5.1 is `conformance/adheres-to-the-base-standard`, which is
+//!   [`crate::Check::Unchecked`] — so the sentence is honoured in shape and unenforced in fact,
+//!   as the whole of the base standard is here. The corpus has no witness for it at all.
 //!
 //! **Reaching no part this crate targets.** One item is left, and it is recorded here rather
 //! than passed over so that the next round does not have to re-derive it:

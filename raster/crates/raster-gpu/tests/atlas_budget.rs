@@ -6,7 +6,7 @@
 //! lane's output together, and nothing said how much of *this* frame the cache declined.
 //! Over the caller's corpus at 4× the second state accounts for 74 820 marks on 19 of 948
 //! pages and the first for none at all — the largest single page asks for 4.10 MiB of an
-//! 8 MiB atlas (`doc/notes-atlas-budget.md`).
+//! 8 MiB atlas (`raster/doc/notes-atlas-budget.md`).
 //!
 //! The other subject is one word in `Options`: `atlas_budget` is a **request**. The
 //! texture is near-square with its width capped at 2048 and its sides clamped to the

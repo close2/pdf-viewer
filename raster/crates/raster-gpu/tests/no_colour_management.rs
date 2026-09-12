@@ -11,7 +11,7 @@
 //! > and it is evaluated on the rendering path. This is the one place in a renderer where
 //! > untrusted *data* is fed to a parser that most projects treat as infrastructure.
 //!
-//! Our answer is structural. Colour is not ours (`doc/PLAN.md` integration note 6:
+//! Our answer is structural. Colour is not ours (`raster/doc/PLAN.md` integration note 6:
 //! `ColourSpace::to_rgb` upstream is the only place a colour becomes RGB, and adding a
 //! second one is forbidden), device RGB is what arrives, and `RENDER_LIBRARY.md` §9 lists
 //! colour management first among the non-goals. A profile therefore reaches no parser

@@ -94,7 +94,7 @@ fn the_corpus_certification_permits_filling_in_and_not_annotating() {
     assert_eq!(
         asserted(&document, Operation::Annotate, None, None),
         vec![Restriction::Certified {
-            level: pdf_model::signature::Modification::FormFilling
+            level: pdf_signature::signature::Modification::FormFilling
         }]
     );
 }
@@ -114,7 +114,7 @@ fn a_certification_withholds_a_change_and_not_a_reading_at_every_level() {
     };
     let document = Document::open(bytes).expect("a valid PDF");
     let certified = vec![Restriction::Certified {
-        level: pdf_model::signature::Modification::FormFilling,
+        level: pdf_signature::signature::Modification::FormFilling,
     }];
     for level in [Level::Off, Level::On, Level::Ask, Level::Warn] {
         assert_eq!(
@@ -195,7 +195,7 @@ fn the_corpus_certification_also_covers_a_field_by_name() {
             None
         ),
         vec![Restriction::Certified {
-            level: pdf_model::signature::Modification::FormFilling
+            level: pdf_signature::signature::Modification::FormFilling
         }]
     );
 }

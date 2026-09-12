@@ -280,7 +280,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
             "unimplemented, and what would settle it is a population rather than a reading: \
              every signature dictionary the file holds, compared with the ones the AcroForm's \
              field tree reaches as the V of a field whose FT is Sig. \
-             `pdf_model::signature::signatures` gives the second set today; the first needs a \
+             `pdf_signature::signature::signatures` gives the second set today; the first needs a \
              walk of every object that is a signature dictionary, which is the same walk \
              `super::file_structure`'s rows already make over the cross-reference sections and \
              which nothing here reuses yet",
@@ -307,7 +307,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Unchecked(
             "half of the disjunction is ISO 14533-3, which this project does not hold, so a \
              signature departing from ISO 32000-2 §12.8.3.4 could still meet the clause by the \
-             other route; `pdf_model::signature::pades_departures` already answers the half we \
+             other route; `pdf_signature::signature::pades_departures` already answers the half we \
              can read",
         ),
     },
@@ -321,7 +321,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
             "unimplemented. The subclause's second sentence is conditional on an aspiration — \
              what a file needs *in order to* be deterministically valid over the long term — so \
              only the first binds a file outright, and it delegates wholly to ISO 32000-2 \
-             §12.8.5. `pdf_model::signature` reads a document timestamp's CMS object already; \
+             §12.8.5. `pdf_signature::signature` reads a document timestamp's CMS object already; \
              what is missing is a predicate over §12.8.5's own requirements, which is the same \
              owed reading as the PAdES row above and is better done once for both",
         ),
@@ -342,11 +342,11 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         applies: Applies::Always,
         check: Check::Unchecked(
             "unimplemented, and closable in part from what this tree already reads: \
-             `pdf_model::cms::SignedData` states `signers` and the entries of `certificates`, \
-             `pdf_model::x509::Certificate::is_named_by` matches the signer's `sid` to one of \
+             `pdf_signature::cms::SignedData` states `signers` and the entries of `certificates`, \
+             `pdf_signature::x509::Certificate::is_named_by` matches the signer's `sid` to one of \
              them, and failing to parse at all is its `CmsError`. **What keeps it here is the \
              first word of the sentence, not the count**: *DER-encoded* is a claim about the \
-             encoding, and `pdf_model::der` accepts X.690's indefinite lengths on purpose — it \
+             encoding, and `pdf_signature::der` accepts X.690's indefinite lengths on purpose — it \
              records `Value::had_indefinite_length` and refuses nothing — so a predicate written \
              from that reader could say *parses as CMS* and could not say *is DER*. Judging DER \
              needs the reader to refuse, or to report, every departure X.690 clause 10 names, \
@@ -366,7 +366,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
             "unimplemented, and a separate sentence of the annex from the single-signer one \
              above — split out of that row's reason so that the half this tree can count is not \
              held hostage to the half it cannot. The annex names **RFC 2315**, which is a \
-             narrower object than the RFC 5652 `SignedData` `pdf_model::cms` reads, and nothing \
+             narrower object than the RFC 5652 `SignedData` `pdf_signature::cms` reads, and nothing \
              in this tree holds that document; judging a signature against the later RFC and \
              citing the annex would be this crate deciding the two are the same object, which \
              is the claim that would have to be argued first",
@@ -382,7 +382,7 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Unchecked(
             "unimplemented. Half the sentence is about the signing process and leaves no trace a \
              file can be judged by; the half that does is the signed attribute, and \
-             `pdf_model::cms::SignedData::has_signed_attribute` would answer it given the \
+             `pdf_signature::cms::SignedData::has_signed_attribute` would answer it given the \
              object identifier the annex intends. The annex names no identifier, and choosing \
              one from a de-facto convention would be this crate supplying the rule rather than \
              applying it",
@@ -1539,7 +1539,7 @@ fn signature_widgets_meet_the_annotation_rules(exam: &Examination<'_>, findings:
 /// `/V` and section 6.4.3 requires it. A signature reachable only another way — the corpus has
 /// one, referenced from `/Perms` alone — is `signatures/signatures-use-signature-fields`'s
 /// finding and not this row's. A field whose `/V` states neither `/ByteRange` nor `/Contents`
-/// is prepared and unsigned, and [`pdf_model::signature::read`] declines it.
+/// is prepared and unsigned, and [`pdf_signature::signature::read`] declines it.
 ///
 /// veraPDF's rule for this clause was run on the same shapes, as evidence and not as the
 /// target (`CLAUDE.md` principle 5): it passes a signature whose range ends at its own revision's
@@ -1559,7 +1559,7 @@ fn digest_covers_the_whole_file(exam: &Examination<'_>, findings: &mut Findings)
         let Some(dict) = value.as_dict() else {
             return;
         };
-        let Some(signature) = pdf_model::signature::read(document, dict) else {
+        let Some(signature) = pdf_signature::signature::read(document, dict) else {
             return;
         };
         let place = place.clone().named("ByteRange");

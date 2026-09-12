@@ -12,7 +12,7 @@
 //! actually have, which is how a twentyfold zoom cliff and a sixteenfold sheet lived
 //! here undetected until the caller's own gate or an example found them.
 //!
-//! `doc/corpus-profile.md` holds the measurement, its date and how to redo it.
+//! `raster/doc/corpus-profile.md` holds the measurement, its date and how to redo it.
 //!
 //! # Where the pages live, and why not here
 //!
@@ -169,7 +169,7 @@ fn the_archetypes_cost_what_they_are_recorded_to_cost() {
 /// **A curve clip clips the marks under it** — asserted as an interaction, in the two
 /// quantities that say the interaction happened, on both sides of the library's boundary.
 ///
-/// The trap this exists for is written down in `doc/notes-tiling-bound.md` §3 and cost
+/// The trap this exists for is written down in `raster/doc/notes-tiling-bound.md` §3 and cost
 /// two ADRs: a fixture whose subject is an *interaction* needs a gate that fails when the
 /// interaction stops happening, and the signature above was not one. It counted 40 and
 /// 600 tiles for two pages whose clips and marks did not overlap at all, because until

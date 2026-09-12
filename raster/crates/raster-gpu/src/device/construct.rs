@@ -126,7 +126,7 @@ impl Device {
     /// A device that presents to a window. `raw-window-handle` and nothing more
     /// specific: any window type convertible to a [`wgpu::SurfaceTarget`] — which
     /// `wgpu` provides for anything implementing the `raw-window-handle` traits it
-    /// re-exports as [`wgpu::rwh`] (integration note 4 in `doc/PLAN.md`).
+    /// re-exports as [`wgpu::rwh`] (integration note 4 in `raster/doc/PLAN.md`).
     ///
     /// # Errors
     ///

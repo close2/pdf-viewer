@@ -1,7 +1,7 @@
 //! How a mark combines with what is already there.
 //!
 //! Three enumerations, all of them transcriptions of a specification rather than design
-//! choices of ours, which is why they are real code in a skeleton (`doc/adr/0003`):
+//! choices of ours, which is why they are real code in a skeleton (`raster/doc/adr/0003`):
 //! [`BlendMode`] because ISO 32000-2 §11.3.5 names sixteen modes, [`Compose`] because
 //! §11.4.6 needs a second compositing behaviour that a general vector API does not have,
 //! and [`FillRule`] because §8.5.3.3 defines two.
@@ -116,7 +116,7 @@ impl BlendMode {
 /// Which Porter-Duff compositing operator a mark uses.
 ///
 /// This enumeration is the reason a general 2D vector library cannot be patched into
-/// ISO 32000-2 clause 11, and `doc/RENDER_LIBRARY.md` §4.1 is the argument. §11.4.6:
+/// ISO 32000-2 clause 11, and `raster/doc/RENDER_LIBRARY.md` §4.1 is the argument. §11.4.6:
 ///
 /// > In a knockout group, each individual element shall be composited with the group's
 /// > initial backdrop rather than with the stack of preceding elements in the group.

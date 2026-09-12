@@ -483,6 +483,38 @@ pub enum Rewrite {
     /// naming any other is one no conforming processor can consult, so nothing any reader did
     /// ever turned on it. [`super::signatures::foreign_handlers`] is the reading.
     ForeignPermissionHandlers,
+    /// Every embedded file the target refuses is replaced by what a declared tool derived from it.
+    ///
+    /// `doc/rfc/0007` section 2's `derive` kind, allowed by `doc/questions/A55` on terms, and the
+    /// catalogue's flagship entry (`doc/pdf-a-mitigations.md` section 11): ISO 19005-2 section 6.8
+    /// and ISO 19005-4 section 6.9 require an embedded file to conform to a part of ISO 19005, and a
+    /// spreadsheet does not. The bytes a program derived from it do.
+    ///
+    /// **This is the one rewrite of this verb that puts content in the file that was in no
+    /// document.** It is therefore not [`Decision::Mechanical`] and not [`Decision::Stated`]: it is
+    /// [`Decision::Configured`], carried out only where the operator's configuration named the site
+    /// *and* the tool, reported per document in the words *this is derived, not original*, and
+    /// recorded in the file's own `xmpMM:History`. [`super::remedies`] is the construction and the
+    /// four dictionary edits it makes.
+    ///
+    /// [`Decision::Mechanical`]: super::Decision::Mechanical
+    /// [`Decision::Stated`]: super::Decision::Stated
+    /// [`Decision::Configured`]: super::Decision::Configured
+    DerivedEmbeddedFile,
+    /// Every associated file's stream states the media type the operator's configuration supplied.
+    ///
+    /// ISO 19005-4 section 6.9, by way of §14.13.2, requires an associated file's embedded stream to
+    /// state a `/Subtype` that is a MIME media type, and §7.11.4.1's Table 44 makes the entry that
+    /// media type. **Nothing in a file specification states one**: an extension is a convention
+    /// rather than a declaration, so reading it as one would be this converter asserting what the
+    /// bytes are, which is why the requirement is otherwise refused. An operator whose pipeline
+    /// produces the attachments does know, and `doc/pdf-a-mitigations.md` section 0.2's `supply` is
+    /// them saying so.
+    ///
+    /// **The value is written on the operator's authority and the file says so**: the report names
+    /// it beside the requirement it answered and `xmpMM:History` records that a human rather than
+    /// the document is its source.
+    SuppliedMediaType,
 }
 
 impl Rewrite {
@@ -649,6 +681,15 @@ impl Rewrite {
                  permission handler ISO 32000 does not define and no conforming processor can \
                  consult"
             }
+            Self::DerivedEmbeddedFile => {
+                "an embedded file the target does not admit is replaced by what a program this \
+                 configuration declares derived from it, so the attachment in the archive is a \
+                 representation of the original rather than the original"
+            }
+            Self::SuppliedMediaType => {
+                "an associated file's stream states the MIME media type the operator's \
+                 configuration supplied, on the operator's authority rather than the document's"
+            }
         }
     }
 
@@ -697,6 +738,8 @@ impl Rewrite {
             Self::Jpeg2000ColourSpecifications => "jpeg2000-colour-specifications",
             Self::SignatureValueRemoved => "signature-value-removed",
             Self::ForeignPermissionHandlers => "foreign-permission-handlers",
+            Self::DerivedEmbeddedFile => "derived-embedded-file",
+            Self::SuppliedMediaType => "supplied-media-type",
         }
     }
 }
@@ -724,6 +767,7 @@ pub(super) fn convert(
     wanted: &BTreeSet<Rewrite>,
     version: Version,
     prepared: &Prepared,
+    remedies: &super::remedies::Remedies,
 ) -> Result<Converted, Refusal> {
     let root = crate::optimize::catalog_of(document)?;
     let sites = Sites::of(document, root, wanted);
@@ -732,6 +776,7 @@ pub(super) fn convert(
         target,
         wanted,
         sites,
+        remedies,
         added: prepared.added(),
         intent: prepared.intent.as_ref().ok(),
         metadata: prepared.metadata.as_ref().ok(),
@@ -1449,6 +1494,8 @@ struct Rewriter<'a> {
     signatures: Option<&'a Signatures>,
     /// The permissions dictionary's keys outside Table 263, where any are removed.
     foreign_handlers: Option<&'a ForeignHandlers>,
+    /// What the operator's configuration answered, for the two remedies that reach a rewrite.
+    remedies: &'a super::remedies::Remedies,
 }
 
 impl Rewriter<'_> {
@@ -1586,6 +1633,19 @@ impl Rewriter<'_> {
                 Object::Reference(embedding.at),
             );
             count(applied, Rewrite::SubstituteFontProgram);
+            changed = true;
+        }
+        if self.wants(Rewrite::SuppliedMediaType)
+            && let Some(media_type) = self.remedies.supplied.get(&id)
+        {
+            // §7.11.4.1's Table 44 makes `/Subtype` the embedded file's media type, and the value
+            // written is the operator's own. Their authority is what the report and the file's
+            // `xmpMM:History` both record; nothing here is derived from the document.
+            out.insert(
+                Name::new(&b"Subtype"[..]),
+                Object::Name(Name::new(media_type.as_bytes())),
+            );
+            count(applied, Rewrite::SuppliedMediaType);
             changed = true;
         }
         changed |= self.write_default_cmyk(id, &mut out, applied);
@@ -2367,6 +2427,15 @@ impl Rewriter<'_> {
         if self.wants(Rewrite::PostScriptXObject) && self.subtype_is(&stream.dict, b"PS") {
             count(applied, Rewrite::PostScriptXObject);
             return Rewritten::Dropped;
+        }
+        // The attachment a tool derived: a whole new stream rather than a dictionary edit, because
+        // its bytes, its `/Length`, its `/Subtype` and its `/Params` all change together. The
+        // construction and the four edits are `super::remedies::derived_stream`.
+        if self.wants(Rewrite::DerivedEmbeddedFile)
+            && let Some(derived) = self.remedies.derived.get(&id)
+        {
+            count(applied, Rewrite::DerivedEmbeddedFile);
+            return Rewritten::Changed(derived.clone());
         }
         // **Three writers over one packet, and the last of them is what counts the first two's
         // work.** `super::prepare` folds the header cut into the bytes the property removal

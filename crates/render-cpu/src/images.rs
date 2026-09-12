@@ -256,7 +256,7 @@ fn address(data: &Arc<[u8]>) -> usize {
 mod memo {
     use std::sync::Arc;
 
-    use pdf_render::{Image, Transform};
+    use pdf_render::{Image, SampleAlpha, Transform};
 
     use super::ReducedImages;
 
@@ -273,6 +273,9 @@ mod memo {
             height: n,
             data: data.into(),
             interpolate: false,
+            // Every sample here is opaque and no mask is involved, so the alpha channel is
+            // §11.6.4.2's rectangle — which is `Shape`, and which the reduction preserves.
+            sample_alpha: SampleAlpha::Shape,
         }
     }
 

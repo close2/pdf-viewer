@@ -100,7 +100,7 @@ fn square(half: f32) -> Vec<Segment> {
 /// neighbours and every mark is drawn at less than full alpha. That is what makes draw
 /// **order** visible in the pixels — a page whose marks do not touch is a page that
 /// compares equal however it was reordered, and a gate that cannot fail is not a gate
-/// (`doc/HANDOVER.md`).
+/// (`raster/doc/HANDOVER.md`).
 fn at(index: u32) -> Affine {
     let columns = 6;
     let x = 30.0 + f32::from((index % columns) as u16) * 6.0;

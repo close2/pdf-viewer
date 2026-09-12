@@ -123,11 +123,14 @@ for as long as either of them has existed**: `--all` and
 `--workspace` mean *every package in **this** workspace*, so not one of the four reads a line of
 `fuzz/`, and what covers it has to name its manifest.
 
-**2. Seven crates are under everything**, and this is the rule that answers most rounds — it was
+**2. Eight crates are under everything**, and this is the rule that answers most rounds — it was
 the map's *first row*, which is what a round's own record usually calls it.
-`pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-spec`, `pdf-sandbox` and `render-cpu`
+`pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-signature`, `pdf-spec`, `pdf-sandbox`
+and `render-cpu`
 are what draws the page and what every corpus-scale gate rasterises with, so a change in any of
-them runs **the whole sequence** and there is nothing to look up.
+them runs **the whole sequence** and there is nothing to look up. `pdf-signature` is here because
+`pdf-model` depends on it for §12.8.2.2's `/DocMDP` level and §12.8.6's usage rights (ADR 1020);
+the day that dependency goes, this list is seven again and the lookup table gets a row.
 
 **3. A round that can change a pixel runs everything.** That is any change to the crates in rule
 2, and it is not a judgement about how small the diff looked: trap 1's whole subject is that a

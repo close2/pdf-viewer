@@ -52,6 +52,7 @@
 
 pub mod archive;
 pub mod attachments;
+pub mod executor;
 pub mod images;
 pub mod json;
 pub mod merge;
@@ -62,6 +63,7 @@ pub mod range;
 pub mod render;
 pub mod split;
 pub(crate) mod structure;
+pub mod tool;
 pub mod update;
 
 use std::io::Write;
@@ -777,6 +779,19 @@ pub struct Report {
     /// outputs — present whether or not a file was written, because the interesting case is
     /// often the one where none was.
     pub archive: Option<archive::Conversion>,
+    /// External programs this plan needs run, which [`apply`] will not run itself.
+    ///
+    /// **`doc/questions/A54`'s whole shape.** A configured remedy whose answer is an external
+    /// program does not make `apply` spawn one: `apply` returns the invocation as data — the
+    /// program, the arguments, the input bytes, the expected media type and the bounds — and the
+    /// caller executes it through [`executor::execute`], the one module in this tree that starts a
+    /// process, then applies again with the results in the plan. So the seam keeps RFC 0002
+    /// section 5's *no filesystem, no clock, no environment*, and a conversion whose tool output
+    /// is recorded is deterministic by construction (its section 9).
+    ///
+    /// Empty for every plan that names no tool, which is every plan until an operator's
+    /// configuration does.
+    pub requested: Vec<tool::ToolRequest>,
 }
 
 /// One file written.
@@ -1411,7 +1426,7 @@ pub fn consult(level: Level, document: &Document, operation: Operation) -> Consu
 /// the same list worded for a pipe — shorter, because a line on stderr is read beside a command
 /// rather than in a dialogue.
 fn describe_restriction(operation: Operation, restriction: Restriction) -> String {
-    use pdf_model::signature::Modification;
+    use pdf_signature::signature::Modification;
     match restriction {
         // §7.6.4.2's Table 22, the bit `Operation::bit` chose for this document's revision.
         Restriction::AccessDenied { bit } => {

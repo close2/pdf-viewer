@@ -4196,6 +4196,8 @@ mod tests {
                 height: 3,
                 data: (0u8..24).collect::<Vec<u8>>().into(),
                 interpolate: true,
+                // What `decode_thumbnail` states for every thumbnail; see its comment.
+                sample_alpha: pdf_render::SampleAlpha::Shape,
             },
             permitted_colour_space: false,
             permitted_subtype: false,

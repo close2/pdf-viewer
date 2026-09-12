@@ -16,7 +16,7 @@ use raster_scene::{Affine, Rect};
 /// - **Not a page fitter.** How a fractional page becomes a whole number of pixels is
 ///   the caller's decision — its `TargetSpec::for_page` owns the rounding rule and its
 ///   pixel budget. We take a size and a transform and honour them exactly.
-///   (Integration note 2 in `doc/PLAN.md`: the affine here is more general than the
+///   (Integration note 2 in `raster/doc/PLAN.md`: the affine here is more general than the
 ///   scale their trait carries, and the bridging belongs on their side.)
 /// - **Not a hint.** [`damage`] empty means "all of it", and a non-empty `damage` that
 ///   omitted a region which in fact changed would produce a frame that is stale in a

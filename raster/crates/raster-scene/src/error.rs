@@ -1,6 +1,6 @@
 //! Why the builder refused an input: one typed enum, and the three reasons it defers to.
 //!
-//! One responsibility, and `doc/RENDER_LIBRARY.md` §4.7 states it: structured input
+//! One responsibility, and `raster/doc/RENDER_LIBRARY.md` §4.7 states it: structured input
 //! reaching [`SceneBuilder`](crate::scene::SceneBuilder) from another process's parser
 //! is refused *by name* — never clamped, never repaired, never turned into NaN geometry
 //! for a later stage to discover. [`SceneError`] is that name, and it is the only error

@@ -34,12 +34,20 @@ repository.workspace = true
 pdf-archive.workspace = true
 pdf-font.workspace = true
 pdf-model.workspace = true
+# §12.8 was extracted from `pdf-model` into its own crate in the thousandth session (ADR 1020);
+# this crate reads signatures, so it names it directly.
+pdf-signature.workspace = true
 pdf-render.workspace = true
 pdf-syntax.workspace = true
 render-cpu.workspace = true
 viewer-core.workspace = true
 png.workspace = true
 rayon.workspace = true
+# `doc/rfc/0007` section 4.4 asks a tool-invoking conversion to record "a digest of what it
+# returned — so that a re-run can be *checked* even though it cannot be *guaranteed*". The same
+# hash stack `pdf-syntax`, `pdf-model` and `pdf-signature` already take, rather than a second
+# one: a fingerprint an auditor cannot reproduce with a standard command is not evidence.
+sha2.workspace = true
 thiserror.workspace = true
 
 # The oracle's own comparison, for one gate: RFC 0002 section 9 asks for "the

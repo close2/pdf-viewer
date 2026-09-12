@@ -30,7 +30,7 @@ use raster_scene::{
 /// and its box is `4 × (ALONG + 4)` texels. **512 clears both floors with margin. The
 /// previous revision's 128 clears exactly one of them**, at `4 × 132` = 528 texels: the
 /// fill is declined at 528 against 576 — which is the "six-triangle band of 528 texels"
-/// `doc/notes-glyph-phase-carry.md` §3 records — and **the stroke is not declined at
+/// `raster/doc/notes-glyph-phase-carry.md` §3 records — and **the stroke is not declined at
 /// all**, 528 against 384. That round therefore had a hairline on the sampled lane and
 /// read it as the processor's, because `LaneCounts::path` is the name of both
 /// rasterisers. Measured at `ALONG` = 128 by this instrument before it was set back to
@@ -64,7 +64,7 @@ pub(crate) const HAIRLINE: f32 = 1.0;
 /// height is a multiple of that period contains the same number of lattice points
 /// wherever it lands and loses no ink at any position — a sweep at [`HAIRLINE`] measures
 /// the fixed points of the quantiser and reports zero, which is the trap
-/// `doc/notes-glyph-phase-carry.md` §2 names in the other axis.
+/// `raster/doc/notes-glyph-phase-carry.md` §2 names in the other axis.
 pub(crate) const WITNESS_WIDTH: f32 = 0.878;
 
 /// The caller's own witness CTM: `bug1743245.pdf`'s graph paper is drawn under a uniform

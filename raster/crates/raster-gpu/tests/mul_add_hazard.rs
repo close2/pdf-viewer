@@ -12,7 +12,7 @@
 //! `.cargo/config.toml`, and `Cargo.toml`'s release profile sets only `lto` and
 //! `codegen-units` — so the baseline `x86-64` applies and FMA is not in it. That is not a
 //! guess: the 2026-08-14 profiling round measured the same shape one function over, and
-//! `doc/history/2026-08-02--2026-08-14-m1-through-adr-0048.md` records it — `floorf`,
+//! `raster/doc/history/2026-08-02--2026-08-14-m1-through-adr-0048.md` records it — `floorf`,
 //! `ceilf` and `roundf` are software on this target, **1.29 M instructions a frame**, and
 //! raising `target-cpu` was deliberately not taken because it decides which processors this
 //! library runs on.

@@ -9,20 +9,20 @@
 //!
 //! # Why this is a separate crate
 //!
-//! `doc/RENDER_LIBRARY.md` §2.3 states the property it calls the most important one in
+//! `raster/doc/RENDER_LIBRARY.md` §2.3 states the property it calls the most important one in
 //! the whole brief, and its corollary: a scene is `Send + Sync`, and **building one
 //! requires no device**. The caller's content-stream interpreter runs on a worker
 //! thread and builds scenes there while the GPU is still initialising.
 //!
 //! This crate has no dependency on `wgpu`, so that property is enforced by the
 //! dependency graph rather than by review: a scene cannot reach a device because no
-//! device type is in scope. See `doc/adr/0001`.
+//! device type is in scope. See `raster/doc/adr/0001`.
 //!
 //! # State
 //!
 //! Skeleton. Each module below states what it owns and the signatures it will hold; the
 //! two modules whose types *are* the contract — [`blend`] and [`ids`] — are real.
-//! `doc/adr/0003` explains what that means and what it forbids, and `doc/PLAN.md` says
+//! `raster/doc/adr/0003` explains what that means and what it forbids, and `raster/doc/PLAN.md` says
 //! which milestone fills which module.
 
 #![forbid(unsafe_code)]

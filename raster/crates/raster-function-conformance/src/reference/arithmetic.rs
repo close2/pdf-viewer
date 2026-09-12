@@ -200,7 +200,7 @@ fn square_root(a: Value) -> Result<Value, EvalError> {
 /// saying which operand raises it; a non-positive operand has no real logarithm and
 /// `rangecheck` is the only listed error that can describe it. **That last step is our
 /// reading, not the document's**, and it is recorded as such in
-/// `doc/notes-function-conformance.md`.
+/// `raster/doc/notes-function-conformance.md`.
 fn logarithm(a: Value, on_real: fn(f32) -> f32) -> Result<Value, EvalError> {
     let value = a.real()?;
     if value <= 0.0 {

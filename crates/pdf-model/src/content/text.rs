@@ -981,6 +981,7 @@ impl Interpreter<'_> {
                         &elements,
                         self.alpha_sources.settled(),
                         self.inside_knockout,
+                        self.image_masks.shape_masks(),
                     )
                 })
                 .flatten();
@@ -1113,9 +1114,12 @@ impl Interpreter<'_> {
                     .take(to.saturating_sub(from).saturating_sub(1)),
             );
             index = to;
-            if let Some(group) =
-                implicit_knockout_group(&parts, self.alpha_sources.settled(), self.inside_knockout)
-            {
+            if let Some(group) = implicit_knockout_group(
+                &parts,
+                self.alpha_sources.settled(),
+                self.inside_knockout,
+                self.image_masks.shape_masks(),
+            ) {
                 self.draw(Command::Group {
                     commands: group.elements,
                     alpha: 1.0,

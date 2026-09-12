@@ -22,7 +22,7 @@ pub enum Value {
     Int(i32),
     /// A real. ISO 32000-2 §7.3.3 defers its representation to the machine; this
     /// evaluator uses `f32`, which is the width the device computes in, and the choice
-    /// is recorded in `doc/notes-function-conformance.md` rather than implied here.
+    /// is recorded in `raster/doc/notes-function-conformance.md` rather than implied here.
     Real(f32),
     /// A boolean, which §7.10.5.3 forbids as an *output* — "It shall be an error … for
     /// any of them to be objects other than numbers" — but permits everywhere inside.

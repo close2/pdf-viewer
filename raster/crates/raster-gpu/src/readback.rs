@@ -7,7 +7,7 @@
 //! fixed cost this was, and the split is the answer.
 //!
 //! The premultiplied→straight conversion here is the boundary conversion of §3, done
-//! once; its rounding rule is raster's own and is recorded in `doc/adr/0005`.
+//! once; its rounding rule is raster's own and is recorded in `raster/doc/adr/0005`.
 
 use crate::error::RenderError;
 use crate::frame::Raster;
@@ -141,7 +141,7 @@ fn await_map(gpu: &wgpu::Device, buffer: &wgpu::Buffer) -> Result<(), RenderErro
     Ok(())
 }
 
-/// The rounding rule of `doc/adr/0005`, for every (alpha, channel) pair there is:
+/// The rounding rule of `raster/doc/adr/0005`, for every (alpha, channel) pair there is:
 /// `straight = round(255·c / a)`, computed in integers as `(c·255 + a/2) / a` and
 /// clamped to 255 — the clamp covers the ≤1-ulp cases where unorm blending leaves a
 /// channel a hair above its alpha.

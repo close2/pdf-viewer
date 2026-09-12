@@ -38,7 +38,9 @@
               bound is what keeps the pixel arithmetic below it far from any overflow"
 )]
 
-use pdf_render::{BlendMode, Command, DisplayList, Image, Rasterizer, Size, TargetSpec, Transform};
+use pdf_render::{
+    BlendMode, Command, DisplayList, Image, Rasterizer, SampleAlpha, Size, TargetSpec, Transform,
+};
 
 /// The opaque colour the fixture's marked samples carry, and the one every backend owes back.
 const PAINTED: [u8; 4] = [255, 0, 0, 255];
@@ -65,6 +67,9 @@ fn main() {
             data: data.into(),
             // §8.9.5.3's entry, which is the condition §8.9.6.2's sentence is stated under.
             interpolate: true,
+            // §11.6.4.2: a stencil's alpha is its shape, "1.0 for painted areas and 0.0 for
+            // masked areas", which is what this fixture's alternating samples are.
+            sample_alpha: SampleAlpha::Shape,
         }
         .into(),
         transform: Transform::scale(160.0, 160.0).then(Transform::translate(20.0, 20.0)),

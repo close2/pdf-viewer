@@ -180,7 +180,7 @@ pub const CASES: &[Case] = &[
          under every operator that pops), and ISO 32000-2 says nothing about a program \
          that pops more than it pushed. The pinned vocabulary's decision 6 takes the \
          caller's reading — 0 — because their `pi_seven_segment.pdf` depends on it three \
-         times and `doc/spike-function-paint.md` §7 traces the consequence into the \
+         times and `raster/doc/spike-function-paint.md` §7 traces the consequence into the \
          picture. The expected value is therefore **a decision, not a derivation**, and \
          the case carries the report that says so.",
     )

@@ -65,7 +65,9 @@ is a human putting their own knowledge into the file, recorded as theirs. It is 
 common way a refusal in this catalogue becomes a conversion, and `A48`'s line is not crossed by it,
 because `A48` binds *this program's* guessing and not an operator's statement. It does need `A48`'s
 other half: the report and `xmpMM:History` must say the value came from the configuration rather
-than the document.
+than the document. **Built at one of the twelve since session 999**
+(`embedded-files/associated-file-media-type`), with both halves of that condition enforced;
+`doc/adr/1019` is the record.
 
 **A refusal that is `NOT_BUILT_YET` because a lossless rewrite is owed must not be configurable at
 all.** Around a third of the rows below are of that kind: the right answer loses nothing, nobody has
@@ -1611,6 +1613,14 @@ ISO 19005-2 6.8, ISO 19005-4 6.9 · today `not-built-yet`
   `tool = "office-to-pdf"` and `on-failure = "discard"`, plus per-target qualifiers so 4f attaches
   unchanged and 2b appends. What the operator has to understand is which of those four happened to
   each file, and the report has to say it per attachment rather than per document.
+  **Built since session 999**, in the third of those four shapes and only that one: a declared tool
+  derives a PDF from the attachment and the derived bytes replace it, at every target that binds the
+  rule. `doc/profiles/derive-attachments.toml` is the shipped example, and the report does say it
+  per attachment — the tool, the resolved program, the SHA-256 of what came back, and the owner's
+  own sentence *this is derived, not original*, which also goes into the file's `xmpMM:History`.
+  The other three shapes wait on the same append-as-pages mechanism every `preserve` row does;
+  `on-failure = "discard"` is a configuration error rather than a silent no-op, because dropping an
+  attachment is a rewrite of the name tree nobody has written.
 - **Departure** — **B**, and it is the owner's own case: *accept xml (and only xml) attachments when
   targeting PDF/A-2*. A file that is PDF/A-2 in every other respect and carries one XML attachment
   is plainly still an archival document, and no part of ISO 19005 expresses that permission — part 3
@@ -1631,7 +1641,11 @@ ISO 19005-4 6.9 · PDF/A-4, 4f, 4e · today `not-built-yet`
   ".csv" = "text/csv" }` and `unlisted = "stop"`. This is a good test of the owner's question and it
   passes cleanly: the operator needs to know what their own attachments are, types nothing about any
   individual document, and can read the cost in one line — *the archive asserts these media types on
-  our authority*.
+  our authority*. **Built since session 999**, exactly in that shape, and `unlisted` takes only
+  `stop`: an attachment whose extension the operator's own table does not name leaves the
+  requirement refused, because guessing its type is the act this remedy exists to avoid. The
+  extension is matched without regard to case, a file name being a producer's string rather than a
+  token.
 - **Departure** — **B**. An attachment without a declared media type is still readable; a reader
   guesses, as readers did for decades. Narrowable by relationship or by extension.
 
@@ -2048,9 +2062,13 @@ Twelve entries reach a mitigation only through it, and it is neither `discard`, 
 `derive`: no information moves and no tool runs; a person states a fact the document does not. It
 needs its own word precisely because its honesty condition is different — the report and
 `xmpMM:History` must say the value came from the configuration rather than from the file. **Session
-992's reader recognises `supply` as one of the five remedy words**, so a configuration can name it
-and be validated; the machinery that carries it out is the next converter round's, and until then a
-`supply` site is refused with the sentence its requirement already carries.
+992's reader recognised it as one of the five remedy words; session 999 built the first of the
+twelve** — `embedded-files/associated-file-media-type`, whose own entry calls it the best test of
+the owner's question — with both halves of the honesty condition enforced rather than advised: the
+conversion report names the supplied value beside the requirement it answered, and the file's own
+`xmpMM:History` records that the operator's configuration rather than the document is its source.
+The other eleven stay refused with the sentence their requirement carries; each needs its own
+rewrite, not another word in the format.
 
 **3. Some sites must be marked *not configurable*.** section 13.3's twenty-two are refused only
 because a lossless rewrite is unwritten. If they appear in `--remedy-sites` alongside the rest, some
@@ -2134,9 +2152,10 @@ narrower than the drafts:
 - `refuse-any-loss` needs the `default` key — section 14's ninth finding — **which session 992
   built**: the reader accepts `default = "stop"` (and only `stop`, section 14 point 9's own limit)
   and refuse-any-loss states it, so today's behaviour is now expressible deliberately.
-- `keep-everything` (48 sites) needs **four things the format does not have**: `prefer`, so one line
-  can say *attach where the target allows, else append*; the `supply` remedy; a bounded `on-failure`
-  chain; and per-site `keep` lists. Every one of them is marked `NOT-YET-IN-FORMAT` in the file
+- `keep-everything` (48 sites) needs **four things the format does not have** — three, since
+  session 999 built `supply` at the one site this profile names it for: `prefer`, so one line can
+  say *attach where the target allows, else append*; a bounded `on-failure` chain; and per-site
+  `keep` lists. Every one of them is marked `NOT-YET-IN-FORMAT` in the file
   itself, which is a more useful artefact than a correct file nobody could maintain — written in RFC
   0007 section 3's format as it stands, it would be one target-qualified block per target per site
   and several hundred lines of repetition.

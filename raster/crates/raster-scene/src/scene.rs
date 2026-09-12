@@ -1,6 +1,6 @@
 //! The scene: an immutable, device-independent description of marks.
 //!
-//! This is the centre of the library's design, and `doc/RENDER_LIBRARY.md` §2.3 states
+//! This is the centre of the library's design, and `raster/doc/RENDER_LIBRARY.md` §2.3 states
 //! the property that decides it:
 //!
 //! > The single most important property in this document: a `Scene` must contain no
@@ -15,7 +15,7 @@
 //! The corollary, which §2.3 asks to have stated in our documentation rather than left
 //! implicit: **a [`Scene`] is `Send + Sync`, cheap to clone, and building one requires
 //! no device.** In this crate that is structural rather than aspirational — there is no
-//! device type in scope to require. See `doc/adr/0001`.
+//! device type in scope to require. See `raster/doc/adr/0001`.
 //!
 //! # The five parts, and where each one's rules live
 //!
@@ -37,7 +37,7 @@
 //!
 //! The vocabulary is the brief's §2.3 minus M7's images: `fill`, `stroke`, `rect`,
 //! `clip`, `group` and `mask` all exist. One deliberate divergence from the brief's
-//! illustrative signatures, recorded here and in `doc/PLAN.md` integration note 8:
+//! illustrative signatures, recorded here and in `raster/doc/PLAN.md` integration note 8:
 //! the `mask` parameter comes **last** in each builder method rather than beside
 //! `clip`, so that growing the vocabulary was a mechanical widening for every call
 //! site. A scene may *hold* every command; what a device cannot yet *draw* (M7's
@@ -70,7 +70,7 @@ pub use validate::MAX_COORDINATE;
 ///
 /// `Send + Sync`, cheap to clone (an `Arc` inside), and containing no reference to a
 /// viewport, a resolution, a device transform or a target size — the brief's §2.3, held
-/// structurally (`doc/adr/0001`). A blank scene is a legitimate scene and renders to a
+/// structurally (`raster/doc/adr/0001`). A blank scene is a legitimate scene and renders to a
 /// legitimate, empty frame (§5).
 #[derive(Debug, Clone)]
 pub struct Scene {

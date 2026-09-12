@@ -42,7 +42,7 @@ impl Device {
     }
 
     /// Upload a decoded image (straight-alpha RGBA8; the filtering decision arrives
-    /// per placement on the command, M7 — integration note 1 in `doc/PLAN.md`).
+    /// per placement on the command, M7 — integration note 1 in `raster/doc/PLAN.md`).
     ///
     /// # Errors
     ///
@@ -102,7 +102,7 @@ impl Device {
     ///
     /// [`DeviceError::UnknownResource`] for an id this device never issued or already
     /// released — an error rather than a no-op, because a double release is a caller
-    /// bug and hiding it would hide the defect (integration note 7 in `doc/PLAN.md`).
+    /// bug and hiding it would hide the defect (integration note 7 in `raster/doc/PLAN.md`).
     pub fn release(&mut self, id: impl Into<ResourceId>) -> Result<(), DeviceError> {
         let id = id.into();
         // Read before the release, because the analysis that carries the hash is exactly

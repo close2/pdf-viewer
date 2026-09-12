@@ -40,7 +40,7 @@
 //! 4. **A restriction the document asserts over its reader** — Table 22's `/P`, §12.8.2.2's
 //!    `/DocMDP` `/P`, §12.8.6's usage rights. `CLAUDE.md` principle 3 makes these the reader's
 //!    to set, so a malformed value must never restrict *harder* than the default.
-//!    **Answer: refuse, in the permissive direction.** `crate::signature` already does, and its
+//!    **Answer: refuse, in the permissive direction.** `pdf_signature::signature` already does, and its
 //!    test pins it.
 //!
 //! A fifth shape needs no answer at all: where the value is only ever *compared* as a number —

@@ -10,7 +10,7 @@
 //! # `max_byte_diff` was here and is not
 //!
 //! It reduced a whole raster to its largest per-byte difference, and it had three call
-//! sites when `doc/notes-test-probes.md` gave the probes this home. ADR 0072 took two of
+//! sites when `raster/doc/notes-test-probes.md` gave the probes this home. ADR 0072 took two of
 //! them and ADR 0077 the third, both for the same reason: a single number over a whole
 //! raster has to be compared against a bound that holds at the raster's *worst* pixel, so
 //! it hands out that slack at every other one — and it cannot express the clause that
@@ -23,7 +23,7 @@
 //!
 //! # Why a probe takes the raster's width, and why that is what made the merge safe
 //!
-//! `doc/HANDOVER.md` recorded these as deliberately *not* unified, and the recorded
+//! `raster/doc/HANDOVER.md` recorded these as deliberately *not* unified, and the recorded
 //! obstacle was that each copy indexed through its own file's `SIZE` — so one home for the
 //! probes looked like one home for `SIZE`, which means 64 in six files and something else
 //! in four others. The premise did not survive being read: **a probe needs the raster's

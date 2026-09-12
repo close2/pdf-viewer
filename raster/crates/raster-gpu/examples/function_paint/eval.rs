@@ -3,7 +3,7 @@
 //! It exists for two measurements, and it is written *independently* of the two
 //! shaders rather than sharing a table with them — agreement between an independent
 //! implementation and a device is evidence, agreement by construction is not
-//! (the position `doc/adr/0037` takes in this tree for the same reason).
+//! (the position `raster/doc/adr/0037` takes in this tree for the same reason).
 //!
 //! 1. **What the arithmetic costs on the processor**, at the same placement, which is
 //!    what the caller's 1 142 ms is a number for.

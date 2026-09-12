@@ -288,7 +288,7 @@ fn a_discontinuity_lands_where_the_program_puts_it_and_not_on_the_zoom_s_grid() 
     }
 }
 
-/// The control the two tests above need, and the one `doc/HANDOVER.md`'s newest trap asks
+/// The control the two tests above need, and the one `raster/doc/HANDOVER.md`'s newest trap asks
 /// for: a claim that a paint is *not* baked is only as good as the proof that this fixture
 /// reaches the function lane at all.
 ///

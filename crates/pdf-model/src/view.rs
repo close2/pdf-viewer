@@ -3023,9 +3023,9 @@ fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
 /// clause is, not because a file asked — trap 11's discipline with the answer the other way up.
 /// ADR 0159.
 fn withdrawn_usage_rights(document: &Document, update: &Update) -> Option<(ObjectId, Dictionary)> {
-    use crate::signature::Right;
+    use pdf_signature::signature::Right;
 
-    let rights = crate::signature::permissions(document).usage_rights?;
+    let rights = pdf_signature::signature::permissions(document).usage_rights?;
     if rights.grants(Right::FillInForm) && rights.grants(Right::FullSave) {
         return None;
     }

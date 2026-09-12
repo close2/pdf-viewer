@@ -5,7 +5,7 @@
 //! ISO 32000-2 or PLRM3 states how accurately a processor must compute one, and WGSL's
 //! §15.7.4.1 states bounds that are wide on purpose: 4 096 ULP for `atan`, an absolute
 //! 2⁻¹¹ for `sin` and `cos` **only inside ±π radians**, and nothing at all outside.
-//! `doc/adr/0053` measured the consequence on this machine's two adapters over 4 096
+//! `raster/doc/adr/0053` measured the consequence on this machine's two adapters over 4 096
 //! inputs: `sin` and `cos` differ on 3 201 and 3 334 of them, `exp` on 2 660, `sqrt` on
 //! 618, `atan` on 375.
 //!
@@ -224,7 +224,7 @@ pub const CASES: &[Case] = &[
          non-positive operand has no real logarithm and `rangecheck` is the only listed \
          error that can describe it, so the *error name* is the document's and the \
          *identification of this operand* is our reading. Recorded as such in \
-         `doc/notes-function-conformance.md`.",
+         `raster/doc/notes-function-conformance.md`.",
     ),
     Case::error(
         "ln/negative",

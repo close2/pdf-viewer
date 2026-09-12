@@ -40,7 +40,10 @@ tool = "office-to-pdf"
 on-failure = "stop"
 
 [site."embedded-files/associated-file-media-type"]
-remedy = "supply"          # NOT-YET-IN-FORMAT: `supply` is a fifth remedy kind (section 14, 2)
+# Built: `supply` is section 14's second finding, and the round that answered A54/A55/A56 made
+# this the first site to carry it. The archive asserts these media types on the operator's
+# authority, and both the report and the file's own xmpMM:History record whose authority that is.
+remedy = "supply"
 media-types = { ".xml" = "application/xml", ".csv" = "text/csv", ".pdf" = "application/pdf" }
 unlisted = "stop"
 
@@ -308,7 +311,20 @@ unlisted = "stop"
 
 # ---------------------------------------------------------------------------------------------
 # Tool declarations. Named here so the profile is self-contained; an operator edits the paths.
-# Every one of these runs YOUR program on an UNTRUSTED document (doc/rfc/0007 section 4.5).
+#
+#   this runs a program you chose, on a document you did not write
+#
+# That sentence is the owner's answer A56, and it is the whole of what is offered: no confinement.
+# This project confines its own renderer under seccomp-BPF and Landlock because it must, and it
+# cannot hold somebody else's program to that standard. A confinement profile written against no
+# particular program is a guess. What is done instead, every time, is doc/rfc/0007 section 4.5 item
+# by item: the converter makes the working directory, passes only paths inside it, removes it
+# afterwards, puts nothing derived from the document into the arguments, runs the program directly
+# rather than through a shell, and bounds the result before reading a byte of it.
+#
+# Both bounds are required and neither has a default (section 4.3): the right value is a property
+# of your tool, and a wrong default would be worse than an absent one. See
+# doc/profiles/derive-attachments.toml for the placeholders and the declining exit status.
 # ---------------------------------------------------------------------------------------------
 
 [tool.office-to-pdf]

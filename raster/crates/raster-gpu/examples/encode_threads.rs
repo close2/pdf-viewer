@@ -18,7 +18,7 @@
 //!   rasteriser. A sample is therefore `Device::headless` + a scene + one frame, and only
 //!   the frame is in the span.
 //! - **Round-robin over the thread counts, minima reported.** This machine is somebody's
-//!   desktop and its load average is not a constant (`doc/HANDOVER.md`); rotating the
+//!   desktop and its load average is not a constant (`raster/doc/HANDOVER.md`); rotating the
 //!   order each round puts the same drift on every configuration.
 //! - **The counters are printed with the clocks**, and they are exact functions of the
 //!   scene. Identical counters across thread counts is the claim this binary can make
@@ -52,11 +52,11 @@ use raster_scene::{Affine, OutlineId, Scene};
 /// the caller's file at its own 58 009 commands rather than the 1 200-command `DRAWING`
 /// archetype. **Neither is changed here** — ADR 0054's sweep was measured on these pages,
 /// and re-cutting one in the round that moved it is the trap
-/// `doc/notes-clipped-instrument.md` §3.4 names.
+/// `raster/doc/notes-clipped-instrument.md` §3.4 names.
 ///
 /// # Why the dense-text row stays unclipped — decided 2026-08-23, not deferred again
 ///
-/// `doc/HANDOVER.md` carried this as an open question from 2026-08-17: whether the sweep
+/// `raster/doc/HANDOVER.md` carried this as an open question from 2026-08-17: whether the sweep
 /// should run `DENSE_TEXT` — the archetype, with its two curve clips — and put its 40
 /// residue-clipped marks into the "does not divide" column where `ARTWORK` already is.
 /// **Measured, and declined.** Three numbers, none of them a clock:
@@ -225,7 +225,7 @@ fn main() {
         let mut seen: Option<[u32; 7]> = None;
         for round in 0..rounds {
             // Rotate the order each round, so drift falls on every configuration rather
-            // than on whichever ran last (`doc/HANDOVER.md`'s wall-clock trap).
+            // than on whichever ran last (`raster/doc/HANDOVER.md`'s wall-clock trap).
             for offset in 0..counts.len() {
                 let slot = (offset + round) % counts.len();
                 let started = Instant::now();

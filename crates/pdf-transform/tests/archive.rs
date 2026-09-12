@@ -33,6 +33,7 @@ use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
 use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{ArchivePlan, Authorisations, Because, Decision, Loss, Rewrite};
+use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, Exit, MemorySinks, Plan, Policy, Report, Source, apply};
 
 /// The XMP identification packet each part requires of a conforming file.
@@ -132,6 +133,48 @@ impl Default for Conforming {
     }
 }
 
+/// A content stream that names every resource a fixture declares.
+///
+/// **A document that declares a resource its content stream never names does not exercise the
+/// requirement it was written for.** ISO 19005 section 6.2.2's last sentence exempts a named
+/// resource nothing references, which the validator could not see until session 1001 gave
+/// `Examination` a reachability answer (ADR 1021 §7) — and twelve fixtures here then stopped
+/// failing the requirement each was about, because their page drew nothing at all. Rather than a
+/// line in each, the builder draws what the fixture declares: a fixture that states `contents`
+/// itself is untouched, and one that states only `resources` gets the operators §8.2's Table 50
+/// gives for selecting each kind.
+///
+/// The parse is a fixture's, not a reader's: it takes the name after each category's `<<` in the
+/// order they appear, which is all the shapes in this file have. A category it does not know is
+/// skipped rather than guessed at — a fixture needing one states its own `contents`.
+fn draws(resources: &str) -> Vec<u8> {
+    let mut drawn = String::new();
+    for (category, operators) in [
+        ("/XObject", ("q ", " Do Q\n")),
+        ("/ExtGState", ("", " gs\n")),
+        ("/ColorSpace", ("", " cs 0 sc\n")),
+        ("/Font", ("BT ", " 12 Tf (a) Tj ET\n")),
+    ] {
+        let Some(after) = resources.split_once(category).map(|(_, after)| after) else {
+            continue;
+        };
+        let Some(inside) = after.split_once("<<").map(|(_, inside)| inside) else {
+            continue;
+        };
+        for name in inside
+            .split_whitespace()
+            .take_while(|word| *word != ">>")
+            .filter(|word| word.starts_with('/'))
+            .take(1)
+        {
+            drawn.push_str(operators.0);
+            drawn.push_str(name);
+            drawn.push_str(operators.1);
+        }
+    }
+    drawn.into_bytes()
+}
+
 impl Conforming {
     /// The fixture built to a part 2 target, which needs its own identification and header.
     fn part_two() -> Self {
@@ -147,7 +190,7 @@ impl Conforming {
         let (content_dict, content_data) = self
             .contents
             .clone()
-            .unwrap_or_else(|| (String::new(), Vec::new()));
+            .unwrap_or_else(|| (String::new(), draws(&self.resources)));
         let names_metadata = if self.metadata == Packet::Unnamed {
             ""
         } else {
@@ -282,6 +325,9 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             substitute_fonts: true,
             departures: Vec::new(),
             claim_conformance: false,
+            derivations: Vec::new(),
+            supplies: Vec::new(),
+            tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -919,30 +965,47 @@ fn a_form_xobjects_opi_and_postscript_passthrough_are_removed() {
 }
 
 #[test]
-fn a_postscript_xobject_is_dropped_with_the_resource_entry_that_named_it() {
-    // ISO 19005-2 section 6.2.9.3. The object is dropped, and §7.3.10 does the rest: "an
-    // indirect reference to an undefined object shall not be considered an error by a PDF
-    // processor; it shall be treated as a reference to the null object", and §7.3.7 makes "[a]
-    // dictionary entry whose value is null ... the same as if the entry does not exist". So the
-    // resource entry naming it disappears without the rewriter having to find it.
+fn a_postscript_xobject_no_page_invokes_is_exempt_rather_than_dropped() {
+    // ISO 19005-2 section 6.2.9.3 forbids a PostScript XObject, and session 947 built the
+    // removal. **This test asserted that removal until session 1001 made section 6.2.2's
+    // exemption readable**, and the exemption answers first: a named resource no content stream
+    // references is not judged, and a PostScript XObject is the one kind no viewer ever draws:
+    // ISO 32000-1:2008, 8.8.2 — the edition part 2 delegates to, and the only one that has them
+    // at all, since ISO 32000-2 8.8.1 names two kinds of XObject and not this — says its
+    // fragments "shall have no effect either when viewing the document on-screen or when
+    // printing it to a non-PostScript device". So no page invokes one and the entry is always
+    // exempt.
+    //
+    // The drawn case is `a_conversion_that_would_break_what_the_source_met_writes_nothing` two
+    // hundred lines down, and it **refuses**: the object has to go, the `Do` that names it may
+    // not be edited, and the removal would leave a named resource undefined. So between the two
+    // of them `Rewrite::PostScriptXObject` is reachable by no document — `doc/questions/Q62`
+    // puts that to the owner rather than deciding it here.
     let source = Conforming {
         objects: vec![
-            String::from_utf8_lossy(&stream("/Type /XObject /Subtype /PS /Length 0", b""))
+            String::from_utf8_lossy(&stream("/Type /XObject /Subtype /PS /Length 1", b" "))
                 .into_owned(),
         ],
         resources: "/XObject << /Ps0 6 0 R >>".to_owned(),
+        // Deliberately nothing rather than left to the builder, for the reason above.
+        contents: Some((String::new(), Vec::new())),
         ..Conforming::part_two()
     }
     .build();
     let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert_eq!(
-        decision(&report, "graphics/no-postscript-xobjects"),
-        Decision::Mechanical(Rewrite::PostScriptXObject)
+    assert!(
+        !conversion(&report)
+            .decided
+            .iter()
+            .any(|decided| decided.requirement == "graphics/no-postscript-xobjects"),
+        "a resource no page invokes is exempt, so the row does not fail and nothing is decided"
     );
     let output = output.expect("the document converts");
     let text = String::from_utf8_lossy(&output);
-    assert!(!text.contains("/Ps0"), "the resource entry went with it");
-    assert!(!text.contains("/Subtype /PS"));
+    assert!(
+        text.contains("/Subtype /PS"),
+        "and the object stays, because the conversion is the identity (ADR 1006)"
+    );
 }
 
 #[test]
@@ -1366,6 +1429,9 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             substitute_fonts: true,
             departures: Vec::new(),
             claim_conformance: false,
+            derivations: Vec::new(),
+            supplies: Vec::new(),
+            tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(source)],
         &sinks,
@@ -1764,6 +1830,9 @@ fn convert_with_profile(
             substitute_fonts: true,
             departures: Vec::new(),
             claim_conformance: false,
+            derivations: Vec::new(),
+            supplies: Vec::new(),
+            tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -2003,6 +2072,9 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             substitute_fonts: false,
             departures: Vec::new(),
             claim_conformance: false,
+            derivations: Vec::new(),
+            supplies: Vec::new(),
+            tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(source)],
         &sinks,
@@ -2856,32 +2928,39 @@ fn stated_encoding(bytes: &[u8]) -> Option<String> {
 }
 
 #[test]
-fn a_symbolic_truetype_fonts_encoding_is_removed_where_no_shown_code_moves() {
+fn a_symbolic_truetype_font_no_mark_shows_is_exempt_rather_than_rewritten() {
     // ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 forbid a symbolic TrueType
-    // font from stating an `/Encoding` at all. §9.6.5.4 makes the entry decide which `cmap`
-    // subtable a code is looked up through, so the removal is mechanical only once the glyph
-    // every shown code reaches has been shown to be the same without it.
+    // font from stating an `/Encoding`, and session 962 built the removal for it. **This test
+    // asserted that removal until session 1001 made the exemption readable, and the exemption
+    // answers first**: section 6.2.2's last sentence withdraws a requirement from a named
+    // resource no content stream references, and `reach::exemption_narrows` keeps only section
+    // 5.1 and the file-structure subclauses out of that — so a font dictionary nothing shows
+    // is not judged against the font rules at all, and there is no failure for the converter
+    // to decide (ADR 1021).
     //
-    // **The fixture's font draws nothing**, and that is the face's doing rather than the
-    // rewrite's: the same subclause requires a *rendered* symbolic font's program to carry a
-    // `cmap` subtable of the kind the part names, Liberation Sans carries the Microsoft Unicode
-    // one and not that, and that rule is behind ADR 0816's fence — so a rendered symbolic
-    // fixture built from this face is refused before this row is reached. What is left is the
-    // case the proof answers vacuously and correctly: a font the file carries whose encoding no
-    // mark on any page depends on.
+    // What the fixture cannot be is a symbolic font that *is* shown: the same subclause requires
+    // a rendered symbolic font's program to carry a `cmap` subtable of the kind the part names,
+    // Liberation Sans carries the Microsoft Unicode one instead, and that rule sits behind ADR
+    // 0816's fence — so such a document is refused before this row is reached. **Which leaves
+    // `Rewrite::SymbolicTrueTypeEncodingRemoved` reachable by no document this suite can build**,
+    // and that is a question for the owner rather than a thing to assert here:
+    // `doc/questions/Q62`.
     let source = a_truetype_font("4", "/Encoding /WinAnsiEncoding", None);
     let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert_eq!(
-        decision(&report, "fonts/symbolic-truetype-states-no-encoding"),
-        Decision::Mechanical(Rewrite::SymbolicTrueTypeEncodingRemoved)
+    assert!(
+        !conversion(&report)
+            .decided
+            .iter()
+            .any(|decided| decided.requirement == "fonts/symbolic-truetype-states-no-encoding"),
+        "a font no mark shows is exempt, so the row does not fail and nothing is decided"
     );
     let output = output.expect("the document converts");
     let held = holds(&output, Target::Two(Level::B));
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
     assert_eq!(
         stated_encoding(&output),
-        None,
-        "the entry is gone from the font dictionary"
+        Some("WinAnsiEncoding".to_owned()),
+        "and the entry stays, because the conversion is the identity (ADR 1006)"
     );
 }
 
@@ -3848,6 +3927,9 @@ fn convert_with_departure(
             substitute_fonts: true,
             departures,
             claim_conformance: claim,
+            derivations: Vec::new(),
+            supplies: Vec::new(),
+            tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -3964,4 +4046,502 @@ fn the_departure_does_not_cover_a_non_xml_attachment() {
         conversion.departures[0].outcome,
         pdf_transform::archive::DepartureOutcome::LeftInPlace { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------------------------
+// `doc/rfc/0007`'s configured remedies: `derive` (the owner's `A54` and `A55`) and `supply`
+// (`doc/pdf-a-mitigations.md` section 0.2). The request is data, the caller executes it, and a
+// recorded result replays it with nothing spawned.
+// ---------------------------------------------------------------------------------------------
+
+/// A PDF/A-4 document carrying one attachment that is not a PDF.
+///
+/// Object 6 is §7.11.3's file specification and object 7 its §7.11.4 embedded file stream; the
+/// catalog names it in both §7.11.4's `/EmbeddedFiles` tree and §14.13's `/AF` array. Everything
+/// ISO 19005-4 section 6.9 asks of the specification is stated, so the **one** requirement this
+/// document fails is that the embedded file itself conform to a part of ISO 19005 — which is
+/// exactly the site `doc/pdf-a-mitigations.md` section 11 makes `derive`'s flagship.
+fn a_part_four_document_with_an_attachment(subtype: Option<&str>) -> Vec<u8> {
+    let data = b"name,amount\ninvoice,1\n";
+    let filespec = "<< /Type /Filespec /F (rows.csv) /UF (rows.csv) /AFRelationship /Data \
+                    /EF << /F 7 0 R >> >>"
+        .to_owned();
+    let stated = subtype.map_or_else(String::new, |name| format!(" /Subtype /{name}"));
+    let embedded = stream(
+        &format!(
+            "/Type /EmbeddedFile{stated} /Params << /Size {} >> /Length {}",
+            data.len(),
+            data.len()
+        ),
+        data,
+    );
+    Conforming {
+        catalog: "/Names << /EmbeddedFiles << /Names [(rows.csv) 6 0 R] >> >> /AF [6 0 R]"
+            .to_owned(),
+        objects: vec![filespec, String::from_utf8(embedded).expect("ascii")],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// A directory this test owns, removed when the guard goes out of scope.
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    fn make(name: &str) -> Self {
+        let at = std::env::temp_dir().join(format!("quorra-remedy-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&at);
+        std::fs::create_dir_all(&at).expect("a scratch directory");
+        Self(at)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A stand-in for a real converter, shipped by this test as a shell script.
+///
+/// **Said plainly, because `CLAUDE.md` principle 1 asks it**: nothing on the machine this suite
+/// runs on turns a CSV into a PDF/A, so the program exercised end to end here is one this test
+/// writes. What it proves is everything the seam owes — the request is built from the document,
+/// the caller runs it, the bytes come back, the media type the tool promised is checked, the
+/// attachment in the output is what the tool made, and the report and the packet say so. What it
+/// does not prove is that `soffice` works, which is not this project's to prove.
+///
+/// The script reads the attachment on standard input, as `doc/rfc/0007` section 4.1 requires of
+/// document-derived bytes, and writes the PDF it converts to on standard output.
+fn a_stand_in_converter(at: &std::path::Path, produces: &[u8]) -> std::path::PathBuf {
+    let script = at.join("convert");
+    std::fs::write(at.join("convert.pdf"), produces).expect("the recorded output");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\n# A stand-in converter: read the attachment, write the PDF it becomes.\n\
+         cat > /dev/null\ncat \"$0.pdf\"\n",
+    )
+    .expect("the script");
+    script
+}
+
+/// A configuration naming one `derive` site and the tool it runs, as an operator would write it.
+fn a_derive_configuration(site: &str, script: &std::path::Path) -> String {
+    format!(
+        "[site.{site:?}]\nremedy = \"derive\"\ntool = \"stand-in\"\non-failure = \"stop\"\n\n\
+         [tool.stand-in]\nprogram = \"/bin/sh\"\nargs = [{:?}]\nexpects = \"application/pdf\"\n\
+         timeout = \"30s\"\noutput-limit = \"16MiB\"\n",
+        script.to_string_lossy()
+    )
+}
+
+/// Applies an archive plan, answering the report and the output where one was written.
+fn convert_with_plan(bytes: &[u8], plan: &ArchivePlan) -> (Report, Option<Vec<u8>>) {
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Archive(plan.clone()),
+        &[Source::new(bytes.to_vec())],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let output = sinks.into_outputs().pop().map(|(_, bytes)| bytes);
+    (report, output)
+}
+
+/// An archive plan carrying a configuration's derivations and supplies.
+fn plan_from(text: &str, target: Target) -> ArchivePlan {
+    let config = pdf_transform::archive::Configuration::read(text, target).expect("it reads");
+    ArchivePlan {
+        source: 0,
+        names: "out.pdf".parse().expect("a pattern"),
+        target,
+        authorised: Authorisations::default(),
+        profile: None,
+        substitute_fonts: true,
+        departures: Vec::new(),
+        claim_conformance: false,
+        derivations: config.derivations(target),
+        supplies: config.supplies(target),
+        tool_outputs: ToolOutputs::new(),
+    }
+}
+
+#[test]
+fn a_configured_derive_asks_the_caller_for_the_tool_rather_than_running_it() {
+    // `doc/questions/A54`: `apply` returns a request — the program, the args, the input, the
+    // expected type and the bounds — and never spawns. So a first pass writes nothing and the
+    // requirement is refused for that pass with the fifth kind of *no*.
+    let scratch = Scratch::make("asks");
+    let script = a_stand_in_converter(&scratch.0, b"unused");
+    let site = "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile";
+    let target = Target::Four(Flavour::Plain);
+    let plan = plan_from(&a_derive_configuration(site, &script), target);
+    let source = a_part_four_document_with_an_attachment(Some("text#2Fcsv"));
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(
+        output.is_none(),
+        "nothing is written before the tool has run"
+    );
+    assert_eq!(report.requested.len(), 1, "one attachment, one invocation");
+    let request = &report.requested[0];
+    assert_eq!(request.site, site);
+    assert_eq!(request.program, std::path::PathBuf::from("/bin/sh"));
+    assert_eq!(request.expects, "application/pdf");
+    assert_eq!(
+        &*request.input, b"name,amount\ninvoice,1\n",
+        "the document's bytes travel in the request, never in the arguments"
+    );
+    assert!(
+        request
+            .args
+            .iter()
+            .all(|argument| !argument.contains("rows.csv")),
+        "nothing document-derived reaches args — doc/rfc/0007 section 4.1: {:?}",
+        request.args
+    );
+    assert!(
+        matches!(
+            decision(&report, site),
+            Decision::Refused(Because::AwaitingTool(_))
+        ),
+        "and the requirement is refused for this pass by name"
+    );
+}
+
+#[test]
+fn a_configured_derive_runs_end_to_end_and_the_attachment_becomes_what_the_tool_made() {
+    // The whole of `doc/questions/A54` in one test: `apply` asks, the shared executor runs, the
+    // second pass writes the file. `quorra-transform archive` does exactly this loop, which is why
+    // the owner's "a normal user would expect it just to happen" is true of one command.
+    let scratch = Scratch::make("end-to-end");
+    let derived = Conforming::default().build();
+    let script = a_stand_in_converter(&scratch.0, &derived);
+    let site = "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile";
+    let target = Target::Four(Flavour::Plain);
+    let mut plan = plan_from(&a_derive_configuration(site, &script), target);
+    let source = a_part_four_document_with_an_attachment(Some("text#2Fcsv"));
+
+    let (first, _) = convert_with_plan(&source, &plan);
+    for request in &first.requested {
+        let result = pdf_transform::executor::execute(request).expect("the executor runs it");
+        assert_eq!(
+            result.outcome,
+            pdf_transform::tool::ToolOutcome::Produced,
+            "the stand-in produced its result: {}",
+            result.stderr
+        );
+        plan.tool_outputs.insert(result);
+    }
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(report.requested.is_empty(), "nothing is left to run");
+    let decided = decision(&report, site);
+    let Decision::Configured {
+        kind,
+        rewrite,
+        warns,
+    } = decided
+    else {
+        panic!("the operator's configuration answered it: {decided:?}");
+    };
+    assert_eq!(kind, pdf_transform::archive::RemedyKind::Derive);
+    assert_eq!(rewrite, Rewrite::DerivedEmbeddedFile);
+    // `A55` asks for the sentence in those words, per document.
+    assert_eq!(warns, "this is derived, not original");
+
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    let conversion = report.archive.as_ref().expect("a conversion report");
+    assert_eq!(conversion.derived.len(), 1);
+    let row = &conversion.derived[0];
+    assert_eq!(row.attachment, "rows.csv");
+    assert_eq!(row.tool, "stand-in");
+    assert_eq!(
+        row.outcome,
+        pdf_transform::archive::DerivedOutcome::Attached
+    );
+    assert_eq!(
+        row.digest.len(),
+        64,
+        "the digest doc/rfc/0007 section 4.4 asks for"
+    );
+    assert!(
+        conversion
+            .render()
+            .contains("this is derived, not original"),
+        "and the rendered report says it in the owner's words"
+    );
+
+    // The attachment in the archive is the tool's bytes, and the stream says what they are.
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let embedded = held
+        .xref()
+        .object_numbers()
+        .filter_map(|number| held.get(ObjectId::new(number, 0)).as_stream().cloned())
+        .find(|stream| {
+            held.get_key(&stream.dict, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"EmbeddedFile")
+        })
+        .expect("the embedded file stream");
+    assert_eq!(
+        held.get_key(&embedded.dict, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"application/pdf".to_vec()),
+        "the Subtype states what the tool promised"
+    );
+    assert_eq!(
+        held.decoded_stream_data(&embedded)
+            .map(|bytes| bytes.to_vec()),
+        Some(derived.clone()),
+        "and the bytes are the tool's, byte for byte"
+    );
+    // §7.11.4.1's Table 45 makes `/Params` `/Size` the uncompressed file's size, and the file is
+    // not the one it described.
+    let params = held.get_key(&embedded.dict, "Params");
+    let params = params.as_dict().expect("the params dictionary");
+    assert_eq!(
+        held.get_key(params, "Size").as_integer(),
+        Some(i64::try_from(derived.len()).expect("a size")),
+    );
+    // `A55`'s fourth term: the *archive* carries the fact that part of it is derived.
+    let packet = the_packet_of(&held);
+    assert!(
+        packet.contains("this is derived, not original"),
+        "the file's own xmpMM:History records it: {packet}"
+    );
+    assert!(packet.contains("stand-in"), "naming the tool that made it");
+}
+
+#[test]
+fn a_replayed_tool_output_converts_to_the_same_bytes() {
+    // **RFC 0002 section 9, narrowed as `doc/rfc/0007` section 4.4 proposed and `A54` settled.**
+    // A request and its result are data, so a conversion handed a recorded tool output is a pure
+    // function of its inputs — no process is created here at all. The one byte range that is not a
+    // function of the inputs is the `stEvt:when` of the recorded action, which ISO 19005-2 section
+    // 6.6.6 asks for and which is a fact about when the action happened;
+    // `the_same_input_twice_produces_identical_bytes` is where the flagless claim is made over a
+    // document that records nothing.
+    let scratch = Scratch::make("replay");
+    let derived = Conforming::default().build();
+    let script = a_stand_in_converter(&scratch.0, &derived);
+    let site = "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile";
+    let target = Target::Four(Flavour::Plain);
+    let mut plan = plan_from(&a_derive_configuration(site, &script), target);
+    let source = a_part_four_document_with_an_attachment(Some("text#2Fcsv"));
+
+    // The recording, made once. Nothing below runs a program.
+    let (first, _) = convert_with_plan(&source, &plan);
+    let request = first.requested.first().expect("one request").clone();
+    let recorded = pdf_transform::executor::execute(&request).expect("the recording is made");
+    drop(scratch);
+    plan.tool_outputs.insert(recorded);
+
+    let (_, one) = convert_with_plan(&source, &plan);
+    let (_, two) = convert_with_plan(&source, &plan);
+    let one = one.expect("the replay converts with no program on the machine");
+    let two = two.expect("and again");
+    assert_eq!(
+        without_instants(&one),
+        without_instants(&two),
+        "the same recorded output converts to the same bytes"
+    );
+    assert_eq!(
+        one.len(),
+        two.len(),
+        "and to the same length, instant for instant"
+    );
+}
+
+/// One document's XMP packet as text, for a test reading what the conversion recorded.
+fn the_packet_of(held: &Document) -> String {
+    let catalog = held.catalog().expect("a catalog");
+    let metadata = held.get_key(&catalog, "Metadata");
+    let metadata = metadata.as_stream().expect("a metadata stream");
+    let bytes = held.decoded_stream_data(metadata).expect("the packet");
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// The output with every recorded action's instant blanked.
+///
+/// ISO 19005-2 section 6.6.6 asks a recorded action for *when* it happened, so a conversion that
+/// records one reads a clock in that one place and two runs a second apart differ in those bytes
+/// and nowhere else. Blanking them is what lets this test make the determinism claim about
+/// everything the inputs decide.
+fn without_instants(bytes: &[u8]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    let needle = b"<stEvt:when>";
+    let mut at = 0;
+    while let Some(found) = out[at..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+    {
+        let start = at.saturating_add(found).saturating_add(needle.len());
+        let Some(end) = out[start..]
+            .windows(2)
+            .position(|window| window == b"</")
+            .map(|offset| start.saturating_add(offset))
+        else {
+            break;
+        };
+        for byte in &mut out[start..end] {
+            *byte = b'0';
+        }
+        at = end;
+    }
+    out
+}
+
+#[test]
+fn a_supplied_media_type_is_written_on_the_operators_authority_and_said_to_be() {
+    // ISO 19005-4 section 6.9, by way of §14.13.2, asks an associated file's stream for a
+    // `/Subtype` that is a MIME media type, and nothing in a file specification states one — an
+    // extension is a convention rather than a declaration. `doc/pdf-a-mitigations.md` section 0.2's
+    // `supply` is the operator saying what their own attachments are, and section 5b.1's obligation
+    // is that the report and the file both record that the value is theirs.
+    let target = Target::Four(Flavour::F);
+    let text = "[site.\"embedded-files/associated-file-media-type\"]\nremedy = \"supply\"\n\
+                media-types = { \".csv\" = \"text/csv\" }\nunlisted = \"stop\"\n";
+    let plan = plan_from(text, target);
+    let source = a_part_four_document_with_an_attachment(None);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let decided = decision(&report, "embedded-files/associated-file-media-type");
+    let Decision::Configured {
+        kind,
+        rewrite,
+        warns,
+    } = decided
+    else {
+        panic!("the operator's configuration answered it: {decided:?}");
+    };
+    assert_eq!(kind, pdf_transform::archive::RemedyKind::Supply);
+    assert_eq!(rewrite, Rewrite::SuppliedMediaType);
+    assert_eq!(warns, "this value is the operator's, not the document's");
+
+    let output = output.expect("the document converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let conversion = report.archive.as_ref().expect("a conversion report");
+    assert_eq!(conversion.supplied.len(), 1);
+    assert_eq!(conversion.supplied[0].value, "text/csv");
+    assert_eq!(conversion.supplied[0].subject, "rows.csv");
+
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let packet = the_packet_of(&held);
+    assert!(
+        packet.contains("stated by the converting operator's configuration"),
+        "the file records whose value it is: {packet}"
+    );
+}
+
+#[test]
+fn a_supplied_table_that_does_not_name_the_extension_leaves_the_requirement_refused() {
+    // `unlisted = "stop"`: an attachment the operator's own table does not name is one nobody has
+    // stated a fact about, and guessing its type from the extension is the act `supply` exists to
+    // avoid. So the requirement keeps its refusal rather than being answered with a guess.
+    let target = Target::Four(Flavour::F);
+    let text = "[site.\"embedded-files/associated-file-media-type\"]\nremedy = \"supply\"\n\
+                media-types = { \".xml\" = \"application/xml\" }\n";
+    let plan = plan_from(text, target);
+    let source = a_part_four_document_with_an_attachment(None);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    assert!(
+        matches!(
+            decision(&report, "embedded-files/associated-file-media-type"),
+            Decision::Refused(_)
+        ),
+        "and the requirement keeps the sentence it carries"
+    );
+}
+
+#[test]
+fn a_tool_that_fails_leaves_the_requirement_refused_and_the_report_says_what_happened() {
+    // `doc/rfc/0007` section 4.1's third exit class, and section 4.2's net: what comes back is not
+    // trusted, so a program that could not be run answers nothing and the file is not written.
+    let site = "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile";
+    let target = Target::Four(Flavour::Plain);
+    let mut plan = plan_from(
+        &a_derive_configuration(
+            site,
+            std::path::Path::new("/nonexistent/quorra-no-such-tool"),
+        ),
+        target,
+    );
+    let source = a_part_four_document_with_an_attachment(Some("text#2Fcsv"));
+    let (first, _) = convert_with_plan(&source, &plan);
+    for request in &first.requested {
+        plan.tool_outputs
+            .insert(pdf_transform::executor::execute(request).expect("it is attempted"));
+    }
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    let conversion = report.archive.as_ref().expect("a conversion report");
+    assert!(matches!(
+        conversion.derived[0].outcome,
+        pdf_transform::archive::DerivedOutcome::Failed(_)
+    ));
+    assert!(matches!(decision(&report, site), Decision::Refused(_)));
+}
+
+#[test]
+fn one_command_converts_a_document_whose_configuration_names_a_tool() {
+    // **The owner's sentence, made true.** `A54`'s doubt was that "a normal user would expect it
+    // just to happen", and this is the whole of the answer: one command, a configuration naming a
+    // program, and the file is written. `apply` still starts nothing — the program between the two
+    // passes is started by `quorra-transform`'s own loop through the shared executor, which is the
+    // only code in this tree that spawns a process.
+    let scratch = Scratch::make("one-command");
+    let derived = Conforming::default().build();
+    let script = a_stand_in_converter(&scratch.0, &derived);
+    let site = "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile";
+    let source = scratch.0.join("in.pdf");
+    std::fs::write(
+        &source,
+        a_part_four_document_with_an_attachment(Some("text#2Fcsv")),
+    )
+    .expect("the source");
+    let config = scratch.0.join("remedies.toml");
+    std::fs::write(&config, a_derive_configuration(site, &script)).expect("the configuration");
+    let out = scratch.0.join("out.pdf");
+
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
+        .args([
+            "archive",
+            source.to_str().expect("utf-8"),
+            "--to",
+            "4",
+            "--config",
+            config.to_str().expect("utf-8"),
+            "-o",
+            out.to_str().expect("utf-8"),
+        ])
+        .output()
+        .expect("the program runs");
+    let said = String::from_utf8_lossy(&run.stderr).into_owned();
+    assert!(
+        run.status.success(),
+        "the conversion exited {:?}: {said}",
+        run.status.code()
+    );
+    // `doc/questions/A56`: the warning is printed where the operator meets the tool.
+    assert!(
+        said.contains("this runs a program you chose, on a document you did not write"),
+        "the warning is said before the program runs: {said}"
+    );
+    assert!(
+        said.contains("this is derived, not original"),
+        "and the report says what the archive now is: {said}"
+    );
+    let written = std::fs::read(&out).expect("the file was written");
+    assert_eq!(
+        holds(&written, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms,
+        "and it is held to the target"
+    );
 }

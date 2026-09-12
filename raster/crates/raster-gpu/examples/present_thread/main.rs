@@ -71,7 +71,7 @@
 //! synchronisation which, at this seam, does not exist — `settle`'s module comment says
 //! what was looked for and why none of it is reachable. The wall clock failed once in five
 //! real-display runs by reading step 6 one present behind
-//! (`doc/notes-present-rate.md` §4, `doc/notes-present-settle.md`).
+//! (`raster/doc/notes-present-rate.md` §4, `raster/doc/notes-present-settle.md`).
 
 // An example's arithmetic is window coordinates, byte offsets inside a file it just
 // read, and small counts — all bounded and all exact in the types they use, where the
@@ -132,7 +132,7 @@ const TOLERANCE: u8 = 2;
 /// the render it is inside as soon as the proof is taken, so the phase costs one render,
 /// which is what it cost before ADR 0071. The value is an order of magnitude above the
 /// slowest present this machine has been observed to complete under deliberate load —
-/// 25.4 ms at load 36.9 (`doc/notes-present-settle.md` §5).
+/// 25.4 ms at load 36.9 (`raster/doc/notes-present-settle.md` §5).
 const RENDER_HOLD_CEILING: Duration = Duration::from_millis(300);
 
 /// `--check` is accepted and changes nothing: this example is already an assertion
@@ -270,7 +270,7 @@ struct RenderHold {
 /// load 36.9 to 55.8 — twice because the presenting thread could not be scheduled (one
 /// present in 25.4 ms, three refreshes), and once because the render itself took 6.4 ms,
 /// *less than one refresh*, so one present was the arithmetically correct answer and the
-/// assertion was wrong about its own subject (`doc/notes-present-settle.md` §5).
+/// assertion was wrong about its own subject (`raster/doc/notes-present-settle.md` §5).
 ///
 /// What replaces it is an **ordering**. The render thread renders back-to-back and says so
 /// in [`RenderHold::holding`]; the proof is that a present *returned* while that flag was
@@ -361,7 +361,7 @@ fn render_on_another_thread_while_presenting(
 ///
 /// The capture is handed in rather than taken here, because *when* it was taken is the
 /// whole question: [`settle`] proves it is the window as it is and not as it was, which is
-/// what the 300 ms wall clock this replaces could not (`doc/notes-present-rate.md` §4).
+/// what the 300 ms wall clock this replaces could not (`raster/doc/notes-present-rate.md` §4).
 fn check_the_affine_landed(shot: &xwd::Shot) {
     assert_eq!(
         shot.size(),

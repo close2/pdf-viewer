@@ -1,7 +1,7 @@
 //! The one count in this tree that is chunked to a fixed width, asked for at a size that
 //! is deliberately **not** a multiple of it.
 //!
-//! `doc/notes-ceilings-audit.md` §3 is the round this file witnesses, and the reason it
+//! `raster/doc/notes-ceilings-audit.md` §3 is the round this file witnesses, and the reason it
 //! exists is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1 on hayro's
 //! `#373` — a SIMD flattening path that read past its own scratch buffer:
 //!

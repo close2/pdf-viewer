@@ -1662,7 +1662,7 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
 /// So Table 236's signature field lock (§12.7.5.5) and Table 259's `FieldMDP` transform parameters
 /// (§12.8.2.4) state the same three actions over the same array of names. What differs is what
 /// each *means* — a lock is a prohibition on a reader and a transform is a statement about what
-/// invalidates a signature — and that difference lives in [`crate::restriction::Restriction`],
+/// invalidates a signature — and that difference lives in `pdf_model::restriction::Restriction`,
 /// where a person is told which of the two applies. A second enum with the same three variants
 /// would have claimed a distinction the vocabulary does not have.
 ///
@@ -1704,7 +1704,7 @@ impl FieldSelection {
     /// Table 259's page.
     ///
     /// **The corpus agrees with the argument**, which it did not have to: the transform in
-    /// `xfa_filled_imm1344e.pdf` states `form1[0].SignatureField3[0]`, and `crate::form::fields`
+    /// `xfa_filled_imm1344e.pdf` states `form1[0].SignatureField3[0]`, and `pdf_model::form::fields`
     /// derives exactly that string as the fully qualified name of the document's one field.
     #[must_use]
     pub fn covers(&self, field: &str) -> bool {

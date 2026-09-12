@@ -6,11 +6,11 @@
 //! stranger wrote, takes two integers out of it, and does arithmetic with them. ADR 0229
 //! committed to this target with the code.
 //!
-//! **Two readers and two arithmetics.** `pdf_model::der` and `pdf_model::cms` have their own
-//! target (`cms`); what is here is `pdf_model::x509`, which walks RFC 5280's structure, and the
+//! **Two readers and two arithmetics.** `pdf_signature::der` and `pdf_signature::cms` have their own
+//! target (`cms`); what is here is `pdf_signature::x509`, which walks RFC 5280's structure, and the
 //! modules that run a loop whose trip count comes out of a number in the file —
-//! `pdf_model::pkcs1`, from the four-hundred-and-seventy-ninth session `pdf_model::dsa` (ADR
-//! 0314), and from the four-hundred-and-eighty-seventh `pdf_model::pss`, whose salt length is a
+//! `pdf_signature::pkcs1`, from the four-hundred-and-seventy-ninth session `pdf_signature::dsa` (ADR
+//! 0314), and from the four-hundred-and-eighty-seventh `pdf_signature::pss`, whose salt length is a
 //! number the file states (ADR 0322). Four properties:
 //!
 //! **Parsing and verifying terminate and never panic.** The fuzz profile keeps overflow checks
@@ -39,12 +39,12 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_model::cms::Digest;
-use pdf_model::dsa::{self, MAX_SUBGROUP_BITS};
-use pdf_model::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
-use pdf_model::pss;
-use pdf_model::x509::{self, PublicKey};
-use pdf_model::{ecdsa, eddsa};
+use pdf_signature::cms::Digest;
+use pdf_signature::dsa::{self, MAX_SUBGROUP_BITS};
+use pdf_signature::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
+use pdf_signature::pss;
+use pdf_signature::x509::{self, PublicKey};
+use pdf_signature::{ecdsa, eddsa};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(certificate) = x509::parse(data) else {

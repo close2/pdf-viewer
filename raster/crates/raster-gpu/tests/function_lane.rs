@@ -590,7 +590,7 @@ fn two_frames_of_one_function_scene_are_identical() {
 /// `tests/archetypes.rs`'s discipline, applied where it fits: every `Counters` field is an
 /// exact function of the scene and the viewport, so these compare by equality on any machine
 /// and under any load. The fixture is *not* in that file, and deliberately — its archetypes
-/// are page shapes measured over the caller's 995-page corpus (`doc/corpus-profile.md`),
+/// are page shapes measured over the caller's 995-page corpus (`raster/doc/corpus-profile.md`),
 /// which carries a "shading/mesh fills" row and no function-shading row at all, so an
 /// archetype for this paint would be an invented page of exactly the kind that file's own
 /// opening paragraph refuses.

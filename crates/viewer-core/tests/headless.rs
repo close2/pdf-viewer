@@ -6715,7 +6715,7 @@ fn the_reader_can_turn_a_documents_restrictions_off() {
     // a restriction off is the reader's, and §12.8.2.2 states no obligation to remove anything.
     // §12.8.2.3's `/UR3` is the one that would have to go, and this document states none.
     assert!(
-        pdf_model::signature::permissions(&reopened)
+        pdf_signature::signature::permissions(&reopened)
             .doc_mdp
             .is_some(),
         "the /DocMDP is where the producer put it"

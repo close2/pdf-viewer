@@ -499,15 +499,23 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
 
 1. ~~**An element whose one alpha carries both quantities in a raster.**~~ — **closed in the
    nine-hundred-and-ninety-seventh, ADR 1017**, and not by keeping two channels: the *kind* is
-   decided where the image is decoded (`image::SampleAlpha` — a stencil, an explicit `/Mask` or a
+   decided where the image is decoded (`SampleAlpha` — a stencil, an explicit `/Mask` or a
    colour key is *shape* by §11.6.4.2, an `/SMask` or `/SMaskInData` is *opacity* by §11.6.4.3, a
-   stencil under its own `/SMask` is both) and recorded where it is drawn, and a shading needs no
-   bit at all because its colours are opaque before §11.6.4.4's constant is folded in
-   (`Shading::opaque()`). A knockout group now states the shape of either instead of reporting;
-   the one element still reported by name is the stencil-under-its-own-soft-mask, whose two
-   quantities really do share one raster. What the entry got right was the shape of the fix and
-   wrong was where it lived: not on `ImageSource`, which six crates build by literal and one
-   serialises, but beside the interpreter's own record of what it drew.
+   stencil under its own `/SMask` is both), and a shading needs no bit at all because its colours
+   are opaque before §11.6.4.4's constant is folded in (`Shading::opaque()`). A knockout group now
+   states the shape of either instead of reporting; the one element still reported by name is the
+   stencil-under-its-own-soft-mask, whose two quantities really do share one raster — and Table 87
+   permits that file, which ADR 1022 §5 reads.
+
+   **Where the bit lives took two rounds and the second reversed the first.** ADR 1017 put it
+   beside the interpreter's own record of what it drew, keyed by the raster's identity, because
+   `pdf_render::Image` is built by literal in six crates that round was not given and serialised by
+   `viewer-confined`'s codec. ADR 1022 made it the field the entry asked for. The count that
+   justified the record had not changed; the *readers* had — §11.7.4.4's and §9.3.8's implicit
+   knockout groups ask the same question from `path.rs` and `text.rs`, which a record inside
+   `MaskCache` could not answer, so every `B` and every text object holding an image kept the
+   report for five rounds. A record keyed by identity is a substitute with an expiry date, and a
+   second reader is what expires it.
 2. ~~**§11.6.4.3's `/AIS`.**~~ — **closed in the five-hundred-and-eightieth, ADR 0415**, and the
    price this entry quoted was an overstatement of a construction that turned out to be an
    identity. It said honouring the flag "means composing the mask and the constants into the shape

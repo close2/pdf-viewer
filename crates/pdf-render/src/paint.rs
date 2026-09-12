@@ -511,6 +511,61 @@ fn smoothed(width: u32, height: u32, interpolate: bool, placement: Transform) ->
     !magnified
 }
 
+/// Which of ISO 32000-2 §11.3.7.2's two quantities an image's alpha channel carries.
+///
+/// A raster holds one alpha per sample and the standard has two: shape and opacity. §11.6.4.2
+/// names what gives an image its shape, and which masks modify it:
+///
+/// > For images (8.9, "Images"), the shape shall be 1.0 inside the image rectangle and 0.0
+/// > outside it. This may be further modified by an explicit or colour key mask (8.9.6.3,
+/// > "Explicit masking" and 8.9.6.4, "Colour key masking").
+///
+/// > For image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted areas
+/// > and 0.0 for masked areas.
+///
+/// while an image's own `/SMask` and a JPEG 2000 codestream's `/SMaskInData` are §11.6.4.3's
+/// soft mask, "an opacity channel" in that clause's words, and §11.6.5.2's. §11.6.4.3 makes the
+/// two exclusive — a soft mask "shall override any explicit or colour key mask" — so one image's
+/// alpha is one of the two, except where a *stencil* carries a soft mask of its own.
+///
+/// Decided by whoever decodes the image, where the masks are applied, and carried beside the
+/// raster because the raster cannot say: a stencil's `{0, 255}` and a one-bit soft mask's are
+/// the same bytes. Read where a knockout group (§11.4.6) states an element's shape, which is
+/// after the image has become a [`crate::Command`] — the reason the kind is a field of the
+/// vocabulary type rather than a note the decoder keeps (ADR 1017 §2 priced the alternative,
+/// and ADR 1022 took the field).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Both`'s comment quotes §8.9.6.1 verbatim, and a quotation is not marked up"
+)]
+pub enum SampleAlpha {
+    /// §11.6.4.2's shape: the image rectangle, a stencil's painted areas, or the rectangle
+    /// less what an explicit or colour key mask removed. An image with no mask at all is
+    /// here too — its alpha is 1.0 throughout, which is the rectangle — and so is a raster
+    /// that is not a document's image at all, a viewport's own pixels or a thumbnail, whose
+    /// alpha nothing in §11 ever reads.
+    Shape,
+    /// §11.6.4.3's mask opacity: an `/SMask`, or a non-zero `/SMaskInData`. The shape of such
+    /// an image is its whole rectangle.
+    Opacity,
+    /// Both, multiplied: a stencil (shape) under an `/SMask` of its own (opacity). One raster
+    /// cannot separate them again, so an element like this inside a knockout group is
+    /// reported rather than drawn.
+    ///
+    /// A file a producer may write, rather than a malformed one, and three places say so.
+    /// §8.9.5 Table 87 lists what a stencil may not carry — `/BitsPerComponent` other than 1,
+    /// `/ColorSpace`, and `/Mask`, whose own row says it twice ("If `ImageMask` is true, this
+    /// entry shall not be present") — and `/SMask`'s row says nothing of the kind. §8.9.6.2
+    /// lists the three ways "[a]n image mask differs from an ordinary image" and they are
+    /// those same three. And §8.9.6.1, the paragraph before it, adds the soft mask to the
+    /// list of masking effects an image dictionary may carry without excluding a stencil:
+    /// "a fourth type of masking effect, soft masking, is available through the SMask entry".
+    /// §11.6.5.2's Table 143 restricts the *soft-mask image's* dictionary and not the
+    /// parent's. ADR 1022 §5 prices stating this element's shape.
+    Both,
+}
+
 /// Decoded image samples, ready to draw.
 ///
 /// Always straight-alpha RGBA8, whatever the document's colour space and bit depth were:
@@ -540,6 +595,8 @@ pub struct Image {
     /// What the flag decides is whether a four-sample image blown up to a page is four
     /// squares or a blur, and three reference renderers draw squares.
     pub interpolate: bool,
+    /// Which of §11.3.7.2's two quantities the alpha channel carries; see [`SampleAlpha`].
+    pub sample_alpha: SampleAlpha,
 }
 
 impl Image {
@@ -761,6 +818,9 @@ impl Image {
             height,
             data: data.into(),
             interpolate: self.interpolate,
+            // Averaging does not change what the alpha *is*: a stencil reduced is still a
+            // stencil, with fractional coverage where its edges fell inside a block.
+            sample_alpha: self.sample_alpha,
         })
     }
 
@@ -915,6 +975,15 @@ impl Grid {
 pub trait ImageAtDeviceScale: std::fmt::Debug + Send + Sync {
     /// The samples, on a grid no finer than `grid` in either axis.
     fn samples(&self, grid: Grid) -> Image;
+
+    /// What the alpha channel of every raster [`Self::samples`] produces carries.
+    ///
+    /// Answered **without** producing any: the one reader is §11.4.6's knockout, which states
+    /// an element's shape before any device has asked for the samples, and the whole point of
+    /// a deferred source is that producing them is a decision about the device. A producer
+    /// knows the answer from what it was built to combine — the kind is a fact about the
+    /// masks, not about the grid.
+    fn sample_alpha(&self) -> SampleAlpha;
 }
 
 /// A shared [`ImageAtDeviceScale`], so that a command carrying one stays cloneable.
@@ -932,6 +1001,12 @@ impl DeferredImage {
     #[must_use]
     pub fn samples(&self, grid: Grid) -> Image {
         self.0.samples(grid)
+    }
+
+    /// What the alpha channel of the samples carries, without producing them.
+    #[must_use]
+    pub fn sample_alpha(&self) -> SampleAlpha {
+        self.0.sample_alpha()
     }
 }
 
@@ -995,6 +1070,18 @@ impl ImageSource {
         match self {
             Self::Decoded(image) => image.is_opaque(),
             Self::AtDeviceScale(_) => false,
+        }
+    }
+
+    /// Which of §11.3.7.2's two quantities the samples' alpha carries, without producing any.
+    ///
+    /// A decoded source carries the answer as a field; a deferred one asks its producer, which
+    /// knows without decoding ([`ImageAtDeviceScale::sample_alpha`]).
+    #[must_use]
+    pub fn sample_alpha(&self) -> SampleAlpha {
+        match self {
+            Self::Decoded(image) => image.sample_alpha,
+            Self::AtDeviceScale(deferred) => deferred.sample_alpha(),
         }
     }
 }
@@ -1061,7 +1148,7 @@ fn round_div(numerator: u64, denominator: u64) -> u8 {
               what each fixture contains"
 )]
 mod resampling {
-    use super::{Bands, Image, Transform};
+    use super::{Bands, Image, SampleAlpha, Transform};
 
     /// An image of `width` x `height` opaque samples, each carrying `f(x, y)` in red.
     fn image(width: u32, height: u32, f: impl Fn(u32, u32) -> u8) -> Image {
@@ -1076,6 +1163,7 @@ mod resampling {
             height,
             data: data.into(),
             interpolate: false,
+            sample_alpha: SampleAlpha::Shape,
         }
     }
 
@@ -1111,6 +1199,7 @@ mod resampling {
         let plain = image(8, 8, |x, _| (x * 30) as u8);
         let asked = Image {
             interpolate: true,
+            sample_alpha: SampleAlpha::Shape,
             ..image(8, 8, |x, _| (x * 30) as u8)
         };
 
@@ -1212,6 +1301,7 @@ mod resampling {
             height: 1,
             data: data.into(),
             interpolate: false,
+            sample_alpha: SampleAlpha::Shape,
         };
 
         let reduced = source
@@ -1238,6 +1328,7 @@ mod resampling {
             height: 2,
             data: [9, 9, 9, 0].repeat(4).into(),
             interpolate: false,
+            sample_alpha: SampleAlpha::Shape,
         };
         let reduced = source
             .area_averaged(drawn_at(1.0, 1.0))
@@ -1300,6 +1391,7 @@ mod resampling {
                 height,
                 data: Vec::new().into(),
                 interpolate: false,
+                sample_alpha: SampleAlpha::Shape,
             };
             assert!(
                 source.area_averaged(Transform::scale(4.0, 4.0)).is_none(),
@@ -1374,6 +1466,7 @@ mod resampling {
                 height,
                 data: Vec::new().into(),
                 interpolate: false,
+                sample_alpha: SampleAlpha::Shape,
             };
             assert!(
                 source.reduction(Transform::scale(4.0, 4.0)).is_none(),
@@ -1424,6 +1517,7 @@ mod resampling {
                 height: side,
                 data: data.into(),
                 interpolate: false,
+                sample_alpha: SampleAlpha::Shape,
             }
         };
         // 192² = 36 864 samples is under the floor and 384² = 147 456 is over it, and both
@@ -1469,7 +1563,7 @@ mod resampling {
 mod device_scale {
     use std::sync::Arc;
 
-    use super::{Grid, Image, ImageAtDeviceScale, ImageSource, Transform};
+    use super::{Grid, Image, ImageAtDeviceScale, ImageSource, SampleAlpha, Transform};
 
     /// A source that records nothing and answers with the grid it was asked for.
     ///
@@ -1486,7 +1580,12 @@ mod device_scale {
                 height: grid.height,
                 data: vec![u8::MAX; count.saturating_mul(4)].into(),
                 interpolate: false,
+                sample_alpha: SampleAlpha::Shape,
             }
+        }
+
+        fn sample_alpha(&self) -> SampleAlpha {
+            SampleAlpha::Shape
         }
     }
 
@@ -1554,6 +1653,7 @@ mod device_scale {
             height: 2,
             data: vec![0u8; 24].into(),
             interpolate: false,
+            sample_alpha: SampleAlpha::Shape,
         });
         let borrowed = ready.at(Transform::scale(600.0, 400.0));
         assert_eq!(

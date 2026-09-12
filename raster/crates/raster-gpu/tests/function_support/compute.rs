@@ -3,7 +3,7 @@
 //! One responsibility: **run `raster_function_evaluate` at a list of points and hand back
 //! what it computed**, with nothing between the shader and the caller. It is a compute pass
 //! over a storage buffer of `vec4<f32>` rather than a raster, and that is the whole design:
-//! `doc/spike-function-paint.md` §5 measured 246 044 texels off by one from ADR 0006's 8-bit
+//! `raster/doc/spike-function-paint.md` §5 measured 246 044 texels off by one from ADR 0006's 8-bit
 //! store *alone*, so a raster would put that conversion between the shader and every
 //! assertion and cost the test all of its resolution. `tests/function_lane.rs` is where the
 //! store belongs, because there the expectation is a colour.
