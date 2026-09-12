@@ -1,0 +1,1 @@
+Agreed with the recommendation as written: `on-failure` picks one alternative, not a chain, and defaults to `stop`. A chain is added only if a real configuration turns out to want two steps — that is evidence, and adding expressiveness later is cheap in a way that taking it away is not.

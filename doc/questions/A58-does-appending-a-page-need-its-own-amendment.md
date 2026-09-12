@@ -1,0 +1,3 @@
+Agreed with the recommendation as written: appending a page needs its own argued amendment to the authoring exclusion, and the amendment is to be made. One amendment, not two — the appended pages *and* the structure-tree entries a Level A target owes them are one ruling, because refusing to describe a page this program itself appended would make the Level A output non-conforming rather than more honest. The exclusion was written to stop this program becoming a layout engine, not to force losing content that is wholly the document's own.
+
+The amendment text, and the ADR recording it, are the acting round's work.

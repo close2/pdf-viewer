@@ -1,0 +1,3 @@
+No offer in the first version, and the warning lives where an operator configures a tool rather than in a security document nobody opens: *this runs a program you chose, on a document you did not write.* Revisit only when a real deployment asks for it, with that deployment's tool in front of us — a confinement profile written against no particular program is a guess.
+
+The executor that `A54` puts in the callers is where a per-tool confinement would live if it is ever added; nothing about today's answer should make that hard.
