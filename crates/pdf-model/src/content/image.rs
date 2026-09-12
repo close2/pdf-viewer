@@ -305,7 +305,11 @@ impl Interpreter<'_> {
             &conversion,
             &mut self.image_masks,
         ) {
-            Ok(crate::image::Parts { picture, shortfall }) => {
+            Ok(crate::image::Parts {
+                picture,
+                shortfall,
+                alpha,
+            }) => {
                 // A filter that stopped on damaged data delivered the rows before it, and the
                 // report travels with the raster rather than being made here, so a second `Do`
                 // answered from the cache says it too: `image::Parts::shortfall` has the reading.
@@ -314,15 +318,21 @@ impl Interpreter<'_> {
                         name: format!("{name}: {detail}"),
                     });
                 }
+                // §10.5 applies to "any object for which transfer functions are in effect", and an
+                // image is one object however many samples it has: the clause's input is "the
+                // value of a colour component in the device's native colour space", which by this
+                // point every sample is. Done here rather than in `image::decode_parts` because a
+                // transfer belongs to the *graphics state* the image is drawn under and not to the
+                // image, and the same XObject drawn twice under two states is two pictures.
+                let image =
+                    picture.source(|image| transferred_image(image, transfer.map(Arc::as_ref)));
+                // What the alpha channel is made of, recorded against the raster the command
+                // carries — after the transfer, which produced that raster — for the one reader
+                // that needs it: §11.4.6's knockout, which states an element's shape and has to
+                // know whether an image's alpha is one (`image::DrawnAlphas`).
+                self.image_masks.drawn_mut().record(&image, alpha);
                 self.draw(Command::Image {
-                    // §10.5 applies to "any object for which transfer functions are in effect", and an
-                    // image is one object however many samples it has: the clause's input is "the
-                    // value of a colour component in the device's native colour space", which by this
-                    // point every sample is. Done here rather than in `image::decode_parts` because a
-                    // transfer belongs to the *graphics state* the image is drawn under and not to the
-                    // image, and the same XObject drawn twice under two states is two pictures.
-                    image: picture
-                        .source(|image| transferred_image(image, transfer.map(Arc::as_ref))),
+                    image,
                     transform: state.transform,
                     alpha: state.fill_alpha,
                     clip: state.clip,
@@ -448,6 +458,12 @@ impl Interpreter<'_> {
             });
             return;
         };
+        // This mask is §8.9.6.2's stencil wearing §11.5.2's vocabulary, and a stencil is
+        // *shape* — "the shape shall be 1.0 for painted areas and 0.0 for masked areas"
+        // (§11.6.4.2) — where every other mask a command carries is §11.6.4.3's opacity. A
+        // knockout group states an element's shape by removing the opacity from it, and this
+        // is the one mask it must keep; the record is what tells it so (`image::DrawnAlphas`).
+        self.image_masks.drawn_mut().record_shape_mask(mask);
 
         // The image's own unit square, which is the region the stencil can mark.
         let mut path = Path::new();

@@ -124,6 +124,7 @@
 //! verdict rests on.
 
 mod census;
+mod config;
 mod decision;
 mod fonts;
 mod jpeg2000;
@@ -133,6 +134,7 @@ mod rewrite;
 mod signatures;
 mod sites;
 mod to_unicode;
+mod toml;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -145,10 +147,15 @@ use crate::pattern::{Fill, Pattern};
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use census::{Kind, Standing, census, standing, unconsidered};
+pub use config::{
+    ConfigError, Configuration, Coverage, Departure, Kind as RemedyKind, Site, Unbuilt, sites,
+};
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
-pub use report::{Achieved, Conversion, Decided, NotChecked, SignatureDecision};
+pub use report::{
+    Achieved, Conversion, Decided, Departed, DepartureOutcome, NotChecked, SignatureDecision,
+};
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
 
@@ -201,6 +208,23 @@ pub struct ArchivePlan {
     /// caller who says nothing gets, and `false` refuses the font by name — [`Because::Declined`]
     /// rather than any of the three reasons that are facts about the document or the program.
     pub substitute_fonts: bool,
+    /// The departures the caller's configuration named that this conversion carries out.
+    ///
+    /// `doc/rfc/0007` section 4.7, read by the caller from a configuration file and handed in as
+    /// data — the same seam `authorised` sits on. Empty for every conversion that names none, which
+    /// is every conversion until the owner's XML-attachment case (`A60`). A departure produces a
+    /// file that does *not* conform to the target, so by default the output omits the PDF/A
+    /// identification and does not claim to; `claim_conformance` is the second, separate switch
+    /// (`A59`) that keeps the claim anyway.
+    pub departures: Vec<Departure>,
+    /// Whether a departed conversion still states the PDF/A identification schema.
+    ///
+    /// `A59`: departing from a clause and claiming conformance anyway are two decisions, taken
+    /// twice. `false` — the default — leaves the identification off, so the file states it meets
+    /// the target in every respect but the departed ones and does not claim to be PDF/A. `true`
+    /// keeps the claim, which a downstream validator fails either way; the only difference is
+    /// whether the file lied before it failed, and that is the operator's to own explicitly.
+    pub claim_conformance: bool,
 }
 
 /// Converts one document to the target and writes it.
@@ -230,6 +254,17 @@ pub(crate) fn run(
 
     // Stage 1: the validator is the reading. Nothing below re-reads ISO 19005.
     let input = pdf_archive::check(document, plan.target);
+    // `doc/rfc/0007` section 4.7's departures, decided over the *source*: a departure applies where
+    // the requirement it names is failing and its predicate covers this document. A departure named
+    // over a requirement the document meets is inert, and one whose predicate a file escapes leaves
+    // the requirement refused as it stands — which is the difference between *accept XML* and
+    // *accept XML and only XML*.
+    let (departed_ids, departures) = departures_over(plan, document, &input);
+    let departure_history = report::departure_history(&departures);
+    // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
+    // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
+    // the claim anyway. Nothing departs unless the caller named a departure that covered the file.
+    let omit_identification = !departed_ids.is_empty() && !plan.claim_conformance;
     // **A source that already conforms is copied, not rewritten.** A conversion is a rewrite,
     // and a rewrite of a file that needs nothing changed can only lose: every byte offset
     // moves, so a signature the source carries — which ISO 19005-2 6.4.3 permits and Annex
@@ -242,7 +277,15 @@ pub(crate) fn run(
     // `doc/pdf-a-conversion-limits.md` section 3.6's route instead — [`signatures`] — and its
     // report says what each signature asserted before the value went.
     if input.verdict() == Verdict::Conforms {
-        let (mut conversion, _, _) = decide_every_failure(plan, document, &input);
+        let (mut conversion, _, _) = decide_every_failure(
+            plan,
+            document,
+            &input,
+            &departed_ids,
+            departures,
+            false,
+            None,
+        );
         conversion.achieved = Some(Achieved {
             conforms: true,
             still_failing: Vec::new(),
@@ -255,7 +298,15 @@ pub(crate) fn run(
         return Ok(());
     }
     // Stage 2: one decision per failed requirement.
-    let (mut conversion, version, prepared) = decide_every_failure(plan, document, &input);
+    let (mut conversion, version, prepared) = decide_every_failure(
+        plan,
+        document,
+        &input,
+        &departed_ids,
+        departures,
+        omit_identification,
+        departure_history.as_deref(),
+    );
     if !conversion.proceeds() {
         for decided in &conversion.decided {
             if decided.decision.proceeds() {
@@ -292,6 +343,8 @@ pub(crate) fn run(
         &mut conversion,
         version,
         &prepared,
+        &departed_ids,
+        omit_identification,
         sinks,
     );
     let written = match outcome {
@@ -319,6 +372,10 @@ fn decide_every_failure(
     plan: &ArchivePlan,
     document: &Document,
     input: &pdf_archive::Report,
+    departed_ids: &BTreeSet<&'static str>,
+    departures: Vec<Departed>,
+    omit_identification: bool,
+    departure_history: Option<&str>,
 ) -> (Conversion, Option<Version>, Prepared) {
     let mut conversion = Conversion {
         source: plan.source,
@@ -339,10 +396,23 @@ fn decide_every_failure(
         substituted: Vec::new(),
         restated: Vec::new(),
         signatures: None,
+        departures,
     };
-    let prepared = Prepared::of(plan, document, input);
+    let prepared = Prepared::of(
+        plan,
+        document,
+        input,
+        omit_identification,
+        departure_history,
+    );
     let mut version = None;
     for judgement in input.failures() {
+        // A requirement the caller departed from does not stop the conversion and is not decided:
+        // it is reported as a departure (`conversion.departures`), the output keeps failing it, and
+        // stage 3 tolerates that failure by name rather than refusing the file over it.
+        if departed_ids.contains(judgement.id) {
+            continue;
+        }
         let places = match &judgement.outcome {
             Outcome::Failed { total, .. } => *total,
             // `Report::failures` yields only `Outcome::Failed`, so this arm is unreachable; it
@@ -409,6 +479,7 @@ enum Written {
 }
 
 /// Stage 3: the rewrites, the output's own verdict, and the sink.
+#[allow(clippy::too_many_arguments)]
 fn apply_the_decisions(
     plan: &ArchivePlan,
     document: &Document,
@@ -416,6 +487,8 @@ fn apply_the_decisions(
     conversion: &mut Conversion,
     version: Option<Version>,
     prepared: &Prepared,
+    departed_ids: &BTreeSet<&'static str>,
+    omit_identification: bool,
     sinks: &dyn Sinks,
 ) -> Result<Written, Refusal> {
     // Asked here for a document whose header already conformed, which is every document that
@@ -430,7 +503,7 @@ fn apply_the_decisions(
             ))
         })?,
     };
-    let wanted = rewrites_wanted(conversion);
+    let wanted = rewrites_wanted(conversion, omit_identification);
     // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition
     // and now two rewrites: the output intent names it as its destination profile, and the
     // `/DefaultCMYK` names the same object as its alternate space.
@@ -489,7 +562,12 @@ fn apply_the_decisions(
     count_signature_places(conversion, &converted.applied);
 
     let (output, achieved) = hold_the_output_to_the_target(&converted.bytes, input, plan)?;
-    let stands = achieved.conforms;
+    // A departed conversion produces a file that does not conform, on purpose. It is written where
+    // the *only* requirements it still fails are the ones the caller departed from and — where the
+    // identification was deliberately omitted — the identification-schema requirements that omission
+    // costs. Anything else still failing is a real failure, and the file is refused as it would be
+    // without any departure: stage three's net is narrowed by a departure, never switched off.
+    let stands = stands_as_departed(&achieved, departed_ids, omit_identification);
     let declined = declined_output(plan, &achieved);
     conversion.achieved = Some(achieved);
     if !stands {
@@ -537,7 +615,7 @@ fn apply_the_decisions(
 
 /// Every rewrite the decisions call for: one per proceeding requirement, and the signature
 /// rewrite where the conversion itself asked for it.
-fn rewrites_wanted(conversion: &Conversion) -> BTreeSet<Rewrite> {
+fn rewrites_wanted(conversion: &Conversion, omit_identification: bool) -> BTreeSet<Rewrite> {
     let mut wanted: BTreeSet<Rewrite> = conversion
         .decided
         .iter()
@@ -550,7 +628,83 @@ fn rewrites_wanted(conversion: &Conversion) -> BTreeSet<Rewrite> {
     {
         wanted.insert(rewrite);
     }
+    // A departed conversion writes the metadata packet even where no requirement asked for it, so
+    // the file carries the departure in its own `xmpMM:History` (`doc/rfc/0007` section 4.7.3) —
+    // and, where the identification is deliberately omitted (`A59`), so the packet is stripped of a
+    // PDF/A claim the source stated. `IdentificationSchema` is the rewrite that writes the packet.
+    let departed = conversion
+        .departures
+        .iter()
+        .any(|departed| matches!(departed.outcome, DepartureOutcome::Applied { .. }));
+    if omit_identification || departed {
+        wanted.insert(Rewrite::IdentificationSchema);
+    }
     wanted
+}
+
+/// Whether a departed conversion's output may be written.
+///
+/// `doc/rfc/0007` section 4.7.3: the output does not conform — it departed — so the plain
+/// conformance gate would refuse it. What is written instead is a file whose *only* remaining
+/// failures are the departed requirements and, where the identification was omitted, the
+/// identification-schema requirements that omission costs. A failure outside that set is a real
+/// one, and the file is refused. A conversion with no departures reduces to `achieved.conforms`.
+fn stands_as_departed(
+    achieved: &Achieved,
+    departed_ids: &BTreeSet<&'static str>,
+    omit_identification: bool,
+) -> bool {
+    if departed_ids.is_empty() {
+        return achieved.conforms;
+    }
+    achieved.still_failing.iter().all(|id| {
+        departed_ids.contains(id)
+            || (omit_identification && decision::IDENTIFICATION_CLAIM.contains(id))
+    })
+}
+
+/// The departures applied to this document, and the identifiers of the requirements they cover.
+///
+/// A departure named over a requirement the document meets is inert (no failure to tolerate). One
+/// whose predicate the file escapes is reported as *left in place* and the requirement stays
+/// refused — the file still carries a non-XML attachment, so it is refused as it would be with no
+/// departure at all. Only a covered departure enters `departed_ids`.
+fn departures_over(
+    plan: &ArchivePlan,
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> (BTreeSet<&'static str>, Vec<Departed>) {
+    let mut ids = BTreeSet::new();
+    let mut reported = Vec::new();
+    for departure in &plan.departures {
+        let Some(judgement) = input
+            .failures()
+            .find(|judgement| judgement.id == departure.requirement)
+        else {
+            // The requirement the departure names is met; there is nothing to depart from.
+            continue;
+        };
+        let outcome = match departure.covers(document) {
+            Coverage::Covers => {
+                ids.insert(judgement.id);
+                DepartureOutcome::Applied {
+                    claimed: plan.claim_conformance,
+                }
+            }
+            Coverage::Leaves { file, media_type } => {
+                DepartureOutcome::LeftInPlace { file, media_type }
+            }
+        };
+        reported.push(Departed {
+            requirement: judgement.id,
+            citation: judgement.citation.clone(),
+            media_types: departure.media_types.clone(),
+            relationships: departure.relationships.clone(),
+            reason: departure.reason.clone(),
+            outcome,
+        });
+    }
+    (ids, reported)
 }
 
 /// How many places the signature rewrite touched, into the report.

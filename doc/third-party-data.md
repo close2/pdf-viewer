@@ -598,6 +598,30 @@ Validation TWG proposal*, and then an *ISO WG Resolution*. Only the last is acte
 published requirement as it stood, so a project that read the cases rather than the verdicts would
 have changed four rules the committee did not change.
 
+## ISO/WD 8601-1 (2016), the dating standard's working draft
+
+The owner downloaded it on 2026-09-12 as `doc/iso-tc154-wg5_n0038_iso_wd_8601-1_2016-02-16.pdf` —
+ISO/TC 154/WG 5 N0038, *ISO/WD 8601-1, Data elements and interchange formats — Information
+interchange — Representation of dates and times — Part 1: Basic rules*, dated 2016-02-16 — in answer
+to `doc/questions/Q53`, which asked whether to obtain ISO 8601 so that `Lexical::Date` could admit
+the standard's forms rather than the XMP Specification's six profiles of them. `/doc/*.pdf` ignores
+it, and `crates/pdf-archive/src/iso_8601.rs` is what was read from it, cited to its clause numbers.
+
+| data | source examined | terms |
+|---|---|---|
+| ISO/WD 8601-1, ISO/TC 154/WG 5 N0038 (2016-02-16) | the document itself, its cover and copyright page | **a working draft, copyright ISO**: reproduction permitted to participants in the ISO standards process and to nobody else; neither the document nor any extract is to be reproduced otherwise without ISO's written permission — see below |
+
+**Two things its cover says that bind how this tree uses it.** First, it is not an International
+Standard — its own warning says it is distributed for review and comment, may change without
+notice, and may not be referred to as one. So every citation in this tree names the working draft
+by its document number and clause, never "ISO 8601-1:2016", and `doc/questions/A53` records that
+the published part is the purchase to make on the day a difference between the two matters.
+Second, its copyright notice grants reproduction to participants in the standards process only,
+which this project is not; so **nothing in this tree quotes it** — the grammar in `iso_8601.rs` is
+this crate's own sentences under the draft's clause numbers, the same discipline `doc/pdfa/`'s
+reprints and `TechNote 0010` already impose, and the draft's own example values (`19850412`,
+`1985-W15-5`) appear in tests as data rather than as prose.
+
 ## veraPDF, and the difference between running a program and reading it
 
 The owner put a checkout of veraPDF in `doc/veraPDF-library` on 2026-09-07 and asked whether its

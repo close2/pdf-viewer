@@ -11,6 +11,14 @@
 //! interpretation made and a hash of those. Run it on two revisions and `diff` the two files; an
 //! empty diff is the claim.
 //!
+//! **Since ADR 1016 the committed form of this claim is a gate.** `tests/raster_golden.rs` holds
+//! both of these digests — the list's and the reports' — beside the raster's, by name, in
+//! `tests/raster_golden.tsv`, so a round that touches `content::interpret` is failed by the pages
+//! it moved rather than asked for two arms and a `diff`. This example stays for what the gate
+//! cannot do: two uncommitted builds, or documents outside the tracked corpus. The hash below is
+//! why it could not simply become the gate — unspecified across releases, which a committed file
+//! cannot afford; the gate uses SHA-256.
+//!
 //! **The reports are here because a change can move only them**, and for a long time this digest
 //! could not see that. The nine-hundred-and-thirty-sixth session read a dimension one unit short
 //! and made this reader accuse a file of a §7.4.8 disagreement that was its own; the image decoded

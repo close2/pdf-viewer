@@ -1,6 +1,10 @@
 # RFC 0007 — A refusal is a question somebody can answer in advance
 
-Status: **proposed**
+Status: **accepted** — 2026-09-12, by the owner's answers `doc/questions/A54`–`A60` to the five
+questions §7 put and the two §4.7 raised. Each answer is folded into the section it decides, in the
+owner's words where the owner gave them and visibly as the round's reading where the owner agreed to
+a recommendation; §7 keeps the questions and carries the answers; §8 says what is built when. ADR
+1014 records the amendment to `CLAUDE.md` that `A58` commanded, and this acceptance.
 Round: 954 — commissioned by the owner on 2026-09-11: *"This tool will probably be used in
 automatic environments, where a refusal would mean that a human has to intervene. I think we should
 allow a configuration file, where every possible refusal reason can be configured."*
@@ -80,6 +84,16 @@ That does not make it wrong. It makes it a different promise, and the honest pos
 A PDF/A file whose movie has become three screenshots is a *different document* from the one that
 went in. The converter may produce it; it may not pretend otherwise.
 
+**Decided (`A55`, 2026-09-12): the mode is offered, on exactly those terms.** The owner's word was
+"Q55 agree with recommendation", and the recommendation was `Q55`'s — offer it, and make it
+impossible to get by accident: never a default, never reachable without the configuration naming
+the site *and* the tool, reported per document in the words "this is derived, not original", and
+recorded in the file's own `xmpMM:History`. Refusing to offer the mode would not keep archives
+faithful; it would drop the annotation instead, which loses more and says less. ADR 1005 §6 had
+proposed the other answer — `derive` handed to a separate program, the converter attaching what it
+is given — and the owner chose this one; the twelve catalogue entries that answer stands on stay
+in `doc/pdf-a-mitigations.md`.
+
 ## 3. The configuration
 
 One file, named on the command line (`--remedies <file>`) or found by a documented search, in a
@@ -148,7 +162,11 @@ consideration of remedies.* Consistent skeleton, site-specific flesh.
   tool's own explanation of why it declined is the most useful thing a report can carry.
 - **Exit status**: `0` means it produced a result; a documented code means *I decline, take the
   fallback*; anything else is a failure. `on-failure` decides between `stop` and the site's other
-  remedies, and defaults to `stop`.
+  remedies, and defaults to `stop`. **Decided (`A57`): it names *one* alternative, never a
+  chain.** The owner's "Q57 agree with recommendation" adopted `Q57`'s: a chain is added only when
+  a real configuration turns out to want two steps, which is evidence rather than a preference —
+  adding expressiveness later is cheap in a way that taking it away, once somebody has written a
+  file against it, is not.
 
 ### 4.2 What comes back is not trusted
 
@@ -184,6 +202,26 @@ The proposal:
   tool-invoking conversion is deterministic **given a recorded tool output**, which is the strongest
   true statement available.
 
+**Decided (`A54`, 2026-09-12): `apply` returns a request, and one shared executor runs it.** The
+owner's first word was a doubt about the recommendation, kept verbatim because it names the user
+the design is for:
+
+> I am not conviced about you recommendation for Q54. If I want an input pdf converted to pdf/a
+> and there is configuration how this can / should be achieved, I think a normal user would expect
+> it just to happen. Or is the caller our own converter program? Maybe I am not really
+> understanding the problem.
+
+The caller is this project's own converter program in both shapes — one command, the remedies
+happen, nobody runs a tool by hand — and with that said the owner chose the option named *request
++ shared executor*. So the shape is: `apply` returns a data value — program, args, input, expected
+type, bounds — and never spawns; every consumer this project ships (the CLI, the KIO worker, the
+FUSE filesystem) executes requests through **one shared executor**, so "it just happens" is the
+default in each and the only code in the tree that spawns a process is that one file. RFC 0002
+§5's purity and §9's determinism keep the ground they were built on: a request and its result are
+data, so the second test case above replays a recorded output and the conversion is deterministic
+by construction. The round trip per invocation and the harder streaming story stand as priced in
+§6; they are the cost of the boundary, paid once, in the executor.
+
 ### 4.5 Trust and confinement
 
 The program is named by the operator's own configuration, so the operator trusts it. The *input* is
@@ -201,8 +239,16 @@ What is proposed instead, and what it is worth saying plainly:
   from the public has made a security decision, and the configuration file is where they should be
   told so.
 
-Whether the converter should *additionally* offer to run a tool under the project's own sandbox for
-the cases where that is possible is an open question (§7).
+**Decided (`A56`, 2026-09-12): no confinement is offered in the first version, and the warning
+lives at the configuration site.** `A56` records the owner's choice, of the options presented, as
+*no offer in the first version, warn at the configuration site*. So the fourth bullet above is the
+whole of it: the sentence an operator reads where they declare a `[tool.…]` block is short — *this
+runs a program you chose, on a document you did not write* — and it is there rather than in a
+security document nobody opens. Confinement is revisited only when a real deployment asks for it,
+with that deployment's tool in front of us; a profile written against no particular program is a
+guess, and offering it for the few tools that would run under one invites the belief that it is
+offered for all. The executor `A54` puts in the callers is where a per-tool confinement would live
+if it is ever added.
 
 ## 4.6 A remedy belongs to a *site and a target*, not to a site
 
@@ -264,7 +310,11 @@ A page is cheap to add and expensive to add *consistently*, and the costs are pe
   operation as appending at 2b — it costs structure-tree work, or it costs the Level A claim;
 - **an appended page is marks no clause specifies**, which is `Q58`'s whole subject. The content is
   the document's own, which is why this is `preserve` and not `derive`, but the page it sits on is
-  composed by this program.
+  composed by this program. **`A58` answered it on 2026-09-12 and the amendment is made**: ADR 1014
+  is the argument, and `CLAUDE.md`'s authoring exclusion now says that a page composed solely of
+  content the document already holds is on the near side of its line — the Level A structure
+  entries with it, as one ruling — and that the watermark stays on the far side. ADR 1014 §5 lists
+  what an appended page then owes, which is this bullet list made binding.
 
 None of that argues against appending. It argues that the remedy's entry in the per-site table has
 to say *which target* and *what else it then owes* — which is what makes the site-and-target pair
@@ -368,9 +418,13 @@ a claim it has not earned". So by default a departed conversion **omits the PDF/
 schema**, and the report says so in those words: the output is a PDF that meets PDF/A-2 in every
 respect but the ones listed, and it does not claim to be PDF/A-2.
 
-Whether an operator may demand the claim anyway is `doc/questions/Q59`, and it is the sharpest
-question in this proposal — because a validator downstream will fail the file either way, and the
-difference is only whether the file *lied* before it failed.
+**Decided (`A59`, 2026-09-12): two switches, not one.** The owner's "Q59 agree with
+recommendation" adopted `Q59`'s: the identification is omitted by default, and an operator may
+demand it with a **second, separate switch that the departure does not imply** — so that "depart
+from a clause" and "claim conformance anyway" are two decisions, taken twice. A validator
+downstream fails the file either way; the only difference is whether the file lied before it
+failed, and that difference is the operator's to own explicitly rather than to acquire as a side
+effect. The second switch is a departure of its own kind and is reported as one.
 
 ### 4.7.3 What does not change
 
@@ -401,6 +455,16 @@ both admit any embedded file; neither expresses "these and nothing else". So the
 complementary rather than alternatives: part 3 is the right answer for an operator who wants the
 invoice case supported, and departures are the only route for one whose archive mandates PDF/A-2
 itself, or who wants a permission narrower than any part grants.
+
+**Decided (`A60`, 2026-09-12): part 3 is not bought, and not a target.** The owner's words:
+
+> Q60 don't buy. Keep a future purchase in mind, when writing code, so that adapting the
+> validator and converter to "part 3" will be cheap. But for now, part 3 is not a target.
+
+So departures carry the XML-attachment case entirely: no target holds it, and §4.7's departure is
+the only route an operator has. The cheap adaptation the owner asks for lives where it already is
+— the validator's part-as-a-column shape (`A46`) and the census's requirement table — and nothing
+about implementing part 3 later is to be made expensive now.
 
 ### 4.7.5 One departure was discussed; every requirement needs the same consideration
 
@@ -716,6 +780,12 @@ Two of the four fit §3 as proposed. The other two are findings:
 Every line of the drafts that names something unbuildable is marked `NOT-YET-IN-FORMAT`, so the
 files are a specification of what the format still owes rather than a promise it can keep.
 
+One of those four things is now ruled on. `A57` decides that `on-failure` names one alternative
+and not a chain, and that a chain is added only when *a real configuration* turns out to want two
+steps. A shipped profile's draft is not that evidence — nobody has run a queue against it — so
+`keep-everything`'s chain stays `NOT-YET-IN-FORMAT` and is the first thing that would count as
+evidence in `A57`'s sense the day an operator's file asks for it.
+
 ## 6. Easy and difficult, against this tree
 
 **Easy**, because the architecture already has the seams:
@@ -734,27 +804,78 @@ files are a specification of what the format still owes rather than a promise it
 - **`apply` currently opens no path and runs no process**, by RFC 0002's second rule. A tool
   invocation breaks both. The clean shape is that `apply` does not run the tool either — it returns
   a *request*, and the caller runs it — which keeps the library pure and puts the process boundary
-  in the binary. That is more work and a better boundary, and §7 asks the owner.
+  in the binary. That is more work and a better boundary, and §7 asks the owner. **Decided that
+  way by `A54`**, with the executor shared by every consumer (§4.4).
 - **`derive` changes what the archive is**, and a project whose whole discipline is "state an
   interpretation the standard defines; never fill in an absence" should not add a content-creating
-  mode without the owner ruling on it directly.
+  mode without the owner ruling on it directly. **Ruled on by `A55`**: offered, never by accident
+  (§2.1).
 - **The remedy vocabulary has to be closed and small**, or a configuration becomes a program.
 
-## 7. Open questions for the owner
+## 7. The questions put to the owner, and the answers
+
+Each was a `doc/questions/` file (`Q54`–`Q58` for the five below; `Q59` and `Q60` for §4.7's two),
+and each has its `A` file, all given on 2026-09-12 in conversation and transcribed by the round.
+The owner's own words are quoted; where the owner agreed to a recommendation, the sentences adopted
+are the `Q` file's and the reading is the round's, as `doc/questions/README.md` requires. The
+questions are kept as asked, because the argument that raised each is worth as much as the answer.
 
 1. **Does `apply` run the tool, or return a request for the caller to run?** The second keeps RFC
    0002 §5's purity — no filesystem, no process — and makes the CLI the only thing that spawns.
    It costs a round trip per invocation and complicates streaming. This RFC recommends the second
    and does not assume it.
+   **Answered (`A54`): a request, executed by one shared executor in every consumer this project
+   ships.** The owner's first reaction — "I think a normal user would expect it just to happen" —
+   is why the executor is shared rather than left to each caller; the owner then chose *request +
+   shared executor* of the options presented. §4.4 carries the shape.
 2. **Is `derive` acceptable at all for an archival format?** A movie replaced by three screenshots
    is not the document that went in. The proposal is that it is acceptable *only* when configured,
    reported, and recorded in the file's own history — but the owner should say whether this
    project offers that mode at all.
+   **Answered (`A55`): "Q55 agree with recommendation"** — offered, never a default, never without
+   the configuration naming site and tool, reported as "this is derived, not original", recorded
+   in `xmpMM:History`. §2.1 carries it.
 3. **Should a tool run under this project's sandbox where it can?** Some tools would; most will
    not; offering it for some invites the belief that it is offered for all.
+   **Answered (`A56`): no offer in the first version; the warning at the configuration site.**
+   §4.5 carries it, and names the executor as where a per-tool confinement would live if a real
+   deployment ever asks.
 4. **What is the fallback chain's shape?** `on-failure` as proposed picks one alternative. A list
    would be more expressive and much harder to reason about from a configuration file.
+   **Answered (`A57`): "Q57 agree with recommendation"** — one alternative, defaulting to `stop`;
+   a chain only on the evidence of a real configuration wanting two steps. §4.1 carries it, and
+   §5b.5 says what that does to `keep-everything`'s draft.
 5. **Does a `preserve` remedy that appends pages need the owner's ratification separately?**
    `CLAUDE.md`'s authoring exclusion was amended twice by argument; appending a page of derived
    text is close to its line, and the amendment record says such a move is "its own argued
    amendment, not scope creep".
+   **Answered (`A58`): "Q58 agree with recommendation"** — it needs the amendment, and the
+   amendment is made: the third, by ADR 1014, one ruling covering the appended pages and the Level
+   A structure entries they owe. The reading that the two are one was the round's summary, which
+   the answer ratified; `A58` keeps the two apart. §4.6.2 carries it.
+
+And §4.7's two: **`A59`** — "Q59 agree with recommendation", two switches, §4.7.2; **`A60`** —
+"Q60 don't buy", part 3 is not a target and the adaptation is to stay cheap, §4.7.4.
+
+## 8. What is built when
+
+Recorded at acceptance so that the RFC says what it is *for* rather than only what it decided.
+
+**This batch, session 992**: the configuration format of §3, the enumerable sites of §3.1, and
+the departures of §4.7 under `A59`'s two switches. That is the part of the proposal that needs no
+external program and no appended page, and it is where every later piece plugs in; what of §5b's
+corrections the format took is that session's record to state, not this one's.
+
+**Later converter rounds owe**, and the `Owes:` lines of the `A` files are the index
+(`tools/state.sh questions` prints them):
+
+- the request type and the shared executor of §4.4 (`A54`), which is what makes any `[tool.…]`
+  block do anything, and the warning at the site that declares one (`A56`);
+- the `derive` guardrails of §2.1 (`A55`) and the single-alternative `on-failure` of §4.1 (`A57`),
+  both of which are properties of the format's implementation rather than of its syntax;
+- **append-as-pages under the third amendment**: the `preserve` mechanism of §4.6.1 for every
+  target, carrying what ADR 1014 §5 lists — page labels, the outline, the Level A structure
+  entries, the report's sentence, and every placement decision written down as a choice. `A58`'s
+  own item, the amendment and its ADR, is done by this acceptance;
+- the per-site catalogue of §4.7.5 and §5, requirement by requirement, which is the bulk of the
+  feature and the same reading the remedy table needs.

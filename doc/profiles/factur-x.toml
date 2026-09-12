@@ -1,0 +1,39 @@
+# factur-x — accept an XML invoice at PDF/A-2, and nothing else.
+#
+# doc/rfc/0007 section 4.7's first departure, and the owner's own case (A60): ZUGFeRD and
+# Factur-X — the same specification since 2020, with a German mandate arriving in 2026 — embed a
+# machine-readable invoice as an XML file in a PDF. The standard's home for that is PDF/A-3, which
+# this project does not target (part 3 was never bought, A17/A60), and PDF/A-4f admits *any*
+# embedded file — a spreadsheet, an executable, a video — which an archive that mandates PDF/A-2's
+# discipline does not want. So no target expresses "PDF/A-2 plus exactly XML", and a departure is
+# the only route.
+#
+# THIS IS NOT A PROFILE. A profile answers refusals and every answer leaves the file conforming;
+# a departure produces a file that does NOT conform, on purpose and by name. Read doc/rfc/0007
+# section 4.7 before using it, and note the two switches this file's use requires on the command
+# line, which no configuration can supply for you:
+#
+#   quorra-transform archive invoice.pdf --to 2b --config factur-x.toml \
+#       --depart-from-the-standard -o out.pdf
+#
+# --depart-from-the-standard is required (section 4.7.3): it puts the operator's intent to go
+# against the standard at the call site rather than only in a file that can be inherited or copied
+# between teams. Without it the conversion is refused.
+#
+# By default (A59) the output OMITS the PDF/A identification: it is a PDF that meets PDF/A-2 in
+# every respect but the embedded-file rule, and it does not claim to be PDF/A-2. Adding
+# --claim-conformance keeps the claim anyway — a downstream validator fails the file either way,
+# and the only difference is whether the file lied before it failed, which is yours to own.
+
+[depart."embedded-files/embedded-file-is-itself-pdfa"]
+# The narrowing predicate — section 4.7.2's "(and only xml)". The departure covers a document only
+# where EVERY embedded file matches: accept XML and only XML, which is what makes a departure
+# narrower than any target. A document carrying one non-XML attachment beside the invoice is
+# refused as it would be with no departure at all.
+media-type = ["application/xml", "text/xml"]
+# The ZUGFeRD shape, narrowed further: the invoice is an /AFRelationship /Alternative associated
+# file. Drop this line to accept an XML attachment of any relationship.
+relationship = ["Alternative"]
+# Required (section 4.7.2). Copied verbatim into the report and the file's own xmpMM:History, so
+# the archive carries the fact that it goes against the standard on purpose, and why.
+reason = "Factur-X / ZUGFeRD invoices; this archive accepts the embedded XML at PDF/A-2"

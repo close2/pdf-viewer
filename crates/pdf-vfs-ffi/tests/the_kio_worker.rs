@@ -92,7 +92,19 @@ fn kio_loads_the_plugin_browses_the_tree_and_writes_two_verbs_through_it() {
     let library = artefacts.join("libpdf_vfs_ffi.so");
     assert!(library.exists(), "no cdylib at {}", library.display());
 
-    let build = artefacts.join("kio-face");
+    // One CMake build directory per *checkout*, not per build root. CMake bakes the source
+    // directory into its cache, and two checkouts of this repository share one Cargo build
+    // root under the worktree layout the owner asked for on 2026-09-12 — so a cache generated
+    // from the main checkout refused the worktree's `kio/` outright ("source directory does
+    // not match"), which is trap 15's shape one tool over. The suffix is the checkout's path
+    // hashed, so a second worktree configures its own tree and the first keeps its warm one.
+    let checkout = {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        crate_root.hash(&mut hasher);
+        hasher.finish()
+    };
+    let build = artefacts.join(format!("kio-face-{checkout:016x}"));
     let configured = Command::new("cmake")
         .arg("-S")
         .arg(crate_root.join("../../kio"))

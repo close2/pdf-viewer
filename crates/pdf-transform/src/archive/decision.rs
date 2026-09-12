@@ -1084,6 +1084,27 @@ pub(super) const WRITER_EMITS: &[&str] = &[
     "implementation-limits/indirect-object-count",
 ];
 
+/// The requirements a file states the PDF/A identification schema to meet.
+///
+/// `doc/rfc/0007` section 4.7.2: a departed conversion omits the identification by default, so the
+/// output states no `pdfaid:*` and fails exactly these requirements — deliberately, because the
+/// file does not claim to be PDF/A. Stage three tolerates them for a departed, non-claiming
+/// conversion (and only then), which is `super::stands_as_departed`'s second clause. It is
+/// `metadata/catalog-metadata-stream` and `metadata/identification-amendment-form`'s *absence*
+/// that makes this the claim rather than the packet: the packet is still written, and an amendment
+/// identifier is not a claim to conform.
+pub(super) const IDENTIFICATION_CLAIM: &[&str] = &[
+    "metadata/identification-schema-prefix",
+    "metadata/identification-part-number",
+    "metadata/identification-conformance-level",
+    "metadata/identification-declares-level-a",
+    "metadata/identification-part-number-four",
+    "metadata/identification-revision-year",
+    "metadata/identification-states-no-flavour",
+    "metadata/identification-declares-flavour-e",
+    "metadata/identification-declares-flavour-f",
+];
+
 /// Every requirement identifier this converter answers, from both tables.
 ///
 /// Public for one test — `tests/archive.rs` compares it with the identifiers `pdf_archive`

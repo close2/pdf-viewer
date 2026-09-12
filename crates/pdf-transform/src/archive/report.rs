@@ -42,6 +42,78 @@ pub struct SignatureDecision {
     pub changed: usize,
 }
 
+/// What one departure did to the conversion.
+///
+/// `doc/rfc/0007` section 4.7. A departure is named per requirement and carries a narrowing
+/// predicate; whether it *applies* to a given document is a question about that document's
+/// attachments, so a departure the caller named can either cover the file — the requirement is
+/// tolerated and the output does not conform on purpose — or leave a file its predicate does not
+/// admit in place, where the requirement stays refused as it would with no departure at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DepartureOutcome {
+    /// The predicate covered the document; the requirement is departed from.
+    Applied {
+        /// Whether the output still claims the target (`--claim-conformance`, `A59`).
+        claimed: bool,
+    },
+    /// An embedded file the predicate does not admit; the requirement is not departed from.
+    LeftInPlace {
+        /// The offending file's name.
+        file: String,
+        /// The media type it stated, or `None` where it stated none.
+        media_type: Option<String>,
+    },
+}
+
+/// One departure the caller's configuration named, and what it did to this document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Departed {
+    /// The requirement identifier departed from.
+    pub requirement: &'static str,
+    /// Its clause, as cited for the target asked for.
+    pub citation: String,
+    /// The media types the departure admits.
+    pub media_types: Vec<String>,
+    /// The `/AFRelationship` values it admits, where it narrowed by relationship.
+    pub relationships: Vec<String>,
+    /// The operator's stated reason, copied verbatim.
+    pub reason: String,
+    /// What the departure did.
+    pub outcome: DepartureOutcome,
+}
+
+/// The `xmpMM:History` parameters recording every applied departure, where any applied.
+///
+/// `doc/rfc/0007` section 4.7.3. `None` where nothing was departed from, so the packet gains no
+/// entry. The string names the requirement, the predicate that narrowed the departure, and the
+/// reason — everything a reader of the archive needs to know the file goes against the standard on
+/// purpose and why.
+#[must_use]
+pub(super) fn departure_history(departures: &[Departed]) -> Option<String> {
+    use std::fmt::Write as _;
+    let mut applied = departures
+        .iter()
+        .filter(|departed| matches!(departed.outcome, DepartureOutcome::Applied { .. }))
+        .peekable();
+    applied.peek()?;
+    let mut out = String::from(
+        "this file departs from ISO 19005 on purpose, so it does not conform to the target: ",
+    );
+    for (index, departed) in applied.enumerate() {
+        if index > 0 {
+            out.push_str("; ");
+        }
+        let _ = write!(out, "{} accepted for", departed.requirement);
+        if departed.media_types.is_empty() {
+            out.push_str(" attachments of any media type");
+        } else {
+            let _ = write!(out, " {} attachments", departed.media_types.join(", "));
+        }
+        let _ = write!(out, " ({})", departed.reason);
+    }
+    Some(out)
+}
+
 /// One requirement the input failed, with what was decided and what was done about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Decided {
@@ -169,6 +241,13 @@ pub struct Conversion {
     /// `None` where the source carries none, or where it was copied rather than rewritten and
     /// so keeps every one it has.
     pub signatures: Option<SignatureDecision>,
+    /// The departures the caller's configuration named, and what each did.
+    ///
+    /// `doc/rfc/0007` section 4.7. Empty for every conversion that departs from nothing, which is
+    /// every conversion until an operator names one and it covers the document. A departure makes
+    /// the output *not* conform on purpose, so the report says so in those words — the whole of
+    /// what keeps a departed file from passing as a conforming one it is not.
+    pub departures: Vec<Departed>,
 }
 
 impl Conversion {
@@ -247,6 +326,10 @@ impl Conversion {
                     .as_ref()
                     .map_or(Value::Null, SignatureDecision::to_json),
             ),
+            (
+                "departures".to_owned(),
+                Value::Array(self.departures.iter().map(Departed::to_json).collect()),
+            ),
         ])
     }
 
@@ -321,6 +404,7 @@ impl Conversion {
             );
         }
         out.push_str(&self.render_what_was_written());
+        out.push_str(&self.render_departures());
         if let Some(achieved) = &self.achieved {
             let verdict = if achieved.conforms {
                 "conforms"
@@ -340,12 +424,18 @@ impl Conversion {
                 };
                 let _ = writeln!(out, "      still failed: {id}{sharper}");
             }
-            if !achieved.conforms {
+            if !achieved.conforms && !self.departed_output_stands() {
                 let _ = writeln!(
                     out,
                     "  no file was written, because a conversion whose result is not {} has not \
                      converted the document",
                     self.target
+                );
+            } else if !achieved.conforms {
+                let _ = writeln!(
+                    out,
+                    "  the file is written all the same: it departs from ISO 19005 on purpose \
+                     (above), so every requirement it still fails is one the configuration named"
                 );
             }
         } else {
@@ -437,6 +527,106 @@ impl Conversion {
             }
         }
         out
+    }
+
+    /// The departures the configuration named, worded for a person.
+    ///
+    /// `doc/rfc/0007` section 4.7: reported per document, in the words that keep the difference
+    /// between a departed file and a conforming one visible — a departed file is a PDF that meets
+    /// the target in every respect but the ones listed, and does not claim to be PDF/A unless the
+    /// operator demanded the claim with a second switch.
+    fn render_departures(&self) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+        for departed in &self.departures {
+            match &departed.outcome {
+                DepartureOutcome::Applied { claimed } => {
+                    let _ = writeln!(
+                        out,
+                        "  departed from {} ({}): the requirement is not enforced for {}",
+                        departed.requirement,
+                        departed.citation,
+                        predicate(departed),
+                    );
+                    let _ = writeln!(out, "      because: {}", departed.reason);
+                    let _ = writeln!(
+                        out,
+                        "      {}",
+                        if *claimed {
+                            "the output claims to be PDF/A anyway, on your instruction — a \
+                             validator will fail it, and it stated the claim before it failed"
+                        } else {
+                            "the output does not claim to be PDF/A: its identification schema is \
+                             omitted, so it meets the target in every respect but this one"
+                        }
+                    );
+                }
+                DepartureOutcome::LeftInPlace { file, media_type } => {
+                    let described = media_type.as_deref().map_or_else(
+                        || "no declared media type".to_owned(),
+                        |it| format!("of {it}"),
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  the departure from {} does not cover this document: {file:?} is {}, \
+                         which the predicate {} does not admit, so the requirement stays refused",
+                        departed.requirement,
+                        described,
+                        predicate(departed),
+                    );
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether a departed conversion's output was written, from the report alone.
+    ///
+    /// The same reckoning as `super::stands_as_departed`, made here so the report is self-contained:
+    /// the file was written where every requirement it still fails is one an applied departure
+    /// named, or — where the identification was omitted — one the omission costs.
+    fn departed_output_stands(&self) -> bool {
+        let departed: BTreeSet<&str> = self
+            .departures
+            .iter()
+            .filter(|d| matches!(d.outcome, DepartureOutcome::Applied { .. }))
+            .map(|d| d.requirement)
+            .collect();
+        if departed.is_empty() {
+            return false;
+        }
+        let omit = self
+            .departures
+            .iter()
+            .any(|d| matches!(d.outcome, DepartureOutcome::Applied { claimed: false }));
+        self.achieved.as_ref().is_some_and(|achieved| {
+            achieved.still_failing.iter().all(|id| {
+                departed.contains(id)
+                    || (omit && super::decision::IDENTIFICATION_CLAIM.contains(id))
+            })
+        })
+    }
+}
+
+/// A departure's narrowing predicate, worded for a person.
+fn predicate(departed: &Departed) -> String {
+    let mut parts = Vec::new();
+    if !departed.media_types.is_empty() {
+        parts.push(format!(
+            "attachments of {}",
+            departed.media_types.join(", ")
+        ));
+    }
+    if !departed.relationships.is_empty() {
+        parts.push(format!(
+            "relationship {}",
+            departed.relationships.join(", ")
+        ));
+    }
+    if parts.is_empty() {
+        "attachments of any media type".to_owned()
+    } else {
+        parts.join(", ")
     }
 }
 
@@ -727,6 +917,50 @@ impl Achieved {
             (
                 "regressions".to_owned(),
                 Value::Array(self.regressions.iter().map(|id| Value::text(*id)).collect()),
+            ),
+        ])
+    }
+}
+
+impl Departed {
+    /// One departure as JSON.
+    fn to_json(&self) -> Value {
+        let (outcome, claimed, left) = match &self.outcome {
+            DepartureOutcome::Applied { claimed } => ("applied", Some(*claimed), None),
+            DepartureOutcome::LeftInPlace { file, .. } => {
+                ("left-in-place", None, Some(file.clone()))
+            }
+        };
+        Value::Object(vec![
+            ("requirement".to_owned(), Value::text(self.requirement)),
+            ("clause".to_owned(), Value::text(self.citation.clone())),
+            (
+                "media_types".to_owned(),
+                Value::Array(
+                    self.media_types
+                        .iter()
+                        .map(|it| Value::text(it.clone()))
+                        .collect(),
+                ),
+            ),
+            (
+                "relationships".to_owned(),
+                Value::Array(
+                    self.relationships
+                        .iter()
+                        .map(|it| Value::text(it.clone()))
+                        .collect(),
+                ),
+            ),
+            ("reason".to_owned(), Value::text(self.reason.clone())),
+            ("outcome".to_owned(), Value::text(outcome)),
+            (
+                "claims_conformance".to_owned(),
+                claimed.map_or(Value::Null, Value::Bool),
+            ),
+            (
+                "left_in_place".to_owned(),
+                left.map_or(Value::Null, Value::text),
             ),
         ])
     }

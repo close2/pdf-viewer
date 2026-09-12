@@ -55,7 +55,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pdf_model::icc::Identification;
-use pdf_transform::archive::{ArchivePlan, Authorisations, Loss};
+use pdf_transform::archive::{ArchivePlan, Authorisations, Configuration, Loss, sites};
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::merge::{Input, MergePlan};
@@ -211,6 +211,7 @@ const VALUED: &[&str] = &[
     "--to",
     "--authorise",
     "--output-intent-profile",
+    "--config",
 ];
 
 /// The flags whose value is optional and, when given, is written inline with `=`.
@@ -261,6 +262,10 @@ const KNOWN: &[&str] = &[
     "--to",
     "--authorise",
     "--output-intent-profile",
+    "--config",
+    "--remedy-sites",
+    "--claim-conformance",
+    "--depart-from-the-standard",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -366,6 +371,10 @@ fn run() -> Result<Exit, Failure> {
         || matches!(arguments.verb.as_str(), "help" | "--help" | "-h")
     {
         print!("{USAGE}");
+        return Ok(Exit::Success);
+    }
+    if arguments.switch("--remedy-sites") {
+        print_remedy_sites(&arguments)?;
         return Ok(Exit::Success);
     }
     let output = arguments.value(&["-o", "--output"]);
@@ -564,6 +573,11 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         })?;
         authorised.authorise(loss);
     }
+    // `doc/rfc/0007`: the configuration is read by the *caller* and handed in as data, so `apply`
+    // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
+    // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
+    // the departures it names.
+    let (departures, claim) = read_config(arguments, target, &mut authorised)?;
     Ok(ArchivePlan {
         source: 0,
         names,
@@ -571,7 +585,96 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         authorised,
         profile: output_intent_profile(arguments)?,
         substitute_fonts: !arguments.switch("--no-substitute"),
+        departures,
+        claim_conformance: claim,
     })
+}
+
+/// Reads `--config <file>`, folds its built `discard` remedies into `authorised`, and returns its
+/// departures and whether the output claims conformance.
+///
+/// **The file is read here, in the binary — the caller** — so `apply` opens no path (RFC 0002
+/// section 5). A configuration that names a departure is refused unless `--depart-from-the-standard`
+/// is also on the command line: `doc/rfc/0007` section 4.7.3 puts the operator's intent to go
+/// against the standard at the call site rather than only in a file that can be inherited or copied
+/// between teams. Sites whose remedy this version cannot yet carry out are named on stderr, so an
+/// operator sees their intent was read rather than ignored.
+fn read_config(
+    arguments: &Arguments,
+    target: pdf_archive::Target,
+    authorised: &mut Authorisations,
+) -> Result<(Vec<pdf_transform::archive::Departure>, bool), Failure> {
+    let claim = arguments.switch("--claim-conformance");
+    let Some(path) = arguments.value(&["--config"]) else {
+        return Ok((Vec::new(), claim));
+    };
+    let path = PathBuf::from(path);
+    let text =
+        std::fs::read_to_string(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let config = Configuration::read(&text, target)
+        .map_err(|error| Failure::Usage(format!("--config {}: {error}", path.display())))?;
+    let departures = config.built_departures(target);
+    if !departures.is_empty() && !arguments.switch("--depart-from-the-standard") {
+        return Err(Failure::Usage(format!(
+            "--config {} names a departure from ISO 19005, which produces a file that does not \
+             conform on purpose. Add --depart-from-the-standard to say so at the call site — \
+             doc/rfc/0007 section 4.7.3",
+            path.display()
+        )));
+    }
+    let folded = config.authorisations(target);
+    for loss in Loss::ALL {
+        if folded.grants(loss) {
+            authorised.authorise(loss);
+        }
+    }
+    for unbuilt in config.unbuilt(target) {
+        eprintln!(
+            "note: the configuration answers {:?} with `{}`, which this version does not carry out \
+             yet; that site stays refused with the sentence it names",
+            unbuilt.site,
+            unbuilt.remedy.word()
+        );
+    }
+    Ok((departures, claim))
+}
+
+/// `--remedy-sites --to <target>`: every refusal site the target binds, from the decision table.
+///
+/// `doc/rfc/0007` section 3.1: the list is generated from the same table the converter decides
+/// from, so a site cannot exist undocumented and a configuration naming one that does not exist is
+/// an error rather than a silently ignored line.
+fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
+    let Some(word) = arguments.value(&["--to"]) else {
+        return Err(Failure::Usage(
+            "--remedy-sites needs --to <target>: a site's remedies depend on the target, so the \
+             list is the target's — doc/rfc/0007 section 4.6"
+                .to_owned(),
+        ));
+    };
+    let target = pdf_archive::Target::parse(word).ok_or_else(|| {
+        Failure::Usage(format!(
+            "--to {word:?}: the targets are 2b, 2u, 2a, 4, 4f, 4e"
+        ))
+    })?;
+    let sites = sites(target);
+    println!(
+        "{} refusal site(s) a configuration may answer for {target}. Every site's default is \
+         `stop`; a remedy a target does not admit is an error naming both.",
+        sites.len()
+    );
+    for site in &sites {
+        let remedy = match site.built_discard {
+            Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
+            None if site.departable => {
+                "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
+                    .to_owned()
+            }
+            None => "stop; the catalogued remedy is not built yet".to_owned(),
+        };
+        println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
+    }
+    Ok(())
 }
 
 /// `--output-intent-profile <file>`: the destination profile an added output intent names.

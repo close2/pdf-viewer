@@ -11,6 +11,8 @@
 //! each pinned to the answer the in-memory reader gives, which the rest of this crate's tests
 //! pin to the standard.
 
+// no sandbox worker: this crate has no image decoder to reach — the walk compares objects read two ways and interprets nothing (`tools/conformance/tests/sandbox_gates.rs`).
+
 #![expect(
     clippy::expect_used,
     clippy::panic,

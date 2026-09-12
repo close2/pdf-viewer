@@ -30,6 +30,8 @@
 //! `doc/veraPDF-corpus` is 239 MB and not part of a checkout, so this is `#[ignore]`d and says so
 //! when the submodule is absent.
 
+// no sandbox worker: the converter and the validator it runs twice rewrite and read the object graph; neither interprets a page or decodes an image (`tools/conformance/tests/sandbox_gates.rs`).
+
 #![expect(
     clippy::expect_used,
     clippy::panic,
@@ -201,6 +203,8 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 authorised,
                 profile: None,
                 substitute_fonts: true,
+                departures: Vec::new(),
+                claim_conformance: false,
             }),
             &[Source::new(bytes)],
             &sinks,

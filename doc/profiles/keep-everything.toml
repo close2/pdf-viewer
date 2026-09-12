@@ -61,8 +61,10 @@ on-failure = "stop"
 [site."annotations/three-dimensional-stream-format"]
 remedy = "derive"
 tool = "3d-transcode"
-on-failure = ["preserve", "stop"]   # NOT-YET-IN-FORMAT: a chain (section 14, point 5). Attach the
-                                    # original 3D stream, which Annex B admits, before giving up.
+on-failure = "preserve"    # attach the original 3D stream, which Annex B admits, before giving up.
+                           # The owner's answer A57 makes on-failure a single alternative, not a
+                           # chain: a two-step "transcode, else attach, else drop" is section 14
+                           # point 5's finding, added only when a real configuration wants it.
 
 [site."annotations/file-attachment-only-in-embedded-file-files"]
 remedy = "preserve"

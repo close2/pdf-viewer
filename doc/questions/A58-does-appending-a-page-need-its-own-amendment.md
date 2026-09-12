@@ -1,6 +1,6 @@
 Status: complete
 Given: 2026-09-12, in conversation — transcribed by the round
-Owes: the authoring amendment and its ADR (acting round)
+Owes: none
 
 > Q58 agree with recommendation
 

@@ -11,6 +11,8 @@
 //! the page at all, and §12.6.4.11 through §12.5.3's Hidden flag, which decides whether an
 //! annotation is drawn over it.
 
+// no sandbox worker: the two walks `-- --ignored` runs read `/AA` dictionaries and count an embedded document's pages; no content stream is interpreted, so no image reaches `pdf-sandbox` (`tools/conformance/tests/sandbox_gates.rs`).
+
 #![expect(
     clippy::expect_used,
     reason = "test code: a fixture that cannot exercise what the test is about is a failure"

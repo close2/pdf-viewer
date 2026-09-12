@@ -2920,6 +2920,7 @@ mod tests {
     /// Ignored because it is a measurement and not a check, and a wall clock in a test is a
     /// coin toss under load; what it pins is written in ADR 0812 beside [`super::SIGNED_WINDOW`].
     #[test]
+    // not a gate: a measurement of the digest window, printed, not a check (ADR 0812)
     #[ignore = "a measurement, printed: run with --ignored --nocapture"]
     fn the_window_a_signed_range_is_digested_through_is_priced() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

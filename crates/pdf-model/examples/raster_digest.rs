@@ -13,6 +13,15 @@
 //! One line per document: the raster's extent, its byte length and a hash of its bytes. Run it on
 //! two revisions and `diff` the two files; an empty diff is the claim.
 //!
+//! **Since ADR 1016 the committed form of this claim is a gate**: `tests/raster_golden.rs` holds
+//! the same digest — and the display list's and the reports' beside it — by name in
+//! `tests/raster_golden.tsv`, so a page that moves fails the round that moved it without anybody
+//! running two arms. This example stays for the comparison the gate cannot make: two *uncommitted*
+//! builds, a scratch tree against this one, or a document outside the tracked corpus. Its hash is
+//! the reason it could not simply become the gate — see the paragraph on
+//! [`std::collections::hash_map::DefaultHasher`] below, which is fine for one sitting and
+//! unspecified across releases; the gate uses SHA-256.
+//!
 //! ```sh
 //! cargo run --release -p pdf-model --example raster_digest -- doc/pdf.js/test/pdfs/*.pdf
 //! ```

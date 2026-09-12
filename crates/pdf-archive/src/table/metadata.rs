@@ -136,6 +136,7 @@ use pdf_syntax::{Document, Object, ObjectId, Stream};
 
 use crate::Examination;
 use crate::finding::{Findings, Where};
+use crate::iso_8601;
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 use crate::target::{Flavour, Level, Target};
 
@@ -1258,16 +1259,19 @@ impl Shape {
 ///   beside `Integer` and `Real`, so a validator may not hold `exif:XResolution` to a quotient —
 ///   [`Lexical::accepts`] returns true for it, and the variant stays because the table's business
 ///   is to record what the schema defines.
-/// - **`Date` is ISO 8601.** [`date`] implements the six profiles the XMP Specification lists,
-///   which are profiles *of* ISO 8601 — so nothing accepted here is outside A020's rule, while a
-///   date written in some other ISO 8601 form would be reported. Narrowing that would mean
-///   implementing a standard this project does not hold; `doc/questions/Q53` carries it.
+/// - **`Date` is ISO 8601**, and [`crate::iso_8601`] is that standard's grammar for a date and
+///   a date with a time of day, read from the working draft this project holds (ISO/WD 8601-1,
+///   `doc/questions/A53`). Until session 993 the check was the XMP Specification's six profiles
+///   of ISO 8601, so a date in any other of the standard's forms — the basic `20260910`, a local
+///   time with no zone, a difference from UTC in hours alone — was reported against A020's own
+///   rule; `doc/questions/Q53` recorded the gap and the owner obtained the text. The six profiles
+///   remain what a packet is *written* in; what widened is what this check admits (ADR 1013).
 ///
 /// `MimeType` is A020's third named form, RFC 2046, and no property is judged against it: `Any`
 /// is what `dc:format` and its like carry, which under-reports rather than misreports.
 /// `GPSCoordinate` is the type A020's list does not mention at all, and [`Lexical::Coordinate`]
 /// keeps the specification's form for it — a resolution that says nothing about a type withdraws
-/// nothing, and `doc/questions/Q53` asks whether that is the reading to keep.
+/// nothing, which `doc/questions/A53` confirms is the reading to keep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lexical {
     /// A string, with nothing to check.
@@ -1281,24 +1285,30 @@ enum Lexical {
     /// The specification's `Rational`, written as a quotient — and admitting any string, because
     /// `TechNote 0010` A020 puts it among the types a validator judges as text.
     Rational,
-    /// One of the six ISO 8601 profiles the specification lists.
+    /// A date, or a date and time of day, in a form ISO 8601 defines — [`crate::iso_8601`].
     Date,
     /// `DDD,MM,SSk` or `DDD,MM.mmk`, where `k` names a direction.
     Coordinate,
 }
 
 impl Lexical {
-    /// Whether a value is written in this form.
+    /// Why a value is not written in this form, as a phrase a finding prints after the value;
+    /// nothing where it is.
     ///
     /// A value that states nothing at all is accepted whatever the type: an empty element says
     /// the property is present and says no value, which is a different complaint from a value in
     /// the wrong form and is not this row's.
-    fn accepts(self, text: &str) -> bool {
+    ///
+    /// The phrase is empty for every type but a date, whose finding names the form the value
+    /// missed — a month of thirteen, a space, basic and extended format mixed — because "an ISO
+    /// 8601 date" names a standard with a hundred forms and a reader of a verdict should not have
+    /// to open it to see which one the value is not.
+    fn refused(self, text: &str) -> Option<String> {
         let text = text.trim();
         if text.is_empty() {
-            return true;
+            return None;
         }
-        match self {
+        let accepted = match self {
             // `Rational` sits here rather than beside `Integer` and `Real` because `TechNote
             // 0010` A020 lists it among the types validated as any string: the quotient this
             // crate used to require is a rule the working group withdrew.
@@ -1306,9 +1316,20 @@ impl Lexical {
             Self::Boolean => matches!(text, "True" | "False"),
             Self::Integer => integer(text),
             Self::Real => real(text),
-            Self::Date => date(text),
+            Self::Date => {
+                return iso_8601::read(text)
+                    .err()
+                    .map(|refusal| format!(", {refusal}"));
+            }
             Self::Coordinate => coordinate(text),
-        }
+        };
+        (!accepted).then(String::new)
+    }
+
+    /// Whether a value is written in this form.
+    #[cfg(test)]
+    fn accepts(self, text: &str) -> bool {
+        self.refused(text).is_none()
     }
 
     /// What to call this form in a finding.
@@ -1342,66 +1363,6 @@ fn real(text: &str) -> bool {
     };
     let decimal = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
     !(whole.is_empty() && fraction.is_empty()) && decimal(whole) && decimal(fraction)
-}
-
-/// One of the six date profiles the specification lists, from a bare year to a fractional second
-/// with a time zone designator.
-fn date(text: &str) -> bool {
-    let digits = |part: &str, count: usize| {
-        part.len() == count && part.bytes().all(|byte| byte.is_ascii_digit())
-    };
-    let (calendar, clock) = match text.split_once('T') {
-        Some((calendar, clock)) => (calendar, Some(clock)),
-        None => (text, None),
-    };
-    let mut parts = calendar.split('-');
-    let dated = matches!(parts.next(), Some(year) if digits(year, 4))
-        && parts.clone().all(|part| digits(part, 2))
-        && parts.count() <= 2;
-    if !dated {
-        return false;
-    }
-    let Some(clock) = clock else {
-        // A date with no time is one of the three shorter profiles, and the day is not optional
-        // once the time is there: `YYYY-MM-DDThh:mm` is the shortest profile that states one.
-        return true;
-    };
-    let (time, zone) = match clock.rfind(['Z', '+', '-']) {
-        Some(at) => (clock.get(..at).unwrap_or_default(), clock.get(at..)),
-        None => (clock, None),
-    };
-    let zoned = match zone {
-        Some("Z") => true,
-        Some(offset) => {
-            let hours_minutes = offset.get(1..).unwrap_or_default();
-            matches!(hours_minutes.split_once(':'), Some((hours, minutes)) if digits(hours, 2) && digits(minutes, 2))
-        }
-        None => false,
-    };
-    if !zoned {
-        return false;
-    }
-    let mut fields = time.split(':');
-    let (Some(hours), Some(minutes)) = (fields.next(), fields.next()) else {
-        return false;
-    };
-    if !digits(hours, 2) || !digits(minutes, 2) {
-        return false;
-    }
-    match fields.next() {
-        None => fields.next().is_none(),
-        Some(seconds) => {
-            let (whole, fraction) = match seconds.split_once('.') {
-                Some((whole, fraction)) => (whole, Some(fraction)),
-                None => (seconds, None),
-            };
-            digits(whole, 2)
-                && fraction.is_none_or(|fraction| {
-                    !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit())
-                })
-                && fields.next().is_none()
-        }
-    }
 }
 
 /// `DDD,MM,SSk` or `DDD,MM.mmk`, the specification's `GPSCoordinate`.
@@ -1983,6 +1944,33 @@ pub fn properties_outside_their_schema(packet: &[u8]) -> Vec<MisusedProperty> {
     out
 }
 
+/// Every scalar one packet states for a property the XMP Specification types as a `Date`, each
+/// with the property spelled as a finding spells it.
+///
+/// The population `examples/dates.rs` counts — which of the forms ISO/WD 8601-1 defines the
+/// producers of the corpora actually write, and which values [`Lexical::Date`] refuses — answered
+/// for one packet's bytes so that the census needs no document. A packet that does not parse
+/// yields nothing, as [`properties_outside_their_schema`] does.
+#[must_use]
+pub fn dates_stated(packet: &[u8]) -> Vec<(String, String)> {
+    let Ok(properties) = Xmp::parse_detail(packet) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for property in &properties {
+        let Some(schema) = predefined(&property.name.namespace) else {
+            continue;
+        };
+        let Some((_, Lexical::Date)) = schema.property(&property.name.local) else {
+            continue;
+        };
+        for text in scalars(&property.value) {
+            out.push((spelled(property), text.to_owned()));
+        }
+    }
+    out
+}
+
 /// One property held to the value type its predefined schema gives it.
 ///
 /// Empty for a property in a namespace no predefined schema owns — that half of the subclause is
@@ -2016,9 +2004,9 @@ fn judge_against_schema(property: &XmpProperty) -> Vec<String> {
         ));
     }
     for text in scalars(&property.value) {
-        if !lexical.accepts(text) {
+        if let Some(because) = lexical.refused(text) {
             out.push(format!(
-                "the {} schema defines {} as {}, and the packet states {}",
+                "the {} schema defines {} as {}, and the packet states {}{because}",
                 schema.name,
                 spelled(property),
                 lexical.describe(),
@@ -2460,7 +2448,7 @@ mod tests {
     use pdf_syntax::Document;
 
     use super::{
-        Findings, PREDEFINED, REQUIREMENTS, catalog_metadata_stream, date,
+        Findings, Lexical, PREDEFINED, REQUIREMENTS, catalog_metadata_stream,
         extension_schema_container_fields, extension_schemas_embedded,
         identification_amendment_form, identification_conformance_level,
         identification_declares_flavour_f, identification_declares_level_a,
@@ -2900,28 +2888,61 @@ mod tests {
         }
     }
 
-    /// The six date profiles the XMP Specification lists, and the shapes that are none of them.
+    /// The date check, calibrated both ways: the six profiles the XMP Specification lists and
+    /// the forms ISO/WD 8601-1 defines beyond them are admitted; what neither defines is refused
+    /// with the form named. `crate::iso_8601`'s own tests hold the grammar clause by clause; this
+    /// one holds the seam — that the row asks it, trims first, and prints its answer.
     #[test]
-    fn a_date_is_one_of_the_profiles_the_specification_lists() {
-        for good in [
+    fn a_date_is_any_form_the_working_draft_defines_and_nothing_else() {
+        for admitted in [
+            // The XMP Specification's six profiles.
             "2016",
             "2016-02",
             "2016-02-01",
             "2016-02-01T13:19Z",
             "2016-02-01T13:19:21+01:00",
             "2016-02-01T13:19:21.5-06:00",
+            // Forms the WD defines that the six profiles do not: `doc/questions/Q53`'s own
+            // example, a local time, a difference in hours alone, an ordinal and a week date.
+            "20260910",
+            "2026-09-10T10:15:30",
+            "2026-09-10T10:15:30.000+03",
+            "2026-253",
+            "2026-W37-4T10:15Z",
+            // Surrounding white space is the element's, not the value's.
+            " 2016-02-01 ",
+            "",
         ] {
-            assert!(date(good), "{good}");
+            assert!(Lexical::Date.accepts(admitted), "{admitted}");
         }
-        for bad in [
-            "Date: 2016-02-01T13:19:21+01:00",
-            "2016-02-01T13:19:21",
-            "16-02-01",
-            "2016-2-1",
-            "2016-02-01T13:19:21.Z",
+        for (refused, because) in [
+            ("Date: 2016-02-01T13:19:21+01:00", "with a space"),
+            ("D:20221116191452+00'00", "with 'D' after the year"),
+            ("2016-02-01 13:19:21", "with a space"),
+            ("2016-02-01T13:19:21Z+01:00", "after the UTC designator"),
+            ("16-02-01", "a run of 2 digits"),
+            ("2016-2-1", "a run of 1 digit(s) after the year's hyphen"),
+            (
+                "2016-02-01T13:19:21.Z",
+                "a decimal sign followed by no digit",
+            ),
+            ("2016-13-01", "a month of 13"),
+            (
+                "2016-02-01T13:19:21+0100",
+                "basic and extended format mixed",
+            ),
         ] {
-            assert!(!date(bad), "{bad}");
+            let phrase = Lexical::Date
+                .refused(refused)
+                .unwrap_or_else(|| panic!("{refused} was admitted"));
+            assert!(phrase.starts_with(", "), "{phrase:?}");
+            assert!(phrase.contains(because), "{refused}: {phrase:?}");
         }
+        assert_eq!(
+            Lexical::Integer.refused("x").as_deref(),
+            Some(""),
+            "every other type refuses without a phrase of its own"
+        );
     }
 
     /// ISO 19005-2 section 6.6.4, read off a packet spelled the way a producer spells one.

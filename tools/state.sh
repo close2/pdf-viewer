@@ -49,7 +49,12 @@ run() {
     local output
     output=$("$@" 2>&1)
     local code=$?
-    [ $code -ne 0 ] && status=$code
+    # A gate that fails is named where it failed, not only in the script's exit status. Until
+    # the nine-hundred-and-ninety-eighth session a non-zero exit set `status` and printed
+    # nothing, so a reader of the printed state could see every gate's summary line and not the
+    # one that had failed — the merge of rounds 992–997 got `exit 101` from a forty-seven-section
+    # run and no line saying where.
+    [ $code -ne 0 ] && { status=$code; printf '  ✗ the gate exited %s\n' "$code"; }
     printf '%s\n' "$output" | grep -E "$filter" || {
         printf 'no line matched %s — the gate said:\n' "$filter"
         printf '%s\n' "$output" | tail -20
@@ -80,6 +85,13 @@ section_corpus() {
     run "corpus (974 pdf.js documents, page one)" \
         '^[0-9]+ documents in|^  codes ' \
         cargo test --profile gates -p pdf-model --test corpus -- --ignored --nocapture
+}
+
+section_golden() {
+    gate_binaries
+    run "our own output held by name — the raster golden over the tracked corpus, a change detector and not a verdict (ADR 1016)" \
+        '^[0-9]+ tracked documents on disk|^held [0-9]+|^  (moved|unheld|left):' \
+        cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 }
 
 section_oracle() {
@@ -199,7 +211,7 @@ section_launch() {
 # target and nothing else, so `pdf-vfs-worker` beside it would otherwise be whatever an earlier
 # round left. There is no third line here: session 917's `awkward_classes` became the read walk's
 # population in session 919 (ADR 0878), and the walk of the *other* confined program that inherited
-# the name is `doc/verify.md`'s rather than `doc/todo/02` §2's.
+# the name is `section_confined` below, `doc/todo/02` §2's since session 995.
 section_vfs() {
     gate_binaries
     cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
@@ -209,6 +221,37 @@ section_vfs() {
     run "the whole layout listed, stat'd and read over the corpus (RFC 0003 section 4)" \
         '^vfs-read:' \
         cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
+}
+
+# The other confined program — `pdf-view-worker`, the process a person reads pages in — over a
+# document of each awkward class from every corpus on the disk (ADR 0879). `doc/verify.md`'s run
+# until session 995; `doc/todo/02` §2's since (ADR 1015). What fails it is a death, and the filter
+# keeps the per-root and per-class counts and the `killed:` line; the reasons listed under them
+# are for a reader. The `--bins` build is trap 10 for this crate's own worker, and the walk runs
+# under `tools/bounded.sh` because it is the heaviest of the session-995 lines by memory.
+section_confined() {
+    cargo build --profile gates -p viewer-confined --bins >/dev/null 2>&1 || status=1
+    run "the confined viewer over every awkward class on the disk (what fails it is a death)" \
+        '^view-awkward:   [a-z]|^view-awkward: killed|^bounded:' \
+        tools/bounded.sh -- cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
+}
+
+# ISO 19005's two readings, clause by clause: the validator against every witness the veraPDF
+# corpus holds, per target (`crates/pdf-archive/tests/corpus.rs`), and the converter over the same
+# corpus held to that validator run twice (`crates/pdf-transform/tests/archive_corpus.rs`). The
+# first filter keeps each target's heading, the column names and its `all` row — `over` is the
+# column that matters, and every one of it is a question for doc/pdfa/ before it is a bug; the
+# per-clause rows under each heading are for a reader. The second keeps the converter's own
+# summary line per target and what a user who answers nothing gets. Both say so, loudly, without
+# `doc/veraPDF-corpus`, and the filters keep that line too. `doc/state-of-play.md` said this
+# script printed the comparison for some sessions before it did (ADR 1015).
+section_archive() {
+    run "the validator against the veraPDF corpus (ISO 19005, clause by clause per target)" \
+        '^== PDF_A|^  clause |^  all |not here|^bounded:' \
+        tools/bounded.sh -- cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
+    run "the converter over the veraPDF corpus (conforms in, conforms out, no glyph moves)" \
+        '^archive |^    answering nothing|not here|^bounded:' \
+        tools/bounded.sh -- cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
 }
 
 section_dates() {
@@ -227,6 +270,23 @@ section_save() {
     run "save round-trip (§7.5.6)" \
         '^[0-9]+ documents in|^Restrict\((On|Off)\)|^  (prefix failed|readback failed|reference disagreed|reference would not answer|panicked)|ratchet' \
         tools/bounded.sh -- cargo test --profile gates -p pdf-model --test save_round_trip -- --ignored --nocapture
+}
+
+# §12.6.3's page-scoped triggers counted over the corpus and held in both directions, and
+# §12.6.4's embedded go-to opened inside the document that carries it. An object-graph walk
+# that costs a second, `#[ignore]`d only for the submodule it needs (ADR 1015).
+section_actions() {
+    run "actions (§12.6.3's triggers over the corpus, held both ways; §12.6.4's embedded go-to)" \
+        '^/[A-Z]+: [0-9]+ in|skipping|^bounded:' \
+        tools/bounded.sh -- cargo test --profile gates -p pdf-model --test actions -- --ignored --nocapture
+}
+
+# ADR 0809's argument, run: every corpus document opened from disk and from memory and every
+# object the cross-reference table names compared. Two seconds, and it fails on one object.
+section_on_disk() {
+    run "on disk against in memory (ADR 0809: every corpus object read both ways)" \
+        'documents agree on|nothing walked|^bounded:' \
+        tools/bounded.sh -- cargo test --profile gates -p pdf-syntax --test on_disk -- --ignored --nocapture
 }
 
 section_jpeg2000() {
@@ -540,7 +600,7 @@ section_questions() {
         cargo test -q -p conformance --test questions -- --nocapture
 }
 
-all="ledger conformance annex-o governing questions counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer vfs launch dates xmp save jpeg2000"
+all="ledger conformance annex-o governing questions counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
 quick="ledger conformance annex-o governing questions counts hosts windows binaries disk"
 
 case ${1-} in
@@ -559,6 +619,7 @@ for section in $sections; do
     conformance) section_conformance ;;
     tests) section_tests ;;
     corpus) section_corpus ;;
+    golden) section_golden ;;
     oracle) section_oracle ;;
     text) section_text ;;
     selection) section_selection ;;
@@ -572,6 +633,10 @@ for section in $sections; do
     dates) section_dates ;;
     xmp) section_xmp ;;
     save) section_save ;;
+    actions) section_actions ;;
+    on-disk) section_on_disk ;;
+    archive) section_archive ;;
+    confined) section_confined ;;
     jpeg2000) section_jpeg2000 ;;
     annex-o) section_annex_o ;;
     governing) section_governing ;;

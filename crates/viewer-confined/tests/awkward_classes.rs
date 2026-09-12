@@ -41,6 +41,8 @@
 //!     cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
 //! ```
 
+// no sandbox worker: `pdf-view-worker` decodes JBIG2, JPEG 2000 and CCITT in its own process (`Isolation::InProcess`, a confined process may spawn nothing), so there is no second program to be missing — the program that has to be built beside this walk is the confined viewer, which is the `--bins` line above it in `doc/todo/02` §2 (`tools/conformance/tests/sandbox_gates.rs`).
+
 #![expect(
     clippy::expect_used,
     clippy::print_stdout,

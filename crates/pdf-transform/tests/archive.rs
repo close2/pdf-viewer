@@ -280,6 +280,8 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             authorised,
             profile: None,
             substitute_fonts: true,
+            departures: Vec::new(),
+            claim_conformance: false,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -1362,6 +1364,8 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             authorised: Authorisations::default(),
             profile: Some(profile),
             substitute_fonts: true,
+            departures: Vec::new(),
+            claim_conformance: false,
         }),
         &[Source::new(source)],
         &sinks,
@@ -1758,6 +1762,8 @@ fn convert_with_profile(
             authorised: Authorisations::default(),
             profile: Some(std::sync::Arc::clone(profile)),
             substitute_fonts: true,
+            departures: Vec::new(),
+            claim_conformance: false,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -1995,6 +2001,8 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             authorised: Authorisations::default(),
             profile: None,
             substitute_fonts: false,
+            departures: Vec::new(),
+            claim_conformance: false,
         }),
         &[Source::new(source)],
         &sinks,
@@ -3782,4 +3790,178 @@ fn a_permissions_key_the_standard_does_not_define_is_removed_losing_nothing() {
     let output = output.expect("mechanical, so it converts");
     assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
     assert!(!String::from_utf8_lossy(&output).contains("/XX"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Departures — `doc/rfc/0007` section 4.7, the owner's XML-attachment case (`A60`).
+//
+// A PDF/A-2b document is conforming in every respect but one: it carries an XML embedded file,
+// which ISO 19005-2 section 6.8 forbids because that file is not itself a part of ISO 19005. No
+// target expresses *PDF/A-2's discipline plus exactly XML* — part 3 is not bought and 4f admits
+// any file — so a departure is the only route, and it is what ZUGFeRD and Factur-X need.
+// ---------------------------------------------------------------------------------------------
+
+/// A PDF/A-2b document carrying one embedded file, of the media type and relationship given.
+///
+/// Built here from the clauses, like every fixture in this file: object 6 is §7.11.3's file
+/// specification, object 7 its §7.11.4's embedded file stream. The catalog names the file both in
+/// §7.11.4's `/EmbeddedFiles` tree and in §14.13's `/AF` array, so the validator's population — every
+/// specification carrying an `/EF` — holds it. The stream is not a PDF, so it conforms to no part of
+/// ISO 19005 and the document fails `embedded-files/embedded-file-is-itself-pdfa` and nothing else.
+fn a_part_two_document_with_an_attachment(subtype: &str, relationship: &str) -> Vec<u8> {
+    let data = b"<invoice/>";
+    let filespec = format!(
+        "<< /Type /Filespec /F (invoice.dat) /UF (invoice.dat) /AFRelationship /{relationship} \
+         /EF << /F 7 0 R >> >>"
+    );
+    let embedded = stream(
+        &format!(
+            "/Type /EmbeddedFile /Subtype /{subtype} /Length {}",
+            data.len()
+        ),
+        data,
+    );
+    Conforming {
+        catalog: "/Names << /EmbeddedFiles << /Names [(invoice.dat) 6 0 R] >> >> /AF [6 0 R]"
+            .to_owned(),
+        objects: vec![filespec, String::from_utf8(embedded).expect("ascii")],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// Converts with one departure, returning the report and the output where one was written.
+fn convert_with_departure(
+    bytes: &[u8],
+    target: Target,
+    departures: Vec<pdf_transform::archive::Departure>,
+    claim: bool,
+) -> (Report, Option<Vec<u8>>) {
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Archive(ArchivePlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+            target,
+            authorised: Authorisations::default(),
+            profile: None,
+            substitute_fonts: true,
+            departures,
+            claim_conformance: claim,
+        }),
+        &[Source::new(bytes.to_vec())],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let output = sinks.into_outputs().pop().map(|(_, bytes)| bytes);
+    (report, output)
+}
+
+/// The XML departure the owner asked for, narrowed to XML by media type and relationship.
+fn xml_departure() -> pdf_transform::archive::Departure {
+    pdf_transform::archive::Departure {
+        requirement: "embedded-files/embedded-file-is-itself-pdfa".to_owned(),
+        media_types: vec!["application/xml".to_owned(), "text/xml".to_owned()],
+        relationships: vec!["Alternative".to_owned()],
+        reason: "Factur-X invoices; this archive accepts them".to_owned(),
+    }
+}
+
+#[test]
+fn an_xml_attachment_departs_and_the_output_does_not_claim_pdfa_by_default() {
+    // Without the attachment departure the document is refused: ISO 19005-2 section 6.8 forbids a
+    // non-conforming embedded file and this converter does not convert one.
+    let source = a_part_two_document_with_an_attachment("application#2Fxml", "Alternative");
+    let target = Target::Two(Level::B);
+    let (refused, _) = convert_with_departure(&source, target, Vec::new(), false);
+    assert!(
+        !conversion(&refused).proceeds(),
+        "with no departure the XML attachment is a refusal"
+    );
+
+    // With the departure, `A59`'s default: the file is written, does not conform on purpose, and
+    // does not claim to — the identification schema is omitted, so it states no `pdfaid`.
+    let (report, output) = convert_with_departure(&source, target, vec![xml_departure()], false);
+    let output = output.expect("a departed file is written");
+    let conversion = conversion(&report);
+    assert_eq!(conversion.departures.len(), 1, "the departure is reported");
+    assert!(matches!(
+        conversion.departures[0].outcome,
+        pdf_transform::archive::DepartureOutcome::Applied { claimed: false }
+    ));
+
+    // Re-validated independently: the output fails `embedded-file-is-itself-pdfa` (the departed
+    // rule) and the identification requirements the omission costs, and nothing else.
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Fails);
+    let failing: BTreeSet<&str> = held.failures().map(|judgement| judgement.id).collect();
+    assert!(failing.contains("embedded-files/embedded-file-is-itself-pdfa"));
+    for id in &failing {
+        assert!(
+            *id == "embedded-files/embedded-file-is-itself-pdfa"
+                || id.starts_with("metadata/identification-"),
+            "the only failures are the departure and the omitted identification, not {id}"
+        );
+    }
+    // The packet states no pdfaid part, so the file does not claim to be PDF/A.
+    let packet = document_packet(&output);
+    let read = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+    assert_eq!(
+        read.text("http://www.aiim.org/pdfa/ns/id/", "part"),
+        None,
+        "a departed file does not claim to be PDF/A"
+    );
+    // The departure is recorded in the file's own history (`doc/rfc/0007` section 4.7.3).
+    assert!(
+        String::from_utf8_lossy(&packet).contains("departs from ISO 19005 on purpose"),
+        "the departure is in xmpMM:History"
+    );
+}
+
+#[test]
+fn claim_conformance_keeps_the_pdfa_identification_on_a_departed_file() {
+    // `A59`: claiming conformance is a second, separate switch the departure does not imply. The
+    // file then states it is PDF/A-2 while failing the embedding rule — a validator fails it either
+    // way, and the only difference is that it lied before it failed, which the operator owns.
+    let source = a_part_two_document_with_an_attachment("application#2Fxml", "Alternative");
+    let target = Target::Two(Level::B);
+    let (_report, output) = convert_with_departure(&source, target, vec![xml_departure()], true);
+    let output = output.expect("a departed file is written");
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Fails, "it still does not conform");
+    let failing: BTreeSet<&str> = held.failures().map(|judgement| judgement.id).collect();
+    assert_eq!(
+        failing.iter().copied().collect::<Vec<_>>(),
+        vec!["embedded-files/embedded-file-is-itself-pdfa"],
+        "the only failure is the departed rule; the identification is stated"
+    );
+    let read = pdf_model::xmp::Xmp::parse(&document_packet(&output)).expect("it parses");
+    assert_eq!(
+        read.text("http://www.aiim.org/pdfa/ns/id/", "part"),
+        Some("2"),
+        "with --claim-conformance the file claims PDF/A-2 anyway"
+    );
+}
+
+#[test]
+fn the_departure_does_not_cover_a_non_xml_attachment() {
+    // *Accept XML and only XML*: a document whose attachment is a text file the predicate does not
+    // admit is refused as it would be with no departure at all — the difference between accepting
+    // XML attachments and accepting XML and only XML is the whole reason a departure is narrower
+    // than any target.
+    let source = a_part_two_document_with_an_attachment("text#2Fplain", "Alternative");
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_departure(&source, target, vec![xml_departure()], false);
+    assert!(
+        output.is_none(),
+        "a non-XML attachment is not covered, so no file is written"
+    );
+    let conversion = conversion(&report);
+    assert!(!conversion.proceeds());
+    assert!(matches!(
+        conversion.departures[0].outcome,
+        pdf_transform::archive::DepartureOutcome::LeftInPlace { .. }
+    ));
 }

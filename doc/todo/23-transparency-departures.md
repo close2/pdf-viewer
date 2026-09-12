@@ -497,11 +497,17 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
 
 ### What that left behind, each reported by name and each with no corpus witness
 
-1. **An element whose one alpha carries both quantities in a raster.** An image's samples may be
-   §8.9.6.2's stencil (shape) or §11.6.5.2's `/SMask` (opacity), and a shading's colours already
-   carry §11.6.4.4's constant, so neither can be un-multiplied after the fact. An `ImageSource`
-   that keeps the two apart would answer both, and it is a smaller construction than the
-   population below.
+1. ~~**An element whose one alpha carries both quantities in a raster.**~~ — **closed in the
+   nine-hundred-and-ninety-seventh, ADR 1017**, and not by keeping two channels: the *kind* is
+   decided where the image is decoded (`image::SampleAlpha` — a stencil, an explicit `/Mask` or a
+   colour key is *shape* by §11.6.4.2, an `/SMask` or `/SMaskInData` is *opacity* by §11.6.4.3, a
+   stencil under its own `/SMask` is both) and recorded where it is drawn, and a shading needs no
+   bit at all because its colours are opaque before §11.6.4.4's constant is folded in
+   (`Shading::opaque()`). A knockout group now states the shape of either instead of reporting;
+   the one element still reported by name is the stencil-under-its-own-soft-mask, whose two
+   quantities really do share one raster. What the entry got right was the shape of the fix and
+   wrong was where it lived: not on `ImageSource`, which six crates build by literal and one
+   serialises, but beside the interpreter's own record of what it drew.
 2. ~~**§11.6.4.3's `/AIS`.**~~ — **closed in the five-hundred-and-eightieth, ADR 0415**, and the
    price this entry quoted was an overstatement of a construction that turned out to be an
    identity. It said honouring the flag "means composing the mask and the constants into the shape
@@ -593,12 +599,16 @@ page carried the report, because every corpus knockout group with a stated eleme
 
 What the own-backdrop construction still keeps, and keeps on the oracle alone: coloured elements
 under two modes, or under one mode that is neither affine in its source nor applied to one colour.
-And the two elements §11.4.6 can neither draw nor state stay reported by name — an image whose
-samples may be shape or opacity, a shading that is not opaque — which §11.3.7.2's row now argues is
-the *whole* of what a single alpha per pixel costs this tree: nothing but §11.4.6 reads a shape
-apart from an opacity, and there the shape is stated. The bit that would close both is the
-*kind* of an image's or a shading's alpha carried beside its value, in `crate::image` and
-`crate::shading`.
+And the two elements §11.4.6 could neither draw nor state — an image whose samples may be shape
+or opacity, a shading that is not opaque — are stated since the nine-hundred-and-ninety-seventh
+session (ADR 1017): the *kind* of an image's alpha is carried beside its value and a shading's is
+opaque by construction, which is the bit this paragraph used to say would close both, and did.
+§11.3.7.2's row's argument stands and is now the whole of it: nothing but §11.4.6 reads a shape
+apart from an opacity, and there the shape is stated. One thing that round took back to the
+clause rather than the vote: `mupdf` and `ghostscript` let colour survive under a soft mask's zero
+inside a knockout group; §11.6.4.3 makes that opacity and §11.4.6's NOTE 5 gives the backdrop, so
+this tree does not follow them — and if the owner ever wants Acrobat's picture, that is a
+`doc/questions/` item, not a rewrite.
 
 ## What the five precedents have in common, and what the sixth was instead
 

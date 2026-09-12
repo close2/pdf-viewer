@@ -265,10 +265,33 @@ The exclusions, closed, each with its reason:
   (`crates/pdf-model/src/variable_text.rs`) already sit on this line today, sanctioned by
   §12.7.4.3's own requirement; the line is where it always was, now written down.
 
+  **A page composed solely of content the document already holds is on the near side of that
+  line, and the third amendment says so.** An archival conversion may *append a page* to carry
+  what its target will not otherwise admit — an embedded image the target may not attach, a
+  metadata packet whose properties the target's schemas do not define, the statement a signature
+  made to its reader (who signed, when, and whether it verified) — where the alternative is losing
+  that content outright. What such a page holds is the document's own; what this program composes
+  is the page it sits on, and nothing may be put on it whose content did not come from the file.
+  The ruling is one, not two: under a Level A target the structure-tree entries such a page owes
+  (ISO 19005-2 section 6.7) are inside the same permission, because refusing to describe a page
+  this program itself appended would make the output non-conforming rather than more honest. An
+  appended page is the one content stream this program writes that no clause specifies — the
+  appearances on the line above each have one — and it is an exception the paragraph above now
+  has rather than a sentence it lost. **The watermark stays on the far side**: it composes new
+  content *over* pages, and nothing here reaches it. Ratified on 2026-09-12, when the owner
+  answered `doc/questions/Q58` with "Q58 agree with recommendation" — the recommendation being
+  "[t]reat it as needing the amendment, and make it", on the argument that "an exclusion written
+  to stop this program becoming a layout engine was not written to force that choice"; the
+  one-ruling reading was the round's summary, which that answer ratified, and `A58` keeps the
+  owner's four words and the round's reading visibly apart. ADR 1014 is the argument, and names
+  what an appended page then owes — page labels, the outline, the structure tree, and the report's
+  sentence saying a page was appended.
+
   **This exclusion read "we do not create files", then "we do not *create* PDFs", and has been
-  amended twice — both times by argument rather than by attrition** (the second on 2026-09-03,
-  when the owner ratified RFC 0002 §11.1 with "RFC 002 and 003 are approved"). What a *user* does
-  to a document already open — an annotation added, a field filled — is not authoring, and it is
+  amended three times — each by argument rather than by attrition** (the second on 2026-09-03,
+  when the owner ratified RFC 0002 §11.1 with "RFC 002 and 003 are approved"; the third on
+  2026-09-12, by `doc/questions/A58` and ADR 1014, as the paragraph above records). What a *user*
+  does to a document already open — an annotation added, a field filled — is not authoring, and it is
   written back by §7.5.6's incremental update: the new objects and a new cross-reference section
   appended, never a rewrite of what was there. The
   producer's bytes stay in the file, byte for byte, under whatever the user added. This tree

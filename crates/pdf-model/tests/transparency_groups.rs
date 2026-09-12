@@ -579,9 +579,12 @@ fn a_filled_and_stroked_path_is_one_object() {
 /// the display list only where the two coincide. Since ADR 0234 it also reaches it where the
 /// shape can be stated *beside* the object — a soft mask and a constant alpha are
 /// §11.6.4.3's and §11.6.4.4's opacity, so the shape is the mark without them, and a group's
-/// is the union of its elements'. What is left is where one alpha genuinely carries both:
-/// an image's samples, which may be §8.9.6.2's stencil or §11.6.5.2's `/SMask`, and a shading
-/// whose colours already carry §11.6.4.4's constant.
+/// is the union of its elements'. An image's samples may be §8.9.6.2's stencil or
+/// §11.6.5.2's `/SMask`, and a shading's colours carry §11.6.4.4's constant — both were
+/// reported until ADR 1017, which records which of the two an image's alpha is
+/// (`image::SampleAlpha`) and states a shading's shape as where it paints
+/// (`Shading::opaque`); `content/transparency.rs`'s own tests hold each to the pixel. What is
+/// left is a stencil under an `/SMask` of its own, whose one alpha is the product.
 ///
 /// The second half of the condition is older and still stands: where the upper of two
 /// elements is opaque and blends Normal it overwrites the lower one under either model, and
@@ -639,14 +642,15 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
         "a nested group's shape is the union of its elements' and is stated"
     );
     // A shading painted under `/GS gs` carries the constant alpha in its own colours
-    // (`Shading::with_alpha`), where an unpainted region would carry the same number.
-    let refusal = reported(
-        knockout,
-        "1 0 0 rg 10 10 50 50 re f /GS gs q 30 30 50 50 re W n /Sh sh Q",
-    );
+    // (`Shading::with_alpha`); where it paints is not in its colours, so its shape is the
+    // shading made opaque (`Shading::opaque`, ADR 1017) and is stated.
     assert!(
-        refusal.contains("knockout") && refusal.contains("shading that is not opaque"),
-        "a translucent shading keeps the report, and the report names why: {refusal}"
+        !reported(
+            knockout,
+            "1 0 0 rg 10 10 50 50 re f /GS gs q 30 30 50 50 re W n /Sh sh Q"
+        )
+        .contains("knockout"),
+        "a translucent shading's shape is where it paints, and is stated"
     );
 }
 

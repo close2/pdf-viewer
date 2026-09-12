@@ -2037,13 +2037,20 @@ dictionary with an `/AS` entry versus without; a static XFA form versus a dynami
 versus outside. `[site."…"]` keyed by requirement identifier alone cannot say any of that. **The
 site key needs a shape qualifier**, in the same way RFC 0007 section 4.6 gives it a target qualifier
 — and the shapes have to be enumerated by `--remedy-sites`, or an operator cannot discover that the
-distinction exists.
+distinction exists. **Session 992 built the qualifier into the header grammar** — a
+`[site."x".shape."array"]` header reads and validates — but no shape-aware *remedy* exists yet, so
+a shape-qualified row is inert (like a row for another target), and `--remedy-sites` does not yet
+enumerate the shapes. The format slots the shape in; the remedies that read it are the next
+converter round's.
 
 **2. There is a fifth remedy kind and it is the one the owner asked about.** section 0.2's `supply`.
 Twelve entries reach a mitigation only through it, and it is neither `discard`, `preserve` nor
 `derive`: no information moves and no tool runs; a person states a fact the document does not. It
 needs its own word precisely because its honesty condition is different — the report and
-`xmpMM:History` must say the value came from the configuration rather than from the file.
+`xmpMM:History` must say the value came from the configuration rather than from the file. **Session
+992's reader recognises `supply` as one of the five remedy words**, so a configuration can name it
+and be validated; the machinery that carries it out is the next converter round's, and until then a
+`supply` site is refused with the sentence its requirement already carries.
 
 **3. Some sites must be marked *not configurable*.** section 13.3's twenty-two are refused only
 because a lossless rewrite is unwritten. If they appear in `--remedy-sites` alongside the rest, some
@@ -2061,7 +2068,10 @@ is, and a budget should bound the computed ones.
 else attach the original, else drop the annotation*, and that is three answers in preference order.
 RFC 0007 section 7 question 4 asks whether to allow a list and warns it is harder to reason about;
 the catalogue found exactly one site that needs it and several that would use it, which argues for a
-**bounded** chain — a list of remedies, no conditionals, evaluated in order.
+**bounded** chain — a list of remedies, no conditionals, evaluated in order. **The owner answered
+it `A57`: `on-failure` picks one alternative, not a chain, defaulting to `stop`.** Session 992's
+reader enforces that — an `on-failure` list is a named error — and `keep-everything.toml`'s one
+3D chain became a single `on-failure = "preserve"`.
 
 **6. `keep-everything` needs a mechanism preference, or it needs six blocks per site.** The
 profile's sentence is *prefer `preserve` wherever it exists, then `derive`, never `discard`*, and
@@ -2110,15 +2120,20 @@ is that the **result** is a list, not a verdict.
 | `only-metadata-loss.toml` | nothing may be lost but metadata; everything else `stop` |
 | `keep-everything.toml` | prefer `preserve`, then `derive`, never `discard`; `stop` before losing |
 
-They cannot be tested — nothing parses them yet — so what they are is the proof that this
-catalogue's answers are expressible. **Two of the four are expressible as RFC 0007 section 3
-stands**, and the two that are not are the findings:
+**Session 992 built the format's reader** (`crates/pdf-transform/src/archive/{toml,config}.rs`),
+and all four profiles now load — checked for every one of the six targets by
+`crates/pdf-transform/tests/profiles.rs`, so a profile can no longer drift from the format
+silently. **Two of the four are expressible as the format stands**, and the two that are not are
+the findings — with the note that the format the reader built has since gained three of the keys
+section 14 asked for (`default`, the target qualifier, and the shape qualifier), so the gap is
+narrower than the drafts:
 
 - `as-if-printed` (35 sites) and `only-metadata-loss` (10 sites) use nothing but RFC 0007 section
   3's own shape plus the site-specific keys RFC 0007 section 3 already says a site documents for
   itself.
-- `refuse-any-loss` needs **one key the format does not have**, `default` — section 14's ninth
-  finding — because without it the profile is the empty file.
+- `refuse-any-loss` needs the `default` key — section 14's ninth finding — **which session 992
+  built**: the reader accepts `default = "stop"` (and only `stop`, section 14 point 9's own limit)
+  and refuse-any-loss states it, so today's behaviour is now expressible deliberately.
 - `keep-everything` (48 sites) needs **four things the format does not have**: `prefer`, so one line
   can say *attach where the target allows, else append*; the `supply` remedy; a bounded `on-failure`
   chain; and per-site `keep` lists. Every one of them is marked `NOT-YET-IN-FORMAT` in the file

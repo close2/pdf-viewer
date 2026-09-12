@@ -23,6 +23,8 @@
 //! cargo test -p pdf-archive --test corpus -- --ignored --nocapture
 //! ```
 
+// no sandbox worker: the validator reads the object graph and §7.4's standard filters and interprets no page, so no image reaches `pdf-sandbox` and no column here moves with the worker's presence (`tools/conformance/tests/sandbox_gates.rs`).
+
 #![expect(
     clippy::print_stdout,
     reason = "test code whose entire product is a report a person reads"

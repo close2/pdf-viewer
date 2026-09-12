@@ -1,6 +1,6 @@
 Status: complete
 Given: 2026-09-12, in conversation — transcribed by the round
-Owes: the request type and the shared executor, with RFC 0007's ratification ADR (acting round)
+Owes: the request type and the shared executor in every shipped consumer (a converter round)
 
 > I am not conviced about you recommendation for Q54. If I want an input pdf converted to pdf/a
 > and there is configuration how this can / should be achieved, I think a normal user would expect

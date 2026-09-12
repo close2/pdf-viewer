@@ -132,6 +132,16 @@ const NO_PLACE_TO_RECORD: &str = "the DeviceN DefaultCMYK is allowed on conditio
 /// the provenance is where the file itself says what it lost.
 pub(super) const REMOVED_PROPERTIES_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it departs from a requirement.
+///
+/// `doc/rfc/0007` section 4.7.3: a departure is recorded in the file itself, so the archive carries
+/// the fact that it goes against the standard on purpose. The word is `converted`, like the other
+/// recorded actions — ISO 19005-4 section 6.7.5's history records what a converter did — and the
+/// parameters name the requirement, the predicate that narrowed the departure, and the operator's
+/// stated reason, which section 4.7.2 requires and which is the whole of what makes a departure
+/// something a reader of the archive can understand two years on.
+pub(super) const DEPARTED_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
 ///
 /// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE both give font
@@ -560,7 +570,19 @@ pub(super) struct Prepared {
 
 impl Prepared {
     /// Works out what can be built for this document, and only what a failed requirement asks for.
-    pub(super) fn of(plan: &ArchivePlan, document: &Document, input: &pdf_archive::Report) -> Self {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this orchestrates every preparation the verb has — each a distinct fact about \
+                  the document worked out once, in the dependency order the comments state — and \
+                  splitting it would hide that order behind a call rather than reveal it"
+    )]
+    pub(super) fn of(
+        plan: &ArchivePlan,
+        document: &Document,
+        input: &pdf_archive::Report,
+        omit_identification: bool,
+        departure_history: Option<&str>,
+    ) -> Self {
         let failed: BTreeSet<&'static str> =
             input.failures().map(|judgement| judgement.id).collect();
         let wanted = |rewrite: Rewrite| wanted_by(&failed, rewrite);
@@ -586,22 +608,19 @@ impl Prepared {
             (true, Err(because)) => Err(*because),
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
-        // **One survey, for every preparation that asks what the pages actually drew.** The
-        // walk reads every content stream, so a second one would double the cost of converting a
-        // large document to answer the same question twice — and four rewrites ask it: the two
-        // that read a font's advances and the two that prove a change of encoding moves no mark.
+        // **One survey, for every preparation that asks what the pages actually drew** — the two
+        // that read a font's advances and the two that prove a change of encoding moves no mark —
+        // because a second walk of every content stream would double a large document's cost.
         let survey = SURVEYED
             .iter()
             .any(|rewrite| wanted(*rewrite))
             .then(|| Survey::of(document));
-        // ISO 19005-2 section 6.6.2.1's header attributes are cut before either of the two
-        // writers that follow, because both of them rewrite the RDF this header wraps and the
-        // cut has to be made on the bytes the file holds rather than on the bytes they leave.
+        // ISO 19005-2 section 6.6.2.1's header attributes are cut before the two writers that
+        // rewrite the RDF this header wraps, on the bytes the file holds rather than theirs.
         let headers = asked(wanted(Rewrite::PacketHeaderAttributes), || {
             prepare_headers(document, input)
         });
-        // ISO 19005-2 section 6.6.2.3.1's removals are worked out before the packet is restated,
-        // because the catalog's packet is one of the ones they edit.
+        // Section 6.6.2.3.1's removals precede the restate — the catalog's packet is one they edit.
         let properties = asked(wanted(Rewrite::PropertyOutsideItsSchema), || {
             prepare_properties(document, input, headers.as_ref().ok())
         });
@@ -628,7 +647,10 @@ impl Prepared {
             catalog.as_ref(),
             &mut spare,
             Recording {
-                schema: wanted(Rewrite::IdentificationSchema),
+                // Edited when the schema is wanted or when it is deliberately omitted (`A59`).
+                schema: wanted(Rewrite::IdentificationSchema) || omit_identification,
+                omit_identification,
+                departure: departure_history,
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
@@ -1561,6 +1583,19 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
 struct Recording<'a> {
     /// Whether the identification schema is being restated into the packet.
     schema: bool,
+    /// The applied departures' `xmpMM:History` parameters, where the conversion departed.
+    ///
+    /// `doc/rfc/0007` section 4.7.3: every departure is recorded in the file's own history, so the
+    /// archive carries the fact rather than relying on a report nobody kept. `None` for a
+    /// conversion that departed from nothing.
+    departure: Option<&'a str>,
+    /// Whether the identification schema's properties are deliberately omitted (`A59`).
+    ///
+    /// A departed conversion that does not claim conformance still writes the packet, so the
+    /// catalog states a metadata stream, but with **no** `pdfaid:*` properties — so the file does
+    /// not claim to be PDF/A. `schema` is then true (the packet is edited) and this is true (what
+    /// is written is nothing), which strips any identification the source stated.
+    omit_identification: bool,
     /// The instant every recorded action carries, where a clock answered.
     when: Option<&'a str>,
     /// Whether the `/DefaultCMYK` is being written, which is one recorded action.
@@ -1633,6 +1668,13 @@ fn the_packet(
                 when,
             });
         }
+        if let Some(departure) = recording.departure {
+            events.push(xmp::Event {
+                action: DEPARTED_ACTION,
+                parameters: departure,
+                when,
+            });
+        }
     }
     // Nothing is prepared that no failed requirement asked for: a document needing neither the
     // schema nor an entry does not have its packet read at all, and the reason is never shown —
@@ -1649,6 +1691,7 @@ fn the_packet(
         catalog,
         spare,
         recording.schema,
+        recording.omit_identification,
         &events,
         recording.edited,
     )
@@ -1663,16 +1706,30 @@ fn the_packet(
 /// else. What is never done is reading a producer's packet to a value and printing it again: this
 /// tree's reader keeps neither an `rdf:about` subject nor a qualifier other than `xml:lang`, so a
 /// packet round-tripped through it would come back quietly poorer.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the packet's writers are each a fact about one conversion the caller cannot bundle \
+              without a struct that would be built at exactly one call site — the same shape \
+              `Recording` already is one level up"
+)]
 fn prepare_metadata(
     target: Target,
     document: &Document,
     catalog: &Dictionary,
     spare: &mut Spare,
     schema_wanted: bool,
+    omit_identification: bool,
     recorded: &[xmp::Event<'_>],
     edited: Edited<'_>,
 ) -> Result<Metadata, Because> {
-    let properties = identification_properties(target);
+    // `A59`: a departed conversion that does not claim conformance writes no `pdfaid:*` at all, so
+    // the packet is edited (the schema is restated, cutting the source's identification under both
+    // namespace spellings) but the properties put in its place are none.
+    let properties = if omit_identification {
+        Vec::new()
+    } else {
+        identification_properties(target)
+    };
     let schema = Schema {
         namespace: identification_uri(target),
         prefix: IDENTIFICATION_PREFIX,

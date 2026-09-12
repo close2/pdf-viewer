@@ -42,4 +42,4 @@ the RFC stays here as the argument that started it.
 | [0004](0004-print-and-print-preview.md) | Print support and print preview | draft | 786 |
 | [0005](0005-text-editing-without-reflow.md) | Basic text editing, without reflow | draft | 786 |
 | [0006](0006-pdf-a-validation-and-conversion.md) | PDF/A: validating a document, and converting one | ratified (2026-09-09, A46; validator first, PDF/A-4 certified first) | 895 |
-| [0007](0007-a-refusal-is-a-question-somebody-can-answer-in-advance.md) | A refusal is a question somebody can answer in advance — a remedy configuration, and an API for external tools | proposed | 954 |
+| [0007](0007-a-refusal-is-a-question-somebody-can-answer-in-advance.md) | A refusal is a question somebody can answer in advance — a remedy configuration, and an API for external tools | accepted (2026-09-12, A54–A60; the third amendment in ADR 1014) | 954 |

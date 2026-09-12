@@ -359,6 +359,62 @@ pub enum Picture {
     },
 }
 
+/// Which of ISO 32000-2 §11.3.7.2's two quantities an image's alpha channel carries.
+///
+/// A raster holds one alpha per sample and the clause holds two quantities apart, shape and
+/// opacity, whose product that alpha is (§11.3.7.1). Outside a knockout group nothing reads
+/// one without the other; §11.4.6 does — it weights each element by its *shape* — and there
+/// the interpreter states an element's shape as a second command, which for an image means
+/// knowing what the alpha channel was made of. §11.6.4.2 says which mask makes which:
+///
+/// > For images (8.9, "Images"), the shape shall be 1.0 inside the image rectangle and 0.0
+/// > outside it. This may be further modified by an explicit or colour key mask (8.9.6.3,
+/// > "Explicit masking" and 8.9.6.4, "Colour key masking").
+///
+/// > For image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted areas
+/// > and 0.0 for masked areas.
+///
+/// while an image's own `/SMask` and a JPEG 2000 codestream's `/SMaskInData` are §11.6.4.3's
+/// soft mask, "an opacity channel" in that clause's words, and §11.6.5.2's. §11.6.4.3 makes the
+/// two exclusive — a soft mask "shall override any explicit or colour key mask" — so one image's
+/// alpha is one of the two, except where a *stencil* carries a soft mask of its own.
+///
+/// Decided here, where the masks are applied, and carried beside the raster because the raster
+/// cannot say: a stencil's `{0, 255}` and a one-bit soft mask's are the same bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SampleAlpha {
+    /// §11.6.4.2's shape: the image rectangle, a stencil's painted areas, or the rectangle
+    /// less what an explicit or colour key mask removed. An image with no mask at all is
+    /// here too — its alpha is 1.0 throughout, which is the rectangle.
+    Shape,
+    /// §11.6.4.3's mask opacity: an `/SMask`, or a non-zero `/SMaskInData`. The shape of such
+    /// an image is its whole rectangle.
+    Opacity,
+    /// Both, multiplied: a stencil (shape) under an `/SMask` of its own (opacity). One raster
+    /// cannot separate them again, so an element like this inside a knockout group is
+    /// reported rather than drawn.
+    Both,
+}
+
+impl SampleAlpha {
+    /// What a raster carries once [`decode_parts`] is done with it: whether it is a stencil,
+    /// and whether a soft mask was multiplied in.
+    ///
+    /// Only those two decide it. An explicit or colour-key mask leaves the alpha shape, and
+    /// §11.6.4.3 makes a soft mask override either — "shall override any explicit or colour
+    /// key mask" — so no shape mask is ever multiplied in beside a soft one; and an unmasked
+    /// image's alpha is 1.0 everywhere, so under a soft mask the product is the mask alone.
+    /// What is left carrying shape beside a soft mask is a stencil, whose painted areas *are*
+    /// its alpha, and that is the product.
+    fn of(stencil: bool, soft_masked: bool) -> Self {
+        match (stencil, soft_masked) {
+            (_, false) => Self::Shape,
+            (false, true) => Self::Opacity,
+            (true, true) => Self::Both,
+        }
+    }
+}
+
 /// What a decode delivers: the picture, and beside it what the filter said where it stopped
 /// short of the grid.
 ///
@@ -381,6 +437,8 @@ pub struct Parts {
     /// the file carries, and suppressing the report makes a page whose lower half this program
     /// left blank indistinguishable from one the producer left blank.
     pub shortfall: Option<String>,
+    /// Which of §11.3.7.2's two quantities the picture's alpha channel carries.
+    pub alpha: SampleAlpha,
 }
 
 impl Picture {
@@ -457,8 +515,11 @@ pub fn decode(
     into: &Conversion,
 ) -> Result<Flattened, ImageError> {
     let mut masks = MaskCache::default();
-    let Parts { picture, shortfall } =
-        decode_parts(document, stream, resources, fill, into, &mut masks)?;
+    let Parts {
+        picture,
+        shortfall,
+        alpha: _,
+    } = decode_parts(document, stream, resources, fill, into, &mut masks)?;
     let image = match picture {
         Picture::Complete(image) => image,
         Picture::Masked { base, opacity } => {
@@ -573,6 +634,13 @@ pub fn decode_parts(
     // A mask's own shortfall joins the base's, named for the entry it came through; the base's
     // takes precedence because a report names one thing and the picture is the thing.
     let mut shortfall = shortfall;
+    // What the alpha channel is made of before any soft mask is §11.6.4.2's shape on every
+    // route: a stencil's painted areas; the rectangle, less what a colour key range —
+    // applied in the unpacker — removed, which is the clause's "further modified by an
+    // explicit or colour key mask"; and a filter that stopped short of the grid left rows
+    // unpainted, which is shape 0 as well. What can change it is a soft mask, and
+    // `SampleAlpha::of` says into what.
+    let mut soft_masked = opacity_came_with_the_samples;
     let image = if opacity_came_with_the_samples {
         // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
         // the image samples, `/SMask` "shall not be present", and the embedded mask
@@ -593,12 +661,18 @@ pub fn decode_parts(
                     opacity,
                 },
                 shortfall,
+                alpha: SampleAlpha::of(is_mask, true),
             });
         }
         // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-        let (image, mask_shortfall) = apply_soft_mask(document, dict, resources, image);
+        let Softened {
+            image,
+            shortfall: mask_shortfall,
+            applied,
+        } = apply_soft_mask(document, dict, resources, image);
         shortfall =
             shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /SMask: {detail}")));
+        soft_masked = applied;
         image
     };
 
@@ -617,7 +691,11 @@ pub fn decode_parts(
         }
         _ => Picture::Complete(image),
     };
-    Ok(Parts { picture, shortfall })
+    Ok(Parts {
+        picture,
+        shortfall,
+        alpha: SampleAlpha::of(is_mask, soft_masked),
+    })
 }
 
 /// One decode route's answer: samples, the grid they are on, and whether opacity came along.
@@ -3999,12 +4077,34 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
 ///
 /// A mask with no object number of its own — one written directly into the image dictionary —
 /// is not cached and is read each time, which is exact rather than approximately right.
+///
+/// # And, beside the masks, what each drawn image's alpha is made of
+///
+/// [`SampleAlpha`] is decided by [`decode_parts`] and read where a knockout group closes
+/// (§11.4.6), which is after the image has become a [`pdf_render::Command`] — and the display
+/// list's vocabulary carries an image's samples, not what its alpha channel means. So the
+/// interpreter records the kind here as it draws each image, keyed by the raster's identity,
+/// and asks for it back by the command's raster. This is the interpreter's per-run knowledge
+/// about image masks, which is what the rest of this type holds; the natural home is a field
+/// of the interpreter's own, and this type is where the two files that decide and read the kind
+/// could both reach in the round that built it (ADR 1017).
 #[derive(Debug, Default)]
 pub struct MaskCache {
     read: std::collections::BTreeMap<ObjectId, SoftMaskAtDeviceScale>,
+    drawn: DrawnAlphas,
 }
 
 impl MaskCache {
+    /// What the images drawn so far carry in their alpha channels.
+    pub(crate) fn drawn(&self) -> &DrawnAlphas {
+        &self.drawn
+    }
+
+    /// The record [`Self::drawn`] reads, for the interpreter to write as it draws.
+    pub(crate) fn drawn_mut(&mut self) -> &mut DrawnAlphas {
+        &mut self.drawn
+    }
+
     /// Reads a mask, reusing an earlier read of the same object.
     ///
     /// `base` is the grid of the parent's raster as decoded, which is what the routing
@@ -4035,6 +4135,76 @@ impl MaskCache {
             self.read.insert(id, mask.clone());
         }
         Some(mask)
+    }
+}
+
+/// Which of §11.3.7.2's two quantities each image drawn so far carries in its alpha, by the
+/// identity of the raster the command holds (ISO 32000-2 §11.6.4.2, §11.6.4.3).
+///
+/// Two records. An image's [`SampleAlpha`] is recorded against the [`pdf_render::ImageSource`]
+/// the command was drawn with — *after* anything the graphics state added to the samples,
+/// since §10.5's transfer produces a new raster — and found again by identity: a decoded
+/// raster is the same one when its samples are the same allocation, and a deferred one when
+/// it is the same producer, which is the equality [`pdf_render::DeferredImage`] already
+/// defines for itself. And a soft mask the interpreter built out of a *stencil* — §8.9.6.2's
+/// stencil painted through a pattern becomes a §11.5.2 alpha mask on the fill that paints the
+/// pattern (ADR 0151) — is recorded by its identifier, because that mask is the stencil's
+/// shape and not §11.6.4.3's opacity, and the command it sits on cannot say so.
+///
+/// Identity rather than content because content cannot decide it: a stencil's `{0, 255}` and
+/// a one-bit soft mask's are the same bytes. The record holds a clone of each source, which
+/// pins its allocation for as long as the record lives and is what makes an address a sound key
+/// for that long — an [`Arc`] clone, so the raster is not copied.
+#[derive(Debug, Default)]
+pub struct DrawnAlphas {
+    images: Vec<(pdf_render::ImageSource, SampleAlpha)>,
+    shape_masks: Vec<pdf_render::SoftMaskId>,
+}
+
+impl DrawnAlphas {
+    /// Records what `source`'s alpha channel carries, as it is drawn.
+    pub(crate) fn record(&mut self, source: &pdf_render::ImageSource, alpha: SampleAlpha) {
+        self.images.push((source.clone(), alpha));
+    }
+
+    /// Records that the soft mask `id` is a stencil's shape rather than an opacity.
+    pub(crate) fn record_shape_mask(&mut self, id: pdf_render::SoftMaskId) {
+        self.shape_masks.push(id);
+    }
+
+    /// What `source`'s alpha channel carries, or `None` for a raster this run never drew.
+    ///
+    /// Newest first, because a raster drawn twice is recorded twice and the two agree.
+    #[must_use]
+    pub(crate) fn alpha_of(&self, source: &pdf_render::ImageSource) -> Option<SampleAlpha> {
+        self.images
+            .iter()
+            .rev()
+            .find(|(drawn, _)| same_source(drawn, source))
+            .map(|(_, alpha)| *alpha)
+    }
+
+    /// Whether the soft mask `id` is a stencil's shape.
+    #[must_use]
+    pub(crate) fn mask_is_shape(&self, id: pdf_render::SoftMaskId) -> bool {
+        self.shape_masks.contains(&id)
+    }
+}
+
+/// Whether two image sources are one raster: the same samples, or the same producer.
+///
+/// `ImageSource` is `#[non_exhaustive]`; a variant this crate does not construct is never
+/// recorded, so it is never the same as anything.
+fn same_source(left: &pdf_render::ImageSource, right: &pdf_render::ImageSource) -> bool {
+    match (left, right) {
+        (pdf_render::ImageSource::Decoded(ours), pdf_render::ImageSource::Decoded(theirs)) => {
+            Arc::ptr_eq(&ours.data, &theirs.data)
+        }
+        (
+            pdf_render::ImageSource::AtDeviceScale(ours),
+            pdf_render::ImageSource::AtDeviceScale(theirs),
+        ) => ours == theirs,
+        _ => false,
     }
 }
 
@@ -4522,6 +4692,15 @@ fn device_scaled_soft_mask(
     })
 }
 
+/// What [`apply_soft_mask`] delivers: the image, what the mask's filter said where it stopped
+/// short, and whether a mask was multiplied in at all — which is what decides
+/// [`SampleAlpha`], and which the image cannot say for itself.
+struct Softened {
+    image: Image,
+    shortfall: Option<String>,
+    applied: bool,
+}
+
 /// Applies §11.6.5.2's soft mask: each of its samples is the image's opacity there.
 ///
 /// A soft mask that cannot be read leaves the image opaque rather than failing it: an
@@ -4533,7 +4712,7 @@ fn apply_soft_mask(
     dict: &Dictionary,
     resources: &Dictionary,
     image: Image,
-) -> (Image, Option<String>) {
+) -> Softened {
     // The dictionary's grid rather than the raster's, deliberately: this route and
     // `unapplied_soft_mask` must answer the same question, or the interpreter's report and
     // what actually happened drift apart. For the one image whose raster is coarser than its
@@ -4546,7 +4725,11 @@ fn apply_soft_mask(
         ..
     } = soft_mask_entry(document, dict, resources, stated_grid(document, dict))
     else {
-        return (image, None);
+        return Softened {
+            image,
+            shortfall: None,
+            applied: false,
+        };
     };
     let Ok(Flattened {
         image: mask,
@@ -4560,7 +4743,11 @@ fn apply_soft_mask(
         &Conversion::device(),
     )
     else {
-        return (image, None);
+        return Softened {
+            image,
+            shortfall: None,
+            applied: false,
+        };
     };
     let masked = combine_on_the_finer_grid(&image, &mask, |colour, sample| {
         // Table 143 required `DeviceGray` and `soft_mask_entry` checked it, so the three
@@ -4576,7 +4763,11 @@ fn apply_soft_mask(
         };
         (colour, opacity)
     });
-    (masked, shortfall)
+    Softened {
+        image: masked,
+        shortfall,
+        applied: true,
+    }
 }
 
 #[cfg(test)]

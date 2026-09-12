@@ -311,9 +311,11 @@ fn parse_header(entry: &Entry, lines: [&str; 3]) -> Result<Header, String> {
         ));
     };
     let date_is_a_date = date.len() == 10
-        && date.as_bytes().iter().enumerate().all(|(at, byte)| {
-            byte.is_ascii_digit() || ((at == 4 || at == 7) && *byte == b'-')
-        });
+        && date
+            .as_bytes()
+            .iter()
+            .enumerate()
+            .all(|(at, byte)| byte.is_ascii_digit() || ((at == 4 || at == 7) && *byte == b'-'));
     if !date_is_a_date {
         return Err(format!(
             "  {QUESTIONS}/{file} gives {date:?}, which is not YYYY-MM-DD"
@@ -343,6 +345,19 @@ fn parse_header(entry: &Entry, lines: [&str; 3]) -> Result<Header, String> {
         status,
         owes: value.to_owned(),
     })
+}
+
+/// Whether question `target` comes after answer `number` — both digit strings, checked where
+/// the header and the file name were parsed. A function rather than an expression in the test so
+/// that `rustfmt`'s layout of the two parses and clippy's line budget for the test agree, which
+/// as one expression they did not (session 995).
+fn comes_after(target: &str, number: &str) -> bool {
+    target
+        .parse::<u32>()
+        .expect("digits, checked where the header was parsed")
+        > number
+            .parse::<u32>()
+            .expect("the same parse() that read the file name")
 }
 
 #[test]
@@ -405,9 +420,7 @@ fn every_answer_says_what_it_left_open() {
                     "  {QUESTIONS}/A{number} is superseded by Q{target}, which is not in this \
                      directory"
                 );
-            } else if target.parse::<u32>().expect("digits, checked where the header was parsed")
-                <= number.parse::<u32>().expect("the same parse() that read the file name")
-            {
+            } else if !comes_after(target, number) {
                 let _ = writeln!(
                     wrong,
                     "  {QUESTIONS}/A{number} is superseded by Q{target}, which does not come \

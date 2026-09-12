@@ -330,7 +330,8 @@ Its own reading is compared against the veraPDF corpus clause by clause, and **t
 adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
 first and the ruling recorded with its reasoning, because a disagreement is not evidence of
 ambiguity by itself. The approved PDF Association errata are an input beside the standard, one of
-which *withdraws* a rule from part 4. `tools/state.sh` prints where the comparison stands.
+which *withdraws* a rule from part 4. `tools/state.sh archive` prints where the comparison
+stands, and `doc/todo/02` §2 runs it every whole-sequence round (ADR 1015).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

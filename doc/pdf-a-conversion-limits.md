@@ -281,6 +281,15 @@ The decision tree, in the order a converter should try it:
    target. The owner asked for it on 2026-09-11; `doc/rfc/0007` §4.7 is the design. *(Part 3's rule
    is recorded here as the owner's reading and the common account, not as a clause this project has
    checked — it is not held.)*
+
+   **Session 992 built this departure**, the first of `doc/rfc/0007` §4.7's. A configuration's
+   `[depart."embedded-files/embedded-file-is-itself-pdfa"]` block, narrowed by `media-type` (and
+   optionally `relationship`), lets a PDF/A-2 conversion accept XML and only XML attachments —
+   *only* XML, because the predicate is asked of every embedded file and one non-XML attachment
+   leaves the requirement refused. By `A59` the output omits the PDF/A identification and does not
+   claim to be PDF/A-2; `--claim-conformance` keeps the claim anyway, which a validator fails either
+   way. The departure is recorded in the file's own `xmpMM:History`, and the command line must carry
+   `--depart-from-the-standard` (§4.7.3). `doc/profiles/factur-x.toml` is the shipped example.
 3. **Dropping is Ask, always**, listing every file dropped by name and size, and recording the
    removal in `xmpMM:History` — which ISO 19005-2 §6.6.6 explicitly asks a converter to do, its
    own example of a thing to record being objects that were not retained.

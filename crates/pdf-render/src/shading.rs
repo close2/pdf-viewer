@@ -174,19 +174,78 @@ impl Shading {
     /// The clone is deliberate and paid for only where `alpha` is below 1: shadings are
     /// shared behind an `Arc` because one pattern commonly paints many paths, and a
     /// half-transparent fill of that pattern is a different paint from an opaque one.
+    ///
+    /// The program goes, and it has to: a device evaluating it produces the colour and
+    /// nothing else, so §11.6.4.4's constant alpha has nowhere to be applied on that path.
+    /// The producer carries it ([`DeferredColours::faded`]) and the producer is what draws.
     #[must_use]
     pub fn with_alpha(&self, alpha: f32) -> Self {
-        let scale = |colour: &Color| Color {
-            a: colour.a * alpha,
-            ..*colour
-        };
+        self.with_colours(
+            |colour| Color {
+                a: colour.a * alpha,
+                ..*colour
+            },
+            |source| source.faded(alpha),
+            false,
+        )
+    }
+
+    /// Returns this shading with every colour fully opaque: the *shape* of what it paints
+    /// (ISO 32000-2 §11.6.4.2).
+    ///
+    /// A shading's colours carry two things a rasteriser reads as one alpha. The constant
+    /// [`Self::with_alpha`] folded into every colour is §11.6.4.4's, and it is opacity; where
+    /// the shading paints at all is shape, and §11.6.4.2 says so of the operator:
+    ///
+    /// > For objects painted with the sh operator (8.7.4.2, "Shading operator"), the shape
+    /// > shall be 1.0 inside and 0.0 outside the bounds of the shading's painti ng geometry,
+    /// > disregarding the Background entry in the shading dictionary (see 8.7.4.3, "Shading
+    /// > dictionaries").
+    ///
+    /// The geometry is not in the colours — an axial or radial ramp that does not extend, a
+    /// mesh's triangles and a sampled shading's [`ColourGrid::covers`] each leave their
+    /// unpainted region unpainted whatever the colours say — so a shading whose every colour
+    /// is opaque marks exactly its painting geometry at alpha 1.0, which is the shape.
+    /// §11.4.6's knockout is the one reader of a shape apart from an opacity, and
+    /// `pdf-model` states a knockout element's shape as a second command whose drawn alpha is
+    /// that shape; this is that command's paint for an element painted with a shading.
+    ///
+    /// A `/Background` is made opaque with the rest: Table 77 confines it to a shading
+    /// *pattern*, where §11.6.7 fills the pattern's implicit group with it before the `sh`,
+    /// so inside the filled path the pattern paints everywhere and the shape is the path.
+    /// The clause's "disregarding the Background entry" is about the `sh` operator, which
+    /// never carries one ([`Self::background`]).
+    ///
+    /// The program stays: it is `None` wherever a constant was folded in, and where it is
+    /// not, the colours it evaluates to are drawn opaque already.
+    #[must_use]
+    pub fn opaque(&self) -> Self {
+        self.with_colours(
+            |colour| Color { a: 1.0, ..*colour },
+            DeferredColours::opaque,
+            true,
+        )
+    }
+
+    /// This shading with `map` applied to every colour it carries and `sampled` to a
+    /// producer of colours that do not exist yet — the one traversal [`Self::with_alpha`]
+    /// and [`Self::opaque`] share.
+    ///
+    /// `keep_program` says whether a sampled shading's device program survives; see the two
+    /// callers for why one keeps it and the other cannot.
+    fn with_colours(
+        &self,
+        map: impl Fn(&Color) -> Color,
+        sampled: impl Fn(&DeferredColours) -> DeferredColours,
+        keep_program: bool,
+    ) -> Self {
         let ramp = |ramp: &Ramp| Ramp {
             stops: ramp
                 .stops
                 .iter()
                 .map(|stop| Stop {
                     at: stop.at,
-                    colour: scale(&stop.colour),
+                    colour: map(&stop.colour),
                 })
                 .collect(),
         };
@@ -217,22 +276,19 @@ impl Shading {
                 ramp: ramp(colours),
                 extend: *extend,
             },
-            // A sampled shading's colours do not exist yet, so the alpha travels with the
+            // A sampled shading's colours do not exist yet, so the map travels with the
             // producer and reaches each colour as it is produced.
-            // The program goes, and it has to: a device evaluating it produces the colour and
-            // nothing else, so §11.6.4.4's constant alpha has nowhere to be applied on that
-            // path. The producer carries it (`faded`) and the producer is what draws.
             ShadingKind::Sampled {
                 domain,
                 source,
-                program: _,
+                program,
             } => ShadingKind::Sampled {
                 domain: *domain,
-                source: source.faded(alpha),
-                program: None,
+                source: sampled(source),
+                program: keep_program.then(|| program.clone()).flatten(),
             },
-            // A parametric mesh carries its colours in the ramp, so that is where the alpha
-            // goes; a corner holding a parameter has none to scale.
+            // A parametric mesh carries its colours in the ramp, so that is where the map
+            // goes; a corner holding a parameter has none to map.
             ShadingKind::Mesh {
                 triangles,
                 ramp: colours,
@@ -243,7 +299,7 @@ impl Shading {
                         points: triangle.points,
                         corners: match triangle.corners {
                             Corners::Colours(corners) => {
-                                Corners::Colours(corners.map(|colour| scale(&colour)))
+                                Corners::Colours(corners.map(|colour| map(&colour)))
                             }
                             parameters @ Corners::Parameters(_) => parameters,
                         },
@@ -256,9 +312,9 @@ impl Shading {
             kind: Arc::new(kind),
             transform: self.transform,
             // §11.6.4.4's constant applies to the painting operation, and §11.6.7 puts the
-            // wash inside the group that operation paints — so it is scaled with everything
+            // wash inside the group that operation paints — so it is mapped with everything
             // else the shading answers rather than exempted from it.
-            background: self.background.as_ref().map(scale),
+            background: self.background.as_ref().map(map),
         }
     }
 
@@ -495,6 +551,18 @@ impl DeferredColours {
             alpha,
         }))
     }
+
+    /// This source with every produced colour fully opaque.
+    ///
+    /// How [`Shading::opaque`] reaches colours that do not exist yet, by the same route
+    /// [`Self::faded`] takes: the producer is wrapped, and the wrapper answers §11.6.4.2's
+    /// shape — 1.0 wherever the inner producer paints, which [`ColourGrid::covers`] and the
+    /// grid's extent still bound.
+    fn opaque(&self) -> Self {
+        Self(Arc::new(Opaque {
+            source: self.clone(),
+        }))
+    }
 }
 
 impl std::fmt::Debug for DeferredColours {
@@ -541,6 +609,32 @@ impl ColoursAtDeviceScale for Faded {
 
     fn is_opaque(&self) -> bool {
         self.alpha >= 1.0 && self.source.is_opaque()
+    }
+}
+
+/// A deferred source with every produced colour made opaque: [`Shading::opaque`]'s shape.
+#[derive(Debug)]
+struct Opaque {
+    source: DeferredColours,
+}
+
+impl ColoursAtDeviceScale for Opaque {
+    fn colours(&self, patch: Patch) -> ColourGrid {
+        let inner = self.source.colours(patch);
+        ColourGrid {
+            width: inner.width,
+            height: inner.height,
+            pixels: inner
+                .pixels
+                .iter()
+                .map(|colour| Color { a: 1.0, ..*colour })
+                .collect(),
+            covers: inner.covers,
+        }
+    }
+
+    fn is_opaque(&self) -> bool {
+        true
     }
 }
 
