@@ -121,3 +121,23 @@ Nothing else here moves. §9.7.5.2 is still what decides these eleven pages, the
 that no code changes for them, and the refusal is still right — the name is not a `/ToUnicode`
 `CMap` and §9.10.2's first method is still unavailable. ADR 1027 §"Why the construction is not
 recovered" says on which clause that stands.
+
+## The population has a control in it, found in the thousand-and-thirtieth
+
+The eleven above are the *negative tail's* members, not the clause's population: the corpus gate
+counts **eighteen documents** under "an Identity CMap over a font the file did not embed
+(§9.7.5.2)", and this file has never named the other seven. One of them is the sharpest witness
+the corpus holds for this decision, and it is below the alarm rather than at its head —
+`issue6127.pdf` pages 1 and 2, −0.797 and −0.792.
+
+**It breaks the sentence and keeps it, inside one text object.** Page 1's attestation paragraph
+runs in `/C2_2` — `DPOKGC+TimesNewRoman`, `/Encoding /Identity-H`, descendant with a `/FontFile2` —
+as far as *"…Assurance Maladie Maternité et "*, and the very next operator selects `/C2_14`:
+`TimesNewRoman`, the same `/Encoding`, no program and no `/ToUnicode`. Same face, same `CMap`, same
+sentence, adjacent operators. So this page states the counterfactual the eleven could only be
+argued about: what the *reader* does is identical on both halves and only the file differs.
+
+That is why the decision above is now held by a test rather than by an argument alone —
+`pdf-model/tests/silent_fonts.rs::an_identity_cmap_over_a_font_the_file_did_not_embed_is_refused_beside_one_it_did`,
+whose drawn half is what stops it passing on a blank page. `doc/todo/00` carries the measurement,
+including the four references' readings written as arithmetic off the file's own CIDs.

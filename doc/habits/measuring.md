@@ -448,3 +448,26 @@ under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`
 `sched` — and it is invisible because the file exists, parses, and answers.
 
 ADR 0916.
+
+- **A number from an instrument that has never fired is not a finding — it is an uncalibrated
+  reading.** Session 1025 woke twenty dormant conformance sweeps and gave nine of them an *act*
+  verdict with a count attached. Three sessions were then spent acting on those counts, and the
+  counts were mostly the instruments' own rules: `permitted`'s 49 were 47 false (it classifies a row
+  by every entry its note *mentions*, not the entry the note says is *owed*); `blockers`' 30 expired
+  refusals were **all** false (`while §` and `until §` are conjunctions, and the sweep read them as
+  dependency claims); `counts`' 5 double-counts were 4 false; `unread`'s 114 keys are almost entirely
+  this ledger's own conventions — a correction carries the claim it retires, a calibration describes
+  a planted defect, and neither is a statement about today's tree.
+
+  The cause is not carelessness in any round. **An instrument nobody runs is also an instrument
+  nobody calibrates**, so a sweep's first real run reports its own rule as loudly as it reports the
+  tree, and the two are indistinguishable in a count. The three sessions were not wasted — every one
+  of those sweeps is calibrated now, each with the shape it was blind to written into its own
+  documentation — but the work they did was *instrument repair*, and it was briefed as ledger work.
+
+  So: before a round is sent to act on a sweep's number, someone reads **ten of its hits** against
+  the standard and reports what fraction are the rule rather than the tree. Ten reads is under an
+  hour and it is the difference between a slot that closes rows and a slot that discovers a grep is
+  too crude. The real defects this class of work did find — §12.3.5.2's unnamed conditional `shall`,
+  §8.11.4.3 filing `/Configs` under Table 99 when Table 98 states it, §7.5.7's `/Extends` — were each
+  found by reading a clause, never by a count going down.

@@ -68,7 +68,8 @@ fn run() -> Result<(), LedgerError> {
          dominant noise is a table read in part — the parent naming the entries it reads and the \
          child the entries nobody does — which is marked where the parent enumerates entries of \
          the asserted table and the child's denial names none of them, and is left to the reader \
-         where there is no table to divide. Read the words before believing a hit."
+         where there is no table to divide. A denial about another table, or another entry, is \
+         demoted by its rung alone. Read the words before believing a hit."
     );
     Ok(())
 }
@@ -81,6 +82,9 @@ fn print(finding: &Finding) {
     }
     if finding.history {
         marks.push_str(" [a correction quoting its retired wording]");
+    }
+    if finding.rung == Rung::Elsewhere {
+        marks.push_str(" [a denial about another term]");
     }
     println!(
         "{}:{} (§{}, {}) asserts {} — {}{}",

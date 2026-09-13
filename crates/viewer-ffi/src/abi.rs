@@ -2357,6 +2357,32 @@ pub unsafe extern "C" fn quorra_save(viewer: *mut Session, events: *mut *mut Eve
     Status::Ok.code()
 }
 
+/// Asks the focused document what it says about *itself*, and is told in words.
+///
+/// The sentences arrive on a `QUORRA_EVENT_REPORTED` with no page on it — §12.11's requirements,
+/// §12.8's signatures, §7.11.4's embedded files, §14.13.2's associated files that are not
+/// embedded, §7.5's rebuilt cross-reference table, Annex I's version, §14.8.6.2's namespaces and
+/// §14.8.6.3's unenclosed `MathML`.
+///
+/// **Call it once the reader has their page.** §12.8.1's byte range digest is read and hashed
+/// over the signed part of the file, so this is exactly the work `CLAUDE.md` principle 2 keeps
+/// off a launch; a second call answers the same sentences and does the work no second time.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_document_report(
+    viewer: *mut Session,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.report()));
+    Status::Ok.code()
+}
+
 /// §7.11.4: takes an embedded file's bytes out of the document.
 ///
 /// The name is the key the `/EmbeddedFiles` tree filed the file under, which is what

@@ -275,7 +275,15 @@ peak_anon_mib = 24.0 .. 30.5
 open_peak_mib = 5 .. 9
 read_kib = 106 .. 112
 read_calls = 29 .. 33
-open_kinstructions = 4996 .. 5098
+# **The floor is 4848 and was 4996, because round 1027 took 147.5 thousand instructions out of
+# every open**: `notes::about` left `Command::Open` for `Command::Report`, so the eight clauses a
+# document states about *itself* — §12.8's signatures above all — are no longer answered before
+# page one exists (ADR 1044). Measured as this figure is always measured, under callgrind, three
+# consecutive runs of each arm: 5089.8 before and 4942.3, 4942.3, 4942.2 after. The new floor is
+# the old one less that saving, rounded down, and **the ceiling did not move**, because nothing
+# about the expensive end of an open changed — the same shape `turn_ms` on ISO 32000-2 took in
+# session 925.
+open_kinstructions = 4848 .. 5098
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
@@ -328,5 +336,32 @@ peak_anon_mib = 39.0 .. 50.0
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
 read_calls = 23 .. 27
-open_kinstructions = 3390 .. 3459
+# The same saving here, and it is 52.1 thousand: 3446.5 before and 3394.4 after. It left the
+# figure 0.13% above a floor its own spread is 0.002% of — inside, and too close to stay, since
+# the next round that legitimately saves five thousand instructions here would fail for a win.
+# So the floor goes down by the measured saving, rounded down, and the ceiling stays. The other
+# two rows keep theirs untouched: the saving is 89.4 and 359.3 thousand there, against figures
+# that sit 1.6% and 1.8% above their own floors after it.
+open_kinstructions = 3337 .. 3459
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and time to first page about twice theirs. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
+
+[[document]]
+path = "doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf"
+pages = 1
+# **The three clock figures state `none` on purpose, and the counted ones are this row's whole
+# point.** What this document is here for is a quantity no clock is needed to see: a signed
+# document's open used to read and digest the signed part of the file, and `read_kib`,
+# `read_calls` and `open_kinstructions` say so on any machine under any load. Bands for the
+# clocks have to be derived on a machine this round did not have — five rounds were running —
+# and `doc/todo/05`'s rule for a figure whose band has not been derived is that it is printed and
+# not judged. They are printed on every run with clocks, and deriving them is an edit here.
+cold_open_ms = none
+warm_open_ms = none
+first_page_ms = none
+turn_ms = none
+peak_anon_mib = 15.0 .. 19.5
+open_peak_mib = 4 .. 9
+read_kib = 97 .. 102
+read_calls = 24 .. 28
+open_kinstructions = 1783 .. 1820
+why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"

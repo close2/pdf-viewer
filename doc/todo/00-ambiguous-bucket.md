@@ -817,6 +817,53 @@ says `Text { operations: 3 }`, which is exactly the three. ADR 0433's sentence "
 literal" is true of the ten and not of this one, and nothing turns on it. **So the next name is
 below the alarm**, which is where the thousand-and-eighth went.
 
+**Re-run whole in the thousand-and-thirtieth**, on the same program: **839 listed, 839 measured, 18
+at or past the alarm of −1.00 and 15 of them documents this tree reports on** — every row of the
+head and every complete row below it byte-identical to the thousand-and-eighth's. What the gate
+itself prints under *ambiguous, undiagnosed, and furthest from the nearest reference* is **an empty
+list**, and every one of the 62 contradicted pages is held by a group, so the next name is below the
+alarm again. It is **`issue6127.pdf` pages 1 and 2, −0.797 and −0.792** — the two highest rows
+no group holds and no paragraph here had read. Page **3** of the same document is held by
+`AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE`; pages 1 and 2 are reported, so they were outside the ratchet
+by construction and nothing named them.
+
+**They are ADR 0433's clause, and this document is that population's control.** Page 1 states
+**sixteen** `/C2_*` Type 0 fonts, every one of them `/Encoding /Identity-H`, and exactly two —
+`/C2_7` (`TimesNewRoman,Italic`) and `/C2_14` (`TimesNewRoman`) — have a `CIDFontType2` descendant whose
+descriptor states **no `/FontFile2`** and no `/ToUnicode`, which is §9.7.5.2's forbidden
+combination, and the report says so twice. The control is inside **one text object**: the
+attestation paragraph runs in `/C2_2` (`DPOKGC+TimesNewRoman`, the same face, the same `CMap`, a
+`/FontFile2` on its descendant) as far as *"…Assurance Maladie Maternité et "*, and the next
+operator selects `/C2_14` and continues *"ne pas remplir les…"*. Same face, same `CMap`, same
+sentence, adjacent operators — the only thing that differs is whether the producer supplied the
+program. **585 codes** go through the two refused fonts (389 through `/C2_14`, 196 through
+`/C2_7`), counted by admitting the construction and reading what the page then reports.
+
+**And the references' four readings are arithmetic here rather than a description**, because the
+file's CIDs are the standard Macintosh glyph ordering and the intended string can be recovered from
+them. `conditions permettant d'en bénéficier` is stated as CIDs `70 82 81 71 76 87 76 82 81 86 03
+…`, and CID = ASCII − 29 over the ASCII range (space is glyph 3), with `é` at CID 112, which is
+`eacute`'s index in that ordering. Then: **`poppler` draws the CID as a character code** —
+`FRQGLWLRQV … EpQpILFLHU`, the shift the panel shows; **`hayro` draws CID + 31** — `eqpf` for
+`cond`; **`mupdf` indexes a face in that ordering and gets the whole paragraph right**, accents
+included; **`ghostscript` indexes a substitute whose order is its own** and is right on ASCII and
+wrong on every accented letter — `bénéficier` comes out `b¶n¶ficier` and `sincères` `sinc· res`.
+One two-byte string, four programs, four answers, and the one that *looks* right is a guess
+§9.7.4.2 forbids in as many words: with the program absent "CIDs shall not participate in glyph
+selection". Inks: ours 7.825, `hayro` 8.622, `mupdf` 9.500, `poppler` 12.053, `ghostscript` 12.141
+— so the paragraph is worth 1.67 of 255 and the sweep's −0.797 is taken against a panel of
+garbage.
+
+**Nothing about the page moves and the round's product is a held test.** ADR 0433 decided that no
+code changes for this construction; what this page adds is a witness that cannot pass on a blank
+page, because half of its sentence is drawn.
+`silent_fonts.rs::an_identity_cmap_over_a_font_the_file_did_not_embed_is_refused_beside_one_it_did`
+asserts the two refusals and the drawn half together, and
+`the_witness_states_one_embedded_program_and_one_absent_one` reads the two font dictionaries out of
+the file so the pair cannot pass for a new reason. Calibrated by admitting the construction (trap
+13): the refusal's sentence is then replaced by `no outline for any of the 389 code(s)` and the
+test goes red naming it.
+
 **Re-run after the fix, and the statement is the sharp one**: over the **835** pages that remain
 `ambiguous`, every row is **byte-identical** to the before-run — the same numbers, the same labels
 — and the single row that left is `bug866395.pdf`. Nothing else moved a thousandth.

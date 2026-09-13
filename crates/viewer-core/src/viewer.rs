@@ -476,6 +476,7 @@ impl Viewer {
                 };
                 events.push(damage(viewport));
             }
+            Command::Report => self.report_the_document(events),
             Command::Find(find) => self.find(find, events),
             Command::Focused(move_to) => self.move_focus(move_to, events),
             Command::SetGroup { group, on } => {
@@ -512,11 +513,16 @@ impl Viewer {
                     crate::presentation::enter(&mut open);
                 }
                 let pages = open.page_count;
-                let mut notes = crate::notes::about(&open.document);
                 // What opening the document has already discovered about §7.5.7's storage —
                 // the catalogue and the page tree are read by now, and either may live in an
                 // object stream. The rest arrives per page, below.
-                notes.extend(crate::notes::losses(&mut open));
+                //
+                // **What the document says about *itself* is not here, and that is principle 2.**
+                // `notes::about` answers eight clauses about the file, and §12.8's answer reads
+                // and digests the signed byte ranges — on a signed document that is the whole
+                // file, and none of it draws a page. `Command::Report` is what asks for it, and
+                // `Open::about` is what makes asking twice cost once. ADR 1044.
+                let mut notes = crate::notes::losses(&mut open);
                 // Annex O's open parameters, and this is where the annex puts them: §O.2.2 says
                 // they "should be processed immediately after any other document-specified open
                 // parameters have been processed", and `Open::around` has just processed Table
@@ -979,19 +985,14 @@ impl Viewer {
         // of them is a page of a document that is no longer open.
         if let Some(replacement) = outcome.replacement {
             let pages = replacement.page_count;
-            let notes = crate::notes::about(&replacement.document);
             self.documents.insert(id, *replacement);
             events.push(Event::Opened {
                 document: id,
                 pages,
             });
-            if !notes.is_empty() {
-                events.push(Event::Reported {
-                    document: id,
-                    page: None,
-                    notes,
-                });
-            }
+            // What the replacement says about itself waits for `Command::Report`, exactly as the
+            // document it replaced did: an embedded go-to is an open, and an open draws a page
+            // before it digests a signature (ADR 1044).
             self.announce_page(events);
             self.page_events(id, None, events);
             return;
@@ -1352,6 +1353,31 @@ impl Viewer {
         }
         if attachments {
             events.push(Event::AttachmentsChanged { document: id });
+        }
+    }
+
+    /// [`Command::Report`]: what the focused document says about itself, in words.
+    ///
+    /// **The one place `notes::about` is called, and it is not the open path.** Its eight clauses
+    /// are claims about the *file* — §12.8's signatures above all, whose answer reads and digests
+    /// the signed byte ranges — and `CLAUDE.md` principle 2 defers what page one does not need
+    /// until something asks. This is the asking; [`crate::open::Open::about`] is the `OnceCell`
+    /// that makes a second asking free. ADR 1044.
+    ///
+    /// Nothing at all where nothing is open, and nothing where the document has nothing to say:
+    /// an empty report is not a sentence, and a host that printed one would be telling a reader
+    /// something about a file that said nothing.
+    fn report_the_document(&self, events: &mut Vec<Event>) {
+        let (Some(id), Some(open)) = (self.focused, self.focused()) else {
+            return;
+        };
+        let notes = open.about();
+        if !notes.is_empty() {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes: notes.to_vec(),
+            });
         }
     }
 

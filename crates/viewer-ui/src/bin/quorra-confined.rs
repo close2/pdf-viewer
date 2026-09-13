@@ -241,6 +241,12 @@ struct Host {
     heading: String,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that every host counts alike.
     asking: Asking,
+    /// Whether the open document still owes what it says about *itself*.
+    ///
+    /// Asked for once the first frame is on the window rather than as part of opening, because
+    /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
+    /// off a launch. `viewer_host::report::Due` holds the rule for every host. ADR 1044.
+    report_due: viewer_host::report::Due,
     /// §7.6.4.1's prompt — the card the flagship draws for itself, reused whole.
     ///
     /// While it is shown it has the keyboard: the document behind it is not open, so a key that
@@ -305,6 +311,7 @@ impl Host {
             },
             presented: None,
             asking: Asking::new(),
+            report_due: viewer_host::report::Due::default(),
             password: PasswordCard::default(),
             chrome: None,
             leaving: false,
@@ -535,6 +542,7 @@ impl Host {
             Event::Opened { pages, .. } => {
                 // The next document's attempts start from nothing (`Asking::opened`'s rule).
                 self.asking.opened();
+                self.report_due.opened();
                 // A document opens where its own view says, which the viewer states as a
                 // `PageChanged` when it is not the first page. Until it does, this is page one.
                 self.page = 0;
@@ -879,6 +887,13 @@ impl Host {
                 "page {} could not be drawn: {words}",
                 page.saturating_add(1)
             );
+        }
+        // The reader has their page, so the document may now be asked what it says about itself
+        // — §12.8's signatures above all, whose answer reads and digests the signed part of the
+        // file behind the filter. Once per opened document; `viewer_host::report::Due` is the
+        // rule all four hosts follow. ADR 1044.
+        if self.presented.is_some() && self.report_due.after_a_frame() {
+            self.dispatch(&Command::Report);
         }
     }
 

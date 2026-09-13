@@ -1587,6 +1587,13 @@ impl App {
                 .map_or(Rendered::Presented, Rendered::Failed);
             self.dispatch(Command::RenderReady { token, rendered });
         }
+        // The reader has their page, so the document may now be asked what it says about itself
+        // — §12.8's signatures above all, whose answer reads and digests the signed part of the
+        // file. Once per opened document, after the acknowledgements rather than among them, and
+        // the rule is `viewer_host::report::Due`'s so that four hosts ask alike. ADR 1044.
+        if self.report_due.after_a_frame() {
+            self.dispatch(Command::Report);
+        }
     }
 }
 

@@ -107,6 +107,9 @@ struct Swept {
     frames: usize,
     /// Every sentence §12.11's, §7.11.4's or a page's own report put to the person.
     ///
+    /// The first two arrive on `Command::Report` rather than on the open since ADR 1044, and this
+    /// sweep sends it where a host would.
+    ///
     /// Counted apart from the refusals, because a page that draws and *says* what it could not
     /// draw is `safedocs::survey::Outcome::Incomplete` rather than a refusal — and neither is a
     /// death, which is the only thing that fails this run.
@@ -203,6 +206,26 @@ fn sweep_one(chosen: &Chosen) -> Swept {
                 return swept;
             }
             swept.cells.push(("open".to_owned(), Outcome::Answered));
+        }
+    }
+
+    // What the *document* says about itself, which is not part of opening it and has not been
+    // since the one-thousand-and-twenty-seventh session: §12.8's answer digests the signed part of
+    // the file and `CLAUDE.md` principle 2 keeps that off a launch, so a host asks once the reader
+    // has their page. This sweep counts what a person would be shown, so it asks too — and it is
+    // the one place here where a filter that refused the signed bytes would show up. ADR 1044.
+    match confined.handle(&Command::Report) {
+        Ok(events) => {
+            swept.notes.extend(notes_in(&events));
+            swept.cells.push(("report".to_owned(), Outcome::Answered));
+        }
+        Err(error) => {
+            let outcome = outcome_of(&error.to_string());
+            let dead = matches!(outcome, Outcome::Killed(_));
+            swept.cells.push(("report".to_owned(), outcome));
+            if dead {
+                return swept;
+            }
         }
     }
 

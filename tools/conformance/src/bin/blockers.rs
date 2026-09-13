@@ -21,7 +21,7 @@
 
 use std::process::ExitCode;
 
-use conformance::blockers::{self, Hit, Standing};
+use conformance::blockers::{self, Form, Hit, Standing};
 use conformance::entries;
 use conformance::ledger::Ledger;
 
@@ -58,20 +58,37 @@ fn run() -> Result<(), Error> {
                 print(hit);
             }
         }
+        let expired = blockers::Report::count(hits, Standing::Expired);
+        let live = hits
+            .iter()
+            .filter(|hit| {
+                hit.standing == Standing::Expired
+                    && hit.form == Form::Dependency
+                    && !hit.past
+                    && !hit.history
+            })
+            .count();
         println!(
-            "{name}: {} blocker sentence(s) — {} expired by the ledger's own account, {} \
+            "{name}: {} blocker sentence(s) — {expired} expired by the ledger's own account, {} \
              holding, {} naming no clause.",
             hits.len(),
-            blockers::Report::count(hits, Standing::Expired),
             blockers::Report::count(hits, Standing::Holds),
             blockers::Report::count(hits, Standing::Unjudged),
+        );
+        println!(
+            "{name}: of those {expired}, {live} assert a dependency in the present tense and \
+             carry no history mark — the reading list. The rest are a `while` or `until` \
+             joining two statements, or a wait stated in the past.",
         );
         println!();
     }
     println!(
         "A hit is a reading list rather than a verdict. The two known noise shapes are a \
          correction quoting the wording it retired — marked [history] — and a past tense, \
-         which no grep can see. Read the sentence before believing a hit."
+         marked [past tense] where the auxiliary is adjacent to the phrase and invisible to any \
+         grep otherwise. A third is marked [conjunction]: `while` and `until` join two \
+         statements and usually contrast two clauses rather than stating a wait. Read the \
+         sentence before believing a hit."
     );
     Ok(())
 }
@@ -92,8 +109,14 @@ fn print(hit: &Hit) {
         format!(" [{}]", named.join(", "))
     };
     let history = if hit.history { " [history]" } else { "" };
+    let past = if hit.past { " [past tense]" } else { "" };
+    let form = if hit.form == Form::Conjunction {
+        " [conjunction]"
+    } else {
+        ""
+    };
     println!(
-        "{}: {}{named}{history}\n    {}",
+        "{}: {}{named}{form}{past}{history}\n    {}",
         hit.location, hit.standing, hit.sentence
     );
 }

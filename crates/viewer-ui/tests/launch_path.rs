@@ -110,7 +110,7 @@
 //! `PDFVIEWER_LAUNCH_SAMPLES` overrides the sample count and **turns judging off**, saying so:
 //! the minimum of three is not the minimum of nine, so a band taken at one is not a band at the
 //! other. Three of the documents are `doc/`'s own, which the specification zip provides (`NOTICE`
-//! section 3), and the fourth is `doc/pdf.js`'s; rows whose document is absent are skipped and
+//! section 3), and two are `doc/pdf.js`'s; rows whose document is absent are skipped and
 //! counted, and a run that finds none of them fails rather than passing quietly.
 
 #![expect(
@@ -1535,8 +1535,8 @@ fn quickest(
 
 /// How large the file [`cold_latency_ms`] reads is.
 ///
-/// A hundred and twenty-eight kibibytes, which is the order of the two smallest documents here
-/// (85 and 106 KiB read), and written in one piece so that it is one extent: what this probe is
+/// A hundred and twenty-eight kibibytes, which is the order of the three smallest documents here
+/// (84, 99 and 109 KiB read), and written in one piece so that it is one extent: what this probe is
 /// asked is how long *one* trip to the disk costs, and a fragmented file would answer with
 /// several.
 const IO_LATENCY_BYTES: usize = 128 << 10;
@@ -1601,7 +1601,7 @@ fn cold_read_ms(probe: &Path) -> Result<f64, String> {
 ///
 /// Eight mebibytes: large enough that the read is the disk rather than the syscall, small enough
 /// that thirty-six of them cost a fraction of a second and that evicting it disturbs nothing
-/// else. The four documents this gate opens read between 85 KiB and 4.3 MiB, so the probe is of
+/// else. The five documents this gate opens read between 84 KiB and 4.3 MiB, so the probe is of
 /// the same order as the largest of them.
 const IO_PROBE_BYTES: usize = 8 << 20;
 

@@ -643,6 +643,18 @@ impl Session {
         self.handle(Command::Save)
     }
 
+    /// Ask the focused document what it says about *itself*, and be told in words.
+    ///
+    /// The eight clauses `viewer_core::notes::about` answers come back on
+    /// [`viewer_core::Event::Reported`] with no page on them. **A caller asks once the reader has
+    /// their page**: §12.8's answer digests the signed part of the file, which `CLAUDE.md`
+    /// principle 2 keeps off the launch path, and a second asking answers the same sentences for
+    /// nothing. ADR 1044.
+    #[must_use]
+    pub fn report(&mut self) -> Events {
+        self.handle(Command::Report)
+    }
+
     /// §7.11.4: take an embedded file's bytes out of the document.
     #[must_use]
     pub fn extract(&mut self, name: String) -> Events {

@@ -118,6 +118,7 @@ pub mod password;
 pub mod policy;
 pub mod popup;
 pub mod presentation;
+pub mod report;
 pub mod status;
 pub mod trace;
 

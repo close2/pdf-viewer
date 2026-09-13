@@ -293,6 +293,28 @@ pub enum Command {
     /// this crate has no filesystem, which is also what lets a confined process with none still
     /// produce a saved file.
     Save,
+    /// Ask the focused document what it says about *itself*, and be told in words.
+    ///
+    /// Answered with [`crate::Event::Reported`] carrying [`crate::notes::about`]'s eight clauses
+    /// — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files, §14.13.2's
+    /// associated files that are not embedded, §7.5's rebuilt cross-reference table, Annex I's
+    /// version, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` — with no page on it,
+    /// because not one of them is about a page. A document with nothing to say answers with
+    /// nothing, which is a normal answer here as everywhere.
+    ///
+    /// **A command rather than something the open does for you, and that is `CLAUDE.md`
+    /// principle 2 rather than a taste.** "Nothing eager … Anything not needed to show page one
+    /// is deferred until first use": §12.8.1's byte range digest is read and hashed over the
+    /// signed part of the *file*, and on a signed document of any size that is the largest single
+    /// thing a `Command::Open` used to do — 1304 KiB read instead of 99, and 47.6 M instructions
+    /// instead of 3.39 M, on a three-megabyte one-page document. `crates/viewer-ui/tests/
+    /// launch_path.rs` measures it and `doc/checks/launch-path.toml`'s signed row bands it.
+    ///
+    /// **So a host asks once the reader has their page**, which is what every host here does at
+    /// the point it acknowledges the first frame. Asking again is cheap and answers the same
+    /// sentences — the work is kept — which is what a window that cleared its status bar needs,
+    /// exactly as [`crate::Query::Reports`] is for the page's own sentences. ADR 1044.
+    Report,
     /// Select something, or stop selecting.
     ///
     /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.

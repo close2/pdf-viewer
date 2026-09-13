@@ -39,7 +39,9 @@
 //!
 //! So the exclusion is not being stretched across a clause boundary to reach them; the clause
 //! that defines them says where they now live, and that is the clause `CLAUDE.md` principle 5
-//! excludes. §12.6.4.6's `Launch` has no such sentence and its refusal is the sandbox's alone.
+//! excludes. §12.6.4.6's `Launch` is handed to no other clause, but it does say what a processor
+//! does with an action whose target it cannot name — "it shall do nothing" — so its refusal is the
+//! sandbox's only where Table 207's `/F` is present, and [`launch`] is where the two part.
 //!
 //! # A URI action is read here and performed nowhere
 //!
@@ -974,6 +976,9 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
                 _ => return None,
             },
         }),
+        // §12.6.4.6 is the one refused type whose sentence the dictionary decides; `launch`
+        // says why.
+        b"Launch" => Action::Refused(launch(document, dict)),
         other => Action::Refused(refused(other)?),
     })
 }
@@ -1240,14 +1245,52 @@ impl Change {
     }
 }
 
-/// The ten of Table 201's types this reader declines, each named rather than lumped together.
+/// §12.6.4.6's refusal, which is two refusals the clause itself distinguishes.
+///
+/// Table 207 makes `/F` — "[t]he application that shall be launched or the document that shall
+/// be opened or printed" — required only "if none of the entries Win , Mac , or Unix is
+/// present", and states what a processor does with a launch action that names its target no
+/// other way it understands:
+///
+/// > If this entry is absent and the interactive PDF processor does not understand any of the
+/// > alternative entries, it shall do nothing.
+///
+/// The three alternatives are understood by nothing here — `/Mac` and `/Unix` are typed
+/// "(undefined)" by the table itself and `/Win` is deprecated in PDF 2.0 — so the standard's own
+/// instruction covers every launch action without an `/F`, and it is a *different* fact about the
+/// file from the one the sandbox states. A reader told only "the sandbox withholds this" cannot
+/// tell a document that named an application from one that named none at all.
+///
+/// Table 208's `/F`, `/D`, `/O` and `/P` are not read and their bytes do not reach these
+/// sentences: [`Action::Refused`] carries this program's vocabulary rather than the document's,
+/// which is the decision its own doc comment records, and a `&'static str` is what enforces it.
+///
+/// §7.3.9 decides what "present" means — "[s]pecifying the null object as the value of a
+/// dictionary entry … shall be equivalent to omitting the entry entirely" — so `get_key` answers
+/// it, not `Dictionary::get`.
+fn launch(document: &Document, dict: &Dictionary) -> &'static str {
+    if !matches!(document.get_key(dict, "F"), Object::Null) {
+        return "Launch: running an application, which the sandbox withholds";
+    }
+    if ["Win", "Mac", "Unix"]
+        .iter()
+        .any(|key| !matches!(document.get_key(dict, key), Object::Null))
+    {
+        return "Launch: the target is named only by Table 207's /Win, /Mac or /Unix, which no \
+                reader here understands, so §12.6.4.6 says to do nothing";
+    }
+    "Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing"
+}
+
+/// The nine of Table 201's types this reader declines with one sentence each.
 ///
 /// **This comment said "Table 201's other seventeen types" until the six-hundred-and-forty-eighth
 /// session**, and no reading of the table produced that number: ISO 32000-2's Table 201 lists
 /// twenty types, [`one`] performs eleven of them, and nine are left with no arm of its own. Ten
-/// are named here rather than nine because `Thread` appears on both sides — §12.6.4.7's action is
+/// were named here rather than nine because `Thread` appears on both sides — §12.6.4.7's action is
 /// performed for a thread in this file and refused for one in another — which is the clause's
-/// distinction rather than this function's.
+/// distinction rather than this function's. `Launch` is the tenth and has left, because its
+/// sentence depends on what the dictionary says: [`launch`] is where it went.
 ///
 /// Returning `None` for a name outside the table matters: §12.6.2 says `/S` names a type "see
 /// Table 201 for specific values", so a name the table does not hold is not an action this
@@ -1257,7 +1300,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"GoToR" => {
             "GoToR: a destination in another file, which this reader has no filesystem to open"
         }
-        b"Launch" => "Launch: running an application, which the sandbox withholds",
         b"Thread" => {
             "Thread: a thread in another file, which this reader has no filesystem to open"
         }
@@ -1427,6 +1469,40 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["Hide", "URI", "Launch", "JavaScript"]);
+    }
+
+    /// §12.6.4.6's three launch actions, and the two reasons the clause gives for declining one.
+    ///
+    /// Table 207 requires `/F` only "if none of the entries Win , Mac , or Unix is present", and
+    /// states the answer for the rest itself: "If this entry is absent and the interactive PDF
+    /// processor does not understand any of the alternative entries, it shall do nothing." So a
+    /// launch action that names an application is withheld by principle 3's sandbox, and one that
+    /// names it only through Table 207's deprecated platform entries — or names nothing — is
+    /// declined by the standard, which is a different fact about the file. Calibrated by making
+    /// [`launch`] answer the sandbox's sentence for all three, under which the two `assert_ne!`
+    /// lines fail (trap 13).
+    #[test]
+    fn a_launch_action_is_declined_for_the_reason_table_207_gives() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /S /Launch /F (notepad.exe) >>",
+            "<< /S /Launch /Win << /F (notepad.exe) >> >>",
+            "<< /S /Launch >>",
+            "<< /S /Launch /F null /Unix 9 0 R >>",
+        ]);
+        let sentence = |number: u32| match read(&doc, &Object::Reference(id(number))).as_slice() {
+            [Action::Refused(why)] => (*why).to_owned(),
+            other => panic!("one refused launch action, not {other:?}"),
+        };
+        let (named, platform, nothing) = (sentence(2), sentence(3), sentence(4));
+        assert!(named.contains("the sandbox withholds"), "{named}");
+        assert_ne!(platform, named);
+        assert_ne!(nothing, named);
+        assert!(platform.contains("/Win, /Mac or /Unix"), "{platform}");
+        assert!(nothing.contains("no target at all"), "{nothing}");
+        // §7.3.9: a null `/F` is an absent `/F`, and `/Unix` naming an object the file does not
+        // define is null for the same clause — so this one has stated nothing either.
+        assert_eq!(sentence(5), nothing);
     }
 
     /// Table 215's four names, and the one the corpus writes that is not among them.

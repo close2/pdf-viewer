@@ -64,10 +64,11 @@
 //!   defect and corrected it *into* this form.
 //! - **A round's own record.** `doc/todo/01` and the ADRs quote every number they retired.
 //! - **A denial whose negation is about something else.** "Table 31 makes a page stating no
-//!   `/Contents` an empty page" denies the *page* an entry rather than the table, and "Table 185
-//!   states no such ordering for `/InkList`" denies an ordering. Which noun a negation attaches to
-//!   is not a question this program can ask, and the three it produced on the first run are all of
-//!   this shape.
+//!   `/Contents` an empty page" denies the *page* an entry rather than the table. Half of the
+//!   shape is now a question the program *can* ask — [`denies`] requires the negation to be the
+//!   word immediately before the key, so a negation with a noun of its own ("no such ordering
+//!   for `/InkList`") is no longer read as one — and the half that is left is the one where the
+//!   negation is adjacent and the noun it belongs to is the sentence's subject.
 //!
 //! **It is a reading list**, and what decides a hit is a question no program can ask: whether the
 //! sentence means *this table states this entry* or *this table is what this entry is about*.
@@ -445,11 +446,18 @@ pub struct Claim {
 const DENIALS: [&str; 6] = ["no", "not", "never", "neither", "none", "nothing"];
 
 /// Whether an attribution's reach denies the key rather than claiming it.
+///
+/// The denial has to be the word **immediately before** the key. Anywhere else in the reach and
+/// a noun has come between the two, which is the negation attaching to that noun instead: "Table
+/// 185 states no such ordering for `/InkList`" denies an *ordering* and says in the same breath
+/// that the table states the entry, and the sweep read it as a denial the table contradicts for
+/// as long as any word in the reach counted (ADR 1048).
 fn denies(tail: &str, reach: usize) -> bool {
     tail.split_whitespace()
         .take(reach)
         .take_while(|word| key_of(word).is_none())
-        .any(|word| {
+        .last()
+        .is_some_and(|word| {
             let word = word.trim_matches(|c: char| !c.is_alphanumeric());
             DENIALS.contains(&word.to_ascii_lowercase().as_str())
         })
@@ -635,6 +643,20 @@ Table 22 -User access permissions
                 key: "FontDescriptor".to_owned(),
                 denied: true,
             }]
+        );
+    }
+
+    /// A negation with a noun of its own between it and the key denies that noun, not the key.
+    ///
+    /// Calibrated against the test above, which is the same verb and the same negation with
+    /// nothing in between: the pair is what says the rule separates two grammars rather than
+    /// silencing denials (trap 13).
+    #[test]
+    fn a_negation_that_governs_another_noun_denies_nothing() {
+        assert_eq!(
+            attributions_in("Table 185 states no such ordering for `/InkList`"),
+            vec![claim(185, "InkList")],
+            "the ordering is what the sentence denies; the table does state the entry"
         );
     }
 

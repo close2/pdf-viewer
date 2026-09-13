@@ -58,6 +58,7 @@ pub mod eddsa;
 pub mod ess;
 pub mod pkcs1;
 pub mod pss;
+pub mod revision;
 pub mod signature;
 pub mod trust;
 pub mod x509;

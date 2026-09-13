@@ -816,8 +816,10 @@ fn a_rebuild_says_what_it_recovered_from_an_object_stream() {
         })
         .flatten()
         .collect();
-    // Both channels, because they are two: what the file says about itself is said when it opens,
-    // and what a damaged object stream cost is said when it becomes known (`notes::losses`).
+    said.extend(said_about_the_document(&mut viewer));
+    // Three channels, because they are three: what the file says about *itself* when it is asked
+    // (`Command::Report`, ADR 1044), what the open already discovered about §7.5.7's storage, and
+    // what a damaged object stream cost when it becomes known (`notes::losses`).
     if let Answer::Reports(all) = viewer.query(Query::Reports) {
         said.extend(all.iter().flat_map(|page| page.notes.iter().cloned()));
     }
@@ -1266,8 +1268,28 @@ fn a_uri_is_handed_over_rather_than_opened() {
     );
 }
 
+/// What the focused document says about *itself*, asked for the way every host asks for it.
+///
+/// `Command::Report`, which is the one thing that produces `viewer_core::notes::about`'s eight
+/// clauses. It is not part of opening the document and has not been since the
+/// one-thousand-and-twenty-seventh session: §12.8's answer reads and digests the signed part of
+/// the file, `CLAUDE.md` principle 2 keeps off the launch path "[a]nything not needed to show
+/// page one", and `crates/viewer-ui/tests/launch_path.rs` bands what that is worth. ADR 1044.
+fn said_about_the_document(viewer: &mut Viewer) -> Vec<String> {
+    viewer
+        .handle(Command::Report)
+        .filter_map(|event| match event {
+            Event::Reported {
+                page: None, notes, ..
+            } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
 #[test]
-fn a_document_says_what_it_carries_before_a_page_is_drawn() {
+fn a_document_says_what_it_carries_when_it_is_asked() {
     // §12.11's requirements, §12.8's signatures and §7.11.4's embedded files are claims about the
     // *file*, and a person deciding whether to trust what they are looking at needs them before
     // any page is drawn. That is why they arrive with no page number.
@@ -1276,16 +1298,13 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
         return;
     };
     let mut viewer = Viewer::new(800, 1000, 1.0);
-    let events: Vec<_> = viewer
+    let opening: Vec<String> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
             bytes: bytes.into(),
             password: None,
             fragment: None,
         })
-        .collect();
-    let about: Vec<&String> = events
-        .iter()
         .filter_map(|event| match event {
             Event::Reported {
                 page: None, notes, ..
@@ -1294,11 +1313,79 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
         })
         .flatten()
         .collect();
+    // **The open says none of it, and that is the half this test gained in the
+    // one-thousand-and-twenty-seventh session.** Opening a signed document used to read and
+    // digest the signed part of the file before page one existed; now `Command::Report` is what
+    // asks. A regression that put the work back would pass the assertion below and fail here.
+    assert!(
+        !opening
+            .iter()
+            .any(|note| note.contains("carries an embedded file")),
+        "opening the document does not say what the document holds: {opening:?}"
+    );
+    let about = said_about_the_document(&mut viewer);
     assert!(
         about
             .iter()
             .any(|note| note.contains("carries an embedded file")),
-        "this document carries one: {about:?}"
+        "this document carries one, and says so when it is asked: {about:?}"
+    );
+    // And asking twice answers the same sentences, because the work is kept: a window that
+    // cleared its status bar can ask again (`Open::about`'s `OnceCell`).
+    assert_eq!(
+        said_about_the_document(&mut viewer),
+        about,
+        "a second asking answers what the first one did"
+    );
+}
+
+/// §12.8's sentences reach the reader, and not one of them is paid for by opening the document.
+///
+/// **The test the launch path is measured against, in words.** `Signature::integrity` and
+/// `Signature::authenticity` each read and digest the bytes §12.8.1's `/ByteRange` names, and
+/// `Signature::excluded` and `Signature::signed_end` each walk them — four passes over the signed
+/// part of the file, which on a signed document of any size is the whole of it. `CLAUDE.md`
+/// principle 2 says "[a]nything not needed to show page one is deferred until first use", and a
+/// signature says nothing about what page one draws.
+///
+/// So the open says none of it and `Command::Report` says all of it. Both halves are asserted,
+/// because either alone is satisfied by a defect: an open that still did the work would pass the
+/// second, and a report deferred into never being produced would pass the first.
+/// `crates/viewer-ui/tests/launch_path.rs` is where the same claim is a number. ADR 1044.
+#[test]
+fn what_a_signature_covers_is_said_when_the_document_is_asked_and_not_when_it_opens() {
+    let Some(bytes) = corpus_bytes("signed_verified.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let opening: Vec<String> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .filter_map(|event| match event {
+            Event::Reported { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(
+        !opening.iter().any(|note| note.contains("signature")),
+        "opening a signed document says nothing about its signature: {opening:?}"
+    );
+    let about = said_about_the_document(&mut viewer);
+    assert!(
+        about.iter().any(|note| note.contains("signed by")),
+        "and asking says who signed it: {about:?}"
+    );
+    assert!(
+        about
+            .iter()
+            .any(|note| note.contains("of the three questions a signature asks")),
+        "with the sentence that says which questions this program answered: {about:?}"
     );
 }
 
@@ -1333,14 +1420,11 @@ fn a_file_the_document_associates_but_does_not_carry_is_named_when_it_opens() {
                 password: None,
                 fragment: None,
             })
-            .filter_map(|event| match event {
-                Event::Reported {
-                    page: None, notes, ..
-                } => Some(notes),
-                _ => None,
-            })
-            .flatten()
-            .collect()
+            .for_each(drop);
+        // What a *document* says about itself is asked for rather than done by the open: §12.8's
+        // answer digests the signed part of the file, and `CLAUDE.md` principle 2 keeps that off
+        // the launch path (ADR 1044). Every host asks once the first frame is presented.
+        said_about_the_document(&mut viewer)
     };
 
     let outside = about(
@@ -1375,7 +1459,7 @@ fn a_file_the_document_associates_but_does_not_carry_is_named_when_it_opens() {
 }
 
 #[test]
-fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
+fn a_file_newer_than_this_program_says_so_when_it_is_asked() {
     // Annex I: "[i]f a PDF processor opens a PDF file with a version number newer than the
     // version that it supports … it should warn the user that it is unlikely to be able to read
     // the document successfully". No corpus document can reach this — the newest of the 974
@@ -1398,14 +1482,11 @@ fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
                 password: None,
                 fragment: None,
             })
-            .filter_map(|event| match event {
-                Event::Reported {
-                    page: None, notes, ..
-                } => Some(notes),
-                _ => None,
-            })
-            .flatten()
-            .collect()
+            .for_each(drop);
+        // What a *document* says about itself is asked for rather than done by the open: §12.8's
+        // answer digests the signed part of the file, and `CLAUDE.md` principle 2 keeps that off
+        // the launch path (ADR 1044). Every host asks once the first frame is presented.
+        said_about_the_document(&mut viewer)
     };
 
     let newer = about("%PDF-2.1");
@@ -1572,14 +1653,11 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
                 password: None,
                 fragment: None,
             })
-            .filter_map(|event| match event {
-                Event::Reported {
-                    page: None, notes, ..
-                } => Some(notes),
-                _ => None,
-            })
-            .flatten()
-            .collect()
+            .for_each(drop);
+        // What a *document* says about itself is asked for rather than done by the open: §12.8's
+        // answer digests the signed part of the file, and `CLAUDE.md` principle 2 keeps that off
+        // the launch path (ADR 1044). Every host asks once the first frame is presented.
+        said_about_the_document(&mut viewer)
     };
 
     // Two this program cannot meet at 60 and 55, and one it can at 100. The total is 115: the

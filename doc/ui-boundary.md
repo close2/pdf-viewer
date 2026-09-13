@@ -496,6 +496,15 @@ what the compiler failure found was `viewer-ui` writing a password field's bulle
 value on every keystroke. `Answer::Fields` carries the same type, so a host cannot learn the
 exception from one question and miss it in the other (ADR 0247).
 
+**`Command::Report` was added in the one-thousand-and-twenty-seventh**, and it is the one message
+here whose reason is principle 2 rather than a clause needing a channel. What a *document* says
+about itself — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files and five more —
+used to be worded by `Command::Open` and arrive unasked; §12.8's answer digests the bytes
+`/ByteRange` names, which on a signed document is most of the file, and none of it draws a page. So
+the sentences are asked for, on the event that always carried them, and **when a host asks is part
+of the decision**: once the frame it has just presented is on the screen, which
+`viewer_host::report::Due` holds for all four hosts and a sweep in `viewer-host` enforces. ADR 1044.
+
 So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md), whose
 three landed in the four-hundred-and-eighth, the four-hundred-and-tenth and the
 four-hundred-and-eleventh, and whose remainder is *surface* rather than architecture. **The three

@@ -21,19 +21,27 @@
 //! capability, a dependency's branch, a decision — is [unjudged](Standing::Unjudged) and is
 //! the part the reading still owns.
 //!
-//! # The three false-positive shapes, printed rather than filtered
+//! # The four false-positive shapes, printed rather than filtered
 //!
 //! All are `doc/todo/01`'s findings about this sweep and none shrinks under a tighter grep.
 //! **A correction quoting the wording it retired** reproduces the blocker inside a history
 //! sentence — §11.3.7.2's note both quotes "needs §11.4.6" and explains why it was wrong — so
 //! a sentence that reads like history is marked [`Hit::history`] and still printed. **A sweep
-//! for a blocker cannot see a tense**: "were blocked on one small piece of clause 7" matches
-//! the same phrase in the past tense, which only reading catches. And — the program's own
+//! for a blocker cannot see every tense**: "were blocked on one small piece of clause 7" is
+//! the same phrase in the past, and where the auxiliary is adjacent to it [`PAST`] now marks
+//! that — "the row said X waits on Y" is still only reading's. And — the program's own
 //! first run — **a clause can be named as the route to something outside the standard**:
 //! §12.10.2's "needs §12.10.3's external references" waits on the EPSG registry and ISO 19162
 //! that §12.10.3 *points at*, so §12.10.3's own settled row settles nothing about the wait,
 //! and the [`Standing::Expired`] label there is the instrument misattributing the blocker. A
 //! hit is a reading list, not a verdict.
+//!
+//! And the fourth, which is the one that filled the sharpest bucket: **`while` and `until` are
+//! conjunctions**, so a sentence contrasting what two clauses say matches a phrase list built
+//! for dependencies. Every one of the thirty sentences the sweep called expired when the shape
+//! was named carried one of the three marks — [`CONJUNCTIONS`], [`PAST`] or [`HISTORY`] — and
+//! none asserted a live wait. They are counted apart rather than dropped, because "while
+//! §11.4.6 does not exist" is this sweep's founding example and is written with one (ADR 1048).
 //!
 //! # Why it is not a gate
 //!
@@ -62,6 +70,17 @@ pub const CLAIMS: [&str; 7] = [
     "blocked by",
 ];
 
+/// The two of [`CLAIMS`] that are conjunctions rather than assertions of a dependency.
+///
+/// `while` and `until` join two statements and say nothing about which depends on which. This
+/// tree writes both far more often to *contrast* two clauses — "§9.9.1 says outright … while
+/// §7.10.4's `/Bounds` scale with its k" — than to state a wait, and `until` is besides the
+/// spelling a *past* blocker takes ("nothing read it until §12.3.4's list was built"). They stay
+/// in the population because a real blocker is sometimes written with one — "while §11.4.6 does
+/// not exist" is this sweep's founding example — but they are counted apart, so the number a
+/// round is asked to move is not dominated by a grammar (ADR 1048).
+pub const CONJUNCTIONS: [&str; 2] = ["while §", "until §"];
+
 /// The phrases that make a claim sentence read like history rather than like a reason.
 ///
 /// A correction quoting the wording it retired is this sweep's oldest false-positive shape,
@@ -75,6 +94,33 @@ pub const HISTORY: [&str; 6] = [
     "stood",
     "this row",
 ];
+
+/// Which of [`CLAIMS`] made a sentence a hit, and therefore how much it claims.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Form {
+    /// The sentence asserts a dependency in as many words: `needs`, `waits on`, `blocked on`.
+    Dependency,
+    /// The sentence only joins two statements with `while` or `until` — see [`CONJUNCTIONS`].
+    Conjunction,
+}
+
+impl fmt::Display for Form {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Dependency => "dependency",
+            Self::Conjunction => "conjunction",
+        })
+    }
+}
+
+/// The words that put a dependency phrase in the past tense.
+///
+/// Matched immediately before the phrase, which is the whole of the precision here: "were
+/// blocked on one small piece of clause 7" and "Three documents were waiting on that" are this
+/// sweep's second noise shape, and the module documentation said no grep could see a tense. It
+/// can see *these*, because the auxiliary is adjacent to the phrase; it still cannot see "the
+/// row said X waits on Y", which is what [`HISTORY`] marks instead.
+pub const PAST: [&str; 4] = ["was ", "were ", "had been ", "has been "];
 
 /// What the ledger's own account says about one blocker sentence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +162,10 @@ pub struct Hit {
     /// Whether the sentence also reads like a correction's history — the known
     /// quoted-retired-wording shape.
     pub history: bool,
+    /// Which of [`CLAIMS`] made it a hit.
+    pub form: Form,
+    /// Whether the dependency phrase is in the past tense — see [`PAST`].
+    pub past: bool,
 }
 
 /// What one run of the sweep read and what it found.
@@ -184,9 +234,20 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
 /// Judges one sentence: a [`Hit`] with an empty location if it claims a blocker, else `None`.
 fn judge(sentence: &str, ledger: &Ledger) -> Option<Hit> {
     let lowered = sentence.to_ascii_lowercase();
-    if !CLAIMS.iter().any(|phrase| lowered.contains(phrase)) {
+    let matched: Vec<&str> = CLAIMS
+        .iter()
+        .copied()
+        .filter(|phrase| lowered.contains(phrase))
+        .collect();
+    if matched.is_empty() {
         return None;
     }
+    let form = if matched.iter().any(|phrase| !CONJUNCTIONS.contains(phrase)) {
+        Form::Dependency
+    } else {
+        Form::Conjunction
+    };
+    let past = matched.iter().any(|phrase| past_tense(&lowered, phrase));
     let named: Vec<(ClauseNumber, Option<Status>)> = clauses_in(sentence)
         .into_iter()
         .map(|clause| {
@@ -217,7 +278,29 @@ fn judge(sentence: &str, ledger: &Ledger) -> Option<Hit> {
         named,
         standing,
         history: HISTORY.iter().any(|phrase| lowered.contains(phrase)),
+        form,
+        past,
     })
+}
+
+/// Whether every occurrence of `phrase` in `lowered` is preceded by one of [`PAST`].
+///
+/// Every, rather than any: a sentence that states the wait once in the past and once in the
+/// present is a live blocker with its own history beside it, and marking that one as past would
+/// be the silencing this sweep exists to avoid.
+fn past_tense(lowered: &str, phrase: &str) -> bool {
+    let mut at = 0usize;
+    let mut seen = false;
+    while let Some(found) = lowered[at..].find(phrase) {
+        let start = at.saturating_add(found);
+        let before = &lowered[..start];
+        if !PAST.iter().any(|auxiliary| before.ends_with(auxiliary)) {
+            return false;
+        }
+        seen = true;
+        at = start.saturating_add(phrase.len());
+    }
+    seen
 }
 
 /// The clause numbers a sentence cites with a `§`.
@@ -349,6 +432,54 @@ mod tests {
             )]
         );
         assert!(!hit.history);
+        assert_eq!(hit.form, Form::Dependency);
+        assert!(!hit.past);
+    }
+
+    /// A `while` or `until` joining two statements is counted apart from a stated dependency,
+    /// and the two sentences here are the shape that filled this sweep's sharpest bucket: both
+    /// name a settled clause, and neither says anything waits on it.
+    #[test]
+    fn a_conjunction_is_not_a_stated_dependency() {
+        let ledger = Ledger { rows: Vec::new() };
+        let contrast = judge(
+            "§9.9.1 says the tables \"shall never be used\" while §9.2.4 is an inference.",
+            &ledger,
+        )
+        .expect("a hit");
+        assert_eq!(contrast.form, Form::Conjunction);
+        let stated = judge("The group's shape needs §11.4.6.", &ledger).expect("a hit");
+        assert_eq!(stated.form, Form::Dependency);
+    }
+
+    /// A dependency phrase with its auxiliary adjacent is a wait that has already ended, and
+    /// this is the tense the module documentation said no grep could see.
+    ///
+    /// Calibrated by the pair: the same phrase in the present tense is unmarked, so the mark
+    /// separates two tenses rather than demoting the phrase (trap 13).
+    #[test]
+    fn an_adjacent_auxiliary_is_a_past_wait() {
+        let ledger = Ledger { rows: Vec::new() };
+        let past = judge(
+            "Four families were blocked on one small piece of clause 7.",
+            &ledger,
+        )
+        .expect("a hit");
+        assert!(past.past);
+        let present = judge("Four families are blocked on §7.9.6.", &ledger).expect("a hit");
+        assert!(!present.past);
+    }
+
+    /// A sentence stating the wait twice, once ended and once standing, is not a past one.
+    #[test]
+    fn a_wait_stated_twice_is_past_only_if_both_are() {
+        let ledger = Ledger { rows: Vec::new() };
+        let hit = judge(
+            "It was blocked on the decoder and is blocked on the registry.",
+            &ledger,
+        )
+        .expect("a hit");
+        assert!(!hit.past, "the second statement is in the present tense");
     }
 
     /// A blocker naming a clause that still owes something holds today, which is a result

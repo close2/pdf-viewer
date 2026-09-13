@@ -994,6 +994,10 @@ mod command_kind {
     // The person's answer to `Event::Asking`, since the eight-hundred-and-eighty-fifth: the
     // *ask* level's second half, which a confined host has to be able to supply. ADR 0814.
     pub(super) const ANSWER: u8 = 26;
+    // What the document says about itself, asked for once the reader has their page, since the
+    // one-thousand-and-twenty-seventh: `notes::about` left the open path so that a signed
+    // document's digest stopped being part of a launch. ADR 1044.
+    pub(super) const REPORT: u8 = 27;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1200,6 +1204,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         Command::Save => {
             writer.u8(k::SAVE);
         }
+        Command::Report => {
+            writer.u8(k::REPORT);
+        }
         Command::Select(selection) => {
             writer.u8(k::SELECT).u8(match selection {
                 Selection::All => 0,
@@ -1390,6 +1397,7 @@ pub(crate) fn decode_command_holding(
             name: reader.string("an attachment's name")?,
         },
         k::SAVE => Command::Save,
+        k::REPORT => Command::Report,
         k::FIND => Command::Find(match reader.u8("a find step")? {
             0 => Find::Start {
                 needle: reader.string("a search string")?,
@@ -3463,6 +3471,9 @@ mod tests {
                 name: "attachment.txt".to_owned(),
             },
             Command::Save,
+            // What the document says about itself, asked for rather than done by the open, since
+            // the one-thousand-and-twenty-seventh session (ADR 1044).
+            Command::Report,
             Command::Select(Selection::All),
             Command::Select(Selection::None),
             // Annex O's `search` and a find bar's *next*, since the four-hundred-and-fourteenth:

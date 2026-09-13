@@ -561,7 +561,12 @@ pub fn sweep(
                     .iter()
                     .any(|(other, seen, _)| other != which && seen != count)
             });
-            if disagreeing {
+            // A clause the ledger gives no rows below has no cardinality for two numbers to
+            // disagree *about*, and this sweep already says so of each of them on its own
+            // ([`Verdict::Childless`]). Pairing them anyway put four places in the sharpest
+            // bucket whose second number counted a raster row, a row of one of the standard's own
+            // tables and an erratum's row — none of them a claim about this ledger (ADR 1048).
+            if disagreeing && families.at(&clause).exists() {
                 report.contradictions.push(Contradiction {
                     clause,
                     noun,
@@ -990,6 +995,31 @@ mod tests {
                 .collect::<Vec<usize>>(),
             vec![2, 4]
         );
+    }
+
+    /// A leaf row's note counting two different things is not the ledger contradicting itself,
+    /// because the ledger holds nothing below the clause for either number to be about.
+    ///
+    /// The calibration is the pair: the same two sentences under a clause that *has* a family
+    /// are a contradiction, and the assertion above is what says this one is excluded by the
+    /// family and not by the prose (trap 13).
+    #[test]
+    fn a_leaf_rows_two_numbers_contradict_nothing() {
+        let ledger = Ledger {
+            rows: vec![row(
+                "11.7.4.5",
+                Status::Implemented,
+                "Spot colourants",
+                "Its nine rows are indexed by the source colour space. Row by row: the three spot \
+                 colourant rows have no component to affect.",
+            )],
+        };
+        let report = sweep(&ledger, &[], &[]);
+        assert!(
+            report.contradictions.is_empty(),
+            "a clause with no rows below it has no cardinality to disagree about"
+        );
+        assert_eq!(report.childless(), 2, "both numbers are still reported");
     }
 
     /// A cardinal is a small number written as digits or as this project's words, and a hyphenated

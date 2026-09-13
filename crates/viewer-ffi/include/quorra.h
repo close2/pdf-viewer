@@ -637,6 +637,9 @@ int32_t quorra_redo(quorra_viewer *viewer, quorra_events **events);
 /* §7.5.6's incremental update, and §7.11.4's embedded file. Both answer with bytes on an event. */
 int32_t quorra_save(quorra_viewer *viewer, quorra_events **events);
 int32_t quorra_extract(quorra_viewer *viewer, const char *name, quorra_events **events);
+/* What the document says about *itself* — §12.8's signatures above all — on a QUORRA_EVENT_REPORTED
+ * with no page. Ask once the reader has their page: it digests the signed part of the file. */
+int32_t quorra_document_report(quorra_viewer *viewer, quorra_events **events);
 /* The answer to a QUORRA_EVENT_NEEDS_FILE. A NULL `bytes` is a refusal, which is a fair answer. */
 int32_t quorra_supply(quorra_viewer *viewer, uint32_t purpose, const uint8_t *bytes, size_t len,
                     quorra_events **events);

@@ -11,9 +11,10 @@
 
 use std::path::{Path, PathBuf};
 
+use pdf_signature::revision::{Comparison, Judgement};
 use pdf_signature::signature::{
-    Authenticity, Coverage, Excluded, Integrity, Right, Signature, SignedEnd, UsageRights,
-    permissions, signatures, signing_certificate_bindings,
+    Authenticity, Coverage, Excluded, Integrity, Modification, Right, Signature, SignedEnd,
+    UsageRights, permissions, signatures, signing_certificate_bindings,
 };
 use pdf_signature::trust::{Trust, TrustAnchors};
 use pdf_signature::x509::Instant;
@@ -531,6 +532,118 @@ fn every_corpus_signature_says_what_its_range_leaves_out_and_where_it_stops() {
     assert!(
         indirect.is_empty(),
         "signature dictionaries breaking \u{a7}12.8.1's direct-objects rule: {indirect:?}"
+    );
+}
+
+/// §12.8.2.2.2's second step over the corpus: whose signed revision can be reconstructed, and
+/// what changed after it.
+///
+/// > Therefore, PDF processors may compare the signed and current versions of the document to see
+/// > whether there have been modifications to any objects that are not permitted by the transform
+/// > parameters.
+///
+/// **Three of the ten refuse, and the refusals are the point.** A comparison is only worth making
+/// where the prefix the signature signed is a state the document was actually in — `Excluded` and
+/// `SignedEnd` are the two checks, and the four signatures that fail either of them are the four
+/// this tree already reports as leaving out something other than their own value. Nothing is
+/// compared for those, by name.
+///
+/// The seven that can be compared are the finding: six have nothing appended after them at all,
+/// and `prefilled_f1040.pdf` has **three incremental updates** carrying fifteen changed objects,
+/// which is §12.8.2.2.2's question asked by a real file. What this round does **not** do is rank
+/// those fifteen against Table 257's levels; `Judgement::NotClassified` is what comes back, and
+/// the count held here is what a later round has to explain object by object. ADR 1043.
+#[test]
+fn every_corpus_signature_is_asked_what_changed_after_it() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let mut compared = Vec::new();
+    let mut refused = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in &every_signature(&document) {
+            match Comparison::of(signature, &document) {
+                Ok(comparison) => {
+                    let changes = comparison.changes();
+                    compared.push(format!(
+                        "{name}: ends at {}, {} update(s) after it, +{} ~{} -{} ?{}{}",
+                        comparison.end(),
+                        comparison.updates_after(),
+                        changes.added.count(),
+                        changes.redefined.count(),
+                        changes.removed.count(),
+                        changes.unplaceable.count(),
+                        if changes.catalog_moved {
+                            ", catalog moved"
+                        } else {
+                            ""
+                        }
+                    ));
+                    // The level is the author's where there is one, and Table 257's default of 2
+                    // where a signature carries a transform with no `/P`. Nothing here ranks it;
+                    // the assertion below is that nothing here *claims* to.
+                    let level = permissions(&document)
+                        .doc_mdp
+                        .unwrap_or(Modification::FormFilling);
+                    match comparison.against(level) {
+                        Judgement::NoChangeToRank => assert!(
+                            changes.is_empty(),
+                            "{name}: nothing to rank and something changed: {changes:?}"
+                        ),
+                        Judgement::NotClassified { objects, .. } => assert!(
+                            objects > 0,
+                            "{name}: a refusal to classify with nothing to classify"
+                        ),
+                    }
+                }
+                Err(refusal) => refused.push(format!("{name}: {refusal}")),
+            }
+        }
+    }
+
+    compared.sort();
+    refused.sort();
+    for line in &compared {
+        println!("  compared  {line}");
+    }
+    for line in &refused {
+        println!("  refused   {line}");
+    }
+
+    assert_eq!(
+        refused,
+        [
+            "issue6127.pdf: the signed range leaves out NotTheSignatureValue { at: 1529, \
+             length: 12400 } rather than the signature value alone",
+            "poppler-395-0-fuzzed.pdf: the signed range leaves out NotTheSignatureValue { at: \
+             9001, length: 4244 } rather than the signature value alone",
+            "xfa_filled_imm1344e.pdf: the signed range leaves out NotTheSignatureValue { at: \
+             15651, length: 32578 } rather than the signature value alone",
+            "xfa_filled_imm1344e.pdf: the signed range leaves out NotTheSignatureValue { at: \
+             568130, length: 10118 } rather than the signature value alone",
+        ],
+        "signatures whose signed bytes are not a revision, and are therefore not compared"
+    );
+    assert_eq!(
+        compared,
+        [
+            "160F-2019.pdf: ends at 328400, 0 update(s) after it, +0 ~0 -0 ?0",
+            "bug854315.pdf: ends at 107532, 0 update(s) after it, +0 ~0 -0 ?0",
+            "issue16553.pdf: ends at 718356, 0 update(s) after it, +0 ~0 -0 ?0",
+            "issue17069.pdf: ends at 706317, 0 update(s) after it, +0 ~0 -0 ?0",
+            "prefilled_f1040.pdf: ends at 299340, 3 update(s) after it, +7 ~8 -0 ?0",
+            "signed_verified.pdf: ends at 10252, 0 update(s) after it, +0 ~0 -0 ?0",
+        ],
+        "the signed revisions this corpus lets be reconstructed, and what changed after each"
     );
 }
 

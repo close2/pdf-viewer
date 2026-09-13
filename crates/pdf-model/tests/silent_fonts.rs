@@ -408,3 +408,108 @@ fn the_witness_states_a_font_program_stream_of_no_bytes() {
     }
     assert_eq!(seen, 1, "the document states exactly one /FontFile3");
 }
+
+/// A font the file did not embed is refused beside one it did, in the same sentence.
+///
+/// §9.7.5.2 states the prohibition about the *file* rather than about the reader:
+///
+/// > The Identity-H and Identity-V CMaps shall not be used with a non-embedded font. Only
+/// > standardized character sets may be used.
+///
+/// `issue6127.pdf` page 1 is the corpus's control for that sentence, because it breaks it and
+/// keeps it in one text object. The attestation paragraph is set in `/C2_2` — `DPOKGC+Times`
+/// `NewRoman`, `/Encoding /Identity-H`, whose descendant carries a `/FontFile2` — up to
+/// *"…Assurance Maladie Maternité et "*; the next operator selects `/C2_14`, which is
+/// `/TimesNewRoman` under the same `/Encoding /Identity-H` with **no** `/FontFile2` and no
+/// `/ToUnicode`, and continues *"ne pas remplir les…"*. Same face, same `CMap`, same sentence,
+/// adjacent operators: the only thing that differs is whether the producer supplied the program,
+/// which is exactly what the clause makes decide.
+///
+/// So the drawn half of the sentence is the discriminating control trap 27 asks for — the
+/// assertion cannot pass on a page that drew nothing — and the refused half is what §9.7.4.2
+/// forbids being guessed at: with the program absent "CIDs shall not participate in glyph
+/// selection".
+///
+/// ADR 0433 is the decision that no code changes for this construction and the measurement of
+/// what the other renderers do instead.
+#[test]
+fn an_identity_cmap_over_a_font_the_file_did_not_embed_is_refused_beside_one_it_did() {
+    let Some(interpretation) = page_one("issue6127.pdf") else {
+        return;
+    };
+    let said = reports(&interpretation);
+    assert_eq!(
+        said.matches("§9.7.5.2 says shall not be used").count(),
+        2,
+        "the two fonts the file left unembedded are refused, and only those two: {said}"
+    );
+    assert!(
+        said.contains("/C2_7") && said.contains("/C2_14"),
+        "and each is named: {said}"
+    );
+    assert!(
+        !interpretation.is_complete(),
+        "so the page is not complete: {said}"
+    );
+    let text = &interpretation.text;
+    assert!(
+        text.contains("J'atteste sur l'honneur ne pas relever d'un régime obligatoire"),
+        "the half of the sentence set in the embedded font is drawn: {text:?}"
+    );
+    assert!(
+        !text.contains("ne pas remplir"),
+        "and the half set in the font nobody supplied is not: {text:?}"
+    );
+}
+
+/// And the two halves of that sentence really are one embedded font and one absent one.
+///
+/// The discriminating half of the test above, read out of the document rather than off the page:
+/// `/C2_2` and `/C2_14` are both `/Type0` with `/Encoding /Identity-H`, and exactly one of the
+/// two descendants states a `/FontFile2`. A document silently replaced, or a producer's resource
+/// names shifting, fails here rather than leaving the test above passing for a new reason.
+#[test]
+fn the_witness_states_one_embedded_program_and_one_absent_one() {
+    let path: PathBuf =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue6127.pdf");
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    let document = Document::open(bytes).unwrap_or_else(|e| panic!("issue6127.pdf: {e}"));
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .unwrap_or_else(|| panic!("issue6127.pdf has no page one"));
+    let fonts = document.get_key(&page.resources, "Font");
+    let fonts = fonts
+        .as_dict()
+        .unwrap_or_else(|| panic!("page one states a /Font resource dictionary"));
+    let shape = |name: &str| {
+        let dict = document.get_key(fonts, name);
+        let dict = dict
+            .as_dict()
+            .unwrap_or_else(|| panic!("/{name} names a font dictionary"));
+        let encoding = document.get_key(dict, "Encoding");
+        let identity = encoding.as_name().is_some_and(|n| &*n.0 == b"Identity-H");
+        let descendants = document.get_key(dict, "DescendantFonts");
+        let Some(object) = descendants
+            .as_array()
+            .and_then(<[pdf_syntax::Object]>::first)
+        else {
+            panic!("/{name} states a one-element /DescendantFonts array")
+        };
+        let first = document.resolve(object);
+        let descendant = first
+            .as_dict()
+            .unwrap_or_else(|| panic!("/{name}'s descendant is a dictionary"));
+        let descriptor = document.get_key(descendant, "FontDescriptor");
+        let embedded = descriptor
+            .as_dict()
+            .is_some_and(|d| document.get_key(d, "FontFile2").as_stream().is_some());
+        (identity, embedded)
+    };
+    assert_eq!(
+        (shape("C2_2"), shape("C2_14")),
+        ((true, true), (true, false)),
+        "both fonts state /Identity-H and exactly one of them states a /FontFile2"
+    );
+}

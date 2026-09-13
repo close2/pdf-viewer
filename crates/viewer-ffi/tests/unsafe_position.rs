@@ -168,8 +168,8 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // level until something can answer its question (ADR 0814). Three event kinds came with them,
     // so `QUORRA_EVENT_KIND_COUNT` moved 16 → 19; `QUORRA_ABI_VERSION` did not, for the standing
     // reason that a caller compiled before an entry point existed calls nothing of that shape.
-    assert_eq!(no_mangle, 177, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 163, "161 `unsafe` entry points and two helpers");
+    assert_eq!(no_mangle, 178, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 164, "162 `unsafe` entry points and two helpers");
 }
 
 #[test]

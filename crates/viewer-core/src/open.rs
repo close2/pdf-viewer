@@ -330,6 +330,19 @@ pub(crate) struct Open {
     /// happen at any page — so `pdf_syntax::Document::scan_refused` becomes `Some` whenever it
     /// does, and the sentence is said once, when it first is. ADR 0812.
     pub(crate) scan_refusal_said: bool,
+    /// What the *document* says about itself, worded the first time somebody asks for it.
+    ///
+    /// **Off the launch path on purpose, and the reason is a measurement.** [`crate::notes::about`]
+    /// answers eight clauses about the file rather than about any page, and §12.8's is the
+    /// expensive one: a signed document's report reads the signed byte ranges and digests them
+    /// twice, which on `doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf` — three megabytes, one page —
+    /// took a `Command::Open` from 99 KiB and 26 read calls to 1304 KiB and 118, and from 1.80 M
+    /// instructions to 47.6 M. `CLAUDE.md` principle 2 says "[a]nything not needed to show page one
+    /// is deferred until first use", and none of those eight sentences is needed to draw a page.
+    ///
+    /// So [`crate::Command::Report`] is what asks, and this is what makes asking twice cost once.
+    /// ADR 1044.
+    pub(crate) about: OnceCell<Vec<String>>,
 }
 
 /// One end of a selection: a page, and a byte offset into that page's readback.
@@ -764,7 +777,20 @@ impl Open {
             fonts: pdf_model::FontCache::new(),
             losses_said: 0,
             scan_refusal_said: false,
+            about: OnceCell::new(),
         }
+    }
+
+    /// What this document says about itself, worded once and kept.
+    ///
+    /// The eight clauses [`crate::notes::about`] answers, produced the first time
+    /// [`crate::Command::Report`] asks and read from [`Self::about`] every time after. `&self`
+    /// rather than `&mut self` because a [`OnceCell`] is what makes "once" a property of the
+    /// value rather than of the caller's discipline — and because the document is immutable, so
+    /// the sentences are a function of the file and are the same sentences every time.
+    pub(crate) fn about(&self) -> &[String] {
+        self.about
+            .get_or_init(|| crate::notes::about(&self.document))
     }
 
     /// Drops everything derived from what the page draws, because the view state moved.

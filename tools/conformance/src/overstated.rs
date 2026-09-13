@@ -59,8 +59,10 @@
 //!    have joined them.
 //! 3. **[`Rung::Elsewhere`] — the denial is about another member of the same vocabulary.** A
 //!    different table where a table was asserted, a different entry where an entry was: the row
-//!    owns the term and its denial is about something else. Printed rather than dropped, because
-//!    what makes it noise is a judgement about which of two tables a sentence is about.
+//!    owns the term and its denial is about something else. Printed rather than dropped — the
+//!    parent may be overstating for a reason the pairing cannot see — but **the rung itself
+//!    demotes the finding**, because a denial about another term contradicts nothing the parent
+//!    said about this one, and that is arithmetic rather than a reading (ADR 1048).
 //!
 //! # The noise, printed rather than filtered
 //!
@@ -79,6 +81,11 @@
 //!   are true, both name `/Lang`, and only the partitive tells them apart. This one is left to
 //!   the reader deliberately — a program deciding what "three of the four" governs is the
 //!   guess-what-the-sentence-means failure every sweep here refuses.
+//! - **An assertion that excepts one of its own terms**, which is not printed at all, because the
+//!   part's own words settle it: §7.3.8 says "Table 5's entries are read where they are used —
+//!   `/Length` … by the parser, `/DL` nowhere", and the ellipsis the verb supplies is a denial.
+//!   [`excepted`] takes the term out of the assertion, so §7.3.8.2 saying `/DL` is unread agrees
+//!   with its parent instead of contradicting it (ADR 1048).
 //! - **A correction narrating its own retired wording**, marked [`Finding::history`] on
 //!   [`crate::capabilities::HISTORY`], which is the oldest false positive in `doc/todo/01` and
 //!   is marked rather than dropped in every sweep that has it. §12.11's corrected row is exactly
@@ -228,12 +235,20 @@ impl Report {
             .count()
     }
 
-    /// How many findings carry a mark that demotes them — a table read in part, or a history.
+    /// How many findings carry a mark that demotes them — a table read in part, a history, or a
+    /// denial about another term of the same kind.
+    ///
+    /// [`Rung::Elsewhere`] is demoted **by construction** rather than by evidence: the rung is
+    /// what the sweep calls a descendant whose denial names a *different* table or a different
+    /// entry, and a denial about another term contradicts nothing the parent asserted about this
+    /// one. It is printed like every other finding — the parent may still be overstating for a
+    /// reason the pairing cannot see — but it is not part of the number a round is asked to move
+    /// (ADR 1048).
     #[must_use]
     pub fn marked(&self) -> usize {
         self.findings
             .iter()
-            .filter(|finding| finding.in_part || finding.history)
+            .filter(|finding| finding.in_part || finding.history || finding.rung == Rung::Elsewhere)
             .count()
     }
 }
@@ -336,6 +351,32 @@ fn contains_word(text: &str, word: &str) -> bool {
     })
 }
 
+/// The adverbs an assertion uses to except one of its own terms.
+///
+/// "Table 5's entries are read where they are used — `/Length` … by the parser, `/DL` nowhere"
+/// asserts four entries and denies the fifth by an ellipsis the part's own verb supplies. The
+/// part reads as an assertion whole, so without this the row asserts the entry it excepts, and
+/// a child saying the same thing in its own words reads as a contradiction (ADR 1048).
+const EXCEPTIONS: [&str; 4] = ["nowhere", "nobody", "nothing", "never"];
+
+/// How many words after a term an exception may stand.
+///
+/// Tight on purpose: an ellipsis puts the adverb against the term it excepts, and a wider reach
+/// would take the next clause's adverb with it.
+const EXCEPTION_REACH: usize = 3;
+
+/// Whether an asserting part excepts this term rather than asserting it.
+fn excepted(part: &str, term: &Term) -> bool {
+    let shown = term.to_string();
+    part.match_indices(&shown).any(|(at, _)| {
+        let after = part.get(at.saturating_add(shown.len())..).unwrap_or("");
+        after.split_whitespace().take(EXCEPTION_REACH).any(|word| {
+            let word = word.trim_matches(|character: char| !character.is_alphanumeric());
+            EXCEPTIONS.contains(&word.to_ascii_lowercase().as_str())
+        })
+    })
+}
+
 /// Whether the words read as a correction quoting what the row used to say.
 fn is_history(part: &str) -> bool {
     let lowered = part.to_ascii_lowercase();
@@ -380,6 +421,9 @@ fn stance(row: &Row) -> Stance {
             }
         } else if is_an_assertion(part) {
             for term in terms {
+                if excepted(part, &term) {
+                    continue;
+                }
                 stance
                     .asserted
                     .entry(term)
@@ -555,7 +599,7 @@ pub fn keys_attributed_to(number: u16, part: &str) -> BTreeSet<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Rung, Term, is_an_assertion, parts, read_in_part, sweep, terms_in};
+    use super::{Rung, Term, excepted, is_an_assertion, parts, read_in_part, sweep, terms_in};
     use crate::clause::ClauseNumber;
     use crate::ledger::{Ledger, Row, Status};
 
@@ -655,6 +699,65 @@ mod tests {
              twenty-fifth session.",
             "Table 125's `/Length1`, `/Length2` and `/Length3` are read by nobody."
         ));
+    }
+
+    /// A sentence that asserts a table's entries and excepts one of them in an ellipsis has not
+    /// asserted the one it excepted — §7.3.8's own wording, whose child says the same thing.
+    ///
+    /// Calibrated by the pair: the same sentence without the adverb asserts all of it, so the
+    /// exception separates two sentences rather than dropping a term (trap 13).
+    #[test]
+    fn an_ellipsis_excepts_the_term_it_names() {
+        let asserting = "Table 5's entries are read where they are used — `/Length` by the \
+                         parser, `/DL` nowhere, since it is a hint.";
+        assert!(excepted(asserting, &Term::Key("DL".to_owned())));
+        assert!(!excepted(asserting, &Term::Key("Length".to_owned())));
+        assert!(!excepted(
+            "Table 5's `/Length` and `/DL` are read where they are used.",
+            &Term::Key("DL".to_owned())
+        ));
+    }
+
+    /// A denial about another table of the same kind contradicts nothing the parent asserted,
+    /// so the rung itself demotes the finding.
+    ///
+    /// Calibrated by the pair: the same child denying the table the parent *did* assert is on
+    /// [`Rung::Denied`] and is not marked, so the demotion separates two claims rather than
+    /// quietening the sweep (trap 13).
+    #[test]
+    fn a_denial_about_another_table_is_demoted_by_its_rung() {
+        let parent = "Every one of Table 124's keys are read.";
+        let elsewhere = Ledger {
+            rows: vec![
+                row("9.9", Status::Implemented, parent),
+                row(
+                    "9.9.1",
+                    Status::Partial,
+                    "Table 124, the organisation of an embedded program. Table 125's \
+                     `/Length1` is read by nobody.",
+                ),
+            ],
+        };
+        let report = sweep(&elsewhere);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].rung, Rung::Elsewhere);
+        assert_eq!(report.marked(), 1);
+
+        let denied = Ledger {
+            rows: vec![
+                row("9.9", Status::Implemented, parent),
+                row(
+                    "9.9.1",
+                    Status::Partial,
+                    "Table 124, the organisation of an embedded program. Table 124's \
+                     `/Length1` is read by nobody.",
+                ),
+            ],
+        };
+        let report = sweep(&denied);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].rung, Rung::Denied);
+        assert_eq!(report.marked(), 0, "the child denies the asserted table");
     }
 
     /// §12.11's own wording: three keys belong to Table 273 and none of them to Table 276, so

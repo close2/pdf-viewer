@@ -215,6 +215,13 @@ pub(crate) struct App {
     pub(crate) dirty: bool,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
     pub(crate) asking: viewer_host::Asking,
+    /// Whether the open document still owes what it says about *itself*.
+    ///
+    /// Asked for once the first frame is on the screen rather than as part of opening, because
+    /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
+    /// off a launch — which is the very figure `crates/viewer-ui/tests/launch_path.rs` measures
+    /// on this host's own `open_document`. [`viewer_host::report::Due`] is the rule. ADR 1044.
+    pub(crate) report_due: viewer_host::report::Due,
     /// §7.6.4.1's prompt, over the page — this host's own, because it has no toolkit to ask.
     pub(crate) password: viewer_ui::chrome::PasswordCard,
     /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no

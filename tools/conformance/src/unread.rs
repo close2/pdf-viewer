@@ -26,6 +26,25 @@
 //! clause at all. And a claim confirmed — a key quoted nowhere — is a result too: it says the
 //! population has not drifted, which is the only way it is watched.
 //!
+//! **Two more shapes account for most of the hits whose witness *is* the row's own code, and
+//! neither is a claim about today's tree.** Both come of this ledger's own habits rather than of
+//! the grep, so they do not shrink and a round that takes the by-own-code count for a defect
+//! count will be wrong about it:
+//!
+//! - **A correction carries the claim it retires.** A note that says "this row said `/DW2` was
+//!   not read and both halves had been false since the thirty-sixth session" holds the phrase and
+//!   the key in one sentence, and the sentence's own point is that the entry *is* read. Sentence
+//!   scoping cannot separate them, because the retraction is deliberately in the same breath as
+//!   what it retracts.
+//! - **A calibration describes a defect that was planted, not one that is there.** Trap 13 asks
+//!   every test to be calibrated by breaking the rule it guards, and this ledger records the
+//!   result in the row — "`/Mask` never read fails seven tests including the second" — so the
+//!   phrase names a build that was thrown away.
+//!
+//! `grep -oE "[^.]*(not read|unread|never read)[^.]*\." doc/conformance/ledger.toml` beside a run
+//! of this sweep is how to see the split; what separates the two from a live claim is whether the
+//! same sentence also asserts the entry is read or names a test that fails.
+//!
 //! # Why it is a program now
 //!
 //! It was one of `doc/todo/01`'s prose sweeps from the hundred-and-twenty-second session to the

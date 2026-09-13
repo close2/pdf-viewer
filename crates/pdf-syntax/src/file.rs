@@ -169,6 +169,54 @@ impl FileBytes {
         }))))
     }
 
+    /// The first `length` bytes of this file, held as a file of their own.
+    ///
+    /// **§7.5.6 is what makes this meaningful rather than a slice:**
+    ///
+    /// > When updating a PDF file incrementally, changes shall be appended to the end of the
+    /// > file, leaving its original contents intact.
+    ///
+    /// and each update ends where the clause says it ends — "[e]ach trailer shall be terminated
+    /// by its own end-of-file (%%EOF) marker". So an earlier revision of a document *is* a
+    /// prefix of the file it now stands in. A caller with such an offset can open that revision
+    /// as a second [`crate::Document`] over this same file and compare two states of it with
+    /// neither document mutating; §12.8.2.2.2's comparison of "the signed and current versions
+    /// of the document" is the caller this exists for.
+    ///
+    /// **On disk this costs a descriptor and not a byte.** The handle is duplicated and the
+    /// shorter length is the one the copy reports, so the prefix is read where its own offsets
+    /// point exactly as the whole file is. In memory it costs one allocation of `length` bytes,
+    /// asked for with `try_reserve_exact` as [`read_file`] asks, because neither `Arc<Vec<u8>>`
+    /// nor `Arc<[u8]>` can be sub-sliced without a copy — a deliberate cost, paid only by a
+    /// caller that asked for a second view of a file already resident.
+    ///
+    /// A `length` past the end of the file gives the file. The result is a different file from
+    /// this one and [`Self::same`] says so, which is what a cache keyed on a document needs.
+    ///
+    /// # Errors
+    ///
+    /// The file system's, where the descriptor cannot be duplicated; and [`NoRoom`] under
+    /// [`io::ErrorKind::OutOfMemory`] where the prefix cannot be held in memory.
+    pub fn prefix(&self, length: usize) -> io::Result<Self> {
+        let length = length.min(self.len());
+        match &self.0 {
+            Held::OnDisk(disk) => Self::from_handle(disk.file.try_clone()?, as_u64(length)),
+            Held::Owned(_) | Held::Shared(_) => {
+                let mut held = Vec::new();
+                held.try_reserve_exact(length).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::OutOfMemory,
+                        NoRoom {
+                            length: as_u64(length),
+                        },
+                    )
+                })?;
+                held.extend_from_slice(&self.read(0..length));
+                Ok(Self(Held::Owned(Arc::new(held))))
+            }
+        }
+    }
+
     /// The open file's descriptor, where the file is on disk.
     ///
     /// What a host hands across a process boundary in place of the bytes: the confined
@@ -318,6 +366,15 @@ impl FileBytes {
                 .min(remaining);
         }
     }
+}
+
+/// A length as the `u64` [`NoRoom`] and [`FileBytes::from_handle`] state one in.
+///
+/// `usize` is 64 bits on every target this builds for and `u64::try_from` is still the honest
+/// conversion; saturating is the answer a 128-bit `usize` would get, and a length that large is
+/// one nothing could hold anyway.
+fn as_u64(length: usize) -> u64 {
+    u64::try_from(length).unwrap_or(u64::MAX)
 }
 
 /// `bytes[range]`, with both ends clipped to the slice rather than panicking.
@@ -761,6 +818,50 @@ mod tests {
             assert!(
                 FileBytes::from(b"abc".to_vec()).descriptor().is_none(),
                 "bytes in memory have none"
+            );
+        }
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
+    }
+
+    /// A prefix reads as a file of its own length, in memory and on disk alike.
+    ///
+    /// §7.5.6's revision boundary is a byte offset, and what a caller does with one is open the
+    /// bytes before it as the document they were. So the two things a prefix owes are that it
+    /// *ends* where it was asked to — a read past its end comes back short, exactly as a file's
+    /// does — and that it is a different file from the one it came from, which is what keeps a
+    /// cache keyed on [`FileBytes::same`] from handing a revision's answers to the whole file.
+    #[cfg_attr(
+        miri,
+        ignore = "reads a real file: Miri runs under isolation and has no file system"
+    )]
+    #[test]
+    fn a_prefix_is_a_file_of_its_own_length_held_either_way() {
+        let directory = scratch("prefix");
+        let path = directory.join("prefixed.pdf");
+        std::fs::write(&path, b"0123456789").expect("a small file");
+
+        for whole in [
+            FileBytes::from(b"0123456789".to_vec()),
+            FileBytes::on_disk(&path).expect("opens"),
+        ] {
+            let head = whole.prefix(4).expect("a prefix of a small file");
+            assert_eq!(head.len(), 4);
+            assert_eq!(head.read(0..10).as_ref(), b"0123");
+            assert_eq!(head.whole().expect("small"), b"0123");
+            assert!(
+                !head.same(&whole),
+                "a prefix is a different file from the one it came from"
+            );
+            assert_eq!(
+                whole.prefix(64).expect("clipped").len(),
+                10,
+                "a length past the end gives the file"
+            );
+            assert_eq!(whole.prefix(0).expect("empty").len(), 0);
+            assert_eq!(
+                head.is_on_disk(),
+                whole.is_on_disk(),
+                "a prefix is held the way the file it came from is held"
             );
         }
         std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");

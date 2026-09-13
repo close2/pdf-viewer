@@ -107,6 +107,7 @@ impl App {
                     return;
                 }
                 self.asking.opened();
+                self.report_due.opened();
                 self.gather();
             }
             Event::OpenFailed { reason, .. } => {

@@ -180,6 +180,12 @@ pub struct Host {
     panel_shown: bool,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
     asking: viewer_host::Asking,
+    /// Whether the open document still owes what it says about *itself*.
+    ///
+    /// Asked for once the first frame is on the screen rather than as part of opening, because
+    /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
+    /// off a launch. [`viewer_host::report::Due`] holds the rule for every host. ADR 1044.
+    report_due: viewer_host::report::Due,
     /// What to put above the entry, worded when the prompt is asked for and read once by C++.
     prompt: String,
     /// Whether the document has been opened yet, which waits for the first resize.
@@ -338,6 +344,7 @@ impl Host {
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
             asking: viewer_host::Asking::new(),
+            report_due: viewer_host::report::Due::default(),
             prompt: String::new(),
             opened: false,
             dirty: false,
@@ -1755,6 +1762,12 @@ impl Host {
                 token: finished.request.token,
                 rendered,
             });
+            // The reader has their page, so the document may now be asked what it says about
+            // itself — the same moment `viewer-gtk` asks, and `viewer_host::report::Due` is the
+            // rule both follow. ADR 1044.
+            if self.report_due.after_a_frame() {
+                queue.push_back(Command::Report);
+            }
             // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
             // so this is where an armed one can begin. Only while a presentation is running,
             // because taking the face costs a whole-viewport rasterisation.
@@ -1851,6 +1864,7 @@ impl Host {
                     self.say(&viewer_host::no_pages(&named(&self.path)));
                 }
                 self.asking.opened();
+                self.report_due.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
             }

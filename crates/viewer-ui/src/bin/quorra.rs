@@ -305,6 +305,7 @@ fn main() {
         pinch: 0.0,
         dirty: false,
         asking: viewer_host::Asking::new(),
+        report_due: viewer_host::report::Due::default(),
         password: viewer_ui::chrome::PasswordCard::default(),
         refused: viewer_ui::chrome::Refusal::default(),
         locked: None,
