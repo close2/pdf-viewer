@@ -35,11 +35,9 @@ pub(super) fn compose(transform: Affine, viewport: &Viewport<'_>) -> DeviceTrans
 }
 
 pub(super) fn transform_preserves_axes(t: &DeviceTransform) -> bool {
-    // Exact zeros, as in `Affine::preserves_axes`: document transforms carry them.
-    #[allow(clippy::float_cmp)]
-    {
-        (t.b == 0.0 && t.c == 0.0) || (t.a == 0.0 && t.d == 0.0)
-    }
+    // Exact zeros, as in `Affine::preserves_axes`: document transforms carry them. No lint
+    // is silenced here either: `clippy::float_cmp` exempts a comparison against a zero literal.
+    (t.b == 0.0 && t.c == 0.0) || (t.a == 0.0 && t.d == 0.0)
 }
 
 pub(super) fn apply(t: &DeviceTransform, p: Point) -> Point {
@@ -50,7 +48,7 @@ pub(super) fn apply(t: &DeviceTransform, p: Point) -> Point {
 /// `floor`/`ceil` the rasteriser uses, so the number the atlas is asked about is the
 /// number of texels it would be given.
 pub(super) fn tile_side(low: f32, high: f32) -> u32 {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped below
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped below
     {
         (high.ceil() - low.floor())
             .max(0.0)
@@ -79,7 +77,7 @@ pub(super) const CULL_MARGIN: f32 = 2.0;
 /// intersect its geometry with the target and not merely test against it, while a
 /// clip at a fractional coordinate — a real edge, which must antialias — is the
 /// intersection ADR 0007 already reasons about.
-#[allow(clippy::cast_precision_loss)] // viewport extents are far below f32's exact range
+#[expect(clippy::cast_precision_loss)] // viewport extents are far below f32's exact range
 pub(super) fn target_rect(viewport: &Viewport<'_>) -> Rect {
     Rect::new(
         Point::new(0.0, 0.0),

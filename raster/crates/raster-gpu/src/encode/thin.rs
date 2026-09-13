@@ -45,7 +45,7 @@
 /// marks, and so fewer marks that need the other lane.
 ///
 /// [`Options::coverage_samples`]: crate::startup::Options::coverage_samples
-#[allow(clippy::cast_precision_loss)] // a sample count clamped to 4..=64 at construction
+#[expect(clippy::cast_precision_loss)] // a sample count clamped to 4..=64 at construction
 pub(super) fn sample_column_spacing(samples: u32) -> f32 {
     1.0 / (samples.max(1) as f32).sqrt()
 }
@@ -98,7 +98,7 @@ impl ThinAxis {
     /// the mark is a stroke, the width §8.4.3 resolved for it.
     ///
     /// `None` is a fill, whose box is the only bound there is.
-    #[allow(clippy::arithmetic_side_effects)] // two subtractions of device coordinates,
+    // two subtractions of device coordinates,
     // each already bounded by `MAX_COORDINATE`; a non-finite difference is handled below
     pub(super) fn of(bounds: (f32, f32, f32, f32), stroke_width: Option<f32>) -> Self {
         let (x0, y0, x1, y1) = bounds;

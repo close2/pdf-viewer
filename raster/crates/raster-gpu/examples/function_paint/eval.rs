@@ -17,7 +17,7 @@ use crate::program::Op;
 /// `stack` is borrowed rather than allocated so the per-point cost is the arithmetic
 /// and nothing else; the caller's evaluator allocates three times per device pixel,
 /// and pricing their allocator is not what this spike is for.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "one arm per Table 42 operator; the table is the function"
 )]
@@ -38,7 +38,7 @@ pub(crate) fn evaluate(ops: &[Op], x: f32, y: f32, stack: &mut Vec<f32>) -> [f32
         pc = pc.saturating_add(1);
         match *op {
             Op::PushReal(v) => stack.push(v),
-            #[allow(
+            #[expect(
                 clippy::cast_precision_loss,
                 reason = "a literal beyond 2^24 is inexact in the compiled form itself"
             )]
@@ -101,9 +101,9 @@ pub(crate) fn evaluate(ops: &[Op], x: f32, y: f32, stack: &mut Vec<f32>) -> [f32
             // Exact equality, which is what Table 42 says `eq` is. The caller's
             // evaluator compares within an absolute `f32::EPSILON` instead; that
             // difference is reported in the write-up, not copied here (principle 5).
-            #[allow(clippy::float_cmp, reason = "Table 42's `eq` is exact equality")]
+            #[expect(clippy::float_cmp, reason = "Table 42's `eq` is exact equality")]
             Op::Eq => binary(stack, |a, b| f32::from(a == b)),
-            #[allow(clippy::float_cmp, reason = "Table 42's `ne` is exact inequality")]
+            #[expect(clippy::float_cmp, reason = "Table 42's `ne` is exact inequality")]
             Op::Ne => binary(stack, |a, b| f32::from(a != b)),
             Op::Ge => binary(stack, |a, b| f32::from(a >= b)),
             Op::Gt => binary(stack, |a, b| f32::from(a > b)),
@@ -187,7 +187,7 @@ fn bitwise(stack: &mut Vec<f32>, f: impl Fn(i32, i32) -> i32) {
 
 /// Saturating, for the reason `ops.wgsl` gives: a wrapped integer is a plausible
 /// wrong colour, and §6 of the brief prices that above a refusal.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "the clamp is what makes the truncation exact"
 )]
@@ -195,7 +195,7 @@ fn to_int(a: f32) -> i32 {
     a.trunc().clamp(-2_147_483_648.0, 2_147_483_647.0) as i32
 }
 
-#[allow(
+#[expect(
     clippy::cast_precision_loss,
     reason = "the same loss the device's f32 stack has, deliberately"
 )]

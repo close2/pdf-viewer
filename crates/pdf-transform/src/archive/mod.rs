@@ -432,7 +432,7 @@ pub(crate) fn run(
 /// authorisations. The version is answered here rather than in the rewrite because the
 /// *feasibility* of the header rewrite depends on the document — [`version_for`] — and a
 /// decision that cannot be carried out is a refusal rather than a plan.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn decide_every_failure(
     plan: &ArchivePlan,
     document: &Document,
@@ -643,7 +643,7 @@ enum Written {
 }
 
 /// Stage 3: the rewrites, the output's own verdict, and the sink.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn apply_the_decisions(
     plan: &ArchivePlan,
     document: &Document,

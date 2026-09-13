@@ -16,6 +16,12 @@ group files keep all of it (`CLAUDE.md`, "Where knowledge lives").
 ADRs cite them by number, and an ADR is not edited to follow a file that moved underneath it
 (ADR 0232 §2). This table resolves any such citation in one hop.
 
+**Including the ones that have moved.** A trap merged into another, or demoted to a habit, keeps
+its own row here and its own number, and the row says where its incident now lives; the incident
+itself is never deleted, only relocated. Three have moved so far, all in the
+one-thousand-and-twenty-fifth session on `doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s
+recommendations: **4 → 8**, **29 → 13**, and **36 → `doc/habits/measuring.md`**.
+
 The five group files, and what each is the group *for*:
 
 | file | the round it is for |
@@ -36,11 +42,11 @@ machinery, and those are not indexed here.
 | 1 | a change of yours can put a mark on a page — **any** such change, however small the diff looked | the metrics lie; render the page and look at it, because no count can see a font that loaded and drew garbage, a page upside down, or a gradient that came out opaque | pixels |
 | 2 | you compose a transform into a paint, a gradient, an image or a stroke width | a paint is positioned in the *path's* space and both backends apply the drawing transform to it already, so composing it yourself applies it twice | pixels |
 | 3 | you invoke another renderer, or read an answer one gave | check what question the reference was actually asked — page box, print flag, how the answer was collected — before reading it as a verdict | oracle |
-| 4 | you write a test out of a hand-built PDF fragment | test against real documents too; the fragment exercises the code you were thinking about and the corpus exercises the ones you were not | parsers |
+| 4 | you write a test out of a hand-built PDF fragment | test against real documents too; the fragment exercises the code you were thinking about and the corpus exercises the ones you were not — **merged into trap 8, which is where its incident now lives** | parsers |
 | 5 | you implement part of a feature, or handle an input you cannot fully support | unsupported input must stay loud; a silent fallback that renders something plausible is the failure mode that reports nothing, and it hides best *inside* a partly-implemented feature | parsers |
 | 6 | you convert a colour, or add a route from one space to another | one conversion, in one place: `ColourSpace::to_rgb` and `colour::xyz_d50_to_srgb`, and the standard usually ranks two answers rather than stating one | pixels |
-| 7 | you silence a lint | `#[expect(..., reason = "...")]`, never `#[allow]` — an `expect` errors when it stops being necessary and an `allow` hides that forever | instruments |
-| 8 | you conclude something from what the corpus does or does not contain | a corpus finds what documents contain, not what the standard says; measure unreachability by *breaking the rule* and watching a gate move, never with the instrument under test | parsers |
+| 7 | you write a crate- or module-level `#![allow]` | `clippy::allow_attributes` now fails the build on a bare **outer** `#[allow]` (ADR 1042), so what is left to you by hand is the **inner** form, which the lint cannot see | instruments |
+| 8 | you conclude something from what the corpus does or does not contain, **or from a hand-built fragment** (trap 4 is inside this one) | a corpus finds what documents contain, not what the standard says, and the fragment is not the tree either; measure unreachability by *breaking the rule* and watching a gate move, never with the instrument under test | parsers |
 | 9 | two references agree and you are about to call that evidence | they can agree because they share code, or because they share a *gap*; read the list of ways it fails rather than the count of them | oracle |
 | 10 | you run a `--profile gates --test` line, or any test that decodes JBIG2, CCITT or JPX | the sandbox worker is a separate binary and Cargo will not rebuild it for you; a missing worker and a stale one look nothing alike | instruments |
 | 10a | you read an oracle verdict, or change what a reference invocation asks for | a cached reference render is a fourth stale thing; the hit rate is the tell, and a flag not in the key was not passed to the renderer either | instruments |
@@ -50,7 +56,7 @@ machinery, and those are not indexed here.
 | 12a | you convert a point between the page's space, the display list's and the raster's | the display list's space is not the raster's — the flip is in `TargetSpec::for_page`, about the *page's* height, and a doc comment said otherwise for seventy-five sessions | interactive loop |
 | 12b | you judge a backend by a suite of fixtures | a suite of small scenes tests small scenes; ask what *size* every scene is and what parameter every one of them leaves at its default | pixels |
 | 12c | a dependency reports a failure through a handler rather than a return value | the handler has an ordering you have to obey; make what it was told into a value the caller can take, and let a type hold the ordering | pixels |
-| 13 | you sweep, grep or census for a class of defect and it comes back clean | plant the defect back and confirm the sweep names it; an uncalibrated sweep's clean answer is a sentence about the grep, not about the tree | instruments |
+| 13 | you sweep, grep or census for a class of defect and it comes back clean, **or lift a bound to see who reaches it** (trap 29 is inside this one) | plant the defect back and confirm the sweep names it, and give a lifting a control that must stop; an uncalibrated instrument's clean answer is a sentence about the instrument, not about the tree | instruments |
 | 14 | you implement a clause that names a **region**, and your gate rasterises that same region | a target that *is* the region cannot tell you whether you applied it; ask whether the gate could distinguish the two answers, and rasterise something bigger once by hand | pixels |
 | 15 | you run a sweep binary by its path rather than through cargo, in a worktree | the binary carries the tree it was **built from**; take the path from `cargo metadata`, and the tell is that nothing moves when you re-run after an edit | instruments |
 | 16 | you compare two numbers out of one tree and read them as two interpretations | a gate can measure a program the build did not finish producing; ask what the two *programs* were before asking what the two readings are | instruments |
@@ -66,14 +72,14 @@ machinery, and those are not indexed here.
 | 26 | you rank two **pages** by a worst-tile figure | the tiles are laid from the raster's origin, so one mark measured whole and the same mark straddling a boundary differ by up to 1.77; print `worst_tile_at` first | oracle |
 | 27 | you assert that an error, refusal or report *contains* some text | the assertion is only as good as what it excludes; ask what else this input can produce here and whether the assertion would accept it | instruments |
 | 28 | you write or read a recovery, a fallback, or the comment above one | the guard states when the recovery is *needed* and the comment states when it is *right*; the round that writes one owes the file where those two disagree | parsers |
-| 29 | you lift a bound in a scratch build to find out who reaches it | the lifting moves every site that *derives* from the constant, and the experiment needs a control that must stop — a document known to be finite and deep | instruments |
+| 29 | you lift a bound in a scratch build to find out who reaches it | the lifting moves every site that *derives* from the constant, and the experiment needs a control that must stop — a document known to be finite and deep — **merged into trap 13, which is where its incident now lives** | instruments |
 | 30 | you index a collection whose producer is parallel — a sink, a report, a listing | it hands its outputs back in the order they were *opened*; look an output up by its name, and panic naming every output there was | instruments |
 | 31 | code that **opens** a file is linked into a confined worker | `SECCOMP_RET_KILL_PROCESS` does not return an `Err`, so the careful `else` branch never runs; tell the process before the confinement that the disk is not there | instruments |
 | 32 | a confined worker **owns** a descriptor and lets it go | `OwnedFd::drop` calls `fcntl` under a check compiled per build, so release survives and every debug worker dies; and a probe for it must issue the call by name | instruments |
 | 33 | you assert on a counter to prove how often something runs | a counter of what was *produced* cannot see a cost paid in validation; wrap the expensive call and count *it* | instruments |
 | 34 | a gate guards a measurement with a calibration figure | the guard has to be made of the same stuff as the figure — a first pass in a fresh process is not the quickest of fifty warm ones | instruments |
 | 35 | you band, budget or report a process's resident memory | `VmHWM` is mostly file-backed library pages and the kernel decides how many are resident; say which part of it you mean | instruments |
-| 36 | you take a timing figure on a machine other rounds are using | a neighbour takes the *level* without ever queueing, and the run-queue wait explains only the *tail* — and `/proc/self` is the wrong thread; ask `/proc/thread-self` | instruments |
+| 36 | you take a timing figure on a machine other rounds are using | a neighbour takes the *level* without ever queueing, and the run-queue wait explains only the *tail* — and `/proc/self` is the wrong thread; ask `/proc/thread-self` — **demoted to `doc/habits/measuring.md`, which is where it now lives** | *habits* |
 | 37 | you claim nothing changed on the strength of a digest | an interpretation is what was drawn **and** what was said; a digest that hashes one of them answers "did anything change" with half a fact | instruments |
 | 38 | you pick a resource bound, or read one that already exists | ask whether the standard, or data the standard requires a reader to carry, states a number the bound must be at least as large as — and make the cut say so by name | parsers |
 | 39 | a signal, flag or warning in an instrument fires on every run | it has stopped being a signal and it looks like caution; check what it is computed from before trusting that it means anything | instruments |

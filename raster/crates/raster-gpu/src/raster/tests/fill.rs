@@ -108,12 +108,11 @@ fn geometry_outside_the_region_still_winds() {
 // A probe over generated geometry: the casts below are between pixel indices and
 // device coordinates that the loops keep inside the region, and the arithmetic is
 // the probe's own bookkeeping.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap,
-    clippy::arithmetic_side_effects
+    clippy::cast_possible_wrap
 )]
 #[test]
 fn a_tile_is_the_crop_of_the_region_that_contains_it() {

@@ -4142,8 +4142,16 @@ const GEOMETRY: [&str; 0] = [];
 /// document with a password this gate does not supply, opened by `encryption.rs` with
 /// `pässwört`. That is the whole of what changed for the oracle: the page it cannot draw is
 /// the same page, and the sentence it cannot draw it for is a weaker one.
-const NO_RENDER_NEEDS_A_PASSWORD: [&str; 9] = [
+/// **Ten, and the tenth is the one whose references disagree.** `encrypted-attachment.pdf` is
+/// `auth-event-ef-open.pdf` with one line deleted — the `/AuthEvent /EFOpen` in its crypt filter —
+/// so it takes §7.6.6 Table 25's default of `DocOpen`, where authorization is required when the
+/// document is opened and the clause's own sentence for a failure is that the event shall fail.
+/// `mutool` and `gs` refuse it, `pdftoppm` opens it and draws the page; what puts it here is the
+/// entry rather than the vote, and its `EFOpen` twin is still drawn and still compared below.
+/// ADR 1040.
+const NO_RENDER_NEEDS_A_PASSWORD: [&str; 10] = [
     "bug1782186.pdf page 1",
+    "encrypted-attachment.pdf page 1",
     "issue15893_reduced.pdf page 1",
     "issue21579.pdf page 1",
     "issue3371.pdf page 1",
@@ -4305,10 +4313,14 @@ fn reference_geometry_expected() -> Vec<&'static str> {
 
 /// §7.6's encryption, where `poppler` and this tree open the file and the other two decline.
 ///
-/// `auth-event-ef-open.pdf` and `encrypted-attachment.pdf` are both opened here and by
-/// `pdftoppm`, to **612x792 at ink 0.264989 against 0.269507** — 0.06 of 255 mean absolute
-/// difference, the same page. `mutool` answers *cannot authenticate password* on each and
-/// `gs` *This file requires a password for access*.
+/// `auth-event-ef-open.pdf` is opened here and by `pdftoppm`, to **612x792 at ink 0.264989
+/// against 0.269507** — 0.06 of 255 mean absolute difference, the same page. `mutool` answers
+/// *cannot authenticate password* and `gs` *This file requires a password for access*.
+///
+/// **It was two files until the thousand-and-twenty-third session**, and `encrypted-attachment.pdf`
+/// is now in [`NO_RENDER_NEEDS_A_PASSWORD`] rather than here: the two are the same bytes but for a
+/// `/AuthEvent /EFOpen`, and Table 25 gives the one that states it and the one that defaults to
+/// `DocOpen` different answers. ADR 1040.
 ///
 /// That is the mirror of [`NO_RENDER_NEEDS_A_PASSWORD`] and it is worth the distinction. There
 /// four derivations of §7.6.4.3's key agree that the empty user password is **not** the
@@ -4317,10 +4329,8 @@ fn reference_geometry_expected() -> Vec<&'static str> {
 /// and §7.6.6 puts a refusal on the stream whose key is missing rather than on the document.
 /// Nothing is owed unless the page we draw is wrong, and the reference that agrees with it is
 /// the one that got past the same clause.
-const NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE: [&str; 2] = [
-    "auth-event-ef-open.pdf page 1",
-    "encrypted-attachment.pdf page 1",
-];
+const NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE: [&str; 1] =
+    ["auth-event-ef-open.pdf page 1"];
 
 /// A cross-reference table one reference rebuilds, and its answer is ours.
 ///

@@ -43,7 +43,8 @@ use pdf_signature::cms::Digest;
 use pdf_signature::dsa::{self, MAX_SUBGROUP_BITS};
 use pdf_signature::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
 use pdf_signature::pss;
-use pdf_signature::x509::{self, PublicKey};
+use pdf_signature::trust::{self, TrustAnchors};
+use pdf_signature::x509::{self, Instant, PublicKey};
 use pdf_signature::{ecdsa, eddsa};
 
 fuzz_target!(|data: &[u8]| {
@@ -223,5 +224,44 @@ fuzz_target!(|data: &[u8]| {
     assert!(
         again == certificate,
         "reading the same certificate twice gave two different answers"
+    );
+
+    // RFC 5280 section 6's path validation over the same bytes (ADR 1039). What the fields it
+    // reads have in common with the ones above is that they are all sub-slices of the input, so
+    // the same property is asserted of them; what is new is a *loop* whose shape a hostile
+    // certificate decides — the extension walk, and the search that treats this certificate as
+    // both the target and its own candidate issuer.
+    inside(certificate.tbs);
+    inside(certificate.signature);
+    inside(certificate.signature_algorithm);
+    if let Some(identifier) = certificate.extensions.authority_key_identifier {
+        inside(identifier);
+    }
+    if let Some(oid) = certificate.extensions.unrecognised_critical {
+        inside(oid);
+    }
+    // Offered as its own anchor and as its own intermediate, which is the cycle a file would write
+    // to make the search run forever. `MAX_PATH_LENGTH`, `MAX_CANDIDATES` and `MAX_STEPS` are what
+    // stop it, and this target checks that they do by returning at all.
+    let anchors = TrustAnchors::of(&[certificate]);
+    let _ = trust::validate(
+        &certificate,
+        &[certificate, again],
+        &anchors,
+        Instant::from_unix_seconds(1_780_272_000),
+    );
+    // And with nobody named there is no question, whatever the bytes say — the one answer that
+    // must not depend on the input at all.
+    assert!(
+        matches!(
+            trust::validate(
+                &certificate,
+                &[again],
+                &TrustAnchors::none(),
+                Instant::from_unix_seconds(0),
+            ),
+            trust::Trust::NoAnchorSupplied
+        ),
+        "a certificate decided an answer that belongs to the host"
     );
 });

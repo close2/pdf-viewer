@@ -273,7 +273,7 @@ struct Encoder<'a> {
 
 /// Walk the scene once: classify, count, rasterise, check the budget, lay out
 /// instances.
-#[allow(clippy::too_many_arguments)] // the frame's inputs, named once at the one call
+#[expect(clippy::too_many_arguments)] // the frame's inputs, named once at the one call
 pub(crate) fn encode(
     scene: &Scene,
     viewport: &Viewport<'_>,
@@ -349,7 +349,7 @@ pub(crate) fn encode(
 /// The rebuilt encode records itself as it goes — the fast arms re-push their own
 /// records, a slow command re-records through `command` — so the frame it produces is
 /// as replayable as the one it came from.
-#[allow(clippy::too_many_arguments)] // encode()'s own signature plus the list
+#[expect(clippy::too_many_arguments)] // encode()'s own signature plus the list
 pub(crate) fn replay(
     scene: &Scene,
     viewport: &Viewport<'_>,
@@ -447,7 +447,7 @@ pub(crate) fn replay(
 /// One frame's [`Encoder`], as both the walk ([`encode`]) and the record replay
 /// ([`replay`]) construct it — one literal, so the two cannot come to disagree about
 /// an initial state.
-#[allow(clippy::too_many_arguments)] // the encode's own signature, shared once
+#[expect(clippy::too_many_arguments)] // the encode's own signature, shared once
 fn encoder_for<'a>(
     scene: &'a Scene,
     viewport: &'a Viewport<'a>,

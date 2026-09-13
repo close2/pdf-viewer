@@ -42,7 +42,7 @@ pub fn premul(raster: &[u8], at: usize, channel: usize) -> f32 {
 /// is the element drawn onto transparency, and `actual` is the frame under test. All four
 /// are straight-alpha RGBA of the same dimensions; the comparison runs over as many pixels
 /// as `actual` has.
-#[allow(
+#[expect(
     clippy::arithmetic_side_effects,
     reason = "pixel indexing and the clause's own arithmetic, over rasters the caller just \
               drew"

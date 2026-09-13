@@ -378,8 +378,8 @@ fn window(
 /// Intersected because the links intersect (ADR 0030), and outside any one link's own
 /// bounds a closed path winds nothing: the chain is transparent there whatever the
 /// others say.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-#[allow(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[expect(clippy::arithmetic_side_effects)]
 fn chain_region(links: &[FlatLink], target: Rect) -> Option<(i32, i32, u32, u32)> {
     let mut region = target;
     for link in links {

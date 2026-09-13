@@ -72,7 +72,7 @@ impl Sheet {
     /// for bytes nobody would have allocated, which is principle 6's failure with the
     /// sign flipped: a page that draws, refused. Five real corpus pages were, at up to
     /// 1.2 GB claimed against a 256 MiB budget for an empty sheet 16 384 texels wide.
-    #[allow(clippy::cast_possible_truncation)] // lengths of Vecs this frame just built
+    // lengths of Vecs this frame just built
     pub(crate) fn device_bytes(&self) -> u64 {
         // Not merely an optimisation of the arithmetic below: `is_empty` is exactly the
         // condition `Device::upload_scratch` allocates under, and saying it once is what
@@ -93,7 +93,6 @@ impl Sheet {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 // test-file policy as in `raster.rs`: a fixture that cannot run must fail loudly
 mod tests {
     use super::{Sheet, TILE_STRIDE};

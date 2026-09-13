@@ -156,12 +156,12 @@ static STRAIGHT: [u8; 65_536] = build_straight_table();
 
 // The 64 KiB array is the point of the function, and it is a `static`: the local is
 // the initialiser, evaluated at compile time and never on a stack.
-#[allow(clippy::cast_possible_truncation)] // every value is clamped to 255 first
-#[allow(clippy::large_stack_arrays)]
+#[expect(clippy::cast_possible_truncation)] // every value is clamped to 255 first
+#[expect(clippy::large_stack_arrays)]
 // Both loop counters stop at 256 and `channel * 255 + alpha / 2` is at most 65 152, so
 // nothing here can overflow; a const fn that panicked would fail the build rather than
 // the frame, which is the strongest form this bound could be checked in.
-#[allow(clippy::arithmetic_side_effects)]
+#[expect(clippy::arithmetic_side_effects)]
 const fn build_straight_table() -> [u8; 65_536] {
     let mut table = [0_u8; 65_536];
     let mut alpha = 1_usize; // alpha 0 keeps its row of zeros: a transparent pixel has
@@ -187,7 +187,7 @@ const fn build_straight_table() -> [u8; 65_536] {
 // Bounds make the arithmetic infallible: `alpha << 8 | channel` is below 65 536 by
 // construction, and row indexing is bounded by the buffer layout the copy just wrote.
 // Stated here once rather than checked per pixel in a hot loop.
-#[allow(clippy::arithmetic_side_effects)]
+#[expect(clippy::arithmetic_side_effects)]
 fn demultiply(padded: &[u8], width: u32, height: u32, bytes_per_row: u32) -> Vec<u8> {
     let width = width as usize;
     let height = height as usize;
@@ -244,7 +244,7 @@ mod tests {
     /// The table *is* the documented division, for every pair there is — the claim
     /// that makes replacing six million divisions a shortcut rather than a change.
     #[test]
-    #[allow(clippy::cast_possible_truncation)] // both counters are bounded by 255
+    #[expect(clippy::cast_possible_truncation)] // both counters are bounded by 255
     fn demultiply_matches_the_documented_division() {
         for alpha in 1_u32..=255 {
             for channel in 0_u32..=255 {

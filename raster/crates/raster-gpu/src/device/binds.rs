@@ -88,7 +88,7 @@ impl Device {
     }
 
     /// The composite pass's uniform + bind group for one `ChildOp` (§11.4.5).
-    #[allow(clippy::too_many_arguments)] // one pass's inputs, named once at its one call
+    // one pass's inputs, named once at its one call
     pub(crate) fn composite_bind(
         &self,
         op: &ChildOp,
@@ -209,7 +209,7 @@ impl Device {
 
 /// The 16 bytes `rect.wgsl`'s and `coverage.wgsl`'s `Globals` read: the attachment's
 /// size, then the device corner its texel (0, 0) is (ADR 0036).
-#[allow(clippy::cast_precision_loss)] // extents inside f32's exact integer range
+#[expect(clippy::cast_precision_loss)] // extents inside f32's exact integer range
 fn globals_bytes(region: Region) -> [u8; 16] {
     let values = [
         region.width as f32,
@@ -227,8 +227,8 @@ fn globals_bytes(region: Region) -> [u8; 16] {
 /// The 144 bytes `composite.wgsl`'s `Params` reads, in its order (§11.4.5).
 // The offsets are literal layout positions inside a fixed 128-byte array; the index
 // arithmetic cannot leave it.
-#[allow(clippy::arithmetic_side_effects)]
-#[allow(clippy::cast_precision_loss)] // extents inside f32's exact integer range
+#[expect(clippy::arithmetic_side_effects)]
+#[expect(clippy::cast_precision_loss)] // extents inside f32's exact integer range
 fn composite_params_bytes(
     op: &ChildOp,
     region: Region,
@@ -281,7 +281,7 @@ fn composite_params_bytes(
 }
 
 /// The 288 bytes `reduce.wgsl`'s `Params` reads, in its order (§11.5).
-#[allow(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 288-byte array
+#[expect(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 288-byte array
 fn reduce_params_bytes(plan: &MaskPlan) -> [u8; 288] {
     let mut bytes = [0_u8; 288];
     bytes[0..4].copy_from_slice(&plan.kind_word.to_le_bytes());

@@ -10,7 +10,7 @@
 //!
 //! Nothing here is an error and nothing here stops a document opening.
 
-use pdf_signature::signature::PadesDeparture;
+use pdf_signature::signature::{PadesDeparture, SigningCertificateBinding};
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
@@ -490,7 +490,89 @@ fn every_signature(document: &Document) -> Vec<pdf_signature::signature::Signatu
     signatures
 }
 
+/// What a signature's `/ByteRange` leaves out, and where it stops.
+///
+/// Separated from [`about_one`] because these two readings of §12.8.1 are one sentence of the
+/// standard and grow together; the report they build is the same list.
+#[expect(
+    clippy::match_same_arms,
+    reason = "the two empty arms are different claims and each carries its own reason: the \
+first is the clause satisfied and nothing to report, the last is a malformed range the \
+`Coverage::Malformed` arm has already reported in words a person can act on. Merging them \
+would delete that distinction"
+)]
+fn range_notes(
+    signature: &pdf_signature::signature::Signature,
+    document: &Document,
+    notes: &mut Vec<String>,
+) {
+    // **What the range leaves *out*, which the match above cannot see.** `Coverage` is
+    // arithmetic over the pairs; §12.8.1 and Table 255 also say what may sit in the region
+    // between two of them — "the signature value itself (the Contents entry)" — and a region
+    // holding anything else is unsigned content the reader parses. Said out loud because
+    // every other sentence in this report stays green on such a file: the pairs cover it, the
+    // digest matches, the signature verifies.
+    match signature.excluded(document.bytes()) {
+        pdf_signature::signature::Excluded::TheSignatureValue => {}
+        // §12.8.3.3.1: the value "shall fit precisely in the space between the ranges
+        // specified by ByteRange", and here it does not — the digits are in the hole and a
+        // delimiter is under the digest. Nothing is hidden, so the sentence says what the
+        // file did rather than warning about it.
+        pdf_signature::signature::Excluded::TheDigitsOfTheSignatureValue => {
+            notes.push(
+                "that signature's /ByteRange leaves out the digits of its signature value \
+                     without the angle brackets around them, which §12.8.3.3.1 asks to fit \
+                     precisely in that space — nothing of this file is left unsigned by it"
+                    .to_owned(),
+            );
+        }
+        pdf_signature::signature::Excluded::NotTheSignatureValue { at, length } => {
+            notes.push(format!(
+                "that signature's /ByteRange leaves out {length} bytes at offset {at} that are \
+                     not its own signature value — §12.8.1 excludes the /Contents entry and \
+                     nothing else, so those bytes are in this file and under no digest"
+            ));
+        }
+        pdf_signature::signature::Excluded::MoreThanOneRegion { regions } => {
+            notes.push(format!(
+                "that signature's /ByteRange leaves out {regions} separate regions of this \
+                     file — §12.8.1 excludes the /Contents entry and nothing else"
+            ));
+        }
+        pdf_signature::signature::Excluded::Nothing => {
+            notes.push(
+                "that signature's /ByteRange leaves nothing out, so it claims to cover the \
+                     signature value it records (§12.8.1 excludes the /Contents entry)"
+                    .to_owned(),
+            );
+        }
+        // The range does not describe this file, which the `Coverage::Malformed` arm above
+        // has already said in the words a person can act on.
+        pdf_signature::signature::Excluded::RangeNotInThisFile
+        | pdf_signature::signature::Excluded::RangeNotReadable => {}
+    }
+    // §12.8.1's other end of the same sentence: the range runs "to the end of the \"%%EOF\"
+    // comment, possibly followed by an optional EOL marker, terminating the incremental
+    // update that adds the digital signature dictionary". A range stopping anywhere else has
+    // signed a prefix of a revision rather than a revision.
+    if signature.signed_end(document.bytes()) == pdf_signature::signature::SignedEnd::Elsewhere {
+        notes.push(
+            "that signature's signed bytes do not stop at an %%EOF marker, so what it signed \
+                 is part of a revision rather than a whole one (§12.8.1)"
+                .to_owned(),
+        );
+    }
+    // §12.8.1: "When a byte range digest is present, all values in the signature dictionary
+}
+
 /// What one signature says, what it covers, and whether the bytes under it moved.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per sentence of §12.8 that this reader can answer about a signature, \
+each with the clause it rests on beside it. The length is the size of that vocabulary; \
+splitting it further scatters one clause's reading across functions and hides which \
+sentences are answered and which are not"
+)]
 fn about_one(
     signature: &pdf_signature::signature::Signature,
     document: &Document,
@@ -551,6 +633,19 @@ fn about_one(
             pdf_signature::signature::Coverage::Malformed => {
                 notes.push("that signature's /ByteRange does not describe this file".to_owned());
             }
+        }
+        range_notes(signature, document, notes);
+        // shall be direct objects." The condition is the clause's — a dictionary with no
+        // `/ByteRange` states no byte range digest — and the entries are named rather than
+        // counted, because which one was written indirectly is what decides whether it matters.
+        if !signature.byte_range.is_empty() && !signature.indirect_values.is_empty() {
+            notes.push(format!(
+                "that signature writes {} as indirect references, and §12.8.1 requires every \
+                 value in a signature dictionary carrying a byte range digest to be a direct \
+                 object — an indirect one can be redefined by a later update without moving a \
+                 signed byte",
+                signature.indirect_values.join(", ")
+            ));
         }
         verdicts(signature, document, notes);
         // **Table 255's `/V` is the file saying which part of the validation matters**, and it is
@@ -614,10 +709,55 @@ fn about_one(
                             "§12.8.3.4.3 (d) requires exactly one SignerInfo",
                         PadesDeparture::NoMessageDigest =>
                             "§12.8.3.4.3 (e) requires a message-digest attribute",
+                        PadesDeparture::NoSigningCertificateAttribute =>
+                            "§12.8.3.4.3 (f) requires a signing-certificate or \
+                             signing-certificate-v2 signed attribute, and it states neither",
+                        PadesDeparture::SignerLocationAndLocationEntry =>
+                            "§12.8.3.4.3 (h) says a signature stating a signer-location attribute \
+                             shall not also state a /Location entry",
                         PadesDeparture::CounterSignature =>
                             "§12.8.3.4.3 (i) says a counter-signature attribute shall not be used",
+                        PadesDeparture::ContentReference =>
+                            "§12.8.3.4.3 (i) says a content-reference attribute shall not be used",
+                        PadesDeparture::ContentIdentifier =>
+                            "§12.8.3.4.3 (i) says a content-identifier attribute shall not be used",
+                        PadesDeparture::ContentHints =>
+                            "§12.8.3.4.3 (i) says a content-hints attribute shall not be used",
                     }
                 ));
+            }
+            // §12.8.3.4.5 (a)'s first sentence, said whether or not the signature verifies and
+            // whatever the `/SubFilter` is: RFC 5035 section 5.4.1 puts the same rule on any CMS
+            // object carrying the attribute, and `Signature::authenticity` already refuses on a
+            // mismatch. What this adds is the *positive* half, which the verdict above cannot
+            // carry — that the signer signed a statement about which certificate it used and this
+            // is that certificate — and the two refusals, which say the comparison was not made.
+            for binding in pdf_signature::signature::signing_certificate_bindings(&cms) {
+                let attribute = binding.version().attribute_name();
+                notes.push(match binding {
+                    SigningCertificateBinding::Matches { .. } => format!(
+                        "that signature's {attribute} attribute names the certificate it was \
+                         checked under (§12.8.3.4.5 (a)); who issued that certificate, and \
+                         whether anyone should trust it, is the question this program does not \
+                         answer"
+                    ),
+                    SigningCertificateBinding::Differs { .. } => format!(
+                        "that signature's {attribute} attribute names a different certificate \
+                         from the one it carries, which §12.8.3.4.5 (a) says makes it invalid"
+                    ),
+                    SigningCertificateBinding::Unreadable { ref error, .. } => format!(
+                        "that signature states a {attribute} attribute this program could not \
+                         read ({error}), so §12.8.3.4.5 (a)'s comparison was not made"
+                    ),
+                    SigningCertificateBinding::CertificateNotDer { .. } => format!(
+                        "that signature states a {attribute} attribute and its certificate is not \
+                         written in DER, so §12.8.3.4.5 (a)'s comparison was not made"
+                    ),
+                    SigningCertificateBinding::NoSignerCertificate { .. } => format!(
+                        "that signature states a {attribute} attribute and carries no certificate \
+                         answering to its signer, so §12.8.3.4.5 (a)'s comparison was not made"
+                    ),
+                });
             }
         }
     }
@@ -791,6 +931,12 @@ fn not_checked(error: &dyn std::fmt::Display) -> String {
 /// `None` where the sentence would repeat what [`changed`] has already said in the same words —
 /// no signature value, no bytes to hash, nothing readable — because a program that says one fact
 /// twice teaches a reader to skim.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per `Authenticity` variant, and the variants are a closed vocabulary \
+of why a signature is not verified; a reader needs them in one place to see that none of \
+them says valid"
+)]
 fn verifies(
     authenticity: &pdf_signature::signature::Authenticity,
     integrity: pdf_signature::signature::Integrity,
@@ -879,6 +1025,19 @@ fn verifies(
             "and that signature states signature algorithm {algorithm} while the signer's \
              certificate holds a key of algorithm {key} — two statements by the same producer \
              that contradict each other, so there is nothing to check the signature against"
+        ),
+        Authenticity::SigningCertificateMismatch { version, digest } => format!(
+            "and its {} attribute states a {digest:?} hash that is not the hash of the certificate \
+             it carries — §12.8.3.4.5 (a) says that makes the signature invalid, and the check is \
+             made before any arithmetic because the certificate a signature is judged against is \
+             exactly what that attribute pins down",
+            version.attribute_name(),
+        ),
+        Authenticity::SigningCertificateUnverifiable { version, statement } => format!(
+            "and its {} attribute could not be acted on — {statement} — so §12.8.3.4.5 (a)'s \
+             comparison was not made and the signature was not checked against any key; a pass \
+             here would be this program reporting a check it did not make",
+            version.attribute_name(),
         ),
         Authenticity::Refused(error) => not_checked(error),
         Authenticity::RefusedDsa(error) => not_checked(error),

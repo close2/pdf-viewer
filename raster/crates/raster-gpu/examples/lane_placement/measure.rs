@@ -93,7 +93,7 @@ pub(crate) fn read_scene(
 
 /// The coverage of each row (or column) of the raster, in units of a fully covered pixel,
 /// summed across the other axis.
-#[allow(clippy::cast_precision_loss)] // a target dimension, far below f32's exact range
+// a target dimension, far below f32's exact range
 fn profile(pixels: &[u8], horizontal: bool, window: Window) -> Vec<f64> {
     let (width, height) = target(horizontal);
     let mut lanes = vec![0.0_f64; ACROSS as usize];
@@ -124,7 +124,7 @@ fn profile(pixels: &[u8], horizontal: bool, window: Window) -> Vec<f64> {
 
 /// The centroid of a coverage profile, and its total — the two numbers the caller's section 31
 /// tables are stated in.
-#[allow(clippy::cast_precision_loss)] // a lane index below 65 536
+#[expect(clippy::cast_precision_loss)] // a lane index below 65 536
 pub(crate) fn centroid_and_ink(profile: &[f64]) -> (f64, f64) {
     let ink: f64 = profile.iter().sum();
     if ink == 0.0 {
@@ -146,7 +146,7 @@ pub(crate) fn centroid_and_ink(profile: &[f64]) -> (f64, f64) {
 /// A window again rather than a peak search, and whole lanes again: the graph paper's
 /// pitch is sixteen pixels and a rule is two, so no rule can reach another's half and the
 /// window truncates nothing.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn one_rule(profile: &[f64], centre: f64, reach: f64) -> (f64, f64) {
     let low = (centre - reach).max(0.0) as usize;
     let high = ((centre + reach) as usize).min(profile.len());

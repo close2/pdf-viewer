@@ -46,7 +46,7 @@ impl Device {
     /// variants. On `Err`, nothing was presented and no pixels are claimed drawn.
     // Taking `Target` by value is brief section 2.4's signature: a target is a discriminant plus a
     // borrow, and a caller-side `&Target` would only add a level of indirection.
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -101,7 +101,7 @@ impl Device {
     ///
     /// [`Frame::encode_source`]: crate::frame::Frame::encode_source
     // As `render`: a target is a discriminant plus a borrow.
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     pub fn render_retained(
         &mut self,
         retained: &mut RetainedScene,
@@ -206,8 +206,8 @@ impl Device {
     /// Everything that is not phase 1, which is the seam a retained encode is replayed
     /// across (ADR 0048): the two callers differ only in where the [`Encoded`] came
     /// from, and every refusal below this line is taken by both.
-    #[allow(clippy::too_many_arguments)] // one frame's inputs, named once at two call sites
-    #[allow(clippy::too_many_lines)] // one frame's phases in order, with ADR 0095's
+    #[expect(clippy::too_many_arguments)] // one frame's inputs, named once at two call sites
+    #[expect(clippy::too_many_lines)] // one frame's phases in order, with ADR 0095's
     // growth loop around exactly the two that re-run; a split would scatter the
     // ordering argument the comments carry
     fn draw_encoded(

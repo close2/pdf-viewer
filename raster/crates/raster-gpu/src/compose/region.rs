@@ -95,7 +95,7 @@ impl Region {
     /// A plan that marks nothing gets one texel rather than none: wgpu refuses a
     /// zero-sized texture, and a composite still reads whatever the plan left — which
     /// for an empty plan is a cleared texel that contributes nothing.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped below
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped below
     pub(crate) fn of(bounds: Option<[f32; 4]>, width: u32, height: u32) -> Self {
         let Some([x0, y0, x1, y1]) = bounds else {
             return Self {

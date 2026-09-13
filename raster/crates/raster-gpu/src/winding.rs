@@ -73,15 +73,15 @@ impl SheetUse {
 /// `((k mod n) + ½)/n − ½` across and `((k / n) + ½)/n − ½` down. Ours rather than the
 /// driver's, so two adapters place them identically (ADR 0006's promise), and ordered
 /// rather than jittered so that a frame is reproducible without carrying a seed.
-#[allow(clippy::arithmetic_side_effects)] // `side` is at least 1 and at most 16
-#[allow(clippy::cast_precision_loss)] // grid indices, far below f32's exact range
+#[expect(clippy::arithmetic_side_effects)] // `side` is at least 1 and at most 16
+// grid indices, far below f32's exact range
 pub(crate) fn sample_offsets(count: u32) -> Vec<[f32; 2]> {
     let side = count.isqrt().max(1);
-    #[allow(clippy::cast_precision_loss)] // side is at most 16 by Options' validation
+    #[expect(clippy::cast_precision_loss)] // side is at most 16 by Options' validation
     let step = 1.0 / side as f32;
     (0..count)
         .map(|index| {
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(clippy::cast_precision_loss)]
             let (x, y) = ((index % side) as f32, (index / side) as f32);
             [(x + 0.5).mul_add(step, -0.5), (y + 0.5).mul_add(step, -0.5)]
         })
@@ -97,7 +97,7 @@ pub(crate) fn sample_offsets(count: u32) -> Vec<[f32; 2]> {
 ///
 /// [`RenderError::TargetTooLarge`] when the packed sheet exceeds the adapter's texture
 /// dimension — the same limit, named the same way, as any other target of ours.
-#[allow(clippy::too_many_arguments)] // the pass's inputs, named once at the one call
+#[expect(clippy::too_many_arguments)] // the pass's inputs, named once at the one call
 pub(crate) fn render_into(
     gpu: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -181,12 +181,7 @@ pub(crate) fn render_into(
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::arithmetic_side_effects,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation
-)] // test-file policy as in `raster.rs`: a fixture that cannot run must fail loudly
+#[expect(clippy::arithmetic_side_effects, clippy::cast_precision_loss)] // test-file policy as in `raster.rs`: a fixture that cannot run must fail loudly
 mod tests {
     use super::{Sheet, render_into, sample_offsets};
     use crate::device::Device;

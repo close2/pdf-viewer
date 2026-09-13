@@ -231,7 +231,6 @@ pub(crate) fn internal_texture_bytes(
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)] // a fixture that cannot run must fail loudly
 mod tests {
     use super::LayerPool;
     use crate::device::Device;

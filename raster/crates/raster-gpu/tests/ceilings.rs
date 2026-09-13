@@ -101,7 +101,7 @@ fn a_viewport_transform_above_the_coordinate_bound_is_refused_by_name() {
             // Exact, and the comparison is exact on purpose: both numbers are the ones
             // the caller and the constant handed in, copied rather than computed, so a
             // difference of any size is a refusal reporting something else.
-            #[allow(clippy::float_cmp)]
+            #[expect(clippy::float_cmp)]
             {
                 assert_eq!(limit, MAX_COORDINATE, "the refusal names the stated bound");
                 assert_eq!(coefficient, MAX_COORDINATE * 2.0, "and what crossed it");

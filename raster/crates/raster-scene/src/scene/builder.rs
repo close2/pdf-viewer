@@ -97,7 +97,7 @@ impl SceneBuilder {
     // The brief's section 2.3 signature, kept argument-for-argument so the caller's encoder
     // stays mechanical (one command, one call, no packing step). When M6 adds the
     // mask parameter this is revisited against a params struct, with the caller.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn fill(
         &mut self,
         outline: OutlineId,
@@ -136,7 +136,7 @@ impl SceneBuilder {
     /// identifiers this scene never allocated.
     // The brief's section 2.3 signature (see the `fill` note; integration note 8 records
     // the mask-last divergence).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn stroke(
         &mut self,
         outline: OutlineId,
@@ -250,7 +250,7 @@ impl SceneBuilder {
     /// ([`SceneError::InvalidImageAlpha`](crate::error::SceneError::InvalidImageAlpha) —
     /// §11.6.4.4's constant opacity, in §11.3.7.2's range), and clip or mask identifiers
     /// this scene never allocated.
-    #[allow(clippy::too_many_arguments)] // the brief's section 2.3 signature, mask last (note 8)
+    #[expect(clippy::too_many_arguments)] // the brief's section 2.3 signature, mask last (note 8)
     pub fn image(
         &mut self,
         image: ImageId,

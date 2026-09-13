@@ -151,3 +151,21 @@ Read by: a round that writes code, sets or lifts a bound, or takes a dependency.
 - **The interesting half of a "viewer feature" is usually a clause.** Of the click that follows a
   link, the mouse is four lines and the rest is Table 176's three conditions, §12.5.2's coordinate
   space and §7.7.3.3's rotation.
+
+- **Never restore a whole file in a shared worktree, not even one you are editing.** Round 1020 made
+  a `cp` backup of `crates/pdf-signature/src/signature.rs` before planting a calibration defect and
+  copied it back afterwards — the ordinary, careful thing to do alone. A sibling round was editing
+  the same file in that window, and the restore put the file back as it stood *before their edit*.
+  The symptom was legible and nobody would have read it correctly: a variant
+  (`Excluded::TheDigitsOfTheSignatureValue`) appeared in one round's report while its declaration
+  was missing from the file, then resolved when its author wrote it again. Neither round could have
+  proved what happened from its own side; it was found only because 1020 said out loud that it had
+  done it.
+
+  A whole-file restore is not an edit, it is a **claim that the file has no other author**, and in a
+  shared worktree that claim is false. To plant a calibration defect (trap 13), make the smallest
+  edit that plants it and reverse *that edit* — by hand, or with a patch of the region — never by
+  putting a saved copy of the file back. The same holds for `git checkout -- <file>`, `git stash`
+  and `git restore`: each of them restores a whole file from a state that predates whatever a
+  neighbour has written since. The existing rule against `git stash` in this tree is the special
+  case; this is the general one.

@@ -174,7 +174,7 @@ impl Walk<'_> {
     /// Refuses when it is not a value the walk can name, and when it is not an integer:
     /// PLRM3 requires an integer of all three, and lowering `2.7 index` by truncation would
     /// name a slot the program never asked for.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::float_cmp,
         reason = "Rust's float-to-integer `as` saturates, which is the clamp a value this far \

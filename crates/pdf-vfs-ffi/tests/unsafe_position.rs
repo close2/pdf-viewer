@@ -108,7 +108,7 @@ fn the_crate_denies_unsafe_and_lifts_it_for_one_module() {
         .expect("this crate has a lib");
     assert!(lib.contains("#![deny(unsafe_code)]"));
     assert_eq!(
-        lib.matches("#[allow(unsafe_code)]").count(),
+        lib.matches("#[expect(unsafe_code)]").count(),
         1,
         "the permission is granted once, to one module"
     );

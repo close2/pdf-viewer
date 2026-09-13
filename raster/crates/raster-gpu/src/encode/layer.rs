@@ -283,8 +283,8 @@ impl Encoder<'_> {
     /// nothing inside, nothing outside" — so shrinking it drops the group nowhere it
     /// would have contributed, and a group under one curve clip stops costing a
     /// page-sized mask.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    #[allow(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
     pub(super) fn plan_group_residue(
         &mut self,
         resolved: &ResolvedClip,

@@ -50,7 +50,7 @@ fn pixels(device: &mut Device, scene: &Scene, viewport: &Viewport<'_>) -> Vec<u8
 /// A page with every replayable shape on it: plain fills (compute tiles), an
 /// axis-aligned rectangle fill (the analytic route), a collapsed ruling (§10.7.4
 /// marks), a clipped fill, and a stroke (a Slow record).
-#[allow(clippy::too_many_lines)] // one fixture, five shapes, read top to bottom
+#[expect(clippy::too_many_lines)] // one fixture, five shapes, read top to bottom
 fn page(device: &mut Device) -> Scene {
     let mut builder = SceneBuilder::new();
     let triangle = device

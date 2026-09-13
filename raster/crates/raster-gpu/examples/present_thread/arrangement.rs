@@ -125,12 +125,12 @@ pub(crate) fn scaled_to(window: (u32, u32)) -> Vec<Shape> {
 /// A texel extent scaled and rounded, never to zero: `wgpu` will not make a texture with
 /// an empty extent, so a scale that rounds a thin layer away has to stop at one texel
 /// rather than produce a descriptor the device refuses.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn scaled_extent(texels: u32, scale: f64) -> u32 {
     ((f64::from(texels) * scale).round() as u32).max(1)
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn scaled_place(at: f32, scale: f64) -> f32 {
     (f64::from(at) * scale) as f32
 }
@@ -150,7 +150,7 @@ pub(crate) fn rectangle_fragments(shape: Shape, target: (u32, u32)) -> u64 {
         let high = (f64::from(origin) + f64::from(texels)).ceil() + 1.0;
         // Both ends are inside `[0, limit]` after the clamp, so the difference is a
         // whole number this size and the conversion cannot lose anything.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         {
             (high.clamp(0.0, limit) - low) as u64
         }

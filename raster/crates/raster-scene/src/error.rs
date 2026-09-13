@@ -308,7 +308,7 @@ impl fmt::Display for SceneError {
     // property (a wildcard arm, or an `unreachable!` in the half that does not own the
     // variant), and the property is worth more here than the line count. The clause-shaped
     // halves that *can* be lifted out already are: see `GroupComposeReason::because`.
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NonFiniteRect(rect) => {

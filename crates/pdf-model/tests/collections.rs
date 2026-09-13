@@ -120,7 +120,11 @@ fn no_pdfjs_document_is_a_portable_collection() {
 
     assert!(collections.is_empty(), "documents with a /Collection");
     assert!(related_files.is_empty(), "specifications with a /RF");
-    assert_eq!(keys, 23, "embedded files across the corpus");
+    // 22 since the thousand-and-twenty-third session, and the one that left is not a file that
+    // went away: `encrypted-attachment.pdf` states no §7.6.6 Table 25 `/AuthEvent`, so the default
+    // of `DocOpen` wants a key before the document is open and this walk never opens it. Its twin
+    // `auth-event-ef-open.pdf` states `/AuthEvent /EFOpen`, opens, and keeps its key here. ADR 1040.
+    assert_eq!(keys, 22, "embedded files across the corpus");
     assert_eq!(
         in_a_folder, 0,
         "no pdf.js document has folders, so every key there is a plain name"

@@ -150,7 +150,6 @@ impl WindingVertex {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)] // test-file policy as in `raster.rs`
 mod tests {
     use super::{QuadOutline, WindingVertex};
     use raster_scene::{Point, Segment};

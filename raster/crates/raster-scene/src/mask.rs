@@ -57,7 +57,7 @@ impl Transfer {
         let mut table = [0_u8; 256];
         for (i, slot) in table.iter_mut().enumerate() {
             // The index of a 256-element array is exactly a byte.
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             {
                 *slot = i as u8;
             }

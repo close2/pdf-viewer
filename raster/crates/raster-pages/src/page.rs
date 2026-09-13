@@ -18,7 +18,7 @@ const UNPRICED: Option<Recorded> = None;
 /// `(commands, culled, distinct outlines, atlas keys, clip regions, tiles, layer
 /// textures, residue regions, residue tiles, coverage texels)` — the order
 /// `tests/archetypes.rs` prints them in.
-#[allow(clippy::too_many_arguments)] // ten counters, and a struct literal per page is worse
+#[expect(clippy::too_many_arguments)] // ten counters, and a struct literal per page is worse
 const fn row(
     commands: u64,
     commands_culled: u64,

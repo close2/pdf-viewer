@@ -24,10 +24,33 @@ running anything (ADR 0281).
 
 ## Traps
 
-### 7. `#[expect]`, never `#[allow]`
+### 7. `#[expect]`, never `#[allow]` — now held by the compiler, on the part of it a compiler can hold
 
 Every lint exception is `#[expect(..., reason = "...")]`. It errors when it stops being necessary,
 which has already removed several. A bare `allow` hides that forever.
+
+**A program holds this now, and the incident that put it here is why it had to.**
+`clippy::allow_attributes` is `warn` in `[workspace.lints.clippy]` and in `fuzz/Cargo.toml`'s copy
+of it, so under `doc/todo/02` §2's tier-1 `RUSTFLAGS="-D warnings"` a bare `#[allow]` is a build
+failure rather than a rule a round has to remember (ADR 1042). The lint's own description is the
+trap's sentence: "`#[allow]` will not trigger if a warning isn't found. `#[expect]` triggers if
+there are no warnings."
+
+**The prose stays because the rule was prose for 555 sessions and that was not enough.**
+`doc/reviews/1018-what-retiring-a-trap-would-cost.md` counted eleven citations of it and three
+committed violations in `crates/pdf-transform/src/archive/`, **one of which carried a `reason`** —
+its author knew the convention and reached for the wrong attribute anyway. And the review's own
+grep, which looked for `#[allow(clippy::` under `crates/` and `tools/`, found three of the 221
+sites the lint found: `raster/`, the renderer folded in from its own repository, held 215 of them.
+**A hand-written population is not the tree** (trap 25), and the instrument that answered correctly
+was the compiler.
+
+**What it cannot hold, which is now the only part a round owes by hand.** The lint fires on *outer*
+attributes only, so a crate- or module-level `#![allow(...)]` — the form the census examples under
+`crates/*/examples/` use — is not seen by it, and about forty of those stand today. Calibrated
+rather than assumed (trap 13): an outer `#[allow]` planted in `raster-pages` failed the clippy line
+by name — `error: #[allow] attribute found`, exit 101 — and an inner `#![allow]` planted in its
+place exited 0 and said nothing. 160 inner `#![allow]` stand in the tree today.
 
 ### 10. The sandbox worker is a separate binary, and Cargo will not rebuild it for you
 
@@ -366,7 +389,17 @@ bound is still applied to, ratcheted like the judged set. **Ask of any exemption
 cover everything, which assertion would fail?** If the answer is none, the exemption has no floor
 under it yet. ADR 0759.
 
-### 13. A sweep for a defect must be run against the defect before it is believed
+### 13. A sweep for a defect must be run against the defect before it is believed — and trap 29, the lifting that is the same experiment with the sign reversed
+
+**Trap 29 is the same rule applied to a *constant* and is the last section of this trap**, merged
+here in the one-thousand-and-twenty-fifth session on
+`doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s recommendation, which observed that trap
+29's own text already made the argument: a lifting experiment is a sweep whose instrument is a
+number, and its calibration is this one's with the sign reversed. Both incidents are kept and both
+numbers are still citable — neither is renamed, because ADRs and records cite each by number and an
+ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+
+#### 13. A sweep for a defect must be run against the defect before it is believed
 
 A round told to look for a class of defect writes a grep, gets a handful of hits, reads them and
 reports the tree clean. **That is a measurement with an instrument nobody calibrated**, and the
@@ -401,6 +434,24 @@ the population a census is about — the clause's shape or the program's behavio
 different populations and a row that quotes one for the other is stale the day it is written**; and
 **a census that reaches for the clause when the interpreter is one call away has chosen the weaker
 instrument**, since a report the code already raises can be counted directly.
+
+#### 29. A bound lifted in a scratch build is lifted only where the code reads the constant
+
+"Lift the bound sixteenfold and see which documents still reach it" is this project's standard
+experiment on a budget, and ADR 0271 ran it on `MAX_FORM_DEPTH` over 65 944 documents: all four
+witnesses reached 256, so all four were cycles, so the bound was the attack it exists for. Two more
+rounds repeated it over two more corpora and the eleven-document claim went into the constant's own
+comment. Twenty-five of the twenty-seven were finite — a tiling cell was run at `MAX_FORM_DEPTH - 1`,
+so lifting the constant lifted the cell's starting point with it, and a cell holding two levels of
+forms reported the bound at sixteen, at 256, and at any value a scratch build could name (ADR
+0793).
+
+The experiment had no control. The rule above — run a sweep against the defect before believing
+it — has a mirror for a lifting: **run it against a document known to be finite and
+deep, which must stop**, before believing that whatever still reaches the lifted bound is a cycle.
+And read every site that *derives* a number from the constant, because those move with it: a
+`grep` for the name finds them in a second and the eight-hundred-and-seventy-first session, which
+found the two nestings, did not look.
 
 ### 18. A limit a process is under can destroy the channel it reports through
 
@@ -600,24 +651,6 @@ document stating `/R 5` will have `/R 5` in almost any sentence about it. So:
 - The same shape is why trap 11's sixth instance is a count over source text: *presence of a name*
   is a weak predicate wherever something else in the population can carry that name without
   meaning it.
-
-### 29. A bound lifted in a scratch build is lifted only where the code reads the constant
-
-"Lift the bound sixteenfold and see which documents still reach it" is this project's standard
-experiment on a budget, and ADR 0271 ran it on `MAX_FORM_DEPTH` over 65 944 documents: all four
-witnesses reached 256, so all four were cycles, so the bound was the attack it exists for. Two more
-rounds repeated it over two more corpora and the eleven-document claim went into the constant's own
-comment. Twenty-five of the twenty-seven were finite — a tiling cell was run at `MAX_FORM_DEPTH - 1`,
-so lifting the constant lifted the cell's starting point with it, and a cell holding two levels of
-forms reported the bound at sixteen, at 256, and at any value a scratch build could name (ADR
-0793).
-
-The experiment had no control. Trap 13's rule for a sweep — run it against the defect before
-believing it — has a mirror for a lifting: **run it against a document known to be finite and
-deep, which must stop**, before believing that whatever still reaches the lifted bound is a cycle.
-And read every site that *derives* a number from the constant, because those move with it: a
-`grep` for the name finds them in a second and the eight-hundred-and-seventy-first session, which
-found the two nestings, did not look.
 
 ### 30. A sink keyed by name hands its outputs back in the order they were *opened*
 
@@ -844,38 +877,6 @@ called. And the anonymous figure has a granularity of its own where transparent 
 `always`: a 2 MiB huge page is 2 MiB of `Anonymous` however much of it is touched, so a band under
 about ten mebibytes needs one huge page's headroom or it will fire on a step the program did not
 take.
-
-### 36. A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask
-
-Two mistakes about the same instrument, both made in the nine-hundred-and-thirty-eighth session,
-and the second one silently.
-
-**A wall-clock figure on a shared machine is three quantities, not two.** The obvious two are the
-work and the time spent waiting for a processor somebody else had — and the second is not what
-inflates a short figure. Measured: eight spinning processes pinned to **exactly** the eight CPUs a
-gate pins its children to raised a one-millisecond figure by **43%** and the gate's fixed-work probe
-by **74%**, while the kernel's own wait counter read **exactly zero in all twenty samples**. A short,
-freshly woken task is what the scheduler runs first, so a process of a millisecond is essentially
-never preempted; what the neighbour does instead is sit *inside* the core — an SMT sibling, a shared
-cache, a boost clock four busy cores do not reach. **A figure can lose half its speed to a
-neighbour with nothing to subtract and nothing to measure but a fixed-work probe.**
-
-Where the wait *does* appear is the excursion: over fifteen consecutive samples, fourteen read 0.97
-to 1.08 ms with a wait of zero and one read 3.947 with a wait of 2.825. That is a factor of four
-explained exactly, and it is worth subtracting — `sched_info.run_delay` is accumulated in
-nanoseconds at every wakeup and is unambiguously somebody else's. **The lesson is which is which:**
-the wait explains the *tail*, the sharing explains the *level*, and a gate that treats either as
-the other will widen the wrong thing.
-
-**And ask the right thread.** `/proc/self/schedstat` is the **thread group leader**, and libtest —
-like most harnesses — runs a test on a thread of its own, so the leader sleeps in a join for the
-whole measurement and every counter reads zero however busy the machine is. The first version of
-this instrument reported `runq 0.000` on every sample under saturating load and looked like a
-finding. `/proc/thread-self/schedstat` is the calling thread. The same applies to anything else
-under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`, `wchan`,
-`sched` — and it is invisible because the file exists, parses, and answers.
-
-ADR 0916.
 
 ### 37. A digest of the artefact cannot see a change in the *diagnosis*
 

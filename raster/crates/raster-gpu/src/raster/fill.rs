@@ -55,8 +55,8 @@ impl CoverageMask {
     // wrap; every offset below is then a difference between two of those corners inside
     // the overlap, so it is non-negative and no larger than the smaller mask's extent.
     // Stated once here rather than at each of the six.
-    #[allow(clippy::arithmetic_side_effects)]
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    #[expect(clippy::arithmetic_side_effects)]
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     pub(crate) fn crop(&self, left: i32, top: i32, width: u32, height: u32) -> Self {
         let mut cut = Self::transparent(left, top, width, height);
         let (ax0, ay0) = (i64::from(left), i64::from(top));
@@ -105,7 +105,7 @@ pub(crate) enum Rule {
 // The accumulation arithmetic below is bounded by construction: coordinates are
 // clamped into the region, whose dimensions were checked against the frame budget
 // before allocation. Stated once here rather than per line of a hot loop.
-#[allow(clippy::arithmetic_side_effects)]
+#[expect(clippy::arithmetic_side_effects)]
 pub(crate) fn fill_mask(
     polylines: &[Polyline],
     rule: Rule,
@@ -119,7 +119,7 @@ pub(crate) fn fill_mask(
     // One spill column: a deposit at the right edge lands in it rather than wrapping.
     let mut acc = vec![0.0_f32; (w + 1) * h];
 
-    #[allow(clippy::cast_precision_loss)] // region dims are bounded by target limits
+    #[expect(clippy::cast_precision_loss)] // region dims are bounded by target limits
     let (fw, fh) = (w as f32, h as f32);
     for polyline in polylines {
         let n = polyline.points.len();
@@ -127,9 +127,9 @@ pub(crate) fn fill_mask(
             let p0 = polyline.points[i];
             // Filling closes every subpath: the last edge returns to the start.
             let p1 = polyline.points[(i + 1) % n];
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(clippy::cast_precision_loss)]
             let (x0, y0) = (p0.x - left as f32, p0.y - top as f32);
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(clippy::cast_precision_loss)]
             let (x1, y1) = (p1.x - left as f32, p1.y - top as f32);
             accumulate_edge(&mut acc, w, fw, fh, x0, y0, x1, y1);
         }
@@ -149,7 +149,7 @@ pub(crate) fn fill_mask(
                     1.0 - (m - 1.0).abs()
                 }
             };
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             {
                 coverage[y * w + x] = (cov * 255.0).round() as u8;
             }
@@ -172,11 +172,11 @@ pub(crate) fn fill_mask(
 /// where `d` is the signed slab height and `xm` the piece's mean x within the cell —
 /// the exact trapezoid area to the right of the edge, plus the spill that keeps the
 /// running sum equal to the full winding beyond the crossing.
-#[allow(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
-#[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[expect(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
+#[expect(clippy::cast_sign_loss)]
 // Two endpoints plus the grid: the coordinate bundle is the function's whole input,
 // and a struct would only rename the eight numbers.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn accumulate_edge(
     acc: &mut [f32],
     w: usize,
@@ -189,7 +189,7 @@ fn accumulate_edge(
 ) {
     // Exact comparison: a horizontal edge deposits nothing by definition, and a
     // nearly-horizontal one deposits its nearly-zero area correctly.
-    #[allow(clippy::float_cmp)]
+    #[expect(clippy::float_cmp)]
     if y0 == y1 {
         return;
     }
@@ -277,8 +277,7 @@ fn accumulate_edge(
 /// The cut runs only when an endpoint is outside; a piece wholly inside takes the same
 /// arithmetic it always did, to the bit, which is what keeps every tile that is not cut
 /// by a clip or by the page edge pixel-for-pixel where it was.
-#[allow(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
-#[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[expect(clippy::arithmetic_side_effects)]
 fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, ye: f32) {
     if xs >= 0.0 && xs <= fw && xe >= 0.0 && xe <= fw {
         deposit_inside(row, fw, dir, xs, ys, xe, ye);
@@ -318,8 +317,8 @@ fn deposit_slab(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, y
 ///
 /// A piece wholly outside arrives here with both ends on the same side; the clamp then
 /// collapses it onto the border column, which is where its winding belongs.
-#[allow(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
-#[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[expect(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
+#[expect(clippy::cast_sign_loss, clippy::cast_precision_loss)]
 fn deposit_inside(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32, ye: f32) {
     let xs = xs.clamp(0.0, fw);
     let xe = xe.clamp(0.0, fw);

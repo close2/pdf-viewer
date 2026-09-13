@@ -70,6 +70,47 @@ pub const ID_SIGNING_TIME: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0
 /// RFC 5652's `id-countersignature`, `1.2.840.113549.1.9.6` — §12.8.3.4.3 (i)'s
 /// "counter-signature", which a `PAdES` signature "shall not" use.
 pub const ID_COUNTERSIGNATURE: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x06];
+/// RFC 5035's `id-aa-signingCertificate`, `1.2.840.113549.1.9.16.2.12`.
+///
+/// §12.8.3.4.3 (f) names this attribute and says where it is defined: "signing-certificate or
+/// signing-certificate-v2: shall be used as a signed attribute … The details of the signing
+/// certificate attribute are defined in Internet RFC 5035 ." That RFC's section 5.4 is what makes
+/// the two spellings one requirement: "[t]he only substantial difference between the two
+/// attributes is that SigningCertificateV2 allows for hash algorithm agility, while
+/// SigningCertificate forces the use of the SHA-1 hash algorithm."
+pub const ID_AA_SIGNING_CERTIFICATE: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x0C,
+];
+/// RFC 5035's `id-aa-signingCertificateV2`, `1.2.840.113549.1.9.16.2.47` — the other spelling of
+/// §12.8.3.4.3 (f)'s attribute.
+pub const ID_AA_SIGNING_CERTIFICATE_V2: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x2F,
+];
+/// RFC 5035's `id-aa-contentHint`, `1.2.840.113549.1.9.16.2.4` — one of §12.8.3.4.3 (i)'s four.
+pub const ID_AA_CONTENT_HINT: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x04,
+];
+/// RFC 5035's `id-aa-contentIdentifier`, `1.2.840.113549.1.9.16.2.7` — another of them.
+pub const ID_AA_CONTENT_IDENTIFIER: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x07,
+];
+/// RFC 5035's `id-aa-contentReference`, `1.2.840.113549.1.9.16.2.10` — the last of them.
+pub const ID_AA_CONTENT_REFERENCE: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x0A,
+];
+/// `id-aa-ets-signerLocation`, `1.2.840.113549.1.9.16.2.17` — §12.8.3.4.3 (h)'s attribute.
+///
+/// **The identifier is RFC 5126 section 5.11.2's and the clause names a different document**, and
+/// that is worth stating rather than hiding: §12.8.3.4.3 (h) says "signer-location, as defined in
+/// clause 5.2.5 in ETSI EN 319 122-1", which this tree does not hold; RFC 5126 defines the same
+/// attribute under the same name and assigns it this number, and it is freely redistributable, so
+/// it is the definition a reader here can check. What the risk *is*, exactly: if the ETSI document
+/// numbers the attribute otherwise, the rule below stops firing — a report that is not made, not a
+/// verdict that is wrong — because the only thing it decides is whether to *say* that a file
+/// states both this attribute and a `/Location`.
+pub const ID_AA_ETS_SIGNER_LOCATION: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x11,
+];
 /// RFC 3161's `id-ct-TSTInfo`, `1.2.840.113549.1.9.16.1.4` — what a document timestamp
 /// encapsulates (§12.8.5).
 pub const ID_CT_TST_INFO: &[u8] = &[
@@ -604,6 +645,21 @@ pub struct SignedData<'a> {
     pub signer_key_identifier: Option<&'a [u8]>,
     /// The first signer's `message-digest` signed attribute — the digest of the signed content.
     pub message_digest: Option<&'a [u8]>,
+    /// The first signer's `signing-certificate` signed attribute, as its single `AttributeValue`.
+    ///
+    /// RFC 5035 section 5.4.2's `SigningCertificate`, which §12.8.3.4.3 (f) names and
+    /// §12.8.3.4.5 (a) requires a verifier to act on. The *value* is kept rather than only the
+    /// identifier because the hash inside it is what that step compares against; [`crate::ess`]
+    /// reads it. `None` where the signer states no such attribute, and `None` for one stated as an
+    /// *unsigned* attribute, which RFC 5035 section 5.4.2 forbids outright: "[i]f present, the
+    /// SigningCertificate attribute MUST be a signed attribute; it MUST NOT be an unsigned
+    /// attribute."
+    pub signing_certificate: Option<Value<'a>>,
+    /// The same for `signing-certificate-v2` — RFC 5035 section 5.4.1's `SigningCertificateV2`.
+    ///
+    /// Two fields rather than one because RFC 5035 section 5.4 says what to do when a file states
+    /// both: "[i]f both attributes exist in a single message, they are independently evaluated."
+    pub signing_certificate_v2: Option<Value<'a>>,
     /// The object identifiers of the first signer's signed attributes, in the file's order.
     pub signed_attribute_types: Vec<&'a [u8]>,
     /// The same for its unsigned attributes.
@@ -810,6 +866,8 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
         signer_issuer_and_serial: parsed.issuer_and_serial,
         signer_key_identifier: parsed.key_identifier,
         message_digest: parsed.message_digest,
+        signing_certificate: parsed.signing_certificate,
+        signing_certificate_v2: parsed.signing_certificate_v2,
         signed_attribute_types: parsed.signed_attribute_types,
         unsigned_attribute_types: parsed.unsigned_attribute_types,
         attributes_truncated: parsed.truncated,
@@ -826,6 +884,8 @@ struct Signer<'a> {
     issuer_and_serial: Option<IssuerAndSerial<'a>>,
     key_identifier: Option<&'a [u8]>,
     message_digest: Option<&'a [u8]>,
+    signing_certificate: Option<Value<'a>>,
+    signing_certificate_v2: Option<Value<'a>>,
     signed_attribute_types: Vec<&'a [u8]>,
     unsigned_attribute_types: Vec<&'a [u8]>,
     truncated: bool,
@@ -869,6 +929,8 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
         issuer_and_serial: read_signer_identifier(sid)?,
         key_identifier: sid.is_context(0).then_some(sid.contents),
         message_digest: None,
+        signing_certificate: None,
+        signing_certificate_v2: None,
         signed_attribute_types: Vec::new(),
         unsigned_attribute_types: Vec::new(),
         truncated: false,
@@ -952,7 +1014,10 @@ fn read_attributes<'a>(
             continue;
         };
         names.push(kind);
-        if is_signed && kind == ID_MESSAGE_DIGEST {
+        if !is_signed {
+            continue;
+        }
+        if kind == ID_MESSAGE_DIGEST {
             // `AttributeValue ::= ANY`, in a `SET OF` of one: the digest is the octets of the
             // single value inside.
             if let Some(values) = parts.next_value()?
@@ -960,6 +1025,22 @@ fn read_attributes<'a>(
                 && octets.identifier == OCTET_STRING
             {
                 signer.message_digest = Some(octets.contents);
+            }
+        } else if kind == ID_AA_SIGNING_CERTIFICATE || kind == ID_AA_SIGNING_CERTIFICATE_V2 {
+            // The same shape, and RFC 5035 section 5.4.1 says the `SET OF` holds exactly one:
+            // "[a] SigningCertificateV2 attribute MUST include only a single instance of
+            // AttributeValue. There MUST NOT be zero or multiple instances". Taking the first is
+            // therefore taking the only one a conforming file has; a file with several is a file
+            // breaking that MUST, and reading the first of them is the reading that can then be
+            // *compared* rather than one that guesses which was meant.
+            if let Some(values) = parts.next_value()?
+                && let Some(attribute) = values.children()?.next_value()?
+            {
+                if kind == ID_AA_SIGNING_CERTIFICATE {
+                    signer.signing_certificate = Some(attribute);
+                } else {
+                    signer.signing_certificate_v2 = Some(attribute);
+                }
             }
         }
     }
@@ -991,7 +1072,9 @@ fn read_attributes<'a>(
 #[cfg(test)]
 pub(crate) mod fixtures {
     use super::{
-        Digest, ID_CONTENT_TYPE, ID_CT_TST_INFO, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME,
+        Digest, ID_AA_CONTENT_HINT, ID_AA_CONTENT_IDENTIFIER, ID_AA_CONTENT_REFERENCE,
+        ID_AA_ETS_SIGNER_LOCATION, ID_AA_SIGNING_CERTIFICATE_V2, ID_CONTENT_TYPE,
+        ID_COUNTERSIGNATURE, ID_CT_TST_INFO, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME,
     };
 
     /// A DER `SEQUENCE`, `SET` or context tag around already-encoded children.
@@ -1041,6 +1124,19 @@ pub(crate) mod fixtures {
 
     /// One `SignerInfo` stating `digest` as its `digestAlgorithm`, with the signed attributes given.
     fn signer(digest: Digest, attributes: Option<Vec<Vec<u8>>>) -> Vec<u8> {
+        signer_with(digest, attributes, None)
+    }
+
+    /// The same, with `unsignedAttrs [1]` as well.
+    ///
+    /// Both sets are needed because §12.8.3.4.3 (i) forbids four attributes without saying which
+    /// set each lives in, and RFC 5652 section 5.3 puts `counter-signature` in the unsigned one —
+    /// so a fixture with signed attributes alone could not exercise half of the rule.
+    fn signer_with(
+        digest: Digest,
+        attributes: Option<Vec<Vec<u8>>>,
+        unsigned: Option<Vec<Vec<u8>>>,
+    ) -> Vec<u8> {
         let mut members = vec![
             primitive(0x02, &[0x01]),                  // version
             tagged(0x30, &[primitive(0x02, &[0x2A])]), // sid: issuer and serial number
@@ -1051,7 +1147,89 @@ pub(crate) mod fixtures {
         }
         members.push(sha256_algorithm()); // signatureAlgorithm
         members.push(primitive(0x04, &[0xDE, 0xAD])); // signature
+        if let Some(unsigned) = unsigned {
+            members.push(tagged(0xA1, &unsigned));
+        }
         tagged(0x30, &members)
+    }
+
+    /// RFC 5035 section 5.4.1's `SigningCertificateV2` around one hash, with `hashAlgorithm`
+    /// omitted — which X.690 clause 11.5 requires of a DER producer using the `DEFAULT`, SHA-256.
+    pub(crate) fn signing_certificate_v2(certificate_hash: &[u8]) -> Vec<u8> {
+        tagged(
+            0x30,
+            &[tagged(
+                0x30,
+                &[tagged(0x30, &[primitive(0x04, certificate_hash)])],
+            )],
+        )
+    }
+
+    /// An `ETSI.CAdES.detached` value that breaks §12.8.3.4.3 (f) and all four of its (i).
+    ///
+    /// One forbidden attribute in each set, twice over, so that a rule looking in only one of the
+    /// two would be visible as two missing departures rather than as none.
+    pub(crate) fn pades_departing(digest: &[u8]) -> Vec<u8> {
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer_with(
+                Digest::Sha256,
+                Some(vec![
+                    attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+                    attribute(ID_SIGNING_TIME, primitive(0x17, b"260807000000Z")),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+                    attribute(ID_AA_CONTENT_IDENTIFIER, primitive(0x04, b"identifier")),
+                    attribute(
+                        ID_AA_CONTENT_HINT,
+                        tagged(0x30, &[primitive(0x06, ID_DATA)]),
+                    ),
+                ]),
+                Some(vec![
+                    attribute(ID_COUNTERSIGNATURE, tagged(0x30, &[])),
+                    attribute(ID_AA_CONTENT_REFERENCE, tagged(0x30, &[])),
+                ]),
+            ),
+        )
+    }
+
+    /// The same shape meeting §12.8.3.4.3 (f) and (i): a `signing-certificate-v2`, and none of the
+    /// four.
+    pub(crate) fn pades_conforming(digest: &[u8], certificate_hash: &[u8]) -> Vec<u8> {
+        pades_meeting(digest, certificate_hash, false)
+    }
+
+    /// The same again, with RFC 5126 section 5.11.2's `signer-location` among its signed
+    /// attributes — §12.8.3.4.3 (h)'s attribute, which the clause pairs with the `/Location` entry.
+    pub(crate) fn pades_locating(digest: &[u8], certificate_hash: &[u8]) -> Vec<u8> {
+        pades_meeting(digest, certificate_hash, true)
+    }
+
+    /// The two above, which differ only in whether the signer states a `signer-location`.
+    fn pades_meeting(digest: &[u8], certificate_hash: &[u8], locate: bool) -> Vec<u8> {
+        let mut attributes = vec![
+            attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+            attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+            attribute(
+                ID_AA_SIGNING_CERTIFICATE_V2,
+                signing_certificate_v2(certificate_hash),
+            ),
+        ];
+        if locate {
+            // `SignerLocation ::= SEQUENCE { countryName [0] DirectoryString OPTIONAL, … }`, with
+            // the first of the three RFC 5126 section 5.11.2 admits.
+            attributes.push(attribute(
+                ID_AA_ETS_SIGNER_LOCATION,
+                tagged(0x30, &[primitive(0xA0, b"CH")]),
+            ));
+        }
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer(Digest::Sha256, Some(attributes)),
+        )
     }
 
     /// `ContentInfo { id-signedData, [0] SignedData }` around one signer.
@@ -1174,27 +1352,69 @@ pub(crate) mod fixtures {
         serial: &[u8],
         signature: &[u8],
     ) -> Vec<u8> {
-        // `SignerInfo`, positionally: version, sid, digestAlgorithm, signatureAlgorithm, signature.
-        let signer = tagged(
+        detached_dsa_with(certificate, issuer, serial, signature, None)
+    }
+
+    /// [`detached_dsa`] with a signed `signing-certificate-v2` naming `certificate_hash`.
+    ///
+    /// What it exists for is §12.8.3.4.5 (a)'s *first* sentence, which needs a real certificate to
+    /// hash and no working signature at all: the step compares the certificate against the hash the
+    /// signer signed, and it is decisive before the second sentence's arithmetic is reached. Adding
+    /// a signed attribute to a signature made over the content necessarily stops that signature
+    /// verifying — RFC 5652 section 5.4 then signs the attributes instead — and that is the
+    /// fixture's point rather than a flaw in it: a matching hash has to leave the *verification*
+    /// answer visible underneath, so the test can tell "the comparison passed" from "nothing
+    /// compared".
+    pub(crate) fn detached_dsa_stating_certificate_hash(
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+        signature: &[u8],
+        certificate_hash: &[u8],
+    ) -> Vec<u8> {
+        detached_dsa_with(
+            certificate,
+            issuer,
+            serial,
+            signature,
+            Some(vec![attribute(
+                ID_AA_SIGNING_CERTIFICATE_V2,
+                signing_certificate_v2(certificate_hash),
+            )]),
+        )
+    }
+
+    /// The two above, which differ only in whether the signer states signed attributes.
+    fn detached_dsa_with(
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+        signature: &[u8],
+        attributes: Option<Vec<Vec<u8>>>,
+    ) -> Vec<u8> {
+        // `SignerInfo`, positionally: version, sid, digestAlgorithm, signedAttrs, signatureAlgorithm,
+        // signature.
+        let mut members = vec![
+            primitive(0x02, &[0x01]),
+            tagged(
+                0x30,
+                &[tagged(0x30, &[issuer.to_vec()]), primitive(0x02, serial)],
+            ),
+            sha256_algorithm(),
+        ];
+        if let Some(attributes) = attributes {
+            members.push(tagged(0xA0, &attributes));
+        }
+        // `id-dsa-with-sha256`, the identifier RFC 5758 section 3.1 assigns.
+        members.push(tagged(
             0x30,
-            &[
-                primitive(0x02, &[0x01]),
-                tagged(
-                    0x30,
-                    &[tagged(0x30, &[issuer.to_vec()]), primitive(0x02, serial)],
-                ),
-                sha256_algorithm(),
-                // `id-dsa-with-sha256`, the identifier RFC 5758 section 3.1 assigns.
-                tagged(
-                    0x30,
-                    &[primitive(
-                        0x06,
-                        &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x02],
-                    )],
-                ),
-                primitive(0x04, signature),
-            ],
-        );
+            &[primitive(
+                0x06,
+                &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x02],
+            )],
+        ));
+        members.push(primitive(0x04, signature));
+        let signer = tagged(0x30, &members);
         let body = tagged(
             0x30,
             &[
@@ -1389,7 +1609,9 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::detached;
     use super::{
-        CmsError, Digest, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME, SHAKE256_OCTETS, signed_data,
+        CmsError, Digest, ID_AA_CONTENT_HINT, ID_AA_CONTENT_IDENTIFIER, ID_AA_CONTENT_REFERENCE,
+        ID_AA_ETS_SIGNER_LOCATION, ID_AA_SIGNING_CERTIFICATE, ID_AA_SIGNING_CERTIFICATE_V2,
+        ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME, SHAKE256_OCTETS, signed_data,
     };
 
     /// A DER `SEQUENCE` around already-encoded children, for the two malformed fixtures below.
@@ -1629,6 +1851,53 @@ mod tests {
         assert_eq!(Digest::Sha3_256.oid(), sha3::Sha3_256::OID.as_bytes());
         assert_eq!(Digest::Sha3_384.oid(), sha3::Sha3_384::OID.as_bytes());
         assert_eq!(Digest::Sha3_512.oid(), sha3::Sha3_512::OID.as_bytes());
+    }
+
+    /// The five attribute identifiers §12.8.3.4.3 needs, against a second party's reading.
+    ///
+    /// Four of them are transcribed from RFC 5035, which this tree holds — three from its Appendix
+    /// A module and `id-aa-signingCertificateV2` from its section 5.4.1 — so the transcription can
+    /// be checked against the source by eye. What this adds is the check a pair of *swapped*
+    /// digits would survive, which is the failure mode [`Digest::oid`]'s note names: `const_oid`'s
+    /// database groups these under RFC 5911, and it is a second reading of the same registry at no
+    /// new package.
+    ///
+    /// **`id-aa-ets-signerLocation` has no row here, and that is the honest state rather than an
+    /// omission.** That database carries no constant for it, §12.8.3.4.3 (h) names ETSI EN 319
+    /// 122-1 rather than an RFC, and [`ID_AA_ETS_SIGNER_LOCATION`] says where the number comes from
+    /// and what it costs if it is wrong. One reading is what there is.
+    #[test]
+    fn the_signed_attribute_identifiers_agree_with_a_second_reading() {
+        for (ours, second) in [
+            (
+                ID_AA_SIGNING_CERTIFICATE,
+                const_oid::db::rfc5911::ID_AA_SIGNING_CERTIFICATE,
+            ),
+            (
+                ID_AA_SIGNING_CERTIFICATE_V2,
+                const_oid::db::rfc5911::ID_AA_SIGNING_CERTIFICATE_V_2,
+            ),
+            (
+                ID_AA_CONTENT_HINT,
+                const_oid::db::rfc5911::ID_AA_CONTENT_HINT,
+            ),
+            (
+                ID_AA_CONTENT_IDENTIFIER,
+                const_oid::db::rfc5911::ID_AA_CONTENT_IDENTIFIER,
+            ),
+            (
+                ID_AA_CONTENT_REFERENCE,
+                const_oid::db::rfc5911::ID_AA_CONTENT_REFERENCE,
+            ),
+        ] {
+            assert_eq!(ours, second.as_bytes());
+        }
+        // And the one that has only ours, read back as digits so that the number this tree acts on
+        // is legible beside RFC 5126 section 5.11.2's printed one.
+        assert_eq!(
+            crate::x509::dotted(ID_AA_ETS_SIGNER_LOCATION).as_deref(),
+            Some("1.2.840.113549.1.9.16.2.17")
+        );
     }
 
     /// Where ISO/TS 32001 puts its four, which is not everywhere.

@@ -181,7 +181,7 @@ impl Remedies {
     /// checking: **what comes back is not trusted**, so the media type the tool declared is held
     /// against what it produced, and whatever survives that still goes through `doc/adr/0947`'s
     /// third stage, which re-opens the assembled output and holds it to the same target.
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
         reason = "every one is a different fact about the place this result answers — which \
                   requirement, which tool, which stream, where it is, what it is called — and a \

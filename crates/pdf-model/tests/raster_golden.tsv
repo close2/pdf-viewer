@@ -343,7 +343,7 @@ doc_actions.pdf p1	drawn	612x792	5dff3922f8ab64ac	f653d43dac4d06e8	4f53cda18c2ba
 empty#hash.pdf p1	drawn	612x792	5dff3922f8ab64ac	086607f24fc6b755	4f53cda18c2baa0c
 empty.pdf p1	drawn	612x792	5dff3922f8ab64ac	086607f24fc6b755	4f53cda18c2baa0c
 empty_protected.pdf p1	drawn	612x792	5dff3922f8ab64ac	086607f24fc6b755	4f53cda18c2baa0c
-encrypted-attachment.pdf p1	drawn	612x792	7d05ed7ae4a445a5	625ac4b8eb3056f6	4f53cda18c2baa0c
+encrypted-attachment.pdf p1	locked	-	-	-	-
 endchar.pdf p1	drawn	15x34	bd1e6dad327ad8eb	3109f023e2869fa3	4f53cda18c2baa0c
 evaljs.pdf p1	drawn	612x792	763363f949d74554	430a9845b0a27385	4f53cda18c2baa0c
 extgstate.pdf p1	drawn	612x792	c133f88af2e2aa00	d0c047b6a21934cb	4f53cda18c2baa0c

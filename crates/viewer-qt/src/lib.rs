@@ -73,7 +73,7 @@ mod access;
 // item `pub` inside a module this crate does not export (`unreachable_pub`). Neither is a choice
 // this crate made and neither can be fixed inside it. `expect` rather than `allow` for those two,
 // so that a `cxx` release which stops emitting them turns this into a warning to delete.
-#[allow(unsafe_code)]
+#[expect(unsafe_code)]
 #[expect(
     unused_qualifications,
     unreachable_pub,

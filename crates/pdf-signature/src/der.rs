@@ -122,6 +122,8 @@ pub struct Value<'a> {
     pub identifier: u8,
     /// The value's contents, which for a constructed value is the encoding of its children.
     pub contents: &'a [u8],
+    /// The whole tag-length-value as the file wrote it, header included.
+    encoding: &'a [u8],
     /// How many constructed values enclose this one.
     depth: u8,
     /// Whether this value's own length octets were X.690 clause 8.1.3.6's indefinite form.
@@ -199,6 +201,24 @@ impl<'a> Value<'a> {
         self.indefinite
     }
 
+    /// This value's whole encoding — identifier, length octets and contents — as the file wrote it.
+    ///
+    /// [`Self::contents`] is what a *reader* of a structure wants; this is what a *hasher* of one
+    /// wants, and RFC 5035 section 5.4.1.1 is why the distinction is load-bearing here: an
+    /// `ESSCertIDv2`'s `certHash` "is computed over the entire DER-encoded certificate (including
+    /// the signature)", so the octets committed to are the ones this returns and not the SEQUENCE's
+    /// contents. Reconstructing the header instead would be this program choosing a length
+    /// encoding on the producer's behalf, and a producer that wrote a non-minimal one would then
+    /// fail a comparison it should pass.
+    ///
+    /// For a value whose length was written in the indefinite form the slice ends after the
+    /// end-of-contents marker, so it is still the file's own bytes — see
+    /// [`Self::had_indefinite_length`], which is what a caller that needs *DER* asks first.
+    #[must_use]
+    pub const fn encoding(&self) -> &'a [u8] {
+        self.encoding
+    }
+
     /// This value's contents where it is an `OBJECT IDENTIFIER`, and `None` otherwise.
     ///
     /// The octets are handed back as they are encoded. Nothing in §12.8 needs an OID's *numbers* —
@@ -241,6 +261,11 @@ impl<'a> Reader<'a> {
     /// Any [`DerError`] the encoding produces. A reader that has returned an error is not reset
     /// and should not be asked again; the callers here stop at the first one.
     pub fn next_value(&mut self) -> Result<Option<Value<'a>>, DerError> {
+        // Kept before anything is consumed so that each value can carry the bytes it was written
+        // as: what is left afterwards says how many of these the value took, and the difference is
+        // its whole tag-length-value. See [`Value::encoding`] for why reconstructing it instead
+        // would be wrong.
+        let whole = self.rest;
         let Some((&identifier, after_identifier)) = self.rest.split_first() else {
             return Ok(None);
         };
@@ -265,6 +290,7 @@ impl<'a> Reader<'a> {
             return Ok(Some(Value {
                 identifier,
                 contents,
+                encoding: consumed(whole, self.rest),
                 depth: self.depth,
                 indefinite: true,
             }));
@@ -294,10 +320,23 @@ impl<'a> Reader<'a> {
         Ok(Some(Value {
             identifier,
             contents,
+            encoding: consumed(whole, self.rest),
             depth: self.depth,
             indefinite: false,
         }))
     }
+}
+
+/// The prefix of `whole` that reading one value consumed, given what is left of it.
+///
+/// Both slices come from the same buffer and `rest` is always a suffix of `whole`, so the
+/// difference in lengths is the number of octets the value occupied. Written as a length rather
+/// than as pointer arithmetic because that keeps it inside `#![forbid(unsafe_code)]`, and the
+/// saturating subtraction and `unwrap_or` are the two ways an impossible pair is made to yield the
+/// whole slice rather than to panic.
+fn consumed<'a>(whole: &'a [u8], rest: &[u8]) -> &'a [u8] {
+    let taken = whole.len().saturating_sub(rest.len());
+    whole.get(..taken).unwrap_or(whole)
 }
 
 /// Where an indefinite-length value's contents stop: the offset of its end-of-contents marker.
@@ -360,6 +399,45 @@ fn end_of_contents(bytes: &[u8], depth: u8) -> Result<usize, DerError> {
 #[cfg(test)]
 mod tests {
     use super::{Class, DerError, MAX_VALUE, OBJECT_IDENTIFIER, Reader, SEQUENCE};
+
+    /// Each value hands back the octets the file wrote, header and all.
+    ///
+    /// What needs it is RFC 5035 section 5.4.1.1's `certHash`, "computed over the entire
+    /// DER-encoded certificate (including the signature)": a hash over [`super::Value::contents`]
+    /// would be a hash over the wrong message, and the two differ by exactly the header this
+    /// asserts is there. Both length forms are checked, and the long one with a length octet count
+    /// of its own, because a reconstructed header would agree with the short form and diverge on
+    /// the others.
+    #[test]
+    fn a_value_carries_the_octets_it_was_written_as() {
+        for bytes in [
+            // Short form: SEQUENCE of one INTEGER.
+            vec![SEQUENCE, 0x03, 0x02, 0x01, 0x07],
+            // Long form, one length octet: the same SEQUENCE with 130 octets of contents.
+            {
+                let mut out = vec![SEQUENCE, 0x81, 0x82, 0x04, 0x80];
+                out.extend(std::iter::repeat_n(0xAA, 128));
+                out
+            },
+        ] {
+            // A trailing value, so that a reader taking too much would be visible as a length.
+            let mut input = bytes.clone();
+            input.extend_from_slice(&[0x02, 0x01, 0x09]);
+            let mut reader = Reader::new(&input).expect("under the ceiling");
+            let value = reader.next_value().expect("parses").expect("holds a value");
+            assert_eq!(value.encoding(), bytes.as_slice());
+            assert!(
+                value.encoding().ends_with(value.contents)
+                    && value.encoding().len() > value.contents.len(),
+                "the contents with the file's own header in front of them"
+            );
+            let next = reader
+                .next_value()
+                .expect("parses")
+                .expect("holds a second value");
+            assert_eq!(next.encoding(), &[0x02, 0x01, 0x09]);
+        }
+    }
 
     /// Every value in a definite-length sequence, with its contents.
     #[test]

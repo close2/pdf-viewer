@@ -180,7 +180,7 @@ fn convert_to_integer(a: Value) -> Result<Value, EvalError> {
             }
             // In range by the test above, so the cast is the truncation the clause
             // describes and not a wrap.
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             Ok(Value::Int(truncated as i32))
         }
         Value::Bool(_) => Err(PsError::TypeCheck.into()),
@@ -267,7 +267,7 @@ fn remainder(a: Value, b: Value) -> Result<Value, EvalError> {
     }
     // The divisor is non-zero by the test above, and `i32::MIN` remainder −1 is 0,
     // which is representable — so this wraps nothing and cannot trap.
-    #[allow(clippy::arithmetic_side_effects)]
+    #[expect(clippy::arithmetic_side_effects)]
     Ok(Value::Int(dividend.wrapping_rem(divisor)))
 }
 

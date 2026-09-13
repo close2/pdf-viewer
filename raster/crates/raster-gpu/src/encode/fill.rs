@@ -134,7 +134,7 @@ impl<'a> Encoder<'a> {
     /// The fill arm of the command walk: pick the glyph or path lane by device size
     /// and residue state; route non-Normal blends through an implicit child layer;
     /// mark `Compose::Src` for the knockout two-pass (§4.1).
-    #[allow(clippy::too_many_arguments)] // one command's fields, destructured once
+    #[expect(clippy::too_many_arguments)] // one command's fields, destructured once
     pub(super) fn encode_fill(
         &mut self,
         outline: OutlineId,
@@ -299,7 +299,7 @@ impl<'a> Encoder<'a> {
     /// style is the same expression the solid arm computes; a blended fill re-enters
     /// through a child layer, which takes the whole frame off the replay road before
     /// the copy could lie.
-    #[allow(clippy::too_many_arguments)] // the fill's own fields, forwarded once
+    #[expect(clippy::too_many_arguments)] // the fill's own fields, forwarded once
     fn record_fill(
         &mut self,
         outline: OutlineId,
@@ -673,7 +673,7 @@ impl<'a> Encoder<'a> {
     /// Explicit arguments rather than the [`SolidFill`] bundle, because the record
     /// replay (`replay.rs`, ADR 0087) reaches here with every input denormalised — the
     /// bundle's `stored` borrow is the one thing a probe-free replay must not need.
-    #[allow(clippy::too_many_arguments)] // one tile's inputs, from two callers
+    #[expect(clippy::too_many_arguments)] // one tile's inputs, from two callers
     pub(super) fn fill_compute(
         &mut self,
         outline: OutlineId,
@@ -700,7 +700,7 @@ impl<'a> Encoder<'a> {
             .scratch
             .reserve(width, height)
             .ok_or_else(|| self.scratch.exhausted(width, height))?;
-        #[allow(clippy::cast_precision_loss)] // the corner is a device pixel, the
+        #[expect(clippy::cast_precision_loss)] // the corner is a device pixel, the
         // same cast the CPU rasteriser makes on the same value
         let corner = (left as f32, top as f32);
         if !self.compute.push_tile(
@@ -725,7 +725,7 @@ impl<'a> Encoder<'a> {
                 budget: self.budget,
             });
         }
-        #[allow(clippy::cast_precision_loss)] // seats and extents are texels
+        #[expect(clippy::cast_precision_loss)] // seats and extents are texels
         return self.push_quad_instance(
             raster_scene::Point::new(corner.0, corner.1),
             width as f32,
@@ -786,7 +786,7 @@ impl Encoder<'_> {
     /// Inside a knockout group the element composites with the transparent initial
     /// backdrop, where every blend mode degenerates to Normal — §11.4.6 with §11.3.6's
     /// αb = 0 — so knockout draws never come here.
-    #[allow(clippy::too_many_arguments)] // the fill's own parameters, forwarded once
+    #[expect(clippy::too_many_arguments)] // the fill's own parameters, forwarded once
     pub(super) fn fill_through_blend_group(
         &mut self,
         outline: OutlineId,

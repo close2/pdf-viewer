@@ -140,7 +140,7 @@ impl Encoder<'_> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)] // one instance layout, one writer
+    #[expect(clippy::too_many_arguments)] // one instance layout, one writer
     pub(super) fn push_quad_instance(
         &mut self,
         dest: Point,
@@ -212,7 +212,7 @@ impl Encoder<'_> {
     /// 137 GB of rectangle instances; `encode` refuses the frame at
     /// `Options::max_frame_bytes` (268 MiB by default) long before, having charged one
     /// rect and one quad per command up front.
-    #[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
+    #[expect(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
     fn note_batch(&mut self, kind: BatchKind, style: DrawStyle, mask: Option<u32>) {
         let index = match kind {
             BatchKind::Rect => (self.rect_instances.len() as u64 / RECT_INSTANCE_STRIDE) - 1,

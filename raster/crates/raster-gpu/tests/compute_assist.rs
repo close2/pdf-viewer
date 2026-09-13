@@ -174,7 +174,7 @@ fn the_big_fill_takes_the_device_and_the_glyphs_keep_the_atlas() {
 /// lane's own — the exact phase, where the fall-through drew the quantised one that
 /// bought nothing.
 #[test]
-#[allow(clippy::too_many_lines)] // one claim, three constructions, read top to bottom
+#[expect(clippy::too_many_lines)] // one claim, three constructions, read top to bottom
 fn a_full_atlas_declines_at_admission_and_the_device_draws_the_tile() {
     let scene_of = |device: &mut Device| {
         let mut builder = SceneBuilder::new();

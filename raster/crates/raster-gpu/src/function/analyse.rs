@@ -258,7 +258,7 @@ fn validate_range(range: FnRange) -> Result<(), FunctionRefusal> {
 ///
 /// Total because [`Walk::push`](super::walk::Walk::push) refuses at
 /// [`MAX_OPERAND_SLOTS`](super::MAX_OPERAND_SLOTS), which is 64.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "the push budget bounds every depth at MAX_OPERAND_SLOTS, which is 64"
 )]

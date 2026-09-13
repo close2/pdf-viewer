@@ -566,6 +566,15 @@ cast_sign_loss = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 undocumented_unsafe_blocks = "warn"
+# `#[expect]`, never `#[allow]`. The lint's own description is the argument: "`#[allow]` will not
+# trigger if a warning isn't found. `#[expect]` triggers if there are no warnings" — so an
+# `allow` that has outlived the code it silenced is invisible for ever, and an `expect` becomes a
+# compile error the moment it stops being necessary. Under `doc/todo/02` §2's tier-1
+# `RUSTFLAGS="-D warnings"` that makes a bare `#[allow]` a build failure. What enabling it cost,
+# and what it found, is ADR 1042. It holds *outer* attributes only, which is a property of the
+# lint and not a decision: a crate- or module-level `#![allow]` is still nobody's but the
+# author's.
+allow_attributes = "warn"
 
 # What a person runs and what every performance number is taken from. Whole-graph
 # link-time optimisation over one code generation unit is the slowest thing this

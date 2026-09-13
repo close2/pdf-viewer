@@ -337,11 +337,8 @@ fn logical_or_bitwise(stack: &mut Vec<Value>, f: impl Fn(i32, i32) -> i32) {
     });
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "one arm per ISO 32000-2 Table 42 operator; the table is the function, and \
-              splitting it across helpers would hide which operators are covered"
-)]
+/// One arm per ISO 32000-2 Table 42 operator: the table is the function, and splitting it
+/// across helpers would hide which operators are covered.
 pub fn apply(op: FnOp, stack: &mut Vec<Value>) {
     match op {
         FnOp::PushReal(value) => stack.push(Value::real(value)),

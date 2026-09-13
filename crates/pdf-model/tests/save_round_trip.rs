@@ -1058,9 +1058,19 @@ fn every_corpus_document_saves_and_three_readers_see_the_edit() {
 /// pinned by commit and identical in every clone.
 const TRACKED_POPULATION: usize = 974;
 
-/// The two documents this reader cannot open at all: one encryption it does not implement, one
-/// password nobody has recorded. `corpus.rs` holds the same two under `MAX_UNREADABLE_ENCRYPTION`.
-const REFUSED_OPEN: &[&str] = &["PDFBOX-4352-0.pdf", "issue21579.pdf"];
+/// The three documents this reader cannot open at all: one encryption it does not implement and
+/// two passwords nobody has recorded.
+///
+/// **`encrypted-attachment.pdf` is the third since the thousand-and-twenty-third session**, and it
+/// moved here out of `SAVE_REFUSED_ON`: its crypt filter states no `/AuthEvent`, so §7.6.6 Table
+/// 25's default of `DocOpen` wants a key before the document is open and the file is one waiting
+/// for a person rather than one whose save was refused. Its twin `auth-event-ef-open.pdf` states
+/// `/AuthEvent /EFOpen`, opens, and is saved and read back like any other document. ADR 1040.
+const REFUSED_OPEN: &[&str] = &[
+    "PDFBOX-4352-0.pdf",
+    "encrypted-attachment.pdf",
+    "issue21579.pdf",
+];
 
 /// The documents with no page an update can put an annotation on — five with no reachable page
 /// one, and `issue9105_other.pdf`, whose page one is an inline dictionary in `/Kids`.
@@ -1100,9 +1110,13 @@ const NOTHING_TO_SAVE_ON: &[&str] = &[
     "xfa_filled_imm1344e.pdf",
 ];
 
-/// The saves §7.5.6 cannot honestly append, by name: twenty-three whose cross-reference table
+/// The saves §7.5.6 cannot honestly append, by name: twenty-two whose cross-reference table
 /// was rebuilt by scanning, and `scan-bad.pdf`, which states no `startxref`. A name that leaves
 /// this list is a document the writer began to chain to and is examined, not enjoyed.
+///
+/// **`encrypted-attachment.pdf` left it in the thousand-and-twenty-third session and was
+/// examined**: it is not opened at all any more, for §7.6.6 Table 25's reason, so it is in
+/// [`REFUSED_OPEN`] above and no save is attempted on it. ADR 1040.
 const SAVE_REFUSED_ON: &[&str] = &[
     "GHOSTSCRIPT-698804-1-fuzzed.pdf",
     "PDFBOX-3148-2-fuzzed.pdf",
@@ -1111,7 +1125,6 @@ const SAVE_REFUSED_ON: &[&str] = &[
     "bug1795263.pdf",
     "bug1980958.pdf",
     "close-path-bug.pdf",
-    "encrypted-attachment.pdf",
     "helloworld-bad.pdf",
     "issue10438_reduced.pdf",
     "issue15590.pdf",

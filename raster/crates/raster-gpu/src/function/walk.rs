@@ -327,7 +327,7 @@ impl<'a> Walk<'a> {
     fn step(&mut self, pc: usize, op: FnOp, out: &mut Vec<Step>) -> Result<(), FunctionRefusal> {
         match op {
             FnOp::PushReal(value) => self.literal(pc, value, SlotType::Real, out),
-            #[allow(
+            #[expect(
                 clippy::cast_precision_loss,
                 reason = "the operand stack is f32; an integer literal past 2^24 is already \
                           inexact in the compiled form the caller hands us"

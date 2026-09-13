@@ -406,3 +406,45 @@ dropped — two rounds before the round that removed the interaction. Re-measure
 code is free and lifts two documents off the floor. **A measurement is a measurement of the tree as
 it stands**, and a rule refused on one round's evidence is worth re-measuring after the round that
 changes what it touches.
+
+## 36. A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask
+
+**This was trap 36 and it is a habit**, moved here in the one-thousand-and-twenty-fifth session on
+`doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s recommendation. The argument for moving it
+is the position that springs it: *taking a timing figure on a machine other rounds are using*,
+which on this machine is every timing figure there is — so its two citations measured not rarity
+but a lesson sitting in a file the round that needed it did not open. It is method rather than a
+defect in a program, which is the line `CLAUDE.md` draws between a trap and a habit. **The number
+36 is kept**, because ADRs cite it and an ADR is not edited to follow a file that moved underneath
+it (ADR 0232 §2). Nothing of it is changed. Traps 34 and 35 are the same family and stay where they
+are: whether they follow is a separate question with its own evidence.
+
+Two mistakes about the same instrument, both made in the nine-hundred-and-thirty-eighth session,
+and the second one silently.
+
+**A wall-clock figure on a shared machine is three quantities, not two.** The obvious two are the
+work and the time spent waiting for a processor somebody else had — and the second is not what
+inflates a short figure. Measured: eight spinning processes pinned to **exactly** the eight CPUs a
+gate pins its children to raised a one-millisecond figure by **43%** and the gate's fixed-work probe
+by **74%**, while the kernel's own wait counter read **exactly zero in all twenty samples**. A short,
+freshly woken task is what the scheduler runs first, so a process of a millisecond is essentially
+never preempted; what the neighbour does instead is sit *inside* the core — an SMT sibling, a shared
+cache, a boost clock four busy cores do not reach. **A figure can lose half its speed to a
+neighbour with nothing to subtract and nothing to measure but a fixed-work probe.**
+
+Where the wait *does* appear is the excursion: over fifteen consecutive samples, fourteen read 0.97
+to 1.08 ms with a wait of zero and one read 3.947 with a wait of 2.825. That is a factor of four
+explained exactly, and it is worth subtracting — `sched_info.run_delay` is accumulated in
+nanoseconds at every wakeup and is unambiguously somebody else's. **The lesson is which is which:**
+the wait explains the *tail*, the sharing explains the *level*, and a gate that treats either as
+the other will widen the wrong thing.
+
+**And ask the right thread.** `/proc/self/schedstat` is the **thread group leader**, and libtest —
+like most harnesses — runs a test on a thread of its own, so the leader sleeps in a join for the
+whole measurement and every counter reads zero however busy the machine is. The first version of
+this instrument reported `runq 0.000` on every sample under saturating load and looked like a
+finding. `/proc/thread-self/schedstat` is the calling thread. The same applies to anything else
+under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`, `wchan`,
+`sched` — and it is invisible because the file exists, parses, and answers.
+
+ADR 0916.

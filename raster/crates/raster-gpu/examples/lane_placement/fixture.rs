@@ -130,7 +130,7 @@ pub(crate) fn device(coverage: Coverage, atlas: Option<u64>, samples: u32) -> De
 /// with it. A struct rather than five `bool` parameters, because every one of them
 /// changes which lane answers and a reader of a call site should see which is which.
 #[derive(Clone, Copy)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "each field is an independent axis of the sweep and every one of them changes \
               which lane answers; named fields at the call site are the point, and are what \

@@ -17,7 +17,7 @@
 //! | `issue17069.pdf` | 4 | 4 | `AESV2`, with different permissions |
 //! | `issue21579.pdf` | 5 | 5 | `AESV3` under the `ExtensionLevel` 3 extension |
 //! | `issue7665.pdf` | 5 | 6 | `AESV3` — AES-256 |
-//! | `encrypted-attachment.pdf` | 5 | 6 | `AESV3` reaching only an attachment |
+//! | `auth-event-ef-open.pdf` | 5 | 6 | `AESV3` reaching only an attachment, `/AuthEvent /EFOpen` |
 //!
 //! **One fixture is assembled here, and it does not break the paragraph above.** The
 //! revision-5 tests at the end of this file build a document around `issue21579.pdf`'s own
@@ -337,39 +337,99 @@ fn permissions_come_from_the_p_entry() {
     );
 }
 
-/// §7.6.6, on the two documents where only an attachment is encrypted.
+/// §7.6.6 Table 25's `/AuthEvent /EFOpen`: the document opens and the attachment does not.
 ///
-/// Both write `/StmF /Identity /StrF /Identity` with a `StdCF` the embedded file stream
-/// reaches through its own `/Crypt` specifier, and name the same filter in Table 20's `/EFF`
-/// beside it; and neither authenticates against the empty password — nor against any
-/// password, by three independent implementations of Algorithm 2.A. The clause binds the
-/// failure to the data rather than to the file: authorization is needed "before the stream
-/// can be accessed", so the page displays and the attachment does not.
+/// `auth-event-ef-open.pdf` writes `/StmF /Identity /StrF /Identity` with a `StdCF` the embedded
+/// file stream reaches through its own `/Crypt` specifier, names the same filter in Table 20's
+/// `/EFF` beside it, and states `/AuthEvent /EFOpen` in its dictionary; it authenticates against
+/// no password anybody has, by three independent implementations of Algorithm 2.A. So the event
+/// that wants the key is the embedded file's rather than this one, and §7.6.6's other sentence
+/// decides what happens when the file is reached: "PDF readers and security handlers shall treat
+/// any attempt to access a stream for which authorization has failed as an error."
 #[test]
-fn a_document_whose_attachment_alone_is_encrypted_still_opens() {
-    for name in ["encrypted-attachment.pdf", "auth-event-ef-open.pdf"] {
-        let Some(bytes) = corpus_bytes(name) else {
-            continue;
-        };
-        let document = Document::open(bytes)
-            .unwrap_or_else(|error| panic!("{name} should open without a password: {error}"));
-        assert!(document.is_encrypted());
-        assert!(
-            reads_as_a_content_stream(&page_one_content(&document, name)),
-            "{name}: the body is not encrypted, so it should read straight through"
-        );
+fn a_document_whose_attachment_alone_is_encrypted_opens_where_it_says_ef_open() {
+    let name = "auth-event-ef-open.pdf";
+    let Some(bytes) = corpus_bytes(name) else {
+        return;
+    };
+    let document = Document::open(bytes)
+        .unwrap_or_else(|error| panic!("{name} should open without a password: {error}"));
+    assert!(document.is_encrypted());
+    assert!(
+        reads_as_a_content_stream(&page_one_content(&document, name)),
+        "{name}: the body is not encrypted, so it should read straight through"
+    );
 
-        // The attachment is, and no key was obtained for it. Object 8 is the embedded file
-        // stream in both files; what matters is that *something* refuses rather than
-        // handing back ciphertext.
-        let attachment = document.get(pdf_syntax::ObjectId::new(8, 0));
-        if let Some(stream) = attachment.as_stream() {
-            assert!(
-                stream.data.is_empty(),
-                "{name}: the embedded file's data should be refused, not returned encrypted"
-            );
-        }
+    // The attachment is, and no key was obtained for it. Object 8 is the embedded file stream;
+    // what matters is that *something* refuses rather than handing back ciphertext.
+    let attachment = document.get(pdf_syntax::ObjectId::new(8, 0));
+    if let Some(stream) = attachment.as_stream() {
+        assert!(
+            stream.data.is_empty(),
+            "{name}: the embedded file's data should be refused, not returned encrypted"
+        );
     }
+}
+
+/// The same document without that entry is a document waiting for a person.
+///
+/// `encrypted-attachment.pdf` is `auth-event-ef-open.pdf` with the `/AuthEvent` line deleted and
+/// nothing else changed — nineteen bytes, and the two files' object 8 is the same ciphertext —
+/// so it takes Table 25's default of `DocOpen`, where "[a]uthorization shall be required when a
+/// document is opened" and, one sentence earlier, "[i]f authorization fails, the event shall
+/// fail". The event is this one, so the open fails and the reader is told a password is wanted
+/// rather than shown a document the clause says it may not yet have.
+///
+/// # This pair is what makes either assertion mean anything
+///
+/// Asserting the refusal alone would pass under a reader that had never heard of `/AuthEvent`
+/// and refused both files; asserting the open alone passed for as long as this tree tolerated
+/// every failed authorization whose body needed no key. Two files differing in one entry, with
+/// opposite answers, is the only shape that can tell the entry is read (ADR 1040).
+#[test]
+fn the_same_document_without_it_asks_for_the_password_doc_open_requires() {
+    let name = "encrypted-attachment.pdf";
+    let Some(bytes) = corpus_bytes(name) else {
+        return;
+    };
+    let refusal = Document::open(bytes).err().unwrap_or_else(|| {
+        panic!("{name} states no /AuthEvent, so Table 25's DocOpen default wants a key at the open")
+    });
+    assert!(
+        matches!(refusal, SyntaxError::PasswordRequired),
+        "{name}: a key wanted at DocOpen and not obtained is a password refusal, was {refusal}"
+    );
+}
+
+/// ISO 32000-2 §7.6.6 Table 25's last sentence: a filter named by `/StmF` is held to `DocOpen`
+/// whatever it states.
+///
+/// > If this filter is used as the value of StrF or StmF in the encryption dictionary … the PDF
+/// > reader shall ignore this key
+///
+/// — and behave as if it said `DocOpen`, which `doc/md/` loses the last four words of and
+/// `crypt::AuthEvent` records the loss of. The fixture is `auth-event-ef-open.pdf` with `/StmF`
+/// pointed at its own `StdCF` instead of at `Identity`, the two names padded to the same width so
+/// that every byte offset in the cross-reference table still lands where it did. That is the one
+/// document in the corpus whose crypt filter says `EFOpen`, so pointing `/StmF` at it is the only
+/// way to build the case the sentence is about; a reader that honoured the entry here would open
+/// a document whose every stream it cannot decrypt.
+#[test]
+fn a_filter_named_by_stm_f_has_its_auth_event_ignored() {
+    let Some(original) = corpus_bytes("auth-event-ef-open.pdf") else {
+        return;
+    };
+    let at = find(&original, b"/StmF /Identity");
+    let mut bytes = original.clone();
+    bytes[at..at + "/StmF /Identity".len()].copy_from_slice(b"/StmF /StdCF   ");
+
+    let refusal = Document::open(bytes).expect_err(
+        "/StmF names a cipher, so the key is wanted at the open whatever /AuthEvent says",
+    );
+    assert!(
+        matches!(refusal, SyntaxError::PasswordRequired),
+        "a key wanted at DocOpen and not obtained is a password refusal, was {refusal}"
+    );
 }
 
 /// Table 20's `/EFF`, which decides an embedded file stream that names no filter of its own.
@@ -387,12 +447,17 @@ fn a_document_whose_attachment_alone_is_encrypted_still_opens() {
 ///
 /// # Why the fixture is a corpus document with an entry deleted
 ///
-/// The two files above state both routes to `StdCF` at once — the stream's own `/Crypt`
+/// `auth-event-ef-open.pdf` states both routes to `StdCF` at once — the stream's own `/Crypt`
 /// specifier *and* `/EFF` — so the reader's answer is the same whether or not it reads the
 /// second, and no document in the corpus states `/EFF` alone. Blanking the specifier with
 /// spaces leaves every byte offset in the file where the cross-reference table says it is,
 /// so what is opened is a real producer's document with exactly one entry removed, and the
 /// only thing that can decide its attachment is the entry this test is about.
+///
+/// It is that file rather than `encrypted-attachment.pdf`, which is the same bytes without the
+/// `/AuthEvent /EFOpen` line and therefore does not open at all: Table 25's default wants its key
+/// at the document open, which is the test above. `/EFF` is about which filter an attachment
+/// takes once a document *is* open, so the fixture has to be one that opens.
 ///
 /// Both halves of the sentence are asserted, because only the pair distinguishes reading
 /// `/EFF` from refusing every attachment: with `/EFF` the stream takes `StdCF`, whose
@@ -401,7 +466,7 @@ fn a_document_whose_attachment_alone_is_encrypted_still_opens() {
 /// the bytes come back exactly as the file wrote them.
 #[test]
 fn an_embedded_file_stream_with_no_crypt_specifier_takes_the_eff_filter() {
-    let Some(original) = corpus_bytes("encrypted-attachment.pdf") else {
+    let Some(original) = corpus_bytes("auth-event-ef-open.pdf") else {
         return;
     };
     // The ciphertext object 8 holds, read straight out of the file so that the assertions

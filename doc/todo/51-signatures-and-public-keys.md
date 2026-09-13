@@ -38,7 +38,7 @@ answered the second for RSA (ADR 0229), the four-hundred-and-seventy-ninth answe
 |---|---|---|---|
 | **1. Integrity** | has the document changed since it was signed? | the file and a hash function | **answered** |
 | **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA, ECDSA or EdDSA | **answered for every family**; four curves below |
-| **3. Trust** | is the signer anyone to believe, and was the certificate revoked? | a trust store, a certification path, a network | open, and it is a project |
+| **3. Trust** | is the signer anyone to believe, and was the certificate revoked? | anchors a host names, a certification path, a network | **the path is built** (ADR 1039); the anchors and revocation are open |
 
 Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
 
@@ -117,23 +117,35 @@ rediscover:
   §12.8.1's ledger row now says so. What is missing there is a reader for a *name*, over the base
   standard's six.
 
-### What question 3 would take, and it is still a project
+### What question 3 would take — the path validation is built, the rest is still a project
 
-A certificate store — the platform's, or one shipped and maintained — a certification path
-validation per RFC 5280 clause 6, and either a CRL fetch or an OCSP request, which is a network in
-the renderer's address space and therefore a security argument as well as a feature. §12.8.4's
+**The certification path validation exists since the thousand-and-twenty-second session** and is
+`pdf_signature::trust`: RFC 5280 section 6.1, with the trust anchors as that RFC's section 6.1.1
+input (d) rather than as a list this program ships. **Read ADR 1039 before touching any of this**,
+because it prices the two obvious moves and refuses both as defaults — a compiled-in root list and
+the platform's store are each a *TLS server-authentication* programme, and a document-signing trust
+decision is not that. The anchors are a host's, the empty set is the default, and
+`Trust::NoAnchorSupplied` is what every caller in this tree gets today.
+
+So what is left of question 3 is **two things and neither is an algorithm**: somebody to supply an
+anchor — with a policy for what a viewer does with a signature whose path did not validate, which
+`doc/todo/38`'s four levels are the natural shape for — and revocation, which is RFC 5280 section
+6.1.3 (a)(3) and needs either a CRL fetch or an OCSP request, a network in the renderer's address
+space and therefore a security argument as well as a feature. `Trust::Anchored` carries
+`Revocation::NotChecked` so that no answer can drift into meaning *valid* while that is true. §12.8.4's
 document security store already tells this program whether a document *carries* what a validator
 would need, and §12.8.3.3.2's revocation attribute is named where a signature carries one; using
 either is what is missing. Add to it a policy for what a viewer does with a signature that fails,
 which `doc/todo/38`'s four levels are the natural shape for.
 
-**What already exists that question 3 would build on**: `pdf_signature::x509` reads a certificate's
-issuer, subject, serial number and key, and `Certificate::is_named_by` matches a signer to one.
-What it deliberately does *not* read is every field a trust decision needs — validity dates, basic
-constraints, key usage, the issuer's signature over the certificate — and that is a choice to
-revisit rather than an oversight: reading a `notAfter` while saying nothing about who issued the
-certificate would put an air of validation over a certificate the file's author could have written
-five minutes ago.
+**That "deliberately not read" list is spent, and the reasoning it rested on is worth keeping.**
+`pdf_signature::x509` read a certificate's issuer, subject, serial number and key and nothing else,
+on the argument that "reading a `notAfter` while saying nothing about who issued the certificate
+would put an air of validation over a certificate the file's author could have written five minutes
+ago". That argument was right about a reader with no path validation and is spent now that there is
+one: the validity dates, basic constraints, key usage and the issuer's signature over the
+certificate are all read, and each is read *because* a step of RFC 5280 section 6.1 asks for it.
+Nothing reads a field it does not act on, which is the same rule stated forwards.
 
 **And question 3 is now the *only* thing between this clause and `implemented`,** which it was not
 before: every `partial` in the §12.8.3 family names either trust or one of the four curves above.

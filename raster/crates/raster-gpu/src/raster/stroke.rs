@@ -52,7 +52,7 @@ pub(crate) fn resolve_width(stroke: Stroke, t: DeviceTransform) -> f32 {
 /// §10.7.5's adjustment applied at encode); dashing is already applied and degenerate
 /// subpaths pre-split upstream (section 4.5 of the brief); consecutive coincident points are
 /// skipped here so flattening artefacts cannot produce zero-length pieces.
-#[allow(clippy::arithmetic_side_effects)]
+#[expect(clippy::arithmetic_side_effects)]
 pub(crate) fn stroke_polylines(
     polylines: &[Polyline],
     stroke: Stroke,
@@ -64,12 +64,12 @@ pub(crate) fn stroke_polylines(
         // Dedupe coincident neighbours (and the closing wrap, when closed).
         let mut pts: Vec<Point> = Vec::with_capacity(polyline.points.len());
         for &p in &polyline.points {
-            #[allow(clippy::float_cmp)] // exact: a zero-length piece, not a near one
+            #[expect(clippy::float_cmp)] // exact: a zero-length piece, not a near one
             if pts.last().is_none_or(|q| q.x != p.x || q.y != p.y) {
                 pts.push(p);
             }
         }
-        #[allow(clippy::float_cmp)]
+        #[expect(clippy::float_cmp)]
         if polyline.closed
             && pts.len() > 1
             && pts[0].x == pts[pts.len() - 1].x
@@ -184,7 +184,6 @@ fn normal(a: Point, b: Point, hw: f32) -> Point {
     Point::new(-d.y * hw, d.x * hw)
 }
 
-#[allow(clippy::arithmetic_side_effects)]
 fn join_at(
     out: &mut Vec<Polyline>,
     prev: Point,
@@ -237,7 +236,6 @@ fn join_at(
     }
 }
 
-#[allow(clippy::arithmetic_side_effects)]
 fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap) {
     // `dir` points outward, away from the stroked segment.
     let n = Point::new(-dir.y * hw, dir.x * hw);
@@ -275,19 +273,18 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
 /// does (`QUORRA_FEEDBACK.md` §21.1), which is the sum, not the picture.
 ///
 /// The step count is [`ARC_STEP`]'s, as for any other arc.
-#[allow(clippy::arithmetic_side_effects)]
 fn cap_fan(end: Point, dir: Point, hw: f32) -> Polyline {
     // `cap_at`'s `n` is `dir` turned a quarter turn, so the cap's two corners sit at
     // `base ± pi/2` and the outward point at `base`. Sweeping downward from `+pi/2`
     // passes through `base`, which is what makes this the outward half — and gives the
     // fan the stroke body's own winding, so it adds rather than cancels.
     let base = dir.y.atan2(dir.x);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // pi / ARC_STEP
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // pi / ARC_STEP
     let steps = ((std::f32::consts::PI / ARC_STEP).ceil() as usize).max(1);
     let mut points = Vec::with_capacity(steps.saturating_add(2));
     points.push(end);
     for i in 0..=steps {
-        #[allow(clippy::cast_precision_loss)] // steps is a dozen
+        #[expect(clippy::cast_precision_loss)] // steps is a dozen
         let t =
             base + std::f32::consts::FRAC_PI_2 - std::f32::consts::PI * (i as f32) / (steps as f32);
         points.push(Point::new(end.x + hw * t.cos(), end.y + hw * t.sin()));
@@ -311,7 +308,6 @@ const ARC_STEP: f32 = 0.35;
 /// caller and it does: it returns before this on `cross == 0.0`, so the two segments are
 /// never collinear and never a reversal, and the gap a join fills is strictly under a
 /// half turn. A cap *is* exactly a half turn and has [`cap_fan`] for that reason.
-#[allow(clippy::arithmetic_side_effects)]
 fn arc_fan(centre: Point, from: Point, to: Point, radius: f32) -> Polyline {
     let a0 = (from.y - centre.y).atan2(from.x - centre.x);
     let a1 = (to.y - centre.y).atan2(to.x - centre.x);
@@ -322,11 +318,11 @@ fn arc_fan(centre: Point, from: Point, to: Point, radius: f32) -> Polyline {
     } else if sweep < -std::f32::consts::PI {
         sweep += 2.0 * std::f32::consts::PI;
     }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let steps = ((sweep.abs() / ARC_STEP).ceil() as usize).max(1);
     let mut points = vec![centre, from];
     for i in 1..steps {
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::cast_precision_loss)]
         let t = a0 + sweep * (i as f32) / (steps as f32);
         points.push(Point::new(
             centre.x + radius * t.cos(),

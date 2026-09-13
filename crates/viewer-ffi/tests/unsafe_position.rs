@@ -184,13 +184,13 @@ fn the_crate_root_denies_the_permission_and_lifts_it_once_on_the_abi() {
         "the root denies it"
     );
     assert_eq!(
-        joined.matches("#[allow()]").count(),
+        joined.matches("#[expect()]").count(),
         1,
         "and lifts the denial exactly once"
     );
     let at = code
         .iter()
-        .position(|line| line.contains("#[allow()]"))
+        .position(|line| line.contains("#[expect()]"))
         .expect("the count above found one");
     let next = code
         .iter()

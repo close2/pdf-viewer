@@ -39,7 +39,7 @@ impl Device {
     /// contents are not guaranteed by the swapchain and a `Readback` frame starts
     /// from a fresh texture — neither has anything to patch, so both redraw fully
     /// and say so in a [`Report`].
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // snapped, clamped
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // snapped, clamped
     pub(super) fn plan_damage(
         viewport: &Viewport<'_>,
         into: &Target<'_>,

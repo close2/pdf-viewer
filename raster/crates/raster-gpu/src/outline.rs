@@ -200,7 +200,7 @@ impl QuadOutline {
     /// contour survives whenever either segment bends. (brief section 4.5's degenerate subpaths are
     /// the caller's decision, already taken; this is only about not emitting triangles
     /// whose sum is provably zero.)
-    #[allow(clippy::float_cmp)] // exact, as `transform_preserves_axes` is: a contour is
+    #[expect(clippy::float_cmp)] // exact, as `transform_preserves_axes` is: a contour is
     // closed when its last point *is* its first, and a tolerance here would close a
     // contour the caller left open by a hair and change the geometry it asked for.
     fn finish_contour(&mut self, contour: Option<(Point, Vec<QuadSegment>)>) {
@@ -241,7 +241,7 @@ impl QuadOutline {
     /// the CPU one with (ADR 0026), because this count times three vertices times
     /// [`WindingVertex::STRIDE`] is what a *placement* costs on the device, and the same
     /// placement costs its tile's area in coverage bytes on the processor.
-    #[allow(clippy::arithmetic_side_effects)] // a sum of two lengths of the same Vec
+    #[expect(clippy::arithmetic_side_effects)] // a sum of two lengths of the same Vec
     pub(crate) fn triangle_count(&self) -> usize {
         self.contours
             .iter()
@@ -253,7 +253,7 @@ impl QuadOutline {
 }
 
 /// Subdivides a cubic until the quadratic bound holds, appending what it converged to.
-#[allow(clippy::arithmetic_side_effects)] // f32 geometry on coordinates the scene
+#[expect(clippy::arithmetic_side_effects)] // f32 geometry on coordinates the scene
 // boundary bounded by MAX_COORDINATE, plus a depth MAX_SPLIT_DEPTH already caps
 fn push_cubic(
     out: &mut Vec<QuadSegment>,
@@ -289,7 +289,6 @@ fn push_cubic(
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)] // test-file policy as in `raster.rs`
 mod tests {
     use super::QuadOutline;
     use raster_scene::{Point, Segment};
@@ -354,11 +353,7 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::arithmetic_side_effects,
-    clippy::cast_precision_loss
-)]
+#[expect(clippy::cast_precision_loss)]
 mod conversion_error {
     use super::QuadOutline;
     use raster_scene::{Point, Segment};

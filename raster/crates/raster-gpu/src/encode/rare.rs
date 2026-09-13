@@ -195,9 +195,9 @@ pub(super) enum RarePaint {
 impl Encoder<'_> {
     /// The image arm (ISO 32000-2 §8.9.5): one uniform-driven quad per placement,
     /// with a non-Normal blend through an implicit child, as fills take it.
-    #[allow(clippy::too_many_arguments)] // one command's fields, destructured once
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    #[allow(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
+    #[expect(clippy::too_many_arguments)] // one command's fields, destructured once
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
     pub(super) fn encode_image(
         &mut self,
         image: ImageId,
@@ -320,7 +320,7 @@ impl Encoder<'_> {
     /// Callers guarantee `paint` is not `Solid`. The shaded *command's* transform is
     /// deliberately absent here: a shading anchors to the scene through its own
     /// transform (§8.7.4.3), not to the path it fills.
-    #[allow(clippy::cast_precision_loss)] // mesh anchors are device pixel indices
+    #[expect(clippy::cast_precision_loss)] // mesh anchors are device pixel indices
     pub(super) fn rare_paint(&mut self, paint: Paint) -> Result<Option<RarePaint>, RenderError> {
         match paint {
             // The two callers matched Solid off before calling.
@@ -423,7 +423,7 @@ impl Encoder<'_> {
     /// Where the quad goes for a rect-hinted shape: the shape's device rectangle, cut to
     /// the clip and the target and expanded to pixel bounds, with the shape itself as the
     /// analytic coverage. `None` is a mark that reaches no pixel.
-    #[allow(clippy::cast_precision_loss)] // target sizes are far below 2^24
+    #[expect(clippy::cast_precision_loss)] // target sizes are far below 2^24
     fn rect_placement(
         &mut self,
         rect: Rect,
@@ -475,7 +475,7 @@ impl Encoder<'_> {
 
     /// Where the quad goes for a rasterised shape: exactly the coverage tile, which is
     /// what both shaders' texel arithmetic (`coverage.xy + p − dest.xy`) depends on.
-    #[allow(clippy::cast_precision_loss, clippy::arithmetic_side_effects)]
+    #[expect(clippy::cast_precision_loss, clippy::arithmetic_side_effects)]
     fn coverage_placement(
         &mut self,
         polylines: &[Polyline],

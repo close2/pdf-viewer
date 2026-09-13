@@ -112,7 +112,7 @@ pub(crate) fn transparent_value(plan: &MaskPlan) -> f32 {
         let [r, g, b] = plan.backdrop;
         let luminosity = 0.30_f32.mul_add(r, 0.59_f32.mul_add(g, 0.11 * b));
         // Clamped into 0..=255 on the line above the cast, which is what makes it exact.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         {
             (luminosity * 255.0).round().clamp(0.0, 255.0) as u8
         }

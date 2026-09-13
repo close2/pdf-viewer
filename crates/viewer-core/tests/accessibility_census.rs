@@ -846,6 +846,19 @@ fn require_the_sandbox() {
         );
     }
 }
+/// Every document in the corpus this program refuses to open, and why.
+///
+/// Named rather than counted: a ceiling of two could not tell a document that started refusing
+/// from one that stopped, and both are findings. `encrypted-attachment.pdf` joined when §7.6.6's
+/// `/AuthEvent` was read against Table 25 — it states none, so the default `DocOpen` requires the
+/// key before the document opens (ADR 1040).
+const REFUSED_OPEN: [&str; 3] = [
+    // `/Encrypt` does not resolve to a dictionary, so §7.6.1's handler cannot be chosen.
+    "PDFBOX-4352-0.pdf",
+    // Both need a password nobody has recorded.
+    "encrypted-attachment.pdf",
+    "issue21579.pdf",
+];
 
 /// The instrument. Ignored: minutes over every document this project holds, every page of the
 /// tagged ones — run it deliberately, under the gates profile or in release.
@@ -1223,10 +1236,17 @@ fn ratchet(
     floor("elements a caret reaches", tracked_census.with_lines, 1382);
     floor("lines", tracked_census.lines, 2482);
     floor("characters", tracked_census.characters, 31_433);
+    // 877 until the session that read §7.6.6's `/AuthEvent` against Table 25, whose next sentence
+    // is "if authorization fails, the event shall fail". `encrypted-attachment.pdf` states no
+    // `/AuthEvent`, so Table 25's default `DocOpen` requires the key before the document opens and
+    // its one page is now locked rather than drawn. A screen reader is told nothing about it
+    // because the file will not open without a password, which is the file's answer and not a
+    // regression in this program — the same change moved `corpus.rs`'s `MAX_LOCKED`,
+    // `collections.rs`, `oracle.rs`, `save_round_trip.rs` and `raster_golden.tsv` (ADR 1040).
     floor(
         "untagged pages answering honestly",
         tracked_census.untagged_honest,
-        877,
+        876,
     );
 
     whole_population_floors(census, specifications);
@@ -1268,7 +1288,21 @@ fn ratchet(
         "pages with no /StructParents whose fallback answered nothing, and which are not in \
          `NO_PARENT_KEY_SILENT`: {unnamed:?}"
     );
-    ceiling("documents that would not open", &census.refused_open, 2);
+    // A count could not tell a document that started refusing from one that stopped, so the
+    // population is named. Each entry is a document this program cannot open at all, with the
+    // reason it gives — a document leaving this list is as much a finding as one joining it.
+    let refused: std::collections::BTreeSet<&str> = census
+        .refused_open
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let expected: std::collections::BTreeSet<&str> = REFUSED_OPEN.iter().copied().collect();
+    assert_eq!(
+        refused, expected,
+        "the documents this program will not open have changed; `REFUSED_OPEN` names what is \
+         expected and why, and {:?} is what the census found",
+        census.refused_open
+    );
 }
 
 /// One tagged document through the whole census, un-ignored, so the classification cannot rot

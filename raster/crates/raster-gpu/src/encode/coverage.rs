@@ -41,8 +41,6 @@ impl Encoder<'_> {
     /// expansion and `None` where it is a fill's outline — the second half of what
     /// [`ThinAxis`] is measured from, and the only thing about a stroke that survives the
     /// expansion into polylines.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    #[allow(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
     pub(super) fn push_coverage(
         &mut self,
         polylines: &[Polyline],
@@ -57,8 +55,8 @@ impl Encoder<'_> {
     }
 
     /// As [`Encoder::push_coverage`], with the drawing style named rather than inherited.
-    #[allow(clippy::too_many_arguments)] // one draw's parameters, threaded once
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::too_many_arguments)] // one draw's parameters, threaded once
+    #[expect(clippy::cast_precision_loss)]
     pub(super) fn push_coverage_styled(
         &mut self,
         polylines: &[Polyline],
@@ -180,8 +178,8 @@ impl Encoder<'_> {
     /// not a rectangle, but the box its control hull traces bounds every pixel it can
     /// admit, and outside that box the chain's coverage — and so this mark's — is zero
     /// (ADR 0057).
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    #[allow(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]
     pub(super) fn visible_tile(
         &self,
         bounds: (f32, f32, f32, f32),
@@ -333,9 +331,9 @@ impl Encoder<'_> {
     /// `triangles` appends the shape's geometry in sheet space; it is handed the map
     /// from device pixels to sheet pixels, which is a translation and nothing else —
     /// the shape was already transformed into device space by the caller.
-    #[allow(clippy::too_many_arguments)] // one draw's parameters, threaded once
-    #[allow(clippy::cast_precision_loss)]
-    #[allow(clippy::arithmetic_side_effects)] // a reserved tile fits the sheet, and the
+    #[expect(clippy::too_many_arguments)] // one draw's parameters, threaded once
+    #[expect(clippy::cast_precision_loss)]
+    #[expect(clippy::arithmetic_side_effects)] // a reserved tile fits the sheet, and the
     // sheet fits the device dimension: a corner cannot leave u32
     pub(super) fn push_gpu_tile(
         &mut self,
@@ -396,8 +394,8 @@ impl Encoder<'_> {
         packed.ok_or_else(|| self.scratch.exhausted(tile.width, tile.height))
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    #[allow(clippy::too_many_arguments)] // one draw's parameters, threaded once
+    #[expect(clippy::cast_precision_loss)]
+    // one draw's parameters, threaded once
     pub(super) fn push_scratch_quad(
         &mut self,
         tile: &raster::CoverageMask,
@@ -431,10 +429,10 @@ impl Encoder<'_> {
 /// the clipping path, and this product is an estimate of it that the links' own `min` is
 /// not (ADR 0030). `(a·b + 127) / 255` is the unorm product rounded to nearest, so a
 /// clip of 255 leaves the mark exactly where it was.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 // the quotient of a u16 product by 255 is a
 // byte: both operands are bytes, so the numerator is at most 255·255 + 127
-#[allow(clippy::arithmetic_side_effects)] // and for the same reason it cannot overflow
+#[expect(clippy::arithmetic_side_effects)] // and for the same reason it cannot overflow
 fn residue_product(tile: &mut raster::CoverageMask, clip: &raster::CoverageMask) {
     for (m, l) in tile.coverage.iter_mut().zip(&clip.coverage) {
         *m = ((u16::from(*m) * u16::from(*l) + 127) / 255) as u8;

@@ -87,7 +87,15 @@ const MAX_UNOPENABLE: usize = 0;
 /// is no longer an encryption this reader declines — it is a document with a password, which
 /// `encryption.rs` opens with `pässwört` and this gate does not. That is a move *up* this
 /// list in the only direction that counts: a file that was refused is now one sentence away.
-const MAX_LOCKED: usize = 9;
+///
+/// **Ten since the thousand-and-twenty-third, and the tenth is the one place this count goes the
+/// other way.** `encrypted-attachment.pdf` used to open without a password on the reading that
+/// §7.6.6 binds a failed authorization to the stream rather than to the file; it states no
+/// `/AuthEvent`, so Table 25's default of `DocOpen` requires the key at the open and its twin
+/// `auth-event-ef-open.pdf` — the same bytes plus that one line — is the file the tolerance was
+/// actually for. A locked document is one waiting for a person, which this one now is, and the
+/// entry is load-bearing for the first time. ADR 1040.
+const MAX_LOCKED: usize = 10;
 
 /// Documents whose encryption this reader does not implement.
 ///

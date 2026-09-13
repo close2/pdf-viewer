@@ -60,8 +60,8 @@ pub(super) struct Buffers {
 }
 
 impl Buffers {
-    #[allow(clippy::cast_precision_loss)] // sheet extents are far below f32's exact range
-    #[allow(clippy::arithmetic_side_effects)] // a Vec length times its element count
+    #[expect(clippy::cast_precision_loss)] // sheet extents are far below f32's exact range
+    #[expect(clippy::arithmetic_side_effects)] // a Vec length times its element count
     pub(super) fn new(
         gpu: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -143,7 +143,7 @@ fn globals_bind_group(
 /// field of that struct happens to start where the previous one ends — the `vec4f`
 /// channel mask lands on 16 of its own accord. Move it and the array would need padding
 /// the shader's own alignment would insert; `tests` below is what says it still does not.
-#[allow(clippy::cast_precision_loss)] // sheet extents are far below f32's exact range
+#[expect(clippy::cast_precision_loss)] // sheet extents are far below f32's exact range
 fn globals_lanes(sheet: &Sheet, offset: [f32; 2], channel: usize, pane: &Pane) -> [f32; 12] {
     let mut mask = [0.0_f32; 4];
     mask[channel.min(3)] = 1.0;

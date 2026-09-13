@@ -131,8 +131,8 @@ impl Device {
 }
 
 /// The 144 bytes `image.wgsl`'s `Params` reads, in its order (ISO 32000-2 §8.9.5).
-#[allow(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 144-byte array
-#[allow(clippy::cast_precision_loss)] // target sizes are far below 2^24
+#[expect(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 144-byte array
+#[expect(clippy::cast_precision_loss)] // target sizes are far below 2^24
 fn image_params_bytes(op: &ImageOp, region: Region, mask: MaskPlacement) -> [u8; 144] {
     let mut bytes = [0_u8; 144];
     let mut put = |at: usize, v: f32| bytes[at..at + 4].copy_from_slice(&v.to_le_bytes());
@@ -173,8 +173,8 @@ fn image_params_bytes(op: &ImageOp, region: Region, mask: MaskPlacement) -> [u8;
 }
 
 /// The 176 bytes `shading.wgsl`'s `Params` reads, in its order (§8.7.4.5).
-#[allow(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 176-byte array
-#[allow(clippy::cast_precision_loss)] // extend bits ≤ 3; sizes far below 2^24
+#[expect(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 176-byte array
+#[expect(clippy::cast_precision_loss)] // extend bits ≤ 3; sizes far below 2^24
 fn shading_params_bytes(op: &ShadedOp, region: Region, mask: MaskPlacement) -> [u8; 176] {
     let mut bytes = [0_u8; 176];
     let mut put = |at: usize, v: f32| bytes[at..at + 4].copy_from_slice(&v.to_le_bytes());

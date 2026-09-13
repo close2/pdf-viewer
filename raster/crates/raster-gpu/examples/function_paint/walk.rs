@@ -209,7 +209,7 @@ impl Walker<'_> {
     /// count from its stack — but the *walk* could not then say how deep the program
     /// goes, and a depth nobody knows is a refusal either way. No program in the
     /// caller's corpus reaches this.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "the literal was pushed by `PushInt` and round-trips exactly"
     )]
@@ -301,7 +301,7 @@ impl Walker<'_> {
                     varies: false,
                 },
             ),
-            #[allow(
+            #[expect(
                 clippy::cast_precision_loss,
                 reason = "a literal beyond 2^24 is already inexact in the caller's f32 form"
             )]
@@ -376,10 +376,8 @@ impl Walker<'_> {
         Ok(())
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the six stack operators of Table 42 are one table; splitting it hides the shape"
-    )]
+    /// The six stack operators of ISO 32000-2 Table 42 are one table; splitting it across
+    /// helpers would hide the shape.
     fn step_stack(&mut self, op: Op) -> Result<(), Refusal> {
         match op {
             Op::Pop => {
@@ -564,10 +562,8 @@ fn binary_kind(op: Op, left: Kind, right: Kind) -> Kind {
 }
 
 /// The `ops.wgsl` function that implements an operator.
-#[allow(
-    clippy::too_many_lines,
-    reason = "one arm per Table 42 operator, which is the table this maps"
-)]
+///
+/// One arm per ISO 32000-2 Table 42 operator, which is the table this maps.
 fn wgsl_name(op: Op) -> &'static str {
     match op {
         Op::Abs => "ps_abs",

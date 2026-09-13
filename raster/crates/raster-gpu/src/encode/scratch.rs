@@ -81,7 +81,7 @@ impl ScratchPacker {
     /// measured against, and passing it in is what lets [`ScratchPacker::reserve`] charge
     /// the sum only once the tile has a seat.
     fn shelf_target(&self, placed: u64, widest: u32) -> u32 {
-        #[allow(clippy::cast_possible_truncation)] // isqrt of an area bounded by the
+        #[expect(clippy::cast_possible_truncation)] // isqrt of an area bounded by the
         // device dimension squared, which is inside u32 after the root
         let square = placed.saturating_mul(2).isqrt() as u32;
         square.max(widest).clamp(1, self.width)
@@ -132,7 +132,7 @@ impl ScratchPacker {
     /// the [`ScratchPacker::state`] a refusal reports is what the frame *placed* rather
     /// than what it asked for. For a drawn frame this changes nothing: every reservation
     /// succeeded.
-    #[allow(clippy::arithmetic_side_effects)] // bounded by width/max_height checks
+    #[expect(clippy::arithmetic_side_effects)] // bounded by width/max_height checks
     pub(super) fn reserve(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
         if width == 0 || height == 0 || width > self.width {
             return None;
@@ -175,7 +175,7 @@ impl ScratchPacker {
 
     /// Pack a mask's bytes; `None` when the frame's scratch would outgrow the
     /// texture dimension limit (the byte budget was already charged by the caller).
-    #[allow(clippy::arithmetic_side_effects)] // bounded by width/max_height checks
+    #[expect(clippy::arithmetic_side_effects)] // bounded by width/max_height checks
     pub(super) fn pack(&mut self, mask: &raster::CoverageMask) -> Option<(u32, u32)> {
         let position = self.reserve(mask.width, mask.height)?;
         let row_bytes = self.width as usize;

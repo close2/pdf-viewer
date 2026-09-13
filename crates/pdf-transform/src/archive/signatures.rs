@@ -680,6 +680,16 @@ fn authenticity_sentence(authenticity: &Authenticity, integrity: Integrity) -> S
             "its digest algorithm ({algorithm}) is one this program does not compute, so it was \
              not checked against a key"
         ),
+        Authenticity::SigningCertificateMismatch { version, .. } => format!(
+            "its {} attribute names a different certificate from the one the source carries, \
+             which §12.8.3.4.5 (a) says makes it invalid",
+            version.attribute_name()
+        ),
+        Authenticity::SigningCertificateUnverifiable { version, statement } => format!(
+            "its {} attribute could not be acted on ({statement}), so §12.8.3.4.5 (a)'s \
+             comparison was not made and it was not checked against a key",
+            version.attribute_name()
+        ),
         Authenticity::NoSignatureValue => "there is no value to verify".to_owned(),
         Authenticity::RangeNotInThisFile => {
             "its ByteRange names bytes outside the source, so there was nothing to verify over"

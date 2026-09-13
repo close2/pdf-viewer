@@ -229,7 +229,7 @@ fn random_program(rng: &mut Rng) -> Vec<FnOp> {
 
 /// One instruction, drawn from the whole of Table 42 plus the two jumps the caller's
 /// compiler emits for `if` and `ifelse`.
-#[allow(clippy::cast_possible_truncation)] // a jump target is a u32 by construction
+// a jump target is a u32 by construction
 fn random_op(rng: &mut Rng) -> FnOp {
     match rng.next() % 45 {
         0 => FnOp::PushReal(rng.f32()),

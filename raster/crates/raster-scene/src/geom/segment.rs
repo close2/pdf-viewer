@@ -50,7 +50,7 @@ pub fn axis_aligned_rect(segments: &[Segment]) -> Option<Rect> {
     // Exact comparison on purpose throughout this function: a rectangle from a PDF
     // `re` operator carries exact coordinates, and a nearly-closed path is not a
     // rectangle.
-    #[allow(clippy::float_cmp)]
+    #[expect(clippy::float_cmp)]
     if points.len() == 5 && points[4].x == points[0].x && points[4].y == points[0].y {
         points.truncate(4);
     }
@@ -59,7 +59,7 @@ pub fn axis_aligned_rect(segments: &[Segment]) -> Option<Rect> {
     };
     // Four edges (with wraparound), alternating vertical/horizontal in either phase.
     // Written with exact equality: see above.
-    #[allow(clippy::float_cmp)]
+    #[expect(clippy::float_cmp)]
     let is_rect = (p0.x == p1.x && p1.y == p2.y && p2.x == p3.x && p3.y == p0.y)
         || (p0.y == p1.y && p1.x == p2.x && p2.y == p3.y && p3.x == p0.x);
     if !is_rect {

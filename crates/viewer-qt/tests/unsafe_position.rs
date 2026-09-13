@@ -132,7 +132,7 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
         "the crate root denies it"
     );
     assert_eq!(
-        code.matches("#[allow()]").count(),
+        code.matches("#[expect()]").count(),
         1,
         "and lifts the denial exactly once"
     );
@@ -142,7 +142,7 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
     let code_lines: Vec<String> = lib.lines().map(code_only).collect();
     let Some(at) = code_lines
         .iter()
-        .position(|line| line.contains("#[allow()]"))
+        .position(|line| line.contains("#[expect()]"))
     else {
         unreachable!("the count above found one");
     };
@@ -203,7 +203,14 @@ fn only_the_three_named_crates_in_the_tree_lift_the_denial() {
                 let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
-                if text.contains("#[allow(unsafe_code)]") || text.contains("#![allow(unsafe_code)]")
+                // Both spellings, because the property is *who lifts the denial* rather than
+                // which attribute spells it: `clippy::allow_attributes` (ADR 1042) makes the
+                // `allow` form a build failure, and a sweep that reads only the form in use
+                // today would go quiet the day the other one came back.
+                if ["#[expect(unsafe_code)]", "#![expect(unsafe_code)]"]
+                    .iter()
+                    .chain(["#[allow(unsafe_code)]", "#![allow(unsafe_code)]"].iter())
+                    .any(|form| text.contains(form))
                 {
                     lifting.push(name.clone());
                     break;

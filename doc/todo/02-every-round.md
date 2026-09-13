@@ -609,6 +609,17 @@ share, the ones that break it, and the rule each of those leaves on a round:
   and **a round implementing a clause runs `emit` on that document *before* it writes, rather than
   `check` afterwards alone**. `tools/state.sh counts` is where a population goes, not a sentence
   here.
+- **And they have a cadence now, because they had none.** Seventeen of the twenty conformance
+  binaries had not been run in sixty sessions when
+  `doc/reviews/1012-where-the-effort-goes.md` measured it — not because they find nothing, but
+  because nothing said when. **The merge runs one, rotating in the order they are listed in
+  `doc/todo/01`, and the merge's record names which one and what it printed.** Session 1025 ran
+  all twenty once and wrote a verdict for each in
+  `doc/history/1025-the-lint-that-remembers-and-twenty-sweeps-woken.md`: eleven print a reading
+  list a round can act on, five print a backlog whose *level* is noise and need their populations
+  partitioned before a cadence is worth anything, two want a tier-3 oracle log and so belong to
+  the merge that runs it, one wants the nouns the round retired, and `--bin ledger` already runs
+  inside `tools/state.sh`.
 
 ## 5. Put the binaries where a person can run them — every fifth round, and before any measurement
 

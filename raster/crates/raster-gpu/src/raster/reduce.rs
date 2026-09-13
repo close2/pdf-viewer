@@ -37,7 +37,7 @@ pub(crate) fn smoothed(width: u32, height: u32, interpolate: bool, placement: &[
     }
     let across = length(placement[0], placement[1]);
     let down = length(placement[2], placement[3]);
-    #[allow(clippy::cast_precision_loss)] // dimensions are far below f32's exact range
+    #[expect(clippy::cast_precision_loss)] // dimensions are far below f32's exact range
     let magnified = across > width as f32 || down > height as f32;
     !magnified
 }
@@ -109,7 +109,7 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction) -> ImageSpec {
 
 /// The caller's `factor`: how many source samples share a device pixel along one axis,
 /// floored, clamped into the image.
-#[allow(
+#[expect(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
@@ -159,7 +159,7 @@ impl Bands {
 /// The caller's `average_block`: the mean of one block as straight-alpha RGBA8,
 /// averaged premultiplied and divided back out, with their overflow argument (a block
 /// holds at most `u32::MAX` samples of at most `255 × 255` each — under 2⁴⁸ in a u64).
-#[allow(clippy::arithmetic_side_effects)] // bounded as the line above states, and
+#[expect(clippy::arithmetic_side_effects)] // bounded as the line above states, and
 // mirrored: a saturating version here would be a different arithmetic than the oracle's
 fn average_block(spec: &ImageSpec, x0: u32, y0: u32, x1: u32, y1: u32) -> [u8; 4] {
     let mut colour = [0u64; 3];

@@ -9,13 +9,6 @@ the rule, which group holds which, and why every trap keeps its number.
 
 ## Traps
 
-### 4. Test against real documents, not hand-written fragments
-
-Cross-reference streams are compressed *and* PNG-predicted. The code said decoding them was "the
-caller's responsibility" and then did not, so every modern PDF failed with a misleading `/Root is
-not a dictionary`. `pdf-syntax/tests/real_documents.rs` and `pdf-model/tests/render_real_pdf.rs`
-run over everything in `doc/`. The converse is trap 8.
-
 ### 5. Unsupported input must stay loud
 
 Every layer reports what it could not handle: `Unsupported`, `FontError`, `ImageError`,
@@ -193,9 +186,27 @@ and reported and the other is refused, from one clause family. An ICC profile ne
 because Table 65 states the whole recovery for a profile a reader cannot use — what it needed was
 not to be *parsed*.
 
-### 8. A corpus finds what documents contain, not what the specification says
+### 8. A corpus finds what documents contain, not what the specification says — and trap 4, the fragment that is not the tree either
 
-The mirror of trap 4. The ICC evaluator agreed with two other readers on every real profile; a
+**Trap 4 is the other half of this trap and is the section below**, merged here in the
+one-thousand-and-twenty-fifth session on `doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s
+recommendation. Both incidents are kept and both numbers are still citable: neither is renamed,
+because ADRs and records cite each by number and an ADR is not edited to follow a file that moved
+underneath it (ADR 0232 §2). The reason for putting them under one heading is that **a round
+reading either one alone is reading half a rule** — trap 8 says the corpus is not the
+specification, trap 4 says the hand-built fragment is not the tree, and the pair is the only form
+in which either is true.
+
+#### 4. Test against real documents, not hand-written fragments
+
+Cross-reference streams are compressed *and* PNG-predicted. The code said decoding them was "the
+caller's responsibility" and then did not, so every modern PDF failed with a misleading `/Root is
+not a dictionary`. `pdf-syntax/tests/real_documents.rs` and `pdf-model/tests/render_real_pdf.rs`
+run over everything in `doc/`. The converse is the rest of this section.
+
+#### 8. A corpus finds what documents contain, not what the specification says
+
+The mirror of trap 4 above. The ICC evaluator agreed with two other readers on every real profile; a
 profile assembled *by hand* turned white into pure green. `calrgb.pdf` page 14 states
 `BlackPoint [0.2 1.0 1.7]` against `WhitePoint [1 1 1]`, which Table 63 permits and no sane
 producer writes.

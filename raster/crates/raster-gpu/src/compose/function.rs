@@ -126,8 +126,8 @@ impl Executor<'_> {
 /// visible in the comments, which is the same shape `device.rs` writes the image and
 /// shading uniforms in — a table of offsets a reader can check against the WGSL by
 /// counting.
-#[allow(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 208-byte array
-#[allow(clippy::cast_precision_loss)] // target sizes are far below 2^24
+#[expect(clippy::arithmetic_side_effects)] // fixed-layout offsets in a 208-byte array
+#[expect(clippy::cast_precision_loss)] // target sizes are far below 2^24
 fn uniform_bytes(op: &FunctionOp, region: Region, mask: MaskPlacement) -> [u8; UNIFORM_BYTES] {
     let mut bytes = [0_u8; UNIFORM_BYTES];
     let mut put = |at: usize, v: f32| bytes[at..at + 4].copy_from_slice(&v.to_le_bytes());

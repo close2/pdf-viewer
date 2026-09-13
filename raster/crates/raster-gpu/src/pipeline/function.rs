@@ -267,7 +267,6 @@ fn build(
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::panic)] // test-file policy: a fixture that cannot run must fail loudly
 mod tests {
     use std::sync::Arc;
 

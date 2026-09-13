@@ -86,7 +86,7 @@ impl Value {
             // PLRM3's `cvr` entry: "If the operand is an integer, cvr converts it to a
             // real number." An integer above 2^24 does not survive the conversion
             // exactly, and that is the conversion the clause asks for.
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(clippy::cast_precision_loss)]
             Self::Int(i) => Ok(i as f32),
             Self::Real(r) => Ok(r),
             Self::Bool(_) => Err(PsError::TypeCheck),

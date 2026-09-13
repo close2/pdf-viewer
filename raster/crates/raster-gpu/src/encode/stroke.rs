@@ -23,7 +23,7 @@ use crate::raster::{self, Rule};
 impl Encoder<'_> {
     /// The stroke arm: expansion via the path lane, non-Normal blends through an
     /// implicit child (as in `encode_fill`).
-    #[allow(clippy::too_many_arguments)] // one command's fields, destructured once
+    #[expect(clippy::too_many_arguments)] // one command's fields, destructured once
     pub(super) fn encode_stroke(
         &mut self,
         index: usize,

@@ -62,7 +62,7 @@ impl Tile {
     /// Sheet coordinates are integers stored as floats — the packer places tiles on
     /// whole texels — so this is exact for every value that reaches it, and rounds
     /// outwards for any that does not.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped below
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped below
     fn texels(&self) -> [u32; 4] {
         let low = |value: f32| value.max(0.0).min(f32::from(u16::MAX)) as u32;
         let high = |value: f32| value.ceil().max(0.0).min(f32::from(u16::MAX)) as u32;
@@ -274,7 +274,7 @@ pub(crate) fn vertex_floats(vertices: &[WindingVertex], out: &mut Vec<f32>) {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::arithmetic_side_effects,
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,

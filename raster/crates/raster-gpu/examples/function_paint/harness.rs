@@ -293,7 +293,7 @@ fn read_pass(gpu: &Gpu, query: &Query, period: f32) -> Option<Duration> {
         tick(8..16).saturating_sub(tick(0..8))
     };
     query.map.unmap();
-    #[allow(
+    #[expect(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,

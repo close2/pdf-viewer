@@ -86,7 +86,7 @@
 
 // The only place in this crate the permission is used, and `tests/unsafe_position.rs` is what
 // keeps that true. Everything it calls is safe Rust in the modules beside it.
-#[allow(unsafe_code)]
+#[expect(unsafe_code)]
 pub mod abi;
 
 pub mod refusal;

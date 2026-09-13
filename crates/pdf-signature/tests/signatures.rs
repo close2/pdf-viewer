@@ -12,8 +12,11 @@
 use std::path::{Path, PathBuf};
 
 use pdf_signature::signature::{
-    Authenticity, Coverage, Integrity, Right, Signature, UsageRights, permissions, signatures,
+    Authenticity, Coverage, Excluded, Integrity, Right, Signature, SignedEnd, UsageRights,
+    permissions, signatures, signing_certificate_bindings,
 };
+use pdf_signature::trust::{Trust, TrustAnchors};
+use pdf_signature::x509::Instant;
 use pdf_syntax::Document;
 
 /// The pdf.js corpus, or `None` when the submodule is not checked out.
@@ -415,6 +418,122 @@ fn every_corpus_signature_is_asked_whether_its_document_changed() {
     );
 }
 
+/// **What every corpus signature's `/ByteRange` leaves out, and where it stops.**
+///
+/// §12.8.1 names one thing a signed range may skip — "the signature value itself (the Contents
+/// entry)" — and one place it may stop: "the end of the \"%%EOF\" comment, possibly followed by
+/// an optional EOL marker". Neither is arithmetic over the pairs, which is why
+/// `Signature::coverage` cannot see either and why this walk exists: it reads the region off the
+/// file and decodes it as §7.3.4.3's hexadecimal string.
+///
+/// **The two questions have the same four answers, and that was not put in by hand.** The four
+/// signatures this names — both of `xfa_filled_imm1344e.pdf`'s, `issue6127.pdf`'s and the fuzzed
+/// file's — are exactly the four that `every_corpus_signature_is_asked_whether_its_document_changed`
+/// finds `Changed`, and exactly the four whose range stops somewhere other than an `%%EOF`. That
+/// test's prose already said of the first three that their "`/ByteRange` no longer even brackets
+/// their own `/Contents`"; nothing checked it until now, and what the check adds is that the same
+/// four fail *both* of §12.8.1's structural rules, which is a stronger statement about a re-saved
+/// file than either alone. The other six leave out their value and nothing else and stop at a
+/// marker — five of them writing §12.8.3.3.1's string whole into the hole, and `signed_verified.pdf`
+/// signing its own delimiters, which is the third answer and not a failure of the first. Held by
+/// name in both directions; a corpus that is not checked out says so rather than passing.
+#[test]
+fn every_corpus_signature_says_what_its_range_leaves_out_and_where_it_stops() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let mut lines = Vec::new();
+    let mut value_only = 0usize;
+    let mut digits_only = Vec::new();
+    let mut not_the_value = Vec::new();
+    let mut at_a_marker = 0usize;
+    let mut elsewhere = Vec::new();
+    let mut indirect = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let file = document.bytes().clone();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in &every_signature(&document) {
+            let excluded = signature.excluded(&file);
+            let end = signature.signed_end(&file);
+            match excluded {
+                Excluded::TheSignatureValue => value_only = value_only.saturating_add(1),
+                // §12.8.3.3.1's "shall fit precisely": the region holds the value's octets and
+                // nothing else, and a delimiter is inside the signed range rather than the hole.
+                Excluded::TheDigitsOfTheSignatureValue => digits_only.push(name.to_string()),
+                other => not_the_value.push(format!("{name} ({other:?})")),
+            }
+            if end == SignedEnd::AtAnEndOfFileMarker {
+                at_a_marker = at_a_marker.saturating_add(1);
+            } else {
+                elsewhere.push(format!("{name} ({end:?})"));
+            }
+            // §12.8.1: "When a byte range digest is present, all values in the signature
+            // dictionary shall be direct objects." The condition is the clause's and is applied
+            // here rather than in the reader, which records the fact and not the departure.
+            if !signature.byte_range.is_empty() && !signature.indirect_values.is_empty() {
+                indirect.push(format!("{name} {:?}", signature.indirect_values));
+            }
+            lines.push(format!("  {name}: {excluded:?}, ends {end:?}"));
+        }
+    }
+
+    lines.sort();
+    for line in &lines {
+        println!("{line}");
+    }
+    println!("  leave out their value, delimiters and all: {value_only}");
+    println!("  leave out its digits, delimiters signed:  {digits_only:?}");
+    println!("  leave out something else:               {not_the_value:?}");
+    println!("  stop at an %%EOF marker:                {at_a_marker}");
+    println!("  stop elsewhere:                         {elsewhere:?}");
+    println!("  dictionaries with an indirect value:    {indirect:?}");
+
+    assert_eq!(
+        value_only, 5,
+        "signatures whose range leaves out §12.8.3.3.1's string, delimiters and all"
+    );
+    digits_only.sort();
+    assert_eq!(
+        digits_only,
+        ["signed_verified.pdf"],
+        "signatures whose range leaves out the digits alone, signing their delimiters"
+    );
+    not_the_value.sort();
+    assert_eq!(
+        not_the_value,
+        [
+            "issue6127.pdf (NotTheSignatureValue { at: 1529, length: 12400 })",
+            "poppler-395-0-fuzzed.pdf (NotTheSignatureValue { at: 9001, length: 4244 })",
+            "xfa_filled_imm1344e.pdf (NotTheSignatureValue { at: 15651, length: 32578 })",
+            "xfa_filled_imm1344e.pdf (NotTheSignatureValue { at: 568130, length: 10118 })",
+        ],
+        "ranges leaving out something other than their own signature value"
+    );
+    elsewhere.sort();
+    assert_eq!(
+        elsewhere,
+        [
+            "issue6127.pdf (Elsewhere)",
+            "poppler-395-0-fuzzed.pdf (Elsewhere)",
+            "xfa_filled_imm1344e.pdf (Elsewhere)",
+            "xfa_filled_imm1344e.pdf (Elsewhere)",
+        ],
+        "ranges not stopping at an end-of-file marker"
+    );
+    assert!(
+        indirect.is_empty(),
+        "signature dictionaries breaking \u{a7}12.8.1's direct-objects rule: {indirect:?}"
+    );
+}
+
 /// Every signature in the corpus answers both questions the same through a file on disk.
 ///
 /// The digest over `/ByteRange` is fed a window at a time off the disk since ADR 0812, where it
@@ -590,6 +709,70 @@ fn every_corpus_signature_is_asked_whether_it_verifies() {
     assert_eq!(widths.get(&4096).copied().unwrap_or_default(), 1);
 }
 
+/// §12.8.3.4.5 (a)'s first sentence over the corpus, and the one document that exercises it.
+///
+/// > A signature handler shall compare the hash value of the signer's certificate, with the hash
+/// > value given in the signing-certificate attribute or the signing-certificate-v2 attribute. If
+/// > the hashes do not match, then the signature is considered invalid.
+///
+/// **One of the ten states such an attribute, and it is `issue16553.pdf`** — a real file, a real
+/// certificate, and RFC 5035 section 5.4.1's `SigningCertificateV2` under its `DEFAULT` SHA-256.
+/// So this rule has a witness in the world and not only in a fixture, which is what trap 8 asks a
+/// round to establish before believing a clean column.
+///
+/// **The count is asserted from both ends on purpose.** "None of them Differs" is the answer a
+/// comparison that never ran would also give, so the number that *did* run is asserted too; and
+/// the file is named because the population is one, and one is the size at which a silent
+/// regression looks exactly like a corpus that moved.
+#[test]
+fn every_corpus_signature_is_asked_whether_it_names_the_certificate_it_used() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut answers = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in &every_signature(&document) {
+            let Ok(cms) = signature.signed_data() else {
+                continue;
+            };
+            for binding in signing_certificate_bindings(&cms) {
+                answers.push(format!("{name}: {binding:?}"));
+            }
+        }
+    }
+    answers.sort();
+    println!("§12.8.3.4.5 (a) over the corpus's signature dictionaries:");
+    for answer in &answers {
+        println!("  {answer}");
+    }
+    let matched: Vec<_> = answers
+        .iter()
+        .filter(|answer| answer.contains("Matches"))
+        .collect();
+    assert_eq!(
+        answers.len(),
+        1,
+        "signature dictionaries stating one of §12.8.3.4.3 (f)'s two attributes"
+    );
+    assert_eq!(
+        matched.len(),
+        1,
+        "and the comparison it makes comes out equal"
+    );
+    assert!(
+        answers[0].starts_with("issue16553.pdf: "),
+        "the witness is named because the population is one: {answers:?}"
+    );
+}
+
 /// The same signature with one bit of its `/Contents` turned over.
 ///
 /// The last octet rather than the first: `/Contents` may carry §12.8.3.3.1's zero padding after
@@ -665,5 +848,92 @@ fn the_crawls_one_ecdsa_signature_verifies_under_its_own_p256_certificate() {
             Authenticity::Verified { .. }
         ),
         "one bit of the signature value moved and it still verified"
+    );
+}
+
+/// §12.8.1's third question asked of every corpus signature, with and without an anchor.
+///
+/// **Two populations and one instrument.** With no anchors the answer must be
+/// `Trust::NoAnchorSupplied` for every signature there is — the default this program has always
+/// had, now as a typed value rather than a sentence — and with the signature's own self-signed
+/// certificate offered as an anchor, RFC 5280 section 6.1 runs over a chain a real authority
+/// issued rather than over the hierarchy `trust`'s unit tests build.
+///
+/// **The anchor here is not a trust decision and the test is not one either.** Taking the root a
+/// file supplies and believing it is precisely what a trust store exists to prevent; what it
+/// exercises is the *algorithm*, on chains nobody here could have made, which is the half a
+/// fixture cannot reach. The verdicts are printed with the instant they were asked at, because
+/// `Trust::NotCurrent` on a certificate that expired is a fact about the calendar.
+#[test]
+fn every_corpus_signature_is_asked_the_third_question_both_ways() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    // 2020-06-01T00:00:00Z. A fixed instant rather than the clock, so the test says the same
+    // thing tomorrow: RFC 5280 section 6.1.1 makes the time an input and this is the input.
+    let at = Instant::from_unix_seconds(1_590_969_600);
+    let mut asked = 0usize;
+    let mut verdicts = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in signatures(&document) {
+            asked = asked.saturating_add(1);
+            assert_eq!(
+                signature.trust(&TrustAnchors::none(), at),
+                Trust::NoAnchorSupplied,
+                "{name}: with nobody named there is no question to answer"
+            );
+            let Ok(cms) = signature.signed_data() else {
+                continue;
+            };
+            // Every self-signed certificate the signature carries, offered as an anchor — which
+            // is what "the root of the chain in the file" means and all a file can offer.
+            let certificates: Vec<_> = cms
+                .certificates
+                .iter()
+                .filter_map(|entry| pdf_signature::x509::read(*entry).ok())
+                .filter(|certificate| certificate.subject == certificate.issuer)
+                .collect();
+            if certificates.is_empty() {
+                verdicts.push(format!(
+                    "{name}: the signature carries no self-signed certificate"
+                ));
+                continue;
+            }
+            let anchors = TrustAnchors::of(&certificates);
+            verdicts.push(format!("{name}: {:?}", signature.trust(&anchors, at)));
+        }
+    }
+    for line in &verdicts {
+        println!("{line}");
+    }
+    assert!(asked > 0, "the corpus carries signatures to ask about");
+    // **The calibration, and the whole reason this test is a gate rather than a census.** At least
+    // one real chain has to reach `Anchored`, because every refusal below is also what a broken
+    // verification, a misread validity period or a name compared at the wrong offset would
+    // produce — a suite in which nothing ever validates cannot tell those apart from a corpus of
+    // expired certificates. `xfa_filled_imm1344e.pdf` is the witness at this instant: two
+    // certificates, RSA, issued by an authority nobody here can sign for.
+    assert!(
+        verdicts
+            .iter()
+            .any(|line| line.contains("Anchored { length: 2")),
+        "no corpus chain validated, which a working section 6.1 over these files does not do: \
+         {verdicts:?}"
+    );
+    // And the other half of the calibration: `Anchored` still says nothing about revocation, on a
+    // real chain exactly as on a fixture.
+    assert!(
+        verdicts
+            .iter()
+            .all(|line| !line.contains("Anchored") || line.contains("revocation: NotChecked")),
+        "an anchored path that stopped saying revocation was unchecked: {verdicts:?}"
     );
 }

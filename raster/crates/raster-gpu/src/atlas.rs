@@ -115,9 +115,9 @@ impl GlyphPlacement {
     /// `quantum` is brief section 4.5's fifth decision, the one that is ours to expose: `Some(q)`
     /// rounds the phase to `1/q` of a pixel so that repeats collide, `None` keys the
     /// exact bits so that only exact repeats do.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a fraction
-    // times a `u16`, both bounded: `fx` is in `0..1` by construction below
-    #[allow(clippy::arithmetic_side_effects)] // `q` is non-zero (`Options` validates it)
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a fraction
+    // times a `u16`, both bounded: `fx` is in `0..1` by construction below, and `q` is
+    // non-zero (`Options` validates it)
     pub(crate) fn of(
         outline: OutlineId,
         to_device: &DeviceTransform,
@@ -344,13 +344,13 @@ impl AtlasStore {
     /// `Counters::atlas_working_set_bytes` against what exists rather than against what
     /// was asked for.
     pub(crate) fn new(budget_bytes: u64, max_dimension: u32) -> Self {
-        #[allow(clippy::cast_possible_truncation)] // isqrt of a u64 budget fits u32 here
+        #[expect(clippy::cast_possible_truncation)] // isqrt of a u64 budget fits u32 here
         let side = (budget_bytes.isqrt().max(1) as u32)
             .min(2048)
             .min(max_dimension.max(1));
         let width = side;
         // Width is at least 1 by the max(1) above, so the division is total.
-        #[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
+        #[expect(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
         let height = ((budget_bytes / u64::from(width)).max(1) as u32).min(max_dimension.max(1));
         Self {
             width,
@@ -469,7 +469,7 @@ impl AtlasStore {
     ///
     /// On a span outside the sheet, which no caller can construct: spans come from
     /// [`AtlasStore::take_dirty`] and were clamped by the insert that made them.
-    #[allow(clippy::arithmetic_side_effects)] // `span` came from `mark_dirty`, whose
+    #[expect(clippy::arithmetic_side_effects)] // `span` came from `mark_dirty`, whose
     // rows were clamped by the allocation, so `end × width` is at most the sheet's own
     // length — and a `u32 as usize` product cannot overflow a 64-bit usize at all
     pub(crate) fn rows(&self, span: DirtyRows) -> &[u8] {
@@ -508,7 +508,7 @@ impl AtlasStore {
     /// (brief section 4.6). Insertion itself never moves an entry that is already here, which is what
     /// lets a retained encode name absolute texel origins and still be replayed after a
     /// frame that inserted more tiles.
-    #[allow(clippy::arithmetic_side_effects)] // row arithmetic is bounded by the
+    #[expect(clippy::arithmetic_side_effects)] // row arithmetic is bounded by the
     // allocation: `allocate` returned a position, so `x + width ≤ self.width` and
     // `y + height ≤ self.height`, and the sheet is `width × height` bytes
     pub(crate) fn insert(&mut self, key: GlyphKey, mask: &CoverageMask) -> Option<AtlasEntry> {
@@ -558,7 +558,7 @@ impl AtlasStore {
         self.generation = self.generation.wrapping_add(1);
     }
 
-    #[allow(clippy::arithmetic_side_effects)] // packer arithmetic is bounded by the texture dims
+    #[expect(clippy::arithmetic_side_effects)] // packer arithmetic is bounded by the texture dims
     fn allocate(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
         if width == 0 || height == 0 || width > self.width {
             return None;
@@ -591,7 +591,7 @@ impl AtlasStore {
 }
 
 #[cfg(test)]
-#[allow(clippy::arithmetic_side_effects)] // test tile sizes are tiny and literal
+#[expect(clippy::arithmetic_side_effects)] // test tile sizes are tiny and literal
 mod tests {
     use super::{AtlasStore, GlyphKey, GlyphPlacement, PhaseKey};
     use crate::raster::{CoverageMask, DeviceTransform, Rule};
@@ -670,7 +670,7 @@ mod tests {
     /// device pixel, on 3.1 % of phases per axis, on the lane that draws text. Stated as
     /// the two halves it is made of, so that a future `%` cannot pass one of them.
     #[test]
-    #[allow(
+    #[expect(
         clippy::float_cmp,
         reason = "every value compared here is exact by construction: a phase of zero, an \
                   integer origin, and 0.875 = 14/16, none of which is the result of an \
@@ -697,11 +697,6 @@ mod tests {
 
     /// An exact-phase placement is exact: no quantum, no carry, no bound to state.
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "an unquantised placement is exact: that is the whole claim, so an \
-                  approximate comparison would test something weaker than it states"
-    )]
     fn an_unquantised_placement_lands_where_it_was_asked_to() {
         let placement = placed(20.99, 40.99, None);
         assert_eq!(lands_at(&placement), (20.99, 40.99));

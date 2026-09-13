@@ -35,8 +35,8 @@ pub(super) const RAMP_RESOLUTION: u32 = 4096;
 /// N from the texture itself, so the sweep's colour arithmetic is this
 /// function's — deterministic across adapters — rather than the driver's
 /// texture filtering.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // round of 0..=255
-#[allow(clippy::cast_precision_loss)] // i < RAMP_RESOLUTION, far below 2^24
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // round of 0..=255
+#[expect(clippy::cast_precision_loss)] // i < RAMP_RESOLUTION, far below 2^24
 pub(super) fn sample_ramp(stops: &[Stop]) -> Vec<u8> {
     let entries = RAMP_RESOLUTION as usize;
     let mut out = Vec::with_capacity(entries.saturating_mul(4));
@@ -163,7 +163,7 @@ mod tests {
     }
 
     /// The last index `sample_ramp` divides by, and the grid every claim below is on.
-    #[allow(clippy::cast_precision_loss)] // 4095, exact in f32
+    #[expect(clippy::cast_precision_loss)] // 4095, exact in f32
     const LAST: f32 = (RAMP_RESOLUTION - 1) as f32;
 
     /// Two stops are §7.10.3's type 2 exponential with `N` of 1, whose value is
@@ -287,7 +287,7 @@ mod tests {
             .chunks_exact(4)
             .position(|texel| texel == [0, 0, 255, 255])
             .expect("the ramp's second half is blue");
-        #[allow(clippy::cast_precision_loss)] // an index below 4096
+        #[expect(clippy::cast_precision_loss)] // an index below 4096
         let placed = first_blue as f32 / LAST;
         assert!(
             placed >= boundary && placed - boundary < 1.0 / LAST,

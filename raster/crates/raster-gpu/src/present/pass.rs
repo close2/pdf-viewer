@@ -50,7 +50,7 @@ fn params_bytes(
     // because clip space puts +1 at the top where a device row 0 is. Neither divisor
     // can be zero — a present at a target with no pixels is refused by name before any
     // layer is looked at (`RenderError::ZeroSizeTarget`).
-    #[allow(clippy::cast_precision_loss)] // a target's extent is exact in f32
+    #[expect(clippy::cast_precision_loss)] // a target's extent is exact in f32
     let (width, height) = (target.0 as f32, target.1 as f32);
     let clip_x = |x: f32| 2.0 * x / width - 1.0;
     let clip_y = |y: f32| 1.0 - 2.0 * y / height;
@@ -228,7 +228,7 @@ pub(super) fn record(
 // below are asserted against the same two operations that produced them — a doubling and
 // a division by a power of two, both exact — so equality is the assertion and a tolerance
 // would weaken it.
-#[allow(clippy::expect_used, clippy::panic, clippy::float_cmp)]
+#[expect(clippy::float_cmp)]
 mod tests {
     use raster_scene::{Affine, ImageFilter};
 

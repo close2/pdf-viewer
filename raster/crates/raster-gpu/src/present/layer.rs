@@ -64,7 +64,7 @@ pub(super) struct Placed {
 
 impl Layer<'_> {
     /// The layer's extent in texels, as the shader's floats.
-    #[allow(clippy::cast_precision_loss)] // texture extents are exact in f32
+    #[expect(clippy::cast_precision_loss)] // texture extents are exact in f32
     pub(super) fn extent(&self) -> [f32; 2] {
         [self.texture.width() as f32, self.texture.height() as f32]
     }
@@ -112,7 +112,7 @@ impl Layer<'_> {
     /// not make a texture with an empty extent, so every corner here is a sum of three
     /// products of finite `f32`s — which cannot leave `f64`'s range. The clamp then
     /// puts the result inside the target, where `f32` holds every whole number exactly.
-    #[allow(clippy::cast_possible_truncation)] // clamped to the target's own extent
+    #[expect(clippy::cast_possible_truncation)] // clamped to the target's own extent
     fn device_bounds(&self, (width, height): (u32, u32)) -> [f32; 4] {
         let place = self.placement;
         // §8.3.3's `[a b c d e f]`, applied in `f64`: the same arithmetic
@@ -182,12 +182,7 @@ impl Layer<'_> {
 // a whole number of pixels — the arithmetic ends in `floor`, `ceil` and a clamp to an
 // integral extent — so exact equality is the right assertion, where an epsilon would
 // hide a defect of less than a pixel.
-#[allow(
-    clippy::expect_used,
-    clippy::panic,
-    clippy::float_cmp,
-    clippy::cast_precision_loss
-)]
+#[expect(clippy::float_cmp, clippy::cast_precision_loss)]
 mod tests {
     use raster_scene::{Affine, ImageFilter};
 

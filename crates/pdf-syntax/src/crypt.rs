@@ -121,6 +121,60 @@ pub(crate) enum Method {
     AesV3,
 }
 
+/// When a crypt filter's key has to be authorized for — ISO 32000-2 §7.6.6 Table 25's
+/// `/AuthEvent`.
+///
+/// > The event that shall be used to trigger the authorization that is required to access file
+/// > encryption keys used by this filter. If authorization fails, the event shall fail.
+///
+/// Two values, and the second is why this type exists: a filter that encrypts only an attachment
+/// can say so, and a document whose own strings and streams need no key then opens without one
+/// while the attachment stays locked. §7.6.6's body paragraph names it —
+///
+/// > AuthEvent can also be EFOpen … which indicates the presence of an embedded file that is
+/// > encrypted with a crypt filter that may be different from the crypt filters used by default
+/// > to encrypt strings and streams in the document
+///
+/// — and Table 25 states the other side: for `DocOpen`, which is also the entry's default,
+/// authorization shall be required when a document is opened. An entry whose two values produced
+/// the same behaviour would be an entry nobody had implemented, which is the argument ADR 1040
+/// makes at length.
+///
+/// # What `doc/md/` lost, and where the rest of the row is
+///
+/// The conversion cut Table 25's `EFOpen` row down to its last word and dropped the final four
+/// words of the sentence about `/StmF` and `/StrF`, so neither can be quoted from `doc/md/` and
+/// both are paraphrased here and below rather than quoted. `mutool draw -F text -o -
+/// doc/ISO_32000-2_sponsored_EC3.pdf 106` prints the cell whole: the `EFOpen` row says
+/// authorization shall be required when accessing embedded files, and the sentence ends by
+/// requiring the reader to behave as if the value is `DocOpen`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthEvent {
+    /// `DocOpen`, and the entry's default: the key is wanted when the document is opened.
+    DocOpen,
+    /// `EFOpen`: the key is wanted when an embedded file is accessed, and not before.
+    EfOpen,
+}
+
+impl AuthEvent {
+    /// Table 25's `/AuthEvent`, defaulted.
+    ///
+    /// A name that is neither of the two the table lists takes `DocOpen` along with the absent
+    /// entry, for two reasons that agree. It is the entry's stated default, and it is the
+    /// conservative direction: the worst a wrongly-assumed `DocOpen` can do is ask for a password
+    /// that turns out not to have been needed, where a wrongly-assumed `EFOpen` would open a
+    /// document whose key the clause says shall have been obtained first. Table 25 states no
+    /// "report that the file is encrypted with an unsupported algorithm" for this entry the way
+    /// it does for `/CFM`, so nothing here refuses a file over it.
+    fn read(entry: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> Self {
+        let name = entry.get("AuthEvent").map(resolve);
+        match name.as_ref().and_then(Object::as_name).map(Name::as_bytes) {
+            Some(b"EFOpen") => Self::EfOpen,
+            _ => Self::DocOpen,
+        }
+    }
+}
+
 /// Table 22's access permissions, as granted to whoever opened the document.
 ///
 /// Nothing in this crate enforces them — §7.6.4.1 is explicit that "There is nothing
@@ -313,6 +367,7 @@ impl Encryption {
             string,
             embedded_file,
             named: filters,
+            key_at_open,
         } = crypt_filters(&get, version, revision, resolve)?;
 
         let authenticated = match revision {
@@ -345,21 +400,24 @@ impl Encryption {
             ),
         };
 
-        // A password that authenticates nothing is fatal only if a key is needed to read
-        // the document at all. §7.6.6 binds the failure to the data rather than to the
-        // open: "Authorization to decrypt a stream shall always be obtained before the
-        // stream can be accessed", and "PDF readers and security handlers shall treat any
-        // attempt to access a stream for which authorization has failed as an error."
+        // A password that authenticates nothing is fatal only if a key is wanted before the
+        // document is open, and §7.6.6 Table 25's `/AuthEvent` is the entry that decides which
+        // event wants it: "The event that shall be used to trigger the authorization that is
+        // required to access file encryption keys used by this filter. If authorization fails,
+        // the event shall fail." For the `EFOpen` value the event is the *embedded file's*, so
+        // the body displays and the attachment refuses where "PDF readers and security handlers
+        // shall treat any attempt to access a stream for which authorization has failed as an
+        // error"; for `DocOpen`, which is the default, the event is this one.
         //
-        // So a file whose `/StmF` and `/StrF` are both `Identity` — which §7.6.4.1
-        // describes as "Documents in which only file attachments are encrypted" — displays
-        // without a password, and its attachment refuses. `encrypted-attachment.pdf` and
-        // `auth-event-ef-open.pdf` in the corpus are exactly that shape, and neither
-        // authenticates against the empty password by any implementation.
-        let body_needs_no_key = stream == Method::Identity && string == Method::Identity;
+        // `auth-event-ef-open.pdf` and `encrypted-attachment.pdf` are the same shape but for that
+        // entry — both write `/StmF /Identity /StrF /Identity` with a `StdCF` reaching only their
+        // attachment, and neither authenticates against any password anybody has — and the answer
+        // the clause gives is different for each: the first states `EFOpen` and opens, the second
+        // states nothing and is a document waiting for a person. ADR 1040 argues it; the two files
+        // are pdf.js's own pair for the distinction, which is why they differ in nothing else.
         let (key, owner) = match authenticated {
             Ok(pair) => pair,
-            Err(SyntaxError::PasswordRequired) if body_needs_no_key => (Vec::new(), false),
+            Err(SyntaxError::PasswordRequired) if !key_at_open => (Vec::new(), false),
             Err(error) => return Err(error),
         };
 
@@ -890,6 +948,13 @@ struct CryptFilters {
     embedded_file: Method,
     /// `/CF`'s own entries, so that a stream's `/Crypt` filter can name one.
     named: BTreeMap<Name, Method>,
+    /// Whether a file encryption key has to be obtained before the document is open.
+    ///
+    /// True when anything the document states needs a key at §7.6.6's `DocOpen` event: either of
+    /// the two default filters, or any `/CF` entry that names a cipher and does not defer its
+    /// authorization to `EFOpen`. False leaves a failed password survivable — the body is
+    /// readable without a key, and whatever is not refuses on its own.
+    key_at_open: bool,
 }
 
 /// Table 20's `/CF`, `/StmF`, `/StrF` and `/EFF`, resolved to methods.
@@ -916,10 +981,12 @@ fn crypt_filters(
             string: Method::Rc4,
             embedded_file: Method::Rc4,
             named: BTreeMap::new(),
+            key_at_open: true,
         });
     }
 
     let mut filters = BTreeMap::new();
+    let mut events = BTreeMap::new();
     if let Some(dict) = get("CF").as_dict() {
         for (name, value) in dict.iter() {
             let Some(entry) = resolve(value).as_dict().cloned() else {
@@ -930,6 +997,7 @@ fn crypt_filters(
                 .map(resolve)
                 .and_then(|object| object.as_name().cloned());
             filters.insert(name.clone(), method_from_cfm(method.as_ref())?);
+            events.insert(name.clone(), AuthEvent::read(&entry, resolve));
         }
     }
 
@@ -1018,11 +1086,32 @@ fn crypt_filters(
         }
     }
 
+    // §7.6.6 Table 25's `/AuthEvent`, which decides whether a failed password is fatal here or
+    // only where the ciphertext is. The two default filters are held to `DocOpen` whatever their
+    // dictionaries say, because Table 25 says so in as many words — if the filter "is used as the
+    // value of StrF or StmF in the encryption dictionary … the PDF reader shall ignore this key"
+    // and behave as if it said `DocOpen` — so they are tested by method alone. Every other `/CF`
+    // entry is tested by its own event: one that names a cipher and does not say `EFOpen` wants
+    // its key at the open, and the clause's consequence for not getting one is that the event
+    // fails, which here is a password refusal.
+    //
+    // A declared filter is taken to be a used filter. Deciding otherwise would mean reading every
+    // stream in the document for a `/Crypt` specifier before answering whether the document opens,
+    // which is the whole file on the launch path (`CLAUDE.md` principle 2) to decide a question
+    // Table 25 already answers by declaration. ADR 1040.
+    let key_at_open = stream != Method::Identity
+        || string != Method::Identity
+        || events.iter().any(|(name, event)| {
+            *event == AuthEvent::DocOpen
+                && filters.get(name).copied().unwrap_or(Method::Identity) != Method::Identity
+        });
+
     Ok(CryptFilters {
         stream,
         string,
         embedded_file,
         named: filters,
+        key_at_open,
     })
 }
 

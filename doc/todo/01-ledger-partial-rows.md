@@ -1269,12 +1269,15 @@ spec-driven track exists at all.
   by reading the clause it was about: the refusal had been implemented sixteen sessions before this
   entry was written and a hundred and fifty-seven before it was corrected (ADR 0169), and
   §8.9.6.2's own row had said so all along.
-- **§14.11.6.2's one reader-side sentence**, found by the seventh sweep and left unread: if the
+- ~~**§14.11.6.2's one reader-side sentence**~~ — read and closed: it is not a reader's. If the
   page object's `/LastModified` is more recent than the trap network annotation's, "the page's
-  trap networks are invalid and shall be regenerated" — and a reader that cannot regenerate them
-  is drawing traps the clause has called invalid. No corpus document states a `/TrapNet`, so this
-  is a clause to read rather than a defect to fix, and the round that takes it owes the count
-  first, the way `doc/todo/13` did.
+  trap networks are invalid and shall be regenerated", and the only act the clause names is
+  regeneration — adding marks along the page's colour boundaries, which is deciding what marks a
+  page shall contain and is principle 5's authoring exclusion in its own words. So Table 403 is
+  writer-side whole, which is what §12.5.6.21's row had said all along while this one said the
+  opposite; both rows are `implemented` now and say the same thing. Reporting a stale trap network
+  would be a choice rather than a requirement, and it is not taken: no document of the corpus or
+  of the crawl states a `/TrapNet` at all.
 - **§7.9.3 closed in the three-hundred-and-forty-sixth**, and it is the first `reported` row to close by a capability this tree gave *itself* one round earlier. The row named its own expiry condition — "this closes the day an entry in scope uses the type" — and ADR 0199's reading of Table 172's `/RC` was that day. Six entries in the whole standard are typed `text string or text stream` and `/RC` is the only one in scope, so implementing the clause was implementing it once. **A row that states its own trigger still has to be re-read by somebody**, and this one waited a round.
 - **The 29 `reported` rows are worked out** — all read in the hundred-and-twenty-first and
   -second, and none is of the two known failure classes (a true observation about the wrong half

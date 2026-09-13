@@ -42,7 +42,7 @@ impl Executor<'_> {
         };
         let copy = self.pool.acquire(self.device, onto.width, onto.height);
         let copy_view = view_of(&copy);
-        #[allow(clippy::cast_precision_loss)] // extents are exact in f32
+        #[expect(clippy::cast_precision_loss)] // extents are exact in f32
         let from = [
             onto.x.saturating_sub(region.x) as f32,
             onto.y.saturating_sub(region.y) as f32,

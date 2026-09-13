@@ -47,7 +47,10 @@
 use std::collections::BTreeMap;
 
 use pdf_signature::cms::{self, SignatureAlgorithm};
-use pdf_signature::signature::{Authenticity, Signature, permissions, signatures};
+use pdf_signature::signature::{
+    Authenticity, Signature, SigningCertificateBinding, permissions, signatures,
+    signing_certificate_bindings,
+};
 use pdf_signature::x509::{self, PublicKey};
 use pdf_syntax::Document;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -88,6 +91,20 @@ struct Counts {
     /// gap: the attribute's *presence* is the only thing this program says about revocation, so
     /// how many files say it is the size of what that sentence is about.
     revocation_material: usize,
+    /// §12.8.3.4.5 (a)'s answer, by variant name, for every signature stating one of §12.8.3.4.3
+    /// (f)'s two attributes.
+    ///
+    /// Counted because the step is now *made* rather than deferred, and what a check does to a
+    /// population is the fact a round needs before it may believe the check is safe: a `Differs`
+    /// or a refusal here is a signature this program stopped calling verified, and the ledger's
+    /// §12.8.3.4.5 row says how to produce the number rather than what it was.
+    signing_certificate: BTreeMap<String, usize>,
+    /// The documents that stated one, named rather than only counted, each with its answer.
+    ///
+    /// Every one of them and not only the failures, because the population is the thing in doubt:
+    /// a clean column here reads as "the check is safe" and reads identically as "nothing reached
+    /// it", and only a named witness tells the two apart (trap 13).
+    signing_certificate_witnesses: Vec<String>,
     /// Signature values whose ASN.1 states X.690 clause 8.1.3.6's indefinite length anywhere.
     ///
     /// `der`'s module comment and §12.8.3.4.2's ledger row both price this reader's tolerance for
@@ -130,7 +147,10 @@ impl Counts {
             .indefinite_lengths
             .saturating_add(other.indefinite_lengths);
         self.witnesses.append(&mut other.witnesses);
+        self.signing_certificate_witnesses
+            .append(&mut other.signing_certificate_witnesses);
         for (map, theirs) in [
+            (&mut self.signing_certificate, other.signing_certificate),
             (&mut self.certifications, other.certifications),
             (&mut self.format_versions, other.format_versions),
             (&mut self.unreadable, other.unreadable),
@@ -190,6 +210,37 @@ fn verdict(answer: &Authenticity) -> String {
         Authenticity::RangeNotInThisFile => "RangeNotInThisFile".into(),
         Authenticity::RangeNotReadable => "RangeNotReadable".into(),
         Authenticity::Unreadable(_) => "Unreadable".into(),
+        Authenticity::SigningCertificateMismatch { version, digest } => format!(
+            "SigningCertificateMismatch ({}, {})",
+            version.attribute_name(),
+            cms::Digest::name(*digest)
+        ),
+        Authenticity::SigningCertificateUnverifiable { version, statement } => format!(
+            "SigningCertificateUnverifiable ({}): {statement}",
+            version.attribute_name()
+        ),
+    }
+}
+
+/// [`SigningCertificateBinding`] as this census counts it: the attribute, then the answer.
+fn binding(answer: &SigningCertificateBinding) -> String {
+    let attribute = answer.version().attribute_name();
+    match *answer {
+        SigningCertificateBinding::Matches { digest, .. } => {
+            format!("{attribute}: Matches ({})", cms::Digest::name(digest))
+        }
+        SigningCertificateBinding::Differs { digest, .. } => {
+            format!("{attribute}: Differs ({})", cms::Digest::name(digest))
+        }
+        SigningCertificateBinding::Unreadable { ref error, .. } => {
+            format!("{attribute}: Unreadable ({error})")
+        }
+        SigningCertificateBinding::CertificateNotDer { .. } => {
+            format!("{attribute}: CertificateNotDer")
+        }
+        SigningCertificateBinding::NoSignerCertificate { .. } => {
+            format!("{attribute}: NoSignerCertificate")
+        }
     }
 }
 
@@ -268,6 +319,18 @@ fn signer_key(cms: &cms::SignedData<'_>) -> String {
             PublicKey::Unverifiable { algorithm } => identifier(algorithm),
         },
         None => "(the signer's certificate was not found)".to_owned(),
+    }
+}
+
+/// §12.8.3.4.5 (a)'s answers for one signature, counted and named.
+fn count_bindings(path: &str, cms: &cms::SignedData<'_>, counts: &mut Counts) {
+    for answer in signing_certificate_bindings(cms) {
+        let named = binding(&answer);
+        counts
+            .signing_certificate_witnesses
+            .push(format!("{path}: §12.8.3.4.5 (a) {named}"));
+        let slot = counts.signing_certificate.entry(named).or_default();
+        *slot = slot.saturating_add(1);
     }
 }
 
@@ -362,6 +425,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
                 *slot = slot.saturating_add(1);
                 let slot = counts.key_algorithms.entry(signer_key(&cms)).or_default();
                 *slot = slot.saturating_add(1);
+                count_bindings(path, &cms, &mut counts);
             }
             Err(error) => {
                 let slot = counts.unreadable.entry(error.to_string()).or_default();
@@ -495,6 +559,17 @@ fn main() {
     report("SignerInfo digestAlgorithm", &counts.digest_algorithms);
     report("the signer's certificate's key", &counts.key_algorithms);
     report("Signature::authenticity answered", &counts.authenticity);
+    report(
+        "§12.8.3.4.5 (a), the signer's certificate against the hash the signer signed over it",
+        &counts.signing_certificate,
+    );
+    println!("documents stating one of §12.8.3.4.3 (f)'s two attributes:");
+    if counts.signing_certificate_witnesses.is_empty() {
+        println!("  (none)");
+    }
+    for witness in &counts.signing_certificate_witnesses {
+        println!("  {witness}");
+    }
     println!("\ndocuments whose signature names an algorithm this program does not verify:");
     if counts.unverifiable_documents.is_empty() {
         println!("  (none)");

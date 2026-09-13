@@ -24,4 +24,8 @@ allow-panic-in-tests = true
 # ICC's own tag names, quoted verbatim from ISO 32000-2 §8.6.5.5 in rustdoc: the "to CIE"
 # (AToB) and "from CIE" (BToA) information a blending-space profile shall carry. A quotation
 # may not gain backticks, so the words are declared rather than the lint silenced at each site.
-doc-valid-idents = ["AToB", "BToA", ".."]
+# RFC 5035's two structure names, quoted verbatim in `pdf-signature`: §12.8.3.4.3 (f) names that
+# RFC for the signing-certificate attributes, and its section 5.4 is the sentence that tells the
+# two apart. Declared here for the reason above rather than backticked at each site, because the
+# sentences they appear in are quotations.
+doc-valid-idents = ["AToB", "BToA", "SigningCertificate", "SigningCertificateV2", ".."]

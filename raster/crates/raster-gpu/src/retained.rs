@@ -289,7 +289,7 @@ impl RetainedScene {
             Some(held) if held.key.replay_compatible(&key) && held.encoded.replay.is_some() => {
                 // Admission was checked one line up; a race between the two reads is
                 // not possible on `&mut self`.
-                #[allow(clippy::expect_used)]
+                #[expect(clippy::expect_used)]
                 let list = held
                     .encoded
                     .replay

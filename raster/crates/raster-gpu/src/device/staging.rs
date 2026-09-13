@@ -174,7 +174,7 @@ impl Device {
     // The `Result` is the seam's shape: the two lane dispatches that used to live
     // here kept their refusals, and the caller threads one `?` through all three
     // steps of the sheet's life.
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(clippy::unnecessary_wraps)]
     fn create_scratch_sheet(
         &mut self,
         encoded: &Encoded,

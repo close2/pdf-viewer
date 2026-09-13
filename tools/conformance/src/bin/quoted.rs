@@ -14,8 +14,8 @@
 //!
 //! **It renders nothing and re-measures nothing.** The oracle already prints all four figures for
 //! every page it does not call agreement, so the left-hand side of this comparison is a report
-//! the round has already run — seconds, over a file. Reading from standard input works too, which
-//! is what a `|` after the gate line does.
+//! the round has already run — seconds, over a file. Standard input works too, asked for by name:
+//! `… --nocapture | cargo run … --bin quoted -- -`.
 //!
 //! It prints one block per note, closest rung first, and under every contradicted figure what the
 //! gate prints instead over that note's own pages, nearest value first — because a note is
@@ -63,6 +63,13 @@ enum Error {
          pdf-model --test oracle -- --ignored --nocapture` that is wanted, with `--nocapture`"
     )]
     Empty,
+    /// No report was named, and standard input is asked for by name rather than by default.
+    #[error(
+        "name the gate's report, or `-` to read it from standard input — it is the output of \
+         `cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture` that \
+         is wanted"
+    )]
+    NoReport,
 }
 
 fn run() -> Result<(), Error> {
@@ -113,15 +120,22 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-/// The gate's report: the file named on the command line, or standard input.
-fn gate_report() -> Result<String, std::io::Error> {
+/// The gate's report: the file named on the command line, or standard input for a literal `-`.
+///
+/// **Nothing is not standard input.** This read the gate's report off `stdin` whenever no path was
+/// given, so the obvious invocation — the program's name and no argument — blocked on a descriptor
+/// the operator did not know it was reading, for ever, having printed nothing. That is trap 18's
+/// shape one level up: the channel a diagnosis would have arrived on is the one being waited on,
+/// and a wait reads as work. A pipe still works and now says so with one character (ADR 1042).
+fn gate_report() -> Result<String, Error> {
     match std::env::args().nth(1) {
-        Some(path) if path != "-" => std::fs::read_to_string(path),
-        _ => {
+        Some(path) if path == "-" => {
             let mut text = String::new();
             std::io::stdin().read_to_string(&mut text)?;
             Ok(text)
         }
+        Some(path) => Ok(std::fs::read_to_string(path)?),
+        None => Err(Error::NoReport),
     }
 }
 

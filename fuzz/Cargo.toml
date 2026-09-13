@@ -32,6 +32,7 @@ cast_sign_loss = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 undocumented_unsafe_blocks = "warn"
+allow_attributes = "warn"
 
 [lints]
 workspace = true

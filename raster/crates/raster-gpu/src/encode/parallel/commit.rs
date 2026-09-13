@@ -99,7 +99,7 @@ impl<'a> Encoder<'a> {
 
     /// Clip ∩ target as a job's rectangle — the folded bound `deferrable_bounds`
     /// documents, shared with the compute lane's route (ADR 0080).
-    #[allow(clippy::cast_precision_loss)] // a viewport extent, far inside f32's exact
+    #[expect(clippy::cast_precision_loss)] // a viewport extent, far inside f32's exact
     // integer range
     pub(in crate::encode) fn visible_rect(&self, resolved: &ResolvedClip) -> [f32; 4] {
         [
@@ -188,7 +188,7 @@ impl<'a> Encoder<'a> {
     /// `resident` and `tile` are the two ways a placement can have a picture and they
     /// are exclusive by construction — [`Job::glyph`] chooses one at the walk, which is
     /// the reading `AtlasStore::prospect` insists on being made once.
-    #[allow(clippy::cast_precision_loss)] // a tile corner and an atlas extent are both
+    #[expect(clippy::cast_precision_loss)] // a tile corner and an atlas extent are both
     // integers bounded by the device dimension, far inside f32's exact range
     fn commit_glyph(
         &mut self,
@@ -265,7 +265,7 @@ impl<'a> Encoder<'a> {
     }
 
     /// The path lane's commit: the tile is charged, packed and drawn.
-    #[allow(clippy::cast_precision_loss)] // a tile's corner is an integer device pixel
+    #[expect(clippy::cast_precision_loss)] // a tile's corner is an integer device pixel
     fn commit_sheet(
         &mut self,
         tile: Option<crate::raster::CoverageMask>,

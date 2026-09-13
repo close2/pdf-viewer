@@ -16,14 +16,14 @@ use crate::pipeline::Kind;
 use super::{Executor, Region};
 
 /// A region's extent, as the shader's floats.
-#[allow(clippy::cast_precision_loss)] // extents are exact in f32
+#[expect(clippy::cast_precision_loss)] // extents are exact in f32
 fn extent(region: Region) -> [f32; 2] {
     [region.width as f32, region.height as f32]
 }
 
 /// The source origin a pass writing the whole target reads the root at: negative, because
 /// the root's texel (0, 0) is the *device* pixel `region.x, region.y` (ADR 0039).
-#[allow(clippy::cast_precision_loss)] // extents are exact in f32
+#[expect(clippy::cast_precision_loss)] // extents are exact in f32
 fn from_root(region: Region) -> [f32; 2] {
     [-(region.x as f32), -(region.y as f32)]
 }

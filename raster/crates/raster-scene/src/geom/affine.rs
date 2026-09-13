@@ -143,10 +143,9 @@ impl Affine {
     #[must_use]
     pub fn preserves_axes(self) -> bool {
         // Exact comparison is the semantics, not an oversight: see the doc comment.
-        #[allow(clippy::float_cmp)]
-        {
-            (self.b == 0.0 && self.c == 0.0) || (self.a == 0.0 && self.d == 0.0)
-        }
+        // No lint is silenced here: `clippy::float_cmp` exempts a comparison against a
+        // zero literal, which is every comparison this function makes.
+        (self.b == 0.0 && self.c == 0.0) || (self.a == 0.0 && self.d == 0.0)
     }
 
     /// The largest factor by which this transform stretches any direction — the largest
@@ -176,7 +175,6 @@ impl Affine {
         let det = self.determinant();
         // Exact zero test: division below is well-defined for every other value, and a
         // near-zero determinant inverts to legitimately huge (finite) coefficients.
-        #[allow(clippy::float_cmp)]
         if !self.is_finite() || !det.is_finite() || det == 0.0 {
             return None;
         }

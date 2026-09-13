@@ -83,7 +83,7 @@ impl WindingTexture {
 /// frames and is at least as large as any pane it has held, and the frame's own panes
 /// differ in size from one another. See the viewport below for what that costs if it is
 /// forgotten.
-#[allow(clippy::cast_precision_loss)] // an extent bounded by the adapter's texture limit
+#[expect(clippy::cast_precision_loss)] // an extent bounded by the adapter's texture limit
 pub(super) fn accumulate(
     encoder: &mut wgpu::CommandEncoder,
     winding_view: &wgpu::TextureView,
@@ -148,7 +148,7 @@ pub(super) fn accumulate(
 
 /// One round's resolve: each tile's quad turns four samples into a quarter of its
 /// coverage, added to whatever earlier rounds contributed.
-#[allow(clippy::too_many_arguments)] // the pass's inputs, named once at the one call
+#[expect(clippy::too_many_arguments)] // the pass's inputs, named once at the one call
 pub(super) fn resolve(
     encoder: &mut wgpu::CommandEncoder,
     coverage_view: &wgpu::TextureView,

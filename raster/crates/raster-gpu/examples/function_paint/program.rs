@@ -385,10 +385,9 @@ fn parse_block_to_end(tokens: &[String], cursor: &mut usize) -> Result<Vec<Item>
 }
 
 /// One token to one instruction. `if`/`ifelse` are handled by [`emit`], not here.
-#[allow(
-    clippy::too_many_lines,
-    reason = "one arm per ISO 32000-2 Table 42 operator; splitting the table hides it"
-)]
+///
+/// One arm per ISO 32000-2 Table 42 operator: the table is the function, and splitting it
+/// across helpers would hide which operators are covered.
 fn leaf(token: &str) -> Result<Op, Refusal> {
     Ok(match token {
         "abs" => Op::Abs,

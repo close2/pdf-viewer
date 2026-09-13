@@ -439,9 +439,10 @@ fn external_associated_under(
     out
 }
 
-/// Every attachment §7.7.4's `/EmbeddedFiles` tree names, in the tree's own order — and then
-/// the catalog's own §14.13.3 associated files, for the embedded file a document associates
-/// with itself without filing it under any name.
+/// Every attachment §7.7.4's `/EmbeddedFiles` tree names, in the tree's own order — and then the
+/// associated files of §14.13's two carriers that stand for the document rather than for a mark on
+/// a page: §14.13.3's catalog, for the embedded file a document associates with itself without
+/// filing it under any name, and §14.13.8's `DPart` dictionaries.
 ///
 /// The second population is deduplicated against the first by the embedded stream, because a
 /// producer that states one payload both ways — an `/EmbeddedFiles` entry *and* a catalog `/AF`
@@ -481,19 +482,32 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
         }
     }
 
-    for attachment in associated(document, &catalog) {
-        if out.len() >= MAX_ATTACHMENTS {
-            break;
+    // §14.13.3's catalog `/AF`, and then §14.13.8's on every node of §14.12.2's document part
+    // hierarchy. The second walk is the same argument as the first, one clause further on: "[o]ne
+    // or more files may be associated with any DPart", and a `DPart` is reachable only from
+    // `/DPartRoot`, so until `document_part::hierarchy` existed a document whose only route to a
+    // payload was a part's `/AF` carried a file no panel could list and no host could extract.
+    // A document that states no `/DPartRoot` — which is every document in every corpus on this
+    // disk — pays one absent lookup in the catalog for it.
+    let parts = crate::document_part::hierarchy(document)
+        .map(|hierarchy| hierarchy.parts)
+        .unwrap_or_default();
+    let carriers = std::iter::once(catalog).chain(parts.into_iter().map(|part| part.dictionary));
+    for carrier in carriers {
+        for attachment in associated(document, &carrier) {
+            if out.len() >= MAX_ATTACHMENTS {
+                break;
+            }
+            // One payload filed both ways is one file. The streams share an `Arc` because the
+            // document caches resolved objects by identity, which the test with both routes pins.
+            if out
+                .iter()
+                .any(|seen| Arc::ptr_eq(&seen.stream, &attachment.stream))
+            {
+                continue;
+            }
+            out.push(attachment);
         }
-        // One payload filed both ways is one file. The streams share an `Arc` because the
-        // document caches resolved objects by identity, which the test with both routes pins.
-        if out
-            .iter()
-            .any(|seen| Arc::ptr_eq(&seen.stream, &attachment.stream))
-        {
-            continue;
-        }
-        out.push(attachment);
     }
     out
 }
@@ -883,9 +897,9 @@ mod tests {
             "the commonest relationship in the corpus, and what a MathML equation is"
         );
 
-        // §14.13.8: the same array on a `DPart` dictionary. Nothing in this tree enumerates the
-        // document part hierarchy, so this asserts what `associated` answers for one rather than
-        // that anything reaches it — which is exactly what §14.13.8's row claims and no more.
+        // §14.13.8: the same array on a `DPart` dictionary. This fixture names no `/DPartRoot`, so
+        // what is asserted here is what `associated` answers for a part handed to it; that the
+        // parts of a hierarchy are *found* is the test below.
         let part = doc.get(pdf_syntax::ObjectId {
             number: 10,
             generation: 0,
@@ -897,6 +911,37 @@ mod tests {
         };
         assert_eq!(ticket.relationship, super::Relationship::Data);
         assert_eq!(ticket.name, "job-ticket.jdf");
+    }
+
+    /// §14.13.8: a file associated with a `DPart` reaches the list a panel shows.
+    ///
+    /// > One or more files may be associated with any DPart (see 14.12, "Document parts"). To
+    /// > associate files with a DPart, the appropriate DPart dictionary shall contain an AF entry
+    /// > whose value is an array of file specification dictionaries.
+    ///
+    /// The fixture's only route to the embedded file is that array on a leaf of the hierarchy:
+    /// there is no `/EmbeddedFiles` tree and no catalog `/AF`, so a reader that did not walk
+    /// §14.12.2's tree from `/DPartRoot` would list nothing and a person would never learn the
+    /// file was there. Deliberately a hand-built document — no file in any corpus on this disk
+    /// states a `/DPartRoot` at all (trap 4, said out loud rather than left as a gap).
+    #[test]
+    fn a_file_associated_with_a_document_part_is_listed() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /DPartRoot 3 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [7 0 R] >>",
+            "<< /Type /DPartRoot /DPartRootNode 4 0 R >>",
+            "<< /Type /DPart /DParts [[5 0 R]] >>",
+            "<< /Type /DPart /Parent 4 0 R /Start 7 0 R /AF [6 0 R] >>",
+            "<< /Type /Filespec /F (job-ticket.jdf) /AFRelationship /Data /EF << /F 8 0 R >> >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\njdf\nendstream",
+        ]);
+        let listed = attachments(&doc);
+        let [ticket] = listed.as_slice() else {
+            panic!("one attachment, reached through the document part hierarchy, got {listed:?}");
+        };
+        assert_eq!(ticket.name, "job-ticket.jdf");
+        assert_eq!(ticket.relationship, super::Relationship::Data);
     }
 
     #[test]

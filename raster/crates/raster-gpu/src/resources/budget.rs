@@ -137,7 +137,6 @@ impl ResourceBudget {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)] // test-file policy, as in `resources.rs`
 mod tests {
     use super::{BudgetOverflow, ResourceBudget};
     use crate::error::DeviceError;

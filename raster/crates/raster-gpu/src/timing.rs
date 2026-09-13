@@ -78,7 +78,7 @@ pub(crate) fn read_pass(
     // Ticks-to-nanoseconds goes through f64: the tick count of any real pass is far
     // below 2^53, so the conversion is exact; the final truncation is of fractional
     // nanoseconds.
-    #[allow(
+    #[expect(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss

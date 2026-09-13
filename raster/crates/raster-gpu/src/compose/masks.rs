@@ -78,9 +78,9 @@ impl Executor<'_> {
                 *slot = Some(Realised {
                     view: mask_view,
                     placement: MaskPlacement {
-                        #[allow(clippy::cast_precision_loss)] // extents are exact in f32
+                        #[expect(clippy::cast_precision_loss)] // extents are exact in f32
                         origin: [region.x as f32, region.y as f32],
-                        #[allow(clippy::cast_precision_loss)]
+                        #[expect(clippy::cast_precision_loss)]
                         size: [region.width as f32, region.height as f32],
                         outside: crate::mask::transparent_value(plan),
                     },

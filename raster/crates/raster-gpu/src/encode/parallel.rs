@@ -222,7 +222,7 @@ type Rasterised = Option<CoverageMask>;
 
 impl<'a> Job<'a> {
     /// A glyph-lane job: the tile is the shape's own bounds at the quantised phase.
-    #[allow(clippy::too_many_arguments)] // one placement's parameters, gathered once at
+    #[expect(clippy::too_many_arguments)] // one placement's parameters, gathered once at
     // its one call site, where the walk already holds each of them for its own reasons
     pub(super) fn glyph(
         segments: &'a [Segment],
@@ -321,8 +321,8 @@ fn held_by(tile_bound: u64, resident: bool) -> u64 {
 /// mask; it reads no frame state, writes no frame state, and allocates only what it
 /// returns. That is what makes a frame on twenty-four threads the same bytes as a frame
 /// on one, rather than a frame that merely usually is.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-#[allow(clippy::arithmetic_side_effects)] // the same bounded corner arithmetic the two
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[expect(clippy::arithmetic_side_effects)] // the same bounded corner arithmetic the two
 // lanes did in place, moved here unchanged
 pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
     if matches!(job.place, Place::Resident { .. }) {
@@ -369,7 +369,7 @@ pub(super) fn rasterise(job: &Job<'_>) -> Rasterised {
 /// is one fewer thing between a thread count and the bytes it draws. Contiguous because
 /// the results are reassembled in job order either way and adjacent jobs on a page are
 /// adjacent in memory.
-#[allow(clippy::arithmetic_side_effects)] // `taken + len` is bounded by `jobs.len()` by
+#[expect(clippy::arithmetic_side_effects)] // `taken + len` is bounded by `jobs.len()` by
 // the loop condition, and the target is `u64` arithmetic over a sum of `usize` lengths
 fn partition(jobs: &[Job<'_>], workers: usize) -> Vec<usize> {
     let total: u64 = jobs.iter().map(Job::weight).sum();

@@ -156,7 +156,7 @@ impl StoredOutline {
         }
         // Set on either arm just above — by us, or by whoever we lost the race to — and
         // `OnceLock` has no infallible getter afterwards.
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         Ok(self.quads.get().expect("set on either arm above"))
     }
 

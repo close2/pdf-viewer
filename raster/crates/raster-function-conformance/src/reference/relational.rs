@@ -92,7 +92,7 @@ pub fn not(a: Value) -> Result<Value, EvalError> {
 /// offered between them — and `1 1.0 eq` is true. There is no tolerance anywhere in the
 /// entry; an epsilon comparison is a different operator.
 // The exact comparison *is* the operator; see the paragraph above.
-#[allow(clippy::float_cmp)]
+#[expect(clippy::float_cmp)]
 fn equal(a: Value, b: Value) -> Result<bool, EvalError> {
     Ok(match (a, b) {
         (Value::Bool(x), Value::Bool(y)) => x == y,
@@ -154,7 +154,7 @@ fn shift(a: Value, b: Value) -> Result<Value, EvalError> {
     // The clause shifts "the binary representation", not the arithmetic value, so the
     // shifts happen on the unsigned view and the result is reinterpreted. Both casts
     // are reinterpretations of the same 32 bits, which is exactly what is asked for.
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
     let shifted = if count >= 0 {
         ((value as u32) << magnitude) as i32
     } else {

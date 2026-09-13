@@ -159,7 +159,7 @@ impl Encoder<'_> {
     /// One [`ReplayRecord::SolidFill`], replayed: the same three answers the walk
     /// gives — §10.7.4 marks, the analytic rectangle, or a compute tile — decided
     /// fresh under this viewport, with every per-scene input read off the record.
-    #[allow(clippy::too_many_arguments)] // one record's fields, destructured once
+    #[expect(clippy::too_many_arguments)] // one record's fields, destructured once
     pub(super) fn replay_solid_fill(
         &mut self,
         outline: u32,

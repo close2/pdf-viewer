@@ -127,7 +127,7 @@ impl Device {
             self.dummy_texture = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         }
         // Just created above when absent.
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         self.dummy_texture.clone().expect("created above")
     }
 }

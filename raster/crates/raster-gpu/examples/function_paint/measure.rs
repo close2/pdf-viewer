@@ -50,7 +50,7 @@ pub(crate) fn round_robin(
         let _: Timed = draw(gpu, canvas, variant.paint, variant.bind);
     }
     let one_round = warm.elapsed().max(Duration::from_micros(1));
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         reason = "both durations are positive and the ratio is clamped below"
@@ -91,13 +91,13 @@ pub(crate) fn cpu_grid(ops: &[Op], width: u32, height: u32) -> (Duration, Vec<u8
     let mut stack = Vec::with_capacity(64);
     let started = Instant::now();
     for row in 0..height {
-        #[allow(
+        #[expect(
             clippy::cast_precision_loss,
             reason = "a device coordinate below 2^24 converts exactly"
         )]
         let y = (row as f32 + 0.5) / height as f32;
         for column in 0..width {
-            #[allow(
+            #[expect(
                 clippy::cast_precision_loss,
                 reason = "a device coordinate below 2^24 converts exactly"
             )]
@@ -113,7 +113,7 @@ pub(crate) fn cpu_grid(ops: &[Op], width: u32, height: u32) -> (Duration, Vec<u8
 }
 
 /// Straight to 8 bits, the way an `Rgba8Unorm` attachment does it.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "the clamp bounds the value to 0..=255 before the cast"

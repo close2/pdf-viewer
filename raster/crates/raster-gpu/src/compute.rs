@@ -96,7 +96,7 @@ impl ComputeSheet {
     /// Adds a tile. Returns `false` — and records nothing — when a counter would
     /// saturate; unreachable for any frame the byte budget admits, and the caller
     /// refuses rather than guessing when it is not.
-    #[allow(clippy::arithmetic_side_effects)] // the additions run only after the
+    #[expect(clippy::arithmetic_side_effects)] // the additions run only after the
     // headroom checks above them, which is what the checks are for
     pub(crate) fn push_tile(
         &mut self,
@@ -149,7 +149,7 @@ impl ComputeSheet {
     /// is deliberately absent**: its size is the count pass's answer, checked against
     /// the same budget at allocation ([`dispatch_into`]). The resident arena is
     /// charged to the resource side, where residency lives.
-    #[allow(clippy::cast_possible_truncation)] // lengths of Vecs this frame just built
+    // lengths of Vecs this frame just built
     pub(crate) fn device_bytes(&self) -> u64 {
         if self.is_empty() {
             return 0;
@@ -877,7 +877,7 @@ impl ComputePersist {
             .saturating_add(total / 4)
             .min(max_frame_bytes / 16)
             .max(total);
-        #[allow(clippy::cast_possible_truncation)] // clamped to u32::MAX just above
+        #[expect(clippy::cast_possible_truncation)] // clamped to u32::MAX just above
         Ok(with_headroom.min(u64::from(u32::MAX)) as u32)
     }
 
@@ -899,12 +899,12 @@ impl ComputePersist {
 ///
 /// The arena's own upload refusals, and the growth refusal where even the starting
 /// capacity cannot be priced.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 // one frame's pass chain, in submission order — the stages read top to bottom and a
 // split would scatter the ordering argument
-#[allow(clippy::too_many_arguments)] // the device's own fields, threaded once from
+#[expect(clippy::too_many_arguments)] // the device's own fields, threaded once from
 // the one call site in `staging.rs`
-#[allow(clippy::cast_possible_truncation)] // strides and word counts are bounded by
+#[expect(clippy::cast_possible_truncation)] // strides and word counts are bounded by
 // the device's texture dimension and by the checks above each cast
 pub(crate) fn dispatch_chain(
     gpu: &wgpu::Device,
@@ -1055,7 +1055,7 @@ pub(crate) fn dispatch_chain(
         u64::from(stride).saturating_mul(u64::from(compute.height)),
         wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
     );
-    #[allow(clippy::expect_used)] // set by the grow() call above on every road here
+    #[expect(clippy::expect_used)] // set by the grow() call above on every road here
     let edges_buffer = persist
         .edges
         .as_ref()

@@ -72,7 +72,7 @@ fn cpu_reference(scene: &Scene, viewport: &Viewport<'_>, clip_rects: &[Rect]) ->
         ];
         // Only the pixels the rectangle touches: the reference stays O(area), which
         // is what lets it check a full page at a window scale in test time.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let (y0, y1, x0, x1) = (
             (device_rect.min.y.floor().max(0.0) as usize).min(height),
             (device_rect.max.y.ceil().max(0.0) as usize).min(height),
@@ -97,7 +97,7 @@ fn cpu_reference(scene: &Scene, viewport: &Viewport<'_>, clip_rects: &[Rect]) ->
                     let src = premul[channel] * coverage;
                     let dst_f = f32::from(dst[channel]) / 255.0;
                     let out = src + dst_f * (1.0 - src_a);
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     {
                         dst[channel] = (out.clamp(0.0, 1.0) * 255.0).round() as u8;
                     }
@@ -113,7 +113,6 @@ fn cpu_reference(scene: &Scene, viewport: &Viewport<'_>, clip_rects: &[Rect]) ->
         } else {
             for channel in &pixel[..3] {
                 let straight = (u32::from(*channel) * 255 + u32::from(a) / 2) / u32::from(a);
-                #[allow(clippy::cast_possible_truncation)]
                 out.push(straight.min(255) as u8);
             }
             out.push(a);

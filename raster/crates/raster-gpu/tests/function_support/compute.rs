@@ -103,7 +103,7 @@ impl Compute {
     /// If the program or its `Range` is not admitted, or the device does not answer the
     /// map: both are the calling test failing rather than a condition to handle.
     #[must_use]
-    #[allow(clippy::missing_panics_doc, clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn run(&self, shading: &Shading<'_>, points: &[(f32, f32)]) -> Vec<[f32; 4]> {
         let analysis =
             raster_gpu::function::analyse(shading.program).expect("the program is admitted");

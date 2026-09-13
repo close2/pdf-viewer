@@ -53,6 +53,29 @@ const ID_EC_PUBLIC_KEY: const_oid::ObjectIdentifier = const_oid::db::rfc5912::ID
 /// RFC 5280's `id-ce-subjectKeyIdentifier`, `2.5.29.14`.
 const SUBJECT_KEY_IDENTIFIER: &[u8] = &[0x55, 0x1D, 0x0E];
 
+/// RFC 5280's `id-ce-keyUsage`, `2.5.29.15`.
+const KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::ID_CE_KEY_USAGE;
+
+/// RFC 5280's `id-ce-basicConstraints`, `2.5.29.19`.
+const BASIC_CONSTRAINTS: const_oid::ObjectIdentifier =
+    const_oid::db::rfc5280::ID_CE_BASIC_CONSTRAINTS;
+
+/// RFC 5280's `id-ce-authorityKeyIdentifier`, `2.5.29.35`.
+const AUTHORITY_KEY_IDENTIFIER: const_oid::ObjectIdentifier =
+    const_oid::db::rfc5280::ID_CE_AUTHORITY_KEY_IDENTIFIER;
+
+/// X.690's `BOOLEAN`, primitive and universal.
+const BOOLEAN: u8 = 0x01;
+
+/// X.690's `BIT STRING`, primitive and universal.
+const BIT_STRING: u8 = 0x03;
+
+/// X.690's `UTCTime`, primitive and universal.
+const UTC_TIME: u8 = 0x17;
+
+/// X.690's `GeneralizedTime`, primitive and universal.
+const GENERALIZED_TIME: u8 = 0x18;
+
 /// How many extensions are looked at before the walk stops.
 ///
 /// RFC 5280 bounds the number of extensions at nothing at all, and only one of them is read here,
@@ -111,6 +134,144 @@ pub enum X509Error {
     NoDsaParameters,
 }
 
+/// A point in time, as seconds before or after 1970-01-01T00:00:00Z.
+///
+/// RFC 5280 section 6.1.1 makes "the current date/time" input (b) to path validation rather
+/// than something the algorithm goes and finds, and this type is that input's shape. It is why
+/// [`crate::trust`] needs no clock: a caller that has one supplies the instant, and a caller
+/// that has none — a test, a batch run reproducing a verdict — supplies the instant it means.
+///
+/// Seconds and not a richer calendar type because that is all the comparison in RFC 5280
+/// section 6.1.3 (a)(2) needs: whether an instant lies between two others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Instant(i64);
+
+impl Instant {
+    /// An instant from seconds since the Unix epoch.
+    #[must_use]
+    pub const fn from_unix_seconds(seconds: i64) -> Self {
+        Self(seconds)
+    }
+
+    /// The seconds since the Unix epoch this instant is.
+    #[must_use]
+    pub const fn unix_seconds(self) -> i64 {
+        self.0
+    }
+}
+
+/// RFC 5280 section 4.1.2.5's `Validity ::= SEQUENCE { notBefore Time, notAfter Time }`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Validity {
+    /// The first instant at which the certificate is current.
+    pub not_before: Instant,
+    /// The last instant at which it is.
+    pub not_after: Instant,
+}
+
+impl Validity {
+    /// Whether the period includes an instant, as RFC 5280 section 6.1.3 (a)(2) asks.
+    ///
+    /// "The certificate validity period includes the current time."
+    ///
+    /// Inclusive at both ends, which is what section 4.1.2.5's "the period of time over which
+    /// the CA warrants that it will maintain information about the status of the certificate"
+    /// says: the two instants are in the period rather than either side of it.
+    #[must_use]
+    pub const fn includes(&self, at: Instant) -> bool {
+        self.not_before.0 <= at.0 && at.0 <= self.not_after.0
+    }
+}
+
+/// RFC 5280 section 4.2.1.9's `BasicConstraints`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BasicConstraints {
+    /// `cA`, whose default is `FALSE`.
+    ///
+    /// Section 4.2.1.9: "The cA boolean indicates whether the certified public key may be used to
+    /// verify certificate signatures."
+    pub ca: bool,
+    /// `pathLenConstraint`, where the certificate states one.
+    ///
+    /// Section 4.2.1.9: "Where pathLenConstraint does not appear, no limit is imposed."
+    pub path_len: Option<u32>,
+}
+
+/// RFC 5280 section 4.2.1.3's `KeyUsage BIT STRING`, as the bits it asserts.
+///
+/// Only the two a certification path turns on are named: `keyCertSign`, which section 6.1.4 (n)
+/// requires of every certificate that signs another, and `digitalSignature` with
+/// `nonRepudiation` beside it, which are what an end-entity signing certificate asserts. The
+/// rest of the nine are carried in the word and asked about by nothing here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyUsage {
+    /// The named bits, in the order section 4.2.1.3 lists them, bit 0 first.
+    bits: u16,
+}
+
+impl KeyUsage {
+    /// `digitalSignature`, bit 0.
+    #[must_use]
+    pub const fn digital_signature(self) -> bool {
+        self.bits & (1 << 0) != 0
+    }
+
+    /// `nonRepudiation`, bit 1 — "contentCommitment" in the comment section 4.2.1.3 attaches.
+    #[must_use]
+    pub const fn non_repudiation(self) -> bool {
+        self.bits & (1 << 1) != 0
+    }
+
+    /// `keyCertSign`, bit 5.
+    #[must_use]
+    pub const fn key_cert_sign(self) -> bool {
+        self.bits & (1 << 5) != 0
+    }
+
+    /// `cRLSign`, bit 6.
+    #[must_use]
+    pub const fn crl_sign(self) -> bool {
+        self.bits & (1 << 6) != 0
+    }
+}
+
+/// What a certificate's extensions say, as far as a certification path reads them.
+///
+/// **Four are recognised and every other critical one is a refusal**, which is RFC 5280
+/// section 4.2's own rule rather than a budget:
+///
+/// "A certificate-using system MUST reject the certificate if it encounters a critical extension
+/// it does not recognize or a critical extension that contains information that it cannot
+/// process."
+///
+/// [`Self::unrecognised_critical`] is how that rejection reaches [`crate::trust`]. It is the
+/// single thing that makes a *reduced* path validation safe: the steps this program omits —
+/// name constraints, the policy tree — are each reached through an extension RFC 5280 requires
+/// a conforming CA to mark critical (sections 4.2.1.10, 4.2.1.11 and 4.2.1.14 each say
+/// "Conforming CAs MUST mark this extension as critical"), so a certificate that would have
+/// needed them is refused rather than waved through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Extensions<'a> {
+    /// `subjectKeyIdentifier`'s octets, which name this certificate to the one below it.
+    pub key_identifier: Option<&'a [u8]>,
+    /// `authorityKeyIdentifier`'s `keyIdentifier` octets, which name its issuer.
+    ///
+    /// A hint for building a path and never a verdict: RFC 5280 section 6.1.3 (a)(4) chains on
+    /// the *name*, so this narrows a search and decides nothing.
+    pub authority_key_identifier: Option<&'a [u8]>,
+    /// `basicConstraints`, where the certificate states it.
+    pub basic_constraints: Option<BasicConstraints>,
+    /// `keyUsage`, where the certificate states it.
+    pub key_usage: Option<KeyUsage>,
+    /// The first critical extension this reader does not recognise, as its encoded identifier.
+    pub unrecognised_critical: Option<&'a [u8]>,
+    /// Whether the walk stopped at [`MAX_EXTENSIONS`] with extensions left unread.
+    ///
+    /// A certificate that reaches this has extensions nobody here looked at, which — since one
+    /// of them may be critical — is refused by [`crate::trust`] rather than read as an absence.
+    pub truncated: bool,
+}
+
 /// A public key, as far as this program can act on one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicKey<'a> {
@@ -161,6 +322,51 @@ pub struct Certificate<'a> {
     pub key_identifier: Option<&'a [u8]>,
     /// `subjectPublicKeyInfo`, as far as this program reads it.
     pub public_key: PublicKey<'a>,
+    /// `tbsCertificate.version`, as 1, 2 or 3 rather than as the 0, 1 or 2 it encodes.
+    ///
+    /// RFC 5280 section 6.1.4 (k) is the one step that asks: the basic constraints requirement
+    /// it states is about "a version 3 certificate", and it says what to do with the others —
+    /// "Conforming implementations may choose to reject all version 1 and version 2
+    /// intermediate certificates."
+    pub version: u8,
+    /// `tbsCertificate`'s own encoding, which is what the issuer's signature covers.
+    ///
+    /// RFC 5280 section 4.1.1.3: the `signatureValue` is "generated upon the ASN.1 DER encoded
+    /// tbsCertificate", so these are the octets [`crate::trust`] verifies over — the file's own
+    /// bytes, never a re-encoding.
+    pub tbs: &'a [u8],
+    /// Whether the certificate, its `tbsCertificate` or its `subjectPublicKeyInfo` stated X.690
+    /// clause 8.1.3.6's indefinite length.
+    ///
+    /// DER forbids it, [`crate::der`] accepts it for the reason that module states, and a
+    /// certification path may not. **The `tbsCertificate`'s is the one that is load-bearing**:
+    /// its extent would then have been found by scanning for an end-of-contents marker rather
+    /// than read from a length, so [`Self::tbs`] is not the encoding its issuer signed in any
+    /// checkable sense. The other two are reported with it because a producer that wrote one
+    /// indefinite length at this level wrote a certificate nothing here should place in a path;
+    /// a value *nested* inside `tbsCertificate` is not asked about, and does not need to be —
+    /// whatever it holds is inside the octets the issuer signed either way.
+    /// [`crate::trust`] refuses such a certificate by name.
+    pub indefinite_lengths: bool,
+    /// The outer `signatureAlgorithm`'s object identifier — how the issuer signed this.
+    pub signature_algorithm: &'a [u8],
+    /// The outer `signatureAlgorithm`'s `parameters`, where it states any.
+    ///
+    /// RFC 8017 Appendix A.2.3's `RSASSA-PSS-params` arrive here, which is why the member is
+    /// carried rather than skipped: the padding is not decided by the identifier alone. Carried
+    /// as the value rather than as its bytes because that is what [`crate::pss::parameters`]
+    /// reads, which is the one consumer there is.
+    pub signature_parameters: Option<Value<'a>>,
+    /// `signatureValue`'s octets — the issuer's signature over [`Self::tbs`].
+    pub signature: &'a [u8],
+    /// `tbsCertificate.validity`, where both of its instants are readable.
+    ///
+    /// `None` rather than an error: a certificate whose dates this reader cannot make sense of
+    /// still yields its public key, so question 2 is unaffected, and it is question 3 —
+    /// [`crate::trust`] — that refuses to place such a certificate in a path.
+    pub validity: Option<Validity>,
+    /// What the extensions say, as far as a certification path reads them.
+    pub extensions: Extensions<'a>,
 }
 
 impl Certificate<'_> {
@@ -256,15 +462,29 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
     if certificate.identifier != SEQUENCE {
         return Err(X509Error::NotACertificate);
     }
-    // `Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }`. Only the
-    // first is read: the other two are this certificate's *issuer's* signature over it, which is
-    // question three and is not checked anywhere in this program.
-    let Some(tbs) = certificate.children()?.next_value()? else {
+    // `Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }`. All
+    // three are read: the second and third are this certificate's *issuer's* signature over the
+    // first, which is RFC 5280 section 6.1.3 (a)(1) and is what [`crate::trust`] checks.
+    let mut outer = certificate.children()?;
+    let Some(tbs) = outer.next_value()? else {
         return Err(X509Error::MalformedTbs);
     };
     if tbs.identifier != SEQUENCE {
         return Err(X509Error::MalformedTbs);
     }
+    let (signature_algorithm, signature_parameters) = match outer.next_value()? {
+        Some(algorithm) if algorithm.identifier == SEQUENCE => {
+            let mut parts = algorithm.children()?;
+            let oid = parts.next_value()?.and_then(|oid| oid.object_identifier());
+            (oid.unwrap_or(&[]), parts.next_value()?)
+        }
+        _ => (&[][..], None),
+    };
+    let signature = match outer.next_value()? {
+        Some(value) if value.identifier == BIT_STRING => key_octets(&value).unwrap_or(&[]),
+        _ => &[],
+    };
+    let mut indefinite_lengths = certificate.had_indefinite_length() || tbs.had_indefinite_length();
     let mut members = tbs.children()?;
     let Some(first) = members.next_value()? else {
         return Err(X509Error::MalformedTbs);
@@ -272,13 +492,23 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
     // `version [0] EXPLICIT Version DEFAULT v1` — absent on a version 1 certificate, so the serial
     // number is either the first member or the second, and which it is is decided by the tag
     // rather than by counting.
-    let serial = if first.is_context(0) {
+    let (version, serial) = if first.is_context(0) {
         let Some(serial) = members.next_value()? else {
             return Err(X509Error::MalformedTbs);
         };
-        serial
+        // `Version ::= INTEGER { v1(0), v2(1), v3(2) }` inside the `[0] EXPLICIT`, so the number
+        // on the wire is one less than the version everybody says out loud. A `[0]` holding
+        // something this reader cannot make a number of is read as version 1, which is the
+        // strictest answer available: section 6.1.4 (k) then refuses it as an intermediate.
+        let stated = first
+            .children()?
+            .next_value()?
+            .filter(|value| value.identifier == INTEGER)
+            .and_then(|value| value.contents.last().copied())
+            .unwrap_or(0);
+        (stated.saturating_add(1), serial)
     } else {
-        first
+        (1, first)
     };
     if serial.identifier != INTEGER {
         return Err(X509Error::MalformedTbs);
@@ -293,9 +523,10 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
     let Some(issuer) = members.next_value()? else {
         return Err(X509Error::MalformedTbs);
     };
-    let Some(_validity) = members.next_value()? else {
+    let Some(validity) = members.next_value()? else {
         return Err(X509Error::MalformedTbs);
     };
+    let validity = read_validity(validity)?;
     let Some(subject) = members.next_value()? else {
         return Err(X509Error::MalformedTbs);
     };
@@ -304,20 +535,156 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
     };
     let public_key = read_public_key(spki)?;
     // `extensions [3] EXPLICIT Extensions OPTIONAL`, after two optional unique identifiers.
-    let mut key_identifier = None;
+    let mut extensions = Extensions::default();
     while let Some(member) = members.next_value()? {
         if member.is_context(3) {
-            key_identifier = read_key_identifier(member)?;
+            extensions = read_extensions(member)?;
             break;
         }
     }
+    indefinite_lengths |= spki.had_indefinite_length();
     Ok(Certificate {
         serial_number: serial.contents,
         issuer: issuer.contents,
         subject: subject.contents,
-        key_identifier,
+        key_identifier: extensions.key_identifier,
         public_key,
+        version,
+        tbs: tbs.encoding(),
+        indefinite_lengths,
+        signature_algorithm,
+        signature_parameters,
+        signature,
+        validity,
+        extensions,
     })
+}
+
+/// `Validity ::= SEQUENCE { notBefore Time, notAfter Time }` (RFC 5280 section 4.1.2.5).
+///
+/// `None` where either instant is not one this reader can place on a line, which keeps a
+/// certificate with an unreadable date usable for question 2 and unusable for question 3.
+fn read_validity(validity: Value<'_>) -> Result<Option<Validity>, X509Error> {
+    if validity.identifier != SEQUENCE {
+        return Err(X509Error::MalformedTbs);
+    }
+    let mut instants = validity.children()?;
+    let (Some(before), Some(after)) = (instants.next_value()?, instants.next_value()?) else {
+        return Err(X509Error::MalformedTbs);
+    };
+    Ok(match (read_time(&before), read_time(&after)) {
+        (Some(not_before), Some(not_after)) => Some(Validity {
+            not_before,
+            not_after,
+        }),
+        _ => None,
+    })
+}
+
+/// One `Time ::= CHOICE { utcTime UTCTime, generalTime GeneralizedTime }`.
+///
+/// RFC 5280 section 4.1.2.5.1 fixes the `UTCTime` form — "YYMMDDHHMMSSZ" — and section 4.1.2.5.2
+/// the other — "YYYYMMDDHHMMSSZ" — and the first says the same thing twice about the century:
+/// "Where YY is greater than or equal to 50, the year SHALL be interpreted as 19YY", and "Where YY
+/// is less than 50, the year SHALL be interpreted as 20YY."
+///
+/// Both must end in `Z`, both must state seconds, and `GeneralizedTime` "MUST NOT include
+/// fractional seconds" — so anything else is `None` rather than guessed at. A reader that
+/// accepted a local-time offset would be placing a certificate's expiry at an instant its issuer
+/// did not write.
+fn read_time(value: &Value<'_>) -> Option<Instant> {
+    let (four_digit_year, digits) = match value.identifier {
+        UTC_TIME => (false, value.contents),
+        GENERALIZED_TIME => (true, value.contents),
+        _ => return None,
+    };
+    // "YYMMDDHHMMSSZ" is thirteen and "YYYYMMDDHHMMSSZ" fifteen; both forms are fixed by the
+    // clauses above, so a length that is neither is a `Time` this reader will not place.
+    let expected = if four_digit_year { 15 } else { 13 };
+    if digits.len() != expected || digits.last() != Some(&b'Z') {
+        return None;
+    }
+    // Every offset below is a `checked_add` on a length this function has already fixed, which is
+    // the crate's rule about arithmetic over a stranger's bytes rather than caution about these
+    // particular constants.
+    let number = |at: usize, width: usize| -> Option<i64> {
+        let field = digits.get(at..at.checked_add(width)?)?;
+        let text = std::str::from_utf8(field).ok()?;
+        text.parse::<i64>().ok()
+    };
+    let (year, rest) = if four_digit_year {
+        (number(0, 4)?, 4usize)
+    } else {
+        let two = number(0, 2)?;
+        let year = if two >= 50 {
+            two.checked_add(1900)?
+        } else {
+            two.checked_add(2000)?
+        };
+        (year, 2usize)
+    };
+    let month = number(rest, 2)?;
+    let day = number(rest.checked_add(2)?, 2)?;
+    let hour = number(rest.checked_add(4)?, 2)?;
+    let minute = number(rest.checked_add(6)?, 2)?;
+    let second = number(rest.checked_add(8)?, 2)?;
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        // A leap second is `60` and X.690 permits it; it is one second of slack on a bound that
+        // is measured in years, so it is admitted rather than refused.
+        || second > 60
+    {
+        return None;
+    }
+    let days = days_from_civil(year, month, day)?;
+    let seconds = days
+        .checked_mul(86_400)?
+        .checked_add(hour.checked_mul(3_600)?)?
+        .checked_add(minute.checked_mul(60)?)?
+        .checked_add(second)?;
+    Some(Instant(seconds))
+}
+
+/// Days from 1970-01-01 to a proleptic Gregorian date, negative before it.
+///
+/// Howard Hinnant's `days_from_civil`, which is exact for every year this arithmetic can reach
+/// and needs no table: the calendar is shifted so that it starts in March, which puts the leap
+/// day at the end of a year and makes the day-of-era a closed form. `None` only on an overflow,
+/// which the field widths above already exclude.
+fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
+    let year = if month <= 2 {
+        year.checked_sub(1)?
+    } else {
+        year
+    };
+    let shifted = if year >= 0 {
+        year
+    } else {
+        year.checked_sub(399)?
+    };
+    let era = shifted.checked_div(400)?;
+    let year_of_era = year.checked_sub(era.checked_mul(400)?)?;
+    let month_shift = if month > 2 {
+        month.checked_sub(3)?
+    } else {
+        month.checked_add(9)?
+    };
+    let day_of_year = month_shift
+        .checked_mul(153)?
+        .checked_add(2)?
+        .checked_div(5)?
+        .checked_add(day)?
+        .checked_sub(1)?;
+    let day_of_era = year_of_era
+        .checked_mul(365)?
+        .checked_add(year_of_era.checked_div(4)?)?
+        .checked_sub(year_of_era.checked_div(100)?)?
+        .checked_add(day_of_year)?;
+    era.checked_mul(146_097)?
+        .checked_add(day_of_era)?
+        .checked_sub(719_468)
 }
 
 /// `SubjectPublicKeyInfo ::= SEQUENCE { algorithm AlgorithmIdentifier, subjectPublicKey BIT
@@ -464,44 +831,150 @@ fn read_dsa_key<'a>(
     }))
 }
 
-/// The `subjectKeyIdentifier` extension's octets, where the certificate carries one.
+/// Every extension, read for the four a certification path uses and refused for the rest.
 ///
 /// `Extension ::= SEQUENCE { extnID OBJECT IDENTIFIER, critical BOOLEAN DEFAULT FALSE, extnValue
-/// OCTET STRING }`, and the value of this extension is itself a DER `OCTET STRING`, so the
-/// identifier is two octet strings deep.
-fn read_key_identifier(extensions: Value<'_>) -> Result<Option<&[u8]>, X509Error> {
+/// OCTET STRING }`, and each recognised extension's value is a further DER encoding *inside* that
+/// octet string — so every one of them is two octet strings deep.
+///
+/// The walk stops at [`MAX_EXTENSIONS`] and says so in [`Extensions::truncated`] rather than
+/// returning what it managed: a truncated walk cannot claim there was no critical extension it
+/// did not recognise, and that claim is the whole value of the field.
+fn read_extensions(extensions: Value<'_>) -> Result<Extensions<'_>, X509Error> {
+    let mut read = Extensions::default();
     let Some(list) = extensions.children()?.next_value()? else {
-        return Ok(None);
+        return Ok(read);
     };
     let mut entries = list.children()?;
     let mut seen = 0usize;
     while let Some(entry) = entries.next_value()? {
         seen = seen.saturating_add(1);
         if seen > MAX_EXTENSIONS {
-            return Ok(None);
+            read.truncated = true;
+            return Ok(read);
         }
         let mut parts = entry.children()?;
         let Some(id) = parts.next_value()? else {
             continue;
         };
-        if id.object_identifier() != Some(SUBJECT_KEY_IDENTIFIER) {
+        let Some(oid) = id.object_identifier() else {
             continue;
-        }
-        // The optional `critical` sits between the identifier and the value, so the octet string
-        // is found by tag rather than by position.
-        while let Some(part) = parts.next_value()? {
-            if part.identifier != OCTET_STRING {
-                continue;
+        };
+        // `critical BOOLEAN DEFAULT FALSE` sits between the identifier and the value where it is
+        // written at all, so both are found by tag rather than by position. X.690 clause 11.1
+        // makes the only `TRUE` encoding `FF`, and a BER producer's other non-zero octet is read
+        // as true too: the conservative direction, since true is what makes an extension binding.
+        let mut critical = false;
+        let mut value = None;
+        for part in std::iter::from_fn(|| parts.next_value().transpose()) {
+            let part = part?;
+            match part.identifier {
+                BOOLEAN => critical = part.contents.iter().any(|&octet| octet != 0),
+                OCTET_STRING => value = Some(part.contents),
+                _ => {}
             }
-            let mut inner = Reader::new(part.contents)?;
-            if let Some(identifier) = inner.next_value()?
-                && identifier.identifier == OCTET_STRING
-            {
-                return Ok(Some(identifier.contents));
+        }
+        let inner = match value {
+            Some(bytes) => Reader::new(bytes)?.next_value()?,
+            None => None,
+        };
+        if oid == SUBJECT_KEY_IDENTIFIER {
+            read.key_identifier = inner
+                .filter(|value| value.identifier == OCTET_STRING)
+                .map(|value| value.contents);
+        } else if oid == AUTHORITY_KEY_IDENTIFIER.as_bytes() {
+            read.authority_key_identifier = inner.and_then(|value| authority_key_id(&value));
+        } else if oid == BASIC_CONSTRAINTS.as_bytes() {
+            read.basic_constraints = inner.and_then(|value| basic_constraints(&value));
+        } else if oid == KEY_USAGE.as_bytes() {
+            read.key_usage = inner.and_then(|value| key_usage(&value));
+        } else if critical && read.unrecognised_critical.is_none() {
+            // RFC 5280 section 4.2: "A certificate-using system MUST reject the certificate if it
+            // encounters a critical extension it does not recognize". The first one is kept so a
+            // report can name it; the rest change nothing, since one is already a refusal.
+            read.unrecognised_critical = Some(oid);
+        }
+    }
+    Ok(read)
+}
+
+/// `AuthorityKeyIdentifier ::= SEQUENCE { keyIdentifier [0] OPTIONAL, … }` (section 4.2.1.1).
+///
+/// Only the first member is taken. The other two name the issuer's own issuer and serial, which
+/// would be a second way to search and not a second way to decide.
+fn authority_key_id<'a>(value: &Value<'a>) -> Option<&'a [u8]> {
+    if value.identifier != SEQUENCE {
+        return None;
+    }
+    let mut members = value.children().ok()?;
+    let first = members.next_value().ok()??;
+    first.is_context(0).then_some(first.contents)
+}
+
+/// `BasicConstraints ::= SEQUENCE { cA BOOLEAN DEFAULT FALSE, pathLenConstraint INTEGER OPTIONAL }`.
+///
+/// An empty `SEQUENCE` is the commonest end-entity spelling and means `cA FALSE` with no limit,
+/// which is what the defaults say and what this returns.
+fn basic_constraints(value: &Value<'_>) -> Option<BasicConstraints> {
+    if value.identifier != SEQUENCE {
+        return None;
+    }
+    let mut members = value.children().ok()?;
+    let mut constraints = BasicConstraints {
+        ca: false,
+        path_len: None,
+    };
+    for member in std::iter::from_fn(|| members.next_value().transpose()) {
+        let member = member.ok()?;
+        match member.identifier {
+            BOOLEAN => constraints.ca = member.contents.iter().any(|&octet| octet != 0),
+            // Section 4.2.1.9: "Where it appears, the pathLenConstraint field MUST be greater
+            // than or equal to zero." A negative or oversized one is read as absent, which
+            // imposes no limit here but cannot widen one: section 6.1.4 (m) only ever *lowers*
+            // `max_path_length`, and [`crate::trust`] starts it at its own bound regardless.
+            INTEGER => {
+                constraints.path_len = member
+                    .contents
+                    .iter()
+                    .try_fold(0u32, |total, &octet| {
+                        total.checked_mul(256)?.checked_add(u32::from(octet))
+                    })
+                    .filter(|_| member.contents.first().is_none_or(|&first| first < 0x80));
+            }
+            _ => {}
+        }
+    }
+    Some(constraints)
+}
+
+/// `KeyUsage ::= BIT STRING { digitalSignature(0), … decipherOnly(8) }` (section 4.2.1.3).
+///
+/// X.690 clause 8.6.2.2 puts the count of unused trailing bits in the first contents octet and
+/// numbers the bits from the most significant end of the second, which is why bit 0 is `0x80` of
+/// the first data octet rather than `0x01` of it.
+fn key_usage(value: &Value<'_>) -> Option<KeyUsage> {
+    if value.identifier != BIT_STRING {
+        return None;
+    }
+    let (&unused, data) = value.contents.split_first()?;
+    if unused > 7 {
+        return None;
+    }
+    let mut bits = 0u16;
+    for (index, &octet) in data.iter().take(2).enumerate() {
+        for offset in 0..8u32 {
+            if octet & (0x80 >> offset) != 0 {
+                let position = u32::try_from(index)
+                    .ok()?
+                    .checked_mul(8)?
+                    .checked_add(offset);
+                if let Some(position) = position.filter(|&position| position < 16) {
+                    bits |= 1u16 << position;
+                }
             }
         }
     }
-    Ok(None)
+    Some(KeyUsage { bits })
 }
 
 /// Certificates built once with `openssl` and pasted in, shared with `signature.rs`'s tests.
