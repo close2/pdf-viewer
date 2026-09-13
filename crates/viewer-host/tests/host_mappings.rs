@@ -826,6 +826,63 @@ fn a_collection_holding_no_files_says_so() {
     assert_eq!(rows[0].action, RowAction::Inert);
 }
 
+/// §12.3.5.2's restricted names reach a person, and a conforming collection says nothing.
+///
+/// The clause bounds a collection's names and then offers a choice — "[a]n interactive PDF
+/// processor may choose to support invalid names or not. If not, an appropriate error message
+/// shall be provided." This program supports them (ADR 1050), so the row still says `a:b`; the
+/// sentence under it is what stops that being silent.
+///
+/// Both directions, because a sentence that fires on every collection is not a sentence about
+/// this one (trap 11): the same panel with one conforming name adds no row at all.
+#[test]
+fn a_name_the_clause_restricts_is_said_out_loud_and_a_valid_one_is_not() {
+    let panel = |name: &str| {
+        let mut collection = pdf_model::collection::Collection::default();
+        collection.folders = Some(pdf_model::collection::Folder {
+            id: 3,
+            name: name.to_owned(),
+            description: None,
+            item: pdf_model::collection::Item::default(),
+            has_thumbnail: false,
+            children: Vec::new(),
+        });
+        collection.invalid_names = pdf_model::collection::file_name_defects(name)
+            .into_iter()
+            .map(|restriction| pdf_model::collection::NameDefect {
+                name: name.to_owned(),
+                owner: pdf_model::collection::Named::Folder { id: 3 },
+                restriction,
+            })
+            .collect();
+        collection_rows(&collection, &pdf_model::collection::Initial::Container, &[])
+    };
+
+    let restricted = panel("a:b.");
+    assert_eq!(
+        restricted.last().map(|row| (row.note, row.label.as_str())),
+        Some((
+            true,
+            "One name here is not a valid file name; it is shown as the document wrote it."
+        )),
+        "two restrictions broken by one name is still one name: {restricted:?}"
+    );
+    assert!(
+        restricted.iter().any(|row| row.label == "a:b."),
+        "supporting the name means drawing it: {restricted:?}"
+    );
+
+    let plain = panel("Chapters");
+    assert!(
+        plain.iter().all(|row| row.label
+            != restricted
+                .last()
+                .map(|row| row.label.clone())
+                .unwrap_or_default()),
+        "a conforming name adds no sentence: {plain:?}"
+    );
+}
+
 /// §12.3.5.2: every embedded file is on the screen, however oddly its key is written.
 ///
 /// Two sentences of the clause say so, and this panel obeyed neither until the

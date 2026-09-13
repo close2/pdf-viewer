@@ -216,7 +216,13 @@ fn luminosity(
     let ink = match (&space, scale, &route, &additive) {
         (Some(ColourSpace::Icc { profile }), None, None, None) if profile.channels() == 4 => {
             presses
-                .press_for_profile(profile)
+                // §11.7.5.3's second bullet names the parameters at a group's `Do`, and a
+                // mask group has none: §11.6.5.1 states it in an `/SMask` dictionary and
+                // §11.5.3 reduces it to one luminosity rather than painting it. So the press
+                // is sampled under Table 51's initial intent with compensation, which is
+                // what `Rendering::compensating()` is, and what the rest of this function
+                // already passes for the same reason.
+                .press_for_profile(profile, Rendering::compensating())
                 .and_then(|press| press.luminance().map(|luminance| (press, luminance)))
         }
         _ => None,
@@ -655,7 +661,7 @@ mod tests {
     use pdf_syntax::{Document, Object, ObjectId};
 
     use super::{SoftMaskEntry, entry_with_output_intent};
-    use crate::colour::{ColourSpace, Compositing, Half, InkScale, PressIdentity, Presses};
+    use crate::colour::{ColourSpace, Compositing, Half, InkScale, Presses};
 
     /// A document whose object 5 is a `/Luminosity` mask group stating `/CS /DeviceCMYK`, and
     /// whose object 6 is the `gs` dictionary naming it.
@@ -724,9 +730,8 @@ mod tests {
             panic!("the mask is usable");
         };
         match &under_intent.compositing {
-            Compositing::Subtractive(Half::Chromatic, press) => assert_eq!(
-                press.identity(),
-                PressIdentity::Profile(identity),
+            Compositing::Subtractive(Half::Chromatic, press) => assert!(
+                press.is_of_profile(identity),
                 "the group composites in the intent's own press"
             ),
             other => panic!("the group's /DeviceCMYK should be the intent's press, not {other:?}"),

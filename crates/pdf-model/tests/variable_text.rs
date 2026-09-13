@@ -43,7 +43,15 @@ fn pdf_with(form: &str, annotation: &str) -> Vec<u8> {
 
 /// The same, with the stored appearance stream's contents given.
 fn pdf_with_appearance(form: &str, annotation: &str, appearance: &str) -> Vec<u8> {
-    pdf_with_font(form, annotation, appearance, "")
+    pdf_with_font(form, annotation, appearance, "", "")
+}
+
+/// The same, with further objects written after the seven every fixture has.
+///
+/// `extra` is object definitions, each ending `endobj\n`, numbered from 8 — which is what lets
+/// an entry the standard types as "a text string (or ... a stream)" be given in its second form.
+fn pdf_with_objects(annotation: &str, extra: &str) -> Vec<u8> {
+    pdf_with_font("", annotation, "0 0 1 rg 0 0 10 10 re f", "", extra)
 }
 
 /// The same again, with a font descriptor given to the `/Helv` the `/DR` defines.
@@ -61,11 +69,18 @@ fn pdf_with_descriptor(annotation: &str, descriptor: &str) -> Vec<u8> {
             "/FontDescriptor << /Type /FontDescriptor /FontName /Helvetica /Flags 32 \
              /ItalicAngle 0 /StemV 80 /FontBBox [-100 -300 1000 900] {descriptor} >>"
         ),
+        "",
     )
 }
 
 /// The one builder the three above share, with entries added to the `/DR` font dictionary.
-fn pdf_with_font(form: &str, annotation: &str, appearance: &str, font: &str) -> Vec<u8> {
+fn pdf_with_font(
+    form: &str,
+    annotation: &str,
+    appearance: &str,
+    font: &str,
+    extra: &str,
+) -> Vec<u8> {
     let (width, height) = PAGE;
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
@@ -78,7 +93,7 @@ fn pdf_with_font(form: &str, annotation: &str, appearance: &str, font: &str) -> 
          6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] /Length {} >>\n\
          stream\n{appearance}\nendstream\nendobj\n\
          7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
-         /Encoding /WinAnsiEncoding {font} >>\nendobj\n",
+         /Encoding /WinAnsiEncoding {font} >>\nendobj\n{extra}",
         appearance.len().saturating_add(1)
     );
 
@@ -274,6 +289,56 @@ fn a_zero_size_is_auto_sized_until_the_value_fits() {
     assert!(
         inked_rows(&short).len() > inked_rows(&raster).len(),
         "a shorter value must be set larger, not smaller"
+    );
+}
+
+/// §12.7.5.3: a field's value may be held in a stream, and both spellings draw one picture.
+///
+/// > The field's text shall be held in a text string (or, beginning with PDF 1.5, a stre am) in
+/// > the V (value) entry of the field dictionary. The contents of this text string or stream
+/// > shall be used to construct an appearance stream for displaying the field
+///
+/// The second form is §7.9.3's text stream — "whose unencoded bytes shall meet the same
+/// requirements as a text string ... with respect to encoding, byte order, and lead bytes" — so
+/// the two fixtures below differ in nothing but where the characters are written, and the
+/// assertion is that the marks are the same to the pixel. A reader that knows only the string
+/// form draws no glyph and reports nothing at all, so the comparison fails with an empty column
+/// list against the string fixture's — which is what says the value was *read*, rather than only
+/// that something was drawn.
+///
+/// The stream is `/Filter /FlateDecode`-free on purpose: the clause's *unencoded* bytes are what
+/// carry the text, and putting a filter here would test the filter table rather than this rule.
+#[test]
+fn a_field_value_held_in_a_stream_draws_what_the_string_form_draws() {
+    let stored = "Widget";
+    let (string_reports, from_string) = draw(pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+             /T (field) /V ({stored}) /DA (/Helv 12 Tf 0 g) >>"
+        ),
+    ));
+    assert!(string_reports.is_empty(), "{string_reports:?}");
+
+    let (stream_reports, from_stream) = draw(pdf_with_objects(
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V 8 0 R /DA (/Helv 12 Tf 0 g) >>",
+        &format!(
+            "8 0 obj\n<< /Length {} >>\nstream\n{stored}\nendstream\nendobj\n",
+            stored.len()
+        ),
+    ));
+    assert!(stream_reports.is_empty(), "{stream_reports:?}");
+
+    assert_eq!(
+        inked_columns(&from_stream),
+        inked_columns(&from_string),
+        "one value, two spellings, one picture"
+    );
+    assert_eq!(
+        inked_rows(&from_stream),
+        inked_rows(&from_string),
+        "one value, two spellings, one picture"
     );
 }
 

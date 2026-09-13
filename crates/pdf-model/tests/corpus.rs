@@ -608,7 +608,17 @@ const MAX_PAGELESS: usize = 6;
 /// and now say so. The cache is keyed by the font dictionary's object identity (ADR 0115), and
 /// `issue19971.pdf` — whose readback was 83% and undiagnosed — rose above the text gate's floor
 /// for the same reason.
-const MAX_INCOMPLETE: usize = 91;
+///
+/// **91 to 61 in the thousand-and-thirty-sixth session, and nothing was fixed in it.** The bound
+/// had stood at the hundred-and-twenty-seventh session's number while nine hundred sessions of
+/// work took the population down under it, so the gate was admitting thirty documents' worth of
+/// regression before it could speak — a third of its own headline, silently, and every other
+/// ratchet in this file sits on its count or one above it. A bound with slack in it is not a
+/// ratchet, and the slack is the one thing a number cannot report about itself: the run prints
+/// the population, the constant does not, and nobody had put the two side by side. It is the
+/// counted figure now, so trap 5's rise-on-purpose costs the round that earns it one line here —
+/// which is what every entry above this one already is.
+const MAX_INCOMPLETE: usize = 61;
 
 /// How long one document may take before it counts as a failure.
 ///
@@ -877,6 +887,28 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
         _ if has("Font DICTs its CID-keyed CFF selects cannot be read") => (
             Whose::TheFile,
             "a CID-keyed CFF whose Font DICTs cannot all be read, drawn against an empty Private DICT (ADR 0808)",
+        ),
+        // **Three rows the row below used to swallow, and the swallowing was measurable.**
+        // `FontError::Malformed`'s message says a program "could not be parsed", and four of its
+        // raise sites were font *dictionary* faults with no program read at all — so
+        // `issue12823.pdf`, whose `/DescendantFonts` is `[ null ]`, was counted under the row
+        // below and made its population 4 where its clause's is 3. `FontError::MalformedDictionary`
+        // says which table instead, and these are its three mechanisms.
+        _ if has("/DescendantFonts selects no CIDFont dictionary") => (
+            Whose::TheFile,
+            "a Type 0 font whose /DescendantFonts selects no CIDFont (§9.7.6.1)",
+        ),
+        _ if has("/CIDToGIDMap is neither a name nor a stream")
+            || has("/CIDToGIDMap stream could not be decoded") =>
+        {
+            (
+                Whose::TheFile,
+                "a /CIDToGIDMap outside the stream or name Table 115 types it as (§9.7.4.2)",
+            )
+        }
+        _ if has("/Encoding CMap stream could not be decoded") => (
+            Whose::TheFile,
+            "an /Encoding CMap stream that could not be decoded (§9.7.5.3)",
         ),
         _ if has("could not be parsed") || has("Type 3 glyph for code") => (
             Whose::TheFile,

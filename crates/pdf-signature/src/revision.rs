@@ -7,9 +7,9 @@
 //! > made to the document are permitted by the transform parameters.
 //!
 //! [`crate::signature::Signature::integrity`] is the first step and has been since ADR 0215.
-//! This module is the *foundation* of the second, and not the second: it reconstructs the two
-//! states the clause names and says, object by object, how they differ. What it deliberately does
-//! not do is rank a difference against Table 257's `/P` — [`Judgement`] refuses that by name.
+//! This module is the second: it reconstructs the two states the clause names, says object by
+//! object how they differ, and ranks each difference against Table 257's `/P` — [`Kind`] is what
+//! a change was taken to be and [`Verdict`] is what the level says about it.
 //!
 //! # Why a comparison is possible at all without mutating anything
 //!
@@ -30,22 +30,27 @@
 //! therefore not an obstacle here but the thing that makes the comparison exact: both states are
 //! functions of the same bytes.
 //!
-//! # Nothing here says "permitted"
+//! # Nothing here says "valid", and nothing says "permitted" by default
 //!
 //! A `/DocMDP` answer that says permitted without having compared is worse than one that refuses,
-//! because the whole point of the transform is to be believed. Every way this comparison can fail
-//! to be a comparison is therefore a named [`NotComparable`] rather than a lenient default, and
-//! the ranking itself is [`Judgement::NotClassified`], which names what it has not done and what
-//! it would take. The one thing this module will assert is [`Judgement::NoChangeToRank`] — the
-//! current file's objects are the signed revision's objects, at the same places, under the same
-//! catalogue — and even that is a statement about objects rather than a verdict on a signature.
+//! because the whole point of the transform is to be believed. Two rules follow and both are
+//! load-bearing:
 //!
-//! ADR 1043.
+//! - **Every way this comparison can fail to be a comparison is a named [`NotComparable`]**
+//!   rather than a lenient default, and every object whose change cannot be ranked is named in
+//!   [`Ranking::unrankable`] rather than counted as benign. [`Judgement`] has three answers where
+//!   something changed — inside what the level permits, not inside it, or not ranked — and no
+//!   fourth.
+//! - **No answer here is a verdict on a signature.** §12.8.2.2.2 makes the byte range digest step
+//!   one and this step two, and §12.8.1's third question has no trust store behind it in this
+//!   program (ADR 1039). [`Judgement::WithinWhatIsPermitted`] is a statement about objects.
+//!
+//! ADRs 1043 and 1049.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::xref::{self, Location, XrefTable};
-use pdf_syntax::{Document, Object, SyntaxError};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId, SyntaxError};
 
 use crate::signature::{Coverage, Excluded, Modification, Signature, SignedEnd};
 
@@ -79,6 +84,12 @@ pub struct Comparison {
     updates_after: usize,
     /// How the two states' objects differ.
     changes: Changes,
+    /// What each changed object is, counted exactly and named up to [`MAX_NAMED`] per kind.
+    ///
+    /// Keyed by [`Kind`] and by the disposition of the update carrying it, because both are
+    /// decided once — [`Ranking`] only turns them into a verdict, and it does that per level
+    /// rather than per object.
+    tally: BTreeMap<(Kind, Disposition), Objects>,
 }
 
 /// Why two states of a file could not be compared.
@@ -154,6 +165,21 @@ impl Objects {
         self.count == 0
     }
 
+    /// Folds another set in, keeping the count exact and the naming bounded.
+    fn absorb(&mut self, other: &Self) {
+        self.count = self.count.saturating_add(other.count);
+        for &number in &other.named {
+            if self.named.len() < MAX_NAMED {
+                self.named.push(number);
+            }
+        }
+    }
+
+    /// Puts the names back in ascending order after a fold across several kinds.
+    fn sort_named(&mut self) {
+        self.named.sort_unstable();
+    }
+
     /// Records one, keeping the count exact and the naming bounded.
     fn push(&mut self, number: u32) {
         self.count = self.count.saturating_add(1);
@@ -214,35 +240,245 @@ impl Changes {
     }
 }
 
-/// What Table 257's `/P` says about a set of changes — or, here, what this program will not say.
+/// What a changed object **is**, in the vocabulary Table 257 ranks changes in.
+///
+/// Table 257 names what each level permits — "filling in forms, instantiating page templates,
+/// and signing" for 2, and those "as well as annotation creation, deletion, and modification"
+/// for 3 — so ranking a change means first deciding which of those, if any, it was. Anything
+/// this reader cannot place is [`Kind::Unclassified`] and is **never** ranked as permitted; the
+/// rule that governs the whole module is that a lenient default is worse than a refusal.
+///
+/// **One of Table 257's own permitted operations has no variant here.** "[I]nstantiating page
+/// templates" (§12.7.6) is a change to the page tree that this reader does not tell apart from
+/// any other change to the page tree, so a document that instantiated one comes back
+/// [`Kind::Unclassified`] — refused rather than permitted. Named so that a later round finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+    /// The update wrote the object again and it says exactly what it said.
+    ///
+    /// §12.8.2.2.2's step two is about "modifications that have been made to the document", and
+    /// an object restated without change is a modification to the *file* and not to the document
+    /// — which is why even level 1 permits it, where level 1 permits nothing else. The test is
+    /// over the whole object, stream data included, because a dictionary that matches over bytes
+    /// that do not is precisely the lenient default this module exists to refuse.
+    RestatedUnchanged,
+    /// §7.5.8's cross-reference stream: the update's own table, rather than anything it says.
+    ///
+    /// Not a change to the document at any level, and the standard is what settles that rather
+    /// than convenience. §7.5.6 gives every incremental update a cross-reference section of its
+    /// own, §7.5.8 lets that section *be* an object, and Table 257 disregards an update that
+    /// carries only DSS data — which such an update could not be if its own table counted. So a
+    /// level that permits any change at all permits the table that records it.
+    CrossReferenceStream,
+    /// A field dictionary whose changed entries are the ones filling one in writes.
+    ///
+    /// Table 257's "filling in forms". Decided by *which keys differ*, not by the object's type:
+    /// a widget annotation is an annotation whatever else it is, and level 2 permits filling it
+    /// in while forbidding annotating it, so the two have to be told apart by what the update
+    /// actually wrote. [`FILLING_WRITES`] is that set and says where each key comes from.
+    FieldFilledIn,
+    /// A signature applied — Table 257's "signing".
+    ///
+    /// A `/FT /Sig` field that gained a value, or a Table 255 signature dictionary the update
+    /// added. §12.7.5.5 makes the first the shape signing takes: a signature "shall be the value
+    /// of a signature field".
+    Signing,
+    /// An appearance stream belonging to a field this update filled in.
+    ///
+    /// Filling a field is not optional about this. Table 166's `/AP`: "Every annotation
+    /// (including those whose Subtype value is Widget , as used for form fields), except for the
+    /// two cases listed below, shall have at least one appearance dictionary." So an appearance
+    /// stream added beside a filled field is part of the fill, and a level that permits the one
+    /// permits the other.
+    FieldAppearance,
+    /// An annotation created, deleted or modified — the whole of what level 3 adds to level 2.
+    Annotation,
+    /// An appearance stream belonging to an annotation this update created, changed or removed.
+    AnnotationAppearance,
+    /// §12.8.4's validation material, or §12.8.5's document timestamp.
+    ///
+    /// What Table 257 carves out of the question entirely, *when a whole update holds nothing
+    /// else*: "[c]hanges to a PDF that are incremental updates which include only the data
+    /// necessary to add DSS's … and/or document timestamps … to the document shall not be
+    /// considered as changes to the document as defined in the choices below." The carve-out is
+    /// therefore a judgement about a revision and not about an object, which is what
+    /// [`Disposition`] carries.
+    ValidationMaterial,
+    /// Table 15's `/Root` names a different object than the signed revision's trailer did.
+    CatalogReplaced,
+    /// Neither state places the object, so nothing is known about it — not even that it changed.
+    Unplaceable,
+    /// None of the above. A change, named, and ranked as permitted by no level.
+    Unclassified,
+}
+
+/// The entries filling in a field writes, and the only ones it writes.
+///
+/// - `V`, Table 226: "The field's value, whose format varies depending on the field type."
+/// - `AP`, Table 166: the appearance dictionary every widget "shall have at least one" of, which
+///   §12.7.4.3 makes the processor's to construct for a variable text field.
+/// - `AS`, Table 166: "The annotation's appearance state , which selects the applicable
+///   appearance stream from an appearance subdictionary" — how a checkbox's new value shows.
+/// - `M`, Table 166: "The date and time when the annotation was most recently modified."
+const FILLING_WRITES: [&str; 4] = ["V", "AP", "AS", "M"];
+
+/// Table 226's entries that *define* a field rather than record its value.
+///
+/// A field whose entries beyond [`FILLING_WRITES`] changed is not a filled field; if any of
+/// these moved it is not an annotation modification either, because what changed is the form.
+/// `FT`, `T`, `Ff`, `Kids`, `Parent`, `DV` and `AA` are Table 226's own rows.
+const FIELD_DEFINING: [&str; 7] = ["FT", "T", "Ff", "Kids", "Parent", "DV", "AA"];
+
+/// How far a `/Parent` chain is followed looking for Table 226's inheritable `/FT`.
+///
+/// §12.7.4.1 states no bound — "[a]n interactive PDF processor shall not limit the range of
+/// inheritance for field dictionaries" — so this is a guard against a cycle rather than a
+/// reading of the clause, and a chain longer than this yields no field type rather than a wrong
+/// one, which sends the object to [`Kind::Unclassified`].
+const MAX_FIELD_ANCESTRY: usize = 64;
+
+/// What one update after the signed revision is, as far as Table 257's carve-out is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Disposition {
+    /// The update carries no validation material, so the carve-out does not arise.
+    Ordinary,
+    /// The update carries validation material and nothing else, so Table 257 disregards it.
+    Disregarded,
+    /// The update carries validation material **and** objects that are not that.
+    ///
+    /// The carve-out can then be neither applied nor denied: the clause's condition is that an
+    /// update "include only the data necessary" for a DSS or a document timestamp, and an update
+    /// this reader cannot read that way is one it has not judged. §12.8.5.2's document timestamp
+    /// is the standing reason — it "shall be determined by examining signature fields", so a real
+    /// one touches the interactive form as well as the store, and this reader does not follow it
+    /// that far. Every object of such an update is [`Verdict::Unrankable`].
+    Mixed,
+}
+
+/// What one level of Table 257 says about one changed object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// Table 257 does not count this as a change to the document at all.
+    Disregarded,
+    /// This level permits the change.
+    Permitted,
+    /// This level does not permit it: "other changes shall invalidate the signature".
+    NotPermitted,
+    /// Not ranked — and therefore **not** permitted either.
+    Unrankable,
+}
+
+/// One changed object, what it is, and what a level says about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ranked {
+    /// The object number.
+    pub number: u32,
+    /// What the object is.
+    pub kind: Kind,
+    /// What the level says about it.
+    pub verdict: Verdict,
+}
+
+/// Table 257's ranking of one comparison's changes against one level.
+///
+/// Every changed object lands in exactly one of the four buckets, and the counts are exact —
+/// the naming is bounded by [`MAX_NAMED`] per bucket the way [`Objects`] is everywhere else.
+/// **Nothing is dropped**: an object this reader could not place appears in
+/// [`Ranking::unrankable`] rather than being left out of the arithmetic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ranking {
+    /// The level ranked against.
+    pub level: Modification,
+    /// Objects in updates Table 257 says are not changes to the document.
+    pub disregarded: Objects,
+    /// Objects this level permits to have changed.
+    pub permitted: Objects,
+    /// Objects this level does not permit to have changed.
+    pub not_permitted: Objects,
+    /// Objects that were not ranked, and are therefore not permitted by default either.
+    pub unrankable: Objects,
+    /// The first [`MAX_NAMED`] objects in full, ascending — for a person to read.
+    pub detail: Vec<Ranked>,
+}
+
+impl Ranking {
+    /// The one-line answer: three possibilities where something changed, and no fourth.
+    ///
+    /// The order is the conservative one. A single object this level forbids settles the
+    /// question whatever else is unranked — "other changes shall invalidate the signature" needs
+    /// one change, not all of them. Only when nothing is forbidden does an unranked object
+    /// decide, and then it decides against answering rather than for permitting.
+    #[must_use]
+    pub fn judgement(&self) -> Judgement {
+        if !self.not_permitted.is_empty() {
+            return Judgement::NotPermitted {
+                level: self.level,
+                objects: self.not_permitted.count(),
+            };
+        }
+        if !self.unrankable.is_empty() {
+            return Judgement::NotClassified {
+                level: self.level,
+                objects: self.unrankable.count(),
+            };
+        }
+        if self.permitted.is_empty() && self.disregarded.is_empty() {
+            return Judgement::NoChangeToRank;
+        }
+        Judgement::WithinWhatIsPermitted {
+            level: self.level,
+            objects: self.permitted.count(),
+            disregarded: self.disregarded.count(),
+        }
+    }
+}
+
+/// What Table 257's `/P` says about a set of changes.
+///
+/// Three answers where something changed, and the fourth answer this deliberately does not have
+/// is the point: **nothing here says a signature is valid.** §12.8.2.2.2 makes the byte range
+/// digest step one and this step two, and §12.8.1's third question — whether the signer is
+/// trusted — has no trust store behind it in this program at all (ADR 1039). What a caller gets
+/// is what this step alone can support: the change is inside what the level permits, it is not,
+/// or it could not be ranked and the objects that could not be are named.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Judgement {
     /// There is no change to rank: the current file's objects are the signed revision's objects,
     /// at the same places, under the same catalog.
     ///
-    /// **Not a verdict on the signature.** §12.8.2.2.2 makes the byte range digest step one and
-    /// this step two; a caller that has not asked [`Signature::integrity`] has established
-    /// nothing, and even a caller that has is still owed §12.8.1's third question, which this
-    /// program does not answer at all.
+    /// **Not a verdict on the signature**, for the reason above.
     NoChangeToRank,
-    /// **Refused.** Objects differ, and this program does not decide which of Table 257's levels
-    /// admits which difference.
+    /// Every change is one this level permits.
     ///
-    /// What the decision needs, and what this variant therefore stands in for: each changed
-    /// object resolved to what it *is* in the document — a field's value, an annotation, a page's
-    /// content stream, a DSS or a document timestamp — and ranked against the level's own
-    /// vocabulary, which Table 257 states as "filling in forms, instantiating page templates, and
-    /// signing" for 2 and those "as well as annotation creation, deletion, and modification" for
-    /// 3. The table also carves out a whole class of update from the question — "[c]hanges to a
-    /// PDF that are incremental updates which include only the data necessary to add DSS's …
-    /// and/or document timestamps … to the document shall not be considered as changes to the
-    /// document" — which is a
-    /// judgement about a *revision* rather than about an object, and is why
-    /// [`Comparison::updates_after`] is counted here before anything is ranked.
-    NotClassified {
-        /// The level the author stated, which a ranking would be against.
+    /// Table 257's own vocabulary, object by object — not an absence of evidence. A single
+    /// object this reader could not place would have made this [`Judgement::NotClassified`].
+    WithinWhatIsPermitted {
+        /// The level the change was ranked against.
         level: Modification,
-        /// How many objects differ, over all four of [`Changes`]'s buckets.
+        /// How many objects were ranked as permitted.
+        objects: u64,
+        /// How many were in updates Table 257 does not count as changes at all.
+        disregarded: u64,
+    },
+    /// At least one change is one this level does not permit.
+    ///
+    /// "[O]ther changes shall invalidate the signature" for levels 2 and 3; for level 1, "any
+    /// change to the document shall invalidate the signature".
+    NotPermitted {
+        /// The level the change was ranked against.
+        level: Modification,
+        /// How many objects this level does not permit to have changed.
+        objects: u64,
+    },
+    /// **Refused.** Nothing is forbidden and something was not ranked, so no answer is given.
+    ///
+    /// [`Ranking::unrankable`] names them. The standing reasons: an object neither state can
+    /// place, a change that is none of Table 257's operations, a replaced catalog, a `/P` outside
+    /// 1 to 3, and an update carrying validation material beside objects that are not that.
+    NotClassified {
+        /// The level the change was ranked against.
+        level: Modification,
+        /// How many objects could not be ranked.
         objects: u64,
     },
 }
@@ -300,16 +536,20 @@ impl Comparison {
         if signed.was_recovered() {
             return Err(NotComparable::RecoveredByScan { which: "signed" });
         }
-        let updates_after = xref::sections(file, current.limits())
+        let tables: BTreeSet<usize> = xref::sections(file, current.limits())
             .iter()
-            .filter(|section| u64::try_from(section.offset).unwrap_or(u64::MAX) >= end)
-            .count();
-        let changes = compare(&signed, current, end);
+            .map(|section| section.offset)
+            .filter(|&offset| u64::try_from(offset).unwrap_or(u64::MAX) >= end)
+            .collect();
+        let updates_after = tables.len();
+        let (changes, touched) = compare(&signed, current, end);
+        let tally = classify(&signed, current, &touched, changes.catalog_moved, &tables);
         Ok(Self {
             signed,
             end,
             updates_after,
             changes,
+            tally,
         })
     }
 
@@ -342,22 +582,50 @@ impl Comparison {
         &self.changes
     }
 
-    /// What Table 257's `level` says about those differences — or what this program will not say.
+    /// Table 257's ranking of those differences against `level`, object by object.
+    ///
+    /// Every changed object is in exactly one of [`Ranking`]'s four buckets and the counts are
+    /// exact, which is the whole of what makes the answer worth having: an object this reader
+    /// could not place is in `unrankable` and not quietly absent.
+    #[must_use]
+    pub fn rank(&self, level: Modification) -> Ranking {
+        let mut ranking = Ranking {
+            level,
+            disregarded: Objects::default(),
+            permitted: Objects::default(),
+            not_permitted: Objects::default(),
+            unrankable: Objects::default(),
+            detail: Vec::new(),
+        };
+        for (&(kind, disposition), objects) in &self.tally {
+            let verdict = verdict(level, kind, disposition);
+            match verdict {
+                Verdict::Disregarded => ranking.disregarded.absorb(objects),
+                Verdict::Permitted => ranking.permitted.absorb(objects),
+                Verdict::NotPermitted => ranking.not_permitted.absorb(objects),
+                Verdict::Unrankable => ranking.unrankable.absorb(objects),
+            }
+            for &number in objects.named() {
+                ranking.detail.push(Ranked {
+                    number,
+                    kind,
+                    verdict,
+                });
+            }
+        }
+        ranking.disregarded.sort_named();
+        ranking.permitted.sort_named();
+        ranking.not_permitted.sort_named();
+        ranking.unrankable.sort_named();
+        ranking.detail.sort_unstable_by_key(|ranked| ranked.number);
+        ranking.detail.truncate(MAX_NAMED);
+        ranking
+    }
+
+    /// The one-line answer [`Self::rank`] comes to.
     #[must_use]
     pub fn against(&self, level: Modification) -> Judgement {
-        if self.changes.is_empty() {
-            return Judgement::NoChangeToRank;
-        }
-        Judgement::NotClassified {
-            level,
-            objects: self
-                .changes
-                .added
-                .count()
-                .saturating_add(self.changes.redefined.count())
-                .saturating_add(self.changes.removed.count())
-                .saturating_add(self.changes.unplaceable.count()),
-        }
+        self.rank(level).judgement()
     }
 }
 
@@ -379,18 +647,25 @@ fn placement(xref: &XrefTable, number: u32) -> Option<(usize, u32)> {
 }
 
 /// [`Changes`] between two states of one file, `end` being where the earlier one stops.
-fn compare(signed: &Document, current: &Document, end: u64) -> Changes {
+///
+/// The second return is every changed object number with the bucket it landed in, unabridged —
+/// [`Changes`] bounds its *naming* at [`MAX_NAMED`] and [`classify`] has to see all of them. It
+/// is bounded by the file's own object count, as the set of the signed revision's numbers below
+/// already is.
+fn compare(signed: &Document, current: &Document, end: u64) -> (Changes, Vec<(u32, Bucket)>) {
     let before = signed.xref();
     let after = current.xref();
     let mut changes = Changes {
         catalog_moved: !same_reference(before.trailer().get("Root"), after.trailer().get("Root")),
         ..Changes::default()
     };
+    let mut touched = Vec::new();
     let in_the_signed_revision: BTreeSet<u32> = before.object_numbers().collect();
     for number in after.object_numbers() {
         let here = placement(after, number);
         if !in_the_signed_revision.contains(&number) {
             changes.added.push(number);
+            touched.push((number, Bucket::Added));
             continue;
         }
         let there = placement(before, number);
@@ -402,18 +677,26 @@ fn compare(signed: &Document, current: &Document, end: u64) -> Changes {
                 // pointing outside the revision that declared it, which is nothing this can say.
                 if u64::try_from(there.0).unwrap_or(u64::MAX) >= end {
                     changes.unplaceable.push(number);
+                    touched.push((number, Bucket::Unplaceable));
                 }
             }
-            (Some(_), Some(_)) => changes.redefined.push(number),
-            _ => changes.unplaceable.push(number),
+            (Some(_), Some(_)) => {
+                changes.redefined.push(number);
+                touched.push((number, Bucket::Redefined));
+            }
+            _ => {
+                changes.unplaceable.push(number);
+                touched.push((number, Bucket::Unplaceable));
+            }
         }
     }
     for number in before.object_numbers() {
         if after.location(number).is_none() {
             changes.removed.push(number);
+            touched.push((number, Bucket::Removed));
         }
     }
-    changes
+    (changes, touched)
 }
 
 /// Whether two trailer entries name the same object.
@@ -430,13 +713,484 @@ fn same_reference(before: Option<&Object>, after: Option<&Object>) -> bool {
     }
 }
 
+/// Which of [`Changes`]'s buckets an object landed in, which decides where it is read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bucket {
+    /// The current file defines it and the signed revision did not.
+    Added,
+    /// Both define it, in different places.
+    Redefined,
+    /// The signed revision defined it and the current file does not.
+    Removed,
+    /// Neither state can be trusted to place it.
+    Unplaceable,
+}
+
+/// What every changed object is, tallied by [`Kind`] and by its update's [`Disposition`].
+///
+/// Two passes, because an appearance stream is identified by its *owner* and the owner's object
+/// number may be higher than its own: the first decides every object on its own evidence, the
+/// second raises the ones an owner claimed. Both read objects through [`Document::get`], which
+/// caches, so the second pass re-parses nothing.
+fn classify(
+    signed: &Document,
+    current: &Document,
+    touched: &[(u32, Bucket)],
+    catalog_moved: bool,
+    tables: &BTreeSet<usize>,
+) -> BTreeMap<(Kind, Disposition), Objects> {
+    let material = validation_material(current);
+    let mut kinds: BTreeMap<u32, Kind> = BTreeMap::new();
+    let mut of_a_field: BTreeSet<u32> = BTreeSet::new();
+    let mut of_an_annotation: BTreeSet<u32> = BTreeSet::new();
+
+    for &(number, bucket) in touched {
+        if bucket == Bucket::Unplaceable {
+            kinds.insert(number, Kind::Unplaceable);
+            continue;
+        }
+        let held = if bucket == Bucket::Removed {
+            signed
+        } else {
+            current
+        };
+        let offset = placement(current.xref(), number).map(|(at, _)| at);
+        let kind = classify_one(signed, current, number, bucket, &material, tables, offset);
+        if let Some(dict) = dictionary_of(&held.get(ObjectId::new(number, 0))) {
+            let owned = appearances(held, &dict);
+            match kind {
+                Kind::FieldFilledIn | Kind::Signing => of_a_field.extend(owned),
+                Kind::Annotation => of_an_annotation.extend(owned),
+                _ => {}
+            }
+        }
+        kinds.insert(number, kind);
+    }
+
+    for (number, kind) in &mut kinds {
+        if *kind != Kind::Unclassified {
+            continue;
+        }
+        if of_a_field.contains(number) {
+            *kind = Kind::FieldAppearance;
+        } else if of_an_annotation.contains(number) {
+            *kind = Kind::AnnotationAppearance;
+        }
+    }
+
+    if catalog_moved {
+        // The object the *current* trailer points at, which is what a reader now opens. A direct
+        // `/Root` names no object at all, and 0 is the free list's head and can be no catalog, so
+        // it stands for "the trailer said it" without pretending to be an object number.
+        let root = match current.xref().trailer().get("Root") {
+            Some(Object::Reference(id)) => id.number,
+            _ => 0,
+        };
+        // An update may both add the new catalog and point at it, in which case this replaces
+        // the object's own classification rather than standing beside it — and replacing it is
+        // the conservative direction, because no level ranks a replaced catalog as permitted.
+        kinds.insert(root, Kind::CatalogReplaced);
+    }
+
+    let dispositions = dispositions(current, &kinds, tables);
+    let mut tally: BTreeMap<(Kind, Disposition), Objects> = BTreeMap::new();
+    for (number, kind) in &kinds {
+        let disposition = update_of(current, *number, tables)
+            .and_then(|update| dispositions.get(&update).copied())
+            .unwrap_or(Disposition::Ordinary);
+        tally.entry((*kind, disposition)).or_default().push(*number);
+    }
+    tally
+}
+
+/// Table 257's carve-out, asked of each update rather than of each object.
+///
+/// §12.8.2.2.2's Table 257, in the `/P` row and above its three values:
+///
+/// > Changes to a PDF that are incremental updates which include only the data necessary to add
+/// > DSS's 12.8.4.3, "Document Security Store (DSS)" and/or document timestamps 12.8.5,
+/// > "Document timestamp (DTS) dictionary" to the document shall not be considered as changes to
+/// > the document as defined in the choices below.
+///
+/// "[O]nly" is the whole of the test, so an update carrying anything besides validation material
+/// and its own cross-reference stream fails it — and failing it is not the same as being
+/// forbidden, which is why such an update becomes [`Disposition::Mixed`] rather than a verdict.
+fn dispositions(
+    current: &Document,
+    kinds: &BTreeMap<u32, Kind>,
+    tables: &BTreeSet<usize>,
+) -> BTreeMap<usize, Disposition> {
+    let mut seen: BTreeMap<usize, (bool, bool)> = BTreeMap::new();
+    for (number, kind) in kinds {
+        let Some(update) = update_of(current, *number, tables) else {
+            continue;
+        };
+        let entry = seen.entry(update).or_insert((false, false));
+        match kind {
+            Kind::ValidationMaterial => entry.0 = true,
+            Kind::CrossReferenceStream => {}
+            _ => entry.1 = true,
+        }
+    }
+    seen.into_iter()
+        .map(|(update, (material, other))| {
+            let disposition = match (material, other) {
+                (false, _) => Disposition::Ordinary,
+                (true, false) => Disposition::Disregarded,
+                (true, true) => Disposition::Mixed,
+            };
+            (update, disposition)
+        })
+        .collect()
+}
+
+/// Which update after the signed revision defines an object, named by that update's own section.
+///
+/// §7.5.6 appends an update's objects before the cross-reference section that names them, so the
+/// update an object belongs to is the first section standing at or after its bytes. An object
+/// with no offset in the current file — one the update deleted — belongs to no update here, which
+/// is what keeps a deletion outside Table 257's carve-out: a DSS update deletes nothing.
+fn update_of(current: &Document, number: u32, tables: &BTreeSet<usize>) -> Option<usize> {
+    let (offset, _) = placement(current.xref(), number)?;
+    tables.range(offset..).next().copied()
+}
+
+/// What one changed object is, on its own evidence.
+fn classify_one(
+    signed: &Document,
+    current: &Document,
+    number: u32,
+    bucket: Bucket,
+    material: &BTreeSet<u32>,
+    tables: &BTreeSet<usize>,
+    offset: Option<usize>,
+) -> Kind {
+    let id = ObjectId::new(number, 0);
+    let held = if bucket == Bucket::Removed {
+        signed
+    } else {
+        current
+    };
+    let object = held.get(id);
+    let Some(dict) = dictionary_of(&object) else {
+        return Kind::Unclassified;
+    };
+    if matches!(object, Object::Stream(_))
+        && name(&dict, "Type").as_deref() == Some("XRef")
+        && offset.is_some_and(|at| tables.contains(&at))
+    {
+        return Kind::CrossReferenceStream;
+    }
+    if material.contains(&number) || name(&dict, "Type").as_deref() == Some("DocTimeStamp") {
+        return Kind::ValidationMaterial;
+    }
+    if name(&dict, "Type").as_deref() == Some("Sig") {
+        return Kind::Signing;
+    }
+    let field = field_type(held, &dict);
+    match bucket {
+        Bucket::Redefined => {
+            let before = signed.get(id);
+            if restated(&before, &object) {
+                return Kind::RestatedUnchanged;
+            }
+            let was = dictionary_of(&before).unwrap_or_default();
+            let moved = changed_keys(&was, &dict);
+            if moved.len() == 1 && moved.contains(b"DSS".as_slice()) {
+                // §12.8.4.3: the store "shall be the value of a DSS key in the document catalog
+                // dictionary", so the catalog gaining one is part of adding the store.
+                return Kind::ValidationMaterial;
+            }
+            if let Some(field) = field {
+                if moved.iter().all(|key| named_in(&FILLING_WRITES, key)) {
+                    return if field == "Sig" {
+                        Kind::Signing
+                    } else {
+                        Kind::FieldFilledIn
+                    };
+                }
+                if moved.iter().any(|key| named_in(&FIELD_DEFINING, key)) {
+                    return Kind::Unclassified;
+                }
+            }
+            if is_annotation(&dict) {
+                Kind::Annotation
+            } else {
+                Kind::Unclassified
+            }
+        }
+        // An added signature field is signing; an added field of any other type is a form being
+        // built rather than filled in, which Table 257 permits at no level.
+        Bucket::Added | Bucket::Removed => match (field.as_deref(), is_annotation(&dict)) {
+            (Some("Sig"), _) => Kind::Signing,
+            (None, true) => Kind::Annotation,
+            _ => Kind::Unclassified,
+        },
+        Bucket::Unplaceable => Kind::Unplaceable,
+    }
+}
+
+/// Every object number the current catalog's `/DSS` reaches, and the store itself.
+///
+/// Each of Table 261's three arrays is "An array of indirect reference to streams", and a VRI
+/// dictionary holds the same shape per signature (§12.8.4.4), so one level of reference from
+/// each is the whole reach. Nothing here reads a certificate: what the object *is* decides the
+/// ranking, and reading it would be §12.8.1's third question.
+fn validation_material(current: &Document) -> BTreeSet<u32> {
+    let mut found = BTreeSet::new();
+    let Ok(catalog) = current.catalog() else {
+        return found;
+    };
+    if let Some(Object::Reference(id)) = catalog.get("DSS") {
+        found.insert(id.number);
+    }
+    let store = current.get_key(&catalog, "DSS");
+    let Some(store) = store.as_dict() else {
+        return found;
+    };
+    for key in ["Certs", "CRLs", "OCSPs"] {
+        referenced(&current.get_key(store, key), &mut found);
+    }
+    let vri = current.get_key(store, "VRI");
+    if let Some(vri) = vri.as_dict() {
+        for (key, entry) in vri.iter() {
+            if let Object::Reference(id) = entry {
+                found.insert(id.number);
+            }
+            let entry = current.get_key_by_name(vri, key);
+            if let Some(entry) = entry.as_dict() {
+                for (_, value) in entry.iter() {
+                    referenced(&current.resolve(value), &mut found);
+                }
+            }
+        }
+    }
+    found
+}
+
+/// The object numbers an array's elements name, for [`validation_material`]'s one level of reach.
+fn referenced(object: &Object, into: &mut BTreeSet<u32>) {
+    if let Object::Array(items) = object {
+        for item in items {
+            if let Object::Reference(id) = item {
+                into.insert(id.number);
+            }
+        }
+    }
+}
+
+/// The object numbers an annotation's `/AP` names, one appearance subdictionary deep.
+///
+/// §12.5.5: "Each entry in the appearance dictionary may contain either a single appearance
+/// stream or an appearance subdictionary . In the latter case, the subdictionary shall define
+/// multiple appearance streams corresponding to different appearance states of the annotation."
+/// So two levels reach every stream an annotation has and no more.
+fn appearances(document: &Document, dict: &Dictionary) -> Vec<u32> {
+    let mut found = Vec::new();
+    let appearance = document.get_key(dict, "AP");
+    let Some(appearance) = appearance.as_dict() else {
+        return found;
+    };
+    for (_, entry) in appearance.iter() {
+        match entry {
+            Object::Reference(id) => found.push(id.number),
+            Object::Dictionary(states) => {
+                for (_, state) in states.iter() {
+                    if let Object::Reference(id) = state {
+                        found.push(id.number);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// Table 226's `/FT`, followed up the `/Parent` chain because the entry is inheritable.
+fn field_type(document: &Document, dict: &Dictionary) -> Option<String> {
+    let mut here = dict.clone();
+    for _ in 0..MAX_FIELD_ANCESTRY {
+        if let Some(field) = name(&here, "FT") {
+            return Some(field);
+        }
+        let parent = document.get_key(&here, "Parent");
+        here = parent.as_dict()?.clone();
+    }
+    None
+}
+
+/// Whether a dictionary is Table 166's annotation.
+///
+/// `/Type` is optional there — "if present, shall be Annot for an annotation dictionary" — so the
+/// test is the two entries the table marks required instead: `/Subtype`, "The type of annotation
+/// that this dictionary describes", and `/Rect`, "The annotation rectangle , defining the location
+/// of the annotation on the page in default user space units."
+fn is_annotation(dict: &Dictionary) -> bool {
+    name(dict, "Type").as_deref() == Some("Annot")
+        || (dict.get("Subtype").is_some() && dict.get("Rect").is_some())
+}
+
+/// The keys whose values two states of one dictionary disagree about, either side missing.
+fn changed_keys(before: &Dictionary, after: &Dictionary) -> BTreeSet<Vec<u8>> {
+    let mut moved = BTreeSet::new();
+    for (key, value) in before.iter() {
+        if !same_value(after.get_by_name(key), Some(value)) {
+            moved.insert(key.as_bytes().to_vec());
+        }
+    }
+    for (key, value) in after.iter() {
+        if !same_value(before.get_by_name(key), Some(value)) {
+            moved.insert(key.as_bytes().to_vec());
+        }
+    }
+    moved
+}
+
+/// Whether an update rewrote an object without changing what it says.
+///
+/// A stream is compared over its data as well as its dictionary, and a stream whose data could
+/// not be decrypted is never restated: [`pdf_syntax::Stream::decryption_failed`] leaves the data
+/// empty rather than wrong, and two empties are not evidence of anything.
+fn restated(before: &Object, after: &Object) -> bool {
+    match (before, after) {
+        (Object::Stream(before), Object::Stream(after)) => {
+            !before.decryption_failed
+                && !after.decryption_failed
+                && before.data == after.data
+                && changed_keys(&before.dict, &after.dict).is_empty()
+        }
+        (Object::Stream(_), _) | (_, Object::Stream(_)) => false,
+        (before, after) => same_value(Some(before), Some(after)),
+    }
+}
+
+/// Whether two entries are the same **value**, which for a number is not the same as the same
+/// writing of it.
+///
+/// §7.3.3 is explicit that one number has two written forms:
+///
+/// > A real number shall not be present when an integer is expected. Wherever a real number is
+/// > expected, an integer may be used instead. For example, it is not necessary to write the
+/// > number 1.0 in real format; the integer 1 is sufficient.
+///
+/// So an update that rewrites `396.0` as `396` has changed how the file is written and not what
+/// it says, and a comparison that called that a modified annotation would be reporting its own
+/// parser. **`prefilled_f1040.pdf` is exactly that file**: of the eight widgets its updates
+/// rewrite, one has a rectangle that differs only in this and seven have rectangles that really
+/// moved, and the difference decides whether each is a filled field or a modified annotation.
+fn same_value(before: Option<&Object>, after: Option<&Object>) -> bool {
+    match (before, after) {
+        (Some(Object::Integer(before)), Some(Object::Real(after)))
+        | (Some(Object::Real(after)), Some(Object::Integer(before))) => {
+            // Exact, not tolerant: an integer PDF can write is one an f64 holds without loss, so
+            // this asks whether the two name one number and never whether they are close.
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a number too large for f64 to hold exactly is one no `Real` beside \
+                          it can equal either"
+            )]
+            let widened = *before as f64;
+            #[expect(
+                clippy::float_cmp,
+                reason = "the question is whether two writings name one number, which a margin \
+                          of error would answer with a different question"
+            )]
+            let same = widened == *after;
+            same
+        }
+        (Some(Object::Array(before)), Some(Object::Array(after))) => {
+            before.len() == after.len()
+                && before
+                    .iter()
+                    .zip(after.iter())
+                    .all(|(before, after)| same_value(Some(before), Some(after)))
+        }
+        (Some(Object::Dictionary(before)), Some(Object::Dictionary(after))) => {
+            before.len() == after.len()
+                && before
+                    .iter()
+                    .all(|(key, value)| same_value(after.get_by_name(key), Some(value)))
+        }
+        (before, after) => before == after,
+    }
+}
+
+/// Whether a key's bytes are one of a list of names this source spells out.
+fn named_in(names: &[&str], key: &[u8]) -> bool {
+    names.iter().any(|name| name.as_bytes() == key)
+}
+
+/// A dictionary's name-valued entry, as text where the name is one.
+fn name(dict: &Dictionary, key: &str) -> Option<String> {
+    match dict.get(key) {
+        Some(Object::Name(name)) => name.as_str().map(str::to_owned),
+        _ => None,
+    }
+}
+
+/// The dictionary an object carries, a stream's own included.
+fn dictionary_of(object: &Object) -> Option<Dictionary> {
+    match object {
+        Object::Dictionary(dict) => Some(dict.clone()),
+        Object::Stream(stream) => Some(stream.dict.clone()),
+        _ => None,
+    }
+}
+
+/// What `level` says about a change of `kind` in an update with this `disposition`.
+///
+/// The order of the tests is the argument. An update Table 257 disregards is not a change at all,
+/// whatever its objects are; an object no table places has not been shown to have changed, so it
+/// is refused rather than ranked; an update whose carve-out could not be decided takes its whole
+/// contents with it. Only then does the level's own vocabulary apply — and **level 1 needs none
+/// of it**, because "[n]o changes to the document shall be permitted" ranks an unclassified
+/// change as surely as a classified one.
+fn verdict(level: Modification, kind: Kind, disposition: Disposition) -> Verdict {
+    if disposition == Disposition::Disregarded {
+        return Verdict::Disregarded;
+    }
+    if kind == Kind::Unplaceable || disposition == Disposition::Mixed {
+        return Verdict::Unrankable;
+    }
+    if kind == Kind::CrossReferenceStream || kind == Kind::RestatedUnchanged {
+        return Verdict::Permitted;
+    }
+    match level {
+        // "1 No changes to the document shall be permitted; any change to the document shall
+        // invalidate the signature." Nothing is left to classify.
+        Modification::None => Verdict::NotPermitted,
+        // "2 Permitted changes shall be filling in forms, instantiating page templates, and
+        // signing; other changes shall invalidate the signature."
+        Modification::FormFilling => match kind {
+            Kind::FieldFilledIn | Kind::Signing | Kind::FieldAppearance => Verdict::Permitted,
+            Kind::Annotation | Kind::AnnotationAppearance => Verdict::NotPermitted,
+            _ => Verdict::Unrankable,
+        },
+        // "3 Permitted changes shall be the same as for 2, as well as annotation creation,
+        // deletion, and modification; other changes shall invalidate the signature."
+        Modification::FormFillingAndAnnotation => match kind {
+            Kind::FieldFilledIn
+            | Kind::Signing
+            | Kind::FieldAppearance
+            | Kind::Annotation
+            | Kind::AnnotationAppearance => Verdict::Permitted,
+            _ => Verdict::Unrankable,
+        },
+        // Table 257 states three values and a default of 2. A `/P` that is none of them is an
+        // author's statement this reader cannot read, and guessing which way it leans is exactly
+        // the lenient default this module refuses.
+        Modification::Unknown(_) => Verdict::Unrankable,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write as _;
 
     use pdf_syntax::Document;
 
-    use super::{Comparison, Judgement, NotComparable};
+    use super::{Comparison, Judgement, NotComparable, Ranked};
     use crate::signature::{Modification, Signature, signatures};
 
     /// The signature object every fixture here carries, with a `/ByteRange` to be filled in.
@@ -618,13 +1372,15 @@ mod tests {
         assert_eq!(changes.removed.named(), [6], "{changes:?}");
         assert!(changes.unplaceable.is_empty(), "{changes:?}");
         assert!(!changes.catalog_moved, "{changes:?}");
+        // Table 257's level 1 needs no classification at all: "any change to the document shall
+        // invalidate the signature", and three objects changed. The two other levels are the
+        // tests below, which is where the kinds have to be told apart.
         assert_eq!(
             comparison.against(Modification::None),
-            Judgement::NotClassified {
+            Judgement::NotPermitted {
                 level: Modification::None,
                 objects: 3,
-            },
-            "the levels are not ranked and the refusal says so"
+            }
         );
     }
 
@@ -651,10 +1407,24 @@ mod tests {
         assert!(changes.removed.is_empty(), "{changes:?}");
         assert!(changes.catalog_moved, "{changes:?}");
         assert!(!changes.is_empty(), "{changes:?}");
-        assert!(matches!(
+        // Refused rather than ranked: replacing the catalog is none of Table 257's operations
+        // and is not thereby one of the changes it forbids either — the table ranks *what* was
+        // done, and this reader does not resolve a whole catalog to an operation.
+        assert_eq!(
             comparison.against(Modification::FormFillingAndAnnotation),
-            Judgement::NotClassified { .. }
-        ));
+            Judgement::NotClassified {
+                level: Modification::FormFillingAndAnnotation,
+                objects: 1,
+            }
+        );
+        // Level 1 needs no such resolution, and says so.
+        assert_eq!(
+            comparison.against(Modification::None),
+            Judgement::NotPermitted {
+                level: Modification::None,
+                objects: 1,
+            }
+        );
     }
 
     /// An object neither state can place is counted as such, never as unchanged.
@@ -684,6 +1454,375 @@ mod tests {
         assert_eq!(changes.unplaceable.named(), [5], "{changes:?}");
         assert_eq!(changes.added.named(), [7], "{changes:?}");
         assert!(changes.redefined.is_empty(), "{changes:?}");
+    }
+
+    /// A text field widget the signed revision holds, for an update to fill in.
+    const EMPTY_FIELD: &str = "<< /FT /Tx /T (Name) /Subtype /Widget /Type /Annot \
+                               /Rect [100 200 300 220] /P 3 0 R >>";
+
+    /// The appearance stream §12.7.4.3 has the processor construct for a filled field.
+    const APPEARANCE: &str = "<< /Type /XObject /Subtype /Form /BBox [0 0 200 20] /Length 0 >>\n\
+                              stream\n\nendstream";
+
+    /// What `rank` said about each object, as text, so a failure names the object and the reason.
+    fn detail(comparison: &Comparison, level: Modification) -> Vec<String> {
+        comparison
+            .rank(level)
+            .detail
+            .iter()
+            .map(
+                |Ranked {
+                     number,
+                     kind,
+                     verdict,
+                 }| format!("{number} {kind:?} {verdict:?}"),
+            )
+            .collect()
+    }
+
+    /// Filling a field in is Table 257's level 2, and is not its level 1.
+    ///
+    /// §12.8.2.2.2's Table 257, second of the `/P` row's three values:
+    ///
+    /// > 2 Permitted changes shall be filling in forms, instantiating page templates, and
+    /// > signing; other changes shall invalidate the signature.
+    ///
+    /// The update writes what filling in writes and nothing else — `/V`, the `/AP` that Table 166
+    /// requires beside it, and `/M` — so both halves of the ranking are exercised: the field
+    /// itself and the appearance stream that comes with it, which is an object the signed
+    /// revision never held and would be unclassifiable on its own evidence.
+    #[test]
+    fn a_field_filled_in_after_signing_is_what_level_two_permits() {
+        let mut bytes = signed_file(&[EMPTY_FIELD]);
+        update(
+            &mut bytes,
+            &[
+                (
+                    6,
+                    "<< /FT /Tx /T (Name) /Subtype /Widget /Type /Annot /Rect [100 200 300 220] \
+                     /P 3 0 R /V (Ada) /AP << /N 7 0 R >> /M (D:20260913120000Z) >>",
+                ),
+                (7, APPEARANCE),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            ["6 FieldFilledIn Permitted", "7 FieldAppearance Permitted"]
+        );
+        for level in [
+            Modification::FormFilling,
+            Modification::FormFillingAndAnnotation,
+        ] {
+            assert_eq!(
+                comparison.against(level),
+                Judgement::WithinWhatIsPermitted {
+                    level,
+                    objects: 2,
+                    disregarded: 0,
+                },
+                "{level:?}"
+            );
+        }
+        // "1 No changes to the document shall be permitted; any change to the document shall
+        // invalidate the signature." The same two objects, and the opposite answer.
+        assert_eq!(
+            comparison.against(Modification::None),
+            Judgement::NotPermitted {
+                level: Modification::None,
+                objects: 2,
+            }
+        );
+    }
+
+    /// A widget whose rectangle moved is an annotation modified, which level 2 does not permit.
+    ///
+    /// **The defect this is calibrated against is the one that decides a real file.** A widget
+    /// annotation is an annotation whatever else it is, so a reader that ranked by object *type*
+    /// would call every filled field an annotation modification and refuse level 2 outright;
+    /// one that ranked by "it is a field, so it was filled in" would wave through a
+    /// certification-breaking move of the annotation. The pair is this test and the one above:
+    /// the same update, differing only in `/Rect`, and the answers differ with it.
+    /// `prefilled_f1040.pdf` is where this is not hypothetical — six of its eight rewritten
+    /// widgets move their rectangles and two do not.
+    #[test]
+    fn a_widget_whose_rectangle_moved_is_an_annotation_rather_than_a_filled_field() {
+        let mut bytes = signed_file(&[EMPTY_FIELD]);
+        update(
+            &mut bytes,
+            &[
+                (
+                    6,
+                    "<< /FT /Tx /T (Name) /Subtype /Widget /Type /Annot /Rect [100 200 300 221] \
+                     /P 3 0 R /V (Ada) /AP << /N 7 0 R >> /M (D:20260913120000Z) >>",
+                ),
+                (7, APPEARANCE),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            [
+                "6 Annotation NotPermitted",
+                "7 AnnotationAppearance NotPermitted"
+            ]
+        );
+        assert_eq!(
+            comparison.against(Modification::FormFilling),
+            Judgement::NotPermitted {
+                level: Modification::FormFilling,
+                objects: 2,
+            }
+        );
+        // "3 Permitted changes shall be the same as for 2, as well as annotation creation,
+        // deletion, and modification".
+        assert_eq!(
+            comparison.against(Modification::FormFillingAndAnnotation),
+            Judgement::WithinWhatIsPermitted {
+                level: Modification::FormFillingAndAnnotation,
+                objects: 2,
+                disregarded: 0,
+            }
+        );
+    }
+
+    /// The same rectangle written the other way round is not a change, and §7.3.3 is why.
+    ///
+    /// > Wherever a real number is expected, an integer may be used instead. For example, it is
+    /// > not necessary to write the number 1.0 in real format; the integer 1 is sufficient.
+    ///
+    /// So `300` and `300.0` are one number, and an update that rewrites one as the other has
+    /// changed the file and not the document. The defect is the test above's answer given to
+    /// this input: a reader comparing written forms would call this an annotation whose rectangle
+    /// moved, and refuse a level-2 certification over a producer's formatting.
+    #[test]
+    fn a_number_rewritten_in_the_other_form_is_not_a_change_to_the_document() {
+        let mut bytes = signed_file(&[EMPTY_FIELD]);
+        update(
+            &mut bytes,
+            &[(
+                6,
+                "<< /FT /Tx /T (Name) /Subtype /Widget /Type /Annot /Rect [100.0 200 300.0 220] \
+                 /P 3 0 R >>",
+            )],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(comparison.changes().redefined.named(), [6]);
+        assert_eq!(
+            detail(&comparison, Modification::None),
+            ["6 RestatedUnchanged Permitted"]
+        );
+        // Level 1 permits no change to the document, and this is not one.
+        assert_eq!(
+            comparison.against(Modification::None),
+            Judgement::WithinWhatIsPermitted {
+                level: Modification::None,
+                objects: 1,
+                disregarded: 0,
+            }
+        );
+    }
+
+    /// An annotation added after signing is level 3's alone.
+    ///
+    /// The comment workflow Table 257 separates from the form workflow: level 2 states its
+    /// permitted changes and this is not among them, so "other changes shall invalidate the
+    /// signature" applies; level 3 names "annotation creation" outright.
+    #[test]
+    fn an_annotation_created_after_signing_is_level_threes_alone() {
+        let mut bytes = signed_file(&[]);
+        update(
+            &mut bytes,
+            &[(
+                6,
+                "<< /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Contents (a comment) >>",
+            )],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            ["6 Annotation NotPermitted"]
+        );
+        assert_eq!(
+            comparison.against(Modification::FormFilling),
+            Judgement::NotPermitted {
+                level: Modification::FormFilling,
+                objects: 1,
+            }
+        );
+        assert_eq!(
+            comparison.against(Modification::FormFillingAndAnnotation),
+            Judgement::WithinWhatIsPermitted {
+                level: Modification::FormFillingAndAnnotation,
+                objects: 1,
+                disregarded: 0,
+            }
+        );
+    }
+
+    /// A change that is none of Table 257's operations is refused at 2 and 3, and forbidden at 1.
+    ///
+    /// The rule the whole module is written to: an answer of *permitted* that was never arrived
+    /// at is worse than no answer. A page whose `/MediaBox` an update rewrote is not filling in a
+    /// form, not signing, not a page template this reader can recognise as instantiated and not
+    /// an annotation — so levels 2 and 3 say they did not rank it, and name the object. Level 1
+    /// needs no vocabulary and does not refuse.
+    #[test]
+    fn a_change_that_is_none_of_the_tables_operations_is_refused_rather_than_permitted() {
+        let mut bytes = signed_file(&[]);
+        update(
+            &mut bytes,
+            &[(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] >>")],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFillingAndAnnotation),
+            ["3 Unclassified Unrankable"]
+        );
+        for level in [
+            Modification::FormFilling,
+            Modification::FormFillingAndAnnotation,
+            Modification::Unknown(7),
+        ] {
+            assert_eq!(
+                comparison.against(level),
+                Judgement::NotClassified { level, objects: 1 },
+                "{level:?}"
+            );
+        }
+        assert_eq!(
+            comparison.against(Modification::None),
+            Judgement::NotPermitted {
+                level: Modification::None,
+                objects: 1,
+            }
+        );
+    }
+
+    /// An update that adds only a document security store is not a change to the document.
+    ///
+    /// §12.8.2.2.2's Table 257, above the `/P` row's three values:
+    ///
+    /// > Changes to a PDF that are incremental updates which include only the data necessary to
+    /// > add DSS's … and/or document timestamps … to the document shall not be considered as
+    /// > changes to the document as defined in the choices below.
+    ///
+    /// Level 1 is where this has teeth, because level 1 forbids everything else: three objects
+    /// change — the store, the certificate stream it holds, and the catalog that gains §12.8.4.3's
+    /// `/DSS` key — and the answer is still that nothing forbidden happened.
+    #[test]
+    fn an_update_adding_only_a_security_store_is_not_a_change_to_the_document() {
+        let mut bytes = signed_file(&[]);
+        update(
+            &mut bytes,
+            &[
+                (
+                    1,
+                    "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> /DSS 6 0 R \
+                     /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>",
+                ),
+                (6, "<< /Type /DSS /Certs [7 0 R] >>"),
+                (7, "<< /Length 0 >>\nstream\n\nendstream"),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::None),
+            [
+                "1 ValidationMaterial Disregarded",
+                "6 ValidationMaterial Disregarded",
+                "7 ValidationMaterial Disregarded",
+            ]
+        );
+        assert_eq!(
+            comparison.against(Modification::None),
+            Judgement::WithinWhatIsPermitted {
+                level: Modification::None,
+                objects: 0,
+                disregarded: 3,
+            }
+        );
+    }
+
+    /// An update carrying a security store **and** something else is refused, not carved out.
+    ///
+    /// Table 257's condition is that the update "include only the data necessary" for a store or
+    /// a timestamp, and this one does not — so the carve-out neither applies nor fails to apply,
+    /// and every object of the update is unranked. Calibrated against the test above, which is
+    /// the same update with the page left alone: the defect is a carve-out that reads the
+    /// clause's "only" as "at least", which would hide a page rewritten under cover of a DSS.
+    #[test]
+    fn an_update_carrying_a_security_store_and_more_is_refused_rather_than_carved_out() {
+        let mut bytes = signed_file(&[]);
+        update(
+            &mut bytes,
+            &[
+                (
+                    1,
+                    "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> /DSS 6 0 R \
+                     /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>",
+                ),
+                (3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] >>"),
+                (6, "<< /Type /DSS /Certs [7 0 R] >>"),
+                (7, "<< /Length 0 >>\nstream\n\nendstream"),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFillingAndAnnotation),
+            [
+                "1 ValidationMaterial Unrankable",
+                "3 Unclassified Unrankable",
+                "6 ValidationMaterial Unrankable",
+                "7 ValidationMaterial Unrankable",
+            ]
+        );
+        for level in [
+            Modification::None,
+            Modification::FormFilling,
+            Modification::FormFillingAndAnnotation,
+        ] {
+            assert_eq!(
+                comparison.against(level),
+                Judgement::NotClassified { level, objects: 4 },
+                "{level:?}"
+            );
+        }
     }
 
     /// A range whose hole holds more than the signature value is refused rather than compared.

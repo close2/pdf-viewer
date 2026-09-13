@@ -381,7 +381,41 @@ pub fn collection_rows(
         // look identical; only one of them is the file being quiet.
         rows.push(PanelRow::saying("This collection lists no files."));
     }
+    if let Some(sentence) = restricted_names(collection) {
+        rows.push(PanelRow::saying(&sentence));
+    }
     rows
+}
+
+/// What a panel says about §12.3.5.2's restricted names, or nothing where the document breaks none.
+///
+/// §12.3.5.2 bounds a collection's names and then hands the reader a choice: "[a]n interactive
+/// PDF processor may choose to support invalid names or not. If not, an appropriate error message
+/// shall be provided." **This program supports them** — ADR 1050 — so the clause asks it for no
+/// message at all, and this sentence is the project's own rule rather than the standard's: a name
+/// the file got wrong is shown as the file wrote it, and a person is told that is what happened
+/// instead of being left to wonder whether the folder is really called `a:b`.
+///
+/// One sentence for all three windows, for the reason ADR 0711 gives about the rest of this
+/// clause: what a collection says is not one toolkit's to phrase.
+#[must_use]
+pub fn restricted_names(collection: &Collection) -> Option<String> {
+    // The report carries one entry per restriction, and a person counts names.
+    let names: std::collections::BTreeSet<&pdf_model::collection::Named> = collection
+        .invalid_names
+        .iter()
+        .map(|defect| &defect.owner)
+        .collect();
+    match names.len() {
+        0 => None,
+        1 => Some(
+            "One name here is not a valid file name; it is shown as the document wrote it."
+                .to_owned(),
+        ),
+        many => Some(format!(
+            "{many} names here are not valid file names; they are shown as the document wrote them."
+        )),
+    }
 }
 
 /// Every folder identifier the tree states, which is what decides whether a key names one.

@@ -13,6 +13,7 @@ use pdf_render::{
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use crate::colour::{ColourSpace, Compositing, InkScale, Press, Presses};
+use crate::icc::Rendering;
 use crate::image::ShapeMasks;
 use crate::page::Page;
 
@@ -1719,7 +1720,19 @@ pub(super) fn page_press(document: &Document, page: &Page, presses: &Presses) ->
     // the clause puts one in a page dictionary as well as in the catalog and makes the page's
     // the one that "shall be used", and the tail of this walk no longer holds a page.
     let intent = output_intent_space(document, Some(&page.dict));
-    press_for_entry(document, &entry, &page.resources, presses, intent.as_ref())
+    // §11.7.5.3's second bullet fixes the conversion out of a group's space at "the time the
+    // `Do` operator is applied to the group", and §11.4.7's page group has no `Do`: nothing
+    // has run, so the parameters are the initial graphics state's — Table 51's
+    // `RelativeColorimetric` with §8.6.5.9's `/UseBlackPtComp` at its `Default`, which this
+    // processor compensates. That is `Rendering::compensating()` exactly.
+    press_for_entry(
+        document,
+        &entry,
+        &page.resources,
+        presses,
+        intent.as_ref(),
+        Rendering::compensating(),
+    )
 }
 
 /// The press a group or page `/CS` entry names, resolved against `resources`.
@@ -1735,11 +1748,12 @@ fn press_for_entry(
     resources: &Dictionary,
     presses: &Presses,
     intent: Option<&ColourSpace>,
+    rendering: Rendering,
 ) -> PagePress {
     match ColourSpace::parse(document, entry, &Dictionary::new()) {
-        Some(ColourSpace::Cmyk) => named_press(document, resources, presses, intent),
+        Some(ColourSpace::Cmyk) => named_press(document, resources, presses, intent, rendering),
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
-            press_or_beyond(&profile, presses)
+            press_or_beyond(&profile, presses, rendering)
         }
         // A four-component space that is not a profile — a `DeviceN` of four inks, say — names
         // components this tree has no conversion out of, so it keeps its report.
@@ -1772,6 +1786,7 @@ fn named_press(
     resources: &Dictionary,
     presses: &Presses,
     intent: Option<&ColourSpace>,
+    rendering: Rendering,
 ) -> PagePress {
     // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
     // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
@@ -1783,7 +1798,7 @@ fn named_press(
     ) {
         Some(ColourSpace::Cmyk) | None => {}
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
-            return press_or_beyond(&profile, presses);
+            return press_or_beyond(&profile, presses, rendering);
         }
         Some(space) if space.components() == 4 => {
             return PagePress::Beyond(BeyondPress::stated(
@@ -1795,7 +1810,7 @@ fn named_press(
     }
     match intent {
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
-            press_or_beyond(profile, presses)
+            press_or_beyond(profile, presses, rendering)
         }
         _ => PagePress::In(crate::colour::assumed_press()),
     }
@@ -1807,8 +1822,12 @@ fn named_press(
 /// page naming a ninth distinct press is refused the ninth on every run and on every machine,
 /// where before the ninth press of the *process* was refused and which page that fell on
 /// depended on the order the scheduler ran the others in.
-fn press_or_beyond(profile: &crate::icc::Profile, presses: &Presses) -> PagePress {
-    presses.press_for_profile(profile).map_or(
+fn press_or_beyond(
+    profile: &crate::icc::Profile,
+    presses: &Presses,
+    rendering: Rendering,
+) -> PagePress {
+    presses.press_for_profile(profile, rendering).map_or(
         PagePress::Beyond(BeyondPress::stated(
             "it is the ninth distinct press this page names and eight is the budget \
              (§11.7.2), so its four components are not converted out",
@@ -1965,6 +1984,7 @@ impl Interpreter<'_> {
         &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
+        rendering: Rendering,
     ) -> Option<Arc<Press>> {
         if self.compositing != Compositing::Device
             || !group.isolated
@@ -1983,6 +2003,7 @@ impl Interpreter<'_> {
             resources,
             self.presses,
             self.output_intent.as_ref(),
+            rendering,
         ) {
             PagePress::In(press) => Some(press),
             // A group whose press this page has no budget left for is drawn in the parent's
@@ -2679,7 +2700,12 @@ impl Interpreter<'_> {
             AlphaSourcesSeen::of(inner.alpha_is_shape),
         );
         let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
-        let ink = self.group_press(group, resources);
+        // §11.7.5.3's second bullet, read off `outer` because that is the state at the `Do`:
+        // "the rendering intent used shall be the current rendering intent in effect at the
+        // time the `Do` operator is applied to the group". §11.6.6 has already reset the
+        // group's own parameters on `inner`, so `inner` is the wrong state to ask — and the
+        // parameters this names are not among the ones it resets in any case.
+        let ink = self.group_press(group, resources, outer.rendering());
         let grey = if ink.is_none() {
             self.group_own_space(group, resources)
         } else {

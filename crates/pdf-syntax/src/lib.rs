@@ -58,6 +58,6 @@ pub use serialize::{
     Assembly, AssemblyError, Form, ObjectStreams, Options, SerializeError, Streams, Written,
     serialize,
 };
-pub use text_string::text_string;
+pub use text_string::{is_text_string, text_string};
 pub use version::Version;
 pub use xref::{Location, SectionRecord, XrefTable};

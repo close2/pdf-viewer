@@ -147,6 +147,20 @@ fn icc_cmyk_profile() -> Vec<u8> {
 
 /// [`icc_cmyk_profile`] over [`press_xyz_of`]'s variant, so that a test can name several.
 fn icc_cmyk_profile_of(variant: usize) -> Vec<u8> {
+    cmyk_profile(&[(b"A2B1", &|inks| press_xyz_of(variant, inks))])
+}
+
+/// One entry of [`cmyk_profile`]'s table list: an `A2B` tag name and the XYZ at each corner.
+type A2bTable<'a> = (&'a [u8; 4], &'a dyn Fn([f32; 4]) -> [f32; 3]);
+
+/// A v2 CMYK profile carrying one `mft2` tag per name, each over its own corners.
+///
+/// The tag names and their tables are the parameter because ISO 15076-1:2010 gives `A2B0`,
+/// `A2B1` and `A2B2` the device-to-connection transform of one rendering intent each (its tag
+/// listing, clause 9.2), and §8.6.5.8 says PDF's intent names "have been chosen to correspond to
+/// those defined by the International Color Consortium (ICC)". A fixture that answers the same
+/// colour under every intent could not tell a selected transform from an unselected one.
+fn cmyk_profile(tables: &[A2bTable<'_>]) -> Vec<u8> {
     let mut header = vec![0u8; 128];
     header[8] = 2; // major version
     header[12..16].copy_from_slice(b"prtr");
@@ -154,6 +168,28 @@ fn icc_cmyk_profile_of(variant: usize) -> Vec<u8> {
     header[20..24].copy_from_slice(b"XYZ ");
     header[36..40].copy_from_slice(b"acsp");
 
+    let mut out = header;
+    out.extend_from_slice(&u32::try_from(tables.len()).expect("small").to_be_bytes());
+    // 128 for the header, 4 for the count, 12 for each tag's entry in the table.
+    let mut offset = 132 + 12 * tables.len();
+    let mut data = Vec::new();
+    for (name, xyz) in tables {
+        let tag = cmyk_a2b_tag(*xyz);
+        out.extend_from_slice(*name);
+        out.extend_from_slice(&u32::try_from(offset).expect("small").to_be_bytes());
+        out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+        offset += tag.len();
+        data.extend_from_slice(&tag);
+    }
+    out.extend_from_slice(&data);
+    out
+}
+
+/// One `mft2` device-to-connection tag: sizes, matrix, input curves, CLUT, output curves.
+///
+/// Two grid points per axis, so the table *is* the sixteen corners and the profile's own
+/// interpolation fills in between them.
+fn cmyk_a2b_tag(xyz_at: &dyn Fn([f32; 4]) -> [f32; 3]) -> Vec<u8> {
     let mut tag = Vec::new();
     tag.extend_from_slice(b"mft2");
     tag.extend_from_slice(&[0; 4]);
@@ -174,8 +210,7 @@ fn icc_cmyk_profile_of(variant: usize) -> Vec<u8> {
     // The CLUT, with the *last* input varying fastest, which is ICC's own order.
     for corner in 0..16usize {
         let at = |axis: usize| f32::from(u8::try_from((corner >> (3 - axis)) & 1).expect("a bit"));
-        let xyz = press_xyz_of(variant, [at(0), at(1), at(2), at(3)]);
-        for value in xyz {
+        for value in xyz_at([at(0), at(1), at(2), at(3)]) {
             // `u1Fixed15`: 0x8000 is 1.0, which is the encoding XYZ uses in a lookup table.
             let encoded = (value * 32768.0).clamp(0.0, 65535.0) as u16;
             tag.extend_from_slice(&encoded.to_be_bytes());
@@ -186,14 +221,69 @@ fn icc_cmyk_profile_of(variant: usize) -> Vec<u8> {
             tag.extend_from_slice(&value.to_be_bytes());
         }
     }
+    tag
+}
 
-    let mut out = header;
-    out.extend_from_slice(&1u32.to_be_bytes()); // one tag
-    out.extend_from_slice(b"A2B1");
-    out.extend_from_slice(&144u32.to_be_bytes()); // 128 + 4 + 12
-    out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
-    out.extend_from_slice(&tag);
-    out
+/// A press whose inks absorb half as much as [`press_xyz_of`]'s, for a second `A2B` table.
+///
+/// A lighter press, so that the same four components come back a plainly different colour —
+/// which is what makes [`two_intent_cmyk_profile`] able to say which transform was selected.
+fn pale_press_xyz(inks: [f32; 4]) -> [f32; 3] {
+    let mut xyz = [0.964_2f32, 1.0, 0.824_9];
+    let absorb = [
+        [0.30f32, 0.05, 0.05, 0.40],
+        [0.05, 0.30, 0.10, 0.40],
+        [0.05, 0.10, 0.35, 0.40],
+    ];
+    for (axis, row) in absorb.iter().enumerate() {
+        for (ink, factor) in inks.iter().zip(row) {
+            xyz[axis] *= 1.0 - factor * ink;
+        }
+    }
+    xyz
+}
+
+/// A CMYK profile whose perceptual and colorimetric transforms are two different presses.
+///
+/// `A2B0` is [`pale_press_xyz`] and `A2B1` is [`press_xyz_of`]'s variant 0, so a group
+/// composited in this space answers one colour under `/Perceptual` and another under the
+/// intent Table 51 makes the initial value.
+fn two_intent_cmyk_profile() -> Vec<u8> {
+    cmyk_profile(&[
+        (b"A2B0", &pale_press_xyz),
+        (b"A2B1", &|inks| press_xyz_of(0, inks)),
+    ])
+}
+
+/// A page drawing one isolated group whose `/CS` is [`two_intent_cmyk_profile`].
+///
+/// `before` is whatever the page states before the `Do` — which is where §11.7.5.3's second
+/// bullet puts the parameters that select the conversion *out* of the group's space.
+fn two_intent_group_fixture(before: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in two_intent_cmyk_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let page = format!("{before} /Fm Do");
+    let form = "0 0 0 0 k 10 10 80 80 re f /GS gs 1 1 1 1 k 20 20 60 60 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
+         /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /I true /CS [/ICCBased 6 0 R] >> /Length {} >>\n\
+         stream\n{form}\nendstream\nendobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        page.len() + 1,
+        form.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
 }
 
 /// [`icc_cmyk_profile`] as the `ASCIIHexDecode` text a fixture can hold.
@@ -1962,7 +2052,9 @@ fn a_colour_in_the_presss_own_space_is_not_converted_into_it() {
 fn a_presss_grid_is_the_profile_at_its_samples_and_near_it_between_them() {
     let profile =
         pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
-    let press = pdf_model::colour::press_for_profile(&profile).expect("a press slot");
+    let press =
+        pdf_model::colour::press_for_profile(&profile, pdf_model::icc::Rendering::compensating())
+            .expect("a press slot");
     let space = press.blending_space();
     let last = space.side() - 1;
 
@@ -2020,7 +2112,9 @@ fn a_presss_grid_is_the_profile_at_its_samples_and_near_it_between_them() {
 fn a_colour_converted_into_a_named_press_comes_back() {
     let profile =
         pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
-    let press = pdf_model::colour::press_for_profile(&profile).expect("a press slot");
+    let press =
+        pdf_model::colour::press_for_profile(&profile, pdf_model::icc::Rendering::compensating())
+            .expect("a press slot");
     let space = press.blending_space();
     let rgb = pdf_model::colour::ColourSpace::Rgb;
 
@@ -4440,5 +4534,68 @@ fn a_cal_rgb_mask_group_takes_the_luminance_of_its_composited_components() {
         "a DeviceGray goes in through sRGB's XYZ and its Y is that grey's linear light",
         pixel(&device_gray, 50, 50),
         1.0 - linear,
+    );
+}
+
+/// §11.7.5.3's second bullet: the intent at the `Do` selects the group's conversion out.
+///
+/// > the rendering intent used shall be the current rendering intent in effect at the time the
+/// > Do operator is applied to the group
+///
+/// The group composites in the four components of an `ICCBased` 'CMYK' space, and what turns
+/// those components back into a colour at the `Do` is one of the profile's "to CIE" transforms
+/// — ISO 15076-1:2010 tabulates one per intent, and §8.6.5.8 says PDF's names correspond to the
+/// ICC's. This fixture's profile answers a plainly different colour under `A2B0` than under
+/// `A2B1`, so the pixel says which was selected. Until ADR 1054 the press was sampled through
+/// `A2B1` whatever the file stated, because it was cached on the profile alone.
+///
+/// Both expected colours come from the profile rather than from this tree's raster: the group's
+/// content composites paper and registration black at `ca ½`, which §11.3.4 makes half of each
+/// ink, and half is a sample of the press's own grid rather than a point between two.
+#[test]
+fn the_intent_at_the_do_selects_the_conversion_out_of_a_groups_press() {
+    let profile = pdf_model::icc::Profile::parse(&two_intent_cmyk_profile())
+        .expect("the fixture profile parses");
+    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as i32;
+    let wanted = |transform| {
+        let colour = profile.to_rgb_with(
+            &[0.5, 0.5, 0.5, 0.5],
+            pdf_model::icc::Rendering::new(transform, true),
+        );
+        [level(colour.r), level(colour.g), level(colour.b)]
+    };
+
+    for (before, transform, what) in [
+        (
+            "",
+            pdf_model::icc::A2b::Colorimetric,
+            "Table 51's initial intent",
+        ),
+        (
+            "/Perceptual ri",
+            pdf_model::icc::A2b::Perceptual,
+            "a perceptual intent in force at the Do",
+        ),
+    ] {
+        let drawn = interpret(two_intent_group_fixture(before));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        let painted = pixel(&drawn, 50, 50);
+        let want = wanted(transform);
+        for (axis, want) in want.into_iter().enumerate() {
+            assert!(
+                (i32::from(painted[axis]) - want).abs() <= 2,
+                "{what}: channel {axis} of {painted:?} against the profile's {want}"
+            );
+        }
+    }
+
+    let colorimetric = wanted(pdf_model::icc::A2b::Colorimetric);
+    let perceptual = wanted(pdf_model::icc::A2b::Perceptual);
+    assert!(
+        colorimetric
+            .iter()
+            .zip(perceptual)
+            .any(|(one, other)| (one - other).abs() > 16),
+        "the fixture's two transforms are two pictures: {colorimetric:?} against {perceptual:?}"
     );
 }

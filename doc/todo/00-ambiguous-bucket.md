@@ -864,6 +864,48 @@ the file so the pair cannot pass for a new reason. Calibrated by admitting the c
 13): the refusal's sentence is then replaced by `no outline for any of the 389 code(s)` and the
 test goes red naming it.
 
+**Re-run whole in the thousand-and-thirty-sixth**, and the sweep is **byte-identical to the
+thousand-and-thirtieth's**: 839 listed, 839 measured, 18 at or past the alarm of −1.00, 15 of them
+documents this tree reports on, and every row of the head and of the complete tail to the
+thousandth. The gate's *ambiguous, undiagnosed* ranking prints **an empty list** again, all 62
+contradicted pages are held by a `CONTRADICTED_*` group, and the reference cache answered 100% of
+6747 renders — so no row below is a fresh reference's. **So for the third round running the two
+rankings name nobody, and a round sent here should read the corpus's own incomplete list instead**,
+which is what the next two paragraphs are.
+
+**`corpus.rs`'s incomplete list has a head the two rankings cannot see, and it is the documents
+this tree names nowhere.** Of the 61 documents the corpus gate calls incomplete, **ten are
+mentioned in no `.rs` and no document of this tree** — six of them ADR 0433's §9.7.5.2 population,
+held by their class rather than by name, and four that are held by nothing: `issue12823.pdf`,
+`issue2391-1.pdf`, `issue4575.pdf` and `issue6413.pdf`. The grep that produces that list is one
+line over the gate's own `incomplete:` lines, and it is the same method the thousand-and-thirtieth
+used on the sweep: a page nobody has written about is where the next finding is, whatever its
+distance.
+
+**`issue12823.pdf` was the one of the four whose report was false of the file, and the clause is
+§9.7.6.1's.** Its `/FT19` (`NUKKLY+NotoColorEmoji`, `/Encoding /Identity-H`) states
+`/DescendantFonts [ null ]` — Table 119's one-element array is present and the element is not "the
+CIDFont dictionary that is the descendant of this Type 0 font", so §9.7.6.2's mapping has nothing
+to index to and §7.3.9's rule about a null does not reach it, because that rule is about a
+*dictionary entry* and this null is an array element. **We are right to draw nothing**: `poppler`
+draws nothing either, `mupdf` logs *unknown cid font type* twice and `ghostscript` draws a small
+substitute mark, and the page is `agrees` at inks of 1.998 (ours), 2.091, 2.038 and 3.155 — what is
+lost is two emoji. **What was wrong is the sentence.** The refusal read *font /FT19 could not be
+parsed*, which claims bytes a `/FontFile` supplied were read and rejected when no program was
+reached at all, and `corpus.rs`'s classification read that phrase into its *an embedded font
+program that would not parse* row — making that row's population **4 where its clause's is 3**.
+`FontError::MalformedDictionary` now names the table instead, shared with §9.7.4.2's
+`/CIDToGIDMap` and §9.7.5.3's `/Encoding` stream, and the composition prints 3 there with a new
+§9.7.6.1 row of 1 beside it. Two tests in `silent_fonts.rs` hold the sentence and the file's own
+shape; calibrated (trap 13) by putting the raise site back on `FontError::Malformed`, which turns
+the first assertion red and the program row back to 4.
+
+**And the gate that counts that population could not see a regression in it.** `MAX_INCOMPLETE`
+stood at the hundred-and-twenty-seventh session's **91** against a counted **61** — thirty
+documents of slack, a third of the headline, while every other ratchet in the file sits on its
+count or one above. The slack is invisible by construction: the run prints the population and the
+constant does not, so nobody had put the two side by side. It is the counted figure now.
+
 **Re-run after the fix, and the statement is the sharp one**: over the **835** pages that remain
 `ambiguous`, every row is **byte-identical** to the before-run — the same numbers, the same labels
 — and the single row that left is `bug866395.pdf`. Nothing else moved a thousandth.

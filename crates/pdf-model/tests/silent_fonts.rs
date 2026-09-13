@@ -513,3 +513,85 @@ fn the_witness_states_one_embedded_program_and_one_absent_one() {
         "both fonts state /Identity-H and exactly one of them states a /FontFile2"
     );
 }
+
+/// A Type 0 font whose `/DescendantFonts` selects nothing is refused as a **dictionary**.
+///
+/// `issue12823.pdf` writes `/DescendantFonts [ null ]` on `/FT19` (`NUKKLY+NotoColorEmoji`,
+/// `/Encoding /Identity-H`). ISO 32000-2 §9.7.6.1's Table 119 makes that entry "A one-element
+/// array specifying the CIDFont dictionary that is the descendant of this Type 0 font", and
+/// §9.7.6.2 makes the array what the CMap's font number indexes to select a CIDFont, so there is
+/// nothing to select and nothing this reader can draw the two `Tj`s through. We draw nothing, and
+/// so does `poppler`; `mupdf` says *unknown cid font type* twice and `ghostscript` neither says
+/// nor draws anything for it — the page is `agrees` either way, because what is lost is two
+/// emoji.
+///
+/// **What this test holds is the sentence rather than the silence.** The refusal used to read
+/// *font /FT19 could not be parsed: no descendant font*, which claims bytes a `/FontFile`
+/// supplied were read and rejected, and `tests/corpus.rs`'s classification read that phrase as
+/// "an embedded font program that would not parse" — a mechanism row whose population was 4
+/// where its clause's is 3. Calibrated the way trap 13 asks: with the raise site put back on
+/// `FontError::Malformed`, this test goes red on the first assertion and the composition's
+/// program row counts four documents again.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes Table 119 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn a_type_0_font_that_selects_no_descendant_is_refused_as_a_dictionary() {
+    let Some(interpretation) = page_one("issue12823.pdf") else {
+        return;
+    };
+    let reports = reports(&interpretation);
+    assert!(
+        reports.contains("/DescendantFonts selects no CIDFont dictionary"),
+        "the refusal names the entry and the table that requires it: {reports}"
+    );
+    assert!(
+        !reports.contains("/FT19 could not be parsed"),
+        "and it does not send a reader looking for a font program that was never read: {reports}"
+    );
+}
+
+/// And the witness really is an array of one null rather than a missing entry.
+///
+/// The discriminating half of the test above, read out of the document: a `/DescendantFonts`
+/// that is *absent* would be a different defect of the same table, and §7.3.9 makes a null
+/// **dictionary entry** equivalent to omitting it — a rule this file's null does not fall under,
+/// because it is an array element. A producer's resource names shifting, or the fixture being
+/// replaced, fails here rather than leaving the test above passing for a new reason.
+#[test]
+fn the_witness_states_a_one_element_descendant_array_holding_null() {
+    let path: PathBuf =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue12823.pdf");
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    let document = Document::open(bytes).unwrap_or_else(|e| panic!("issue12823.pdf: {e}"));
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .unwrap_or_else(|| panic!("issue12823.pdf has no page one"));
+    let fonts = document.get_key(&page.resources, "Font");
+    let fonts = fonts
+        .as_dict()
+        .unwrap_or_else(|| panic!("page one states a /Font resource dictionary"));
+    let dict = document.get_key(fonts, "FT19");
+    let dict = dict
+        .as_dict()
+        .unwrap_or_else(|| panic!("/FT19 names a font dictionary"));
+    assert!(
+        document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .is_some_and(|n| &*n.0 == b"Type0"),
+        "the witness is a Type 0 font"
+    );
+    let descendants = document.get_key(dict, "DescendantFonts");
+    let array = descendants
+        .as_array()
+        .unwrap_or_else(|| panic!("/DescendantFonts is present and is an array"));
+    assert_eq!(array.len(), 1, "Table 119's one element is there");
+    assert!(
+        document.resolve(&array[0]).as_dict().is_none(),
+        "and it is not the CIDFont dictionary Table 119 says it specifies"
+    );
+}

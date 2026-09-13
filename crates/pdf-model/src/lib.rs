@@ -32,6 +32,7 @@
 pub mod accessibility;
 pub mod action;
 mod annotation;
+pub mod annotation_state;
 pub mod appearance;
 pub mod article;
 pub mod attachment;

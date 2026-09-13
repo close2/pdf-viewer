@@ -258,6 +258,31 @@ pub enum FontError {
         /// What went wrong.
         detail: String,
     },
+    /// The font **dictionary** states something its own table does not admit.
+    ///
+    /// Separate from [`FontError::Malformed`], and the separation is what the message buys: that
+    /// one says the program "could not be parsed", which is a claim that bytes a `/FontFile`
+    /// supplied were read and rejected. Here no program is reached at all — the entry that would
+    /// lead to one names nothing, or is not the type its table gives it, or is a stream that will
+    /// not decode — so a reader told the program failed goes looking for damage in a font file
+    /// that is not the fault.
+    ///
+    /// Two tables reach this today. ISO 32000-2 §9.7.6.1's Table 119 says of `/DescendantFonts`:
+    ///
+    /// > A one-element array specifying the CIDFont dictionary that is the descendant of this
+    /// > Type 0 font.
+    ///
+    /// and §9.7.6.2 makes that array what the `CMap`'s font number indexes to select a `CIDFont`,
+    /// so an array selecting no dictionary leaves the mapping with nothing to reach. The other is
+    /// §9.7.4.2's `/CIDToGIDMap`, which Table 115 types as a stream or a name: a value that is
+    /// neither states no route from a CID to a glyph index.
+    #[error("font /{name}: {detail}")]
+    MalformedDictionary {
+        /// The resource name.
+        name: String,
+        /// What the dictionary states, and which table does not admit it.
+        detail: String,
+    },
     /// The encoding is one this crate does not implement.
     #[error("font /{name} uses unsupported encoding {encoding}")]
     UnsupportedEncoding {
@@ -786,9 +811,16 @@ impl LoadedFont {
             .and_then(<[Object]>::first)
             .map(|item| document.resolve(item))
             .and_then(|item| item.as_dict().cloned())
-            .ok_or_else(|| FontError::Malformed {
+            // §9.7.6.1's Table 119 requires a one-element array naming the CIDFont dictionary,
+            // and §9.7.6.2 indexes that array to select one. A file may state the entry and
+            // still select nothing — `issue12823.pdf` writes `/DescendantFonts [ null ]`, and
+            // §7.3.9's null is not a dictionary — so the fault is the dictionary's and not a
+            // program's. [`FontError::MalformedDictionary`] says which.
+            .ok_or_else(|| FontError::MalformedDictionary {
                 name: name.to_owned(),
-                detail: "no descendant font".to_owned(),
+                detail: "/DescendantFonts selects no CIDFont dictionary, which Table 119 requires \
+                         it to (§9.7.6.1)"
+                    .to_owned(),
             })?;
 
         let descriptor_object = document.get_key(&descendant, "FontDescriptor");

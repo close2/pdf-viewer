@@ -294,8 +294,13 @@ pub enum ResetTarget {
 /// file's bytes once somebody has them, and [`crate::view::ViewState::import`] applies it.
 ///
 /// "[O]r any other data format that it supports" is what makes [`Self::format`] worth stating
-/// rather than guessing: this program supports FDF and not XFDF, which is ISO 19444-1 and an XML
-/// parser rather than a clause of this standard.
+/// rather than guessing: this program supports FDF and not XFDF. **What declines XFDF is the
+/// standard that defines it and not the parser it would take.** `xmlparser` is this crate's own
+/// dependency (ADR 0186) and [`crate::popup::rich_text`] already reads XML with it, so a refusal
+/// resting on the parser would be resting on a decision that has been taken. ISO 19444-1 is not
+/// on this disk; `CLAUDE.md` principle 5 makes a grammar taken from another reader or from
+/// sample files not a reading of a specification at all, which is what implementing it from here
+/// would be.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportData {
     /// Table 243's `/F`, "[t]he FDF, XFDF or any other data format file from which to import the
@@ -320,7 +325,8 @@ pub struct ImportData {
 pub enum DataFormat {
     /// `.fdf` — §12.7.8's Forms Data Format, which [`crate::forms_data`] reads.
     Fdf,
-    /// `.xfdf` — ISO 19444-1's XML spelling of the same data, which this program does not read.
+    /// `.xfdf` — ISO 19444-1's XML spelling of the same data, which this program does not read
+    /// because that standard is not on this disk to be read *from*; see the type's own comment.
     Xfdf,
     /// Anything else, which §12.7.6.4's "any other data format that it supports" permits and
     /// this program supports none of.

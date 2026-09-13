@@ -29,6 +29,15 @@
 //! draw and answers with the first match, which is a different function from "what does the file
 //! say".
 //!
+//! **A name is restricted, and a processor chooses whether to care.** §12.3.5.2 puts six
+//! restrictions on a folder's name and on the names of the files under it, and then hands the
+//! reader a choice about a name that breaks one: "[a]n interactive PDF processor may choose to
+//! support invalid names or not. If not, an appropriate error message shall be provided." **This
+//! program supports them**, deliberately and once — ADR 1050 — and [`Collection::invalid_names`]
+//! is the other half of that choice: every restriction broken, named, so that a presentation can
+//! say so rather than a reader having to wonder. [`file_name_defects`] is the five bullets, and
+//! [`NameRestriction::Duplicate`] is the sixth rule, which is about two names rather than one.
+//!
 //! **`/D` names the document to open, and states its own three fallbacks.** Missing or not a
 //! valid byte string: the container itself. Naming a file the tree does not hold: "the first
 //! item from the list of files". No files at all: "an empty preview window".
@@ -88,6 +97,17 @@ pub struct Collection {
     pub split: Option<Split>,
     /// The root of `/Folders`, where the collection has a folder tree.
     pub folders: Option<Folder>,
+    /// Every name §12.3.5.2 restricts and this document breaks — read, named, and not refused.
+    ///
+    /// One entry per restriction per name, in the clause's own order of bullets, so a name that
+    /// breaks three appears three times and each entry says which. Empty is the ordinary answer
+    /// and is the *only* thing that distinguishes a conforming collection from one this reader
+    /// never asked about, which is why the choice ADR 1050 records has a value attached to it.
+    ///
+    /// The population is one entry per folder and per `/EmbeddedFiles` key, times the six
+    /// restrictions, so it is bounded by the same walk that bounds [`Self::folders`]: no separate
+    /// budget is owed here because nothing here reads anything the tree does not already hold.
+    pub invalid_names: Vec<NameDefect>,
 }
 
 /// Table 153's `/View`: how the collection is first presented.
@@ -357,6 +377,16 @@ impl Collection {
         let catalog = document.catalog().ok()?;
         let collection = document.get_key(&catalog, "Collection");
         let dict = collection.as_dict()?;
+        // §12.3.5.2's names are read alongside the tree rather than after it: the first of the
+        // six restrictions is about the bytes a `/Name` holds, and by the time a `Folder` exists
+        // the bytes are a `String`.
+        let mut invalid_names = Vec::new();
+        let folders = folders(document, dict, &mut invalid_names);
+        names_in_folders(
+            folders.as_ref(),
+            &embedded_file_keys(document),
+            &mut invalid_names,
+        );
         Some(Self {
             schema: schema(document, dict),
             initial: match document.get_key(dict, "D") {
@@ -374,7 +404,8 @@ impl Collection {
             navigator: navigator(document, dict),
             colours: colours(document, dict),
             split: split(document, dict),
-            folders: folders(document, dict),
+            folders,
+            invalid_names,
         })
     }
 
@@ -432,27 +463,226 @@ pub fn folder_of(key: &str) -> Option<(u32, &str)> {
     Some((digits.parse().ok()?, name))
 }
 
-/// Whether a string is a *file name* by §12.3.5.2's five requirements.
+/// One of §12.3.5.2's restrictions on a name, broken.
 ///
-/// The clause's bullets: a PDF text string, with no "embedded NULL (U+0000) characters", a
-/// length where "[t]he number of characters in the string shall be between 1 and 255 inclusive",
-/// none of "the eight special characters" it then lists, and a last character that "shall not be
-/// a FULL STOP (U+002E) (.)". The
-/// clause leaves what to do about a bad one open — "[a]n interactive PDF processor may choose to
-/// support invalid names or not" — so this answers the question and refuses nothing.
+/// The clause states five of them as bullets under "[a] valid file name conforms to the
+/// following requirements", and a sixth as a sentence of its own two paragraphs later. Each
+/// variant carries what a reader would need to say which name it is about and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NameRestriction {
+    /// §12.3.5.2's first bullet.
+    ///
+    /// > The string shall be a PDF text string.
+    ///
+    /// Decided from the bytes rather than from the decoded string, by
+    /// [`pdf_syntax::is_text_string`]: §7.9.2.2's three encodings can each be contradicted by
+    /// the bytes that claim them, and `pdf_syntax::text_string` answers U+FFFD for all three.
+    TextString,
+    /// §12.3.5.2's second bullet.
+    ///
+    /// > The string shall not contain any embedded NULL (U+0000) characters.
+    EmbeddedNull,
+    /// §12.3.5.2's third bullet.
+    ///
+    /// > The number of characters in the string shall be between 1 and 255 inclusive.
+    Length {
+        /// How many characters the name has, which is the number the sentence bounds.
+        characters: usize,
+    },
+    /// One of the eight §12.3.5.2 names: `/`, `\`, `:`, `*`, `"`, `<`, `>` and `|`.
+    ///
+    /// > The string shall not contain any of the eight special characters: SOLIDUS (U+002F) (/),
+    /// > REVERSE SOLIDUS (U+005C) (\), COLON (U+003A) (:), ASTERISK (U+002A) (*), QUOTATION MARK
+    /// > (U+0022) ("), LESS-THAN SIGN (U+003C) (&lt;), GREATER-THAN SIGN (U+003E) (&gt;) and
+    /// > VERTICAL LINE (U+007C) (|).
+    ///
+    /// Raised **once** per name, for the first of the eight it contains: the sentence restricts
+    /// the name rather than each character of it, and one statement per name is what keeps this
+    /// report proportional to the tree rather than to its content.
+    Special {
+        /// Which of the eight was met first.
+        character: char,
+    },
+    /// §12.3.5.2's fifth bullet.
+    ///
+    /// > The last character shall not be a FULL STOP (U+002E) (.).
+    TrailingFullStop,
+    /// §12.3.5.2's sixth restriction, which is about two names rather than one.
+    ///
+    /// > In addition to the restriction on naming folders, as just described, it is further
+    /// > required that two file names in the same folder do not map to the same string following
+    /// > case normalization. Two file names that differ only in case are disallowed within the
+    /// > same folder.
+    ///
+    /// **A folder's name is a file name too**, which is what puts subfolders and files in one
+    /// namespace here: the clause defines the term as "[s]trings that conform to these
+    /// restrictions are known as file names" and then applies the restrictions to "[a] folder, as
+    /// well as its associated files". Table 159's `/Name` states the folder half again on its own
+    /// — "Two sibling folders shall not share the same name following case normalization" — and
+    /// reading the two as one rule is what makes that sentence a restatement rather than a second
+    /// rule with a gap between them.
+    ///
+    /// Raised for **every** member of a colliding group, because the clause forbids the pair and
+    /// names no first-come winner.
+    Duplicate {
+        /// What the colliding names both normalise to.
+        normalised: String,
+    },
+}
+
+/// What a restricted name belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Named {
+    /// A folder, by Table 159's `/ID` — the number a file's name-tree key refers to.
+    Folder {
+        /// The folder's identifier, or 0 where it states none.
+        id: u32,
+    },
+    /// A file, by its `/EmbeddedFiles` key, folder tag and all.
+    ///
+    /// The key rather than the name, because the key is what identifies the entry in the tree
+    /// and what a caller would use to reach the file; [`folder_of`] takes the name back out.
+    File {
+        /// The name-tree key, as the document writes it.
+        key: String,
+    },
+}
+
+/// One restriction of §12.3.5.2, broken by one name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameDefect {
+    /// The name itself: a folder's `/Name`, or the file name part of an `/EmbeddedFiles` key.
+    pub name: String,
+    /// What the name belongs to.
+    pub owner: Named,
+    /// Which of the six it breaks.
+    pub restriction: NameRestriction,
+}
+
+/// The eight characters §12.3.5.2 excludes from a name, in the clause's own order.
+const SPECIAL_CHARACTERS: [char; 8] = ['/', '\\', ':', '*', '"', '<', '>', '|'];
+
+/// Which of §12.3.5.2's five per-name requirements a string breaks.
 ///
-/// The bound is counted in **characters** rather than bytes, which is what the sentence says, so
-/// a text string's scalar values are counted and not its UTF-8 length. It used to be left out
-/// here on a reason that named an operation this function does not perform — that truncating a
-/// name would rename a file — while the doc line above it claimed the clause's five rules and
-/// the code applied four (session 600).
+/// The clause's bullets, in its own order, minus the first: "[t]he string shall be a PDF text
+/// string" is a statement about the *bytes* a document wrote, which a `&str` no longer has, and
+/// [`NameRestriction::TextString`] is raised where those bytes are read instead.
+///
+/// The length bound is counted in **characters**, which is what the sentence says, so a text
+/// string's scalar values are counted and not its UTF-8 length.
+///
+/// Nothing here refuses anything: a broken restriction is a value, and ADR 1050 is where this
+/// program decides what to do with one. That decision is the clause's to offer — "[a]n
+/// interactive PDF processor may choose to support invalid names or not" — and taking it at the
+/// point of the read would be taking it in the one place no host could reach.
+#[must_use]
+pub fn file_name_defects(name: &str) -> Vec<NameRestriction> {
+    let mut broken = Vec::new();
+    if name.contains('\0') {
+        broken.push(NameRestriction::EmbeddedNull);
+    }
+    let characters = name.chars().count();
+    if !(1..=255).contains(&characters) {
+        broken.push(NameRestriction::Length { characters });
+    }
+    if let Some(character) = name.chars().find(|c| SPECIAL_CHARACTERS.contains(c)) {
+        broken.push(NameRestriction::Special { character });
+    }
+    if name.ends_with('.') {
+        broken.push(NameRestriction::TrailingFullStop);
+    }
+    broken
+}
+
+/// Whether a string is a *file name* by §12.3.5.2's five per-name requirements.
+///
+/// The predicate [`file_name_defects`] answers in detail. It is kept because most callers want
+/// the question rather than the answer — a panel deciding whether to mark a row, a test asserting
+/// that a corpus document conforms — and because a `bool` cannot be misread as a refusal.
 #[must_use]
 pub fn is_file_name(name: &str) -> bool {
-    (1..=255).contains(&name.chars().count())
-        && !name.ends_with('.')
-        && !name
-            .chars()
-            .any(|c| c == '\0' || matches!(c, '/' | '\\' | ':' | '*' | '"' | '<' | '>' | '|'))
+    file_name_defects(name).is_empty()
+}
+
+/// A name "following case normalization", which §12.3.5.2 sends to Unicode Standard Annex #21.
+///
+/// `char::to_lowercase` is Unicode's own full lowercase mapping, and Annex #21's caseless
+/// matching is `toCasefold` rather than `toLowercase`. The two agree on every character whose
+/// lowercase form is itself a lowercase character, and differ on the handful — U+00DF LATIN SMALL
+/// LETTER SHARP S and U+017F LATIN SMALL LETTER LONG S chief among them — that fold to a
+/// *different* string from the one they lowercase to. That difference is stated here rather than
+/// hidden: a name pair it reaches is a collision this reports as no collision, which is the safe
+/// direction for a program that supports invalid names anyway, and closing it would mean carrying
+/// `CaseFolding.txt` for one sentence of one clause.
+fn case_normalised(name: &str) -> String {
+    name.chars().flat_map(char::to_lowercase).collect()
+}
+
+/// §12.3.5.2's sixth restriction, applied to the folder tree and the `/EmbeddedFiles` keys at
+/// once, and its five per-name ones applied to the keys.
+///
+/// One namespace per folder, because that is what "in the same folder" names. A key is in the
+/// folder its own tag names — "[t]he section of the string enclosed by LESS-THAN SIGN
+/// GREATER-THAN SIGN(&lt;&gt;) is interpreted as a numeric value that specifies the ID value of
+/// the folder with which the file is associated" — and a key that conforms to none of the tag's
+/// rules is the root's, which is the clause's own remedy for one: such files "shall be treated as
+/// associated with the root folder". A collection that states no `/Folders` at all has one
+/// namespace, which is the flat list the clause asks such a document be shown as.
+fn names_in_folders(folders: Option<&Folder>, keys: &[String], into: &mut Vec<NameDefect>) {
+    let root = folders.map(|folder| folder.id);
+    // Normalised name, name, and owner, per folder identifier. A `BTreeMap` because the report is
+    // compared in tests and carried across a process boundary, and a hash order is neither.
+    let mut namespaces: BTreeMap<Option<u32>, Vec<(String, String, Named)>> = BTreeMap::new();
+
+    for key in keys {
+        let (id, name) = match folder_of(key) {
+            Some((id, name)) => (Some(id), name.to_owned()),
+            None => (None, key.clone()),
+        };
+        let owner = Named::File { key: key.clone() };
+        for restriction in file_name_defects(&name) {
+            into.push(NameDefect {
+                name: name.clone(),
+                owner: owner.clone(),
+                restriction,
+            });
+        }
+        namespaces
+            .entry(id.or(root))
+            .or_default()
+            .push((case_normalised(&name), name, owner));
+    }
+
+    let mut stack: Vec<&Folder> = folders.into_iter().collect();
+    while let Some(folder) = stack.pop() {
+        for child in &folder.children {
+            namespaces.entry(Some(folder.id)).or_default().push((
+                case_normalised(&child.name),
+                child.name.clone(),
+                Named::Folder { id: child.id },
+            ));
+            stack.push(child);
+        }
+    }
+
+    for members in namespaces.values() {
+        let mut occurrences: BTreeMap<&str, usize> = BTreeMap::new();
+        for (normalised, _, _) in members {
+            let seen = occurrences.entry(normalised.as_str()).or_default();
+            *seen = seen.saturating_add(1);
+        }
+        for (normalised, name, owner) in members {
+            if occurrences.get(normalised.as_str()).copied() > Some(1) {
+                into.push(NameDefect {
+                    name: name.clone(),
+                    owner: owner.clone(),
+                    restriction: NameRestriction::Duplicate {
+                        normalised: normalised.clone(),
+                    },
+                });
+            }
+        }
+    }
 }
 
 /// Table 154's schema: a field dictionary per writer-chosen key.
@@ -632,7 +862,7 @@ fn split(document: &Document, dict: &Dictionary) -> Option<Split> {
 }
 
 /// Table 159's folder tree, from Table 153's `/Folders` downwards.
-fn folders(document: &Document, dict: &Dictionary) -> Option<Folder> {
+fn folders(document: &Document, dict: &Dictionary, names: &mut Vec<NameDefect>) -> Option<Folder> {
     let root = document.get_key(dict, "Folders");
     let root = root.as_dict()?;
     let mut visited = std::collections::BTreeSet::new();
@@ -645,7 +875,7 @@ fn folders(document: &Document, dict: &Dictionary) -> Option<Folder> {
         visited.insert(id);
     }
     let mut budget = MAX_FOLDERS;
-    Some(folder(document, root, 0, &mut visited, &mut budget))
+    Some(folder(document, root, 0, &mut visited, &mut budget, names))
 }
 
 /// One folder and its `/Child`–`/Next` descendants.
@@ -655,7 +885,36 @@ fn folder(
     depth: usize,
     visited: &mut std::collections::BTreeSet<ObjectId>,
     budget: &mut usize,
+    names: &mut Vec<NameDefect>,
 ) -> Folder {
+    let id = document
+        .get_key(dict, "ID")
+        .as_integer()
+        .and_then(|id| u32::try_from(id).ok())
+        .unwrap_or(0);
+    // §12.3.5.2's first restriction is the one that needs the bytes: "[t]he string shall be a PDF
+    // text string", and `text_string` answers U+FFFD for every way that can be false.
+    let stated = document.get_key(dict, "Name");
+    let name = match &stated {
+        Object::String(bytes) => pdf_syntax::text_string(bytes),
+        _ => String::new(),
+    };
+    let owner = Named::Folder { id };
+    if !matches!(&stated, Object::String(bytes) if pdf_syntax::is_text_string(bytes)) {
+        names.push(NameDefect {
+            name: name.clone(),
+            owner: owner.clone(),
+            restriction: NameRestriction::TextString,
+        });
+    }
+    for restriction in file_name_defects(&name) {
+        names.push(NameDefect {
+            name: name.clone(),
+            owner: owner.clone(),
+            restriction,
+        });
+    }
+
     let mut children = Vec::new();
     if depth < MAX_DEPTH {
         // `/Child` is "the first child folder" and `/Next` chains the rest at that level, which
@@ -677,20 +936,14 @@ fn folder(
                 depth.saturating_add(1),
                 visited,
                 budget,
+                names,
             ));
             next = child.get("Next").and_then(Object::as_reference);
         }
     }
     Folder {
-        id: document
-            .get_key(dict, "ID")
-            .as_integer()
-            .and_then(|id| u32::try_from(id).ok())
-            .unwrap_or(0),
-        name: match document.get_key(dict, "Name") {
-            Object::String(bytes) => pdf_syntax::text_string(&bytes),
-            _ => String::new(),
-        },
+        id,
+        name,
         description: match document.get_key(dict, "Desc") {
             Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
             _ => None,
@@ -761,7 +1014,8 @@ pub fn embedded_file_keys(document: &Document) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Collection, FieldKind, Initial, Layout, SplitDirection, View, folder_of, is_file_name,
+        Collection, FieldKind, Initial, Layout, NameDefect, NameRestriction, Named, SplitDirection,
+        View, file_name_defects, folder_of, is_file_name,
     };
     use pdf_syntax::{Document, Object};
 
@@ -943,6 +1197,195 @@ mod tests {
         assert!(
             is_file_name(&"é".repeat(255)),
             "the bound counts characters, and 255 of these are 510 bytes"
+        );
+
+        // The predicate is the detail collapsed, and the detail is what a report says out loud.
+        assert_eq!(
+            file_name_defects("a/b."),
+            [
+                NameRestriction::Special { character: '/' },
+                NameRestriction::TrailingFullStop
+            ],
+            "one name can break two, and each is named"
+        );
+        assert_eq!(
+            file_name_defects("a\u{5c}b"),
+            [NameRestriction::Special {
+                character: '\u{5c}'
+            }],
+            "the first of the eight met is the one reported"
+        );
+    }
+
+    /// Each of §12.3.5.2's five per-name restrictions, reported against the name that breaks it.
+    ///
+    /// The clause bounds a *name*, and this asserts the five outcomes one at a time so that the
+    /// report cannot pass by firing on everything: the first folder here is conforming and is
+    /// absent from the answer, which is the half of a sweep that says the sweep is calibrated
+    /// (trap 13). Each of the other five breaks exactly one bullet, in the clause's order.
+    ///
+    /// **The NUL is written as UTF-16BE on purpose.** Table D.3 leaves code 0 undefined, so a
+    /// `PDFDocEncoding` name holding a zero byte is caught by the *first* bullet — it is not a
+    /// text string at all — and the second bullet is reachable only through an encoding that can
+    /// represent U+0000, which is what §7.9.2.2's two Unicode forms do.
+    #[test]
+    fn each_of_the_clauses_five_restrictions_on_a_name_is_reported_by_itself() {
+        let too_long = format!(
+            "<< /Type /Folder /ID 3 /Name ({}) /Next 7 0 R >>",
+            "a".repeat(256)
+        );
+        let doc = document(&[
+            "<< /Type /Catalog /Collection 2 0 R >>",
+            "<< /Type /Collection /Folders 3 0 R >>",
+            "<< /Type /Folder /ID 0 /Name (Invoices 2024) /Child 4 0 R >>",
+            "<< /Type /Folder /ID 1 /Name 42 /Next 5 0 R >>",
+            "<< /Type /Folder /ID 2 /Name <FEFF00610000> /Next 6 0 R >>",
+            &too_long,
+            "<< /Type /Folder /ID 4 /Name (a:b) /Next 8 0 R >>",
+            "<< /Type /Folder /ID 5 /Name (trailing.) >>",
+        ]);
+        let collection = Collection::read(&doc).expect("a /Collection");
+        let reported: Vec<(&Named, &NameRestriction)> = collection
+            .invalid_names
+            .iter()
+            .map(|defect| (&defect.owner, &defect.restriction))
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                // "The string shall be a PDF text string." — an integer is not one, and the
+                // empty name it leaves behind breaks the length bound as well.
+                (&Named::Folder { id: 1 }, &NameRestriction::TextString),
+                (
+                    &Named::Folder { id: 1 },
+                    &NameRestriction::Length { characters: 0 }
+                ),
+                (&Named::Folder { id: 2 }, &NameRestriction::EmbeddedNull),
+                (
+                    &Named::Folder { id: 3 },
+                    &NameRestriction::Length { characters: 256 }
+                ),
+                (
+                    &Named::Folder { id: 4 },
+                    &NameRestriction::Special { character: ':' }
+                ),
+                (&Named::Folder { id: 5 }, &NameRestriction::TrailingFullStop),
+            ],
+            "folder 0 conforms and is not in the answer: {:?}",
+            collection.invalid_names
+        );
+        assert_eq!(
+            collection.invalid_names[2].name, "a\0",
+            "the name is carried as the document states it, NUL and all"
+        );
+    }
+
+    /// §12.3.5.2's sixth restriction: two names in one folder that normalise alike.
+    ///
+    /// > it is further required that two file names in the same folder do not map to the same
+    /// > string following case normalization
+    ///
+    /// Both members of the pair are named, because the clause forbids the pair and states no
+    /// first-come winner. A subfolder and a file collide as well as two files: the clause's term
+    /// covers both — "[a] folder, as well as its associated files, have naming restrictions" —
+    /// and Table 159 says the folder half again on its own.
+    ///
+    /// The control is the second folder: `Photos` sits under a *different* parent from `photos`,
+    /// so the two are not "in the same folder" and neither is reported.
+    #[test]
+    fn two_names_in_one_folder_that_differ_only_in_case_are_both_reported() {
+        let doc = document(&[
+            "<< /Type /Catalog /Collection 2 0 R /Names 3 0 R >>",
+            "<< /Type /Collection /Folders 4 0 R >>",
+            "<< /EmbeddedFiles << /Names [ (<1>Report.pdf) 8 0 R (<1>report.pdf) 8 0 R \
+             (<2>photos) 8 0 R ] >> >>",
+            "<< /Type /Folder /ID 1 /Name (root) /Child 5 0 R >>",
+            "<< /Type /Folder /ID 2 /Name (Photos) /Next 6 0 R >>",
+            "<< /Type /Folder /ID 3 /Name (Letters) /Next 7 0 R >>",
+            "<< /Type /Folder /ID 4 /Name (letters) >>",
+            "<< /Type /Filespec /F (x) >>",
+        ]);
+        let collection = Collection::read(&doc).expect("a /Collection");
+        assert_eq!(
+            collection.invalid_names,
+            [
+                NameDefect {
+                    name: "Report.pdf".to_owned(),
+                    owner: Named::File {
+                        key: "<1>Report.pdf".to_owned()
+                    },
+                    restriction: NameRestriction::Duplicate {
+                        normalised: "report.pdf".to_owned()
+                    },
+                },
+                NameDefect {
+                    name: "report.pdf".to_owned(),
+                    owner: Named::File {
+                        key: "<1>report.pdf".to_owned()
+                    },
+                    restriction: NameRestriction::Duplicate {
+                        normalised: "report.pdf".to_owned()
+                    },
+                },
+                NameDefect {
+                    name: "Letters".to_owned(),
+                    owner: Named::Folder { id: 3 },
+                    restriction: NameRestriction::Duplicate {
+                        normalised: "letters".to_owned()
+                    },
+                },
+                NameDefect {
+                    name: "letters".to_owned(),
+                    owner: Named::Folder { id: 4 },
+                    restriction: NameRestriction::Duplicate {
+                        normalised: "letters".to_owned()
+                    },
+                },
+            ],
+            "`Photos` in folder 1 and the file `photos` in folder 2 are in different folders"
+        );
+    }
+
+    /// A collection whose names all conform reports nothing, and the file names are read too.
+    ///
+    /// The second half is what the first cannot say: a report that never looked at the
+    /// `/EmbeddedFiles` keys would also be empty here, so the same document is asserted twice —
+    /// once conforming and once with one key's file name broken.
+    #[test]
+    fn a_conforming_collection_reports_no_name_and_a_broken_key_reports_one() {
+        fn objects(key: &str) -> Vec<String> {
+            vec![
+                "<< /Type /Catalog /Collection 2 0 R /Names 3 0 R >>".to_owned(),
+                "<< /Type /Collection /Folders 4 0 R >>".to_owned(),
+                format!("<< /EmbeddedFiles << /Names [ ({key}) 5 0 R ] >> >>"),
+                "<< /Type /Folder /ID 1 /Name (Invoices 2024) >>".to_owned(),
+                "<< /Type /Filespec /F (x) >>".to_owned(),
+            ]
+        }
+        fn borrow(objects: &[String]) -> Vec<&str> {
+            objects.iter().map(String::as_str).collect()
+        }
+
+        let good = objects("<1>report.pdf");
+        let collection = Collection::read(&document(&borrow(&good))).expect("a /Collection");
+        assert!(
+            collection.invalid_names.is_empty(),
+            "nothing here breaks a restriction: {:?}",
+            collection.invalid_names
+        );
+
+        let bad = objects("<1>report.");
+        let collection = Collection::read(&document(&borrow(&bad))).expect("a /Collection");
+        assert_eq!(
+            collection.invalid_names,
+            [NameDefect {
+                name: "report.".to_owned(),
+                owner: Named::File {
+                    key: "<1>report.".to_owned()
+                },
+                restriction: NameRestriction::TrailingFullStop,
+            }],
+            "the restrictions reach the name inside a name-tree key, not only a folder's /Name"
         );
     }
 

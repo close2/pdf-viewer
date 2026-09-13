@@ -130,7 +130,8 @@ fn sampling_gap(profile: &pdf_model::icc::Profile, side: usize) -> f32 {
 /// `OnceLock` on the press rather than inside `sample_press`, because almost every press a
 /// document names is a page's and never carries a mask.
 fn luminance_gap(profile: &pdf_model::icc::Profile) -> Option<(f32, std::time::Duration)> {
-    let press = pdf_model::colour::press_for_profile(profile)?;
+    let press =
+        pdf_model::colour::press_for_profile(profile, pdf_model::icc::Rendering::compensating())?;
     let started = std::time::Instant::now();
     let luminance = press.luminance()?;
     let cost = started.elapsed();

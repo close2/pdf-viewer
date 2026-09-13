@@ -1378,6 +1378,12 @@ fn collection_rows(
             "This collection names an initial document and holds no files.",
         ));
     }
+    // §12.3.5.2's restricted names. This program supports them (ADR 1050) and draws them as the
+    // file wrote them, so the row above may say `a:b`; `viewer_host::panel::restricted_names` is
+    // the one sentence that says so, in all three windows.
+    if let Some(sentence) = viewer_host::panel::restricted_names(collection) {
+        out.push(nothing(&sentence));
+    }
 }
 
 /// One folder and everything under it.

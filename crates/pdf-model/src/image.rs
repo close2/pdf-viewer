@@ -891,6 +891,33 @@ fn colour_space(
     Ok(ColourSpace::reduced(resolved, into.target().clone()))
 }
 
+/// §11.6.5.2's soft-mask image's own colour space, read against no resource dictionary.
+///
+/// The one difference from [`colour_space`] is the resources, and it is the whole of this
+/// function: a soft-mask image's samples are §11.6.4.3's mask values rather than colours, so
+/// §8.6.5.6's default colour space mechanism has nothing here to remap. The clause says so
+/// itself — "[c]olour values in the original device colour space shall be passed unchanged to
+/// the default colour space" — so the remapping never changes a component's *value*, only
+/// which colour that value denotes; and what §11.6.5.2 uses is the value. Table 143 fixes the
+/// entry at one word, "Required; shall be `DeviceGray`", a name no resource dictionary is
+/// consulted to resolve, so a conforming mask loses nothing by being read without one.
+///
+/// What a non-conforming mask loses is a report rather than a guess: a mask naming its space
+/// by a resource key resolves to nothing here and [`soft_mask_entry`] names it unusable, where
+/// before it resolved against the *parent's* resources and a `/DefaultGray` with a tone curve
+/// bent the alpha through it (ADR 1008 found that and did not fix it; ADR 1054 is the fix).
+fn mask_colour_space(
+    document: &Document,
+    mask_dict: &Dictionary,
+) -> Result<ColourSpace, ImageError> {
+    colour_space(
+        document,
+        mask_dict,
+        &Dictionary::new(),
+        &Conversion::device(),
+    )
+}
+
 /// How a row of raw bytes becomes colour: the layout, and what a value means.
 ///
 /// Grouped rather than passed one at a time because all five are settled by the image
@@ -3619,7 +3646,7 @@ fn soft_mask_entry(
             "/SMask carries a /Mask of its own, which Table 143 says shall be absent".to_owned(),
         );
     }
-    match colour_space(document, &mask.dict, resources, &Conversion::device()) {
+    match mask_colour_space(document, &mask.dict) {
         Ok(space) if space.components() == 1 => {}
         Ok(space) => {
             return SoftMaskEntry::Unusable(format!(
@@ -3636,7 +3663,7 @@ fn soft_mask_entry(
         // The refinement of the two grids is large enough that §10.7.4's answer — combine at
         // device resolution — is the better one. It needs the mask's samples readable at a
         // chosen grid; see [`device_scaled_soft_mask`] for the three things that decides.
-        if eligible_for_the_device_scale(document, &mask.dict, resources)
+        if eligible_for_the_device_scale(document, &mask.dict)
             && matches!(
                 matte_colour(document, dict, resources, &mask.dict),
                 Matte::Absent
@@ -3828,16 +3855,12 @@ fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
 ///   which decodes through the whole colour module; this route reads a byte.
 /// - **The depth is one Table 87 names.** The same five [`unpack`] admits, for the same
 ///   reason: a depth the standard does not name says nothing about how the bytes are packed.
-fn eligible_for_the_device_scale(
-    document: &Document,
-    mask_dict: &Dictionary,
-    resources: &Dictionary,
-) -> bool {
+fn eligible_for_the_device_scale(document: &Document, mask_dict: &Dictionary) -> bool {
     if image_codec(document, mask_dict).is_some() {
         return false;
     }
     if !matches!(
-        colour_space(document, mask_dict, resources, &Conversion::device()),
+        mask_colour_space(document, mask_dict),
         Ok(ColourSpace::Gray)
     ) {
         return false;
@@ -4673,7 +4696,10 @@ fn apply_soft_mask(
     }) = decode(
         document,
         &mask_stream,
-        resources,
+        // No resource dictionary, which [`mask_colour_space`] is the argument for: the mask's
+        // samples are mask values and §8.6.5.6's defaults remap colours. The two readings have
+        // to agree, because `soft_mask_entry` decided this mask was usable from the first.
+        &Dictionary::new(),
         pdf_render::Color::BLACK,
         // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
         &Conversion::device(),

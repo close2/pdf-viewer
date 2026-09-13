@@ -200,9 +200,12 @@ fn read_cmap(
         .ok_or_else(|| unsupported("an /Encoding that is neither a name nor a stream"))?;
     let data = document
         .decoded_stream_data(stream)
-        .ok_or_else(|| FontError::Malformed {
+        // The stream is the font dictionary's `/Encoding`, so what failed is the file's own
+        // entry rather than a font program; [`FontError::MalformedDictionary`] is the variant
+        // that does not claim a program was read.
+        .ok_or_else(|| FontError::MalformedDictionary {
             name: name.to_owned(),
-            detail: "the CMap stream could not be decoded".to_owned(),
+            detail: "its /Encoding CMap stream could not be decoded (§9.7.5.3)".to_owned(),
         })?;
 
     let used = match document.get_key(&stream.dict, "UseCMap") {
@@ -334,17 +337,25 @@ pub(crate) fn cid_to_glyph(
             /// than two bytes per such CID describes nothing.
             const MAX_MAP: usize = 2 * (1 << 16);
 
-            let stream = stream.as_stream().ok_or_else(|| FontError::Malformed {
-                name: name.to_owned(),
-                detail: "/CIDToGIDMap is neither a name nor a stream".to_owned(),
+            // Both failures below are the descendant dictionary's own entry rather than a font
+            // program: Table 115 types `/CIDToGIDMap` as a stream or a name, and a value that is
+            // neither, or a stream that will not decode, leaves §9.7.4.2 with no map. Reporting
+            // them as a program that "could not be parsed" would send a reader to the
+            // `/FontFile2`, which is not the fault.
+            let stream = stream
+                .as_stream()
+                .ok_or_else(|| FontError::MalformedDictionary {
+                    name: name.to_owned(),
+                    detail: "/CIDToGIDMap is neither a name nor a stream, which is all Table 115 \
+                             types it as (§9.7.4.2)"
+                        .to_owned(),
+                })?;
+            let bytes = document.decoded_stream_data(stream).ok_or_else(|| {
+                FontError::MalformedDictionary {
+                    name: name.to_owned(),
+                    detail: "its /CIDToGIDMap stream could not be decoded (§9.7.4.2)".to_owned(),
+                }
             })?;
-            let bytes =
-                document
-                    .decoded_stream_data(stream)
-                    .ok_or_else(|| FontError::Malformed {
-                        name: name.to_owned(),
-                        detail: "the /CIDToGIDMap stream could not be decoded".to_owned(),
-                    })?;
             let kept = bytes.get(..bytes.len().min(MAX_MAP)).unwrap_or(&bytes);
             CidToGlyph::Stream(Arc::from(kept))
         }

@@ -43,6 +43,39 @@ pub fn text_string(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// Whether `bytes` *are* ISO 32000-2 §7.9.2.2's text string type, or contradict it.
+///
+/// [`text_string`] answers *what does this say*, which is what a reader always wants; this
+/// answers *is this the type the clause names*, which only a caller holding a clause that
+/// restricts a string needs. §12.3.5.2's first restriction on a collection folder's name is
+/// one of them:
+///
+/// > The string shall be a PDF text string.
+///
+/// Each of the three encodings can be contradicted by the bytes that claim it: an odd length or
+/// an unpaired surrogate after the UTF-16BE prefix, a malformed sequence after the UTF-8 one,
+/// and a byte Table D.3 leaves undefined — the clause's own `U`, "Undefined code point in
+/// `PDFDocEncoding`" — where there is no prefix at all. [`text_string`] substitutes U+FFFD in
+/// all three cases, and a caller reading its output cannot tell a substitution apart from a
+/// producer that wrote U+FFFD itself, which is why this reads the bytes rather than the string.
+#[must_use]
+pub fn is_text_string(bytes: &[u8]) -> bool {
+    if let Some(rest) = bytes.strip_prefix(&UTF16BE_PREFIX) {
+        return rest.len() % 2 == 0
+            && char::decode_utf16(
+                rest.chunks_exact(2)
+                    .map(|pair| u16::from_be_bytes([pair[0], pair[1]])),
+            )
+            .all(|unit| unit.is_ok());
+    }
+    if let Some(rest) = bytes.strip_prefix(&UTF8_PREFIX) {
+        return std::str::from_utf8(rest).is_ok();
+    }
+    bytes
+        .iter()
+        .all(|byte| PDF_DOC_ENCODING[usize::from(*byte)].is_some())
+}
+
 /// Encodes a string as ISO 32000-2 §7.9.2.2's text string type.
 ///
 /// The inverse of [`text_string`], and it chooses between two of the clause's three encodings by
@@ -270,7 +303,45 @@ const PDF_DOC_ENCODING: [Option<char>; 256] = [
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_text_string, text_string};
+    use super::{encode_text_string, is_text_string, text_string};
+
+    /// §7.9.2.2's three encodings, each held and each contradicted.
+    ///
+    /// The point of the predicate is the pair on each line: [`text_string`] answers with U+FFFD
+    /// for every one of the three failures, so a caller reading its output cannot tell which of
+    /// them happened — or whether the producer simply wrote U+FFFD, which the last assertion is.
+    #[test]
+    fn a_text_string_is_the_encoding_its_prefix_claims() {
+        assert!(
+            is_text_string(b"plain"),
+            "PDFDocEncoding, every byte defined"
+        );
+        assert!(
+            !is_text_string(b"\x9f"),
+            "Table D.3 leaves 159 undefined, the clause's own U"
+        );
+        assert!(is_text_string(b"\xfe\xff\x00a"), "UTF-16BE, one unit");
+        assert!(
+            !is_text_string(b"\xfe\xff\x00"),
+            "an odd trailing byte is not a code unit"
+        );
+        assert!(
+            !is_text_string(b"\xfe\xff\xd8\x00\x00a"),
+            "a high surrogate with no low one"
+        );
+        assert!(
+            is_text_string(b"\xef\xbb\xbfcaf\xc3\xa9"),
+            "UTF-8 after its BOM"
+        );
+        assert!(
+            !is_text_string(b"\xef\xbb\xbf\xc3"),
+            "a truncated UTF-8 sequence"
+        );
+        assert!(
+            is_text_string(b"\xfe\xff\xff\xfd"),
+            "U+FFFD written by the producer is a text string; a substituted one is not"
+        );
+    }
 
     /// §7.9.2.2.1's EXAMPLE 1: a string with no prefix is `PDFDocEncoding`, and the byte 0x8B
     /// is U+2030 PER MILLE SIGN.

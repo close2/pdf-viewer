@@ -3975,8 +3975,8 @@ mod tests {
     /// One of every shape §12.3.5's collection dictionary can take.
     fn a_populated_collection() -> pdf_model::collection::Collection {
         use pdf_model::collection::{
-            Collection, Colours, Field, FieldKind, Folder, Item, Layout, Navigator, Sort, Split,
-            SplitDirection, Value, View,
+            Collection, Colours, Field, FieldKind, Folder, Item, Layout, NameRestriction,
+            Navigator, Sort, Split, SplitDirection, Value, View,
         };
 
         let mut values = std::collections::BTreeMap::new();
@@ -4063,6 +4063,43 @@ mod tests {
                     children: Vec::new(),
                 }],
             }),
+            // §12.3.5.2's six restrictions, one entry each, so that the codec is exercised on
+            // every variant rather than on whichever one a fixture happened to break.
+            invalid_names: vec![
+                name_defect(NameRestriction::TextString),
+                name_defect(NameRestriction::EmbeddedNull),
+                name_defect(NameRestriction::Length { characters: 0 }),
+                name_defect(NameRestriction::Special { character: ':' }),
+                name_defect(NameRestriction::TrailingFullStop),
+                name_defect(NameRestriction::Duplicate {
+                    normalised: "drafts".to_owned(),
+                }),
+            ],
+        }
+    }
+
+    /// One of §12.3.5.2's restrictions, against a folder and against a file in turn.
+    fn name_defect(
+        restriction: pdf_model::collection::NameRestriction,
+    ) -> pdf_model::collection::NameDefect {
+        use pdf_model::collection::{NameDefect, NameRestriction, Named};
+
+        let folder = matches!(
+            restriction,
+            NameRestriction::TextString
+                | NameRestriction::Length { .. }
+                | NameRestriction::TrailingFullStop
+        );
+        NameDefect {
+            name: "a:b".to_owned(),
+            owner: if folder {
+                Named::Folder { id: 7 }
+            } else {
+                Named::File {
+                    key: "<7>a:b".to_owned(),
+                }
+            },
+            restriction,
         }
     }
 

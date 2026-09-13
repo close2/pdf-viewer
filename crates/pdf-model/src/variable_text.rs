@@ -1863,9 +1863,27 @@ pub(crate) fn bytes(document: &Document, sources: &[&Dictionary], key: &str) -> 
 ///
 /// §12.7.5.4: a choice field's value "is a text string representing the selected item" and,
 /// where more than one is selected, "an array of such strings".
+///
+/// **A stream is the second spelling of the same value**, and §12.7.5.3 states it in prose
+/// rather than in a table's type cell:
+///
+/// > The field's text shall be held in a text string (or, beginning with PDF 1.5, a stre am) in
+/// > the V (value) entry of the field dictionary. The contents of this text string or stream
+/// > shall be used to construct an appearance stream for displaying the field
+///
+/// §7.9.3 says what the second form is — a stream "whose unencoded bytes shall meet the same
+/// requirements as a text string … with respect to encoding, byte order, and lead bytes" — so
+/// the filter runs first and §7.9.2.2's prefixes are looked for in the decoded data, which is
+/// the order [`crate::popup::rich_text`] reads Table 172's `/RC` in. The stream's size is the
+/// document's own [`pdf_syntax::Document::decoded_stream_data`] budget and nothing narrower:
+/// a value longer than this module lays out is reported as [`Owed::Truncated`] rather than
+/// silently shortened here.
 pub(crate) fn value_text(document: &Document, value: &Object) -> Option<String> {
     match document.resolve(value) {
         Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        Object::Stream(stream) => Some(pdf_syntax::text_string(
+            &document.decoded_stream_data(&stream)?,
+        )),
         Object::Array(items) => items.iter().find_map(|item| value_text(document, item)),
         _ => None,
     }

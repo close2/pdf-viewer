@@ -1959,8 +1959,7 @@ impl ColourSpace {
         match self {
             Self::Cmyk => [at(0), at(1), at(2), at(3)],
             Self::Icc { profile }
-                if press.identity == PressIdentity::Profile(profile.identity())
-                    && profile.channels() == 4 =>
+                if press.is_of_profile(profile.identity()) && profile.channels() == 4 =>
             {
                 [at(0), at(1), at(2), at(3)]
             }
@@ -2326,16 +2325,26 @@ fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
 
 /// Which press a colour's four components belong to, for the things keyed on one.
 ///
-/// A press is recognised by the profile it was sampled from, never by where it is held:
-/// [`SAMPLED`] evicts, so the same profile can be sampled into two different [`Press`] values
-/// over a process's life and they are the same press. `crate::shading`'s cache is keyed on
-/// [`Compositing`], which carries this.
+/// A press is recognised by the profile it was sampled from **and by the parameters it was
+/// sampled under**, never by where it is held: [`SAMPLED`] evicts, so the same profile can be
+/// sampled into two different [`Press`] values over a process's life and they are the same
+/// press. `crate::shading`'s cache is keyed on [`Compositing`], which carries this.
+///
+/// The second half of that is §11.7.5.3's second bullet: "the rendering intent used shall be
+/// the current rendering intent in effect at the time the `Do` operator is applied to the
+/// group". A profile has three "to CIE" transforms and a black point that may be compensated
+/// or not, so one profile under two renderings is two conversions out of the group's four
+/// components — two presses, not one, and a key that could not tell them apart is what made the
+/// parameter unreadable (ADR 1054).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PressIdentity {
     /// ADR 0263's assumed process inks — [`CMYK_CORNERS`] — which no document names.
+    ///
+    /// No rendering beside it: the grid is [`CMYK_CORNERS`], a compile-time constant with no
+    /// profile behind it, so there is no transform for an intent to select.
     Assumed,
-    /// The profile of this [`crate::icc::Profile::identity`].
-    Profile(u128),
+    /// The profile of this [`crate::icc::Profile::identity`], sampled under this rendering.
+    Profile(u128, Rendering),
 }
 
 /// How many *distinct* presses one interpretation may name.
@@ -2438,6 +2447,12 @@ pub struct Press {
     /// one — the assumed inks, or a profile a file states in breach of that clause — is the
     /// right inverse it always was.
     profile: Option<Box<crate::icc::Profile>>,
+    /// The parameters the grid was sampled under, so the conversion *in* can mirror them.
+    ///
+    /// §11.7.5.3's second bullet fixes them at the group's `Do`; [`xyz_to_ink`] asks this
+    /// rather than assuming compensation, because the two directions are inverses of each
+    /// other and an inverse taken under other parameters is not one.
+    rendering: Rendering,
     /// [`search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
     table: OnceLock<Vec<[f32; 4]>>,
     /// §11.5.3's `Y` over the four components, built on first use. See [`Press::luminance`].
@@ -2449,6 +2464,23 @@ impl Press {
     #[must_use]
     pub fn identity(&self) -> PressIdentity {
         self.identity
+    }
+
+    /// Whether this press was sampled from the profile of this identity, under any rendering.
+    ///
+    /// §11.7.2 redefines `DeviceCMYK` inside a group whose blending space is that profile, and
+    /// a colour already stated in the profile is already in the group's components — which is
+    /// true whichever of the profile's transforms the conversion *out* was sampled through, so
+    /// the rendering in [`PressIdentity::Profile`] is deliberately not compared here (ADR 1054).
+    #[must_use]
+    pub fn is_of_profile(&self, profile: u128) -> bool {
+        matches!(self.identity, PressIdentity::Profile(held, _) if held == profile)
+    }
+
+    /// The parameters this press's grid was sampled under. See [`PressIdentity`].
+    #[must_use]
+    pub fn rendering(&self) -> Rendering {
+        self.rendering
     }
 
     /// The press [`CMYK_CORNERS`] describes, whose grid is those sixteen corners.
@@ -2464,6 +2496,9 @@ impl Press {
                 .unwrap_or_else(|| unreachable!("sixteen samples is a grid of side two")),
             identity: PressIdentity::Assumed,
             profile: None,
+            // The assumed inks are interpolated between sixteen constants, so no transform of
+            // any profile is selected and this is what [`xyz_to_ink`]'s search reads.
+            rendering: Rendering::compensating(),
             table: OnceLock::new(),
             luminance: OnceLock::new(),
         }
@@ -2607,18 +2642,21 @@ impl Press {
 /// distinct presses one **interpretation** may name, and that is [`Presses`], which is where
 /// §11.7.2's refusal is decided. ADR 0417.
 #[must_use]
-pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<Arc<Press>> {
+pub fn press_for_profile(
+    profile: &crate::icc::Profile,
+    rendering: Rendering,
+) -> Option<Arc<Press>> {
     if profile.channels() != 4 {
         return None;
     }
-    let identity = PressIdentity::Profile(profile.identity());
+    let identity = PressIdentity::Profile(profile.identity(), rendering);
     if let Some(found) = cached(identity) {
         return Some(found);
     }
     // Sampled with no lock held. That is not an optimisation: a `Mutex` held across work rayon
     // can steal is what hung three archives in the four-hundred-and-thirty-third session (ADR
     // 0269), and it is why the entry is looked up again below rather than assumed absent.
-    let space = sample_press(profile)?;
+    let space = sample_press(profile, rendering)?;
     SAMPLINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let sampled = Arc::new(Press {
         space,
@@ -2628,6 +2666,7 @@ pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<Arc<Press>> {
         profile: profile
             .is_bidirectional()
             .then(|| Box::new(profile.clone())),
+        rendering,
         table: OnceLock::new(),
         luminance: OnceLock::new(),
     });
@@ -2731,8 +2770,12 @@ impl Presses {
     /// components is not a press at all and also answers `None`; the caller asks that question
     /// first.
     #[must_use]
-    pub fn press_for_profile(&self, profile: &crate::icc::Profile) -> Option<Arc<Press>> {
-        let identity = PressIdentity::Profile(profile.identity());
+    pub fn press_for_profile(
+        &self,
+        profile: &crate::icc::Profile,
+        rendering: Rendering,
+    ) -> Option<Arc<Press>> {
+        let identity = PressIdentity::Profile(profile.identity(), rendering);
         {
             let named = self.named.lock().ok()?;
             if let Some(found) = named.iter().find(|press| press.identity == identity) {
@@ -2747,7 +2790,7 @@ impl Presses {
         }
         // Sampled with no lock of this table held, for ADR 0269's reason: `sample_press` is
         // 83 521 profile evaluations and a lock held across work is a lock rayon can deadlock.
-        let sampled = press_for_profile(profile)?;
+        let sampled = press_for_profile(profile, rendering)?;
         let mut named = self.named.lock().ok()?;
         if let Some(found) = named
             .iter()
@@ -2806,7 +2849,15 @@ impl Presses {
 const PRESS_SIDE: usize = 17;
 
 /// A profile's `A2B` sampled onto a [`PRESS_SIDE`] grid of its four components.
-fn sample_press(profile: &crate::icc::Profile) -> Option<pdf_render::BlendingSpace> {
+///
+/// `rendering` is §11.7.5.3's second bullet — the intent and black point compensation in force
+/// at the `Do` that paints the group — and it selects which of the profile's transforms the
+/// grid is taken through. The whole grid is taken under one rendering because the grid *is* the
+/// group's conversion out, and a conversion out is one function (ADR 1054).
+fn sample_press(
+    profile: &crate::icc::Profile,
+    rendering: Rendering,
+) -> Option<pdf_render::BlendingSpace> {
     let side = PRESS_SIDE;
     let last = side.saturating_sub(1);
     #[expect(
@@ -2819,11 +2870,15 @@ fn sample_press(profile: &crate::icc::Profile) -> Option<pdf_render::BlendingSpa
         for yellow in 0..side {
             for magenta in 0..side {
                 for cyan in 0..side {
-                    // Black point compensation on, which is what §8.6.5.9's `Default` leaves
-                    // to this processor and what ADR 0009 chose for every other colour that
-                    // reaches a pixel through a profile. The conversion *in* is searched
-                    // against this same grid, so the two stay inverses whichever way it is set.
-                    let colour = profile.to_rgb(&[at(cyan), at(magenta), at(yellow), at(black)]);
+                    // Under the `Do`'s parameters, which is §11.7.5.3's second bullet; where
+                    // nothing states any, `Rendering::compensating()` is Table 51's initial
+                    // intent with §8.6.5.9's `Default` compensating, the answer ADR 0009 chose
+                    // for every other colour that reaches a pixel through a profile. The
+                    // conversion *in* is searched against this same grid and asks
+                    // [`Press::rendering`] for the black point, so the two stay inverses
+                    // whichever way it is set.
+                    let colour = profile
+                        .to_rgb_with(&[at(cyan), at(magenta), at(yellow), at(black)], rendering);
                     grid.push([colour.r, colour.g, colour.b]);
                 }
             }
@@ -3029,13 +3084,14 @@ fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
 /// another profile's colour — because §10.3.1 makes the conversion between two CIE-based
 /// spaces the ICC specification's, from connection space to connection space, and sRGB's
 /// gamut has no business standing between them. Black point compensation is undone by the
-/// profile's own reading of it: [`sample_press`] takes the conversion out with it on, so the
-/// conversion in is asked with it on too, and the two stay inverses whichever way it is set.
+/// profile's own reading of it: [`sample_press`] takes the conversion out under
+/// [`Press::rendering`], so the conversion in is asked under the same black point, and the two
+/// stay inverses whichever way it is set.
 fn xyz_to_ink(press: &Press, xyz: [f32; 3]) -> [f32; 4] {
     if let Some(inks) = press
         .profile
         .as_deref()
-        .and_then(|profile| profile.to_device(xyz, true))
+        .and_then(|profile| profile.to_device(xyz, press.rendering.black_point()))
     {
         return [
             channel(inks[0]),
@@ -3993,7 +4049,7 @@ mod tests {
     fn a_bidirectional_profiles_press_converts_in_through_its_own_table() {
         let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
             .expect("the fixture parses");
-        let press = super::press_for_profile(&profile).expect("a press");
+        let press = super::press_for_profile(&profile, Rendering::compensating()).expect("a press");
         assert!(press.converts_in_by_profile());
 
         let grey = ColourSpace::Rgb.to_cmyk(&[0.5, 0.5, 0.5], Rendering::compensating(), &press);
@@ -4026,7 +4082,7 @@ mod tests {
 
         let one_way = crate::icc::Profile::parse(&crate::icc::fixtures::one_way_cmyk_profile())
             .expect("the fixture parses");
-        let press = super::press_for_profile(&one_way).expect("a press");
+        let press = super::press_for_profile(&one_way, Rendering::compensating()).expect("a press");
         assert!(
             !press.converts_in_by_profile(),
             "a profile without the table keeps the right inverse of its grid"

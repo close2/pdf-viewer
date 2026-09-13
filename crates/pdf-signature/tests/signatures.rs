@@ -535,24 +535,128 @@ fn every_corpus_signature_says_what_its_range_leaves_out_and_where_it_stops() {
     );
 }
 
-/// §12.8.2.2.2's second step over the corpus: whose signed revision can be reconstructed, and
-/// what changed after it.
+/// Table 257's answer for every corpus signature whose signed revision can be reconstructed.
+///
+/// Held rather than printed, because the ranking is the round's claim: six signatures have
+/// nothing to rank, and `prefilled_f1040.pdf`'s fifteen changed objects are each named by what
+/// they are. Its `/P FormFilling` line is the one that matters — nine objects Table 257's default
+/// level does not permit, every one of them an annotation modified rather than a field filled in.
+const TABLE_257S_ANSWERS: &[&str] = &[
+    "160F-2019.pdf /P FormFilling: NoChangeToRank",
+    "160F-2019.pdf /P FormFillingAndAnnotation: NoChangeToRank",
+    "160F-2019.pdf /P None: NoChangeToRank",
+    "bug854315.pdf /P FormFilling: NoChangeToRank",
+    "bug854315.pdf /P FormFillingAndAnnotation: NoChangeToRank",
+    "bug854315.pdf /P None: NoChangeToRank",
+    "issue16553.pdf /P FormFilling: NoChangeToRank",
+    "issue16553.pdf /P FormFillingAndAnnotation: NoChangeToRank",
+    "issue16553.pdf /P None: NoChangeToRank",
+    "issue17069.pdf /P FormFilling: NoChangeToRank",
+    "issue17069.pdf /P FormFillingAndAnnotation: NoChangeToRank",
+    "issue17069.pdf /P None: NoChangeToRank",
+    "prefilled_f1040.pdf /P FormFilling: NotPermitted { level: FormFilling, objects: 9 }",
+    "prefilled_f1040.pdf /P FormFillingAndAnnotation: WithinWhatIsPermitted { level: \
+             FormFillingAndAnnotation, objects: 15, disregarded: 0 }",
+    "prefilled_f1040.pdf /P None: NotPermitted { level: None, objects: 12 }",
+    "prefilled_f1040.pdf object 1574: Annotation",
+    "prefilled_f1040.pdf object 1575: Annotation",
+    "prefilled_f1040.pdf object 1576: Annotation",
+    "prefilled_f1040.pdf object 1592: Annotation",
+    "prefilled_f1040.pdf object 1596: Annotation",
+    "prefilled_f1040.pdf object 1600: Annotation",
+    "prefilled_f1040.pdf object 1790: AnnotationAppearance",
+    "prefilled_f1040.pdf object 1791: AnnotationAppearance",
+    "prefilled_f1040.pdf object 1792: AnnotationAppearance",
+    "prefilled_f1040.pdf object 1793: FieldAppearance",
+    "prefilled_f1040.pdf object 2008: CrossReferenceStream",
+    "prefilled_f1040.pdf object 2009: CrossReferenceStream",
+    "prefilled_f1040.pdf object 200: FieldFilledIn",
+    "prefilled_f1040.pdf object 2010: CrossReferenceStream",
+    "prefilled_f1040.pdf object 206: FieldFilledIn",
+    "signed_verified.pdf /P FormFilling: NoChangeToRank",
+    "signed_verified.pdf /P FormFillingAndAnnotation: NoChangeToRank",
+    "signed_verified.pdf /P None: NoChangeToRank",
+];
+
+/// Table 257's answer at each of its three levels, and what each changed object was taken to be.
+///
+/// The arithmetic check is the load-bearing one: every object the comparison found is in exactly
+/// one of the ranking's four buckets, which is what makes "permitted" a statement about all of
+/// them rather than about the ones this reader happened to look at.
+fn rankings(name: &str, comparison: &Comparison, level: Modification) -> Vec<String> {
+    let changes = comparison.changes();
+    let ranking = comparison.rank(level);
+    let ranked = ranking
+        .disregarded
+        .count()
+        .saturating_add(ranking.permitted.count())
+        .saturating_add(ranking.not_permitted.count())
+        .saturating_add(ranking.unrankable.count());
+    let found = changes
+        .added
+        .count()
+        .saturating_add(changes.redefined.count())
+        .saturating_add(changes.removed.count())
+        .saturating_add(changes.unplaceable.count());
+    assert!(ranked >= found, "{name}: the ranking lost an object");
+    // A moved `/Root` is the one entry the ranking can hold that no object bucket does, and it is
+    // one: it names the catalog the current trailer points at, which either is a changed object
+    // already or is this single extra.
+    assert!(
+        ranked <= found.saturating_add(u64::from(changes.catalog_moved)),
+        "{name}: the ranking holds an object the comparison did not find"
+    );
+    if ranking.judgement() == Judgement::NoChangeToRank {
+        assert!(
+            changes.is_empty(),
+            "{name}: nothing to rank and something changed: {changes:?}"
+        );
+    }
+    let mut lines: Vec<String> = [
+        Modification::None,
+        Modification::FormFilling,
+        Modification::FormFillingAndAnnotation,
+    ]
+    .into_iter()
+    .map(|level| {
+        format!(
+            "{name} /P {level:?}: {:?}",
+            comparison.rank(level).judgement()
+        )
+    })
+    .collect();
+    for object in &ranking.detail {
+        lines.push(format!(
+            "{name} object {}: {:?}",
+            object.number, object.kind
+        ));
+    }
+    lines
+}
+
+/// §12.8.2.2.2's second step over the corpus: whose signed revision can be reconstructed, what
+/// changed after it, and what Table 257 says about each change.
 ///
 /// > Therefore, PDF processors may compare the signed and current versions of the document to see
 /// > whether there have been modifications to any objects that are not permitted by the transform
 /// > parameters.
 ///
-/// **Three of the ten refuse, and the refusals are the point.** A comparison is only worth making
+/// **Four of the ten refuse, and the refusals are the point.** A comparison is only worth making
 /// where the prefix the signature signed is a state the document was actually in — `Excluded` and
 /// `SignedEnd` are the two checks, and the four signatures that fail either of them are the four
 /// this tree already reports as leaving out something other than their own value. Nothing is
 /// compared for those, by name.
 ///
-/// The seven that can be compared are the finding: six have nothing appended after them at all,
-/// and `prefilled_f1040.pdf` has **three incremental updates** carrying fifteen changed objects,
-/// which is §12.8.2.2.2's question asked by a real file. What this round does **not** do is rank
-/// those fifteen against Table 257's levels; `Judgement::NotClassified` is what comes back, and
-/// the count held here is what a later round has to explain object by object. ADR 1043.
+/// The six that can be compared are the finding, and `prefilled_f1040.pdf` is the one with
+/// anything to rank: **three incremental updates carrying fifteen changed objects, every one of
+/// them classified and none refused.** Two widgets were filled in, six were filled in *and* had
+/// their rectangles moved by a thousandth of a unit, four appearance streams came with them, and
+/// three are the updates' own cross-reference streams. So Table 257 answers differently at each
+/// level — forbidden at 1, forbidden at 2 because a moved rectangle is an annotation modified,
+/// and permitted at 3 — which is the distinction the table's two workflows exist to draw. The
+/// level asked here is the author's where there is one and Table 257's default of 2 where there
+/// is not; this file carries a `/UR3` and no `/DocMDP`, so the question put to it is the
+/// counterfactual one. ADR 1049.
 #[test]
 fn every_corpus_signature_is_asked_what_changed_after_it() {
     let Some(files) = corpus() else {
@@ -562,6 +666,7 @@ fn every_corpus_signature_is_asked_what_changed_after_it() {
 
     let mut compared = Vec::new();
     let mut refused = Vec::new();
+    let mut ranked = Vec::new();
     for path in &files {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -589,21 +694,11 @@ fn every_corpus_signature_is_asked_what_changed_after_it() {
                         }
                     ));
                     // The level is the author's where there is one, and Table 257's default of 2
-                    // where a signature carries a transform with no `/P`. Nothing here ranks it;
-                    // the assertion below is that nothing here *claims* to.
+                    // where a signature carries a transform with no `/P`.
                     let level = permissions(&document)
                         .doc_mdp
                         .unwrap_or(Modification::FormFilling);
-                    match comparison.against(level) {
-                        Judgement::NoChangeToRank => assert!(
-                            changes.is_empty(),
-                            "{name}: nothing to rank and something changed: {changes:?}"
-                        ),
-                        Judgement::NotClassified { objects, .. } => assert!(
-                            objects > 0,
-                            "{name}: a refusal to classify with nothing to classify"
-                        ),
-                    }
+                    ranked.extend(rankings(&name, &comparison, level));
                 }
                 Err(refusal) => refused.push(format!("{name}: {refusal}")),
             }
@@ -612,11 +707,15 @@ fn every_corpus_signature_is_asked_what_changed_after_it() {
 
     compared.sort();
     refused.sort();
+    ranked.sort();
     for line in &compared {
         println!("  compared  {line}");
     }
     for line in &refused {
         println!("  refused   {line}");
+    }
+    for line in &ranked {
+        println!("  ranked    {line}");
     }
 
     assert_eq!(
@@ -632,6 +731,10 @@ fn every_corpus_signature_is_asked_what_changed_after_it() {
              568130, length: 10118 } rather than the signature value alone",
         ],
         "signatures whose signed bytes are not a revision, and are therefore not compared"
+    );
+    assert_eq!(
+        ranked, TABLE_257S_ANSWERS,
+        "Table 257's ranking of what each comparable signature's document did after it"
     );
     assert_eq!(
         compared,

@@ -39,7 +39,8 @@ use pdf_model::article::{Bead, Thread};
 use pdf_model::attachment::{Attachment as FileAttachment, Relationship};
 use pdf_model::collection::{
     Collection, Colours, Field, FieldKind, Folder, Initial, Item as CollectionItem, Layout,
-    Navigator, Sort, Split, SplitDirection, Value as CollectionValue, View as CollectionView,
+    NameDefect, NameRestriction, Named, Navigator, Sort, Split, SplitDirection,
+    Value as CollectionValue, View as CollectionView,
 };
 use pdf_model::destination::{Destination, Target, View};
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
@@ -458,6 +459,12 @@ pub(super) fn decode_articles(reader: &mut Reader<'_>) -> Result<Vec<Thread>, Pr
 /// # Errors
 ///
 /// [`Uncarried`] where a §7.11.6 collection value carries an object Table 47 does not describe.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one wire field per struct field, in order, from an exhaustive destructure — \
+the destructure is what makes a forgotten field a compile error, and splitting the function \
+would put one message's format in two places"
+)]
 pub(super) fn encode_collection(
     writer: &mut Writer,
     collection: &Collection,
@@ -471,6 +478,7 @@ pub(super) fn encode_collection(
         colours,
         split,
         folders,
+        invalid_names,
     } = collection;
 
     writer.usize(schema.len());
@@ -558,7 +566,92 @@ pub(super) fn encode_collection(
             writer.u8(0);
         }
     }
+
+    // §12.3.5.2's restricted names, which cross with the tree because the choice this program
+    // made about them — support them, and say so — is a *presentation's* to carry out and a
+    // confined host holds nothing else to derive them from: the first restriction is about bytes
+    // the decoded folder name no longer has.
+    writer.usize(invalid_names.len());
+    for defect in invalid_names {
+        let NameDefect {
+            name,
+            owner,
+            restriction,
+        } = defect;
+        writer.str(name);
+        match owner {
+            Named::Folder { id } => {
+                writer.u8(0).u32(*id);
+            }
+            Named::File { key } => {
+                writer.u8(1).str(key);
+            }
+        }
+        match restriction {
+            NameRestriction::TextString => {
+                writer.u8(0);
+            }
+            NameRestriction::EmbeddedNull => {
+                writer.u8(1);
+            }
+            NameRestriction::Length { characters } => {
+                writer.u8(2).usize(*characters);
+            }
+            NameRestriction::Special { character } => {
+                writer.u8(3).u32(*character as u32);
+            }
+            NameRestriction::TrailingFullStop => {
+                writer.u8(4);
+            }
+            NameRestriction::Duplicate { normalised } => {
+                writer.u8(5).str(normalised);
+            }
+        }
+    }
     Ok(())
+}
+
+/// One of §12.3.5.2's six restrictions, and what broke it.
+fn decode_name_defect(reader: &mut Reader<'_>) -> Result<NameDefect, ProtocolError> {
+    let name = reader.string("a restricted name")?;
+    let what = "a restricted name's owner";
+    let owner = match reader.u8(what)? {
+        0 => Named::Folder {
+            id: reader.u32("a folder's identifier")?,
+        },
+        1 => Named::File {
+            key: reader.string("an embedded file's key")?,
+        },
+        value => return Err(unrecognised(what, value)),
+    };
+    let what = "a name restriction";
+    let restriction = match reader.u8(what)? {
+        0 => NameRestriction::TextString,
+        1 => NameRestriction::EmbeddedNull,
+        2 => NameRestriction::Length {
+            characters: reader.usize("a name's length")?,
+        },
+        3 => {
+            let code = reader.u32("a special character")?;
+            let Some(character) = char::from_u32(code) else {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a special character",
+                    value: code,
+                });
+            };
+            NameRestriction::Special { character }
+        }
+        4 => NameRestriction::TrailingFullStop,
+        5 => NameRestriction::Duplicate {
+            normalised: reader.string("a normalised name")?,
+        },
+        value => return Err(unrecognised(what, value)),
+    };
+    Ok(NameDefect {
+        name,
+        owner,
+        restriction,
+    })
 }
 
 /// Reads §12.3.5's collection dictionary.
@@ -629,6 +722,8 @@ pub(super) fn decode_collection(reader: &mut Reader<'_>) -> Result<Collection, P
         None
     };
 
+    let invalid_names = reader.list("a collection's restricted names", decode_name_defect)?;
+
     Ok(Collection {
         schema,
         initial,
@@ -638,6 +733,7 @@ pub(super) fn decode_collection(reader: &mut Reader<'_>) -> Result<Collection, P
         colours,
         split,
         folders,
+        invalid_names,
     })
 }
 

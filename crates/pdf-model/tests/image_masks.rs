@@ -87,6 +87,33 @@ fn page_with_image(dict: &str, data: &[u8], extra: &[Vec<u8>]) -> Vec<u8> {
     assemble(&objects)
 }
 
+/// [`page_with_image`] with a `/ColorSpace` subdictionary in the page's resources.
+///
+/// The one thing §8.6.5.6's default colour space mechanism needs to bite, and the only
+/// reason this builder exists beside the one above.
+fn page_with_image_under_defaults(
+    defaults: &str,
+    dict: &str,
+    data: &[u8],
+    extra: &[Vec<u8>],
+) -> Vec<u8> {
+    let content = "1 0 0 rg 40 0 0 40 0 0 cm /Im Do";
+    let mut objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        format!(
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+             /Resources << /XObject << /Im 5 0 R >> /ColorSpace << {defaults} >> >> \
+             /Contents 4 0 R >>\nendobj\n"
+        )
+        .into_bytes(),
+        stream_object(4, "", content.as_bytes()),
+        stream_object(5, &format!("/Type /XObject /Subtype /Image {dict}"), data),
+    ];
+    objects.extend_from_slice(extra);
+    assemble(&objects)
+}
+
 /// One numbered stream object, with the `/Length` its data actually has.
 fn stream_object(number: usize, dict: &str, data: &[u8]) -> Vec<u8> {
     let mut out = format!(
@@ -576,6 +603,42 @@ fn a_matte_colour_is_undone_before_the_image_is_drawn() {
     assert!(
         red > 240 && green < 16 && blue < 16,
         "128 pre-blended with black at α = 128/255 is full red, not {red},{green},{blue}"
+    );
+}
+
+/// §11.6.5.2: a soft mask's samples are mask values, so §8.6.5.6's defaults cannot remap them.
+///
+/// Table 143 fixes the mask's space at one word — "Required; shall be `DeviceGray`" — and
+/// §8.6.5.6 is what would otherwise redirect that name: "[i]f such an entry is present, its
+/// value shall be used as the colour space for the operation currently being performed". The
+/// operation here is not a painting of colour. §8.6.5.6 says as much in its own arithmetic —
+/// "[c]olour values in the original device colour space shall be passed unchanged to the
+/// default colour space" — so a remap changes which colour a value denotes and never the
+/// value, and §11.6.5.2 uses the value.
+///
+/// The fixture states a linear `/DefaultGray`, which is the widest gap the mechanism can open
+/// in one number: a sample of 128 read as a *colour* is linear light, and comes back as sRGB's
+/// encoding of it, 188 of 255. Read as this clause's mask value it is 128. Before ADR 1054 the
+/// mask went through the parent's resources and this page drew at the wrong opacity, which
+/// ADR 1008 found and priced without fixing.
+#[test]
+fn a_soft_masks_samples_are_not_remapped_by_a_default_colour_space() {
+    let raster = render(page_with_image_under_defaults(
+        "/DefaultGray [/CalGray << /WhitePoint [0.9505 1.0 1.089] /Gamma 1 >>]",
+        "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+        &[255, 0, 0],
+        &[stream_object(
+            6,
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 \
+             /ColorSpace /DeviceGray /BitsPerComponent 8",
+            &[128],
+        )],
+    ));
+
+    let [_, _, _, alpha] = pixel(&raster, 20, 20);
+    assert!(
+        (120..=136).contains(&alpha),
+        "the mask's own sample is the opacity, not a colour a default space remapped: {alpha}"
     );
 }
 

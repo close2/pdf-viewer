@@ -15,6 +15,12 @@
 //! folder identifier inside an `/EmbeddedFiles` key, and every key in the corpus is measured
 //! against it. All 23 are plain names, which is what the clause says a document without folders
 //! writes.
+//!
+//! **And the *naming restrictions*, which a producer turns out to break.** §12.3.5.2 bounds a
+//! folder's name and the file names under it, and the one corpus document that states a
+//! `/Folders` tree states its root folder's name as the empty string — outside "between 1 and 255
+//! inclusive". That is the entry a fixture written beside the reader cannot supply, and the
+//! reason this program's answer to such a name is a decision rather than an accident (ADR 1050).
 
 #![expect(
     clippy::panic,
@@ -164,6 +170,7 @@ fn a_producers_own_portable_collection_is_read_with_its_folders() {
         collection.all_folders().len(),
     );
     println!("keys naming a folder: {filed:?}");
+    println!("names the clause restricts: {:?}", collection.invalid_names);
 
     assert_eq!(
         collection.schema.len(),
@@ -183,5 +190,21 @@ fn a_producers_own_portable_collection_is_read_with_its_folders() {
         keys.iter()
             .all(|key| is_file_name(key) || folder_of(key).is_some()),
         "every key is either a plain file name or a §12.3.5.2 folder identifier: {keys:?}"
+    );
+
+    // **A producer breaks one of the six**, which is the thing a hand-built fixture could never
+    // have shown: this file's root folder states `/Name ()`, and "[t]he number of characters in
+    // the string shall be between 1 and 255 inclusive" bounds it at both ends. It is a text
+    // string — the first restriction does not fire — and the five file names under it conform, so
+    // the one entry here is the whole of what this document gets wrong. ADR 1050 is why the file
+    // is shown anyway.
+    assert_eq!(
+        collection.invalid_names,
+        [pdf_model::collection::NameDefect {
+            name: String::new(),
+            owner: pdf_model::collection::Named::Folder { id: 0 },
+            restriction: pdf_model::collection::NameRestriction::Length { characters: 0 },
+        }],
+        "the only name this producer got wrong is the root folder's"
     );
 }

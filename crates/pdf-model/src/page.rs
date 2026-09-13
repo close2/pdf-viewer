@@ -567,6 +567,14 @@ pub struct Pages<'a> {
     /// all because a page cannot say which boundary is displayed without them. The cost is
     /// one dictionary lookup in a catalog this function already holds — 58 of the 974 corpus
     /// documents state a `/ViewerPreferences` at all and none of them states either entry.
+    ///
+    /// **One pair and not two, deliberately.** Table 147 states `/PrintArea` and `/PrintClip`
+    /// beside these, of the same §14.11.2 boundaries and with the same Table 31 defaults, but of
+    /// a renderer producing *paper*: "[t]he name of the page boundary representing the area of a
+    /// page that shall be rendered when printing the document". Nothing in this program renders
+    /// one, so a second pair threaded through here would be a boundary no caller could ask for.
+    /// [`crate::viewer_preferences::ViewerPreferences`] reads all four and hands them over; §12.2's
+    /// ledger row is where the three parts of that debt are named.
     view: (Boundary, Boundary),
     /// Pages found by scanning, where the page *tree* yielded none.
     ///
