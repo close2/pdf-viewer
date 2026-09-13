@@ -903,6 +903,13 @@ fn note_keys(
 ///   published sentence *without* A010 would withdraw failures this crate and the corpus agree
 ///   on, so A010 is what makes the exemption safe rather than a refinement to apply after it.
 ///
+/// **Where the per-subclause reading of this function lives.** [`crate::withdrawal`] records, for
+/// every subclause a row cites, whether the exemption can reach it at all — the carve-out keeps
+/// it, a named resource can be its subject, nothing a resources dictionary names can be, or no
+/// document can state a finding there — and its tests hold that reading against this function.
+/// The single `else` arm below is right for the clause and says nothing about which of those four
+/// a subclause is.
+///
 /// A carve-out stated as a range of *clauses* is honoured where a clause is known, which is here
 /// and not inside a predicate: a row identifier says which rule a requirement is, and the
 /// sentence being read says which part of the part it is in. `doc/todo/62` section 4's second
@@ -940,12 +947,21 @@ pub fn exemption_narrows(clauses: Clauses, target: Target) -> bool {
     }
 }
 
-/// A clause number's components — `"6.1.7.2"` as `[6, 1, 7, 2]`.
+/// A clause number's components — `"6.1.7.2"` as `[6, 1, 7, 2]` — and an empty reading for a
+/// number that is not digits and dots.
 ///
-/// A component this crate's own table did not write as digits stops the reading, which makes the
-/// clause fall outside every carve-out above and so keeps the requirement. Every clause in
-/// [`crate::table`] is digits and dots; a future one that is not would be kept rather than
-/// silently exempted.
+/// **An annex is such a number, and rows of [`crate::table`] cite one** — three of them with a
+/// predicate, at ISO 19005-2 Annex B.1, ISO 19005-4 Annex A.2 and ISO 19005-4 Annex B.2.2, and
+/// the rest binding a processor. An empty reading falls outside
+/// both carve-outs, so [`exemption_narrows`] answers *yes* for them — the exemption reaches an
+/// annex — and that is what the two sentences say rather than an accident of the parser: each
+/// exempts the resource from every requirement of the **document**, and a normative annex is part
+/// of the document. [`crate::withdrawal`] records the answer for each of those three subclauses
+/// beside the reason, which is where a reader should find it.
+///
+/// This comment used to claim the opposite — that a clause the table did not write as digits
+/// would be *kept*, and that every clause in the table was digits and dots. Both halves were
+/// wrong, and the second was checkable: session 1007 found the annex rows above.
 fn components(clause: &str) -> Vec<u32> {
     let mut out = Vec::new();
     for piece in clause.split('.') {

@@ -71,7 +71,7 @@ pub struct FunctionId(pub u32);
 /// Chains are deep and repetitive on real pages — the caller's worst page holds 3 608 of
 /// them, and its page 6 states one clipping rectangle 303 times and gets one identifier,
 /// because its display list deduplicates identical regions. That deduplication is what
-/// makes caching clip masks viable at all, and §6.4 is why a rectangular clip should
+/// makes caching clip masks viable at all, and brief section 6.4 is why a rectangular clip should
 /// become four floats rather than a mask texture.
 ///
 /// An **empty clip admits nothing**, which is a different thing from an absent clip.
@@ -88,7 +88,7 @@ pub struct MaskId(pub u32);
 
 /// Any device resource, so that one release path can take all five.
 ///
-/// §2.2's `Device::release(&mut self, id: impl Into<ResourceId>)`. [`ClipId`] and
+/// brief section 2.2's `Device::release(&mut self, id: impl Into<ResourceId>)`. [`ClipId`] and
 /// [`MaskId`] are absent on purpose — they belong to a scene, not to a device, and a
 /// scene is dropped whole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

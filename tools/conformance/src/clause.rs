@@ -35,6 +35,12 @@ use std::str::FromStr;
 
 use crate::{citation, quote};
 
+/// What the conversion leaves where the standard sets an equation.
+///
+/// `doc/md/` is a conversion and this is the shape of the content it loses; see
+/// [`ClauseIndex::dropped_a_formula`].
+pub const FORMULA_NOT_DECODED: &str = "formula-not-decoded";
+
 /// A clause number, as the standard writes it: `8.9.6.2` — or an annex's, `K.2`.
 ///
 /// Ordered by component rather than by text, so `§8.9` precedes `§8.10`, and every numbered
@@ -504,6 +510,31 @@ impl ClauseIndex {
             .any(|heading| {
                 let text = self.text.get(heading.span.clone()).unwrap_or_default();
                 quote::occurs_in(&quote::normalise(text), quotation)
+            })
+    }
+
+    /// Whether the conversion dropped a formula from the text of `number`.
+    ///
+    /// **`doc/md/` does not hold the standard's equations.** Where the PDF sets one, the
+    /// conversion leaves the marker below and nothing else — §11.4.6's two-stage knockout
+    /// computation is three of them in nine lines — so a comment quoting an equation under its
+    /// clause number is checked against a text that provably does not contain it, and is reported
+    /// as a misquotation of the standard for being an exact quotation of it.
+    ///
+    /// This answers only the narrow question *did the conversion drop something here*. What the
+    /// caller does with the answer is [`crate::citation::Quotation`]'s business, and the
+    /// conformance gate pairs it with the quotation carrying an `=`: the marker says the clause
+    /// lost an equation, the `=` says the quotation is one.
+    #[must_use]
+    pub fn dropped_a_formula(&self, number: &ClauseNumber) -> bool {
+        self.headings
+            .iter()
+            .filter(|heading| &heading.number == number)
+            .any(|heading| {
+                self.text
+                    .get(heading.span.clone())
+                    .unwrap_or_default()
+                    .contains(FORMULA_NOT_DECODED)
             })
     }
 

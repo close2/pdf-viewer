@@ -29,7 +29,7 @@ use common::headless::pixels;
 use common::retained::{artwork_page, device, retained_frame, text_page, viewport};
 
 /// The handle can be built on one thread and rendered from another: `Send`, and the
-/// scene it holds is still the `Send + Sync` scene the brief's §2.3 asks for.
+/// scene it holds is still the `Send + Sync` scene the brief's section 2.3 asks for.
 #[test]
 fn the_handle_travels_between_threads() {
     fn assert_send<T: Send>() {}

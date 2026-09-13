@@ -96,7 +96,7 @@ const OVER: Rect = Rect {
 /// A way for a mark to contribute nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Nothing {
-    /// A clip chain of two disjoint rectangles: §4.7's "an empty clip admits nothing —
+    /// A clip chain of two disjoint rectangles: brief section 4.7's "an empty clip admits nothing —
     /// which is different from an absent clip", and ADR 0007's empty resolution.
     EmptyClip,
     /// A soft mask whose group marks nothing at all, so the reduction is 0 everywhere

@@ -111,3 +111,46 @@ sit as a line on a note's owed list for three sessions while being, in fact, a r
 standard that no row of this table stated. The general shape is worth keeping: **a clarification
 whose subject is a population rather than a rule has no row to hang on**, which is why
 `clarification::CLARIFICATIONS` has no entry for A010 and why the record is that module's prose.
+
+## 7. What session 1007 added, and the two questions it separated
+
+This item was closed by session 1001 and stays closed; what follows is the *audit* of what it
+built, which the closing round could not do from inside the same commit.
+
+**The reach is now measurable per requirement**, and not only per document:
+
+```sh
+cargo run --release -p pdf-archive --example withdrawn -- \
+  doc/veraPDF-corpus doc/pdf.js doc/corpora/pdf20examples doc/corpora/pdf-differences \
+  doc/corpora/pdfbox doc/corpora/format-corpus doc/corpora-own
+cargo run --release -p pdf-archive --example withdrawn -- --threads 6 --max-mb 96 \
+  --targets 2a,4 corpus-cache/openpreserve corpus-cache/tika-issue-tracker \
+  corpus-cache/safedocs/cc-main-2021-31/*/
+```
+
+**Name the subdirectories rather than the corpus on a walk that long.** A report is printed per
+root, so a walk stopped by a bound keeps what it has; session 1007 lost 87 000 documents' worth of
+answer to one `RLIMIT_DATA` because it passed `corpus-cache` as a single root (ADR 1026 §5.2).
+
+`examples/unreferenced.rs` counts the *population* — documents stating a named resource nothing
+references, and the objects only such an entry reaches. `examples/withdrawn.rs` counts what that
+population does to the **requirement table**: per row identifier, in how many documents the
+predicate found a place, how many of those the exemption withdrew some or all of, and how many
+stood. Its bounds are reported rather than applied in silence (unreadable, oversized, panicked,
+slower than ten seconds, skipped by name), and it prints beside every narrowed row what
+`crate::withdrawal` says that row's subclause is — so a row narrowed under a subclause the reading
+calls *not a resource* is a contradiction the run itself raises.
+
+**The per-subclause reading is `crates/pdf-archive/src/withdrawal.rs`.** `exemption_narrows` keeps
+two carve-outs and narrows everything else with one `else` arm, which is what the two published
+sentences say and which makes three different situations look identical: a subclause whose subject
+*can* be a named resource, one whose subject is the file or a page so that the narrowing is a
+fall-through that cannot fire, and one no document can fail at all because every requirement in it
+binds a processor. Every bound subclause of both parts now says which of the four it is, with the
+reason, and four tests hold the reading to `coverage`, to `exemption_narrows` and to the table.
+
+**Two questions this separates, and they are `CLAUDE.md`'s two denominators again.** *Can* the
+exemption reach a subclause is a question about the clause and the answer is in `withdrawal.rs`.
+*Did* it reach one is a question about documents and the answer is the command above. A subclause
+the first calls reachable and the second never witnesses is not an error in either — it is
+`doc/questions/Q62`'s shape, and the round that reads one owes a look at the other.

@@ -1,4 +1,4 @@
-//! The caller's own §31.2 table, and the two pieces of arithmetic that say what produced
+//! The caller's own section 31.2 table, and the two pieces of arithmetic that say what produced
 //! it.
 //!
 //! Nothing here renders. It is published numbers plus the sampled lane's own grid
@@ -17,14 +17,14 @@
 
 use super::fixture::HAIRLINE;
 
-/// Their §31.2's oracle column: the centroid of each of `bug1743245.pdf`'s six rules under
+/// Their section 31.2's oracle column: the centroid of each of `bug1743245.pdf`'s six rules under
 /// `render-cpu`, in device pixels along a raster row.
 const ORACLE: [f64; 6] = [33.000, 49.500, 66.000, 82.500, 99.000, 115.500];
 
-/// Their §31.2's default-lane column — `Coverage::Cpu`, the same six rules.
+/// Their section 31.2's default-lane column — `Coverage::Cpu`, the same six rules.
 const DEFAULT_LANE: [f64; 6] = [33.122, 49.602, 66.083, 82.567, 99.047, 115.531];
 
-/// Their §31.2's sampled-lane column — `Coverage::Gpu`, the same six rules. Their table
+/// Their section 31.2's sampled-lane column — `Coverage::Gpu`, the same six rules. Their table
 /// records it as "identical to the oracle".
 const SAMPLED_LANE: [f64; 6] = [33.000, 49.500, 66.000, 82.500, 99.000, 115.500];
 
@@ -77,7 +77,7 @@ fn affine_fit(from: &[f64], to: &[f64]) -> (f64, f64) {
 
 /// Runs both checks over the caller's published table and prints what they came to.
 pub(crate) fn against_the_callers_table(samples: u32) {
-    println!("--- phase 4: the caller's own §31.2 numbers, and what fits them ---\n");
+    println!("--- phase 4: the caller's own section 31.2 numbers, and what fits them ---\n");
     println!(
         "{:>5}  {:>10} {:>10} {:>10}  {:>10} {:>9}",
         "rule", "oracle", "default", "sampled", "lattice", "residual"

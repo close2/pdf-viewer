@@ -19,8 +19,8 @@
 //!
 //! # What is implemented
 //!
-//! The `A2B0` and `A2B1` transforms in all three encodings that occur — `mft1` and `mft2`
-//! from ICC v2, `mAB ` from v4 — and the matrix/curve form that RGB and grey display
+//! The `A2B0`, `A2B1` and `A2B2` transforms in all three encodings that occur — `mft1` and
+//! `mft2` from ICC v2, `mAB ` from v4 — and the matrix/curve form that RGB and grey display
 //! profiles use instead. Between them these cover every profile in the corpus.
 //!
 //! **And the other direction, since ADR 0796**: the `B2A1` or `B2A0` transform — "from CIE"
@@ -37,8 +37,13 @@
 //! [`Profile::to_device`] is that destination route, and `crate::colour`'s press takes a colour
 //! into a four-component `ICCBased` blending space through it (§11.6.6, §11.7.2).
 //!
-//! Rendering intents beyond picking the `1` table over the `0` table are not modelled; black
-//! point compensation is [`Profile::to_rgb_with`]'s, and [`Profile::to_device`] undoes it.
+//! **Which of those three a colour goes through is the rendering intent's**, since ADR 1032:
+//! [`A2b`] is the choice and [`Rendering`] is what carries it beside §8.6.5.9's black point
+//! compensation, which is [`Profile::to_rgb_with`]'s and which [`Profile::to_device`] undoes.
+//! The `B2A` direction still takes `B2A1` over `B2A0` whatever the intent says — §11.7.5.3's
+//! ledger row is where that stands.
+
+use std::sync::{Arc, OnceLock};
 
 use pdf_render::Color;
 
@@ -54,6 +59,116 @@ const MAX_PROFILE: usize = 1 << 24;
 /// decompression-bomb bound for colour management.
 const MAX_CLUT: usize = 1 << 22;
 
+/// Which of a profile's "to CIE" transforms a rendering intent selects.
+///
+/// ISO 32000-2 Table 69 names four intents and an ICC profile states at most three transforms,
+/// so this is the mapping between them rather than a fourth copy of Table 69 — `crate::content`
+/// owns the names a file writes. Two clauses make the mapping the standard's rather than a
+/// convention. §8.6.5.8 says where the names came from:
+///
+/// > These intents have been chosen to correspond to those defined by the International Color
+/// > Consortium (ICC), an industry organisation that has developed standards for
+/// > device-independent colour.
+///
+/// and §10.3.1 says whose arithmetic performs the conversion:
+///
+/// > Conversion from a CIE-based source colour to a CIE-based destination colour shall be
+/// > performed based on ISO 15076-1:2010 (ICC.1:2010).
+///
+/// That standard numbers the rendering intents (its clause 6.2) and gives `A2B0`, `A2B1` and
+/// `A2B2` the device-to-connection transform of one intent each (its tag listing, clause 9.2).
+/// There is no fourth tag, because it derives the absolute colorimetric intent from the
+/// media-relative colorimetric one instead of tabulating it — which is why Table 69's
+/// `AbsoluteColorimetric` and `RelativeColorimetric` are one variant here and differ in
+/// §8.6.5.9's black point compensation alone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum A2b {
+    /// `A2B0`: Table 69's `Perceptual`.
+    Perceptual,
+    /// `A2B1`: Table 69's `RelativeColorimetric` and `AbsoluteColorimetric`.
+    ///
+    /// The default, three times over: Table 51 makes `RelativeColorimetric` the graphics
+    /// state's initial rendering intent, §8.6.5.8 makes it the answer to a name a processor
+    /// does not recognise, and §11.4.7 makes it the page group's conversion.
+    #[default]
+    Colorimetric,
+    /// `A2B2`: Table 69's `Saturation`.
+    Saturation,
+}
+
+/// The two parameters §11.7.5.3 names that decide what a CIE-based colour becomes here.
+///
+/// > The rendering intent, black-generation, undercolour-removal and black point compensation
+/// > parameters control certain colour conversions.
+///
+/// Black generation and undercolour removal are the other two and this tree evaluates neither
+/// (§11.7.5.3's ledger row); these two travel together because they arrive together — the
+/// intent decides the transform *and* can force the compensation off, which §8.6.5.9 states as
+/// a property of an object rather than as one operator's effect on another.
+///
+/// Carried as one value rather than as two arguments for the reason `crate::colour::Conversion`
+/// gives about its own contents: a conversion that can be built without one of its parameters
+/// is one that will be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Rendering {
+    /// Which transform of a profile the intent in force selects.
+    transform: A2b,
+    /// Whether to compensate for the profile's black point, per §8.6.5.9.
+    black_point: bool,
+}
+
+impl Default for Rendering {
+    /// The colorimetric transform with compensation on: [`Rendering::compensating`].
+    fn default() -> Self {
+        Self::compensating()
+    }
+}
+
+impl Rendering {
+    /// The parameters an object states.
+    #[must_use]
+    pub fn new(transform: A2b, black_point: bool) -> Self {
+        Self {
+            transform,
+            black_point,
+        }
+    }
+
+    /// The colorimetric transform with black point compensation on.
+    ///
+    /// What a caller has where the question is the colour space rather than the object: Table
+    /// 51's initial intent, and `/UseBlackPtComp` `Default`, which §8.6.5.9 leaves to the
+    /// processor and which this one compensates.
+    #[must_use]
+    pub fn compensating() -> Self {
+        Self::new(A2b::Colorimetric, true)
+    }
+
+    /// The colorimetric transform with black point compensation off.
+    #[must_use]
+    pub fn without_black_point() -> Self {
+        Self::new(A2b::Colorimetric, false)
+    }
+
+    /// Which transform of a profile this selects.
+    #[must_use]
+    pub fn transform(self) -> A2b {
+        self.transform
+    }
+
+    /// Whether black point compensation applies.
+    #[must_use]
+    pub fn black_point(self) -> bool {
+        self.black_point
+    }
+
+    /// The same intent, with compensation as `black_point` says.
+    #[must_use]
+    pub fn with_black_point(self, black_point: bool) -> Self {
+        Self::new(self.transform, black_point)
+    }
+}
+
 /// A parsed ICC profile, ready to convert colours.
 #[derive(Debug, Clone)]
 pub struct Profile {
@@ -61,20 +176,63 @@ pub struct Profile {
     channels: usize,
     /// Whether the connection space is `Lab` rather than `XYZ`.
     lab_pcs: bool,
-    transform: Transform,
+    /// Whether the profile states ICC version 4, which decides how `Lab` is encoded.
+    ///
+    /// Kept because [`Alternate`] parses its table long after the header has gone.
+    version_4: bool,
+    /// `A2B1`, or `A2B0` where the profile states no `A2B1`: the route every intent falls
+    /// back to, and the one [`A2b::Colorimetric`] selects outright.
+    colorimetric: Route,
+    /// `A2B0`, where the profile states one [`Profile::colorimetric`] did not already take.
+    perceptual: Alternate,
+    /// `A2B2`, where the profile states one.
+    saturation: Alternate,
     /// The "from CIE" transform — `B2A1`, or `B2A0` — where the profile carries one.
     ///
     /// `None` for a profile that states none, which §8.6.5.5 permits of a profile used as a
     /// *source* space and forbids of one used as a blending space; a press without one keeps
     /// the right inverse of its own `A2B` that every press took before ADR 0796.
     inverse: Option<Box<Lut>>,
-    /// The darkest colour this profile's device can make, in connection-space XYZ.
-    ///
-    /// `None` for a profile whose black is already zero, and for the matrix and grey
-    /// forms, where it does not arise.
-    black: Option<[f32; 3]>,
     /// What distinguishes this profile's bytes from another's. See [`Profile::identity`].
     identity: u128,
+}
+
+/// One "to CIE" route: a transform and the darkest colour it reaches.
+///
+/// The black point belongs to the route rather than to the profile because it is a property of
+/// the *table*: a perceptual table already maps the medium's black onto the connection space's,
+/// so the span [`Profile::to_xyz_with`] stretches is the one the selected transform produced
+/// and not another's. [`Profile::detect_black`] finds it.
+#[derive(Debug, Clone)]
+struct Route {
+    /// How this route reaches the connection space.
+    transform: Transform,
+    /// The darkest colour this route reaches, in connection-space XYZ.
+    ///
+    /// `None` for a route whose black is already zero, and for the matrix and grey forms,
+    /// where it does not arise.
+    black: Option<[f32; 3]>,
+}
+
+/// An `A2B` tag an intent other than [`A2b::Colorimetric`] selects, parsed on first use.
+///
+/// The tag's bytes are kept rather than its table, and `CLAUDE.md` principle 2 is why: a
+/// document that states no intent of its own never reads this, and parsing every table a press
+/// profile carries would put two CLUTs it will not use on the launch path of the first page
+/// that names one. What the deferral costs instead is the tag's own bytes — a quarter of what
+/// the parsed table would occupy, since a `Lut`'s samples are `f32` where the tag's are 8 or 16
+/// bits — held until the profile is dropped.
+///
+/// `None` for a profile that states no such tag, and for one whose tag is the very bytes
+/// [`Profile::colorimetric`] already took: a profile whose `A2B0` and `A2B1` point at one tag
+/// is one table under two names, which is what Artifex's press profile does.
+#[derive(Debug, Clone, Default)]
+struct Alternate {
+    /// The tag's bytes, or `None` where there is no table of this intent's own.
+    tag: Option<Arc<[u8]>>,
+    /// The parsed route, once something has asked for it. `Some(None)` for a tag that failed
+    /// to parse, which falls back to [`Profile::colorimetric`] like an absent one.
+    route: OnceLock<Option<Route>>,
 }
 
 /// How a profile gets from its own space to the connection space.
@@ -667,11 +825,17 @@ impl Profile {
             let length = usize::try_from(u32_at(data, at.checked_add(8)?)?).ok()?;
             tags.push((signature, offset, length));
         }
-        let find = |name: &[u8]| {
+        // Located before it is sliced, so that a tag can be recognised as one another tag
+        // already took: two signatures pointing at one offset are one table under two names,
+        // which is what [`Alternate`] refuses to keep a second copy of.
+        let locate = |name: &[u8]| {
             tags.iter()
                 .find(|(signature, ..)| signature == name)
-                .and_then(|(_, offset, length)| data.get(*offset..offset.checked_add(*length)?))
+                .map(|(_, offset, length)| (*offset, *length))
         };
+        let slice =
+            |(offset, length): (usize, usize)| data.get(offset..offset.checked_add(length)?);
+        let find = |name: &[u8]| locate(name).and_then(slice);
 
         // A perceptual or relative-colorimetric lookup table is the general form; the
         // matrix and curve tags are the shorthand display profiles use instead.
@@ -679,7 +843,8 @@ impl Profile {
         // intent; `A2B0` is perceptual and is only the fallback. Taking them the other way
         // round renders every dark colour too light — this profile's registration black
         // came out at (28,27,23) where every other reader shows (0,0,0).
-        let transform = if let Some(table) = find(b"A2B1").or_else(|| find(b"A2B0")) {
+        let colorimetric_at = locate(b"A2B1").or_else(|| locate(b"A2B0"));
+        let transform = if let Some(table) = colorimetric_at.and_then(slice) {
             Transform::Lut(Box::new(parse_lut(table, lab_pcs, version_4, false)?))
         } else if channels == 3 {
             let curves = [b"rTRC", b"gTRC", b"bTRC"]
@@ -712,15 +877,30 @@ impl Profile {
             .filter(|table| table.grid.len() == 3 && table.outputs >= channels)
             .map(Box::new);
 
+        // The other two intents' tables, kept as bytes and parsed on first use. A tag that is
+        // the one already taken is not kept: it would be a second parse of one table, and the
+        // fallback answers it with the very route it would have built.
+        let alternate = |name: &[u8]| Alternate {
+            tag: locate(name)
+                .filter(|at| Some(*at) != colorimetric_at)
+                .and_then(slice)
+                .map(Arc::from),
+            route: OnceLock::new(),
+        };
         let mut profile = Self {
             channels,
             lab_pcs,
-            transform,
+            version_4,
+            colorimetric: Route {
+                transform,
+                black: None,
+            },
+            perceptual: alternate(b"A2B0"),
+            saturation: alternate(b"A2B2"),
             inverse,
-            black: None,
             identity: identity_of(data),
         };
-        profile.black = profile.detect_black();
+        profile.colorimetric.black = profile.detect_black(&profile.colorimetric.transform);
         Some(profile)
     }
 
@@ -768,8 +948,8 @@ impl Profile {
     /// everywhere except in the darkest few percent. Recorded because it explains a residual
     /// disagreement that comes from a choice of construction rather than a free parameter —
     /// there is nothing here to tune.
-    fn detect_black(&self) -> Option<[f32; 3]> {
-        if !matches!(self.transform, Transform::Lut(_)) {
+    fn detect_black(&self, transform: &Transform) -> Option<[f32; 3]> {
+        if !matches!(transform, Transform::Lut(_)) {
             return None;
         }
         // **Which end of the device range is dark is a property of the space, not of the
@@ -789,7 +969,7 @@ impl Profile {
         // that decides.
         let black = [vec![0.0f32; self.channels], vec![1.0f32; self.channels]]
             .into_iter()
-            .map(|end| self.connection(&end))
+            .map(|end| self.connection(transform, &end))
             .min_by(|left, right| {
                 left.get(1)
                     .unwrap_or(&0.0)
@@ -807,9 +987,10 @@ impl Profile {
         usable.then_some(black)
     }
 
-    /// The connection-space XYZ a colour maps to, before compensation or transfer.
-    fn connection(&self, values: &[f32]) -> [f32; 3] {
-        let raw = match &self.transform {
+    /// The connection-space XYZ a colour maps to through `transform`, before compensation or
+    /// transfer.
+    fn connection(&self, transform: &Transform, values: &[f32]) -> [f32; 3] {
+        let raw = match transform {
             Transform::Lut(lut) => {
                 let out = lut.apply(values, self.channels);
                 lut.encoding.decode([out[0], out[1], out[2]])
@@ -841,6 +1022,35 @@ impl Profile {
         }
     }
 
+    /// The route an intent selects, building it from the kept tag the first time one is asked
+    /// for.
+    ///
+    /// **An intent whose table the profile does not state falls back to
+    /// [`Profile::colorimetric`]**, and the fallback is the standard's shape rather than a
+    /// convenience: §8.6.5.8 disposes of an intent a *processor* cannot honour by sending it to
+    /// `RelativeColorimetric`, and a profile that tabulates no transform for an intent leaves a
+    /// processor in exactly that position. ISO 15076-1:2010 requires an output profile to carry
+    /// `A2B1` whatever else it states (its clause 8.5), so the fallback is a table the file
+    /// has.
+    fn route(&self, transform: A2b) -> &Route {
+        let alternate = match transform {
+            A2b::Colorimetric => return &self.colorimetric,
+            A2b::Perceptual => &self.perceptual,
+            A2b::Saturation => &self.saturation,
+        };
+        alternate
+            .route
+            .get_or_init(|| {
+                let table =
+                    parse_lut(alternate.tag.as_ref()?, self.lab_pcs, self.version_4, false)?;
+                let transform = Transform::Lut(Box::new(table));
+                let black = self.detect_black(&transform);
+                Some(Route { transform, black })
+            })
+            .as_ref()
+            .unwrap_or(&self.colorimetric)
+    }
+
     /// How many components a colour in this profile's space has.
     #[must_use]
     pub fn channels(&self) -> usize {
@@ -870,29 +1080,30 @@ impl Profile {
     /// Converts a colour in this profile's space to sRGB, with black point compensation.
     #[must_use]
     pub fn to_rgb(&self, values: &[f32]) -> Color {
-        self.to_rgb_with(values, true)
+        self.to_rgb_with(values, Rendering::compensating())
     }
 
-    /// Converts a colour, choosing whether to compensate for the black point.
+    /// Converts a colour under the intent and black point `rendering` states.
     #[must_use]
-    pub fn to_rgb_with(&self, values: &[f32], black_point: bool) -> Color {
-        crate::colour::xyz_d50_to_srgb(self.to_xyz_with(values, black_point))
+    pub fn to_rgb_with(&self, values: &[f32], rendering: Rendering) -> Color {
+        crate::colour::xyz_d50_to_srgb(self.to_xyz_with(values, rendering))
     }
 
-    /// The D50 XYZ a colour in this profile's space becomes, compensated or not.
+    /// The D50 XYZ a colour in this profile's space becomes, under `rendering`.
     ///
     /// What [`Self::to_rgb_with`] hands the one matrix that turns an XYZ into a pixel, and
     /// what a caller converting *between* CIE-based spaces wants before that matrix — a
     /// colour going into another profile's [`Self::to_device`] has no business passing
     /// through sRGB's gamut on the way.
     #[must_use]
-    pub fn to_xyz_with(&self, values: &[f32], black_point: bool) -> [f32; 3] {
-        let mut xyz = self.connection(values);
+    pub fn to_xyz_with(&self, values: &[f32], rendering: Rendering) -> [f32; 3] {
+        let route = self.route(rendering.transform());
+        let mut xyz = self.connection(&route.transform, values);
 
         // Black point compensation: stretch the profile's range so its darkest colour
         // lands on the display's black instead of on a dark grey. Linear in XYZ, with the
         // white point fixed, which is the standard construction.
-        if let Some(black) = self.black.filter(|_| black_point) {
+        if let Some(black) = route.black.filter(|_| rendering.black_point()) {
             for (axis, value) in xyz.iter_mut().enumerate() {
                 let white = WHITE.get(axis).copied().unwrap_or(1.0);
                 let low = black.get(axis).copied().unwrap_or(0.0);
@@ -919,7 +1130,7 @@ impl Profile {
     /// — so it is capable of both and this answers so.
     #[must_use]
     pub fn is_bidirectional(&self) -> bool {
-        self.inverse.is_some() || matches!(self.transform, Transform::Matrix { .. })
+        self.inverse.is_some() || matches!(self.colorimetric.transform, Transform::Matrix { .. })
     }
 
     /// The two stages of a three-component matrix profile, or `None` for any other shape.
@@ -930,7 +1141,7 @@ impl Profile {
     /// is built that way, and `crate::colour` says why the separation matters.
     #[must_use]
     pub fn matrix_stages(&self) -> Option<MatrixStages<'_>> {
-        match &self.transform {
+        match &self.colorimetric.transform {
             Transform::Matrix { curves, columns } => Some(MatrixStages { curves, columns }),
             Transform::Lut(_) | Transform::Grey(_) => None,
         }
@@ -965,7 +1176,7 @@ impl Profile {
         // colour the device cannot reach is clamped to its range per component after the
         // matrix, which is the clamp §8.6.5.3 applies to a component "falling outside that
         // range" and the only answer the two stages define.
-        if let Transform::Matrix { curves, columns } = &self.transform {
+        if let Transform::Matrix { curves, columns } = &self.colorimetric.transform {
             let linear = crate::colour::solve_three(columns, xyz)?;
             let mut out = [0.0f32; MAX_OUTPUTS];
             for ((value, curve), light) in out.iter_mut().zip(curves).zip(linear) {
@@ -975,7 +1186,7 @@ impl Profile {
         }
         let inverse = self.inverse.as_ref()?;
         let mut xyz = xyz;
-        if let Some(black) = self.black.filter(|_| black_point) {
+        if let Some(black) = self.colorimetric.black.filter(|_| black_point) {
             for (axis, value) in xyz.iter_mut().enumerate() {
                 let white = WHITE.get(axis).copied().unwrap_or(1.0);
                 let low = black.get(axis).copied().unwrap_or(0.0);
@@ -1826,7 +2037,7 @@ mod tests {
         black_only_clut, complement_clut, mba_tag, mft2_tag, one_way_cmyk_profile, profile_of,
         two_way_cmyk_profile,
     };
-    use super::{Encoding, Identification, Profile};
+    use super::{Encoding, Identification, Profile, Rendering};
 
     /// The profile this program ships for `doc/questions/A18`'s output intent, read out of the
     /// file rather than off the page that offers it — which is what `data/icc/PROVENANCE.md`
@@ -2210,7 +2421,7 @@ mod tests {
             (0, 0, 0),
             "compensation must bring the profile's darkest colour to the display's"
         );
-        let (r, g, b) = bytes(profile.to_rgb_with(&[1.0], false));
+        let (r, g, b) = bytes(profile.to_rgb_with(&[1.0], Rendering::without_black_point()));
         assert!(
             r > 80 && g > 80 && b > 80,
             "without compensation the same colour stays the grey the profile describes, \
@@ -2395,10 +2606,13 @@ mod tests {
             [0.3, 0.2, 0.1, 0.7],
         ] {
             let compensated = profile
-                .to_device(profile.to_xyz_with(&inks, true), true)
+                .to_device(profile.to_xyz_with(&inks, Rendering::compensating()), true)
                 .expect("a from-CIE table");
             let plain = profile
-                .to_device(profile.to_xyz_with(&inks, false), false)
+                .to_device(
+                    profile.to_xyz_with(&inks, Rendering::without_black_point()),
+                    false,
+                )
                 .expect("a from-CIE table");
             for (axis, (got, want)) in compensated.iter().zip(plain).enumerate() {
                 assert!(
@@ -2411,10 +2625,13 @@ mod tests {
         // a different colour, by the whole of the range the stretch aligned.
         let inks = [0.0f32, 0.0, 0.0, 0.5];
         let mixed = profile
-            .to_device(profile.to_xyz_with(&inks, true), false)
+            .to_device(profile.to_xyz_with(&inks, Rendering::compensating()), false)
             .expect("a from-CIE table");
         let plain = profile
-            .to_device(profile.to_xyz_with(&inks, false), false)
+            .to_device(
+                profile.to_xyz_with(&inks, Rendering::without_black_point()),
+                false,
+            )
             .expect("a from-CIE table");
         assert!(
             (mixed[1] - plain[1]).abs() > 0.02,

@@ -412,12 +412,12 @@ fn a_point_the_domain_leaves_unpainted_knocks_nothing_out() {
 }
 
 /// **A `Background` of alpha ½ has shape 1 at opacity ½** — §11.3.7.2's distinction, on the
-/// one construction that can observe it.
+/// one construction that can observe it. §11.4.6, quoted by ADR 0025:
 ///
 /// > The existence of the knockout feature is the main reason for maintaining a separate
 /// > shape value rather than only a single alpha that combines shape and opacity.
 ///
-/// (§11.4.6, quoted by ADR 0025.) Outside the transformed domain the clause paints the
+/// Outside the transformed domain the clause paints the
 /// background, so the point *is* marked: `f = 1`, and §11.4.6's average keeps none of the
 /// accumulated group — `P' = S`, the background's own premultiplied colour, at alpha ½.
 /// The same element in an ordinary group composites by §11.3.6 instead and leaves half the

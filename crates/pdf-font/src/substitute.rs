@@ -295,6 +295,99 @@ pub fn glyph_classes(document: &Document, descriptor: &Dictionary) -> Vec<(Strin
         .collect()
 }
 
+/// Table 122's `/Lang`, as far as it can decide a face.
+///
+/// ISO 32000-2 §9.8.3.1, Table 122, on the entry:
+///
+/// > A name specifying the language of the font, which may be used for encodings where the
+/// > language is not implied by the encoding itself. The value shall be a Language-Tag as
+/// > defined in BCP 47.
+///
+/// The second half of the first sentence is what makes this worth reading and also what bounds
+/// it: a `CIDFont` whose `/CIDSystemInfo` names `Adobe-Japan1` has already said Japanese, and
+/// `/Lang` adds nothing there. An `Identity` ordering says nothing about a script at all, and
+/// that is the case the entry is for — see `substituted::script_sample`, which is where
+/// this is consumed.
+///
+/// # Only the three the substitution table already distinguishes
+///
+/// A `Language-Tag` names any of BCP 47's languages, and this enum names three. That is not a
+/// claim about BCP 47 but about what a face can be chosen by: the one thing this crate does with
+/// a script is ask whether a face can draw a character of it, and
+/// `substituted::script_sample`'s table has one character each for Japanese, Chinese and
+/// Korean and nothing for any other script. A tag outside them is read, found to name no entry of
+/// that table, and answered `None` — which leaves the font with the family match it had, exactly
+/// as an unregistered character collection does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Language {
+    /// BCP 47's `ja`.
+    Japanese,
+    /// BCP 47's `zh`, without regard to script or region.
+    ///
+    /// Simplified and traditional are one variant here for the same reason
+    /// `substituted::script_sample` gives `Adobe-GB1` and `Adobe-CNS1` the same
+    /// character: the two collections disagree about glyph *forms*, and a face that has neither
+    /// form has neither.
+    Chinese,
+    /// BCP 47's `ko`.
+    Korean,
+}
+
+impl Language {
+    /// Reads a `Language-Tag`, or `None` where it names no language this can choose a face by.
+    ///
+    /// Two rules of ISO 32000-2 §14.9.2.2 decide the reading, and both are that clause's:
+    ///
+    /// > A language identifier shall either be the empty text string, to indicate that the
+    /// > language is unknown, or a Language-Tag as defined in BCP 47.
+    ///
+    /// > Although language codes are commonly represented using lowercase letters and country
+    /// > codes are commonly represented using uppercase letters, all language tags shall be
+    /// > treated as case-insensitive.
+    ///
+    /// So an empty value is unknown rather than malformed, and `JA`, `ja` and `Ja-JP` are one
+    /// tag. What is compared is the **primary language subtag**, which a tag states first and
+    /// separates with a hyphen: everything from the first hyphen on is a script, a region or a
+    /// variant, none of which changes which of the three scripts above is wanted. `/zh-TW` is
+    /// the witness that the comparison has to stop there.
+    ///
+    /// The three subtags are matched in their two-letter forms alone, and that is a statement
+    /// about this reader rather than about BCP 47: that document is not in `doc/md/`, so nothing
+    /// here can check a claim about what it requires, and the four witnesses on this disk write
+    /// `ja`, `zh-TW` and `EN`. A three-letter spelling of the same language is therefore answered
+    /// exactly as a tag for a script this table has no character for — it names no entry, and the
+    /// font keeps the family match it had.
+    #[must_use]
+    pub fn read(tag: &[u8]) -> Option<Self> {
+        let primary = tag.split(|byte| *byte == b'-').next()?;
+        match primary.to_ascii_lowercase().as_slice() {
+            b"ja" => Some(Self::Japanese),
+            b"zh" => Some(Self::Chinese),
+            b"ko" => Some(Self::Korean),
+            _ => None,
+        }
+    }
+}
+
+/// Table 122's `/Lang`, where the descriptor states one.
+///
+/// # Both types, because the standard states two
+///
+/// Table 122's own type column says **name**, and §14.9.2.2 lists "Font Descriptors for `CIDFonts`
+/// [which] can have a Lang key" among the places where language identifiers are **text strings**.
+/// The two clauses disagree about the object type and agree about the value, so both are read:
+/// which of the two a producer wrote cannot change which language it named.
+#[must_use]
+pub fn language(document: &Document, descriptor: &Dictionary) -> Option<Language> {
+    let value = document.get_key(descriptor, "Lang");
+    let tag = value
+        .as_name()
+        .map(pdf_syntax::Name::as_bytes)
+        .or_else(|| value.as_string())?;
+    Language::read(tag)
+}
+
 /// Table 122's `/Style` `/Panose`, where the descriptor states one.
 ///
 /// §9.8.3.2 makes the value a *string*, so a file writing a name or an array has not stated a
@@ -1012,7 +1105,7 @@ fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
 mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object};
 
-    use super::{Family, Request, strip_subset_prefix};
+    use super::{Family, Language, Request, language, strip_subset_prefix};
 
     /// A font dictionary carrying the entries a case needs and nothing else.
     fn font(entries: &[(&str, &str)]) -> Dictionary {
@@ -1081,6 +1174,67 @@ mod tests {
             Request::derive(&document, &dingbats, Some(&descriptor(4))).family,
             Family::ZapfDingbats
         );
+    }
+
+    /// ISO 32000-2 §14.9.2.2:
+    ///
+    /// > Although language codes are commonly represented using lowercase letters and country
+    /// > codes are commonly represented using uppercase letters, all language tags shall be
+    /// > treated as case-insensitive.
+    ///
+    /// The corpus's own witness is why the folding is asserted rather than assumed:
+    /// `PDFJS-9279-reduced.pdf` states `/Lang /EN`, in capitals, where BCP 47's own spelling is
+    /// `en`. And the tag that carries more than a primary subtag is
+    /// `hayro-tests/pdfs/custom/pdftc_900k_0319_page_1.pdf`'s `/zh-TW`, which is the case that
+    /// says the comparison has to stop at the first hyphen.
+    #[test]
+    fn a_language_tag_is_read_case_insensitively_and_only_as_far_as_its_primary_subtag() {
+        assert_eq!(Language::read(b"ja"), Some(Language::Japanese));
+        assert_eq!(Language::read(b"JA"), Some(Language::Japanese));
+        assert_eq!(Language::read(b"Ja-JP"), Some(Language::Japanese));
+        assert_eq!(Language::read(b"zh-TW"), Some(Language::Chinese));
+        assert_eq!(Language::read(b"ZH-Hans-CN"), Some(Language::Chinese));
+        assert_eq!(Language::read(b"ko-KR"), Some(Language::Korean));
+
+        // "A language identifier shall either be the empty text string, to indicate that the
+        // language is unknown, or a Language-Tag as defined in BCP 47" — so an empty value is
+        // the file saying it does not know, and it names no script to choose a face by.
+        assert_eq!(Language::read(b""), None);
+        // A tag this table has no character for, which `PDFJS-9279-reduced.pdf` is: the font
+        // keeps the family match it had. And a tag that merely *begins* with one of the three
+        // is a different language — `jam` is Jamaican Creole, not Japanese.
+        assert_eq!(Language::read(b"EN"), None);
+        assert_eq!(Language::read(b"jam"), None);
+        assert_eq!(Language::read(b"kok"), None);
+    }
+
+    /// Table 122 types `/Lang` as a name and §14.9.2.2 lists a `CIDFont`'s descriptor among the
+    /// places a language identifier is a text string, so both are read. All four witnesses on
+    /// this disk write a name; the string arm is the other clause's.
+    #[test]
+    fn a_lang_is_read_whether_the_producer_wrote_a_name_or_a_string() {
+        let document = Document::empty();
+        let mut named = Dictionary::new();
+        named.insert(
+            Name::new(b"Lang".to_vec()),
+            Object::Name(Name::new(b"ja".to_vec())),
+        );
+        assert_eq!(language(&document, &named), Some(Language::Japanese));
+
+        let mut stringly = Dictionary::new();
+        stringly.insert(
+            Name::new(b"Lang".to_vec()),
+            Object::String(std::sync::Arc::from(b"ko-KR".as_slice())),
+        );
+        assert_eq!(language(&document, &stringly), Some(Language::Korean));
+
+        // An entry of any other type states no tag, and an absent one states nothing at all —
+        // Table 122 makes the entry optional and §9.8.3.1 says an absence "provides no
+        // information as to the language".
+        let mut wrong = Dictionary::new();
+        wrong.insert(Name::new(b"Lang".to_vec()), Object::Integer(1));
+        assert_eq!(language(&document, &wrong), None);
+        assert_eq!(language(&document, &Dictionary::new()), None);
     }
 
     /// §9.9.2:

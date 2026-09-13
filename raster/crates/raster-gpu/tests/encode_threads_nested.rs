@@ -338,7 +338,7 @@ fn the_nested_fixture_is_order_sensitive() {
 }
 
 /// **A page whose marks are all inside nested groups is the same bytes at every thread
-/// count** — §4.6, held where the walk crosses a plan boundary between every run.
+/// count** — brief section 4.6, held where the walk crosses a plan boundary between every run.
 #[test]
 fn a_nested_page_is_the_same_bytes_at_every_thread_count() {
     let (alone, counters) = draw(1, false);

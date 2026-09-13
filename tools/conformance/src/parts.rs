@@ -172,6 +172,13 @@ pub const DEFINITE: &str = "the";
 pub struct Membership {
     /// Every member package's name.
     members: BTreeSet<String>,
+    /// Where each member package's directory is, relative to the workspace root.
+    ///
+    /// Kept because a source path is the only thing a sweep has to say which member a comment
+    /// belongs to, and `raster/crates/raster-gpu/src/…` has a member two segments down. Reading
+    /// the owner off the first segment was right while every member lived under `crates/` or
+    /// `tools/`, and named `crates` as the owning member the day `raster/` was folded in.
+    directories: BTreeMap<String, String>,
     /// The members of each population.
     populations: BTreeMap<Part, BTreeSet<String>>,
     /// Each member's direct dependencies on other members, development ones included.
@@ -202,27 +209,24 @@ impl Membership {
     /// what it could not open would answer a claim about the tree with a count of part of it.
     pub fn read(root: &Path) -> Result<Self, Error> {
         let mut found = Self::default();
+        // The workspace's members, not the tree's crates: `fuzz/` holds a package and is
+        // deliberately outside the workspace, so a claim about "the workspace's crates" that
+        // counted it would be judged against a population the manifest does not state.
         let mut directories: BTreeMap<String, PathBuf> = BTreeMap::new();
-        for group in crate::SOURCE_ROOTS {
-            let base = root.join(group);
-            // `fuzz/` is not a workspace member and has no member directories under it; its
-            // absence is not a failure to read the workspace.
-            let Ok(listing) = std::fs::read_dir(&base) else {
-                continue;
-            };
-            for entry in listing {
-                let entry = entry.map_err(|source| Error::Unreadable {
-                    path: base.display().to_string(),
-                    source,
-                })?;
-                let manifest = entry.path().join("Cargo.toml");
-                let Ok(text) = std::fs::read_to_string(&manifest) else {
-                    continue;
-                };
-                if let Some(name) = package_name(&text) {
-                    found.members.insert(name.clone());
-                    directories.insert(name, entry.path());
-                }
+        for member in crate::roots::members(root).map_err(|source| Error::Unreadable {
+            path: crate::roots::MANIFEST.to_owned(),
+            source: source.into(),
+        })? {
+            let directory = root.join(&member);
+            let manifest = directory.join("Cargo.toml");
+            let text = std::fs::read_to_string(&manifest).map_err(|source| Error::Unreadable {
+                path: manifest.display().to_string(),
+                source,
+            })?;
+            if let Some(name) = package_name(&text) {
+                found.members.insert(name.clone());
+                found.directories.insert(name.clone(), member);
+                directories.insert(name, directory);
             }
         }
 
@@ -455,7 +459,7 @@ impl Report {
 
 /// Runs the sweep over the ledger's notes, the tree's comments and this project's prose.
 ///
-/// `sources` are the Rust files under [`crate::SOURCE_ROOTS`] and `documents` the Markdown under
+/// `sources` are the Rust files under [`crate::roots::source_roots`] and `documents` the Markdown under
 /// `doc/`. Two directories are read by nothing, for the reasons [`crate::retired::NOT_SWEPT`] and
 /// [`crate::NOT_SCANNED`] give: a round's own record is not another round's to correct, and this
 /// checker's own prose states the wrong counts as examples.
@@ -481,7 +485,7 @@ pub fn sweep(
         if shown.starts_with(crate::NOT_SCANNED) {
             continue;
         }
-        let owner = crate_of(&shown).filter(|name| membership.holds(name));
+        let owner = crate_of(membership, &shown);
         for (line, block) in crate::blockers::comment_blocks(text) {
             places.push((format!("{shown}:{line}"), owner.clone(), block));
         }
@@ -546,11 +550,17 @@ fn shown(path: &Path) -> String {
 }
 
 /// The workspace member a source path belongs to.
-fn crate_of(shown: &str) -> Option<String> {
-    let mut parts = shown.split('/');
-    let group = parts.next()?;
-    let member = parts.next()?;
-    (crate::SOURCE_ROOTS.contains(&group) && parts.next().is_some()).then(|| member.to_owned())
+///
+/// The longest member directory the path sits *inside* — longest because `crates` and
+/// `raster/crates` are both prefixes of nothing else, but a member directory that ever nests
+/// inside another would otherwise be answered for by its container.
+fn crate_of(membership: &Membership, shown: &str) -> Option<String> {
+    membership
+        .directories
+        .iter()
+        .filter(|(_, directory)| shown.starts_with(&format!("{directory}/")))
+        .max_by_key(|(_, directory)| directory.len())
+        .map(|(name, _)| name.clone())
 }
 
 /// Which rung one place sits on, for one population.

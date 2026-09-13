@@ -12,7 +12,7 @@
 //! these tests pin *the device against the stated definition* — not against another
 //! renderer's output, which principle 5 forbids.
 //!
-//! # What is byte-exact and what is tolerance-bounded (§4.6, §11.4, ADR 0006)
+//! # What is byte-exact and what is tolerance-bounded (brief section 4.6, §11.4, ADR 0006)
 //!
 //! Same scene, same viewport, same adapter → the same bytes: a promise, tested
 //! byte-exact per adapter. Across adapters, and against the CPU reference, the answer
@@ -388,7 +388,7 @@ fn golden_matches_cpu_reference_at_every_magnification() {
     }
 }
 
-/// §4.6: same scene, same viewport, same adapter → the same bytes. Twice on one
+/// brief section 4.6: same scene, same viewport, same adapter → the same bytes. Twice on one
 /// device, and again on a freshly constructed device.
 #[test]
 fn repeated_renders_are_byte_identical() {
@@ -739,7 +739,7 @@ fn unhonoured_damage_is_reported_not_silent() {
         "an unhonoured damage list must be reported"
     );
     // And the full-frame pixels are exactly what the same device draws without a
-    // damage list — same adapter, so this comparison is byte-exact (§4.6).
+    // damage list — same adapter, so this comparison is byte-exact (brief section 4.6).
     assert_eq!(
         frame.into_raster().unwrap().into_pixels(),
         render_golden(&mut device)

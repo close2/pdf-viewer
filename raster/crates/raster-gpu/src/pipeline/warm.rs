@@ -67,7 +67,7 @@ impl Drop for WarmUpGuard<'_> {
 
 impl PipelineStore {
     /// Compile the warm set on a background thread, so device construction returns
-    /// first. §2.1 of the brief also says a device must not *require* a background
+    /// first. section 2.1 of the brief also says a device must not *require* a background
     /// thread: if the host cannot spawn one, the warm set compiles inline instead —
     /// construction blocks for the compile, which is the documented cost of a host
     /// with no threads to give, and `warm_up` keeps meaning what it says.

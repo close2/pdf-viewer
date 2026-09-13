@@ -1054,6 +1054,221 @@ impl Tree {
         normalised_rectangle(document, &self.attribute(document, element, "BBox")?)
     }
 
+    /// §14.8.5.4.5's **allocation rectangle** for this element, in default user space.
+    ///
+    /// §14.8.3.3 gives every block- and inline-level element two rectangles, and this is the
+    /// second of them:
+    ///
+    /// > The allocation rectangle includes any additional borders or spacing surrounding the
+    /// > element, affecting how it shall be positioned with respect to adjacent elements and the
+    /// > enclosing content rectangle or reference area.
+    ///
+    /// §14.8.5.4.5 states the derivation outright, and it is two sentences rather than an
+    /// algorithm:
+    ///
+    /// > For a BLSE, the allocation rectangle shall be equal to the content rectangle with its
+    /// > before and after edges adjusted by the element's SpaceBefore and SpaceAfter attributes,
+    /// > if any, but with no changes to the start and end edges.
+    ///
+    /// > For an ILSE, the allocation rectangle is the same as the content rectangle.
+    ///
+    /// **Which edges those are is [`WritingMode`]'s answer**, which is why §14.8.3.3 is the
+    /// clause this reads and not only §14.8.5.4.5: the standard names the edges "by terms that
+    /// are neutral with respect to the progression order rather than by familiar terms such as
+    /// up, down, left, and right", so a `TbRl` document's before edge is on the right and
+    /// adjusting the top of its rectangle would move the wrong side.
+    ///
+    /// # The content rectangle it starts from is the **stated** one
+    ///
+    /// [`Self::bounds`], which is Table 379's `/BBox`. The derived content rectangle — the union
+    /// of what the element's marked-content sequences drew — is `viewer_core`'s, and it is in the
+    /// viewport's pixels rather than in the space Table 379's two spacing numbers are "measured in
+    /// default user space units" in. So this answers for the population that states a rectangle,
+    /// and `None` for the rest, which is the same population [`Self::bounds`] answers for.
+    ///
+    /// # An ILSE needs no arm of its own
+    ///
+    /// §14.8.5.4.3 addresses Table 379's attributes to block-level elements — "layout attributes
+    /// that shall apply only to block-level structure elements (BLSEs)" — so an ILSE states
+    /// neither, [`Self::block_spacing`] answers with the table's own default of 0 for both, and
+    /// the arithmetic below returns the content rectangle unchanged. That is the clause's ILSE
+    /// sentence, arrived at rather than branched on, which is what lets this function answer
+    /// without knowing §14.8.4.1's category — a fact that depends on where the element *sits* and
+    /// that only a caller walking the tree has.
+    #[must_use]
+    pub fn allocation(&self, document: &Document, element: &Dictionary) -> Option<[f32; 4]> {
+        let content = self.bounds(document, element)?;
+        Some(allocation_rectangle(
+            content,
+            self.block_spacing(document, element),
+            self.writing_mode(document, element),
+        ))
+    }
+
+    /// Table 379's `/SpaceBefore` and `/SpaceAfter` for this element, with the table's defaults.
+    ///
+    /// §14.8.5.4.3:
+    ///
+    /// > The amount of extra space preceding the before edge of the BLSE, measured in default
+    /// > user space units in the block-progression direction.
+    ///
+    /// and the same sentence for `/SpaceAfter` with *following* and *after*. Both are
+    /// "(Optional; not inheritable)" with "Default value: 0", which is why this asks
+    /// [`Self::attribute`] and not [`Self::inherited_attribute`]: a paragraph inside a `Div` that
+    /// leaves room around itself has not asked for the same room around each of its lines.
+    ///
+    /// # Two sentences in the cells that are a layout engine's and are not applied here
+    ///
+    /// "If the preceding BLSE has a `SpaceAfter` attribute, the greater of the two attribute
+    /// values shall be used" collapses the gap *between* two elements, and "[t]his attribute
+    /// shall be disregarded for the first BLSE placed in a given reference area" drops it at the
+    /// edge of an area. Both are about a sequence of elements being stacked into a reference
+    /// area — §14.8.3.2's, which this program does not lay out — rather than about one element's
+    /// own two rectangles, and applying either would mean answering for a neighbour this function
+    /// has not been given.
+    #[must_use]
+    pub fn block_spacing(&self, document: &Document, element: &Dictionary) -> BlockSpacing {
+        BlockSpacing {
+            before: self.spacing_number(document, element, "SpaceBefore"),
+            after: self.spacing_number(document, element, "SpaceAfter"),
+        }
+    }
+
+    /// One of Table 379's two spacing numbers, or its default of 0.
+    ///
+    /// A value that is not a finite number is the default too: the table's type is `number`, and
+    /// an infinity would push an allocation rectangle off every page rather than describe a gap.
+    fn spacing_number(&self, document: &Document, element: &Dictionary, name: &str) -> f32 {
+        let Some(number) = self
+            .attribute(document, element, name)
+            .as_ref()
+            .and_then(Object::as_number)
+            .filter(|number| number.is_finite())
+        else {
+            return 0.0;
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a spacing is a page coordinate, bounded by §14.11.2's 14 400 units"
+        )]
+        {
+            number as f32
+        }
+    }
+
+    /// Table 378's `/WritingMode` for this element, or §14.8.3.3's default.
+    ///
+    /// "(Optional; inheritable)", and the cell says how far it reaches: "[t]he specified layout
+    /// directions shall apply to the given structure element and all of its descendants" —
+    /// §14.8.5.3's fourth priority, which is [`Self::inherited_attribute`]. The cell's default is
+    /// `LrTb`, which §14.8.3.3 describes as the Western one: "the block direction is from top to
+    /// bottom and the inline direction is from left to right".
+    ///
+    /// A name the table does not define answers with the default as well, and that is a reading
+    /// of the cell rather than a shrug: the value "shall be one of the following" eight, so a
+    /// ninth is a document that has not stated a writing mode, and the entry's own default is
+    /// what a document that states nothing means.
+    #[must_use]
+    pub fn writing_mode(&self, document: &Document, element: &Dictionary) -> WritingMode {
+        self.inherited_attribute(document, element, "WritingMode")
+            .as_ref()
+            .and_then(Object::as_name)
+            .and_then(|name| WritingMode::read(name.as_bytes()))
+            .unwrap_or_default()
+    }
+
+    /// Table 385's artifact attributes on this element: §14.8.5.8's form of §14.8.2.2's artifact.
+    ///
+    /// # Why this returns the same type the content stream's artifacts do
+    ///
+    /// §14.8.2.2.2 gives an artifact two forms, "[b]y enclosing it in a marked-content sequence
+    /// with the tag Artifact" and "[b]y inclusion in the logical structure tree through the use
+    /// of the Artifact structure element type", and they carry the same facts under two tables:
+    /// Table 363's property list entries and Table 385's attributes. [`Artifact::read`] answers
+    /// the first; this answers the second, into the same [`Artifact`], so a consumer deciding
+    /// what to do with a running head does not have to ask which form its producer chose.
+    ///
+    /// # Where the two tables differ, and it is not a copy
+    ///
+    /// **The fourth type name.** Table 363's is `Background`, "content ... from document
+    /// templates that are often repeated unchanged across many pages"; Table 385's is `Inline`
+    /// (PDF 2.0), which "enclose[s] artifact content that has context in the document's logical
+    /// structure". Each reader takes its own table's four names and nothing else, which is what
+    /// keeps [`ArtifactKind`] one enum rather than a union of two vocabularies.
+    ///
+    /// **What `/Subtype` may sit beside.** Table 385's cell says the entry "should appear only
+    /// when the Type entry has a value of Pagination or Inline" where Table 363's names
+    /// `Pagination` alone. It is a `should` in both, so neither reader conditions on it: a
+    /// document that states a subtype under some other type has stated one, and dropping it
+    /// would be answering with less than the file says.
+    ///
+    /// **`/Attached` is Table 363's alone**, so [`Artifact::attached`] is four falses here. That
+    /// is the table's own silence rather than an unread entry.
+    ///
+    /// # The owner restriction is §14.8.5.8's first sentence
+    ///
+    /// > The artifact attributes described in "Table 385 -Standard artifact attributes" may only
+    /// > be defined in attribute objects whose O (owner) entry has the value Artifact or whose
+    /// > owner is any other owner excluding Layout, List, PrintField and Table .
+    ///
+    /// So `Artifact` and `NSO` are the two owners [`Self::attribute`]'s §14.8.5.3 ranking admits
+    /// that this sentence also admits; the other four PDF-native owners are excluded by name, and
+    /// a format-specific owner is priority 1's, conditioned on "processing based on the format
+    /// indicated by the owner value", which this program does not do. `/BBox` is the exception
+    /// and is [`Self::bounds`]'s: Table 379 states the same entry under `Layout`, and which of
+    /// the two owners a producer wrote it under is not a fact about the rectangle.
+    ///
+    /// # Every entry may be absent, and the element is still an artifact
+    ///
+    /// The same answer [`Artifact::read`] gives for `/Artifact BMC`: §14.8.2.2.2 calls that "a
+    /// generic artifact", and the type of the *element* is what said it is one. Which elements to
+    /// ask about is therefore the caller's, exactly as it is for [`Self::table_summary`] and
+    /// [`Self::header_short`] — §14.8.4.8.7's `Artifact` is the type these attributes describe,
+    /// and that type is §14.7.3's mapped one, which this function is not given.
+    #[must_use]
+    pub fn artifact(&self, document: &Document, element: &Dictionary) -> Artifact {
+        let kind = self
+            .artifact_attribute(document, element, "Type")
+            .as_ref()
+            .and_then(Object::as_name)
+            .and_then(|name| match name.as_bytes() {
+                b"Pagination" => Some(ArtifactKind::Pagination),
+                b"Layout" => Some(ArtifactKind::Layout),
+                b"Page" => Some(ArtifactKind::Page),
+                b"Inline" => Some(ArtifactKind::Inline),
+                _ => None,
+            });
+        let subtype = self
+            .artifact_attribute(document, element, "Subtype")
+            .as_ref()
+            .and_then(Object::as_name)
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
+        Artifact {
+            kind,
+            subtype,
+            bbox: self.bounds(document, element),
+            attached: [false; 4],
+        }
+    }
+
+    /// One Table 385 attribute, under the owners §14.8.5.8's first sentence permits.
+    ///
+    /// [`Self::attribute`] with one filter changed: it admits every PDF-native owner, and this
+    /// clause excludes four of the five by name. `Owner::UserProperties` is excluded with them —
+    /// §14.7.6.4 makes that owner's `/P` array the attributes, not the entries beside it.
+    fn artifact_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        self.attributes(document, element)
+            .iter()
+            .rev()
+            .filter(|object| matches!(object.kind, Owner::Artifact | Owner::Namespace))
+            .find_map(|object| object.get(document, name))
+    }
+
     /// Table 384's `/Headers` for a `TH` or `TD`: the element identifiers the cell states.
     ///
     /// ISO 32000-2 §14.8.5.7:
@@ -2957,6 +3172,152 @@ impl StandardType {
     }
 }
 
+/// Table 378's `/WritingMode`: which way §14.8.3.3's two progressions run.
+///
+/// The eight names the cell defines, spelled as it spells them. What each decides is the
+/// *meaning of an edge*, and §14.8.3.3 says why the standard needs a vocabulary for it at all:
+///
+/// > Because the progression directions can vary depending on the writing system, edges of areas
+/// > and directions on the page are identified by terms that are neutral with respect to the
+/// > progression order rather than by familiar terms such as up, down, left, and right. Block
+/// > layout proceeds from before to after, inline from start to end.
+///
+/// Only the block half is read here, because only the block half has a consumer: §14.8.5.4.5
+/// adjusts an allocation rectangle's before and after edges and leaves the start and end ones
+/// alone. The inline half is carried in the variant names and nothing asks for it.
+///
+/// **Not §9.7's vertical writing**, and the two must not be confused: `/WM` in a `CIDFont` places
+/// glyphs from §9.2.4's metrics, and this places blocks. A document may state either without the
+/// other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WritingMode {
+    /// `LrTb`: "[i]nline progression from left to right; block progression from top to bottom."
+    ///
+    /// The default, and "the typical writing mode for Western writing systems".
+    #[default]
+    LrTb,
+    /// `RlTb`: inline right to left, block top to bottom — "Arabic and Hebrew writing systems".
+    RlTb,
+    /// `TbRl`: inline top to bottom, block right to left — "Chinese and Japanese writing systems".
+    TbRl,
+    /// `TbLr`: inline top to bottom, block left to right — "writing systems like classical
+    /// Mongolian".
+    TbLr,
+    /// `LrBt`: inline left to right, block bottom to top.
+    ///
+    /// "There is currently no known writing system to which this writing mode applies", which is
+    /// the cell's own sentence and not a reason to leave the name unread: a document may state it.
+    LrBt,
+    /// `RlBt`: inline right to left, block bottom to top, and the cell says the same of it.
+    RlBt,
+    /// `BtRl`: inline bottom to top, block right to left — "the Ancient Berber writing system".
+    BtRl,
+    /// `BtLr`: inline bottom to top, block left to right — "the Batak writing system".
+    BtLr,
+}
+
+impl WritingMode {
+    /// Reads one of Table 378's eight names, or `None` for anything else.
+    #[must_use]
+    pub fn read(name: &[u8]) -> Option<Self> {
+        match name {
+            b"LrTb" => Some(Self::LrTb),
+            b"RlTb" => Some(Self::RlTb),
+            b"TbRl" => Some(Self::TbRl),
+            b"TbLr" => Some(Self::TbLr),
+            b"LrBt" => Some(Self::LrBt),
+            b"RlBt" => Some(Self::RlBt),
+            b"BtRl" => Some(Self::BtRl),
+            b"BtLr" => Some(Self::BtLr),
+            _ => None,
+        }
+    }
+
+    /// Which way blocks stack under this mode — the second half of each name.
+    #[must_use]
+    pub fn block_progression(self) -> BlockProgression {
+        match self {
+            Self::LrTb | Self::RlTb => BlockProgression::TopToBottom,
+            Self::LrBt | Self::RlBt => BlockProgression::BottomToTop,
+            Self::TbRl | Self::BtRl => BlockProgression::RightToLeft,
+            Self::TbLr | Self::BtLr => BlockProgression::LeftToRight,
+        }
+    }
+}
+
+/// The direction §14.8.3.3 stacks block-level elements in, and so where *before* and *after* are.
+///
+/// > BLSEs shall be stacked within a reference area in block-progression order. In general, the
+/// > first BLSE shall be placed against the before edge of the reference area.
+///
+/// Named after the page rather than after the progression — "top to bottom" rather than
+/// "vertical" — because the whole point of the term is that a consumer eventually has to turn it
+/// back into an edge of a rectangle, and this is where that happens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockProgression {
+    /// Before is the top edge, after the bottom: `LrTb` and `RlTb`.
+    TopToBottom,
+    /// Before is the bottom edge, after the top: `LrBt` and `RlBt`.
+    BottomToTop,
+    /// Before is the right edge, after the left: `TbRl` and `BtRl`.
+    RightToLeft,
+    /// Before is the left edge, after the right: `TbLr` and `BtLr`.
+    LeftToRight,
+}
+
+/// Table 379's `/SpaceBefore` and `/SpaceAfter`, in default user space units.
+///
+/// Two numbers rather than one rectangle adjustment, because the clause keeps them apart: each is
+/// "measured in default user space units in the block-progression direction" and each has its own
+/// sentence about which neighbour cancels it. [`BlockProgression`] is what turns the pair into two
+/// edges.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BlockSpacing {
+    /// `/SpaceBefore`: "[t]he amount of extra space preceding the before edge of the BLSE".
+    pub before: f32,
+    /// `/SpaceAfter`: "[t]he amount of extra space following the after edge of the BLSE".
+    pub after: f32,
+}
+
+/// §14.8.5.4.5's allocation rectangle, from a content rectangle and the element's spacing.
+///
+/// > For a BLSE, the allocation rectangle shall be equal to the content rectangle with its before
+/// > and after edges adjusted by the element's SpaceBefore and SpaceAfter attributes, if any, but
+/// > with no changes to the start and end edges.
+///
+/// `content` is `[llx, lly, urx, ury]` in **default user space**, where y increases upwards, and
+/// so is the answer. Which pair of edges moves is `mode`'s: the before edge moves outward by
+/// [`BlockSpacing::before`] and the after edge outward by [`BlockSpacing::after`], and the other
+/// two are untouched, which is the clause's own last clause.
+///
+/// # Why the result is sorted rather than trusted
+///
+/// Neither cell forbids a negative number — Table 378's `/Padding`, the entry beside them,
+/// documents its negative case outright — so a producer may state one and the adjusted edges may
+/// cross. A rectangle whose lower-left is above its upper-right is not a rectangle, and every
+/// consumer of this one intersects and unions; sorting keeps those meaning what they say. It is
+/// the same reading [`normalised_rectangle`] applies to §7.9.5's arrays, one step further on.
+#[must_use]
+pub fn allocation_rectangle(
+    content: [f32; 4],
+    spacing: BlockSpacing,
+    mode: WritingMode,
+) -> [f32; 4] {
+    let [llx, lly, urx, ury] = content;
+    let adjusted = match mode.block_progression() {
+        BlockProgression::TopToBottom => [llx, lly - spacing.after, urx, ury + spacing.before],
+        BlockProgression::BottomToTop => [llx, lly - spacing.before, urx, ury + spacing.after],
+        BlockProgression::LeftToRight => [llx - spacing.before, lly, urx + spacing.after, ury],
+        BlockProgression::RightToLeft => [llx - spacing.after, lly, urx + spacing.before, ury],
+    };
+    [
+        adjusted[0].min(adjusted[2]),
+        adjusted[1].min(adjusted[3]),
+        adjusted[0].max(adjusted[2]),
+        adjusted[1].max(adjusted[3]),
+    ]
+}
+
 /// §14.8.2.2's artifact: content that is on the page and is not the document's content.
 ///
 /// §14.8.2.2.1 divides a page in two. The real content is "material intentionally introduced
@@ -2974,45 +3335,80 @@ impl StandardType {
 /// kind, and drops none of it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Artifact {
-    /// Table 363's `/Type`, or `None` where the property list states none or is absent.
+    /// `/Type` — Table 363's for the marked-content form, Table 385's for the element form — or
+    /// `None` where neither states one.
     ///
-    /// Absent for the `/Artifact BMC` form, which §14.8.2.2.2 calls "a generic artifact".
+    /// Absent for the `/Artifact BMC` form, which §14.8.2.2.2 calls "a generic artifact", and for
+    /// an `Artifact` structure element with no attribute object.
     pub kind: Option<ArtifactKind>,
-    /// Table 363's `/Subtype`, which "should appear only when the `Type` entry has a value of
-    /// `Pagination`" — carried as written rather than as an enum, because the entry is open:
-    /// "[a]dditional values may be specified for this entry, provided they comply with the
-    /// naming conventions described in Annex E".
+    /// `/Subtype`, which "should appear only when the `Type` entry has a value of `Pagination`"
+    /// in Table 363 and "of Pagination or Inline" in Table 385 — carried as written rather than
+    /// as an enum, because the entry is open in both: "[a]dditional values may be specified for
+    /// this entry, provided they comply with the naming conventions described in Annex E".
     pub subtype: Option<String>,
-    /// Table 363's `/BBox`: "the rectangle that completely encloses its visible extent", in
-    /// default user space, as `[llx, lly, urx, ury]`.
+    /// `/BBox`: "the rectangle that completely encloses its visible extent", in default user
+    /// space, as `[llx, lly, urx, ury]`. Both tables, in the same words.
     pub bbox: Option<[f32; 4]>,
     /// Table 363's `/Attached`: which page edges the artifact is logically attached to.
     ///
     /// "Page edges shall be defined by the page's crop box", and the order of the names "is
     /// immaterial" — so this is a set of four flags in the clause's own order, top, bottom,
     /// left, right.
+    ///
+    /// Four falses for the element form, because Table 385 has no such entry — the table's
+    /// silence rather than an unread one.
     pub attached: [bool; 4],
 }
 
-/// Table 363's four artifact types.
+/// The artifact types §14.8.2.2's two tables name, which are **four each and five in all**.
+///
+/// Table 363's property list and Table 385's attribute object describe the same artifact under
+/// two forms, and three of the four names are shared — `Pagination`, `Layout` and `Page`. The
+/// fourth is not: the property list's is `Background` and the attribute object's is PDF 2.0's
+/// `Inline`. Each reader takes its own table's four, which is what keeps this one enum: a
+/// consumer asks what kind of artifact it has, and the answer is never a name the table it came
+/// from does not define.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArtifactKind {
     /// `Pagination`: "ancillary page features such as running heads, folios (page numbers) or
     /// Bates Numbering".
+    ///
+    /// Both tables.
     Pagination,
     /// `Layout`: "purely cosmetic typographical or design elements such as footnote rules or
     /// decorative ornaments".
+    ///
+    /// Both tables.
     Layout,
     /// `Page`: "production aids extraneous to the document itself, such as cut marks and
     /// colour bars".
+    ///
+    /// Both tables. Table 385 says "cut marks and print control patches" for the same kind.
     Page,
     /// `Background`: content "from document templates that are often repeated unchanged across
     /// many pages".
+    ///
+    /// Table 363 alone, and the property list's `/Attached` has a sentence conditioned on it:
+    /// "[u]se of this entry for background artifacts shall be limited to full-page artifacts."
     Background,
+    /// `Inline` (PDF 2.0): artifact content "that has context in the document's logical
+    /// structure" — typically, the cell says, an artifact whose subtype is `LineNum` or
+    /// `Redaction`.
+    ///
+    /// Table 385 alone, which is the table whose form *is* a structure element — §14.8.2.2.2's
+    /// NOTE 1 says the element type exists "to accommodate artifact content in cases that have
+    /// positional context relative to real content within the structure tree", and this name is
+    /// that case saying so.
+    Inline,
 }
 
 impl Artifact {
     /// Reads Table 363's property list. `None` is a perfectly good artifact: see [`Self::kind`].
+    ///
+    /// [`ArtifactKind::Inline`] is **not** one of the names this accepts: it is Table 385's
+    /// fourth and a property list stating it has stated a name §14.8.2.2.2's table does not
+    /// define. [`Tree::artifact`] is the reader that takes it, and it declines `Background` for
+    /// the same reason in the other direction.
     #[must_use]
     pub fn read(document: &Document, list: &Dictionary) -> Self {
         let kind =
@@ -3811,9 +4207,10 @@ const GRANDFATHERED: [&str; 26] = [
 #[cfg(test)]
 mod tests {
     use super::{
-        CellFacts, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
-        MAX_TABLE_COLUMNS, ParentTree, StandardType, TableGrid, TableStack, Tree, actual_text,
-        annotation_rectangles, list_predecessors, well_formed_language_tag,
+        Artifact, ArtifactKind, BlockSpacing, CellFacts, Checked, Child, FieldRole, HeaderScope,
+        ListContinuation, ListEntry, MAX_TABLE_COLUMNS, ParentTree, StandardType, TableGrid,
+        TableStack, Tree, WritingMode, actual_text, allocation_rectangle, annotation_rectangles,
+        list_predecessors, well_formed_language_tag,
     };
     use pdf_syntax::{Document, Object};
     use std::collections::BTreeSet;
@@ -5341,6 +5738,198 @@ mod tests {
             tree.bounds(&doc, &elements[2]),
             None,
             "a format-specific owner's value applies only to a processor translating to it"
+        );
+    }
+
+    /// Table 385's `/Type` and `/Subtype` on an `Artifact` element, into the same answer the
+    /// marked-content form already gives.
+    ///
+    /// Five elements, one per way §14.8.5.8 can be answered:
+    ///
+    /// - a running head: `/Type /Pagination` with `/Subtype /Header`, which is the shape
+    ///   §14.8.2.2.2's NOTE about a text-to-speech engine is about;
+    /// - PDF 2.0's `/Type /Inline`, which is **Table 385's fourth name and not Table 363's** —
+    ///   the discrimination the two tables' difference exists for;
+    /// - `/Type /Background`, which is Table 363's fourth name and **not** Table 385's, so the
+    ///   element states a name this table does not define and no kind is read;
+    /// - the two entries under a `Layout` owner, which §14.8.5.8's own first sentence excludes
+    ///   by name, along with `List`, `PrintField` and `Table`;
+    /// - an `Artifact` element with no attribute object at all, which is still an artifact, the
+    ///   way `/Artifact BMC` is "a generic artifact".
+    #[test]
+    fn an_artifact_element_says_which_kind_of_artifact_it_is() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R \
+             /A << /O /Artifact /Type /Pagination /Subtype /Header /BBox [10 80 90 95] >> >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R \
+             /A << /O /Artifact /Type /Inline /Subtype /LineNum >> >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R \
+             /A << /O /Artifact /Type /Background >> >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R \
+             /A << /O /Layout /Type /Pagination /Subtype /Footer >> >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            tree.artifact(&doc, &elements[0]),
+            Artifact {
+                kind: Some(ArtifactKind::Pagination),
+                subtype: Some("Header".to_owned()),
+                bbox: Some([10.0, 80.0, 90.0, 95.0]),
+                attached: [false; 4],
+            },
+            "the element form of a running head, read as the property list form is"
+        );
+        assert_eq!(
+            tree.artifact(&doc, &elements[1]).kind,
+            Some(ArtifactKind::Inline),
+            "Table 385's fourth type name is Inline"
+        );
+        assert_eq!(
+            tree.artifact(&doc, &elements[1]).subtype.as_deref(),
+            Some("LineNum"),
+            "and its /Subtype cell admits the subtypes of an Inline artifact"
+        );
+        assert_eq!(
+            tree.artifact(&doc, &elements[2]).kind,
+            None,
+            "Background is Table 363's fourth name and is not one of Table 385's"
+        );
+        assert_eq!(
+            tree.artifact(&doc, &elements[3]),
+            Artifact::default(),
+            "§14.8.5.8 excludes the Layout owner from its own table by name"
+        );
+        assert_eq!(
+            tree.artifact(&doc, &elements[4]),
+            Artifact::default(),
+            "an Artifact element stating nothing is a generic artifact, not an absent one"
+        );
+    }
+
+    /// §14.8.5.4.5's allocation rectangle, and the edges §14.8.3.3 says it adjusts.
+    ///
+    /// Four elements over the two clauses' one join: a paragraph in the default `LrTb` mode,
+    /// whose before edge is the top and whose after edge is the bottom; the same numbers under
+    /// `TbRl`, where block progression runs right to left and the *same two attributes* move the
+    /// start and end sides of the page instead; a child of the `TbRl` element stating nothing,
+    /// which inherits the mode ("shall apply to the given structure element and all of its
+    /// descendants") and not the spacing (Table 379: "not inheritable"); and an element with a
+    /// rectangle and no spacing at all, which is §14.8.5.4.5's ILSE sentence arrived at rather
+    /// than branched on — "the allocation rectangle is the same as the content rectangle".
+    #[test]
+    fn the_allocation_rectangle_moves_the_edges_the_writing_mode_calls_before_and_after() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /P /Pg 3 0 R \
+             /A << /O /Layout /BBox [20 30 70 60] /SpaceBefore 6 /SpaceAfter 4 >> >>",
+            "<< /Type /StructElem /S /P /Pg 3 0 R /K [7 0 R] \
+             /A << /O /Layout /BBox [20 30 70 60] /WritingMode /TbRl \
+             /SpaceBefore 6 /SpaceAfter 4 >> >>",
+            "<< /Type /StructElem /S /Span /P 6 0 R /Pg 3 0 R \
+             /A << /O /Layout /BBox [20 30 70 60] >> >>",
+            "<< /Type /StructElem /S /P /Pg 3 0 R /A << /O /Layout /BBox [20 30 70 60] >> >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+        let below = tree.children(&doc, Some(&elements[1]));
+        let [Child::Element(nested)] = below.as_slice() else {
+            panic!("one child under the TbRl paragraph: {below:?}");
+        };
+
+        assert_eq!(
+            tree.writing_mode(&doc, &elements[0]),
+            WritingMode::LrTb,
+            "Table 378's default, which an element stating none takes"
+        );
+        assert_eq!(
+            tree.block_spacing(&doc, &elements[0]),
+            BlockSpacing {
+                before: 6.0,
+                after: 4.0
+            }
+        );
+        assert_eq!(
+            tree.allocation(&doc, &elements[0]),
+            Some([20.0, 26.0, 70.0, 66.0]),
+            "LrTb stacks top to bottom, so before is the top edge and after the bottom"
+        );
+        assert_eq!(
+            tree.allocation(&doc, &elements[1]),
+            Some([16.0, 30.0, 76.0, 60.0]),
+            "TbRl stacks right to left, so the same two numbers move the right and left edges"
+        );
+        assert_eq!(
+            tree.writing_mode(&doc, nested),
+            WritingMode::TbRl,
+            "Table 378 makes the mode inheritable, and the cell says it reaches every descendant"
+        );
+        assert_eq!(
+            tree.block_spacing(&doc, nested),
+            BlockSpacing::default(),
+            "Table 379 makes the spacing not inheritable, so the parent's is not this element's"
+        );
+        assert_eq!(
+            tree.allocation(&doc, nested),
+            tree.bounds(&doc, nested),
+            "no spacing, so the allocation rectangle is the content rectangle"
+        );
+        assert_eq!(
+            tree.allocation(&doc, &elements[2]),
+            Some([20.0, 30.0, 70.0, 60.0]),
+            "§14.8.5.4.5's ILSE sentence, reached by Table 379's default of 0"
+        );
+    }
+
+    /// A negative `/SpaceBefore` may cross the edges, and the answer is still a rectangle.
+    ///
+    /// Table 379 states the type as `number` and forbids no sign; `/Padding` next door documents
+    /// its negative case outright, so a producer writing one here is writing something the tables
+    /// admit. Every consumer of this rectangle unions and intersects it, and one whose lower-left
+    /// is above its upper-right would make both mean the opposite of what they say.
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "the arithmetic is one subtraction and a sort of values written in the test, so \
+                  every result is exactly representable and an epsilon here would accept the \
+                  defect this test exists to find"
+    )]
+    fn a_negative_spacing_still_leaves_a_rectangle_the_right_way_up() {
+        let crossed = allocation_rectangle(
+            [20.0, 30.0, 70.0, 60.0],
+            BlockSpacing {
+                before: -40.0,
+                after: 0.0,
+            },
+            WritingMode::LrTb,
+        );
+        assert_eq!(
+            crossed,
+            [20.0, 20.0, 70.0, 30.0],
+            "the before edge crossed the after one, and the pair was sorted rather than trusted"
         );
     }
 

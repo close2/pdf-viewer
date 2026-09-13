@@ -38,7 +38,7 @@ what these files are split by.
 | [`doc/todo/02-every-round.md`](todo/02-every-round.md) | what a round does around whatever it takes: which gates its change needs, the sweeps, the binaries, the commit |
 | [`tools/round.sh`](../tools/round.sh) | run it first: the next session number, the reading list for this kind of round, whether the full gate sequence is owed, and each thing a round has got wrong here before |
 | [`doc/environment.md`](environment.md) | the machine, the agent's account, the display, the build directory, the working agreements, and the one command a fresh clone needs |
-| the trap group this round is in | below — each trap is a mistake somebody actually made |
+| [`doc/traps/README.md`](traps/README.md) | the trap index: one line per trap, the position that springs it and the rule; open a group file where a line bites |
 
 **And then by what the round is:**
 
@@ -59,80 +59,20 @@ what these files are split by.
 
 ---
 
-## Traps — read the group this round is in, before writing code
+## Traps — read the index, open the group a line bites in
 
-Each trap is a mistake somebody actually made in this tree, and they are grouped by **what a round
-is doing** rather than by their numbers: a round that skips the group its work is in repeats a
-mistake somebody paid for. Open one file; the numbers inside it are not consecutive and are not
-meant to be.
+Each trap is a mistake somebody actually made in this tree, and the whole of it — the incident, the
+evidence and the argument — is in one of five group files grouped by **what a round is doing**.
 
-| open this | when the round | traps |
-|---|---|---|
-| [`doc/traps/pixels-and-rasterisers.md`](traps/pixels-and-rasterisers.md) | can change a pixel — the interpreter's marks, any rasteriser, colour, a cross-backend scene | 1, 2, 6, 12b, 12c, 14, 40 |
-| [`doc/traps/oracle-and-references.md`](traps/oracle-and-references.md) | reads a verdict, diagnoses a page, invokes another renderer, or moves a tolerance | 3, 9, 12, 26 |
-| [`doc/traps/parsers-and-streams.md`](traps/parsers-and-streams.md) | touches `pdf-syntax`, a filter, a font program, an image codec, or decides what to do with input it cannot fully handle | 4, 5, 8, 28, 38 |
-| [`doc/traps/the-interactive-loop.md`](traps/the-interactive-loop.md) | turns a press into a command, converts between the page's space, the display list's and the raster's, answers the core about a render, waits on a toolkit's loop, or writes that a toolkit cannot do something | 12a, 17, 19, 20, 21, 22 |
-| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect, puts a process under a limit — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 10b, 11, 13, 15, 16, 18, 23, 24, 25, 27, 29, 30, 31, 32, 33, 34, 35, 36, 37, 39 |
+**[`doc/traps/README.md`](traps/README.md) is the index and it is what a round reads**: one line per
+trap, giving the position that springs it and the rule, plus the table of which group file is for
+which kind of round. A round reads the condition column against what it is about to do and opens a
+group file only where a line bites — which is the whole change ADR 1036 made, because the group a
+round "is in" was up to 917 lines and the line it needed was six of them. The index also states why
+every trap keeps its number and resolves any citation by number in one hop.
 
-**Two of them are not optional for the round they are about.** If this round can change a pixel,
-**trap 1** — *the metrics lie, look at the page* — is the one that has paid every session since the
-tenth. If this round adds a report, **trap 11** is what stops it firing on a condition the clause
-does not state.
-
-Each group file also carries the standing facts about its own area, beside the traps that are
-about the same machinery.
-
-**Every trap keeps its number**, because `crates/`, `tools/`, `doc/conformance/ledger.toml` and
-dozens of ADRs cite them by number, and an ADR is not edited to follow a file that moved underneath
-it (ADR 0232 §2). The index below resolves any such citation in one hop:
-
-| trap | | |
-|---|---|---|
-| 1 | The metrics lie. Look at the page. | pixels |
-| 2 | A paint is positioned in the *path's* space, not the device's | pixels |
-| 3 | An oracle is only as good as how it invokes the other renderers | oracle |
-| 4 | Test against real documents, not hand-written fragments | parsers |
-| 5 | Unsupported input must stay loud | parsers |
-| 6 | Colour: one conversion, and the specification often has no answer | pixels |
-| 7 | `#[expect]`, never `#[allow]` | instruments |
-| 8 | A corpus finds what documents contain, not what the specification says | parsers |
-| 9 | Two references can agree because they share code — or because they share a *gap* | oracle |
-| 10 | The sandbox worker is a separate binary, and Cargo will not rebuild it for you | instruments |
-| 10a | A cached reference render is a fourth thing that can be stale | instruments |
-| 10b | A *new module file* is a fifth thing Cargo will hand you stale | instruments |
-| 11 | A report is only as good as the condition it fires on | instruments |
-| 12 | A bound derived from two agreeing references is tighter than the arithmetic | oracle |
-| 12a | The display list's space is not the raster's, and a doc comment said it was | interactive loop |
-| 12b | A test suite made of small scenes tests small scenes | pixels |
-| 12c | A dependency that reports through a *handler* has an ordering you have to obey | pixels |
-| 13 | A sweep for a defect must be run against the defect before it is believed | instruments |
-| 14 | A target that *is* the region a clause names cannot tell you whether you applied it | pixels |
-| 15 | A sweep binary carries its tree with it, so one from a neighbour's build directory measures the neighbour | instruments |
-| 16 | A gate can measure a program **the build did not finish producing** | instruments |
-| 17 | A toolkit's widget list is a catalogue, not a statement of what it can do | interactive loop |
-| 18 | A limit a process is under can destroy the channel it reports through | instruments |
-| 19 | A widget the *document* placed can decide how big the window is | interactive loop |
-| 20 | `Rendered::Failed` marks a page as answered, so it is not the word for a draw the host abandoned | interactive loop |
-| 21 | A toolkit's main loop cannot dispatch your poll while it is inside its own frame | interactive loop |
-| 22 | A shared key table is only as level as the narrowest path a key takes to reach it | interactive loop |
-| 23 | `--all` and `--workspace` are scoped to a workspace, not to the tree | instruments |
-| 24 | A fuzz target's exit status answers *did it crash*, never *did it run* | instruments |
-| 25 | A hand-written population can name a thing that never existed, and finding nothing there reads as a pass | instruments |
-| 26 | The worst tile is measured on a fixed grid, so one page's difference is worth twice another's | oracle |
-| 27 | An assertion on a substring passes for every answer that shares it | instruments |
-| 28 | A recovery's guard is a claim, and the comment above it is a *different* claim | parsers |
-| 29 | A bound lifted in a scratch build is lifted only where the code reads the constant | instruments |
-| 30 | A sink keyed by name hands its outputs back in the order they were *opened* | instruments |
-| 31 | A fallible filesystem call is not a *safe* filesystem call inside the confinement | instruments |
-| 32 | A confined worker cannot **drop** an owned descriptor, and only the debug build dies of it | instruments |
-| 33 | A counter of what was *produced* cannot see a cost paid in *validation* | instruments |
-| 34 | A guard has to be made of the same stuff as the figure it guards | instruments |
-| 35 | A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident | instruments |
-| 36 | A neighbour can take half of a figure without ever queueing for a processor, and `/proc/self` is the wrong thread to ask | instruments |
-| 37 | A digest of the artefact cannot see a change in the *diagnosis* | instruments |
-| 38 | A resource bound can sit below what the standard's own data states | parsers |
-| 39 | A signal that always fires has stopped being a signal, and it looks like caution | instruments |
-| 40 | Two functions in one file can be the same capability arriving and announcing nothing | pixels |
+A round that skips the trap its work is in repeats a mistake somebody paid for, and the index is how
+it finds out which one that is.
 
 ---
 

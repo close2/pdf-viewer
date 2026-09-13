@@ -29,12 +29,17 @@ default = "stop"
 
 [site."embedded-files/embedded-file-is-itself-pdfa"]
 remedy = "preserve"
+placement = "attach"       # built: the first two of the three preferences below. At 4f and 4e the
+                           # requirement does not bind and the original is held unchanged; at every
+                           # other target the attachment is one the declared tool derives, and the
+                           # report and xmpMM:History say it is derived rather than original.
 prefer = ["attach-unchanged", "attach-converted", "append-pages"]   # NOT-YET-IN-FORMAT
 tool = "office-to-pdf"     # used only by attach-converted and append-pages
 on-failure = "stop"        # never `discard`: that is what this profile is
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
 remedy = "preserve"
+placement = "attach"
 prefer = ["attach-unchanged", "attach-converted", "append-pages"]   # NOT-YET-IN-FORMAT
 tool = "office-to-pdf"
 on-failure = "stop"
@@ -248,6 +253,16 @@ fresh-packet = true
 remedy = "preserve"
 prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
 fresh-packet = true
+
+[site."metadata/properties-use-known-schemas"]
+# **Built**, and it is the site this profile's rule was written for: ISO 19005-2 clause 6.6.2.3.1
+# rejects a property its own predefined schema does not define, and the only route out of the
+# packet is removal — so `discard` is what every other answer amounts to. `placement = "append"`
+# keeps what the removal takes: the packet the producer wrote is set on a page appended to the
+# document, in a typeface the document itself embeds, and the report and the file's own
+# xmpMM:History both name the page. doc/adr/1014 is the permission and doc/adr/1025 the placement.
+remedy = "preserve"
+placement = "append"
 
 [site."metadata/extension-schemas-embedded"]
 remedy = "preserve"

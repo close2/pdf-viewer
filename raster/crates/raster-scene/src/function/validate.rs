@@ -21,7 +21,7 @@
 //! division rather than a gap.
 //!
 //! The paint that *references* a program — its domain, matrix, range and background — is
-//! checked at the scene boundary instead, with the other §4.7 refusals.
+//! checked at the scene boundary instead, with the other brief section 4.7 refusals.
 
 use super::FnOp;
 use crate::error::SceneError;

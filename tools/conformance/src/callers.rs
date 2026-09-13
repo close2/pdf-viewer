@@ -39,7 +39,7 @@
 //!   report prints the rungs in the order they are worth reading.
 //! - **A tool is a consumer, and this sweep could not see one for 176 sessions.** `logical_text`
 //!   read as unnamed from the two-hundred-and-fifty-third run onward while `tools/pdf-retrieve`
-//!   had asked it since the four-hundred-and-twenty-first. [`crate::SOURCE_ROOTS`] is the
+//!   had asked it since the four-hundred-and-twenty-first. [`crate::roots::source_roots`] is the
 //!   population here, so `tools/` and `fuzz/` are asked with the crates.
 //!
 //! # The noise, printed rather than filtered
@@ -183,56 +183,45 @@ impl Report {
 
 /// Where one crate of this workspace lives, relative to its root.
 ///
-/// A directory under [`crate::SOURCE_ROOTS`] holding a `Cargo.toml` and named for the crate. The
-/// answer is looked up rather than assumed because `tools/` holds crates too, and a sweep of a
-/// tool's public surface is the same question this one asks of `pdf-model`.
-#[must_use]
-pub fn directory_of(root: &Path, name: &str) -> Option<String> {
-    crate::SOURCE_ROOTS
-        .iter()
-        .map(|source_root| format!("{source_root}/{name}"))
-        .chain(std::iter::once(name.to_owned()))
-        .find(|directory| root.join(directory).join("Cargo.toml").is_file())
+/// One of [`crate::roots::source_roots`], named for the crate. The answer is looked up rather
+/// than assumed because `tools/` holds crates too, and a sweep of a tool's public surface is the
+/// same question this one asks of `pdf-model`.
+///
+/// # Errors
+///
+/// If the tree's shape cannot be derived.
+pub fn directory_of(root: &Path, name: &str) -> std::io::Result<Option<String>> {
+    Ok(crate::roots::source_roots(root)?
+        .into_iter()
+        .find(|directory| directory.rsplit('/').next() == Some(name)))
 }
 
 /// Reads the workspace's manifests for the crates that could call `answering`.
 ///
-/// A directory under [`crate::SOURCE_ROOTS`] holding a `Cargo.toml` is a crate; the roots
-/// themselves are checked too, because `fuzz/` is one crate rather than a directory of them.
+/// Every crate of the tree is one of [`crate::roots::source_roots`], `fuzz/` included — the
+/// derivation carries the two rules that decide what a crate of this tree is.
 ///
 /// # Errors
 ///
-/// If a directory cannot be walked or a manifest cannot be read. A sweep that skipped a manifest
-/// it could not open would report a caller-less function for a crate it had not looked at.
+/// If the tree's shape cannot be derived or a manifest cannot be read. A sweep that skipped a
+/// manifest it could not open would report a caller-less function for a crate it had not looked
+/// at.
 pub fn consumers(root: &Path, answering: &str) -> std::io::Result<Vec<Consumer>> {
     let mut found = Vec::new();
-    for name in crate::SOURCE_ROOTS {
-        let source_root = root.join(name);
-        let mut directories = vec![source_root.clone()];
-        if source_root.is_dir() {
-            for entry in std::fs::read_dir(&source_root)? {
-                let path = entry?.path();
-                if path.is_dir() {
-                    directories.push(path);
-                }
-            }
+    for directory in crate::roots::source_roots(root)? {
+        let manifest = root.join(&directory).join("Cargo.toml");
+        if !manifest.is_file() {
+            continue;
         }
-        for directory in directories {
-            let manifest = directory.join("Cargo.toml");
-            if !manifest.is_file() {
-                continue;
-            }
-            let text = std::fs::read_to_string(&manifest)?;
-            let shown = shown(directory.strip_prefix(root).unwrap_or(&directory));
-            if shown.ends_with(answering) {
-                continue;
-            }
-            if let Some(dependency) = dependency_on(&text, answering) {
-                found.push(Consumer {
-                    directory: shown,
-                    dependency,
-                });
-            }
+        let text = std::fs::read_to_string(&manifest)?;
+        if directory.ends_with(answering) {
+            continue;
+        }
+        if let Some(dependency) = dependency_on(&text, answering) {
+            found.push(Consumer {
+                directory,
+                dependency,
+            });
         }
     }
     found.sort_by(|left, right| left.directory.cmp(&right.directory));
@@ -440,7 +429,7 @@ fn is_program_source(relative: &str) -> bool {
 
 /// Runs the sweep.
 ///
-/// `sources` are the Rust files under [`crate::SOURCE_ROOTS`] with their text, as
+/// `sources` are the Rust files under [`crate::roots::source_roots`] with their text, as
 /// [`crate::entries::sources`] reads them, and `consumers` what [`consumers`] found. `answering`
 /// is the crate directory whose `pub fn`s are the population — `crates/pdf-model`.
 #[must_use]

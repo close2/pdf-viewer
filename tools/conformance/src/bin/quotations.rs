@@ -17,6 +17,18 @@
 //! with the standard's own continuation under it, and it ends with the population it read so
 //! that a clean run says what it was clean over. It exits non-zero only where it cannot read
 //! what it needs: a divergence is a question for a person, not a build failure.
+//!
+//! # Three populations, because one of them is a record
+//!
+//! The documents divide in two. The **live** documents are the ones a round reads and may edit,
+//! and their figure is the one a round is asked to move. The **records** —
+//! [`conformance::prose::RECORDS`], which is `doc/history/` and `doc/history.md` — are session
+//! bookkeeping no round reads to do its work, and they are reported under their own heading: a
+//! misquotation there is still a defect, and correcting one is not the tidying `CLAUDE.md`
+//! forbids, but a population of 565 files that only grows cannot be read to zero and would make
+//! the live figure unmovable if it were counted into it. That constant carries the argument;
+//! ADR 1036 is the decision (and `doc/reviews/1012-where-the-effort-goes.md` §6 the measurement
+//! that asked for it).
 
 #![expect(
     clippy::print_stdout,
@@ -109,8 +121,16 @@ fn run() -> Result<(), Error> {
     let conversion = Conversion::read(&root.join("doc/md"))?;
     let documents = prose::documents(&root.join("doc"))?;
 
+    let doc = root.join("doc");
     let mut prose_tally = Tally::default();
+    let mut record_tally = Tally::default();
+    let mut records = 0usize;
+    println!("Live documents — the figure a round moves:");
     for path in &documents {
+        if prose::is_a_record(&doc, path) {
+            records = records.saturating_add(1);
+            continue;
+        }
         let text = std::fs::read_to_string(path).map_err(|source| prose::Error::Unreadable {
             path: path.clone(),
             source,
@@ -118,6 +138,26 @@ fn run() -> Result<(), Error> {
         let shown = path.strip_prefix(&root).unwrap_or(path);
         for (line, shape, quotation) in prose::quotations(&text) {
             prose_tally.judge(&conversion, shown, line, shape, &quotation);
+        }
+    }
+
+    // The records, second and apart. Read rather than skipped, because a quotation of the
+    // standard is a claim about the standard wherever it is written; kept out of the figure
+    // above, because a population a round may not edit for any other reason cannot be read to
+    // zero and would make that figure unmovable. `prose::RECORDS` carries the argument.
+    println!();
+    println!("Records — corrected only where the quotation itself is wrong:");
+    for path in &documents {
+        if !prose::is_a_record(&doc, path) {
+            continue;
+        }
+        let text = std::fs::read_to_string(path).map_err(|source| prose::Error::Unreadable {
+            path: path.clone(),
+            source,
+        })?;
+        let shown = path.strip_prefix(&root).unwrap_or(path);
+        for (line, shape, quotation) in prose::quotations(&text) {
+            record_tally.judge(&conversion, shown, line, shape, &quotation);
         }
     }
 
@@ -139,16 +179,25 @@ fn run() -> Result<(), Error> {
 
     println!();
     println!(
-        "{} quotations in {} documents ({} single-quoted): {} verbatim in a specification, {} \
-         matching one for at least {} words and then diverging, {} sharing too little with any \
+        "{} quotations in {} live documents ({} single-quoted): {} verbatim in a specification, \
+         {} matching one for at least {} words and then diverging, {} sharing too little with any \
          of them to be a quotation of one.",
         prose_tally.read,
-        documents.len(),
+        documents.len().saturating_sub(records),
         prose_tally.single,
         prose_tally.verbatim,
         prose_tally.suspect,
         prose::MIN_MATCH,
         prose_tally.unrelated()
+    );
+    println!(
+        "{} quotations in {records} records ({} single-quoted): {} verbatim, {} diverging, {} \
+         unrelated. A record is not rewritten for tidiness; a misquotation in one is not tidiness.",
+        record_tally.read,
+        record_tally.single,
+        record_tally.verbatim,
+        record_tally.suspect,
+        record_tally.unrelated()
     );
     println!(
         "{} quotations in {} ledger notes ({} single-quoted): {} verbatim, {} diverging, {} \

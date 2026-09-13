@@ -18,7 +18,7 @@ use crate::mask::{MaskKind, Transfer};
 use crate::paint::{Color, Paint, Stroke};
 
 /// How an image's samples map to pixels for one placement — the caller's
-/// already-taken decision (§4.5), never re-taken here.
+/// already-taken decision (brief section 4.5), never re-taken here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageFilter {
     /// Nearest sample: §8.9.5.3's default (`/Interpolate` false), and what three
@@ -31,7 +31,7 @@ pub enum ImageFilter {
     /// reduction for minification — per placement, from `/Interpolate` and the device
     /// extent the viewport gives the image (ADR 0089; the caller's ADR 0706).
     ///
-    /// This is the §4.5 amendment pattern a third time: the decision is
+    /// This is the brief section 4.5 amendment pattern a third time: the decision is
     /// resolution-dependent by nature, so a scene that carried its answer was true at
     /// exactly one viewport. With the flag crossing instead, an image command is true
     /// at every viewport and the caller's page-space scenes survive zooming a page
@@ -42,7 +42,7 @@ pub enum ImageFilter {
     },
 }
 
-/// The deepest a group may nest. The brief's §1.1 bounds the caller's display list at
+/// The deepest a group may nest. The brief's section 1.1 bounds the caller's display list at
 /// 16, so a deeper scene means something upstream went wrong, and the builder refuses
 /// it rather than letting a device discover it mid-frame.
 pub const MAX_GROUP_DEPTH: usize = 16;
@@ -81,7 +81,7 @@ pub struct GroupSpec {
     /// struct assumes. [`Compose::DestOut`] and [`Compose::Plus`] write the clause's
     /// second stage — `P' = (1 − f) × P + S` — with a *group* as the source of each
     /// half, which is what §11.6.4.2 forces for a knockout element that is itself a
-    /// group:
+    /// group, on §11.3.7.2's definition of a group's shape:
     ///
     /// > The shape of a group object shall be the union […] of the shapes of the objects
     /// > it contains.
@@ -153,7 +153,7 @@ pub struct MaskDef {
 }
 
 /// One clip region: an outline, a rule, and an optional parent, so that a chain is an
-/// intersection (§4.7 of the brief). An **empty clip admits nothing**, which is a
+/// intersection (section 4.7 of the brief). An **empty clip admits nothing**, which is a
 /// different thing from an absent clip.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClipDef {
@@ -169,8 +169,8 @@ pub struct ClipDef {
 
 /// One drawing command, carrying its own absolute transform.
 ///
-/// Nothing is inherited from a position in the list (§1.1 of the brief), which is what
-/// lets a device reorder and parallelise without the result changing (§4.6). `Group` is
+/// Nothing is inherited from a position in the list (section 1.1 of the brief), which is what
+/// lets a device reorder and parallelise without the result changing (brief section 4.6). `Group` is
 /// the one nested command, bounded at [`MAX_GROUP_DEPTH`].
 ///
 /// The enum is exhaustive on purpose, and milestones extend it breakingly: a device
@@ -182,7 +182,7 @@ pub enum Command {
     /// Fill an axis-aligned rectangle with a solid colour, compositing with
     /// `BlendMode::Normal` over what is below.
     ///
-    /// Not a special case of a path fill: §6.4. A rectangle is exact analytic coverage
+    /// Not a special case of a path fill: brief section 6.4. A rectangle is exact analytic coverage
     /// in a fragment shader — no tiling, no binning, no edge list — and it is what
     /// rules, backgrounds, underlines, table cells and *most clips* are. M3 extends it
     /// with clip state.
@@ -202,7 +202,7 @@ pub enum Command {
     /// Fill an uploaded outline (ISO 32000-2 §8.5.3.3's two rules, §11 for the
     /// compositing). Drawable once the glyph and path lanes exist (M4/M5).
     Fill {
-        /// The outline, uploaded once and referenced per occurrence (§2.2).
+        /// The outline, uploaded once and referenced per occurrence (brief section 2.2).
         outline: OutlineId,
         /// The command's absolute transform.
         transform: Affine,
@@ -226,7 +226,7 @@ pub enum Command {
         outline: OutlineId,
         /// The command's absolute transform.
         transform: Affine,
-        /// Width, caps, joins — resolved upstream where §4.5 says so.
+        /// Width, caps, joins — resolved upstream where brief section 4.5 says so.
         stroke: Stroke,
         /// How the stroke is painted.
         paint: Paint,
@@ -247,7 +247,7 @@ pub enum Command {
         transform: Affine,
         /// Constant alpha applied on top of the image's own, `0..=1`.
         alpha: f32,
-        /// The **resolved** filtering decision for this placement — §4.5's
+        /// The **resolved** filtering decision for this placement — brief section 4.5's
         /// `/Interpolate` and the area-averaging departure are settled upstream,
         /// per placement, which is why this sits on the command and not on the
         /// uploaded resource (integration note 1).

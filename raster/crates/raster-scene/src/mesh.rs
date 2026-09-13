@@ -3,7 +3,7 @@
 //! [`MeshSpec`] is real as of M2 because `Device::upload_mesh` validates it at upload
 //! time; drawing a mesh is M7's work (`raster/doc/PLAN.md`).
 //!
-//! # Why a mesh arrives as pixels (§1.1 of the brief, integration note 5)
+//! # Why a mesh arrives as pixels (section 1.1 of the brief, integration note 5)
 //!
 //! The caller's `MeshRaster` is a pre-rasterised triangle mesh — ISO 32000-2
 //! §8.7.4.5.5–.7's mesh shadings, rasterised once upstream and shared between both of

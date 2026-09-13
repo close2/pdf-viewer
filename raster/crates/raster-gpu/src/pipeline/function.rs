@@ -3,10 +3,10 @@
 //! The rest of the store's pipelines are a fixed table: seventeen [`Kind`](super::Kind)s
 //! over the target formats a device meets. This one is not a table at all — the shader's
 //! text is a function of a program the caller uploaded — so it needs a key of its own, and
-//! ADR 0053 says which:
-//!
-//! > worth building, for type 4 only, and only as a generated shader cached by the
-//! > program's hash.
+//! ADR 0053 says which: a pipeline is "worth building, for type 4 only, and only as a
+//! generated shader cached by the program's hash". Quoted in prose rather than as a
+//! blockquote, which in this tree is the standard's own words under a clause number and
+//! nothing else (`tools/conformance`).
 //!
 //! # The key, and why it is the shader's hash rather than the program's
 //!

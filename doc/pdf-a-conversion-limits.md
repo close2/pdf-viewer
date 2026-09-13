@@ -303,6 +303,19 @@ The decision tree, in the order a converter should try it:
    different document from the one that went in, and this converter says so rather than pretending
    otherwise. `doc/profiles/derive-attachments.toml` is the shipped example.
 
+   **And `preserve` is the same machinery under the operator's other word** (session 1006): a
+   configuration answering either embedded-file site with `remedy = "preserve"` and
+   `placement = "attach"` reaches exactly that derivation, because at a target that admits only a
+   conforming attachment, keeping the attachment *is* attaching one derived from it — and the report
+   says derived, not original, because that is what happened. At PDF/A-4f and PDF/A-4e the
+   requirement does not bind at all, so the same row is inert and the original stays as it is, which
+   is step 2's *retarget* arriving as a fact about the target rather than as advice. A row asking to
+   attach with no tool named, at a target that binds the rule, is a configuration error naming both
+   — never a quiet fall-through to `stop`. What is still **not** built is appending the attachment's
+   own content as pages: the composer exists (section 3.9), but the requirement stays failed while
+   the file is still embedded, and the rewrite that takes a file specification out of the
+   `/EmbeddedFiles` name tree, the catalog's `/AF` and any file attachment annotation is not written.
+
    **The program is never started by `apply`.** `A54` settled that: the conversion returns the
    invocation as a data value and the *caller* runs it, through one shared executor that every
    consumer this project ships uses, so a user still types one command and the remedies happen —
@@ -524,6 +537,18 @@ the value is not one the schema describes.
 - **The refusal stays the default.** A conversion run without the authorisation refuses and names
   the properties, because a document losing metadata silently is the failure this whole section is
   written against.
+- **And since session 1006 there is a third route, which keeps it.** `doc/rfc/0007`'s `preserve`,
+  with `placement = "append"`: the property still comes out of the packet — the clause is about the
+  packet — and **the packet as the producer wrote it is set on pages appended to the document**, so
+  the value survives in the archive's body. It is the owner's own example in section 2 of that RFC
+  (*instead of losing metadata it could be appended or prefixed as an extra page*), it is on the
+  near side of `CLAUDE.md`'s authoring exclusion by the amendment `doc/adr/1014` records, and
+  `doc/adr/1025` is what it composes and every placement decision it takes. The page is set in a
+  face the document itself embeds where it has one and in one this program ships where it has not
+  (`A47`), every page is named in the report and recorded in the file's own `xmpMM:History`, and a
+  document carrying a structure tree is refused rather than given a page that tree does not describe.
+  `doc/profiles/only-metadata-loss.toml` and `keep-everything.toml` choose it; `as-if-printed.toml`
+  chooses the removal, because a printed page carries no XMP at all.
 - **Built, and this is how.** `--authorise metadata-property` turns it on.
   `pdf_archive::properties_outside_their_schema` answers which properties the subclause rejects —
   the same reading the requirement's own row is, so nothing the validator would have passed is

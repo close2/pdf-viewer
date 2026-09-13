@@ -228,14 +228,83 @@ pub(crate) fn embedded_program(
         } else {
             Program::Type1
         };
-        return Ok(Embedded {
-            data: decoded_data,
-            program,
-        });
+        // §9.9.1's Table 125 puts one requirement on a *processor* reading these three lengths,
+        // and [`with_fixed_content`] is it. Asked only of a Type 1 program, because the entry and
+        // the portion it describes are Type 1's: the branch above has just found that some
+        // `/FontFile` streams carry a CFF instead, and a CFF has no fixed-content portion to be
+        // missing.
+        let data = if program == Program::Type1 {
+            with_fixed_content(document, &stream.dict, decoded_data)
+        } else {
+            decoded_data
+        };
+        return Ok(Embedded { data, program });
     }
     Err(FontError::NotEmbedded {
         name: name.to_owned(),
     })
+}
+
+/// How many bytes [`with_fixed_content`] appends: eight lines of sixty-four zeros, then the
+/// operator on a line of its own.
+const FIXED_CONTENT: usize = 8 * 65 + 12;
+
+/// A Type 1 program with §9.9.1's fixed-content portion restored, where Table 125 says it is absent.
+///
+/// The entry states a length and, where that length is zero, a job for the reader:
+///
+/// > If Length3 is 0, it indicates that the 512 zeros and cleartomark have not been included in
+/// > the FontFile font program and shall be added by the PDF processor.
+///
+/// NOTE 2 of the same subclause says what the portion is. A standard Type 1 font program "consists
+/// of three parts: a clear-text portion (written using PostScript syntax), an encrypted portion,
+/// and a fixed-content portion", and "[t]he fixed-content portion contains 512 ASCII zeros followed
+/// by a cleartomark operator, and perhaps followed by additional data."
+///
+/// **The entry is the condition, so this fires on a stated zero and on nothing else.** Table 125
+/// makes `/Length2` and `/Length3` "( Required for Type 1 font programs )"; a stream that states
+/// neither has not said that its fixed-content portion is missing, it has said nothing at all, and
+/// adding a trailer to a program that already carries one would put a second `cleartomark` after
+/// the first. [`stated_extent`] reads the same three entries for their other job and treats an
+/// absent `/Length3` as zero there, which is the opposite convention for a different question: a
+/// sum that is short is a sum that refuses fewer whole programs, and an append that fires on a
+/// silence changes bytes nobody asked about.
+///
+/// **What this is worth is not an outline**, which is worth writing down rather than leaving to be
+/// assumed: the fixed-content portion holds no charstring, so no glyph drawn from these bytes comes
+/// out different and no page changes. What it buys is that the bytes handed on are what the
+/// standard says a Type 1 font program is — to `read_fonts::ps::type1` here, and to whatever a
+/// later round hands them to.
+///
+/// # The one choice the clause leaves open
+///
+/// It says 512 zeros and a `cleartomark`, and says nothing about how they are laid out. PostScript
+/// needs them separated: 512 adjacent `0` characters are one token rather than 512, and an operator
+/// written straight after the last of them is part of that token. The Type 1 font format's own
+/// trailer is eight lines of sixty-four zeros followed by the operator, and that is what is written
+/// here — a deliberate choice among the layouts the clause's sentence admits, recorded as a choice
+/// (`CLAUDE.md` principle 5).
+fn with_fixed_content(document: &Document, dict: &Dictionary, data: Arc<[u8]>) -> Arc<[u8]> {
+    if document.get_key(dict, "Length3").as_integer() != Some(0) {
+        return data;
+    }
+    let mut out = Vec::with_capacity(data.len().saturating_add(FIXED_CONTENT).saturating_add(1));
+    out.extend_from_slice(&data);
+    // The zeros have to begin a token of their own. The encrypted portion they follow ends on an
+    // arbitrary byte — it is ciphertext — so a `0` written straight after it continues whatever
+    // that byte was part of, and one separator costs nothing where one is not needed.
+    if !matches!(
+        out.last(),
+        Some(b'\0' | b'\t' | b'\n' | b'\x0c' | b'\r' | b' ')
+    ) {
+        out.push(b'\n');
+    }
+    for _ in 0..8 {
+        out.extend_from_slice(&[b'0'; 64]);
+        out.push(b'\n');
+    }
+    out.extend_from_slice(b"cleartomark\n");
+    Arc::from(out)
 }
 
 /// Whether a font-program stream's decoded bytes are no program at all.
@@ -318,11 +387,31 @@ fn no_program(decoded: &[u8]) -> bool {
 /// **[`Damage::CheckValue`] is neither of those two and is refused for a reason of its own.** It
 /// is a `FlateDecode` stream that reached RFC 1951's final block and produced every byte the
 /// encoded data describes, over which RFC 1950's Adler-32 disagrees (ADR 0836) — so there is no
-/// prefix, no shortfall against Table 125's extent, and nothing above reaches it. What it *does*
-/// say is the one thing that decides this: the bytes are not the bytes that were compressed. A
-/// checksum over a whole stream never says which of them, so a program admitted on one is a
-/// program of the right length whose content may not be its own, which is the paragraph above's
-/// case arriving by another road.
+/// prefix, and nothing above reaches it. What it *does* say is the one thing that decides this:
+/// the bytes are not the bytes that were compressed. A checksum over a whole stream never says
+/// which of them, so a program admitted on one is a program of the right length whose content may
+/// not be its own, which is the paragraph above's case arriving by another road.
+///
+/// **Table 125 is asked on this damage too, and it is asked to *report* rather than to decide.**
+/// This paragraph used to say there was "no shortfall against Table 125's extent" on a check-value
+/// failure, and that is a claim about a file rather than about the damage: the clause states an
+/// embedded program's extent independently of the filter that carried it, so on a stream whose
+/// check value disagrees it is a **second statement about the same bytes** and it can agree or
+/// disagree with the first. [`extent_corroboration`] asks it and puts the answer in the refusal,
+/// which is what the thousand-and-second session had to find by hand on `bug1050040.pdf`: Table
+/// 125 states **59212** where the filter delivered **59211**, and the font's own per-table
+/// `checkSum` fields place that missing byte inside `glyf`. Three independent statements of one
+/// missing byte, of which this code was printing one. `issue13316_reduced.pdf` is the other
+/// answer and is worth as much: its `/Length1` is its decoded length to the byte, so the extent
+/// corroborates nothing there and the check value stands alone.
+///
+/// **The refusal is the same either way, deliberately.** A corroborating extent does not make the
+/// refusal stronger and an agreeing one does not weaken it — RFC 1950's compliance clause decides
+/// it alone (§7.4.4.1 makes that RFC normative), and a checksum over 168 808 bytes says what a
+/// checksum over 59 211 says with the same confidence. What changes is what the reader is told,
+/// which is the whole of ADR 0836's own lesson about a report that described a file nobody has.
+/// A round that ever wants to soften this refusal has to answer `/Length1` as well, and it now
+/// finds that answer printed rather than owed.
 ///
 /// **Admitting it was measured before it was declined, and `issue13316_reduced.pdf` is what
 /// declined it.** That file's `/FontFile2` is exactly this shape: 168 808 bytes, its `/Length1`
@@ -347,7 +436,8 @@ fn no_program(decoded: &[u8]) -> bool {
 ///
 /// [`FontError::Malformed`] where the decode stopped short of the program the file states, where
 /// no clause states an extent, where the damage is a corruption rather than a truncation, or
-/// where the filter's check value disagrees over bytes that are otherwise whole.
+/// where the filter's check value disagrees over bytes that are otherwise whole — the last of
+/// which carries [`extent_corroboration`]'s reading of Table 125 in its detail.
 fn whole_program(
     document: &Document,
     dict: &Dictionary,
@@ -358,8 +448,15 @@ fn whole_program(
     let Some(damage) = decoded.damage else {
         return Ok(Arc::clone(&decoded.data));
     };
-    let whole = (damage == Damage::Truncated)
+    // Table 125 is consulted on both damages that can reach it, and for two different jobs: on a
+    // truncation it *decides* (a decode reaching the stated extent is whole), on a check-value
+    // failure it only *reports*. A corruption names a point past which nothing is the producer's,
+    // so no extent means anything there and the clause is not asked.
+    let stated = matches!(damage, Damage::Truncated | Damage::CheckValue)
         .then(|| stated_extent(document, dict, key))
+        .flatten();
+    let whole = (damage == Damage::Truncated)
+        .then_some(stated)
         .flatten()
         .and_then(|extent| decoded.data.get(..extent));
     whole.map(Arc::from).ok_or_else(|| FontError::Malformed {
@@ -371,8 +468,9 @@ fn whole_program(
             Damage::CheckValue => format!(
                 "/{key} decoded whole and its check value disagrees ({} bytes): RFC 1950's \
                  Adler-32 says these are not the bytes that were compressed, and a font program \
-                 whose content may not be its own draws glyphs in place of the producer's",
-                decoded.data.len()
+                 whose content may not be its own draws glyphs in place of the producer's{}",
+                decoded.data.len(),
+                extent_corroboration(stated, decoded.data.len())
             ),
             Damage::Truncated | Damage::Corrupt => format!(
                 "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix of a \
@@ -381,6 +479,59 @@ fn whole_program(
             ),
         },
     })
+}
+
+/// What §9.9's Table 125 adds to a refusal RFC 1950's check value has already decided.
+///
+/// A check value is one 32-bit sum over a whole stream: it says that *something* among the bytes
+/// differs from what was compressed and it cannot say what or how much. Table 125 states the same
+/// stream's extent from the other side and in the file's own words — "the entire TrueType font
+/// program, after it has been decoded using the filters specified by the stream's Filter entry, if
+/// any" — which is a statement the filter cannot influence, so the two are independent and the
+/// second is free to be printed beside the first.
+///
+/// Three answers, and the empty one is as deliberate as the other two:
+///
+/// - **The extents differ.** The file's own number corroborates the check value and *localises*
+///   it, which the check value alone cannot: `bug1050040.pdf` states 59212 where the filter
+///   delivers 59211, so a byte is missing rather than altered. (Where the font program is an sfnt
+///   a third statement exists — its per-table `checkSum` fields — and on that file it puts the
+///   missing byte inside `glyf`. Reading it is a session's work rather than a refusal's, so this
+///   prints the two the document states and names the third nowhere.)
+/// - **The extents agree.** Table 125 has been asked and has nothing to add, which is worth
+///   saying rather than omitting: `issue13316_reduced.pdf` decodes to 168 808 bytes under a
+///   `/Length1` of 168 808, and a reader who is not told so cannot tell that case from the one
+///   where nobody looked.
+/// - **No extent is stated.** `/FontFile3` has none by §9.9's own sentence — the three lengths
+///   "are not needed in that case and shall not be present" — so there is nothing to print and
+///   nothing is printed. A sentence saying the clause states nothing would be noise on every CFF.
+///
+/// This is [`stated_extent`]'s clause read for a *report* rather than for a decision, which is why
+/// it returns prose and not a verdict: the refusal above is RFC 1950's and stands whichever of the
+/// three this is.
+fn extent_corroboration(stated: Option<usize>, delivered: usize) -> String {
+    match stated {
+        None => String::new(),
+        Some(stated) if stated == delivered => format!(
+            ", and §9.9's Table 125 states {stated}, which is exactly what arrived — so the \
+             file's own extent corroborates nothing here and the check value stands alone"
+        ),
+        Some(stated) => {
+            let short = stated.saturating_sub(delivered);
+            let over = delivered.saturating_sub(stated);
+            let (count, direction) = if over == 0 {
+                (short, "short of")
+            } else {
+                (over, "over")
+            };
+            let bytes = if count == 1 { "byte" } else { "bytes" };
+            format!(
+                ", and §9.9's Table 125 states {stated} against the {delivered} that arrived — \
+                 {count} {bytes} {direction} the extent the file states, so the document says the \
+                 same damage a second time and independently of the filter"
+            )
+        }
+    }
 }
 
 /// How many decoded bytes §9.9's Table 125 says this font program is, where it says at all.
@@ -633,6 +784,90 @@ mod font_file_signature {
         assert_eq!(program_of(b"\x80\x01\x20\x00\x00\x00rest"), Program::Type1);
     }
 
+    /// A Type 1 program in the three parts §9.9.1's NOTE 2 describes, minus the third.
+    ///
+    /// The clear-text portion is PostScript and the encrypted portion is ciphertext, which is why
+    /// the bytes standing for it here are binary: what the trailer has to be separable from is an
+    /// arbitrary byte rather than a newline.
+    fn type_1_without_its_trailer() -> (&'static [u8], &'static [u8], Vec<u8>) {
+        let clear: &[u8] = b"%!PS-AdobeFont-1.0: Fixture\ncurrentfile eexec\n";
+        let encrypted: &[u8] = b"\x8b\x1c\xd6\x47";
+        let program = [clear, encrypted].concat();
+        (clear, encrypted, program)
+    }
+
+    /// ISO 32000-2 §9.9.1, Table 125's `/Length3`: a stated zero is the reader's job.
+    ///
+    /// > If Length3 is 0, it indicates that the 512 zeros and cleartomark have not been included
+    /// > in the FontFile font program and shall be added by the PDF processor.
+    ///
+    /// What the clause states is a count and an operator, so that is what this asserts — 512 ASCII
+    /// zeros and a `cleartomark` after the producer's own bytes, with those bytes untouched. The
+    /// layout of the zeros is this module's choice rather than the clause's and is deliberately
+    /// not asserted here beyond the count.
+    #[test]
+    #[expect(
+        clippy::naive_bytecount,
+        reason = "five hundred and thirty-three bytes counted once in a unit test: the crate \
+                  clippy suggests is not a dependency of this tree and would not earn one here"
+    )]
+    fn a_stated_length3_of_zero_restores_the_512_zeros_and_cleartomark() {
+        let (clear, encrypted, program) = type_1_without_its_trailer();
+        let entries = format!(
+            "/Length1 {} /Length2 {} /Length3 0",
+            clear.len(),
+            encrypted.len()
+        );
+        let embedded = try_embedded_of(b"FontFile", &entries, &program)
+            .expect("the descriptor embeds a Type 1 program");
+        assert_eq!(embedded.program, Program::Type1);
+        assert_eq!(
+            &embedded.data[..program.len()],
+            program.as_slice(),
+            "the producer's own bytes are carried through unchanged"
+        );
+        let added = &embedded.data[program.len()..];
+        assert_eq!(
+            added.iter().filter(|byte| **byte == b'0').count(),
+            512,
+            "\"the 512 zeros\", and no more than 512"
+        );
+        assert!(
+            added.ends_with(b"cleartomark\n"),
+            "the operator the clause names, after them: {added:?}"
+        );
+    }
+
+    /// The other side of the condition: the clause says "[i]f Length3 is 0", so anything else
+    /// leaves the bytes alone.
+    ///
+    /// A program whose `/Length3` is positive carries its own fixed-content portion and a second
+    /// one would be a second `cleartomark`. A stream that states no `/Length3` at all has said
+    /// nothing about the portion — Table 125 makes the entry required of a Type 1 program, so its
+    /// absence is a malformed file rather than a statement — and this reader adds nothing on a
+    /// silence.
+    #[test]
+    fn any_other_length3_leaves_the_program_alone() {
+        let (clear, encrypted, program) = type_1_without_its_trailer();
+        for entries in [
+            format!(
+                "/Length1 {} /Length2 {} /Length3 533",
+                clear.len(),
+                encrypted.len()
+            ),
+            format!("/Length1 {} /Length2 {}", clear.len(), encrypted.len()),
+            String::new(),
+        ] {
+            let embedded = try_embedded_of(b"FontFile", &entries, &program)
+                .expect("the descriptor embeds a Type 1 program");
+            assert_eq!(
+                embedded.data.as_ref(),
+                program.as_slice(),
+                "nothing is appended under `{entries}`"
+            );
+        }
+    }
+
     /// An `OTTO` container holding `tables`, in the order given, with a `head` only if named.
     ///
     /// The directory's search fields are left zero: nothing in this tree reads them, and a font
@@ -844,6 +1079,124 @@ mod font_file_signature {
         assert!(
             detail.contains("Corrupt"),
             "and it is refused for the corruption rather than for a shortfall: {detail}"
+        );
+    }
+
+    /// `data` as a whole zlib stream whose Adler-32 is not the one over it.
+    ///
+    /// [`zlib_stored`] writes the correct check value, which is what makes this one line long:
+    /// RFC 1950's trailer is the last four bytes and nothing else in the framing depends on it, so
+    /// altering it leaves RFC 1951's block structure whole and its final block set. That is
+    /// exactly `Damage::CheckValue`'s condition and exactly the shape `bug1050040.pdf` and
+    /// `issue13316_reduced.pdf` carry — the decoder reaches the end of the data and the sum over
+    /// what came out disagrees with the sum the encoder stored.
+    fn zlib_stored_wrong_check(data: &[u8]) -> Vec<u8> {
+        let mut out = zlib_stored(data, true);
+        let last = out.len().saturating_sub(1);
+        out[last] ^= 0xff;
+        out
+    }
+
+    /// A check-value refusal carries Table 125's number when the file's extent disagrees.
+    ///
+    /// The corroboration this pins is `bug1050040.pdf`'s: §9.9's Table 125 states 59212 where the
+    /// filter delivers 59211, so the document says the damage a second time and says *how much* of
+    /// it, which a checksum over the whole stream never can. The thousand-and-second session found
+    /// that by hand after the refusal had stood for a hundred sessions printing only the checksum.
+    ///
+    /// The fixture states a `/Length1` one past what arrives, which is the corpus witness's own
+    /// difference, and asserts the direction as well as the numbers — a report that said "over"
+    /// for a shortfall would be a sentence about a file nobody has, which is ADR 0836's lesson.
+    #[test]
+    fn a_check_value_refusal_says_so_when_the_stated_extent_disagrees() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let entries = format!(
+            "/Filter /FlateDecode /Length1 {}",
+            wrapped.len().saturating_add(1)
+        );
+
+        let Err(FontError::Malformed { detail, .. }) =
+            try_embedded_of(b"FontFile2", &entries, &zlib_stored_wrong_check(&wrapped))
+        else {
+            panic!("a stream whose check value disagrees is refused whatever its length")
+        };
+        assert!(
+            detail.contains("check value disagrees"),
+            "the refusal is still RFC 1950's: {detail}"
+        );
+        assert!(
+            detail.contains(&format!(
+                "Table 125 states {} against the {} that arrived — 1 byte short of",
+                wrapped.len().saturating_add(1),
+                wrapped.len()
+            )),
+            "and it now carries the file's own extent beside it: {detail}"
+        );
+    }
+
+    /// And the other way, which is the half a corroboration is worthless without.
+    ///
+    /// The fixture differs from the one above in the `/Length1` alone, so what is pinned is the
+    /// *comparison* rather than the presence of the entry. `issue13316_reduced.pdf` is the corpus
+    /// witness: 168 808 decoded bytes under a `/Length1` of 168 808, where Table 125 has been asked
+    /// and has nothing to add. A reader told nothing could not tell that from a reader nobody
+    /// asked for, which is why the agreeing case prints a sentence too — and the refusal is the
+    /// same one, because RFC 1950 decides it alone.
+    #[test]
+    fn a_check_value_refusal_says_the_extent_agrees_when_it_does() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let entries = format!("/Filter /FlateDecode /Length1 {}", wrapped.len());
+
+        let Err(FontError::Malformed { detail, .. }) =
+            try_embedded_of(b"FontFile2", &entries, &zlib_stored_wrong_check(&wrapped))
+        else {
+            panic!("reaching the stated extent does not answer the check value")
+        };
+        assert!(
+            detail.contains("check value disagrees"),
+            "the refusal is unchanged by an extent that agrees: {detail}"
+        );
+        assert!(
+            detail.contains(&format!(
+                "Table 125 states {}, which is exactly what arrived",
+                wrapped.len()
+            )),
+            "and the report says the extent corroborates nothing: {detail}"
+        );
+        assert!(
+            !detail.contains("says the same damage"),
+            "it must not claim a corroboration it does not have: {detail}"
+        );
+    }
+
+    /// A `/FontFile3` states no extent, so the check-value refusal says nothing about one.
+    ///
+    /// §9.9's own sentence is why: of a CFF program the three lengths "are not needed in that case
+    /// and shall not be present". A refusal that reported the clause's silence would print it on
+    /// every bare CFF in every corpus, which is noise rather than corroboration — and the third
+    /// answer is asserted here so that the empty string is a decision rather than a fall-through.
+    #[test]
+    fn a_compact_font_program_states_no_extent_to_corroborate_a_check_value_with() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        // Stated and wrong, to show the entry is ignored for the key rather than merely absent:
+        // §9.9 says it shall not be present, and a producer that writes one anyway states nothing.
+        let entries = format!("/Filter /FlateDecode /Length1 {}", wrapped.len() + 7);
+
+        let Err(FontError::Malformed { detail, .. }) =
+            try_embedded_of(b"FontFile3", &entries, &zlib_stored_wrong_check(&wrapped))
+        else {
+            panic!("a check value that disagrees refuses a CFF program too")
+        };
+        assert!(
+            detail.contains("check value disagrees"),
+            "the refusal is RFC 1950's here as well: {detail}"
+        );
+        assert!(
+            !detail.contains("Table 125"),
+            "and no extent is cited where the clause states none: {detail}"
         );
     }
 }

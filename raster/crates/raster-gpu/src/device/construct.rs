@@ -188,7 +188,7 @@ impl Device {
 
     /// The names of every adapter wgpu can see on this machine, for choosing an
     /// [`Options::adapter`] filter — and for the cross-adapter byte-equality gate,
-    /// which renders on all of them (§4.6, §11.4).
+    /// which renders on all of them (brief section 4.6, §11.4).
     ///
     /// Every backend, because the instance is this function's own. A host that
     /// restricted the backend set ([`startup::create_instance_with`]) must ask

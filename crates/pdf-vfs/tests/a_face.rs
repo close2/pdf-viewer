@@ -324,7 +324,7 @@ impl pdf_vfs::worker::Workers for CountingWorkers {
     fn spawn(
         &self,
         bytes: pdf_syntax::FileBytes,
-        password: Option<pdf_transform::Secret>,
+        password: Option<&pdf_transform::Secret>,
         policy: pdf_transform::Policy,
         budget: pdf_transform::Budget,
     ) -> Result<Box<dyn pdf_vfs::worker::Worker>, pdf_vfs::worker::WorkerError> {
@@ -712,10 +712,15 @@ fn what_the_layout_declares_and_this_round_does_not_do_is_named_out_loud() {
             .iter()
             .any(|shortfall| shortfall.detail.contains("/Collection"))
     );
+    // §7.6.4.1's password reaches a mount now (`Vfs::with_password`), so what is left of this one
+    // is the half a mount cannot do: supply one *after* the mount exists. The substring is the
+    // narrowed claim rather than the old one, which a mount that took a password would still have
+    // printed — trap 27, where an assertion on a substring passes for every answer that shares it.
     assert!(
         shortfalls
             .iter()
-            .any(|shortfall| shortfall.detail.contains("default user password"))
+            .any(|shortfall| shortfall.detail.contains("cannot be supplied later")),
+        "the encryption shortfall names what is still owed: {shortfalls:?}"
     );
 }
 

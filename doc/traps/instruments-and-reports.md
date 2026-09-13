@@ -6,8 +6,8 @@ defect, or adds a lint exception.
 `doc/todo/02-every-round.md` §2 owns the gate sequence; this file is what the gates and their
 numbers do wrong.
 
-`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
-trap keeps its number.
+[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
+the rule, which group holds which, and why every trap keeps its number.
 
 ## How to read what `tools/state.sh` prints
 

@@ -39,8 +39,10 @@ pass() { printf '  ✓ %s\n' "$1"; }
 # one line; the map itself is the authority and this is the pointer to it.
 #
 # The trap column names the group **file** and never its trap numbers. It listed them until session
-# 967, and every one of the five lists had gone stale as traps were added — doc/HANDOVER.md's table
-# is where a group's numbers live, and a second copy of them here was a copy nothing checked.
+# 967, and every one of the five lists had gone stale as traps were added — doc/traps/README.md is
+# where a trap's number, its position and its rule live, and a second copy of them here was a copy
+# nothing checked. That index is in the standing list below; a group file is what a round opens
+# where a line of it bites (ADR 1036).
 #
 # The habits are named the same way, one file per kind of work rather than doc/habits.md plus the
 # title of a section inside it, which is what this script could say before ADR 0983 split that file.
@@ -170,7 +172,7 @@ else
     printf '  not a fifth round: §2 by the change→gate map, §5 only before a measurement\n'
     printf '  (%s more rounds until the next full sequence)\n' "$((5 - session % 5))"
 fi
-printf '  and whatever the change: a round that can move a pixel runs §2 whole, and a merge always does\n'
+printf '  and whatever the change: tier 1 every round, tier 2 by the map, tier 3 at the merge (ADR 1036)\n'
 
 # ---------------------------------------------------------------- the reading
 
@@ -179,7 +181,8 @@ printf '  CLAUDE.md                                the five principles, and what
 printf '  doc/todo/README.md                       what is owed, one line per item\n'
 printf '  doc/todo/02-every-round.md               the gates, the sweeps, the binaries, the commit\n'
 printf '  doc/environment.md                       the machine, the account, the display, the build directory\n'
-printf '  doc/HANDOVER.md                          the index: which trap group this round is in\n'
+printf '  doc/HANDOVER.md                          the index: which file this round opens\n'
+printf '  doc/traps/README.md                      one line per trap: the position that springs it, and the rule\n'
 
 if [ -n "$kind" ]; then
     if kind_reading "$kind" >/dev/null 2>&1; then
@@ -334,47 +337,14 @@ if [ -n "$(git stash list 2>/dev/null)" ]; then
     printf '    blind; doc/environment.md says how one round took a neighbour half-finished edit\n'
 fi
 
-# 7. The conformance checker reads the Rust under a *list* of directories, and this workspace's
-#    members are a *glob*. The two are different populations and only one of them grows when a
-#    sub-project is folded in: `raster/crates/*` joined `members` on 2026-09-06 and
-#    `SOURCE_ROOTS` did not, so every clause citation and every quotation in that sub-project has
-#    been outside the gate that checks citations and quotations ever since — and the checker's
-#    output looked exactly as it always had, because a directory nobody reads produces no
-#    findings. Trap 25, with the population on the instrument's side rather than the tree's, and
-#    session 985's `--workspace` lesson in a second shape.
-#
-#    **Both sides are derived**: the roots off the checker's own source, the members off the
-#    workspace manifest. A hand-written copy of either here would be the same defect one file
-#    further on.
-roots=$(sed -n 's/^pub const SOURCE_ROOTS[^=]*= *\[\(.*\)\];/\1/p' tools/conformance/src/lib.rs |
-        tr -d '" ' | tr ',' '\n' | grep -v '^$')
-#    `awk` rather than a `sed` range, because a range whose end pattern is on the *start* line
-#    runs to the next one instead — which quietly swept `resolver = "3"` in as a member.
-members=$(awk '/^members *= *\[/ { found = 1 } found { print; if (/\]/) exit }' Cargo.toml |
-          grep -oE '"[^"]+"' | tr -d '"' | sed 's|/\*$||' | sort -u)
-if [ -z "$roots" ] || [ -z "$members" ]; then
-    fail "SOURCE_ROOTS or the workspace members could not be read — this check has nothing to compare"
-else
-    unread=
-    for member in $members; do
-        covered=0
-        for root in $roots; do
-            case $member in "$root" | "$root"/*) covered=1 ;; esac
-        done
-        [ "$covered" -eq 1 ] || unread="$unread $member"
-    done
-    if [ -z "$unread" ]; then
-        pass "every workspace member is under a directory the conformance checker scans"
-    else
-        fail "workspace members the conformance checker never reads:$unread"
-        for member in $unread; do
-            printf '    %s: %s clause citations in %s Rust files, unchecked\n' "$member" \
-                   "$(grep -rhoE '§[0-9]+(\.[0-9]+)*' "$member" --include=*.rs 2>/dev/null | wc -l)" \
-                   "$(find "$member" -name '*.rs' 2>/dev/null | wc -l)"
-        done
-        printf '    tools/conformance/src/lib.rs SOURCE_ROOTS, and pointers.rs ROOTED_HEADS with it\n'
-    fi
-fi
+# 7. Every crate of this tree is one the citation and quotation sweeps read. The check itself is
+#    `cargo test -p conformance --test workspaces` — session 1004 built it here because
+#    `tools/conformance` was another round's, and session 1010, whose it was, derived the roots
+#    and moved it into the crate the defect lives in. What stays here is the *pointer*: a round
+#    that has not run the tests should still be told where the question is answered, and a copy
+#    of the answer in two places is the drift this project has a rule about.
+printf '  · every workspace member is read by the conformance sweeps:'
+printf ' `cargo test -p conformance --test workspaces` (ADR 1029)\n'
 
 printf '\n'
 exit $status

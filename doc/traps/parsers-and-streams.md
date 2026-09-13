@@ -4,8 +4,8 @@ Status: **standing** — each is a mistake somebody actually made in this tree.
 Read by: a round that touches `pdf-syntax`, a filter, a font program, an image codec, a colour
 space, or anything that decides what to do with input it cannot fully handle.
 
-`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
-trap keeps its number.
+[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
+the rule, which group holds which, and why every trap keeps its number.
 
 ## Traps
 

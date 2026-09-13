@@ -130,9 +130,9 @@ const INFORMATION: &[u8] =
 /// one's own pdf.js issue records — `split_corpus.rs`'s list, so that the population is every
 /// document the suite can open rather than every document that opens for free.
 ///
-/// `Vfs` itself has no way to be given one (`doc/todo/58` §5 records the shortfall and the
-/// `SecretSource` a face would need), so the walk supplies it through [`KeyedWorkers`] — which is
-/// what that design would do, at the one seam that already carries a `Secret`.
+/// Handed to [`Vfs::with_password`], which is what a face does with the password it was given —
+/// so the eight are in this walk's population on the same path a mount uses rather than through a
+/// factory of the test's own.
 const KNOWN_PASSWORDS: &[(&str, &str)] = &[
     ("issue15893_reduced.pdf", "test"),
     ("issue3371.pdf", "ELXRTQWS"),
@@ -276,25 +276,27 @@ impl Backing for SharedBacking {
 
 /// Workers that know §7.6.4.1's password for this document.
 ///
-/// `Vfs` passes `None` at the one place it spawns a worker, which is `doc/todo/58` §5's recorded
-/// shortfall — a mount that survives a change of the file needs a `SecretSource` a face
-/// implements. This is that source, at the seam where it would go, so that eight documents of the
-/// corpus are in this walk's population rather than in its refusal list.
+/// It exists for the strip count and nothing else: §7.6.4.1's password reaches it from the mount
+/// through [`Workers::spawn`] now, so there is nothing about a document for this factory to know.
 #[derive(Debug)]
-struct KeyedWorkers(&'static str);
+struct OneStripWorkers;
 
-impl Workers for KeyedWorkers {
+impl Workers for OneStripWorkers {
     fn spawn(
         &self,
         bytes: FileBytes,
-        password: Option<Secret>,
+        password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
-        let secret =
-            password.or_else(|| (!self.0.is_empty()).then(|| Secret::from(self.0.to_owned())));
-        let source = match secret {
-            Some(secret) => Source::with_password(bytes, secret),
+        let source = match password {
+            // This generation's own `Secret`, through the type's own buffer: `Source` owns the
+            // password it is given and the mount's is only lent.
+            Some(secret) => {
+                let mut lent = Secret::new();
+                lent.push_str(secret.reveal());
+                Source::with_password(bytes, lent)
+            }
             None => Source::new(bytes),
         };
         // One strip: this walk runs a rayon thread per document already, and a worker that split
@@ -352,11 +354,19 @@ impl Drop for Cost<'_> {
 /// A tree over a document held in memory, and the backing beside it.
 fn mounted(name: &str, bytes: &[u8]) -> (Arc<MemoryBacking>, Vfs) {
     let backing = Arc::new(MemoryBacking::new(name, bytes.to_vec()));
-    let vfs = Vfs::new(
-        Box::new(SharedBacking(Arc::clone(&backing))),
-        Box::new(KeyedWorkers(password_for(name))),
-        Config::default(),
-    );
+    let backing_box = Box::new(SharedBacking(Arc::clone(&backing)));
+    let workers = Box::new(OneStripWorkers);
+    let password = password_for(name);
+    let vfs = if password.is_empty() {
+        Vfs::new(backing_box, workers, Config::default())
+    } else {
+        Vfs::with_password(
+            backing_box,
+            workers,
+            Config::default(),
+            Secret::from(password.to_owned()),
+        )
+    };
     (backing, vfs)
 }
 

@@ -539,7 +539,7 @@ impl Report {
 
 /// Runs the sweep over the ledger's notes, the tree's comments and this project's prose.
 ///
-/// `sources` are the Rust files under [`crate::SOURCE_ROOTS`] and `documents` the Markdown under
+/// `sources` are the Rust files under [`crate::roots::source_roots`] and `documents` the Markdown under
 /// `doc/`. Two directories are read by nothing, for the reasons [`crate::retired::NOT_SWEPT`]
 /// and [`crate::NOT_SCANNED`] give: a round's own record is not another round's to correct, and
 /// this checker's own prose states the example sentences.

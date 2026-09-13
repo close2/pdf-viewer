@@ -737,7 +737,7 @@ fn a_turned_hairline_stroke_is_declined_by_its_own_width() {
 }
 
 /// Their #1023, and the property `Stroke::width`'s doc comment states: the width arrives
-/// **already resolved into device pixels** (§4.5 of the brief, from ISO 32000-2 §8.4.3.2
+/// **already resolved into device pixels** (section 4.5 of the brief, from ISO 32000-2 §8.4.3.2
 /// with §10.7.5), so it is exactly that wide whatever the viewport does to the geometry.
 ///
 /// The outline is divided by the scale so that the same device line is drawn three times;

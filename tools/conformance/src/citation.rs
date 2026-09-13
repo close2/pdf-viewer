@@ -77,6 +77,27 @@ pub struct Quotation {
     pub line: usize,
     /// The clause it is attributed to: the nearest citation before it in the same comment.
     pub clause: Option<ClauseNumber>,
+    /// The *other* document it is attributed to, where the nearest attribution before it names
+    /// one rather than a clause of the standard.
+    ///
+    /// **A blockquote is not always the standard's words, and until the one-thousand-and-tenth
+    /// session this scanner could not say otherwise.** [`prose`](crate::prose)'s own comment
+    /// about the ledger states the problem exactly — a note "quotes the standard constantly and
+    /// also quotes this project's own past conclusions, and it has no blockquote syntax to tell
+    /// the two apart" — and a Rust doc comment has the same two kinds with the same syntax. What
+    /// it *does* have is the attributing sentence above the quote, which this tree writes either
+    /// way: `ISO 32000-2 §7.7.3.3 defines the crop box:` or `` `doc/HAYRO_ISSUES_FOR_QUORRA.md`
+    /// §1 asks: ``. So the nearest attribution wins, and when it names another document the
+    /// quotation belongs to that document: counted, and not checked against a clause it never
+    /// claimed to be from.
+    ///
+    /// The rule that keeps this from being an escape hatch: **a line that cites a clause of the
+    /// standard attributes to the standard even if it also names a document.** A quotation can
+    /// only land here by an attributing sentence that cites no clause at all.
+    ///
+    /// It arrived with `raster/`, whose 283 files entered the scan in that session and which
+    /// blockquotes the brief, the caller's issue list, PLRM3 and its own notes throughout.
+    pub document: Option<String>,
 }
 
 /// A `§` that belongs to a document other than ISO 32000-2.
@@ -268,6 +289,7 @@ pub fn scan(source: &str) -> Scan {
     // and the blockquote being accumulated. Both end when the comment does, so that a
     // citation cannot attribute a quotation attached to a different item.
     let mut cited: Option<ClauseNumber> = None;
+    let mut attributed: Option<String> = None;
     let mut quoting: Option<Quotation> = None;
     let mut fenced = false;
 
@@ -295,6 +317,7 @@ pub fn scan(source: &str) -> Scan {
                     text: String::new(),
                     line: line_number,
                     clause: cited.clone(),
+                    document: attributed.clone(),
                 });
                 if !quotation.text.is_empty() {
                     quotation.text.push(' ');
@@ -302,12 +325,19 @@ pub fn scan(source: &str) -> Scan {
                 quotation.text.push_str(quoted.trim());
                 continue;
             }
+            // The standard first: a line that cites a clause attributes to the standard, whatever
+            // else it names. Only a line naming another document and no clause at all moves the
+            // attribution off ISO 32000-2 — see [`Quotation::document`].
             if let Some(last) = scan
                 .citations
                 .iter()
                 .rfind(|citation| citation.line == line_number)
             {
                 cited = Some(last.number.clone());
+                attributed = None;
+            } else if let Some(document) = nearest_document(scan_documents(&scan, line_number)) {
+                cited = None;
+                attributed = Some(document);
             }
         }
 
@@ -318,6 +348,7 @@ pub fn scan(source: &str) -> Scan {
         }
         if doc.is_none() {
             cited = None;
+            attributed = None;
         }
     }
     if let Some(quotation) = quoting.take() {
@@ -325,6 +356,26 @@ pub fn scan(source: &str) -> Scan {
     }
 
     scan
+}
+
+/// Every document named beside a `\u{a7}` on one line, in the order the scan recorded them.
+fn scan_documents(scan: &Scan, line_number: usize) -> Vec<String> {
+    let foreign = scan
+        .foreign
+        .iter()
+        .filter(|citation| citation.line == line_number)
+        .map(|citation| citation.document.clone());
+    let ours = scan
+        .sections
+        .iter()
+        .filter(|section| section.line == line_number)
+        .filter_map(|section| section.document.clone());
+    foreign.chain(ours).collect()
+}
+
+/// The last document of those named, which is the one nearest the blockquote below.
+fn nearest_document(documents: Vec<String>) -> Option<String> {
+    documents.into_iter().next_back()
 }
 
 /// Reads the citations and table references in plain prose, outside any source file.
@@ -380,14 +431,21 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
         // in two editions of the standard has to say which edition it means — and each was
         // reported as a citation the checker could not read. Correct writing about the convention
         // is not a malformed citation.
-        if after.starts_with('`') && line.get(..position).is_some_and(|up| up.ends_with('`')) {
+        //
+        // A string literal holding nothing but the sign is the same sentence in code rather than
+        // in prose: `case.citation.contains("§")` asks whether a citation names *any* source, and
+        // the sign there is data. `raster/` writes it that way, which is how a finding of this
+        // shape arrived the day that directory first entered the scan.
+        let before = line.get(..position).unwrap_or_default();
+        let quoting = ['`', '"'];
+        if after.starts_with(quoting) && before.ends_with(quoting) {
             continue;
         }
         // A `§` that belongs to another document is not a citation of this one, and checking
         // its number against ISO 32000-2's clauses is how it would pass unnoticed. Another
         // standard's section is a finding; one of this project's own documents' sections is
         // what this tree writes several hundred times and is classified rather than reported.
-        match another_document(line.get(..position).unwrap_or_default()) {
+        match another_document(before) {
             Some(Named::Standard(document)) => {
                 scan.foreign.push(ForeignCitation {
                     document,

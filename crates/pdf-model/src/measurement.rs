@@ -208,22 +208,9 @@ impl Viewports {
     /// string, which is [`format`]'s documented answer to an array stating no units.
     #[must_use]
     pub fn distance(&self, from: (f32, f32), to: (f32, f32)) -> Option<String> {
-        let Some(Measure::Rectilinear(scale)) = self.at(from).and_then(|v| v.measure.as_ref())
-        else {
-            return None;
-        };
-        let along_x = scale.x.first()?.conversion;
-        // "(Required when the x and y scales have different units or conversion factors)": an
-        // absent `/Y` is the file saying `/X` measures both axes, which is what its own cell says
-        // — "for measurement of change along the x axis and, if Y is not present, along the y
-        // axis as well".
-        let (along_y, into_x) = match scale.y.first() {
-            None => (along_x, 1.0),
-            Some(first) => (first.conversion, scale.cyx?),
-        };
-        let (dx, dy) = (f64::from(to.0 - from.0), f64::from(to.1 - from.1));
-        let value = (dx * along_x).hypot(dy * along_y * into_x);
-        Some(format(value, &scale.distance))
+        self.at(from)
+            .and_then(|viewport| viewport.measure.as_ref())
+            .and_then(|measure| measure.distance(from, to))
     }
 }
 
@@ -243,6 +230,116 @@ pub enum Measure {
     /// measure using other types of coordinate systems" — so an unknown name is a document
     /// using a later standard rather than a malformed one.
     Other(String),
+}
+
+impl Measure {
+    /// The distance between two points in default user space, in the units this measure states.
+    ///
+    /// **The arithmetic is Table 267's `/D` cell and not a `hypot` of the page.** That cell says
+    /// the array's first element converts "from units represented by the first element in `X`",
+    /// and states the order outright: "[t]he scale factors from `X`, `Y` (if present) and `CYX`
+    /// (if `Y` is present) shall be used to convert from default user space to the appropriate
+    /// units **before** applying the distance function". So each axis is scaled by its own
+    /// array's first conversion, `/CYX` brings the y result into x's units where the two differ,
+    /// the distance is taken there, and [`format`] walks `/D` over the result. Taking the
+    /// distance first and scaling afterwards is a different number on every drawing whose axes
+    /// differ, and is what the word *before* forbids.
+    ///
+    /// Neither `/O` nor the `/BBox` corner order takes part, and that is the clause's arithmetic
+    /// rather than an omission: an origin is a translation and the corner order an orientation,
+    /// and a distance between two points is invariant under both.
+    ///
+    /// `None` where [`Rectilinear::axes`] states no conversion, and where the subtype is `GEO` or
+    /// a name later than this standard — §12.10's distance is an ellipsoid's, not this
+    /// arithmetic. An empty `/D` answers with the empty string, which is [`format`]'s documented
+    /// answer to an array stating no units.
+    #[must_use]
+    pub fn distance(&self, from: (f32, f32), to: (f32, f32)) -> Option<String> {
+        let scale = self.rectilinear()?;
+        let (along_x, along_y) = scale.axes()?;
+        let (dx, dy) = (f64::from(to.0 - from.0), f64::from(to.1 - from.1));
+        Some(format((dx * along_x).hypot(dy * along_y), &scale.distance))
+    }
+
+    /// The length of the path through these points, in the units this measure states.
+    ///
+    /// The same `/D` arithmetic as [`Self::distance`], applied to each leg and summed in the
+    /// measuring system's own units rather than in user space: Table 267 puts the conversion
+    /// *before* the distance function, so scaling once at the end would be a different number on
+    /// any drawing whose axes differ. [`format`] is a display step and runs once, over the total.
+    ///
+    /// Fewer than two points state no path and answer `None` rather than a length of zero — a
+    /// caller may not be told that a shape this could not read measures nothing.
+    #[must_use]
+    pub fn length(&self, points: &[[f32; 2]]) -> Option<String> {
+        let scale = self.rectilinear()?;
+        let (along_x, along_y) = scale.axes()?;
+        if points.len() < 2 {
+            return None;
+        }
+        let total: f64 = points
+            .windows(2)
+            .map(|leg| {
+                let (dx, dy) = (
+                    f64::from(leg[1][0] - leg[0][0]),
+                    f64::from(leg[1][1] - leg[0][1]),
+                );
+                (dx * along_x).hypot(dy * along_y)
+            })
+            .sum();
+        Some(format(total, &scale.distance))
+    }
+
+    /// The area these points enclose, in the units this measure states.
+    ///
+    /// Table 267's `/A` cell states the same conversion order as `/D` does and squares the unit:
+    /// "[t]he first element in the array shall specify the conversion to the largest area unit
+    /// from units represented by the first element in `X`, squared", and again "[t]he scale
+    /// factors from `X`, `Y` (if present) and `CYX` (if `Y` is present) shall be used to convert
+    /// from default user space to the appropriate units before applying the area function". So
+    /// each coordinate is scaled into the measuring system first and the enclosed area taken
+    /// there.
+    ///
+    /// The enclosed area of a closed polygon is the shoelace sum, which is planar geometry rather
+    /// than a reading of anything: the clause says what units the answer is in and nothing about
+    /// how an area is computed, because there is one answer. Its magnitude is taken, so a shape
+    /// whose vertices run clockwise measures the same as its mirror — the standard gives `/A` no
+    /// sign, and a negative area is not a quantity a unit can be put on.
+    ///
+    /// Fewer than three points enclose nothing and answer `None` for [`Self::length`]'s reason.
+    #[must_use]
+    pub fn area(&self, points: &[[f32; 2]]) -> Option<String> {
+        let scale = self.rectilinear()?;
+        let (along_x, along_y) = scale.axes()?;
+        if points.len() < 3 {
+            return None;
+        }
+        let scaled: Vec<(f64, f64)> = points
+            .iter()
+            .map(|[x, y]| (f64::from(*x) * along_x, f64::from(*y) * along_y))
+            .collect();
+        // The shoelace sum walks every leg including the one back to the first vertex, which is
+        // what closes the shape: `previous` starts at the last point so that leg is the first
+        // term rather than a special case after the loop.
+        let mut twice = 0.0;
+        let mut previous = *scaled.last()?;
+        for point in &scaled {
+            twice += previous.0.mul_add(point.1, -(point.0 * previous.1));
+            previous = *point;
+        }
+        Some(format(twice.abs() / 2.0, &scale.area))
+    }
+
+    /// The rectilinear entries, where that is the subtype this measure states.
+    ///
+    /// `GEO` and any subtype later than this standard answer `None`: §12.10's coordinates are an
+    /// ellipsoid's and Table 267's conversions do not describe them.
+    fn rectilinear(&self) -> Option<&Rectilinear> {
+        match self {
+            Self::Rectilinear(scale) => Some(scale),
+            Self::Geospatial(_) | Self::Other(_) => None,
+        }
+    }
 }
 
 /// A rectilinear measuring system. Table 267.
@@ -275,6 +372,30 @@ pub struct Rectilinear {
     /// specified, these calculations may not be performed (which would be the case in
     /// situations such as x representing time and y representing temperature)".
     pub cyx: Option<f64>,
+}
+
+impl Rectilinear {
+    /// The two factors that carry a default-user-space coordinate into the measuring system.
+    ///
+    /// Table 267 gives `/X` "the scale factor for converting from default user space units to
+    /// the largest units in the measuring coordinate system along that axis", and makes `/Y`
+    /// "(Required when the x and y scales have different units or conversion factors)" — so an
+    /// absent `/Y` is the file saying `/X` measures both axes, which is what `/X`'s own cell
+    /// says: "for measurement of change along the x axis and, if `Y` is not present, along the y
+    /// axis as well". Where `/Y` is present, the y factor carries `/CYX` with it, because that
+    /// entry is what puts a y measurement into x's units — and its absence is Table 267 refusing
+    /// the calculation rather than leaving a gap: "if not specified, these calculations may not
+    /// be performed (which would be the case in situations such as x representing time and y
+    /// representing temperature)".
+    ///
+    /// `None` where `/X` states no number format at all, so there is no conversion to apply.
+    fn axes(&self) -> Option<(f64, f64)> {
+        let along_x = self.x.first()?.conversion;
+        match self.y.first() {
+            None => Some((along_x, along_x)),
+            Some(first) => Some((along_x, first.conversion * self.cyx?)),
+        }
+    }
 }
 
 /// One unit in a number format array. Table 268.
@@ -967,6 +1088,131 @@ fn rectangle(document: &Document, dict: &Dictionary) -> Option<[f32; 4]> {
         }
     }
     Some(out)
+}
+
+/// An annotation's own `/Measure`, where it states one.
+///
+/// # Two clauses, one entry
+///
+/// §12.5.6.9's Table 181 and §12.5.6.7's Table 178 each give their subtype a `/Measure` with the
+/// same words but for different shapes. The second of the two reads:
+///
+/// > A measure dictionary (see "Table 266 - Entries in a measure dictionary") that shall specify
+/// > the scale and units that apply to the line annotation.
+///
+/// — and the first says the same of a polygon or a polyline, the scale and units that apply to
+/// the annotation. So an annotation may carry its own measuring system, and where it does, that
+/// system is the one that applies to it:
+/// §12.9.1's rule about which *viewport* to use decides a measurement between two points on a
+/// page, and this entry is not a viewport at all.
+///
+/// # Why this may be read even when the annotation has an appearance stream
+///
+/// §12.5.2 lists the keys a reader "shall ignore" while rendering a stored appearance —
+/// `/C`, `/IC`, `/Border`, `/BS`, `/BE`, `/CA`, `/ca`, `/H`, `/DA`, `/Q`, `/DS`, `/LE`, `/LL`,
+/// `/MK`, `/LLE` and `/Sy`, as Errata Collection 3 rewrites it — and neither `/IT` nor
+/// `/Measure` is on it. Neither states a mark, which is why: this is input to a user interface,
+/// exactly as §12.9.1 says a measure dictionary is.
+#[must_use]
+pub fn annotation_measure(document: &Document, annotation: &Dictionary) -> Option<Measure> {
+    let measure = document.get_key(annotation, "Measure");
+    Some(measure_dictionary(document, measure.as_dict()?))
+}
+
+/// What an annotation's geometry comes to in the units its own `/Measure` states.
+///
+/// Both quantities are given rather than one, because the standard names both and does not say
+/// which a subtype is for. Table 181's `/IT` has `PolyLineDimension` and `PolygonDimension`, and
+/// Table 267 has a number format array for each of the two quantities a dimension could be — `/D`
+/// "for measurement of distance in any direction" and `/A` "for measurement of area" — so
+/// choosing between them for a closed shape would be this reader deciding something the clause
+/// leaves to whoever displays it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Measured {
+    /// The length of the annotation's path, formatted by Table 267's `/D`.
+    ///
+    /// A polygon's includes the leg back to its first vertex, which §12.5.6.9 states: a polyline
+    /// is a polygon "except that the first and last vertex are not implicitly connected".
+    pub length: Option<String>,
+    /// The area a closed annotation encloses, formatted by Table 267's `/A`.
+    ///
+    /// `None` for a line and a polyline, which enclose nothing.
+    pub area: Option<String>,
+}
+
+impl Measured {
+    /// Whether the annotation measured to nothing at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.length.is_none() && self.area.is_none()
+    }
+}
+
+/// Measures a line, polyline or polygon annotation against its own `/Measure`.
+///
+/// # What each subtype's geometry is, and where each comes from
+///
+/// - §12.5.6.7's `Line` is Table 178's `/L`, "[a]n array of four numbers … specifying the
+///   starting and ending coordinates of the line in default user space". **`/LL` does not change
+///   the length**, and that is worth stating because it changes what the two points *are*: with
+///   leader lines present they "represent the endpoints of the leader lines rather than the
+///   endpoints of the line itself", and the line proper is that segment translated perpendicular
+///   to itself by `/LL`. A translation moves both ends by the same vector, so the distance
+///   between them is the one this measures either way.
+/// - §12.5.6.9's `PolyLine` and `Polygon` are Table 181's `/Vertices`, "the alternating
+///   horizontal and vertical coordinates … of each vertex, in default user space", closed for a
+///   polygon and open for a polyline.
+///
+/// # What is not measured, and why that is the clause rather than a gap
+///
+/// A `/Path` — PDF 2.0's replacement for `/Vertices`, "an array of n arrays, each supplying the
+/// operands for a path building operator (m, l or c)" — states curves, and the length of a cubic
+/// Bézier is not a quantity Table 267's conversions describe. Reported as no measurement rather
+/// than measured over its control points, which would answer with a number for a shape that is
+/// not that shape.
+///
+/// `None` for an annotation of any other subtype, for one stating no `/Measure`, and for one
+/// whose measure is `GEO` — §12.10's distances are an ellipsoid's, not Table 267's.
+#[must_use]
+pub fn annotation_measurement(document: &Document, annotation: &Dictionary) -> Option<Measured> {
+    let measure = annotation_measure(document, annotation)?;
+    let subtype = document.get_key(annotation, "Subtype");
+    let subtype = subtype.as_name()?.as_bytes().to_vec();
+    if !document
+        .get_key(annotation, "Path")
+        .as_array()
+        .is_none_or(<[Object]>::is_empty)
+    {
+        return None;
+    }
+    match subtype.as_slice() {
+        b"Line" => {
+            let ends = crate::appearance::points(document, annotation, "L")?;
+            Some(Measured {
+                length: measure.length(ends.get(..2)?),
+                area: None,
+            })
+        }
+        b"PolyLine" => {
+            let vertices = crate::appearance::points(document, annotation, "Vertices")?;
+            Some(Measured {
+                length: measure.length(&vertices),
+                area: None,
+            })
+        }
+        b"Polygon" => {
+            let vertices = crate::appearance::points(document, annotation, "Vertices")?;
+            let mut closed = vertices.clone();
+            if let Some(first) = vertices.first() {
+                closed.push(*first);
+            }
+            Some(Measured {
+                length: measure.length(&closed),
+                area: measure.area(&vertices),
+            })
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]

@@ -58,7 +58,7 @@ fn diagonal_covers_by_area() {
     assert_eq!(cov(&mask, 3, 3), 0);
 }
 
-/// §4.7's discriminating case: a nested subpath wound the *same* way. Non-zero
+/// brief section 4.7's discriminating case: a nested subpath wound the *same* way. Non-zero
 /// fills the hole; even-odd leaves it empty. Expected values follow from the two
 /// rules' definitions in §8.5.3.3.
 #[test]

@@ -197,7 +197,7 @@ impl QuadOutline {
     /// chords needs three of them to enclose anything, since two are a line traced out
     /// and back and their triangles cancel exactly. One curved segment, on the other
     /// hand, encloses the region between itself and its closing chord, so a two-segment
-    /// contour survives whenever either segment bends. (§4.5's degenerate subpaths are
+    /// contour survives whenever either segment bends. (brief section 4.5's degenerate subpaths are
     /// the caller's decision, already taken; this is only about not emitting triangles
     /// whose sum is provably zero.)
     #[allow(clippy::float_cmp)] // exact, as `transform_preserves_axes` is: a contour is

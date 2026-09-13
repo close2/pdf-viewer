@@ -67,7 +67,7 @@
 //! one carrying a soft mask worth 1.0 at every pixel, where the product is what this
 //! backend draws and is **not** the clause's value. The second is the conservative half of
 //! ADR 0074 measured rather than described: a mask cannot change what any pixel should be
-//! and it changes the route, which is the caller's own probe design in their §36.3.
+//! and it changes the route, which is the caller's own probe design in their section 36.3.
 
 // Test-file lint policy as in m1.rs; the arithmetic below is the clause's, over rasters
 // this file just drew.

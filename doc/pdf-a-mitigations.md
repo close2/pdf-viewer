@@ -1458,6 +1458,36 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six · **built in session 962**
 - **From a configuration** — nothing.
 - **Departure** — **B**, and pointless.
 
+#### `metadata/properties-use-known-schemas`
+ISO 19005-2 6.6.2.3.1 · PDF/A-2b, 2u, 2a · today **`discard` built, `preserve` built**
+
+**The largest single refusal the corpus meets** (the limits document's section 3.9: 273 of the
+PDF/A-2b documents refused, and for 272 of them it was the only one), and it is in this catalogue
+late because it was never a refusal — it was the one built Ask. Both its answers are now built and
+they differ in what the archive keeps rather than in what it conforms to:
+
+- **Mitigation** — `discard`, which is `--authorise metadata-property` under another name: the
+  property comes out of the packet by span and every other byte of the producer's packet is left
+  alone. And **`preserve` with `placement = "append"`**, which does the same removal *and* sets the
+  packet the producer wrote on pages appended to the document, so the value the archive may not
+  keep as metadata it keeps as content. `doc/adr/1014` is the permission for the page and
+  `doc/adr/1025` §4 is every placement decision it makes, each as a choice.
+- **By target** — none in kind. Every target admits as many pages as a document likes
+  (`doc/rfc/0007` section 4.6.1), so the page is available at all six; part 4 states the same
+  subclause, so the requirement binds there too.
+- **From a configuration** — `remedy = "discard"`, or `remedy = "preserve"` with
+  `placement = "append"`. What an operator has to understand about the second is the cost: the
+  archive is one or more pages longer than the document that went in, those pages carry XML a reader
+  did not ask to see, and where the document embeds no face that can set the text one this program
+  ships is embedded for it and named in the report (`doc/questions/A47`).
+- **Not built** — the page for a document that carries a structure tree, which would need the
+  entries ISO 19005-2 6.7 asks of a Level A file's logical structure; and a packet stating a
+  character `/WinAnsiEncoding` has no code for, where the document's own fonts cannot set it either.
+  Both refuse by name rather than half-doing it.
+- **Departure** — **B**. A packet holding a property its own schema does not define still parses and
+  still says what the producer meant; departing would leave a file no validator passes for the sake
+  of metadata that a page now keeps anyway.
+
 #### `metadata/extension-schemas-embedded`
 ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today `not-built-yet`
 
@@ -1615,7 +1645,16 @@ ISO 19005-2 6.8, ISO 19005-4 6.9 · today `not-built-yet`
   each file, and the report has to say it per attachment rather than per document.
   **Built since session 999**, in the third of those four shapes and only that one: a declared tool
   derives a PDF from the attachment and the derived bytes replace it, at every target that binds the
-  rule. `doc/profiles/derive-attachments.toml` is the shipped example, and the report does say it
+  rule. **Session 1006 gave that shape its second word**: `remedy = "preserve"` with
+  `placement = "attach"` reaches the same derivation, because at a target admitting only conforming
+  attachments *keeping the attachment* and *deriving one* are the same act — and the report still
+  says derived, because it is. At 4f and 4e the requirement does not bind, so the row is inert and
+  the original is held unchanged, which is the first of the four shapes arriving by the target
+  rather than by code. The fourth, **appending the attachment's pages**, is still not built and now
+  has a named blocker: the page composer exists (section 9's entry below), and what is missing is
+  the rewrite that takes a file specification out of the `/EmbeddedFiles` name tree, the catalog's
+  `/AF` and any file attachment annotation — until that is written the requirement stays failed
+  while the file is still embedded, so appending its text would add a page and keep the refusal. `doc/profiles/derive-attachments.toml` is the shipped example, and the report does say it
   per attachment — the tool, the resolved program, the SHA-256 of what came back, and the owner's
   own sentence *this is derived, not original*, which also goes into the file's `xmpMM:History`.
   The other three shapes wait on the same append-as-pages mechanism every `preserve` row does;

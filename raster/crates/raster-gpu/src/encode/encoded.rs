@@ -46,7 +46,7 @@ pub(crate) struct Encoded {
     /// this is the list that says which (ADR 0053).
     pub used_functions: Vec<u32>,
     pub commands: u32,
-    /// Which lane made each mark's coverage (§1.1).
+    /// Which lane made each mark's coverage (brief section 1.1).
     pub lanes: LaneCounts,
     /// Coverage tiles this frame placed on the scratch sheet, both lanes.
     pub tiles: u32,
@@ -257,7 +257,7 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
     })
 }
 
-/// §6.4's instrument: how many **distinct clip regions** this frame resolved, keyed by
+/// brief section 6.4's instrument: how many **distinct clip regions** this frame resolved, keyed by
 /// the region itself and never by an identifier.
 ///
 /// The caller's clip-mask cache once answered all 303 lookups a page made and built 303

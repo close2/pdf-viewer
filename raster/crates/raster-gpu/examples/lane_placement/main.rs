@@ -17,7 +17,7 @@
 //! | 1 **placement** | one rule, swept through a whole pixel of position | both lanes' placement, question 1 and half of 2 |
 //! | 2 **grid** | one rule of a width the sample lattice does not divide, at three sample counts | the sampled lane's *ink*, question 2 |
 //! | 3 **graph paper** | six rules, six commands, at the caller's own pitch and CTM | question 1's per-command offset, which one swept rule cannot show |
-//! | 4 **witness** | their published §31.2 table, put through this lane's own grid arithmetic | question 1, from the only six numbers of theirs we have |
+//! | 4 **witness** | their published section 31.2 table, put through this lane's own grid arithmetic | question 1, from the only six numbers of theirs we have |
 //!
 //! Phase 4 renders nothing. It is there because the conclusion it reaches — that their two
 //! columns are one geometry, quantised — would otherwise be a paragraph in a note, and a
@@ -148,7 +148,7 @@ fn main() {
     for width in GRAPH_WIDTHS {
         // Both axes, because the caller's two witnesses are one apiece: `bug1743245.pdf`
         // is measured along a raster row and `issue21068.pdf` is "the same statement in
-        // the other axis" (§31.2).
+        // the other axis" (the caller's section 31.2).
         for horizontal in [true, false] {
             graph_paper_row((&mut devices.cpu, &mut devices.gpu), width, horizontal);
         }

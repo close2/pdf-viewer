@@ -187,6 +187,25 @@ struct Census {
     /// **Printed and not ratcheted**, on `doc/todo/05`'s rule that a count enters a gate once it
     /// has held across rounds.
     contained: usize,
+    /// Elements whose §14.8.5.4.5 allocation rectangle is **larger** than their content one.
+    ///
+    /// Table 379's `/SpaceBefore` and `/SpaceAfter` in the population that also states a `/BBox`,
+    /// which is the population the derivation can reach: the clause derives this rectangle from
+    /// the content rectangle, and the spacing is "measured in default user space units" where the
+    /// measured content rectangle is in the viewport's pixels. So this is how many elements in the
+    /// world reserved room around themselves that a container's extent now includes.
+    ///
+    /// **Printed and not ratcheted**, on `doc/todo/05`'s rule.
+    reserving: usize,
+    /// §14.8.4.8.7's `Artifact` elements, and how many state Table 385's `/Type` or `/Subtype`.
+    ///
+    /// The denominator and the numerator of the same question, for the reason [`Self::refused`]
+    /// is printed beside its share: §14.8.2.2.2 gives an artifact a form in the structure tree,
+    /// and §14.8.5.8's two entries are the only thing that says *which kind* it is — an artifact
+    /// has no name by design, so an element in the first count and not the second reaches a
+    /// person as a container with nothing to say about itself.
+    artifact_elements: usize,
+    artifacts_typed: usize,
     /// Elements with no place by any of the routes, which is what a client cannot point at.
     placeless: usize,
     /// Elements enclosing content this program refused to draw (`AccessibilityNode::
@@ -283,6 +302,11 @@ impl Census {
         self.placed = self.placed.saturating_add(from.placed);
         self.derived = self.derived.saturating_add(from.derived);
         self.contained = self.contained.saturating_add(from.contained);
+        self.reserving = self.reserving.saturating_add(from.reserving);
+        self.artifact_elements = self
+            .artifact_elements
+            .saturating_add(from.artifact_elements);
+        self.artifacts_typed = self.artifacts_typed.saturating_add(from.artifacts_typed);
         self.placeless = self.placeless.saturating_add(from.placeless);
         self.refused = self.refused.saturating_add(from.refused);
         self.placeless_and_refused
@@ -337,6 +361,22 @@ impl Census {
                 node.bounds.is_none() && node.drawn.is_none() && node.quads.is_empty();
             if placed_by_enclosure && places.get(index).copied().flatten().is_some() {
                 self.contained = self.contained.saturating_add(1);
+            }
+            // A difference rather than an inequality: the two rectangles are the same numbers
+            // plus a spacing, so any edge that moved at all moved by the attribute's value.
+            if let (Some(allocation), Some(content)) = (node.allocation, node.bounds)
+                && allocation
+                    .iter()
+                    .zip(content)
+                    .any(|(moved, stated)| (moved - stated).abs() > 0.0)
+            {
+                self.reserving = self.reserving.saturating_add(1);
+            }
+            if let Some(artifact) = node.artifact.as_ref() {
+                self.artifact_elements = self.artifact_elements.saturating_add(1);
+                if artifact.kind.is_some() || artifact.subtype.is_some() {
+                    self.artifacts_typed = self.artifacts_typed.saturating_add(1);
+                }
             }
             // A node `viewer_core::places` cannot place implements no `Component` interface on
             // AT-SPI at all, so this is the count of what a magnifier cannot be pointed at.
@@ -735,6 +775,10 @@ fn report(census: &Census, files: usize, seconds: f64) {
     println!(
         "  placed by §14.8.5.4.5's derivation from what they enclose, and by nothing else: {}",
         census.contained
+    );
+    println!(
+        "  reserving room around themselves with §14.8.5.4.5's allocation rectangle: {}\n  §14.8.4.8.7 Artifact elements: {} ({} saying which kind, by Table 385)",
+        census.reserving, census.artifact_elements, census.artifacts_typed
     );
     println!("  with no place by any of the routes: {}", census.placeless);
     println!(

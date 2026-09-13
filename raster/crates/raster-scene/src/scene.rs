@@ -12,7 +12,7 @@
 //! resolutions, which is 22% of a thumbnail's frame and 1.5 ms per frame the caller's
 //! interpreter is not getting.
 //!
-//! The corollary, which §2.3 asks to have stated in our documentation rather than left
+//! The corollary, which brief section 2.3 asks to have stated in our documentation rather than left
 //! implicit: **a [`Scene`] is `Send + Sync`, cheap to clone, and building one requires
 //! no device.** In this crate that is structural rather than aspirational — there is no
 //! device type in scope to require. See `raster/doc/adr/0001`.
@@ -29,13 +29,13 @@
 //!   steps each of them takes.
 //! - `frames` — the open-frame stack a nested body runs against, which is also the
 //!   depth bound and the knockout question.
-//! - `validate` — §4.7's refusals, all of them, in the order the boundary applies them.
+//! - `validate` — brief section 4.7's refusals, all of them, in the order the boundary applies them.
 //! - `cost` — [`Cost`] and the walk that measures it, run once at
 //!   [`SceneBuilder::finish`].
 //!
 //! # State: M6
 //!
-//! The vocabulary is the brief's §2.3 minus M7's images: `fill`, `stroke`, `rect`,
+//! The vocabulary is the brief's section 2.3 minus M7's images: `fill`, `stroke`, `rect`,
 //! `clip`, `group` and `mask` all exist. One deliberate divergence from the brief's
 //! illustrative signatures, recorded here and in `raster/doc/PLAN.md` integration note 8:
 //! the `mask` parameter comes **last** in each builder method rather than beside
@@ -69,7 +69,7 @@ pub use validate::MAX_COORDINATE;
 /// What is to be drawn: an immutable, device-independent description of marks.
 ///
 /// `Send + Sync`, cheap to clone (an `Arc` inside), and containing no reference to a
-/// viewport, a resolution, a device transform or a target size — the brief's §2.3, held
+/// viewport, a resolution, a device transform or a target size — the brief's section 2.3, held
 /// structurally (`raster/doc/adr/0001`). A blank scene is a legitimate scene and renders to a
 /// legitimate, empty frame (§5).
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ struct SceneData {
 impl Scene {
     /// The top-level commands, in the order the builder received them.
     ///
-    /// A device may draw them in any order whose result is identical (§4.6).
+    /// A device may draw them in any order whose result is identical (brief section 4.6).
     #[must_use]
     pub fn commands(&self) -> &[Command] {
         &self.data.commands
@@ -124,7 +124,7 @@ mod tests {
     use crate::geom::Affine;
     use crate::scene::fixtures::{black, unit_rect};
 
-    /// §2.3's corollary, checked by the compiler: the day someone adds an `Rc` this
+    /// brief section 2.3's corollary, checked by the compiler: the day someone adds an `Rc` this
     /// stops compiling, rather than the caller's worker thread failing.
     #[test]
     fn scene_is_send_sync_and_static() {

@@ -1,6 +1,6 @@
 //! The stroke arm: a width that has already been resolved, expanded into a fill.
 //!
-//! ISO 32000-2 §8.4.3's stroke reaches us with its device width already decided — §4.5
+//! ISO 32000-2 §8.4.3's stroke reaches us with its device width already decided — brief section 4.5
 //! of the brief settles that upstream, and we do not re-take it — so what is left here
 //! is caps, joins and miters, and then the coverage lanes a fill would have taken
 //! anyway. Two things make it its own arm rather than a call into [`super::fill`]:
@@ -104,7 +104,7 @@ impl Encoder<'_> {
             ));
         }
         // Flatten under the full transform, then expand: the width arrived
-        // resolved (§4.5), so our job is caps, joins and miters only.
+        // resolved (brief section 4.5), so our job is caps, joins and miters only.
         let span = self.clock.start();
         let polylines = raster::flatten(&stored.segments, to_device);
         let stroked = raster::stroke_polylines(&polylines, stroke, device_width);

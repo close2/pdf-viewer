@@ -74,7 +74,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
 use pdf_model::structure::{
-    Child, HeaderScope, ListEntry, StandardType, TableStack, Tree, list_predecessors,
+    Artifact, Child, HeaderScope, ListEntry, StandardType, TableStack, Tree, list_predecessors,
 };
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -223,6 +223,66 @@ pub struct AccessibilityNode {
     /// `None` for an element neither clause answers for, which is most of them, and that is not a
     /// failure.
     pub bounds: Option<[f32; 4]>,
+    /// §14.8.5.4.5's **allocation rectangle** for this element, in the same device pixels
+    /// [`Self::bounds`] is in.
+    ///
+    /// # The second of the two rectangles the standard gives every element
+    ///
+    /// ISO 32000-2 §14.8.3.3: "[t]wo enclosing rectangles shall be associated with each BLSE and
+    /// ILSE (including direct content items that are treated implicitly as ILSEs)". The first is
+    /// the content rectangle, which is [`Self::bounds`] where the producer stated one and
+    /// [`Self::drawn`] where this program measured it; this is the second, and the clause says
+    /// what it is for:
+    ///
+    /// > The allocation rectangle includes any additional borders or spacing surrounding the
+    /// > element, affecting how it shall be positioned with respect to adjacent elements and the
+    /// > enclosing content rectangle or reference area.
+    ///
+    /// §14.8.5.4.5 derives it from Table 379's `/SpaceBefore` and `/SpaceAfter`, and §14.8.3.3 is
+    /// what decides which two edges those move: a `TbRl` document's before edge is on the right,
+    /// so the same two numbers widen a Japanese page's paragraph where they heighten a Western
+    /// one's.
+    ///
+    /// # Why a host is given it rather than left to add the spacing itself
+    ///
+    /// It could not. The attributes live in §14.7.6's attribute objects and class map, which only
+    /// this side reads, and the writing mode that turns them into edges is inherited down the
+    /// structure tree, which only this side walks. What a host does with it is [`places`]'s first
+    /// use: a container's own extent includes "the sum of the heights of all BLSEs it contains,
+    /// plus any additional spacing adjustments between these elements", and the spacing in that
+    /// sentence is exactly this.
+    ///
+    /// `None` for every element whose producer stated no Table 379 `/BBox`, because §14.8.5.4.5
+    /// derives this *from the content rectangle* and the one stated in the same space as the
+    /// spacing is that one. An element that states a rectangle and no spacing has an allocation
+    /// rectangle equal to its content rectangle, which is the clause's answer rather than a
+    /// missing one.
+    pub allocation: Option<[f32; 4]>,
+    /// Table 385's artifact attributes, for an element whose type is §14.8.4.8.7's `Artifact`.
+    ///
+    /// # What it says that the role does not
+    ///
+    /// The role already says the element is an artifact, and
+    /// [`viewer_accessibility::role`]'s mapping already withholds its text on the strength of it.
+    /// This says **which kind**, which is the distinction §14.8.2.2.1 draws the whole vocabulary
+    /// for: "[a] text-to-speech engine, for instance, may decide not to speak running heads or
+    /// page numbers when the page is turned", and a running head, a footnote rule and a cut mark
+    /// are three different things to decide about. A person moving through a page's structure
+    /// meets these nodes with no name — an artifact has none by design — and the kind is the only
+    /// thing there is to tell them what they have reached.
+    ///
+    /// # Why it is the same type the content stream's artifacts arrive in
+    ///
+    /// §14.8.2.2.2 gives an artifact two forms, a marked-content sequence and this element, and
+    /// [`pdf_model::structure::Artifact`] is what both read into. A consumer deciding what to do
+    /// with a running head should not have to ask which form its producer chose.
+    /// [`pdf_model::structure::Artifact::attached`] is four falses here, because Table 385 has no
+    /// such entry — the property list form's alone.
+    ///
+    /// `None` for every element that is not an `Artifact`. `Some` with every entry empty for one
+    /// that states no attributes, which §14.8.2.2.2 calls a generic artifact and is not the same
+    /// statement as `None`.
+    pub artifact: Option<Artifact>,
     /// Where the element's content **turned out to be**, in the same device pixels
     /// [`Self::quads`] are in: `[x0, y0, x1, y1]`.
     ///
@@ -554,6 +614,14 @@ pub(crate) struct Gathered {
     /// this side of the walk has no magnification and no origin, and the flip between the page's
     /// y axis and the raster's belongs to whoever holds them.
     pub(crate) bounds: Option<[f32; 4]>,
+    /// §14.8.5.4.5's allocation rectangle, in **default user space**, mapped by [`finish`].
+    ///
+    /// [`pdf_model::structure::Tree::allocation`]'s answer, which is [`Self::bounds`] with the
+    /// before and after edges moved by Table 379's two spacing attributes, in the direction
+    /// §14.8.3.3's writing mode calls block progression.
+    pub(crate) allocation: Option<[f32; 4]>,
+    /// Table 385's artifact attributes for an `Artifact` element, where the element is one.
+    pub(crate) artifact: Option<Artifact>,
     /// §14.8.4.8.3's header cells, as indices into this list — **before** [`prune`] moves them.
     ///
     /// Filled after the walk rather than during it, because Table 384's `/Headers` names cells by
@@ -851,6 +919,15 @@ fn walk(
                 let header_scope =
                     header_scope(document, tree, &dict, kind.as_ref(), depth, index, tables);
                 let bounds = tree.bounds(document, &dict);
+                // §14.8.5.4.5's second rectangle, beside the first: the spacing it adds is
+                // "measured in default user space units", which is the space `bounds` is in and
+                // not the viewport's, so it is derived here and mapped where `bounds` is.
+                let allocation = tree.allocation(document, &dict);
+                // §14.8.5.8's attributes describe §14.8.4.8.7's `Artifact`, and that type is
+                // §14.7.3's mapped one — the same condition Table 384's two spoken entries are
+                // asked under, applied here where the role is in hand rather than in the reader.
+                let artifact =
+                    (kind == Some(StandardType::Artifact)).then(|| tree.artifact(document, &dict));
                 let summary = (kind == Some(StandardType::Table))
                     .then(|| tree.table_summary(document, &dict))
                     .flatten();
@@ -879,6 +956,8 @@ fn walk(
                         summary,
                         short,
                         bounds,
+                        allocation,
+                        artifact,
                         headers: Vec::new(),
                         continues_a_list,
                         continued_from: None,
@@ -1136,7 +1215,11 @@ pub(crate) fn finish(
         header_scope: gathered.header_scope,
         summary: gathered.summary,
         short: gathered.short,
-        bounds: stated.and_then(place),
+        bounds: stated.and_then(&place),
+        // The same mapping the content rectangle takes, because §14.8.5.4.5 derives this one from
+        // that one and both are stated in default user space.
+        allocation: gathered.allocation.and_then(&place),
+        artifact: gathered.artifact,
         control: gathered
             .objects
             .iter()
@@ -1190,9 +1273,12 @@ pub(crate) fn finish(
 ///    badge the page draws five pixels square.
 /// 3. **What the element encloses.** §14.8.5.4.5 derives a container's own rectangle from the
 ///    elements inside it — "the height of the content rectangle shall be the sum of the heights of
-///    all BLSEs it contains" for a block-level element, and the extremes of the child objects for an
+///    all BLSEs it contains, plus any additional spacing adjustments between these elements" for a
+///    block-level element, and the extremes of the child objects for an
 ///    inline one — so a `TD` whose only content is a widget annotation, or a `Div` around a `Figure`
 ///    that states a `/BBox`, has a place even though nothing it holds directly marked the page.
+///    The spacing adjustments in that sentence are [`AccessibilityNode::allocation`], which is why
+///    a child contributes both of its rectangles to the element above it.
 ///    Asked last, so that an element's own content and its own producer's statement both outrank a
 ///    derivation from below.
 ///
@@ -1221,6 +1307,13 @@ pub fn places(nodes: &[AccessibilityNode]) -> Vec<Option<[f32; 4]>> {
         }
         if let Some(above) = node.parent.and_then(|parent| enclosed.get_mut(parent)) {
             union_into(above, place);
+            // §14.8.5.4.5 gives a block-level container "the sum of the heights of all BLSEs it
+            // contains, plus any additional spacing adjustments between these elements", and the
+            // spacing in that sentence is the child's allocation rectangle. Unioned *beside* the
+            // child's place rather than instead of it: the allocation is derived from the stated
+            // content rectangle and the place may have been measured, and this rectangle is a
+            // bound in the direction the rest of it errs in.
+            union_into(above, node.allocation);
         }
     }
     answer
@@ -1345,6 +1438,8 @@ mod tests {
             summary: None,
             short: None,
             bounds: None,
+            allocation: None,
+            artifact: None,
             control: None,
             annotation: None,
             headers: Vec::new(),
@@ -1420,5 +1515,35 @@ mod tests {
         let outer = element(None);
         let inner = element(Some(0));
         assert_eq!(places(&[outer, inner]), vec![None, None]);
+    }
+
+    /// §14.8.5.4.5's container takes its children's *allocation* rectangles, spacing and all.
+    ///
+    /// "[T]he height of the content rectangle shall be the sum of the heights of all BLSEs it
+    /// contains, plus any additional spacing adjustments between these elements" — so a `Div`
+    /// around two paragraphs that each leave room above themselves is taller than the two
+    /// paragraphs are. The container states nothing of its own, which is the population this
+    /// route exists for.
+    ///
+    /// The child's own place is unioned beside its allocation rather than replaced by it: the
+    /// allocation is derived from the stated rectangle and the place may have been measured, and
+    /// this rectangle is a bound in the direction the rest of it errs in. The second paragraph is
+    /// what shows it — its marks reach below the rectangle its producer stated.
+    #[test]
+    fn a_container_takes_the_spacing_its_children_reserved() {
+        let container = element(None);
+        let mut first = element(Some(0));
+        first.bounds = Some([20.0, 40.0, 80.0, 60.0]);
+        first.allocation = Some([20.0, 34.0, 80.0, 66.0]);
+        let mut second = element(Some(0));
+        second.bounds = Some([20.0, 10.0, 80.0, 30.0]);
+        second.allocation = Some([20.0, 4.0, 80.0, 30.0]);
+        second.drawn = Some([20.0, 0.0, 80.0, 30.0]);
+        let answered = places(&[container, first, second]);
+        assert_eq!(
+            answered.first().copied().flatten(),
+            Some([20.0, 0.0, 80.0, 66.0]),
+            "the first child's reserved space above it, and the second's marks below its own"
+        );
     }
 }

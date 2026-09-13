@@ -880,6 +880,7 @@ impl LoadedFont {
                     name: name.to_owned(),
                     reason: collection_gap(
                         document,
+                        dict,
                         &descendant,
                         encoding_name(document, dict).as_deref(),
                     ),

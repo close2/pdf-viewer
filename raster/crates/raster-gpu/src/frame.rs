@@ -201,7 +201,7 @@ impl std::fmt::Display for CoverageSheet {
 
 /// Which lane made the coverage for each mark this frame drew (`raster/doc/PLAN.md` §1.1).
 ///
-/// §1.1's premise — that most of a page is repeated glyph outlines and axis-aligned
+/// brief section 1.1's premise — that most of a page is repeated glyph outlines and axis-aligned
 /// rectangles, and that general curve filling is the *rare* case — is the assumption the
 /// whole architecture is arranged around, and until this struct existed there was no
 /// instrument in the tree that could say whether a given page agrees with it. The brief's
@@ -218,7 +218,7 @@ impl std::fmt::Display for CoverageSheet {
 /// denominator the question wants; a ratio computed here would fix that choice for
 /// everybody.
 ///
-/// # Why four lanes, where §1.1's table names five
+/// # Why four lanes, where brief section 1.1's table names five
 ///
 /// The plan's table sorts by *what a command is*. The encoder sorts by **how a mark's
 /// coverage is made**, which is the thing that costs, and the two part company on one
@@ -232,11 +232,11 @@ pub struct LaneCounts {
     /// clip (ADR 0007), whether it arrived as a `Rect` command or as the fill of a
     /// four-edged outline (ADR 0047).
     ///
-    /// The lane that allocates no coverage memory at all, which is why §6.4 of the brief
+    /// The lane that allocates no coverage memory at all, which is why section 6.4 of the brief
     /// is blunt that a rectangular clip must never become a mask texture.
     pub rectangle: u32,
     /// Marks drawn as one quad over a tile of the persistent R8 glyph atlas (ADR 0008,
-    /// ADR 0009) — the lane §1.1 calls the dominant case.
+    /// ADR 0009) — the lane brief section 1.1 calls the dominant case.
     ///
     /// One per *placement*, not per distinct tile: a page that draws one letterform two
     /// hundred times reports 200 here and one key in
@@ -269,7 +269,7 @@ pub struct LaneCounts {
 pub struct Counters {
     /// Scene commands encoded into this frame.
     pub commands: u32,
-    /// Which lane made the coverage for each mark this frame drew — §1.1's sorter,
+    /// Which lane made the coverage for each mark this frame drew — brief section 1.1's sorter,
     /// counted rather than assumed.
     pub lanes: LaneCounts,
     /// Distinct outlines referenced (M2 onwards; 0 until then).
@@ -358,7 +358,7 @@ pub struct Counters {
     ///
     /// [`RetainedScene`]: crate::retained::RetainedScene
     pub atlas_repacked: bool,
-    /// §6.4's instrument: how many **distinct clip regions** this frame resolved,
+    /// brief section 6.4's instrument: how many **distinct clip regions** this frame resolved,
     /// after chains collapsed to device-space rectangles. Deliberately not a hit
     /// rate, and keyed by the resolved region rather than by identifier — the
     /// caller's clip-mask cache once answered all 303 lookups a page made and built
@@ -369,7 +369,7 @@ pub struct Counters {
     /// not all rectangles becomes one coverage region, cut into a window for every mark
     /// drawn under it (ADR 0049).
     ///
-    /// The other half of §6.4's instrument, and keys again rather than lookups: a page
+    /// The other half of brief section 6.4's instrument, and keys again rather than lookups: a page
     /// that states one curved clip and draws six hundred marks under it reports **1**
     /// here and 600 in [`tiles`](Counters::tiles).
     pub clip_residue_regions: u32,

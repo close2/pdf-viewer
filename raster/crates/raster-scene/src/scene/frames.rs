@@ -8,7 +8,7 @@
 //! - **The stack is popped on both paths**, so a body that refused leaves nothing
 //!   behind and the builder stays usable. A half-built group is never a scene's
 //!   content.
-//! - **The stack is the depth bound.** §1.1 of the brief bounds the caller's display
+//! - **The stack is the depth bound.** section 1.1 of the brief bounds the caller's display
 //!   list at [`MAX_GROUP_DEPTH`], and the count that refuses is this one.
 //! - **The stack carries the knockout question, and it is two questions.** Whether a
 //!   command lands inside a knockout group is a property of the frames above it, not of

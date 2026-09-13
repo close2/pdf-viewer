@@ -13,7 +13,7 @@
 //! So this sweep reads no reason at all. It takes the entries the clause's own tables state, out
 //! of the standard, and asks two questions of each.
 //!
-//! 1. Does any Rust source under [`crate::SOURCE_ROOTS`] name the entry at all?
+//! 1. Does any Rust source under [`crate::roots::source_roots`] name the entry at all?
 //! 2. Does any file the row itself lists in `code = [...]`?
 //!
 //! **The second question is the sweep.** `/Open` — the entry the four-hundred-and-fifty-ninth
@@ -89,7 +89,7 @@ pub struct Table {
 /// Where the tree names an entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Named {
-    /// No Rust source under [`crate::SOURCE_ROOTS`] names it in either of [`FORMS`].
+    /// No Rust source under [`crate::roots::source_roots`] names it in either of [`FORMS`].
     Nowhere,
     /// Named somewhere, but by no file the row's own `code` array lists.
     ///
@@ -199,7 +199,7 @@ pub enum Error {
     Sources(#[from] std::io::Error),
 }
 
-/// Every Rust source under [`crate::SOURCE_ROOTS`], with its text, paths relative to `root`.
+/// Every Rust source under [`crate::roots::source_roots`], with its text, paths relative to `root`.
 ///
 /// The checker's own directory is read like any other here: unlike a citation, a key is not
 /// something this crate writes as an example, and excluding it would hide a reader if one ever
@@ -210,7 +210,8 @@ pub enum Error {
 /// If a directory cannot be walked or a file cannot be read. A sweep that skipped what it could
 /// not open would report a clean tree for a tree it had not looked at.
 pub fn sources(root: &Path) -> Result<Vec<(PathBuf, String)>, Error> {
-    let roots: Vec<PathBuf> = crate::SOURCE_ROOTS
+    let roots: Vec<PathBuf> = crate::roots::source_roots(root)
+        .map_err(std::io::Error::from)?
         .iter()
         .map(|name| root.join(name))
         .collect();

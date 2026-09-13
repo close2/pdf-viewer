@@ -67,14 +67,6 @@ use std::path::{Path, PathBuf};
 use crate::ledger::Ledger;
 use crate::retired::{self, Kind};
 
-/// The path heads that are relative to the workspace root.
-///
-/// The workspace's own top-level directories, and nothing else: a token whose head is not one of
-/// these or of [`RELATIVE_HEADS`] is not a pointer into this tree at all, which is how
-/// `raster-gpu/tests/two_rasters.rs` and `https://github.com/…` are never collected rather than
-/// collected and excused.
-pub const ROOTED_HEADS: [&str; 5] = ["doc", "crates", "tools", "fuzz", "data"];
-
 /// The path heads that are relative to the crate the mentioning file is in.
 ///
 /// Cargo's own directory names. A doc comment saying `tests/x.rs` means its own crate's tests,
@@ -212,6 +204,7 @@ impl Sweep {
 pub struct Tree {
     present: BTreeSet<String>,
     crates: Vec<String>,
+    heads: BTreeSet<String>,
 }
 
 impl Tree {
@@ -237,7 +230,34 @@ impl Tree {
         // Longest first, so that a file in a workspace member is attributed to the member
         // rather than to the workspace root above it.
         crates.sort_by_key(|directory| std::cmp::Reverse(directory.len()));
-        Self { present, crates }
+        let heads: BTreeSet<String> = present
+            .iter()
+            .filter_map(|path| path.split_once('/'))
+            .map(|(head, _)| head.to_owned())
+            .collect();
+        Self {
+            present,
+            crates,
+            heads,
+        }
+    }
+
+    /// Whether a path head is one of the tree's own top-level directories.
+    ///
+    /// **Derived from the tree rather than listed.** This was five names — `doc, crates, tools,
+    /// fuzz, data` — written beside a workspace whose members are a glob, so no pointer written
+    /// under `raster/` was resolved at all once that sub-project was folded in: not reported
+    /// wrong, not reported at all, which is why §3 of ADR 1024's collision could sit unnoticed.
+    /// The walk already knows what the tree's top level holds, and asking it is the same rule the
+    /// constant's own comment stated.
+    ///
+    /// A token whose head is neither one of these nor one of [`RELATIVE_HEADS`] is not a pointer
+    /// into this tree at all, which is how `raster-gpu/tests/two_rasters.rs` — a path relative to
+    /// a sub-project's own root, written before it was folded in — and `https://github.com/…` are
+    /// never collected rather than collected and excused.
+    #[must_use]
+    pub fn is_a_head(&self, head: &str) -> bool {
+        self.heads.contains(head)
     }
 
     /// Walks the workspace, skipping what [`NOT_CARRIED`] names and every hidden directory.
@@ -341,7 +361,7 @@ fn collect(root: &Path, directory: &Path, into: &mut Vec<String>) -> std::io::Re
 
 /// Runs both halves of the sweep over the ledger's notes, the tree's comments and its prose.
 ///
-/// `sources` are the Rust files under [`crate::SOURCE_ROOTS`] with their text — they are both a
+/// `sources` are the Rust files under [`crate::roots::source_roots`] with their text — they are both a
 /// population to read and the population a symbol pointer is resolved against — and `documents`
 /// the Markdown under `doc/`. Two directories are read by nothing here, for the reasons
 /// [`crate::retired::NOT_SWEPT`] and [`crate::NOT_SCANNED`] give: a round's own record is not
@@ -437,7 +457,7 @@ fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> Reach {
         return Reach::Placeholder;
     }
     let head = text.split('/').next().unwrap_or_default();
-    let path = if ROOTED_HEADS.contains(&head) {
+    let path = if tree.is_a_head(head) {
         text.to_owned()
     } else if RELATIVE_HEADS.contains(&head) {
         match home {

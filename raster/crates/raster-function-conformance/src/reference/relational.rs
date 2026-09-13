@@ -60,11 +60,12 @@ pub fn binary(op: FnOp, a: Value, b: Value) -> Result<Value, EvalError> {
     }
 }
 
-/// `not`, which is unary and is two operators.
+/// `not`, which is unary and is two operators. PLRM3: it "returns the logical negation
+/// of the operand if it is boolean. If the operand is an integer, not returns the bitwise
+/// complement (ones complement) of its binary representation."
 ///
-/// > returns the logical negation of the operand if it is boolean. If the operand is an
-/// > integer, not returns the bitwise complement (ones complement) of its binary
-/// > representation.
+/// Quoted in prose rather than as a blockquote, which in this tree is the standard's own
+/// words under a clause number and nothing else (`tools/conformance`).
 ///
 /// # Errors
 ///
@@ -78,12 +79,14 @@ pub fn not(a: Value) -> Result<Value, EvalError> {
     }
 }
 
-/// PLRM3's `eq`, which is equality of type *and* value with one coercion:
+/// PLRM3's `eq`, which is equality of type *and* value with one coercion: "Simple
+/// objects are equal if their types and values are the same. […] This operator performs
+/// some type conversions. Integers and real numbers can be compared freely: an integer
+/// and a real number representing the same mathematical value are considered equal by
+/// **eq**."
 ///
-/// > Simple objects are equal if their types and values are the same. […] This operator
-/// > performs some type conversions. Integers and real numbers can be compared freely:
-/// > an integer and a real number representing the same mathematical value are
-/// > considered equal by **eq**.
+/// Quoted in prose rather than as a blockquote, which in this tree is the standard's own
+/// words under a clause number and nothing else (`tools/conformance`).
 ///
 /// So a boolean is never equal to a number — the types differ and no conversion is
 /// offered between them — and `1 1.0 eq` is true. There is no tolerance anywhere in the
@@ -120,13 +123,14 @@ fn logical_or_bitwise(
     }
 }
 
-/// `bitshift`:
+/// `bitshift`, in PLRM3's words: it "shifts the binary representation of int1 left by
+/// shift bits and returns the result. Bits shifted out are lost; bits shifted in are 0.
+/// If shift is negative, a right shift by –shift bits is performed. This operation
+/// produces an arithmetically correct result only for positive values of int1. Both
+/// int1 and shift must be integers."
 ///
-/// > shifts the binary representation of int1 left by shift bits and returns the result.
-/// > Bits shifted out are lost; bits shifted in are 0. If shift is negative, a right
-/// > shift by –shift bits is performed. This operation produces an arithmetically
-/// > correct result only for positive values of int1. Both int1 and shift must be
-/// > integers.
+/// Quoted in prose rather than as a blockquote, which in this tree is the standard's own
+/// words under a clause number and nothing else (`tools/conformance`).
 ///
 /// "Bits shifted in are 0" is the load-bearing sentence and it makes the right shift a
 /// **logical** one, which the next sentence confirms by warning that the result is

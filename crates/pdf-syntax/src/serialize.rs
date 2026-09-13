@@ -29,9 +29,10 @@
 //!
 //! # What it refuses, and what it repairs
 //!
-//! It refuses by name — [`SerializeError`] — an assembly with no `/Root`, a reserved slot the
-//! caller never filled, more objects than a cross-reference section can number, and an offset
-//! larger than §7.5.4's ten digits can state.
+//! It refuses by name — [`SerializeError`] — an assembly with no `/Root`, a `/Root` that does
+//! not reach §7.5.5's catalog dictionary, a reserved slot the caller never filled, more objects
+//! than a cross-reference section can number, and an offset larger than §7.5.4's ten digits can
+//! state.
 //!
 //! It repairs two things silently-but-counted, because both are §7.3's own answer rather than a
 //! tolerance:
@@ -317,6 +318,26 @@ pub enum SerializeError {
     /// writing such a file would be writing a file this program cannot read.
     #[error("this assembly names no /Root, which §7.5.5 requires of a trailer")]
     NoRoot,
+    /// The object named as the output's catalog is not one.
+    ///
+    /// §7.5.5's Table 15 gives `/Root` the type **dictionary** as well as requiring it — "[t]he
+    /// catalog dictionary for the PDF file" — so a trailer naming an object the output writes as
+    /// `null`, as a number, or as an array states a catalog the file does not hold. §7.3.10
+    /// makes the other road to the same place: "[a]n indirect reference to an undefined object
+    /// shall not be considered an error by a PDF processor; it shall be treated as a reference
+    /// to the null object", so a `/Root` naming a number no slot carries reaches null too, and
+    /// both are this one refusal.
+    ///
+    /// **Where it comes from is a *source* rather than a caller's mistake**, which is what
+    /// separates it from [`SerializeError::NoRoot`]: a document recovered from damage can state
+    /// a trailer whose `/Root` its own objects never reach, and copying that document object for
+    /// object carries the trailer's claim into a file with nothing behind it. This project does
+    /// not emit such a file (RFC 0002 section 11.3). ADR 1028.
+    #[error("/Root names object {}, which is not §7.5.5 Table 15's catalog dictionary", .id.number)]
+    RootNotADictionary {
+        /// The number the trailer would have named.
+        id: ObjectId,
+    },
     /// A slot was reserved and never filled.
     ///
     /// Refused rather than written as `null`, because it is a caller's mistake rather than a
@@ -335,6 +356,21 @@ pub enum SerializeError {
     /// The sink refused the bytes.
     #[error("writing the output: {0}")]
     Write(#[from] std::io::Error),
+}
+
+/// What §7.5.5's `/Root` finds at the end of its chain, in the file about to be written.
+///
+/// Three answers rather than two, because a slot the caller reserved and never filled is a
+/// *caller's* mistake that [`SerializeError::Unplaced`] names by number, and reporting it as a
+/// missing catalog would hide which object was owed.
+#[derive(Debug, Clone, Copy)]
+enum RootReach {
+    /// A dictionary, which is Table 15's type for this entry.
+    Dictionary,
+    /// Something that is not one, or nothing at all.
+    Elsewhere,
+    /// A reserved slot with nothing in it yet.
+    Unplaced,
 }
 
 /// One entry of the output's object table.
@@ -545,6 +581,65 @@ impl<'a> Assembly<'a> {
         Ok(ObjectId::new(number, 0))
     }
 
+    /// What the output's `/Root` reaches, following §7.3.10's chain as far as this crate's own
+    /// reader would.
+    ///
+    /// The writer's half of §7.5.5's Table 15: the entry's type is `dictionary`, and a file
+    /// whose `/Root` reaches anything else is one [`Document::catalog`] refuses — so writing it
+    /// would be putting this program's name on a file this program cannot open (RFC 0002
+    /// section 11.3).
+    ///
+    /// **A stream is not refused, and that is a reading rather than an oversight.** §7.3.8.1
+    /// makes a stream "a dictionary followed by zero or more bytes", and [`Object::as_dict`] —
+    /// which is what [`Document::catalog`] applies — answers with that dictionary. The predicate
+    /// here is the one the reader uses, because the property being protected is re-readability.
+    ///
+    /// Nothing is renumbered or decoded on this walk: it reads an object's *kind*, which
+    /// [`Assembly::renumber`] never changes, and follows a copied reference through
+    /// [`Assembly::copied`] because a copied object's references are still the source's. ADR 1028.
+    fn root_reaches(&self, root: ObjectId) -> RootReach {
+        let mut current = root;
+        for _ in 0..crate::document::MAX_REFERENCE_DEPTH {
+            let Some(index) = usize::try_from(current.number)
+                .ok()
+                .and_then(|number| number.checked_sub(1))
+            else {
+                return RootReach::Elsewhere;
+            };
+            // `from` is `None` for a synthesised object, whose references are already the
+            // output's numbering, and `Some` for a copied one, whose are the source's.
+            let (value, from) = match self.slots.get(index) {
+                None => return RootReach::Elsewhere,
+                Some(Slot::Synthesised(None)) => return RootReach::Unplaced,
+                Some(Slot::Synthesised(Some(object))) => (object.clone(), None),
+                Some(Slot::Copied { from, id }) => {
+                    let Some(document) = self.sources.get(*from) else {
+                        return RootReach::Elsewhere;
+                    };
+                    (document.get(*id), Some(*from))
+                }
+            };
+            match value {
+                Object::Dictionary(_) | Object::Stream(_) => return RootReach::Dictionary,
+                Object::Reference(next) => {
+                    current = match from {
+                        // §7.3.10 again: a reference the assembly does not carry is written as
+                        // `null`, so a chain that leaves the output ends at null.
+                        Some(source) => match self.copied(source, next) {
+                            Some(mapped) => mapped,
+                            None => return RootReach::Elsewhere,
+                        },
+                        None => next,
+                    };
+                }
+                _ => return RootReach::Elsewhere,
+            }
+        }
+        // A cycle, or a chain longer than the reader will follow: `Document::resolve` answers
+        // null past this many hops, and null is not a catalog.
+        RootReach::Elsewhere
+    }
+
     /// The object slot `index` holds, as it will be written, with its references renumbered.
     ///
     /// `None` for a reserved slot nobody filled, which [`serialize`] turns into a refusal.
@@ -745,8 +840,8 @@ impl Group {
 ///
 /// # Errors
 ///
-/// [`SerializeError`]: no `/Root`, a reserved slot never filled, an offset past §7.5.4's ten
-/// digits, or a sink that refused the bytes.
+/// [`SerializeError`]: no `/Root`, a `/Root` that reaches no dictionary, a reserved slot never
+/// filled, an offset past §7.5.4's ten digits, or a sink that refused the bytes.
 pub fn serialize<W: Write>(
     assembly: &Assembly<'_>,
     version: Version,
@@ -754,6 +849,13 @@ pub fn serialize<W: Write>(
     out: &mut W,
 ) -> Result<Written, SerializeError> {
     let root = assembly.root.ok_or(SerializeError::NoRoot)?;
+    // Before a byte is written, because a refusal that arrives after half a file has reached the
+    // caller's sink is a refusal it has to clean up after.
+    match assembly.root_reaches(root) {
+        // `Unplaced` is left to the writing loop, which names the number that was owed.
+        RootReach::Dictionary | RootReach::Unplaced => {}
+        RootReach::Elsewhere => return Err(SerializeError::RootNotADictionary { id: root }),
+    }
     let ceilings = options.object_streams.ceilings();
     // Table 18 decides this rather than the caller: a compressed object is named by a type 2
     // entry, entry types exist only in a cross-reference stream, and §7.5.4's twenty-byte line

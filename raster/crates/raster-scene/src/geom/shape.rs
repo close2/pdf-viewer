@@ -3,7 +3,7 @@
 //! Every bound in this library — a clip, a group's extent, a device target, a shading's
 //! domain — is one of these three, and none of them carries arithmetic anybody has to
 //! reason about. The one operation with a clause behind it is [`Rect::intersection`],
-//! because a clip chain is an intersection (§4.7 of the brief).
+//! because a clip chain is an intersection (section 4.7 of the brief).
 
 /// A point in the scene's own coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -56,7 +56,7 @@ impl Rect {
     ///
     /// The corners are stored as passed; whether they are ordered is a property the
     /// consumer checks with [`Rect::is_ordered`], because a constructor that silently
-    /// swapped corners would repair data that §4.7 says must be refused loudly.
+    /// swapped corners would repair data that brief section 4.7 says must be refused loudly.
     #[must_use]
     pub const fn new(min: Point, max: Point) -> Self {
         Self { min, max }
@@ -95,7 +95,7 @@ impl Rect {
 
     /// The intersection of two rectangles.
     ///
-    /// A clip chain is an intersection (§4.7 of the brief), and for axis-aligned
+    /// A clip chain is an intersection (section 4.7 of the brief), and for axis-aligned
     /// rectangles the intersection is again a rectangle: the greater of the minima,
     /// the lesser of the maxima. When the inputs do not overlap the result is empty
     /// per [`Rect::is_empty`] — which is exactly the "empty clip admits nothing"

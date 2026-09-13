@@ -200,7 +200,7 @@ fn atlas_and_scratch_fallback_are_byte_identical() {
     assert_eq!(with_atlas, without_atlas);
 }
 
-/// §4.5's fifth decision, observable: with the quantum off, every distinct sub-pixel
+/// brief section 4.5's fifth decision, observable: with the quantum off, every distinct sub-pixel
 /// phase is its own key; with a quantum of 1/4, the same hundred phases collapse to
 /// four keys. The counter is the count of distinct keys, per §6.3 — never a hit rate.
 ///
@@ -270,7 +270,7 @@ fn the_quantum_is_settable_and_off_is_exact() {
     );
 }
 
-/// §4.7's discriminating fill-rule case, end to end on the device: a nested subpath
+/// brief section 4.7's discriminating fill-rule case, end to end on the device: a nested subpath
 /// wound the same way fills under non-zero and holes under even-odd.
 #[test]
 fn fill_rules_differ_on_nested_same_winding_through_the_device() {

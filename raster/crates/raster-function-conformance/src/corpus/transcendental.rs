@@ -3,7 +3,7 @@
 //!
 //! Their *values* are defined — an arc tangent is an arc tangent — but nothing in
 //! ISO 32000-2 or PLRM3 states how accurately a processor must compute one, and WGSL's
-//! §15.7.4.1 states bounds that are wide on purpose: 4 096 ULP for `atan`, an absolute
+//! WGSL section 15.7.4.1 states bounds that are wide on purpose: 4 096 ULP for `atan`, an absolute
 //! 2⁻¹¹ for `sin` and `cos` **only inside ±π radians**, and nothing at all outside.
 //! `raster/doc/adr/0053` measured the consequence on this machine's two adapters over 4 096
 //! inputs: `sin` and `cos` differ on 3 201 and 3 334 of them, `exp` on 2 660, `sqrt` on
@@ -107,7 +107,7 @@ pub const CASES: &[Case] = &[
         1.0e-5,
         "PLRM3 ch. 8, `sin`, at the argument ISO 32000-2 §7.10.5.3's own DoubleDot \
          example reaches: `{360 mul sin 2 div …}`. 360° is 2π radians, **outside** the \
-         only interval WGSL §15.7.4.1 states an accuracy for, and §15.7.4 says \"the \
+         only interval WGSL section 15.7.4.1 states an accuracy for, and section 15.7.4 says \"the \
          accuracy is undefined for input values outside that range\". The corpus keeps \
          the mathematical value and the note; it cannot keep a bound nobody offers.",
     ),
@@ -129,7 +129,7 @@ pub const CASES: &[Case] = &[
         "PLRM3 ch. 8, `cos`, example `90 cos ⇒ 0.0`. The entry prints an exact zero; no \
          binary floating-point conversion of 90° to radians is exactly π/2, so the \
          printed value is the mathematics and the difference is the silence research \
-         §1.7 records.",
+         research section 1.7 records.",
     ),
     // ---- sqrt ---------------------------------------------------------------
     Case::near(
@@ -148,7 +148,7 @@ pub const CASES: &[Case] = &[
         &[Op::PushInt(2), Op::Sqrt],
         &[1.414_213_6],
         1.0e-6,
-        "PLRM3 ch. 8, `sqrt`. WGSL §15.7.4.1 does not require a correctly rounded square \
+        "PLRM3 ch. 8, `sqrt`. WGSL section 15.7.4.1 does not require a correctly rounded square \
          root — it is \"Inherited from 1.0 / inverseSqrt(x)\", a 2 ULP reciprocal root \
          through a 2.5 ULP division — where IEEE 754 requires one of a host. This is the \
          cheapest case in the corpus that can differ between the two sides.",

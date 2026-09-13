@@ -178,7 +178,7 @@ fn a_stack_count_past_the_depth_is_refused() {
     );
 }
 
-/// §4.7 of the brief: a value that is not a number is refused loudly rather than turned into
+/// section 4.7 of the brief: a value that is not a number is refused loudly rather than turned into
 /// NaN geometry — and WGSL's Finite Math Assumption would make it an arbitrary colour.
 #[test]
 fn a_non_finite_literal_is_refused() {

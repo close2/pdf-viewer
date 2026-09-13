@@ -373,21 +373,48 @@ pub(crate) fn wound_counter_clockwise(path: Path) -> Path {
 /// Adobe-CNS1's 的 (shared with GB1 — the two disagree about *forms*, and a face that has
 /// neither has neither), Adobe-Korea1's and Adobe-KR's 한.
 ///
-/// `Identity` and anything unregistered yield nothing, so those fonts keep the family match
-/// they had — the codes there index a font nobody supplied and §9.10.2's third method has
-/// nothing to read either way.
+/// # Where the collection says nothing, Table 122's `/Lang` is asked
+///
+/// `Identity` and anything unregistered name no script, and §9.8.3.1's `/Lang` is the entry the
+/// standard provides for exactly that gap — Table 122 gives it as "the language of the font, which
+/// may be used for encodings where the language is not implied by the encoding itself". So a
+/// registered collection is believed first, because it *is* the encoding implying the language,
+/// and the descriptor's tag answers only where it does not.
+///
+/// The characters are the same three, deliberately: a tag and a collection that name the same
+/// script must not choose differently, or a document stating both would depend on which was read.
+/// A tag naming any other language yields nothing, and the font keeps the family match it had —
+/// the codes there index a font nobody supplied and §9.10.2's third method has nothing to read
+/// either way.
 pub(crate) fn script_sample(document: &Document, descendant: &Dictionary) -> &'static [char] {
-    let Some((registry, ordering)) = crate::composite::collection_names(document, descendant)
-    else {
+    if let Some((registry, ordering)) = crate::composite::collection_names(document, descendant) {
+        match (registry.as_str(), ordering.as_str()) {
+            ("Adobe", "Japan1") => return JAPANESE,
+            ("Adobe", "GB1" | "CNS1") => return CHINESE,
+            ("Adobe", "Korea1" | "KR") => return KOREAN,
+            _ => {}
+        }
+    }
+    let descriptor = document.get_key(descendant, "FontDescriptor");
+    let Some(descriptor) = descriptor.as_dict() else {
         return &[];
     };
-    match (registry.as_str(), ordering.as_str()) {
-        ("Adobe", "Japan1") => &['\u{3042}'],
-        ("Adobe", "GB1" | "CNS1") => &['\u{7684}'],
-        ("Adobe", "Korea1" | "KR") => &['\u{d55c}'],
-        _ => &[],
+    match substitute::language(document, descriptor) {
+        Some(substitute::Language::Japanese) => JAPANESE,
+        Some(substitute::Language::Chinese) => CHINESE,
+        Some(substitute::Language::Korean) => KOREAN,
+        None => &[],
     }
 }
+
+/// あ, the character a face standing in for a Japanese font has to have.
+const JAPANESE: &[char] = &['\u{3042}'];
+
+/// 的, the same for a Chinese one — shared by `Adobe-GB1` and `Adobe-CNS1`.
+const CHINESE: &[char] = &['\u{7684}'];
+
+/// 한, the same for a Korean one.
+const KOREAN: &[char] = &['\u{d55c}'];
 
 /// The character codes the font dictionary says the document uses.
 ///
@@ -442,6 +469,53 @@ mod substitute_face_tests {
     use crate::{Code, LoadedFont};
 
     use super::{declared_codes, stated_code_range};
+
+    /// §9.8.3.1, Table 122, on `/Lang`: a name "specifying the language of the font, which may
+    /// be used for encodings where the language is not implied by the encoding itself".
+    ///
+    /// The `Identity` ordering is the encoding that implies nothing — §9.10.2's `-UCS2` table
+    /// does not exist for it — so before this was read a non-embedded `Identity` `CIDFont` went to
+    /// substitution with no character asked for, and any face of the right generic family
+    /// qualified. The two rows with a tag are the entry doing the only work a tag can do here;
+    /// the third is the control that says the collection is still believed first, and the fourth
+    /// is the state this function was in for every document.
+    ///
+    /// Calibrated (trap 13) by deleting the `/Lang` arm: rows one and two fail, three and four
+    /// still pass.
+    #[test]
+    fn an_identity_ordering_takes_its_script_from_table_122s_lang() {
+        let identity = "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>";
+        for (entries, expected) in [
+            (
+                format!("{identity} /FontDescriptor << /Flags 4 /Lang /ja >>"),
+                &['\u{3042}'][..],
+            ),
+            (
+                format!("{identity} /FontDescriptor << /Flags 4 /Lang /zh-TW >>"),
+                &['\u{7684}'][..],
+            ),
+            // A registered collection is the encoding implying the language, so it answers and
+            // the tag is not consulted: a file stating both may not depend on the order.
+            (
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 0 >> \
+                 /FontDescriptor << /Flags 4 /Lang /ko >>"
+                    .to_owned(),
+                &['\u{3042}'][..],
+            ),
+            // Neither: the font keeps the family match it had.
+            (
+                format!("{identity} /FontDescriptor << /Flags 4 >>"),
+                &[][..],
+            ),
+        ] {
+            let (document, descendant) = font_dictionary(&entries);
+            assert_eq!(
+                super::script_sample(&document, &descendant),
+                expected,
+                "over {entries}"
+            );
+        }
+    }
 
     /// A substituted face is replaced only by one that draws everything it drew.
     ///

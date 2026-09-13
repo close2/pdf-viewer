@@ -2032,7 +2032,7 @@ fn a_colour_converted_into_a_named_press_comes_back() {
             ((step * 23) % 51) as f32 / 50.0,
             ((step * 37) % 51) as f32 / 50.0,
         ];
-        let inks = rgb.to_cmyk(&colour, true, &press);
+        let inks = rgb.to_cmyk(&colour, pdf_model::icc::Rendering::compensating(), &press);
         let back = space.convert(inks[0], inks[1], inks[2], inks[3]);
         for (got, want) in back.iter().zip(colour) {
             let gap = (got - want).abs() * 255.0;

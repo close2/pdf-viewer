@@ -9,14 +9,16 @@
 //! # The clause, and a correction to its number
 //!
 //! The permission is **§8.9.6.3 Explicit masking**, not §8.9.6.4 — §8.9.6.4 is colour key
-//! masking, which is a range of colours and says nothing about resolution. The sentence is:
+//! masking, which is a range of colours and says nothing about resolution. §8.9.6.3's
+//! sentence is:
 //!
 //! > The base image and the image mask need not have the same resolution ( Width and
 //! > Height values), but since all images shall be defined on the unit square in user
 //! > space, their boundaries on the page will coincide; that is, they will overlay each
 //! > other.
 //!
-//! and the "defined on the unit square" it leans on is §8.9.5.1's:
+//! and the "defined on the unit square" it leans on is not §8.9.5.1's image dictionary but
+//! the image coordinate system, §8.9.4:
 //!
 //! > The correspondence between image space and user space is constant: the unit square of
 //! > user space, bounded by user coordinates (0, 0) and (1, 1), corresponds to the boundary

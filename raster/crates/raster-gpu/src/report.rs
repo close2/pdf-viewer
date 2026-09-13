@@ -2,8 +2,8 @@
 //!
 //! # This is not a logging convenience
 //!
-//! §2.5 and §5 of the brief, and the sentence that makes it a specification item
-//! rather than a nicety:
+//! Sections 2.5 and 5 of the brief, and the sentence in `raster/doc/RENDER_LIBRARY.md` §5
+//! that makes it a specification item rather than a nicety:
 //!
 //! > anything you cannot draw as asked is a `Report`, not a silent approximation. A
 //! > gradient drawn opaque, a blend mode substituted, a mask ignored — each of those is

@@ -10,7 +10,7 @@
 //! We do not raise it. On the operand stack a boolean *is* the `f32` `1.0` or `0.0`, the
 //! lowering emits the numeric comparison, and the shader answers with a value where the
 //! entry has none. That is a deliberate hold rather than an oversight — `raster/doc/notes-function-wiring.md`
-//! §2.3 records why: it is the same shape as every other guarded error in
+//! brief section 2.3 records why: it is the same shape as every other guarded error in
 //! `function_ops.wgsl` (a zero divisor, a negative `sqrt`), and ADR 0053 §3.2 already has
 //! the guard value open as a contract question with the caller. Changing one member of that
 //! family without the others would be a third reading of the same silence.

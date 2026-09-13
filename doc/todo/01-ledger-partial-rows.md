@@ -3352,7 +3352,7 @@ clause away.**
 | row | shape | was | is |
 |---|---|---|---|
 | **§7.8.3** | 5, 7 | `partial` because `/Properties` "is read only for `/OC` (§8.11.3.3) and not for §14.6.2's marked-content property lists in general — which is clause 14's gap rather than this one's" | `content/marked.rs`'s `property_list` resolves a `BDC` operand's **name** through the `/Properties` subdictionary for §14.9's four entries, §14.7.5.2's `/MCID` and §14.13.5's associated files, which is this clause's own rule about a list holding an indirect reference — and §14.6.2's own row has listed what a property list is read for all along. `/ProcSet` is the only entry nothing looks at, and §14.2 is `inapplicable` because the array "shall be used only when the content stream is printed to a PostScript language compatible output device". **`implemented`**, with one named test per requirement group |
-| **§8.4.5** | 1, 5 | five of Table 57's entries on the not-read list: `/SM` "the silence recorded under §10.7.3", and `/BG`, `/BG2`, `/UCR`, `/UCR2` because they "describe a marking device" | `content/ext_gstate.rs` reads all five. `/SM` is the smoothness tolerance `pdf_render::shading::Ramp::resolution_for` samples a shading by, which **§10.7.3's own `implemented` row has said since the seventy-fourth session**; the four black-generation entries set `black_generation_stated`, which is what makes §11.7.2's `DeviceCMYK` group space a *reported* departure rather than a silent one. `partial` now for **`/FL` alone**, which is the one of Table 57's routes that reaches nothing while `i` is read and discarded — trap 5's shape at a cost of nothing |
+| **§8.4.5** | 1, 5 | five of Table 57's entries on the not-read list: `/SM` "the silence recorded under §10.7.3", and `/BG`, `/BG2`, `/UCR`, `/UCR2` because they "describe a marking device" | `content/ext_gstate.rs` reads all five. `/SM` is the smoothness tolerance `pdf_render::shading::Ramp::resolution_for` samples a shading by, which **§10.7.3's own `implemented` row has said since the seventy-fourth session**; the four black-generation entries set `black_generation_stated`, which is what makes §11.7.2's `DeviceCMYK` group space a *reported* departure rather than a silent one. `/FL` was the last of them, and `content/ext_gstate.rs` reads and discards it on §10.7.2's own permission, which is the answer `i` has always had; the row is `implemented` |
 
 **The two rows are one lesson twice**: a not-read list is a list of claims, and the row that gets
 corrected when a mechanism arrives is the mechanism's own row rather than the list that mentions it.
@@ -3867,8 +3867,8 @@ it has been decoded using the filters specified by the stream's Filter entry". W
 bytes rather than at `/Length1`, so no outline depends on them. The row even carried "**Read and kept
 in the five-hundred-and-forty-fifth session**", which was true when written; the six-hundred-and-twenty-fifth
 made it false and did not come back. **The fifth failure shape with the sign reversed, inside one
-family: a parent that had outgrown its child.** The `partial` is unchanged and is the `/Length3`-of-zero
-requirement, still not executed.
+family: a parent that had outgrown its child.** The `/Length3`-of-zero requirement is executed by
+`pdf_font::program::with_fixed_content` and the row is `implemented`.
 
 **§9.7.6 said "Table 119's entries are read" and its own child says one of the six is not.**
 `/BaseFont` is deliberately unread for a Type 0 font on the clause's own NOTE — "an arbitrary name,

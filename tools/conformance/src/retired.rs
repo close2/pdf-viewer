@@ -14,7 +14,7 @@
 //!
 //! # What it reads
 //!
-//! The ledger's notes, every `//` comment under [`crate::SOURCE_ROOTS`], and every Markdown
+//! The ledger's notes, every `//` comment under [`crate::roots::source_roots`], and every Markdown
 //! document under `doc/` that this project wrote except [`NOT_SWEPT`]. The last is wider than
 //! the by-hand runs' `doc/adr/` on the evidence of the five-hundred-and-first, whose second
 //! finding was `doc/todo/README.md`'s index line for an item closed one wave earlier: **an index
@@ -164,7 +164,7 @@ pub const NOT_SWEPT: &str = "doc/history";
 
 /// Runs the sweep over the ledger's notes, the tree's comments and this project's prose.
 ///
-/// `sources` are the Rust files under [`crate::SOURCE_ROOTS`] and `documents` the Markdown
+/// `sources` are the Rust files under [`crate::roots::source_roots`] and `documents` the Markdown
 /// under `doc/`, each with its text. Two directories are skipped: [`NOT_SWEPT`], and the
 /// checker's own, as everywhere here — this module quotes the sweep's findings as examples, and
 /// a sweep that reports itself is the fastest way to have one switched off.

@@ -44,7 +44,8 @@ remedy = "discard"
 remedy = "discard"
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile".target."4f"]
-remedy = "preserve"        # 4f holds the original unchanged; nothing is lost, so nothing is
+remedy = "preserve"
+placement = "attach"        # 4f holds the original unchanged; nothing is lost, so nothing is
                            # discarded, and the yardstick never comes into it
 
 [site."embedded-files/associated-file-media-type"]
@@ -141,6 +142,13 @@ remedy = "discard"
 # ---------------------------------------------------------------------------------------------
 # Metadata. A printed page carries none of it. `preserve` is still chosen where it is free.
 # ---------------------------------------------------------------------------------------------
+
+# **Built**: ISO 19005-2 clause 6.6.2.3.1's property comes out of the packet, which is
+# `--authorise metadata-property` under another name. A printed page carries no XMP at all, so
+# this profile's yardstick answers it without hesitating — and an archive that would rather keep
+# the property should read `only-metadata-loss`, which sets the producer's packet on a page.
+[site."metadata/properties-use-known-schemas"]
+remedy = "discard"
 
 [site."metadata/xmp-packets-well-formed"]
 remedy = "preserve"

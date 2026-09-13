@@ -47,7 +47,7 @@ pub enum RenderError {
         /// Which target kind refused.
         target: &'static str,
     },
-    /// The viewport transform contained NaN or infinity. Refused loudly per §4.7;
+    /// The viewport transform contained NaN or infinity. Refused loudly per brief section 4.7;
     /// never turned into NaN geometry.
     #[error("the viewport transform has a non-finite coefficient")]
     NonFiniteViewportTransform,
@@ -72,7 +72,7 @@ pub enum RenderError {
     /// A damage rectangle was not a finite, ordered rectangle. Refused rather than
     /// repaired: a malformed damage list means the caller's change tracking broke,
     /// and a guessed region would risk exactly the stale frame damage exists to
-    /// prevent (§4.7).
+    /// prevent (brief section 4.7).
     #[error("damage rect {index} is not a finite, ordered rectangle")]
     InvalidDamage {
         /// Index of the offending rectangle in `Viewport::damage`.
@@ -192,7 +192,7 @@ pub enum RenderError {
     /// device drew before the detach, because there was none.
     ///
     /// Refused rather than guessed: a size invented here configures a swapchain for a
-    /// window nobody described (§4.7).
+    /// window nobody described (brief section 4.7).
     #[error("this presenter has no size; call Presenter::resize before presenting")]
     PresenterUnsized,
     /// A layer handed to [`Presenter::present`](crate::present::Presenter::present) that
@@ -251,7 +251,7 @@ pub enum RenderError {
     },
     /// A scene referenced an outline this device has not got — never uploaded,
     /// uploaded to a different device, or already released. Resource ids are
-    /// device-scoped (§2.2); a dangling one is a caller bug surfaced by name.
+    /// device-scoped (brief section 2.2); a dangling one is a caller bug surfaced by name.
     #[error("the scene references outline {outline:?}, which is not resident on this device")]
     UnknownOutline {
         /// The identifier that was referenced.

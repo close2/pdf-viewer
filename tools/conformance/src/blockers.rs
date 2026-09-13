@@ -123,7 +123,7 @@ pub struct Hit {
 pub struct Report {
     /// Hits in the ledger's notes.
     pub ledger: Vec<Hit>,
-    /// Hits in comments under [`crate::SOURCE_ROOTS`].
+    /// Hits in comments under [`crate::roots::source_roots`].
     pub source: Vec<Hit>,
 }
 

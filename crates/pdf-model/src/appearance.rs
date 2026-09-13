@@ -249,6 +249,80 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Wr
     })
 }
 
+/// Table 178's and Table 181's `/IT`: what a producer says an annotation is *for*.
+///
+/// # It states no mark, and that is the whole of what is owed
+///
+/// §12.5.6.7 gives a line annotation's `/IT` "[a] name describing the intent of the line
+/// annotation" with two valid values, and §12.5.6.9 gives a polygon's or polyline's three. Every
+/// one of the five is a sentence about what the annotation is *intended to function as* — an
+/// arrow, a dimension line, a cloud — and not one says anything about the shape that is drawn:
+/// both clauses state their geometry in the entries beside this one, and `/IT` never changes it.
+/// So nothing is reported for a value outside the table either: a report names what this program
+/// owes (trap 11), and the standard owes no mark under any of these names that it does not owe
+/// under all of them.
+///
+/// What the entry is for is a reader that does something *with* the annotation — a dimension is
+/// something to measure, which is why [`crate::measurement::annotation_measurement`] is where the
+/// other entry of this pair lands.
+///
+/// # The value a reader may not silently normalise
+///
+/// Each name is carried as itself, including one the table does not define, because the entry is
+/// what the producer said. An unrecognised intent dropped to "none" would make a file that named
+/// a purpose indistinguishable from one that named none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Intent {
+    /// Table 178's `LineArrow`: "the annotation is intended to function as an arrow".
+    LineArrow,
+    /// Table 178's `LineDimension`: "the annotation is intended to function as a dimension line".
+    LineDimension,
+    /// Table 181's `PolygonCloud`: "[t]he annotation is intended to function as a cloud object".
+    PolygonCloud,
+    /// Table 181's `PolyLineDimension`: "[t]he polyline annotation is intended to function as a
+    /// dimension".
+    PolyLineDimension,
+    /// Table 181's `PolygonDimension`: "[t]he polygon annotation is intended to function as a
+    /// dimension".
+    PolygonDimension,
+    /// A name the annotation's own table does not define, kept as the producer spelled it.
+    Unknown(String),
+}
+
+/// Reads §12.5.6.7's or §12.5.6.9's `/IT`, where the annotation states one.
+///
+/// # Which table applies is the annotation's `/Subtype`
+///
+/// `/IT` is one key spelled the same way in four of §12.5.6's subtype tables, and each defines
+/// its own values: Table 177's free text intents, Table 178's two above, Table 181's three, and
+/// Table 184's stamp intents. Only the two clauses this reader is for are answered here, so a
+/// `FreeText` or a `Stamp` gets `None` and its own clause's reader — the free text one is
+/// `callout` in this module — is unaffected.
+///
+/// Table 181 serves both of its subtypes with one list, and two of its three cells name a
+/// subtype in their own text — "[t]he polyline annotation" and "[t]he polygon annotation". The
+/// list is still the table's, so a `Polygon` stating `PolyLineDimension` has stated one of the
+/// names "shall be valid" for the entry and is read as it; which of the two the producer meant
+/// is not a question the shape can answer.
+#[must_use]
+pub fn intent(document: &Document, annotation: &Dictionary) -> Option<Intent> {
+    let subtype = document.get_key(annotation, "Subtype");
+    let subtype = subtype.as_name()?.as_bytes().to_vec();
+    let stated = document.get_key(annotation, "IT");
+    let stated = stated.as_name()?.as_bytes().to_vec();
+    let named = |value: &[u8]| String::from_utf8_lossy(value).into_owned();
+    match (subtype.as_slice(), stated.as_slice()) {
+        (b"Line", b"LineArrow") => Some(Intent::LineArrow),
+        (b"Line", b"LineDimension") => Some(Intent::LineDimension),
+        (b"Polygon" | b"PolyLine", b"PolygonCloud") => Some(Intent::PolygonCloud),
+        (b"Polygon" | b"PolyLine", b"PolyLineDimension") => Some(Intent::PolyLineDimension),
+        (b"Polygon" | b"PolyLine", b"PolygonDimension") => Some(Intent::PolygonDimension),
+        (b"Line" | b"Polygon" | b"PolyLine", other) => Some(Intent::Unknown(named(other))),
+        _ => None,
+    }
+}
+
 /// One annotation's constructed appearance, as an object a file can hold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Written {
@@ -5001,7 +5075,11 @@ fn rectangle(document: &Document, annotation: &Dictionary) -> Result<[f32; 4], R
 }
 
 /// Reads an entry as a list of points, refusing an empty one.
-fn points(document: &Document, dict: &Dictionary, key: &'static str) -> Option<Vec<[f32; 2]>> {
+pub(crate) fn points(
+    document: &Document,
+    dict: &Dictionary,
+    key: &'static str,
+) -> Option<Vec<[f32; 2]>> {
     let entry = document.get_key(dict, key);
     let vertices = pairs(document, entry.as_array()?);
     (!vertices.is_empty()).then_some(vertices)

@@ -6,8 +6,8 @@ frame — and any round that converts between the page's space, the display list
 `doc/ui-boundary.md` is the interface; `doc/environment.md`'s `Xvfb` recipe is the only way to
 exercise the whole loop.
 
-`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
-trap keeps its number.
+[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
+the rule, which group holds which, and why every trap keeps its number.
 
 ## Traps
 

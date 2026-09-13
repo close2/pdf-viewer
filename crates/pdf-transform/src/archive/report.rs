@@ -174,6 +174,56 @@ pub struct Derived {
     pub outcome: DerivedOutcome,
 }
 
+/// One piece of the document's own content a `preserve` remedy kept on an appended page.
+///
+/// **`doc/adr/1014` section 5's fourth bullet, which is the condition every step onto that line
+/// carries**: *a page was appended, carrying this, from there, placed so*. The three are
+/// [`Self::pages`], [`Self::subject`] and [`Self::placement`], and together they are what makes the
+/// page's content checkable against the input — the property a page composed of the document's own
+/// content has and a watermark has not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preserved {
+    /// The requirement whose refusal the remedy answered.
+    pub site: &'static str,
+    /// What was preserved, named as the document names it.
+    pub subject: String,
+    /// The zero-based pages of the output it now sits on.
+    pub pages: Vec<usize>,
+    /// How it was placed, in one sentence — every choice in it argued in `doc/adr/1025` section 4.
+    pub placement: &'static str,
+    /// The face this conversion embedded to set it, where it embedded one.
+    ///
+    /// **`doc/questions/A47`'s condition**, which the appended page inherits along with the
+    /// permission: a face this program ships rather than one the document carried is named, so a
+    /// reader can see that the letters on the page are this program's shapes and the words are the
+    /// document's. `None` where the page is set in a face the document itself embeds, which is
+    /// what this prefers and what puts nothing on the page from outside the file.
+    pub face: Option<String>,
+}
+
+impl Preserved {
+    /// One preserved thing as JSON.
+    fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("requirement".to_owned(), Value::text(self.site)),
+            ("subject".to_owned(), Value::text(self.subject.clone())),
+            (
+                "pages".to_owned(),
+                Value::Array(self.pages.iter().copied().map(Value::count).collect()),
+            ),
+            ("placement".to_owned(), Value::text(self.placement)),
+            (
+                "face".to_owned(),
+                self.face.as_ref().map_or(Value::Null, Value::text),
+            ),
+            (
+                "warns".to_owned(),
+                Value::text(crate::archive::PRESERVED_AS_A_PAGE),
+            ),
+        ])
+    }
+}
+
 /// One fact the operator stated that the document does not.
 ///
 /// `doc/rfc/0007` section 5b.1's obligation: the report states the supplied value beside the
@@ -378,6 +428,13 @@ pub struct Conversion {
     ///
     /// `doc/rfc/0007` section 5b.1. Empty until a configuration supplies one.
     pub supplied: Vec<SuppliedFact>,
+    /// Everything a `preserve` remedy kept on a page appended to the document.
+    ///
+    /// **`doc/adr/1014`'s condition on the permission.** Empty for every conversion that appends
+    /// nothing, which is every conversion until an operator's configuration names a `preserve`
+    /// remedy whose site this document failed. Where it is not empty the report names the page and
+    /// what it carries, and the same is recorded in the file's own `xmpMM:History`.
+    pub preserved: Vec<Preserved>,
 }
 
 impl Conversion {
@@ -467,6 +524,10 @@ impl Conversion {
             (
                 "supplied".to_owned(),
                 Value::Array(self.supplied.iter().map(SuppliedFact::to_json).collect()),
+            ),
+            (
+                "preserved".to_owned(),
+                Value::Array(self.preserved.iter().map(Preserved::to_json).collect()),
             ),
         ])
     }
@@ -648,6 +709,35 @@ impl Conversion {
                 if !row.stderr.is_empty() {
                     let _ = writeln!(out, "          the tool said: {}", row.stderr.trim_end());
                 }
+            }
+        }
+        if !self.preserved.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} thing(s) this conversion preserved on appended page(s) — {}:",
+                self.preserved.len(),
+                crate::archive::PRESERVED_AS_A_PAGE
+            );
+            for row in &self.preserved {
+                let _ = writeln!(
+                    out,
+                    "      {} is on page(s) {}, answering {} — {}{}",
+                    row.subject,
+                    row.pages
+                        .iter()
+                        .map(|page| page.saturating_add(1).to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    row.site,
+                    row.placement,
+                    row.face.as_ref().map_or_else(
+                        || ", in a face this document itself embeds".to_owned(),
+                        |face| format!(
+                            ", in a face this document does not carry: {face}, embedded for it \
+                             (doc/questions/A47)"
+                        )
+                    )
+                );
             }
         }
         if !self.supplied.is_empty() {

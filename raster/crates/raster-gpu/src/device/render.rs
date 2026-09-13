@@ -38,13 +38,13 @@ impl Device {
     /// Render one frame of `scene` at `viewport` into `target`.
     ///
     /// The scene is not consumed and carries no target knowledge: the same scene
-    /// renders at any number of viewports (§2.3).
+    /// renders at any number of viewports (brief section 2.3).
     ///
     /// # Errors
     ///
     /// A refused frame is an `Err` naming what was refused — see [`RenderError`]'s
     /// variants. On `Err`, nothing was presented and no pixels are claimed drawn.
-    // Taking `Target` by value is §2.4's signature: a target is a discriminant plus a
+    // Taking `Target` by value is brief section 2.4's signature: a target is a discriminant plus a
     // borrow, and a caller-side `&Target` would only add a level of indirection.
     #[allow(clippy::needless_pass_by_value)]
     pub fn render(

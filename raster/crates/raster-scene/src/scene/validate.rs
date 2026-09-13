@@ -1,7 +1,7 @@
 //! Validation is here, and it is loud.
 //!
 //! The builder is the boundary that structured input from another process's parser
-//! crosses, so §4.7's rule is enforced here: non-finite coordinates, unordered
+//! crosses, so brief section 4.7's rule is enforced here: non-finite coordinates, unordered
 //! rectangles, out-of-range colours, invalid strokes, unknown clip identifiers,
 //! groups past their depth bound and coordinates beyond [`MAX_COORDINATE`] are refused
 //! with a typed [`SceneError`] naming what was wrong — never clamped, repaired, or
@@ -15,7 +15,7 @@
 //!
 //! The [`Paint::Function`] arm is a submodule of its own ([`function`]): it is four
 //! numbers with four different clauses behind them, and a reader after "what may a
-//! function shading not be" should not have to read the rest of §4.7 to find them.
+//! function shading not be" should not have to read the rest of brief section 4.7 to find them.
 
 pub(crate) mod function;
 
@@ -30,7 +30,7 @@ use crate::paint::{Color, Paint, Stroke};
 /// The largest coordinate magnitude a scene accepts, for rectangle corners and
 /// transform coefficients alike.
 ///
-/// ISO 32000-2 §4.7 of the brief requires very large coordinates to be refused loudly;
+/// ISO 32000-2 section 4.7 of the brief requires very large coordinates to be refused loudly;
 /// it does not name a bound, so this one is a deliberate choice of ours: 10⁹ is far
 /// beyond any page geometry that can be rendered (a page is bounded by the format's own
 /// media box limits, and a target by `Device::limits`), while still leaving f32
@@ -38,7 +38,7 @@ use crate::paint::{Color, Paint, Stroke};
 pub const MAX_COORDINATE: f32 = 1e9;
 
 impl SceneBuilder {
-    /// A rectangle's three conditions, in the order §4.7 states them: finite, ordered,
+    /// A rectangle's three conditions, in the order brief section 4.7 states them: finite, ordered,
     /// and inside [`MAX_COORDINATE`].
     pub(super) fn check_rect(rect: Rect) -> Result<(), SceneError> {
         if !rect.is_finite() {
@@ -311,7 +311,7 @@ mod tests {
     use crate::scene::SceneBuilder;
     use crate::scene::fixtures::{black, plain_group, unit_rect};
 
-    /// §4.7: every forbidden input is refused with the variant that names it, and
+    /// brief section 4.7: every forbidden input is refused with the variant that names it, and
     /// nothing is appended.
     #[test]
     fn forbidden_inputs_are_refused_loudly() {

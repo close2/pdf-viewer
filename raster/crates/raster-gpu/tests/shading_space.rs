@@ -3,14 +3,14 @@
 //!
 //! # The clause, and where it actually is
 //!
-//! The rule is stated in **§8.7.2**, about the pattern matrix every Type 2 pattern
-//! dictionary carries (Table 75, §8.7.4.1):
+//! The rule is stated about the pattern matrix every Type 2 pattern dictionary carries
+//! (Table 75, §8.7.4.1), and it is stated in **§8.7.2**:
 //!
 //! > Every pattern has a pattern matrix , a transformation matrix that maps the pattern's
 //! > internal coordinate system to the default coordinate system of the pattern's parent
 //! > content stream (the content stream in which the pattern is defined as a resource).
 //!
-//! and, two sentences later, the consequence this file is about:
+//! and, two sentences later, §8.7.2's consequence this file is about:
 //!
 //! > Changes to the page's transformation matrix that occur within the page's content
 //! > stream, such as rotation and scaling, have no effect on the pattern; it maintains its

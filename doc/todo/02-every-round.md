@@ -37,10 +37,28 @@ beside the sweeps that find each. They are the highest-yield reading this projec
 
 ## 2. Run the gates that can see what you touched
 
-**The whole sequence is below, and the map after it says which of it a given change needs** — a
-rule first, a lookup second, and most rounds never reach the lookup. **Its rules 3, 4 and 5 are
-the whole of the map's safety** and none of them is relaxed by anything here.
+**The sequence is in three tiers, and the map after it says which of tier 2 a given change needs**
+— a tier first, a rule second, a lookup third, and most rounds never reach the lookup. **Its rules
+3, 4 and 5 are the whole of the map's safety** and none of them is relaxed by anything here.
 `tools/round.sh` says whether this is a fifth round.
+
+**Why there are tiers at all, in one sentence per tier** (ADR 1036, on the measurement in
+`doc/reviews/1012-where-the-effort-goes.md` §3 over sessions 912–1011):
+
+- **Tier 1 runs in every round because it is where the catching happens** — seventeen of the
+  eighteen defects a round caught in its own work came off these lines, `cargo test -p conformance`
+  alone accounting for seven of them, and the whole tier is about a tenth of the sequence's cost.
+- **Tier 2 runs in the round that touched the subsystem, because a gate can only see what its own
+  crate does** — these are the lines the change → gate map names, and a round that did not touch
+  what they walk is paying for a walk that cannot move.
+- **Tier 3 runs at the merge and not in an ordinary round, because that is where its catches
+  actually happened** — the ten converter-fixture failures of session 1005 and the `archive_corpus`
+  signature defect of session 985 were both found at a merge; in 98 sessions these lines caught
+  **one** defect in the round that introduced it and raised **fourteen** false alarms, at about
+  twenty-five minutes a round. Nothing here is deleted or weakened: the merge runs every one of
+  them on `main`, once per batch instead of once per round, and rule 5 is why that is not a hole.
+
+**Tier 1 — every round, whatever it touched.**
 
 ```sh
 cargo fmt --all --check
@@ -49,25 +67,42 @@ cargo nextest run --workspace
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo fmt --manifest-path fuzz/Cargo.toml --check                            # `fuzz/` is not a workspace member
 RUSTFLAGS="-D warnings" cargo clippy --manifest-path fuzz/Cargo.toml --all-targets   # nor is it here
+cargo test -p conformance -- --nocapture    # seconds, and it reads the citations and quotations out of the tree
+```
+
+**Tier 2 — the round that touched the subsystem.** The map below says which of these this round
+owes; a round that owes none of them runs tier 1 and stops. The `--bins` lines are **not gates**:
+each is a prerequisite of the lines under it, and it is run with them or not at all (trap 10).
+
+```sh
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test raster_golden   -- --ignored --nocapture   # ADR 1016: our own output held by name — a change detector; PDFVIEWER_RASTER_GOLDEN=update regenerates
+cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
+cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
+cargo test  --profile gates -p pdf-syntax     --test on_disk         -- --ignored --nocapture   # every corpus document read from disk and from memory, object for object (ADR 0809)
+cargo build --release       -p pdf-sandbox --bins   # trap 10 again, and `--release` on purpose: see below
+cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks)
+```
+
+**Tier 3 — the merge, on `main`, and every line of it.** These are the corpus-scale walks. An
+ordinary round does not run them; the round that merges a worktree into `main` runs all of them,
+and so does every fifth round (rule 4) and any round whose own subject *is* one of these walks —
+a change to `pdf-transform`'s writers, to `pdf-archive`'s validator or to `pdf-vfs` is a change to
+what these lines assert, and the map says so.
+
+```sh
 cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
 cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture   # three gates
 cargo test  --profile gates -p viewer-core    --test selection_census -- --ignored --nocapture
 cargo test  --profile gates -p viewer-core    --test accessibility_census -- --ignored --nocapture
-cargo build --release       -p pdf-sandbox --bins   # trap 10 again, and `--release` on purpose: see below
-cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks)
-cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
-cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test save_round_trip -- --ignored --nocapture   # §7.5.6's update over the corpus, read back by this tree, poppler and mupdf; its counts ratchet (ADR 1011)
 cargo test  --profile gates -p pdf-model      --test actions         -- --ignored --nocapture   # §12.6.3's page-scoped triggers counted over the corpus and held both ways, and §12.6.4's embedded go-to opened
-cargo test  --profile gates -p pdf-syntax     --test on_disk         -- --ignored --nocapture   # every corpus document read from disk and from memory, object for object (ADR 0809)
-cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test  --profile gates -p render-raster  --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test fixed_documents -- --ignored --nocapture
-cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
 cargo test  --profile gates -p pdf-transform  --test writer_corpus   -- --ignored --nocapture   # RFC 0002 section 9: the writer over the corpus
 cargo test  --profile gates -p pdf-transform  --test split_corpus   -- --ignored --nocapture   # RFC 0002 section 9: split over the corpus, layers 2 and 3
 cargo test  --profile gates -p pdf-transform  --test merge_corpus   -- --ignored --nocapture   # RFC 0002 section 9: merge over the corpus, layers 2 and 3
@@ -81,8 +116,13 @@ cargo test  --profile gates -p pdf-vfs        --test write_corpus   -- --ignored
 cargo test  --profile gates -p pdf-vfs        --test read_corpus    -- --ignored --nocapture   # RFC 0003 section 4: the whole layout listed, stat'd and read through the confined worker, over doc/pdf.js whole and a class-balanced sample of every other corpus on the disk
 cargo build --profile gates -p viewer-confined --bins   # trap 10 a fourth time: the confined viewer is a program of its own
 cargo test  --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture   # the other confined program over the same classes from every corpus on the disk; what fails it is a death (ADR 0879, ADR 1015)
-cargo test -p conformance -- --nocapture
 ```
+
+**`foreign_corpus` is the line to reach for last and the one to suspect first.** Zero self-catches
+in 98 sessions, five false failures (sessions 914, 926, 939, 960, 999), 76–214 s and 6.70 GiB — and
+session 999's record says it *"cannot be run beside another round's copy of itself, and the failure
+looks like a defect."* On a machine running five rounds that is a gate whose dominant output is a
+false alarm, which is why it is a merge's line rather than a round's.
 
 **`RUSTFLAGS="-D warnings"` on the clippy line is not decoration**, and it is the same sentence
 `doc/verify.md` already writes over the cross-target checks: the workspace's lint levels are `warn`
@@ -91,8 +131,9 @@ a *weaker gate than the one that gates a push*, and `CLAUDE.md` principle 1's "w
 in CI" was true of one machine only. A round that runs it without the flag can be silent here and
 red there, which is the shape of failure ADR 0450 was written about.
 
-`tools/state.sh` runs the same sequence and prints each gate's own summary lines; run that when
-what you want is the state, and run the list above when what you want is a gate to fail. Either
+`tools/state.sh` runs the whole of all three tiers and prints each gate's own summary lines; run
+that when what you want is the state — which is a merge's job or a measuring round's, not an
+ordinary round's — and run the tiers above when what you want is a gate to fail. Either
 way the numbers come off the run, never off a document. **It runs neither of the first two lines**,
 and honestly so — its whole subject is figures, and a silent lint run has none — so a round that
 reaches for the script has not linted or checked formatting at all, and owes those two here.
@@ -105,12 +146,15 @@ one command is how they drift, so one owns it.
 ### The change → gate map
 
 **The rule is first and settles most rounds; the table after it is a lookup for the change it
-does not settle.** Read the six, apply them, and open the table only if none of them answered.
+does not settle.** Read the six, apply them, and open the table only if none of them answered. All
+six are about **tier 2**: tier 1 is unconditional and tier 3 is the merge's, so what a rule decides
+is which of tier 2's lines this round owes.
 
-**1. The core is every round's**, whatever it touched — the first four lines of the sequence,
-**and the two `fuzz/` lines with them**. The first four are about a tenth of the sequence's cost
-and they are the only thing that sees a lint, a broken doctest or a test somewhere else in the
-workspace. **One of them now carries a cost floor as well**:
+**1. Tier 1 is every round's**, whatever it touched — the four workspace lines, **the two
+`fuzz/` lines with them**, and `cargo test -p conformance`. It is about a tenth of the sequence's
+cost and it is the only thing that sees a lint, a broken doctest or a test somewhere else in the
+workspace. (This rule said *the core*, four lines, for most of its life; the tier is that core with
+the conformance line moved up beside it, which is where the measurement put it.) **One of them now carries a cost floor as well**:
 `cargo nextest run --workspace` runs `pdf-vfs`'s `tests/a_face.rs`, which walks three documents'
 whole trees twice and fails if any generator ran twice for one subject (ADR 0894). It is there
 rather than in a corpus line because a cost defect found by a walk has already been merged, and it
@@ -128,23 +172,32 @@ the map's *first row*, which is what a round's own record usually calls it.
 `pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-signature`, `pdf-spec`, `pdf-sandbox`
 and `render-cpu`
 are what draws the page and what every corpus-scale gate rasterises with, so a change in any of
-them runs **the whole sequence** and there is nothing to look up. `pdf-signature` is here because
+them runs **the whole of tier 2** and there is nothing to look up. It no longer runs the whole of
+tier 3, and that is the change ADR 1036 made: the walks stay, and the merge runs them once for the
+batch rather than each round running them for itself. `pdf-signature` is here because
 `pdf-model` depends on it for §12.8.2.2's `/DocMDP` level and §12.8.6's usage rights (ADR 1020);
 the day that dependency goes, this list is seven again and the lookup table gets a row.
 
-**3. A round that can change a pixel runs everything.** That is any change to the crates in rule
-2, and it is not a judgement about how small the diff looked: trap 1's whole subject is that a
-change nobody expected to draw differently did.
+**3. A round that can change a pixel runs tier 2, and looks at a page.** That is any change to
+the crates in rule 2, and it is not a judgement about how small the diff looked: trap 1's whole
+subject is that a change nobody expected to draw differently did. `raster_golden` is tier 2's
+change detector over this tree's own output and `pdf-model --test corpus` its counts; what ranks a
+changed page against the other renderers is `oracle`, which is tier 3 and therefore the merge's —
+so a round that moved a pixel **says so in its record**, and the merge is where the verdict lands.
+Trap 1's rule is unchanged by any of this and is not satisfied by a gate: render the page and look.
 
-**4. Every fifth round runs everything**, whatever it touched, because a map is a claim about the
-crate graph and a claim decays. `tools/round.sh` says which round this is.
+**4. Every fifth round runs everything — all three tiers**, whatever it touched, because a map is
+a claim about the crate graph and a claim decays. `tools/round.sh` says which round this is, and
+trap 39 is why that answer is worth checking rather than trusting.
 
-**5. A merge runs everything, always**, and the paragraph below the table is not relaxed by any of
-this.
+**5. A merge runs everything, always — all three tiers**, and the paragraph below the table is not
+relaxed by any of this. This rule is what makes tier 3's demotion safe rather than a hole: every
+walk still runs over every change, once per batch on `main`, which is where its catches have
+actually happened.
 
 **6. A documents-only change** — `doc/`, `CLAUDE.md`, a `tools/*.sh` — is under nothing the gates
-rasterise: run the core, **and `cargo test -p conformance`**, which reads citations and quotations
-out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or
+rasterise: run **tier 1**, whose last line is `cargo test -p conformance`, and which reads citations
+and quotations out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or
 a pointer.
 
 **What none of the six settled is in the table**, and *reach* there is the crate graph rather than
@@ -155,7 +208,12 @@ the file's own crate.
 Rules 2 and 6 were this table's first and last rows and are stated above instead; that is the
 whole of the reordering (ADR 0983).
 
-| a change in | is under | so run, beyond the core |
+**A row that names a tier-3 walk names it because that walk's *subject* is the crate in the first
+column** — the writers, the validator, the virtual filesystem. That is rule 5's one exception in
+the other direction: a round whose change is what a walk asserts about runs that walk, and a round
+merely upstream of it does not. Everything else in tier 3 is the merge's.
+
+| a change in | is under | so run, beyond tier 1 |
 |---|---|---|
 | `render-raster` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path |
 | `render-gpu` | no gate at all | the workspace tests are the only judge (`headless_gpu`); say so, and consider `doc/verify.md`'s cross-backend runs |
@@ -500,8 +558,10 @@ how this project has been wrong four times.
 
 The sweeps live in [`01-ledger-partial-rows.md`](01-ledger-partial-rows.md), which says what each
 one asks and what its first run found; that file is the reading, and this is the rule. **Run them
-over `crates/`, `tools/` and `fuzz/` as well as over `ledger.toml`** — `SOURCE_ROOTS` reaches all
-three — and run the grep-shaped ones over `doc/adr/` too, for the one thing an unmaintained
+over every crate of the tree as well as over `ledger.toml`** — `conformance::roots::source_roots`
+reaches all of them, derived from the workspace manifest rather than listed, which is what session
+1010 fixed after `raster/`'s five crates had been outside every sweep for four months (ADR 1029) —
+and run the grep-shaped ones over `doc/adr/` too, for the one thing an unmaintained
 document can get wrong: a claim a later round disproved and left standing. The ledger has a gate
 and the source does not, which is why one session found four claims in the code false for between
 forty and two hundred sessions, including `pdf-model`'s own crate documentation and a doc comment

@@ -6,7 +6,7 @@
 //! and a reader checking a number reads the other.
 //!
 //! Three sweeps — one per question the caller's `QUORRA_FEEDBACK.md` §31 asks, and one for
-//! the construction their §31.2 is stated in. [`Worst`] is what each folds into and the only
+//! the construction their section 31.2 is stated in. [`Worst`] is what each folds into and the only
 //! thing that crosses back.
 
 use raster_gpu::{DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM, Device};
@@ -54,14 +54,14 @@ pub(crate) const STEPS: u32 = 37;
 /// is the grid `winding::sample_offsets` lays down, which is a statement about the code.
 pub(crate) const SAMPLE_COUNTS: [u32; 3] = [4, DEFAULT_COVERAGE_SAMPLES, 64];
 
-/// The pitch the caller's `bug1743245.pdf` states, in device pixels: their §31.2 gives the
+/// The pitch the caller's `bug1743245.pdf` states, in device pixels: their section 31.2 gives the
 /// document's own arithmetic as `52.0277778 × 0.317180616 = 16.5013`.
 ///
 /// The user-space figure is written to the precision `f32` can hold; the document's own is
 /// 52.0277778, and the two are the same `f32`.
 const GRAPH_PITCH: f32 = 52.027_78 * CTM;
 
-/// Where the caller's first graph-paper rule lands, in device pixels (their §31.2's oracle
+/// Where the caller's first graph-paper rule lands, in device pixels (their section 31.2's oracle
 /// column).
 const GRAPH_FIRST: f32 = 33.0;
 
@@ -72,8 +72,8 @@ const GRAPH_RULES: u32 = 6;
 /// The two device widths phase 3 draws the caller's graph paper at.
 ///
 /// The first is their sentence's own arithmetic — "0.5-unit strokes under a 0.317 CTM",
-/// which §4.5 of the brief settles upstream and hands us already resolved into device
-/// pixels. The second is their §31.2's description of the population, "about one device
+/// which section 4.5 of the brief settles upstream and hands us already resolved into device
+/// pixels. The second is their section 31.2's description of the population, "about one device
 /// pixel wide". The two are a factor of six apart and only one of them can be what those
 /// pages draw; printing both is how this instrument says which.
 pub(crate) const GRAPH_WIDTHS: [f32; 2] = [0.5 * CTM, HAIRLINE];

@@ -292,10 +292,10 @@ fn milliseconds(d: Duration) -> f64 {
     d.as_secs_f64() * 1e3
 }
 
-/// §6.5 / M8: the dense page patched through one caret-sized damage rect versus
+/// brief section 6.5 / M8: the dense page patched through one caret-sized damage rect versus
 /// redrawn whole, both onto a retained caller texture (ADR 0012's measurement).
 fn measure_caret_blink(device: &mut Device) {
-    // §6.5 / M8: the caret blink — the dense page patched through one 12×18
+    // brief section 6.5 / M8: the caret blink — the dense page patched through one 12×18
     // damage rect versus redrawn whole, both onto a retained caller texture.
     let scene = dense_page();
     let caret = [Rect::new(

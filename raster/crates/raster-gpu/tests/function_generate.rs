@@ -90,7 +90,7 @@ fn the_emitted_function_is_what_the_golden_says() {
     assert_eq!(shader.function(), GOLDEN_COORDINATES);
 }
 
-/// §4.6 wants a frame to be a function of its inputs; a pipeline cache keyed by a hash needs
+/// brief section 4.6 wants a frame to be a function of its inputs; a pipeline cache keyed by a hash needs
 /// the stronger form. Same program, same bytes, every time.
 #[test]
 fn the_same_program_generates_byte_identical_wgsl() {

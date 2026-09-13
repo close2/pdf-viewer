@@ -11,11 +11,11 @@
 //!   pipeline handles one curve type. A quadratic reaching us would mean somebody added a
 //!   second curve type to the caller, which is a conversation, not a conversion.
 //! - **A transform per command, absolute.** Nothing is inherited from a position in a
-//!   list: this is what lets a device reorder and parallelise (§1.1 of the brief), and
-//!   §4.6 forbids the result changing when it does.
+//!   list: this is what lets a device reorder and parallelise (section 1.1 of the brief), and
+//!   brief section 4.6 forbids the result changing when it does.
 //! - **The page's own space is y-up.** The y flip is in the viewport transform, not in
 //!   the scene, and not here.
-//! - **Very large coordinates and degenerate transforms arrive from real files.** §4.7:
+//! - **Very large coordinates and degenerate transforms arrive from real files.** brief section 4.7:
 //!   refuse them loudly; never produce NaN geometry. The refusal itself lives in
 //!   [`crate::scene::SceneBuilder`], which is the boundary structured input crosses;
 //!   these types make the check expressible — [`Affine::invert`] returns `None` rather
@@ -25,7 +25,7 @@
 //!
 //! No path *type*. An outline reaches a device as `&[Segment]` and comes back as an
 //! [`OutlineId`]; a `Path` struct here would be a second owner of geometry that the
-//! caller already owns behind an `Arc`, and §2.2 wants upload separated from scene
+//! caller already owns behind an `Arc`, and brief section 2.2 wants upload separated from scene
 //! building precisely so that the geometry lives in one place.
 //!
 //! # The three parts, and what each one's one thing is
@@ -39,7 +39,7 @@
 //!   bound in this library is one of these, and none of them is arithmetic anybody has
 //!   to reason about.
 //! - **`affine`** — ISO 32000-2 §8.3.3's matrix, and the four questions other subsystems
-//!   ask of one: is it inside §4.7's coordinate bound, does it preserve axes (§6.4), how
+//!   ask of one: is it inside brief section 4.7's coordinate bound, does it preserve axes (section 6.4), how
 //!   far does it stretch (§6.3's atlas bucket), and does it invert.
 //! - **`segment`** — [`Segment`], the one step an outline is made of, and
 //!   [`axis_aligned_rect`], the one shape a run of them is *recognised* as. That

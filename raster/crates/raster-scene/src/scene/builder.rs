@@ -7,7 +7,7 @@
 //! methods that take a closure, [`SceneBuilder::group`] and [`SceneBuilder::mask`], are
 //! the same shape with a frame around the body.
 //!
-//! The signatures are the brief's §2.3, argument for argument, with the one divergence
+//! The signatures are the brief's section 2.3, argument for argument, with the one divergence
 //! `raster/doc/PLAN.md` integration note 8 records: the `mask` parameter comes last.
 
 use std::sync::Arc;
@@ -23,10 +23,10 @@ use crate::mask::{MaskKind, Transfer};
 use crate::paint::{Color, Paint, Stroke};
 use crate::scene::ImageFilter;
 
-/// Builds a [`Scene`], validating every input at this boundary (§4.7).
+/// Builds a [`Scene`], validating every input at this boundary (brief section 4.7).
 ///
 /// Requires no device, runs on any thread — the caller's interpreter builds scenes on a
-/// worker thread while the GPU is still initialising (§2.3). Resource identifiers
+/// worker thread while the GPU is still initialising (brief section 2.3). Resource identifiers
 /// ([`OutlineId`] and friends) are opaque here: they belong to a device, and the device
 /// validates them against its own registry at render time.
 ///
@@ -58,7 +58,7 @@ impl SceneBuilder {
     ///
     /// # Errors
     ///
-    /// Refuses, without appending, any input §4.7 forbids: non-finite or unordered
+    /// Refuses, without appending, any input brief section 4.7 forbids: non-finite or unordered
     /// rectangles, non-finite transforms, coordinates or coefficients beyond
     /// [`MAX_COORDINATE`](super::MAX_COORDINATE), colours outside their range, and clip
     /// identifiers this scene never allocated. The error names the value and the limit;
@@ -86,7 +86,7 @@ impl SceneBuilder {
         Ok(())
     }
 
-    /// Append a fill of an uploaded outline (§2.3 of the brief). The soft-mask
+    /// Append a fill of an uploaded outline (section 2.3 of the brief). The soft-mask
     /// parameter of the brief's signature arrives with M6, which owns masks entirely.
     ///
     /// # Errors
@@ -94,7 +94,7 @@ impl SceneBuilder {
     /// Refuses invalid transforms, paints, and clip identifiers this scene never
     /// allocated. The outline identifier is opaque here; the device validates it
     /// against its registry at render time.
-    // The brief's §2.3 signature, kept argument-for-argument so the caller's encoder
+    // The brief's section 2.3 signature, kept argument-for-argument so the caller's encoder
     // stays mechanical (one command, one call, no packing step). When M6 adds the
     // mask parameter this is revisited against a params struct, with the caller.
     #[allow(clippy::too_many_arguments)]
@@ -127,14 +127,14 @@ impl SceneBuilder {
         Ok(())
     }
 
-    /// Append a stroke of an uploaded outline (§2.3 of the brief; parameters resolved
-    /// upstream per §4.5). The soft-mask parameter arrives with M6.
+    /// Append a stroke of an uploaded outline (section 2.3 of the brief; parameters resolved
+    /// upstream per brief section 4.5). The soft-mask parameter arrives with M6.
     ///
     /// # Errors
     ///
     /// Refuses invalid transforms, strokes ([`Stroke::is_valid`]), paints, and clip
     /// identifiers this scene never allocated.
-    // The brief's §2.3 signature (see the `fill` note; integration note 8 records
+    // The brief's section 2.3 signature (see the `fill` note; integration note 8 records
     // the mask-last divergence).
     #[allow(clippy::too_many_arguments)]
     pub fn stroke(
@@ -166,7 +166,7 @@ impl SceneBuilder {
 
     /// Allocate a clip region: an outline under a transform, admitting points by
     /// `rule`, intersected with `parent` when given (a chain is an intersection,
-    /// §4.7). Returns the identifier commands reference it by — scene-scoped, meaning
+    /// brief section 4.7). Returns the identifier commands reference it by — scene-scoped, meaning
     /// nothing to any other scene.
     ///
     /// # Errors
@@ -250,7 +250,7 @@ impl SceneBuilder {
     /// ([`SceneError::InvalidImageAlpha`](crate::error::SceneError::InvalidImageAlpha) —
     /// §11.6.4.4's constant opacity, in §11.3.7.2's range), and clip or mask identifiers
     /// this scene never allocated.
-    #[allow(clippy::too_many_arguments)] // the brief's §2.3 signature, mask last (note 8)
+    #[allow(clippy::too_many_arguments)] // the brief's section 2.3 signature, mask last (note 8)
     pub fn image(
         &mut self,
         image: ImageId,

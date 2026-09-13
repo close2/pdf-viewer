@@ -19,7 +19,7 @@
 //! per-process random seed: a good default, chosen against hash-flooding by hostile
 //! keys, and neither property is ours. Our keys are a handful of `u32`s produced by our
 //! own encoder from a display list a friendly process built (CLAUDE.md's position 1),
-//! and the seed's randomness is a liability rather than a defence — §4.6 wants a frame
+//! and the seed's randomness is a liability rather than a defence — brief section 4.6 wants a frame
 //! to be a function of its inputs.
 //!
 //! **The measurement**, `examples/zoom` held at 1× — the dense page, 5 933 fills over
@@ -147,7 +147,7 @@ mod tests {
 
     use super::KeyHasher;
 
-    /// Determinism, which is the property §4.6 needs and the one a randomly seeded
+    /// Determinism, which is the property brief section 4.6 needs and the one a randomly seeded
     /// hasher does not have: the same key hashes the same way, every time, everywhere.
     #[test]
     fn the_same_key_hashes_the_same_way() {

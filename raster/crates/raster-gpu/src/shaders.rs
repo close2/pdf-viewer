@@ -31,7 +31,7 @@ pub(crate) mod shape_inputs;
 #[cfg(test)]
 mod wgsl;
 
-/// The analytic rectangle lane (§0 of the brief's second fast path).
+/// The analytic rectangle lane (section 0 of the brief's second fast path).
 pub(crate) const RECT: &str = include_str!("shaders/rect.wgsl");
 /// The coverage-quad lane, which draws a glyph tile or a rasterised shape.
 pub(crate) const COVERAGE: &str = include_str!("shaders/coverage.wgsl");

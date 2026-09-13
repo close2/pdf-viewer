@@ -25,6 +25,7 @@ use crate::json::Value;
 use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
+use super::preserve::{self, Composed};
 use super::rewrite::Rewrite;
 use super::signatures::{self, ForeignHandlers, Signatures};
 use super::sites::{
@@ -158,6 +159,14 @@ pub(super) const DERIVED_ACTION: &str = "converted";
 /// do not: it is the one kind the converter cannot get wrong and the person can, so the file itself
 /// records that a human rather than the document is the value's source.
 pub(super) const SUPPLIED_ACTION: &str = "converted";
+
+/// The action this conversion records in `xmpMM:History` when a page preserves content.
+///
+/// `doc/adr/1014` section 5's fifth bullet, which the amendment makes a condition of the
+/// permission rather than a nicety: a page appended to keep content the target would otherwise
+/// lose is a change to the document a reader of the archive is entitled to find in the archive.
+/// The word is `converted`, like every other recorded action here.
+pub(super) const PRESERVED_ACTION: &str = "converted";
 
 /// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
 ///
@@ -583,6 +592,13 @@ pub(super) struct Prepared {
     /// because a reader of this struct should be able to see which of its parts are the two
     /// constructions this verb was built around and which are the lossless rewrites it grew.
     pub(super) owed: Owed,
+    /// The pages a `preserve` remedy appends, or why none can be.
+    ///
+    /// `doc/adr/1014`, and the field is `Err(NOT_ASKED_FOR)` for every conversion whose caller
+    /// named no `preserve` remedy — which is every conversion until an operator's configuration
+    /// says otherwise, so nothing is composed, no font is loaded and no page is measured for a
+    /// document that asked for none.
+    pub(super) preserved: Result<Composed, Because>,
     /// Whether this document's packet took the `xmpMM:History` entries this conversion has to
     /// record.
     ///
@@ -669,6 +685,23 @@ impl Prepared {
             .as_ref()
             .map(|cleaned| names_removed(&cleaned.removed))
             .unwrap_or_default();
+        // **The appended pages, composed before the packet** and for the packet's sake: the
+        // history entry naming them is a condition of the permission (`doc/adr/1014` section 5),
+        // and an entry cannot be written for pages nobody has worked out yet. What they carry is
+        // the producer's own packets — the bytes the removal above is about to edit — so this is
+        // prepared after `properties` and reads what it found.
+        let preserved = the_preserved_pages(
+            plan,
+            document,
+            &failed,
+            properties.as_ref(),
+            intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
+            &mut spare,
+        );
+        let preserved_history = preserved
+            .as_ref()
+            .ok()
+            .and_then(|composed| preserve::preserved_history(&composed.carried));
         let PreparedFonts {
             substitutes,
             metrics,
@@ -694,6 +727,7 @@ impl Prepared {
                 departure: provenance.departure,
                 derived: provenance.derived,
                 supplied: provenance.supplied,
+                preserved: preserved_history.as_deref(),
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
@@ -717,6 +751,10 @@ impl Prepared {
             recorded_it || nothing_removed,
             NO_PLACE_TO_RECORD_A_REMOVAL,
         );
+        // The same construction, for the same reason: `doc/adr/1014` section 5 makes the history
+        // entry part of the permission to append a page at all, so a packet that will not take it
+        // withdraws the pages rather than leaving them unrecorded.
+        let preserved = unless_recorded(preserved, recorded_it, NO_PLACE_TO_RECORD_A_PRESERVATION);
         // The fonts are the validator's own findings rather than a walk of this converter's:
         // the clause has four exemptions and reading them belongs to `pdf_archive`, so the set of
         // fonts that need a CMap is the set it named. A findings list is capped, and a document
@@ -746,6 +784,7 @@ impl Prepared {
             structure,
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
+            preserved,
             recorded_provenance,
         }
     }
@@ -789,6 +828,7 @@ impl Prepared {
             Rewrite::Jpeg2000ColourSpecifications => {
                 self.owed.specifications.as_ref().err().copied()
             }
+            Rewrite::PreservedAsPage => self.preserved.as_ref().err().copied(),
             Rewrite::SignatureValueRemoved => self.signatures.obstacle,
             Rewrite::ForeignPermissionHandlers => {
                 self.owed.foreign_handlers.as_ref().err().copied()
@@ -834,6 +874,11 @@ impl Prepared {
         }
         if let Ok(states) = &self.owed.appearance_states {
             for (id, object) in &states.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(composed) = &self.preserved {
+            for (id, object) in &composed.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -1486,6 +1531,67 @@ fn prepare_properties(
     Ok(Cleaned { packets, removed })
 }
 
+/// The pages a configured `preserve` remedy appends, or why none are.
+///
+/// **Nothing is composed for a conversion that asked for none** — `doc/adr/0947`'s first rule
+/// applied to a remedy — so a caller naming no preservation never loads a font or measures a page.
+/// The one site built appends the packets ISO 19005-2 section 6.6.2.3.1's removal is about to
+/// edit, **as the producer wrote them**: the whole packet rather than the properties alone,
+/// because a value cut down to what a report can print is not the value, and because the packet is
+/// what `doc/rfc/0007` section 2 names — *instead of losing metadata it could be appended or
+/// prefixed as an extra page*.
+fn the_preserved_pages(
+    plan: &ArchivePlan,
+    document: &Document,
+    failed: &BTreeSet<&'static str>,
+    properties: Result<&Cleaned, &Because>,
+    has_output_intent: bool,
+    spare: &mut Spare,
+) -> Result<Composed, Because> {
+    if !plan
+        .preservations
+        .iter()
+        .any(|preservation| preservation.site == SCHEMA_REQUIREMENT)
+        || !failed.contains(SCHEMA_REQUIREMENT)
+    {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    // The removal is what makes the file conform; the pages are what keep what it removes. A
+    // document whose packet cannot be cut gets neither, and the reason is the cut's own.
+    let cleaned = properties.map_err(|because| *because)?;
+    let mut packets: Vec<(ObjectId, std::sync::Arc<[u8]>)> = Vec::new();
+    for at in cleaned.packets.keys() {
+        let Object::Stream(stream) = document.get(*at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        packets.push((*at, bytes));
+    }
+    let keeps: Vec<preserve::Keep<'_>> = packets
+        .iter()
+        .map(|(at, bytes)| preserve::Keep {
+            site: SCHEMA_REQUIREMENT,
+            subject: format!(
+                "the XMP metadata packet object {} {} holds, as the producer wrote it",
+                at.number, at.generation
+            ),
+            bytes,
+        })
+        .collect();
+    preserve::compose(document, &keeps, has_output_intent, spare)
+}
+
+/// Whether the source already states an output intent of its own.
+///
+/// Asked beside the one this conversion may be adding, because the appended page needs *an* output
+/// intent to exist in the output rather than needing this conversion to have written it —
+/// [`preserve::NO_OUTPUT_INTENT`] is the reading.
+fn states_an_output_intent(document: &Document, catalog: Option<&Dictionary>) -> bool {
+    catalog.is_some_and(|catalog| !output_intent_entries(document, catalog).is_empty())
+}
+
 /// The `parameters` field of the removal's recorded action: what went, by name.
 ///
 /// Empty where nothing was removed, which is what keeps a document needing no removal from
@@ -1512,6 +1618,12 @@ fn names_removed(removed: &[MisusedProperty]) -> String {
         named.join(", ")
     )
 }
+
+/// Why appended pages a packet could not record are not appended.
+const NO_PLACE_TO_RECORD_A_PRESERVATION: &str = "preserving this content on a page appended to \
+     the document is allowed on condition that the page is recorded in the file's own \
+     xmpMM:History (doc/adr/1014 section 5), and this document's XMP packet will not take that \
+     entry, so the page is not appended either";
 
 /// A construction whose provenance entry could not be written, withdrawn rather than left
 /// unrecorded.
@@ -1638,6 +1750,8 @@ struct Recording<'a> {
     derived: Option<&'a str>,
     /// What the operator stated that the document does not (`doc/rfc/0007` section 5b.1).
     supplied: Option<&'a str>,
+    /// What an appended page preserved, where one was appended (`doc/adr/1014` section 5).
+    preserved: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -1735,6 +1849,13 @@ fn the_packet(
             events.push(xmp::Event {
                 action: SUPPLIED_ACTION,
                 parameters: supplied,
+                when,
+            });
+        }
+        if let Some(preserved) = recording.preserved {
+            events.push(xmp::Event {
+                action: PRESERVED_ACTION,
+                parameters: preserved,
                 when,
             });
         }

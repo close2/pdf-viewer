@@ -1,8 +1,8 @@
 //! What a device refuses when no frame is in flight.
 //!
 //! One enum, and every call that can return it is outside a frame: the four
-//! constructors (§2.1 of the brief), the five `upload_*` methods and `release`
-//! (§2.2). A frame's refusals are [`RenderError`](crate::error::RenderError) — a
+//! constructors (section 2.1 of the brief), the five `upload_*` methods and `release`
+//! (brief section 2.2). A frame's refusals are [`RenderError`](crate::error::RenderError) — a
 //! different phase, with different fixes, and the reason the two are not one enum.
 //!
 //! Two variants delegate the *why* to a vocabulary of their own — an upload's content
@@ -64,7 +64,7 @@ pub enum DeviceError {
         /// The configured budget.
         budget: u64,
     },
-    /// An upload's content violated its contract (§4.7 of the brief: refused loudly,
+    /// An upload's content violated its contract (section 4.7 of the brief: refused loudly,
     /// never repaired).
     #[error("upload refused: {reason}")]
     InvalidResource {

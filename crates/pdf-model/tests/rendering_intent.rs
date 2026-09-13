@@ -95,14 +95,99 @@ fn dark_black_profile() -> Vec<u8> {
     out
 }
 
-/// [`dark_black_profile`] as a one-component `ICCBased` stream, as object `number`.
+/// One `mft2` lookup table of [`three_table_profile`]'s three.
+///
+/// Three grid points on one input axis. The two ends are the same in all three tables — D50's
+/// white at input 0.0 and a tenth of it at 1.0 — so every table describes the same device range
+/// and `Profile::detect_black` finds the same black for each; what differs is `mid`, the
+/// connection-space colour at input 0.5. That is the whole calibration: a test that probes the
+/// mid-tone is reading which table was selected and nothing else, because compensation, the
+/// white point and the darkest colour are identical whichever one it was.
+fn mid_table(mid: [f32; 3]) -> Vec<u8> {
+    let white = [0.964_2f32, 1.0, 0.824_9];
+    let fixed = |value: f32| ((value * 32768.0) as u16).to_be_bytes();
+
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"mft2");
+    tag.extend_from_slice(&[0; 4]);
+    tag.extend_from_slice(&[1, 3, 3, 0]); // one in, three out, three grid points
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    tag.extend_from_slice(&2u16.to_be_bytes()); // input table entries
+    tag.extend_from_slice(&2u16.to_be_bytes()); // output table entries
+    for value in [0u16, 0xFFFF] {
+        tag.extend_from_slice(&value.to_be_bytes());
+    }
+    for point in [
+        white,
+        mid,
+        [white[0] / 10.0, white[1] / 10.0, white[2] / 10.0],
+    ] {
+        for value in point {
+            tag.extend_from_slice(&fixed(value));
+        }
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    tag
+}
+
+/// An ICC profile that answers a mid-tone in three different colours, one per rendering intent.
+///
+/// ISO 15076-1:2010 gives `A2B0`, `A2B1` and `A2B2` the device-to-connection transform of one
+/// rendering intent each (its tag listing, clause 9.2), and §8.6.5.8 says the names PDF uses
+/// "have been chosen to correspond to those defined by the International Color Consortium
+/// (ICC)". So this profile is three answers to one question, and which one comes back says which
+/// intent was in force:
+///
+/// - `A2B0`, perceptual: a red mid-tone.
+/// - `A2B1`, colorimetric: a neutral mid-tone — the one Table 51 makes the initial value.
+/// - `A2B2`, saturation: a blue mid-tone.
+///
+/// No real profile is built this way; that is the point of a fixture (trap 8). A profile whose
+/// tables agreed to within a few levels, as real ones tend to, could pass these tests with the
+/// selection unimplemented.
+fn three_table_profile() -> Vec<u8> {
+    let tables: [(&[u8; 4], [f32; 3]); 3] = [
+        (b"A2B0", [0.45, 0.25, 0.05]),
+        (b"A2B1", [0.25, 0.25, 0.25]),
+        (b"A2B2", [0.12, 0.25, 0.75]),
+    ];
+
+    let mut header = vec![0u8; 128];
+    header[8] = 2;
+    header[16..20].copy_from_slice(b"GRAY");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let mut out = header;
+    out.extend_from_slice(&(tables.len() as u32).to_be_bytes());
+    let mut offset = 128 + 4 + 12 * tables.len();
+    let mut data = Vec::new();
+    for (name, mid) in tables {
+        let tag = mid_table(mid);
+        out.extend_from_slice(name);
+        out.extend_from_slice(&(offset as u32).to_be_bytes());
+        out.extend_from_slice(&(tag.len() as u32).to_be_bytes());
+        offset += tag.len();
+        data.extend_from_slice(&tag);
+    }
+    out.extend_from_slice(&data);
+    out
+}
+
+/// A profile as a one-component `ICCBased` stream, as object `number`.
 ///
 /// The number is a parameter because [`pdf_with`] builds its cross-reference table by counting
 /// the objects it is given: a fixture that states object six and no object five would have every
 /// offset after the fourth pointing at the wrong bytes.
-fn profile_object(number: u32) -> String {
+fn icc_object(number: u32, profile: &[u8]) -> String {
     let mut hex = String::new();
-    for byte in dark_black_profile() {
+    for byte in profile {
         let _ = write!(hex, "{byte:02X}");
     }
     format!(
@@ -110,6 +195,16 @@ fn profile_object(number: u32) -> String {
          endstream\nendobj\n",
         hex.len().saturating_add(1)
     )
+}
+
+/// [`dark_black_profile`] as a one-component `ICCBased` stream, as object `number`.
+fn profile_object(number: u32) -> String {
+    icc_object(number, &dark_black_profile())
+}
+
+/// [`three_table_profile`] as a one-component `ICCBased` stream, as object `number`.
+fn table_object(number: u32) -> String {
+    icc_object(number, &three_table_profile())
 }
 
 /// Object five: a one-pixel image of full ink in that space, with whatever `extra` states.
@@ -470,4 +565,194 @@ fn a_rebuilt_patterns_black_point_is_still_its_definitions() {
         rebuilt,
         "a pattern rebuilt at a mark that states a transfer function",
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Which of a profile's transforms the intent selects (ADR 1032).
+//
+// Everything above asks what an intent does to §8.6.5.9's black point, which was the only thing
+// an intent could do in this tree until session 1014: `Perceptual` and `Saturation` were read,
+// kept apart from `RelativeColorimetric`, carried the length of `crate::colour`, and acted on
+// nothing. What makes them act is ISO 32000-2 §10.3.1 — "[c]onversion from a CIE-based source
+// colour to a CIE-based destination colour shall be performed based on ISO 15076-1:2010
+// (ICC.1:2010)" — read beside §8.6.5.8's own sentence about where the four names came from.
+// Every test below fails against the code before that change, which drew all four names through
+// `A2B1`; `an_intent_with_no_table_of_its_own_falls_back` and the absolute one are the two that
+// pin what did **not** move.
+
+/// Whichever channel dominates the colour at the centre: which of the three tables answered.
+///
+/// Twenty levels apart is the band, and the fixture's three tables are far wider than that —
+/// the probe below prints what each one actually reads, so a band that stopped separating them
+/// would say so rather than pass.
+fn dominant(colour: (u8, u8, u8), what: &str) -> &'static str {
+    let (red, _, blue) = colour;
+    let answer = if u16::from(red).abs_diff(u16::from(blue)) <= 20 {
+        "neutral"
+    } else if red > blue {
+        "red"
+    } else {
+        "blue"
+    };
+    println!("{what}: {colour:?} reads as {answer}");
+    answer
+}
+
+/// The fixture is only worth anything if its three tables are three colours.
+///
+/// Trap 13: this is the probe that says the assertions below can fail. It also pins the default
+/// — an object that states no intent takes Table 51's `RelativeColorimetric`, which is `A2B1`,
+/// which is the neutral table.
+#[test]
+fn the_three_tables_answer_a_mid_tone_in_three_colours() {
+    let fill = |content: &str| {
+        centre_colour(pdf_with(
+            &table_object(5),
+            "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+             /ExtGState << /GP << /RI /Perceptual >> /GS << /RI /Saturation >> >>",
+            content,
+        ))
+    };
+
+    assert_eq!(
+        dominant(fill("/CS0 cs 0.5 scn 0 0 20 20 re f"), "no intent stated"),
+        "neutral",
+        "Table 51's initial intent is RelativeColorimetric, which is the A2B1 table"
+    );
+    assert_eq!(
+        dominant(fill("/GP gs /CS0 cs 0.5 scn 0 0 20 20 re f"), "perceptual"),
+        "red",
+        "the fixture's A2B0 has to be distinguishable from its A2B1"
+    );
+    assert_eq!(
+        dominant(fill("/GS gs /CS0 cs 0.5 scn 0 0 20 20 re f"), "saturation"),
+        "blue",
+        "and so does its A2B2"
+    );
+}
+
+/// **§8.6.5.8, the `ri` operator**: a perceptual intent selects the profile's perceptual
+/// transform.
+///
+/// > Rendering intents shall be specified with the ri operator (see 8.4.4, "Graphics state
+/// > operators"), the RI entry in a graphics state parameter dictionary (see 8.4.5, "Graphics
+/// > state parameter dictionaries"), or with the Intent entry in image dictionaries (see 8.9.5,
+/// > "Image dictionaries").
+///
+/// The first of the three routes, and the clause's Table 69 says what the name asks for:
+/// "[c]olours shall be represented in a manner that provides a pleasing perceptual appearance".
+/// What decides what that is, for a colour in an `ICCBased` space, is the profile's own `A2B0` —
+/// §10.3.1 hands the conversion to ISO 15076-1 and that standard tabulates one transform per
+/// intent.
+#[test]
+fn a_perceptual_intent_selects_the_profiles_perceptual_transform() {
+    let perceptual = centre_colour(pdf_with(
+        &table_object(5),
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >>",
+        "/Perceptual ri /CS0 cs 0.5 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        dominant(perceptual, "`ri /Perceptual` on a fill"),
+        "red",
+        "a perceptual intent must go through the profile's A2B0"
+    );
+}
+
+/// **§8.6.5.8, Table 57's `/RI`**: the second route selects the transform as well.
+///
+/// Table 69: "[c]olours shall be represented in a manner that preserves or emphasizes
+/// saturation" — the profile's `A2B2`, which nothing in this tree read before session 1014.
+#[test]
+fn a_saturation_intent_selects_the_profiles_saturation_transform() {
+    let saturation = centre_colour(pdf_with(
+        &table_object(5),
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+         /ExtGState << /GS0 << /RI /Saturation >> >>",
+        "/GS0 gs /CS0 cs 0.5 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        dominant(saturation, "an /ExtGState stating /RI /Saturation"),
+        "blue",
+        "a saturation intent must go through the profile's A2B2"
+    );
+}
+
+/// **§8.9.5.1 Table 87**: an image's own `/Intent` selects the transform its samples go through.
+///
+/// > The name of a colour rendering intent that shall be used in rendering any image that is not
+/// > an image mask (see 8.6.5.8, "Rendering intents"). This value is ignored if ImageMask is true
+/// > . Default value: the current rendering intent in the graphics state.
+///
+/// The third route, and the one this file already tests for the black point. Both halves of the
+/// entry now reach a sample: `Interpreter::image_conversion` reads it, and the `Conversion` it
+/// builds carries the transform as well as the compensation into `crate::image`.
+///
+/// The page states `ri /Saturation` before the `Do`, so a reader that ignored Table 87 would draw
+/// the blue table and one that ignored the intent altogether the neutral one. Three answers, one
+/// assertion.
+#[test]
+fn an_images_own_intent_selects_the_transform_its_samples_take() {
+    let image = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+         /ColorSpace [/ICCBased 6 0 R] /BitsPerComponent 8 /Intent /Perceptual \
+         /Filter /ASCIIHexDecode /Length 3 >>\nstream\n80>\nendstream\nendobj\n{}",
+        table_object(6)
+    );
+    let drawn = centre_colour(pdf_with(
+        &image,
+        "/XObject << /Im0 5 0 R >>",
+        "/Saturation ri q 20 0 0 20 0 0 cm /Im0 Do Q",
+    ));
+    assert_eq!(
+        dominant(
+            drawn,
+            "an image stating /Intent /Perceptual under `ri /Saturation`"
+        ),
+        "red",
+        "Table 87's entry overrides the state's intent for the image's own samples"
+    );
+}
+
+/// An intent the profile states no table for falls back to the colorimetric one.
+///
+/// [`dark_black_profile`] carries an `A2B1` and nothing else, which is the shape ISO 15076-1:2010
+/// requires of an output profile (its clause 8.5) and all that most profiles carry. §8.6.5.8
+/// disposes of an intent a *processor* cannot honour by sending it to `RelativeColorimetric`, and
+/// a profile that tabulates no transform for the intent asked leaves a processor in that same
+/// position, so the fallback is the table the file does have.
+///
+/// This one passes before the change as well as after, and says so: it is what keeps the
+/// selection from turning a profile with one table into a blank or a panic.
+#[test]
+fn an_intent_with_no_table_of_its_own_falls_back() {
+    let fallback = centre_colour(pdf_with(
+        &profile_object(5),
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >>",
+        "/Perceptual ri /CS0 cs 1 scn 0 0 20 20 re f",
+    ));
+    assert_compensated(
+        fallback,
+        "a perceptual intent over a profile with only an A2B1",
+    );
+}
+
+/// The two colorimetric intents share a transform and differ in the black point alone.
+///
+/// ISO 15076-1:2010 tabulates three intents and derives the absolute colorimetric one from the
+/// media-relative colorimetric transform (its clause 6.2), so there is no `A2B3` to select and
+/// `AbsoluteColorimetric` takes `A2B1` — while §8.6.5.9 still makes it turn compensation off.
+/// Both halves in one fixture: the colour is the neutral table's, uncompensated.
+#[test]
+fn an_absolute_intent_takes_the_colorimetric_transform_without_compensation() {
+    let absolute = centre_colour(pdf_with(
+        &table_object(5),
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >>",
+        "/AbsoluteColorimetric ri /CS0 cs 0.5 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(
+        dominant(absolute, "`ri /AbsoluteColorimetric` on a fill"),
+        "neutral",
+        "an absolute intent is the colorimetric table, not a fourth one"
+    );
+    assert_uncompensated(absolute, "`ri /AbsoluteColorimetric` on a fill");
 }

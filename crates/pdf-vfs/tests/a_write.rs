@@ -911,3 +911,90 @@ fn a_stat_after_an_eviction_does_not_generate_again() {
         );
     }
 }
+
+/// ISO 32000-2 §7.6.4.1's password, supplied to the mount and kept for the mount's life.
+///
+/// The clause answers a document that is encrypted in two steps. The first is the default: "the
+/// PDF reader shall first try to authenticate the encrypted document using the padding string
+/// defined in 7.6.4.3 … (default user password)" — which every mount has always had, because the
+/// reader below tries it. The second is what this test is
+/// about: "If this authentication attempt fails, the interactive PDF processor should prompt for a
+/// password. Correctly supplying either password ( owner or user password) should enable the user
+/// to gain access to the document." A mount cannot prompt — the person who could answer is not
+/// present at the `readdir` that needs the answer — so `Vfs::with_password` is where the password
+/// goes in, from the face that *was* in a position to ask.
+///
+/// **Three claims, and the third is why the password is the mount's rather than the worker's.**
+/// Without one the document is refused by name rather than served empty; with the wrong one it is
+/// still refused, so the password is being used and not merely accepted; and it survives the
+/// document changing underneath the mount, which spawns a second worker (RFC 0003 section 5.4)
+/// that has to authenticate all over again.
+#[test]
+fn a_mount_is_given_the_documents_password_and_keeps_it_across_a_generation() {
+    /// `doc/pdf.js`'s own record of this document's password, which `pdf-model`'s
+    /// `save_round_trip.rs` and this crate's two corpus walks all carry.
+    const PASSWORD: &str = "abc";
+
+    let Some(path) = corpus("issue6010_1.pdf") else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(path).expect("a corpus document");
+
+    let mounted = |password: Option<&str>| {
+        let backing = Arc::new(MemoryBacking::new("encrypted", bytes.clone()));
+        let shared = Box::new(SharedBacking(Arc::clone(&backing)));
+        let vfs = match password {
+            Some(password) => Vfs::with_password(
+                shared,
+                Box::new(InProcessWorkers),
+                Config::default(),
+                pdf_vfs::Secret::from(password.to_owned()),
+            ),
+            None => Vfs::new(shared, Box::new(InProcessWorkers), Config::default()),
+        };
+        (backing, vfs)
+    };
+
+    // Trap 5: a mount with no password says what is wrong rather than showing an empty tree.
+    let (_, without) = mounted(None);
+    assert!(
+        matches!(
+            without.list("/"),
+            Err(VfsError::Worker(
+                pdf_vfs::worker::WorkerError::PasswordRequired(_)
+            ))
+        ),
+        "the default user password does not open this document, and the refusal names why: {:?}",
+        without.list("/")
+    );
+
+    // A password that is not this document's is refused too — which is what makes the arm below
+    // evidence that the password was *used* rather than merely stored.
+    let (_, wrong) = mounted(Some("not the password"));
+    assert!(
+        wrong.list("/").is_err(),
+        "a password this document does not have opens nothing"
+    );
+
+    let (backing, vfs) = mounted(Some(PASSWORD));
+    let pages = vfs.list("/pages").expect("the password opens the document");
+    assert!(
+        !pages.is_empty(),
+        "an opened document lists its pages: §7.7.3.2's tree is what /pages is"
+    );
+
+    // RFC 0003 section 5.4: the file changed, so the generation is thrown away and a *second*
+    // worker is started over the new bytes. The mount still holds the password, which is the
+    // whole reason it is the mount's — a face has nobody to ask a second time.
+    let mut changed = bytes.clone();
+    changed.extend_from_slice(b"\n% a byte somebody else appended\n");
+    backing.replace(changed);
+    assert_eq!(
+        vfs.list("/pages")
+            .expect("the same password opens the next generation")
+            .len(),
+        pages.len(),
+        "the same document, a second worker, and the password did not have to be typed again"
+    );
+}

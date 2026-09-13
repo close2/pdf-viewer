@@ -34,7 +34,7 @@ use raster_scene::{FnOp, FnRange};
 
 use super::programs::Witness;
 
-/// The interval WGSL §15.7.6's float-to-integer conversion clamps to, which
+/// The interval WGSL section 15.7.6's float-to-integer conversion clamps to, which
 /// `function_ops.wgsl` writes out explicitly so that both sides hold the same bound. A host
 /// `as i32` saturates to 2 147 483 647 instead, and the two would disagree past 2³¹.
 pub const INT_MAX: f32 = 2_147_483_520.0;

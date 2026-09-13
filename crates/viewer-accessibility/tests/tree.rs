@@ -31,6 +31,8 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         summary: None,
         short: None,
         bounds: None,
+        allocation: None,
+        artifact: None,
         control: None,
         annotation: None,
         headers: Vec::new(),
@@ -836,6 +838,53 @@ fn an_artifact_has_no_run_to_move_through() {
             .iter()
             .any(|(_, held)| held.role() == Role::TextRun),
         "an artifact's words are not the document's content (ISO 32000-2 §14.8.2.2)"
+    );
+}
+
+/// Table 385's kind and subtype are what a person is told about a node that has no name.
+///
+/// ISO 32000-2 §14.8.2.2.1 leaves the decision to the consumer — "[a] text-to-speech engine, for
+/// instance, may decide not to speak running heads or page numbers when the page is turned" — and
+/// a person can only decide about what they were told. The three elements here are the three
+/// answers there are: a folio stating both entries, a footnote rule stating only its type, and a
+/// generic artifact stating neither, which the role has already described and which therefore
+/// says nothing more.
+#[test]
+fn an_artifact_says_which_kind_of_artifact_it_is() {
+    let folio = AccessibilityNode {
+        role: "Artifact".to_owned(),
+        artifact: Some(pdf_model::structure::Artifact {
+            kind: Some(pdf_model::structure::ArtifactKind::Pagination),
+            subtype: Some("PageNum".to_owned()),
+            bbox: None,
+            attached: [false; 4],
+        }),
+        ..element(None, "Artifact", "")
+    };
+    let rule = AccessibilityNode {
+        artifact: Some(pdf_model::structure::Artifact {
+            kind: Some(pdf_model::structure::ArtifactKind::Layout),
+            ..pdf_model::structure::Artifact::default()
+        }),
+        ..element(None, "Artifact", "")
+    };
+    let generic = AccessibilityNode {
+        artifact: Some(pdf_model::structure::Artifact::default()),
+        ..element(None, "Artifact", "")
+    };
+    let update = built(view(&[folio, rule, generic], &[]));
+    assert_eq!(
+        node(&update, NodeId(16)).description(),
+        Some("pagination artifact of subtype PageNum")
+    );
+    assert_eq!(
+        node(&update, NodeId(17)).description(),
+        Some("layout artifact")
+    );
+    assert_eq!(
+        node(&update, NodeId(18)).description(),
+        None,
+        "a generic artifact is what the role already says, and repeating it is noise"
     );
 }
 

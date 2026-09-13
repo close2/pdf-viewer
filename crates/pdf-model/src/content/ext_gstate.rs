@@ -509,6 +509,25 @@ impl Interpreter<'_> {
                 state.transfer.compose();
             }
         }
+        // Table 57's `/FL`: §10.7.2's flatness tolerance, read here and discarded. The clause
+        // grants that outright rather than leaving it to a judgement about devices —
+        //
+        // > PDF processors may choose to ignore any flatness tolerance specified within a PDF
+        // > file.
+        //
+        // — and this one does, because the tolerance "controls the maximum permitted distance in
+        // device pixels between the mathematically correct path and an approximation constructed
+        // from straight line segments", and no curve in this tree is approximated by a number the
+        // document states: each backend flattens at its own device resolution, which is the only
+        // place the pixel the clause measures in exists.
+        //
+        // **Discarded here for the same reason `run.rs` discards `i`, which is the other of
+        // §8.4.1 NOTE 1's two routes to this one parameter.** §10.7.2 makes them equals —
+        // flatness "may be specified as the operand of the i operator ... or as the value of the
+        // FL entry in a graphics state parameter dictionary" — so a permission taken on one route
+        // is taken on both, and the read is what says this entry was looked at and let go rather
+        // than never looked for.
+        let _ = self.document.get_key(dict, "FL");
         // Table 57's `/SM`: §10.7.3's smoothness tolerance, "the maximum error tolerance for
         // rendering shadings", expressed "as a fraction of the range of each colour
         // component". It decides how finely a shading's colour function is sampled, and only

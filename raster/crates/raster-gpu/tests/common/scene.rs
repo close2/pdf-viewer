@@ -6,7 +6,7 @@
 use raster_scene::{Affine, Color, Paint, Point, Rect, Scene, SceneBuilder, Segment};
 
 /// A rectangle as an outline, the way the caller's clips arrive (its display list has
-/// no rectangle type — recognition is our side's job, §6.4).
+/// no rectangle type — recognition is our side's job, brief section 6.4).
 ///
 /// **Which lane this takes, since ADR 0047**: `raster_scene::axis_aligned_rect` recognises
 /// these four edges, so a *solid* fill of one goes down the analytic rectangle lane and

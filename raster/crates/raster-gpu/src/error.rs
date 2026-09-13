@@ -8,7 +8,7 @@
 //! unanswerable.
 //!
 //! The two enums follow the two phases of a device's life: [`DeviceError`] is
-//! construction (§2.1) and residency (§2.2), [`RenderError`] is a frame (§2.4) — and a
+//! construction (brief section 2.1) and residency (section 2.2), [`RenderError`] is a frame (section 2.4) — and a
 //! present, which is a frame's last step happening somewhere else (ADR 0056). A report
 //! — the frame *was* drawn, something in it is not as asked — is deliberately neither;
 //! that is [`crate::report`].
@@ -43,9 +43,10 @@
 //! [`WarmUp::Refused`](crate::startup::WarmUp::Refused), which is not an error at all —
 //! it is the answer to "is this device warm yet?" when a shader will never compile.
 //!
-//! # A § with no standard in front of it
+//! # A `§` with no standard in front of it
 //!
-//! In this module a bare `§n` is `raster/doc/RENDER_LIBRARY.md`, the brief the library exists to
+//! In this module a bare `§` with a section number after it is
+//! `raster/doc/RENDER_LIBRARY.md`, the brief the library exists to
 //! satisfy, and every clause of the specification is written in full — `ISO 32000-2
 //! §7.10.5`. The one exception is that clause's own shorthand: once a module comment has
 //! written it out, "a §7.10.5 program" is what the rest of the tree calls a type 4

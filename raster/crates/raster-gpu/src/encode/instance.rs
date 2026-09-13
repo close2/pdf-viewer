@@ -1,6 +1,6 @@
 //! One mark's instance bytes, and the run of consecutive marks it joins.
 //!
-//! Two streams, one per lane the brief's §0 says a page is mostly made of: a rectangle
+//! Two streams, one per lane the brief's section 0 says a page is mostly made of: a rectangle
 //! instance is eight floats that `rect.wgsl` evaluates analytically, a coverage quad is
 //! sixteen that `coverage.wgsl` weights by a tile of the frame's sheet. Both strides are
 //! declared here beside the writer that fills them, because the two numbers and the

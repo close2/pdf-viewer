@@ -343,7 +343,7 @@ impl<'a> Encoder<'a> {
     /// > region intersects the shape, no matter how small the intersection is. This
     /// > ensures that no shape ever disappears as a result of unfavourable placement
     /// > relative to the device pixel grid […] A zero-width or zero-height rectangle
-    /// > paints a line 1 pixel wide. (ISO 32000-2 §10.7.4)
+    /// > paints a line 1 pixel wide.
     ///
     /// The arithmetic mirrors the caller's `pdf_render::collapsed` statement for
     /// statement, as [`raster::resolve_width`] mirrors their width resolution

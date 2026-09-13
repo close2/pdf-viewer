@@ -193,9 +193,9 @@ pub(super) fn check_operand_types(
 /// The answer `eq` or `ne` has before either operand's *value* is looked at, or `None`
 /// where the comparison is a genuine one.
 ///
-/// PLRM3's `eq` entry, which ISO 32000-2 §7.10.5.2 makes normative:
-///
-/// > Simple objects are equal if their types and values are the same.
+/// PLRM3's `eq` entry, which ISO 32000-2 §7.10.5.2 makes normative, says that "simple
+/// objects are equal if their types and values are the same" — quoted in prose because a
+/// blockquote here is the standard's own words and this sentence is PLRM3's.
 ///
 /// A boolean and a number are of different types, so they are **never** equal however the
 /// two are represented — and on our operand stack `true` is the same `f32` as `1`, so the

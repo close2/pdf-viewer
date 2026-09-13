@@ -38,6 +38,8 @@ use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
+use crate::icc::Rendering;
+
 use crate::function::Function;
 
 /// How deep a chain of colour space references may nest.
@@ -239,12 +241,8 @@ impl Compositing {
     /// function deciding which spaces mark the page, which is exactly the drift trap 6 exists
     /// for.
     #[must_use]
-    pub fn paint(&self, space: &ColourSpace, values: &[f32], black_point: bool) -> Color {
-        let colour = if black_point {
-            space.to_rgb(values)
-        } else {
-            space.to_rgb_without_black_point(values)
-        };
+    pub fn paint(&self, space: &ColourSpace, values: &[f32], rendering: Rendering) -> Color {
+        let colour = space.to_rgb_under(values, rendering);
         match self {
             Self::Device => colour,
             Self::Luminosity(scale) => Color {
@@ -264,14 +262,14 @@ impl Compositing {
                 ..Color::grey(route.component_of(space, values))
             },
             Self::Additive(route) => {
-                let [a, b, c] = route.components_of(space, values, black_point);
+                let [a, b, c] = route.components_of(space, values, rendering);
                 Color {
                     a: colour.a,
                     ..Color::rgb(a, b, c)
                 }
             }
             Self::Subtractive(half, press) => {
-                let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point, press);
+                let [cyan, magenta, yellow, black] = space.to_cmyk(values, rendering, press);
                 let painted = match *half {
                     Half::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
                     Half::Black => Color::grey(1.0 - black),
@@ -613,7 +611,10 @@ fn profile_stages(profile: &crate::icc::Profile) -> Option<Stages> {
                 let at = |index: usize| index as f32 / (side - 1) as f32;
                 // With the compensation on, as every colour of the space reaches the screen
                 // and as `to_device` is asked on the way in.
-                let xyz = profile.to_xyz_with(&[at(first), at(second), at(third)], true);
+                let xyz = profile.to_xyz_with(
+                    &[at(first), at(second), at(third)],
+                    Rendering::compensating(),
+                );
                 grid.push(xyz_d50_to_linear_srgb(xyz));
             }
         }
@@ -676,9 +677,9 @@ impl RgbRoute {
         &self,
         space: &ColourSpace,
         values: &[f32],
-        black_point: bool,
+        rendering: Rendering,
     ) -> [f32; 3] {
-        space.rgb_components_at(values, 0, black_point, self)
+        space.rgb_components_at(values, 0, rendering, self)
     }
 
     /// The components whose colour has the D50 XYZ `xyz`.
@@ -753,7 +754,10 @@ impl RgbRoute {
                             reason = "a grid index below the side"
                         )]
                         let at = |index: usize| index as f32 / (side - 1) as f32;
-                        let xyz = profile.to_xyz_with(&[at(first), at(second), at(third)], false);
+                        let xyz = profile.to_xyz_with(
+                            &[at(first), at(second), at(third)],
+                            Rendering::without_black_point(),
+                        );
                         samples.push(channel(xyz[1]));
                     }
                 }
@@ -820,12 +824,20 @@ impl RgbRoute {
 /// 1001's finding at the sites it could not reach; ADR 1008). Carrying the intent in the same
 /// value as the target and the black point is what makes the omission a type error rather than
 /// a habit, exactly as pairing the flag with the target did for §8.6.5.9.
+///
+/// **And the flag became a pair in session 1014, which is what makes §8.6.5.8's intent do
+/// something** (ADR 1032). Until then the only thing a rendering intent could change was the
+/// black point, so `Perceptual` and `Saturation` were carried the length of this crate and
+/// consumed nowhere; [`Rendering`] carries the `A2B` transform they select as well, so an image
+/// that states `/Intent /Perceptual` over a profile with an `A2B0` of its own converts through
+/// that table and not through the colorimetric one beside it.
 #[derive(Debug, Clone)]
 pub struct Conversion {
     /// What the converted colour is composited into.
     into: Compositing,
-    /// Whether black point compensation applies, per §8.6.5.9.
-    black_point: bool,
+    /// §8.6.5.8's intent and §8.6.5.9's black point compensation, as the object being painted
+    /// states them.
+    rendering: Rendering,
     /// The profile §14.11.5's output intent names for this page, if it names one this tree
     /// reads.
     ///
@@ -841,14 +853,14 @@ pub struct Conversion {
 /// Written out for [`Compositing`]'s reason: the intent is behind an `Arc`, and two `Arc`s of
 /// one profile — one per interpretation of the same page — are one intent. Every derived trait
 /// below goes through here, which keeps them agreeing with equality.
-type ConversionKey<'a> = (&'a Compositing, bool, Option<u128>);
+type ConversionKey<'a> = (&'a Compositing, Rendering, Option<u128>);
 
 impl Conversion {
     /// This value as the tuple every trait below is defined on.
     fn key(&self) -> ConversionKey<'_> {
         (
             &self.into,
-            self.black_point,
+            self.rendering,
             self.output_intent
                 .as_ref()
                 .map(|profile| profile.identity()),
@@ -863,10 +875,10 @@ impl Conversion {
     /// [`Self::under_output_intent`]; a conversion built anywhere else is for a colour that
     /// has no page, or a mask read for its coverage, and states no intent honestly.
     #[must_use]
-    pub fn new(into: Compositing, black_point: bool) -> Self {
+    pub fn new(into: Compositing, rendering: Rendering) -> Self {
         Self {
             into,
-            black_point,
+            rendering,
             output_intent: None,
         }
     }
@@ -908,7 +920,7 @@ impl Conversion {
     /// compensates.
     #[must_use]
     pub fn device() -> Self {
-        Self::new(Compositing::Device, true)
+        Self::new(Compositing::Device, Rendering::compensating())
     }
 
     /// What the converted colour is composited into.
@@ -917,20 +929,26 @@ impl Conversion {
         &self.into
     }
 
-    /// The same black point decision and the same page, composited into something else.
+    /// The same rendering parameters and the same page, composited into something else.
     #[must_use]
     pub fn into_target(&self, into: Compositing) -> Self {
         Self {
             into,
-            black_point: self.black_point,
+            rendering: self.rendering,
             output_intent: self.output_intent.clone(),
         }
+    }
+
+    /// The rendering parameters this conversion carries.
+    #[must_use]
+    pub fn rendering(&self) -> Rendering {
+        self.rendering
     }
 
     /// The colour `values` become, through [`Compositing::paint`].
     #[must_use]
     pub fn paint(&self, space: &ColourSpace, values: &[f32]) -> Color {
-        self.into.paint(space, values, self.black_point)
+        self.into.paint(space, values, self.rendering)
     }
 }
 
@@ -1834,7 +1852,7 @@ impl ColourSpace {
     /// [`Self::to_rgb_without_black_point`] where the document has asked for it off.
     #[must_use]
     pub fn to_rgb(&self, values: &[f32]) -> Color {
-        self.to_rgb_at(values, 0, true)
+        self.to_rgb_under(values, Rendering::compensating())
     }
 
     /// Converts a colour without black point compensation.
@@ -1847,7 +1865,17 @@ impl ColourSpace {
     /// intent's whole purpose.
     #[must_use]
     pub fn to_rgb_without_black_point(&self, values: &[f32]) -> Color {
-        self.to_rgb_at(values, 0, false)
+        self.to_rgb_under(values, Rendering::without_black_point())
+    }
+
+    /// Converts a colour under the rendering parameters an object states.
+    ///
+    /// The general form of the two above, and what [`Compositing::paint`] calls: §8.6.5.8's
+    /// intent decides which of a profile's `A2B` transforms the colour goes through and
+    /// §8.6.5.9's entry decides the compensation, which [`Rendering`] carries together.
+    #[must_use]
+    pub fn to_rgb_under(&self, values: &[f32], rendering: Rendering) -> Color {
+        self.to_rgb_at(values, 0, rendering)
     }
 
     /// Converts a colour in this space to the four components of `DeviceCMYK`.
@@ -1912,8 +1940,8 @@ impl ColourSpace {
     /// `ICCBased` colour reaches ink through sRGB: colorimetric where sRGB holds it, and
     /// clipped where it does not, which is the same gamut question one space earlier.
     #[must_use]
-    pub fn to_cmyk(&self, values: &[f32], black_point: bool, press: &Press) -> [f32; 4] {
-        self.to_cmyk_at(values, 0, black_point, press)
+    pub fn to_cmyk(&self, values: &[f32], rendering: Rendering, press: &Press) -> [f32; 4] {
+        self.to_cmyk_at(values, 0, rendering, press)
     }
 
     /// [`Self::to_cmyk`], carrying the recursion depth a nested space costs.
@@ -1921,7 +1949,7 @@ impl ColourSpace {
         &self,
         values: &[f32],
         depth: usize,
-        black_point: bool,
+        rendering: Rendering,
         press: &Press,
     ) -> [f32; 4] {
         if depth > MAX_DEPTH {
@@ -1939,7 +1967,7 @@ impl ColourSpace {
             Self::Indexed { base, .. } => base.to_cmyk_at(
                 &self.entry_of(values),
                 depth.saturating_add(1),
-                black_point,
+                rendering,
                 press,
             ),
             Self::Separation {
@@ -1949,18 +1977,18 @@ impl ColourSpace {
             } => alternate.to_cmyk_at(
                 &transform.eval(values),
                 depth.saturating_add(1),
-                black_point,
+                rendering,
                 press,
             ),
             Self::Pattern { base } => base.as_ref().map_or([0.0, 0.0, 0.0, 1.0], |base| {
-                base.to_cmyk_at(values, depth.saturating_add(1), black_point, press)
+                base.to_cmyk_at(values, depth.saturating_add(1), rendering, press)
             }),
             // A CIE-based colour goes into a profile's press from its own XYZ (§10.3.1), and
             // every other colour, and every press without a `B2A`, through this crate's one
             // RGB route — `xyz_to_ink` and `rgb_to_ink` say which is which.
-            _ => match self.cie_xyz_at(values, depth, black_point) {
+            _ => match self.cie_xyz_at(values, depth, rendering) {
                 Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz),
-                _ => rgb_to_ink(press, self.to_rgb_at(values, depth, black_point)),
+                _ => rgb_to_ink(press, self.to_rgb_at(values, depth, rendering)),
             },
         }
     }
@@ -1976,7 +2004,7 @@ impl ColourSpace {
         &self,
         values: &[f32],
         depth: usize,
-        black_point: bool,
+        rendering: Rendering,
         route: &RgbRoute,
     ) -> [f32; 3] {
         if depth > MAX_DEPTH {
@@ -1993,7 +2021,7 @@ impl ColourSpace {
             Self::Indexed { base, .. } => base.rgb_components_at(
                 &self.entry_of(values),
                 depth.saturating_add(1),
-                black_point,
+                rendering,
                 route,
             ),
             Self::Separation {
@@ -2003,17 +2031,17 @@ impl ColourSpace {
             } => alternate.rgb_components_at(
                 &transform.eval(values),
                 depth.saturating_add(1),
-                black_point,
+                rendering,
                 route,
             ),
             Self::Pattern { base } => base.as_ref().map_or([0.0; 3], |base| {
-                base.rgb_components_at(values, depth.saturating_add(1), black_point, route)
+                base.rgb_components_at(values, depth.saturating_add(1), rendering, route)
             }),
-            _ => match self.cie_xyz_at(values, depth, black_point) {
-                Some(xyz) => route.components_with_xyz(xyz, black_point),
+            _ => match self.cie_xyz_at(values, depth, rendering) {
+                Some(xyz) => route.components_with_xyz(xyz, rendering.black_point()),
                 None => route.components_with_xyz(
-                    srgb_to_xyz_d50(self.to_rgb_at(values, depth, black_point)),
-                    black_point,
+                    srgb_to_xyz_d50(self.to_rgb_at(values, depth, rendering)),
+                    rendering.black_point(),
                 ),
             },
         }
@@ -2029,7 +2057,8 @@ impl ColourSpace {
     /// 1.0, a profile's `Y` at D50, which is also 1.0 at white.
     #[must_use]
     pub fn cie_luminance(&self, values: &[f32]) -> Option<f32> {
-        self.cie_xyz_at(values, 0, true).map(|xyz| channel(xyz[1]))
+        self.cie_xyz_at(values, 0, Rendering::compensating())
+            .map(|xyz| channel(xyz[1]))
     }
 
     /// The D50 XYZ a colour in a CIE-based space states, or `None` for a device or special
@@ -2041,13 +2070,13 @@ impl ColourSpace {
     /// a profile through its `A2B` with §8.6.5.9's compensation as asked — so that a colour
     /// converted *between* two CIE-based spaces (§10.3.1) takes exactly the route it would have
     /// taken to the screen, minus the screen.
-    fn cie_xyz_at(&self, values: &[f32], depth: usize, black_point: bool) -> Option<[f32; 3]> {
+    fn cie_xyz_at(&self, values: &[f32], depth: usize, rendering: Rendering) -> Option<[f32; 3]> {
         if depth > MAX_DEPTH {
             return None;
         }
         let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
         match self {
-            Self::Icc { profile } => Some(profile.to_xyz_with(values, black_point)),
+            Self::Icc { profile } => Some(profile.to_xyz_with(values, rendering)),
             Self::Lab { range } => Some(lab_xyz(at(0), at(1), at(2), *range)),
             Self::CalGray {
                 white,
@@ -2072,22 +2101,18 @@ impl ColourSpace {
                 Some(adapt(cal_rgb_xyz(decoded, matrix), *white, D50))
             }
             Self::Indexed { base, .. } => {
-                base.cie_xyz_at(&self.entry_of(values), depth.saturating_add(1), black_point)
+                base.cie_xyz_at(&self.entry_of(values), depth.saturating_add(1), rendering)
             }
             Self::Separation {
                 alternate,
                 transform,
                 ..
-            } => alternate.cie_xyz_at(
-                &transform.eval(values),
-                depth.saturating_add(1),
-                black_point,
-            ),
+            } => alternate.cie_xyz_at(&transform.eval(values), depth.saturating_add(1), rendering),
             _ => None,
         }
     }
 
-    fn to_rgb_at(&self, values: &[f32], depth: usize, black_point: bool) -> Color {
+    fn to_rgb_at(&self, values: &[f32], depth: usize, rendering: Rendering) -> Color {
         if depth > MAX_DEPTH {
             return Color::BLACK;
         }
@@ -2100,7 +2125,7 @@ impl ColourSpace {
             }
             Self::Rgb => Color::rgb(channel(at(0)), channel(at(1)), channel(at(2))),
             Self::Cmyk => cmyk(at(0), at(1), at(2), at(3)),
-            Self::Icc { profile } => profile.to_rgb_with(values, black_point),
+            Self::Icc { profile } => profile.to_rgb_with(values, rendering),
             Self::Lab { range } => lab(at(0), at(1), at(2), *range),
             // `black` is read but not applied — `cie_to_srgb` carries the argument.
             Self::CalGray {
@@ -2133,7 +2158,7 @@ impl ColourSpace {
                 cie_to_srgb(cal_rgb_xyz(decoded, matrix), *white)
             }
             Self::Indexed { base, .. } => {
-                base.to_rgb_at(&self.entry_of(values), depth.saturating_add(1), black_point)
+                base.to_rgb_at(&self.entry_of(values), depth.saturating_add(1), rendering)
             }
             Self::Separation {
                 alternate,
@@ -2141,7 +2166,7 @@ impl ColourSpace {
                 ..
             } => {
                 let converted = transform.eval(values);
-                alternate.to_rgb_at(&converted, depth.saturating_add(1), black_point)
+                alternate.to_rgb_at(&converted, depth.saturating_add(1), rendering)
             }
             // §8.6.6.4's `/All`, complemented for an additive device: a tint of 1.0 is every
             // colourant at maximum, which on a monitor is black.
@@ -2157,7 +2182,7 @@ impl ColourSpace {
             // A pattern has no colour of its own. Where it names an underlying space, an
             // uncoloured pattern's colour is in that; otherwise there is nothing to say.
             Self::Pattern { base } => base.as_ref().map_or(Color::BLACK, |base| {
-                base.to_rgb_at(values, depth.saturating_add(1), black_point)
+                base.to_rgb_at(values, depth.saturating_add(1), rendering)
             }),
         }
     }
@@ -2514,7 +2539,7 @@ impl Press {
                             for cyan in 0..side {
                                 let xyz = profile.to_xyz_with(
                                     &[at(cyan), at(magenta), at(yellow), at(black)],
-                                    false,
+                                    Rendering::without_black_point(),
                                 );
                                 samples.push(channel(xyz[1]));
                             }
@@ -3902,7 +3927,7 @@ mod tests {
 
     use pdf_render::Color;
 
-    use super::{ColourSpace, GreyRoute, InkScale};
+    use super::{ColourSpace, GreyRoute, InkScale, Rendering};
 
     /// The assumed press's grid, for the tests that search against it directly.
     fn assumed() -> pdf_render::BlendingSpace {
@@ -3971,7 +3996,7 @@ mod tests {
         let press = super::press_for_profile(&profile).expect("a press");
         assert!(press.converts_in_by_profile());
 
-        let grey = ColourSpace::Rgb.to_cmyk(&[0.5, 0.5, 0.5], true, &press);
+        let grey = ColourSpace::Rgb.to_cmyk(&[0.5, 0.5, 0.5], Rendering::compensating(), &press);
         let want = profile
             .to_device(super::srgb_to_xyz_d50(Color::grey(0.5)), true)
             .expect("a from-CIE table");
@@ -3990,7 +4015,7 @@ mod tests {
         let lab = ColourSpace::Lab {
             range: [-100.0, 100.0, -100.0, 100.0],
         };
-        let from_lab = lab.to_cmyk(&[50.0, 20.0, -30.0], true, &press);
+        let from_lab = lab.to_cmyk(&[50.0, 20.0, -30.0], Rendering::compensating(), &press);
         let want = profile
             .to_device(super::lab_to_xyz(50.0, 20.0, -30.0), true)
             .expect("a from-CIE table");

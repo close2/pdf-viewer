@@ -15,6 +15,7 @@ use pdf_syntax::{Dictionary, Document, Object, Stream};
 
 use crate::colour::{ColourSpace, Compositing, GreyRoute, Half, InkScale, Presses};
 use crate::function::Function;
+use crate::icc::Rendering;
 
 /// What a `gs` dictionary's `/SMask` entry holds, once read.
 #[derive(Debug)]
@@ -227,7 +228,11 @@ fn luminosity(
         let values = backdrop_values(document, mask, space);
         Color {
             a: 1.0,
-            ..Compositing::Subtractive(Half::Black, Arc::clone(press)).paint(space, &values, true)
+            ..Compositing::Subtractive(Half::Black, Arc::clone(press)).paint(
+                space,
+                &values,
+                Rendering::compensating(),
+            )
         }
     });
     let backdrop = match (scale, &route, &additive, &ink, &space) {
@@ -244,8 +249,11 @@ fn luminosity(
         // And a three-component one's in its three components, which `/BC` states
         // as three numbers in that space.
         (None, None, Some((route, _)), _, Some(space)) => {
-            let [a, b, c] =
-                route.components_of(space, &backdrop_values(document, mask, space), true);
+            let [a, b, c] = route.components_of(
+                space,
+                &backdrop_values(document, mask, space),
+                Rendering::compensating(),
+            );
             Color::rgb(a, b, c)
         }
         // And a four-component group's chromatic half: §11.3.4's additive complements
@@ -254,8 +262,11 @@ fn luminosity(
             let values = backdrop_values(document, mask, space);
             Color {
                 a: 1.0,
-                ..Compositing::Subtractive(Half::Chromatic, Arc::clone(press))
-                    .paint(space, &values, true)
+                ..Compositing::Subtractive(Half::Chromatic, Arc::clone(press)).paint(
+                    space,
+                    &values,
+                    Rendering::compensating(),
+                )
             }
         }
         _ => Color {

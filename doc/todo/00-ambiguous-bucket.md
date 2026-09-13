@@ -725,11 +725,41 @@ beats a page carrying marks nobody wrote" — with the bytes named rather than a
 references draw the line legibly and identically, which is evidence about how far into `glyf` the
 damage sits and not about the file being sound.
 
-**What the reading leaves owed is small and specific.** `pdf_font::program::whole_program` consults
+~~**What the reading leaves owed is small and specific.** `pdf_font::program::whole_program` consults
 Table 125's `/Length1` on `Damage::Truncated` and not on `Damage::CheckValue`, where on this witness
-it would have corroborated the check value exactly. A round that ever wants to soften the
-check-value refusal has to answer `/Length1` as well — and on this file `/Length1` is on the
-refusal's side.
+it would have corroborated the check value exactly.~~ **Paid in the thousand-and-eighth** (ADR 1027).
+`whole_program` asks Table 125 on both damages and for two different jobs — on a truncation the
+clause *decides*, on a check-value failure it only *reports* — so `bug1050040.pdf`'s refusal now
+ends "§9.9's Table 125 states 59212 against the 59211 that arrived — 1 byte short of the extent the
+file states, so the document says the same damage a second time and independently of the filter",
+and `issue13316_reduced.pdf`'s ends "states 168808, which is exactly what arrived — so the file's
+own extent corroborates nothing here and the check value stands alone". **The agreeing answer is
+printed on purpose**: a reader told nothing cannot tell a corroboration that was not found from one
+that was not sought. A `/FontFile3` states no extent by §9.9's own sentence and prints none. A round
+that ever wants to soften the check-value refusal still has to answer `/Length1` — and now finds the
+answer printed rather than owed.
+
+**And the head's own refusal was saying something false, which the next name down is what found.**
+The first name under the alarm that is diagnosed nowhere is `issue11915.pdf` page 1 at **−0.636**,
+ours 0.6542 against `mupdf`'s 1.2900 — a font specimen whose five lines name five faces, each shown
+in a non-embedded `CIDFontType2` under `/Encoding /Identity-H`. §9.7.5.2 decides it and **we are
+right**: the strings are UTF-16BE two-byte codes, the descendants embed no program, and §9.7.4.2
+says the `/CIDToGIDMap` "shall be ignored" and "CIDs shall not participate in glyph selection". The
+four panels are the clause's own rationale drawn: `mupdf` and `hayro` set all five lines, `poppler`
+garbles the *Calibri* line, and `ghostscript` draws five lines of `^¸®±` — **one file, one machine,
+three pictures, because each reference is indexing whatever face it found**. What the page did have is a
+defect in the *report*: all five of its Type 0 dictionaries state `/ToUnicode /Identity-H`, a name
+where §9.10.1 says the value "shall be a stream object" and Table 119 types it a stream, and the
+refusal ended "it states no `/ToUnicode`" — false of the file. `examples/to_unicode_kind_census`
+prices it over 1 239 opened documents and 3 941 font dictionaries: **968 state a `/ToUnicode`, 952
+of those as a stream and 16 as something else — every one of the sixteen the same name, over ten
+documents**, one of which is `issue12418_reduced.pdf`, this ranking's own head. **And the same
+census's last line found the commoner shape**, which the code's own comment had called
+unreachable: **55 of the 952 streams state no `bf` mapping at all, over 27 documents**, because a
+producer copies the *`Identity-H` CID* `CMap` into the `/ToUnicode` slot — `issue5801.pdf`
+−8.991, a fourth of ADR 0433's eleven, is one. `raster_golden` named it before the ADR was
+finished, which is the change detector doing the job ADR 1016 built it for. ADR 1027, whose §"Why
+the construction is not recovered" declines reading the name as a `CMap` and says on which clause.
 
 **And the sixteen incomplete names were opened instead of passed over, which is ADR 0433's own
 instruction and had never been carried to the end.** Eleven are that ADR's §9.7.5.2 population.
@@ -764,6 +794,28 @@ clause read correctly.
   (11.316) draws it in a sans of its own. **Four renderers, three readings, and the two that agree
   with the clause are the two that draw nothing** — which is the negative tail behaving exactly as
   correction 3 says, on a page that is light because the file is wrong.
+
+**Re-run whole in the thousand-and-eighth**, over every page the gate printed as `ambiguous`, on
+the program rather than the recipe (`pdfref --bin undrawn`): **839 listed, 839 measured, 18 at or
+past the alarm of −1.00 and 15 of them documents this tree reports on.** The head reproduces to the
+thousandth — `issue12418_reduced.pdf` −19.447, `issue4722.pdf` −13.810, `issue15977_reduced.pdf`
+−12.927, `bug1050040.pdf` −11.272, `issue5801.pdf` −8.991 — and so does every complete row below it
+(`issue16038.pdf` −5.642, `issue12295.pdf` −3.198 at ADR 0945's corrected width, `issue14297.pdf`
+−1.135, then `issue7821.pdf` −0.957, `jpx_smaskindata.pdf` −0.840 and nothing past −0.535). **The
+19/16 this file records from the nine-hundred-and-forty-fourth is 18/15 for one reason and it is
+not a regression**: `bug866395.pdf` left under ADR 0940 and is `agrees`.
+
+**And the whole of that head is read.** Eleven are ADR 0433's §9.7.5.2 population, two are ADR
+0836's check-value refusal, one is `checkbox_no_appearance.pdf`'s held decision, one is
+`issue5954.pdf`'s §7.7.3.4 reading, and the three complete names are `issue16038.pdf`,
+`issue12295.pdf` and `issue14297.pdf`, each with its own measurement above. **`issue13916.pdf`
+−7.370 is the one row of the eleven whose ink is not 0.000**, and that is not an exception to ADR
+0433's reading but a fact about the page: its content stream is five text operations, three in the
+two refused `Identity-H` fonts and two — `18.08.2021` and `31.08.2023` — in ordinary simple fonts
+the clause does not reach, which we draw and every reference draws in the same place. The report
+says `Text { operations: 3 }`, which is exactly the three. ADR 0433's sentence "`ours 0.000` is
+literal" is true of the ten and not of this one, and nothing turns on it. **So the next name is
+below the alarm**, which is where the thousand-and-eighth went.
 
 **Re-run after the fix, and the statement is the sharp one**: over the **835** pages that remain
 `ambiguous`, every row is **byte-identical** to the before-run — the same numbers, the same labels

@@ -143,7 +143,8 @@ fn luminance_gap(profile: &pdf_model::icc::Profile) -> Option<(f32, std::time::D
         let axis = |factor: usize| (step.saturating_mul(factor) % 101) as f32 / 100.0;
         let inks = [axis(7), axis(13), axis(29), axis(47)];
         // The clause's own `Y`, with no black point compensation, which is what the grid holds.
-        let direct = profile.to_xyz_with(&inks, false)[1];
+        let direct =
+            profile.to_xyz_with(&inks, pdf_model::icc::Rendering::without_black_point())[1];
         worst = worst.max((luminance.of(&inks) - direct).abs() * 255.0);
     }
     Some((worst, cost))

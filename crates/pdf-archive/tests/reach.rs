@@ -214,3 +214,24 @@ fn each_carve_out_is_the_range_its_own_part_states() {
     // A requirement the part does not state is not judged at all.
     assert!(!exemption_narrows(Clauses::only_four("6.2.5"), two));
 }
+
+/// An annex clause is inside the exemption, and that is the clause's answer rather than a parser's.
+///
+/// Both parts exempt an unreferenced named resource from every requirement of the **document**,
+/// and a normative annex is part of the document, so nothing in Annex A or Annex B is carved back
+/// out — only the file-structure ranges are. Three rows of the table cite an annex *with a
+/// predicate*, and until session 1007 the answer for them was reached by a fall-through whose own
+/// comment claimed the opposite; this pins it. `pdf_archive::withdrawal` carries the reading subclause by subclause.
+#[test]
+fn an_annex_clause_is_narrowed_like_any_other_requirement_of_the_document() {
+    let two = Target::Two(Level::B);
+    let four = Target::Four(Flavour::Plain);
+    // ISO 19005-2 Annex B.1, what signing produces.
+    assert!(exemption_narrows(Clauses::only_two("B.1"), two));
+    // ISO 19005-4 Annex A.2, the embedded files a PDF/A-4f file carries, and Annex B.2.2, the
+    // format of a 3D stream.
+    assert!(exemption_narrows(Clauses::only_four("A.2"), four));
+    assert!(exemption_narrows(Clauses::only_four("B.2.2"), four));
+    // And the carve-outs are still the only thing that keeps a clause, whatever it is written in.
+    assert!(!exemption_narrows(Clauses::only_four("6.1.6.1"), four));
+}

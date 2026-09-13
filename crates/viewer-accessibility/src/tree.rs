@@ -102,6 +102,7 @@
 use accesskit::{
     Action, Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate,
 };
+use pdf_model::structure::ArtifactKind;
 use viewer_core::AccessibilityNode;
 
 /// The window, and the root of the tree.
@@ -455,6 +456,7 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
         if let Some(summary) = node.summary.as_deref() {
             description.push(format!("summary: {summary}"));
         }
+        description.extend(artifact(node));
         description.extend(continuation(node));
         description.extend(headers(node, &spoken));
         if !description.is_empty() {
@@ -790,6 +792,46 @@ fn flows_to(built: &mut Node, band: Band, next: Option<&Vec<usize>>, published: 
         if published.get(*at).copied().unwrap_or(false) {
             built.push_flow_to(band.element(*at));
         }
+    }
+}
+
+/// What Table 385's artifact attributes are *said* as, for §14.8.4.8.7's `Artifact` element.
+///
+/// # Why there is anything to say
+///
+/// An artifact has no name — §14.8.2.2.1 makes its text what is not the document's content, and
+/// [`crate::role`] withholds it on that strength — so a person moving through a page's structure
+/// meets this node as a container with nothing in it. §14.8.2.2.1 is also what says the kind
+/// matters: "[a] text-to-speech engine, for instance, may decide not to speak running heads or
+/// page numbers when the page is turned", and a running head, a footnote rule and a cut mark are
+/// three different things to decide about. This is the sentence that lets a person make that
+/// decision instead of a container telling them nothing.
+///
+/// On the description channel for the reason [`continuation`] and a table's `/Summary` are: it is
+/// a statement *about* the element rather than something its content says.
+///
+/// The subtype is said as the document wrote it, because Table 385 leaves the entry open —
+/// "[a]dditional values may be specified for this entry, provided they comply with the naming
+/// conventions described in Annex E" — so translating the seven the table lists and dropping the
+/// rest would lose exactly the names a producer went to the trouble of registering.
+///
+/// `None` for every element that is not an `Artifact`, and for one whose producer stated neither
+/// entry: §14.8.2.2.2 calls that a generic artifact, the role has already said so, and a
+/// description repeating the role would be noise on the one channel that reaches a person.
+fn artifact(node: &AccessibilityNode) -> Option<String> {
+    let artifact = node.artifact.as_ref()?;
+    let kind = artifact.kind.map(|kind| match kind {
+        ArtifactKind::Pagination => "pagination",
+        ArtifactKind::Layout => "layout",
+        ArtifactKind::Page => "page production",
+        ArtifactKind::Background => "background",
+        ArtifactKind::Inline => "inline",
+    });
+    match (kind, artifact.subtype.as_deref()) {
+        (None, None) => None,
+        (Some(kind), None) => Some(format!("{kind} artifact")),
+        (None, Some(subtype)) => Some(format!("artifact of subtype {subtype}")),
+        (Some(kind), Some(subtype)) => Some(format!("{kind} artifact of subtype {subtype}")),
     }
 }
 

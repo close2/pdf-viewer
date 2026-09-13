@@ -106,3 +106,18 @@ A `/ToUnicode` appearing in one of these files, or the clause being amended. Nei
 tree's to arrange. A future round that finds this head again should read this file rather than
 re-derive it: the head has been `issue12418_reduced.pdf −19.447` since at least ADR 0237's run,
 and it has been unexplained for every one of those sessions.
+
+## One clause of this corrected, in the thousand-and-eighth (ADR 1027)
+
+The description above says each of the eleven states "no `/ToUnicode` anywhere". One of them does
+state one: `issue12418_reduced.pdf`, this ranking's own head, writes `/ToUnicode /Identity-H` — a
+**name**, where §9.10.1 says the value "shall be a stream object" and Table 119 types it `stream`.
+So the entry is there, it is not a `CMap`, and `read_to_unicode` rightly takes nothing from it;
+what was wrong was the *refusal's* sentence, which said the file had written none.
+`examples/to_unicode_kind_census` counts the construction at **16 font dictionaries over 10
+documents** in 1 239 opened files, every one of them that same name.
+
+Nothing else here moves. §9.7.5.2 is still what decides these eleven pages, the decision is still
+that no code changes for them, and the refusal is still right — the name is not a `/ToUnicode`
+`CMap` and §9.10.2's first method is still unavailable. ADR 1027 §"Why the construction is not
+recovered" says on which clause that stands.

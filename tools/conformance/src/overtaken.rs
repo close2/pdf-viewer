@@ -263,7 +263,7 @@ impl Corpus {
 
 /// Reads every page-list note out of the tree's Rust sources.
 ///
-/// `sources` are the Rust files under [`crate::SOURCE_ROOTS`] with their text, as
+/// `sources` are the Rust files under [`crate::roots::source_roots`] with their text, as
 /// [`crate::entries::sources`] returns them. The checker's own directory is skipped, as
 /// everywhere here: this module's own examples would otherwise be swept.
 #[must_use]

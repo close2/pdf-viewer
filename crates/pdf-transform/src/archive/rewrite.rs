@@ -26,6 +26,7 @@ use super::prepare::{
     Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, intent_dictionary,
     metadata_stream, output_intent_entries,
 };
+use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
@@ -515,6 +516,16 @@ pub enum Rewrite {
     /// it beside the requirement it answered and `xmpMM:History` records that a human rather than
     /// the document is its source.
     SuppliedMediaType,
+    /// The page tree's root node gains the pages a `preserve` remedy composed, and the page-label
+    /// tree a range for them.
+    ///
+    /// `doc/adr/1014`'s amendment to `CLAUDE.md`'s authoring exclusion: a page composed solely of
+    /// content the document already holds is on the near side of the line, and the pages here
+    /// carry nothing else. Two edits, and the second is `doc/adr/0954`'s cost rather than a
+    /// conformance requirement — §12.4.2's labels stop describing a document whose page count
+    /// changed, so the appended pages get a range of their own ([`super::preserve`] says what it
+    /// states and why).
+    PreservedAsPage,
 }
 
 impl Rewrite {
@@ -690,6 +701,11 @@ impl Rewrite {
                 "an associated file's stream states the MIME media type the operator's \
                  configuration supplied, on the operator's authority rather than the document's"
             }
+            Self::PreservedAsPage => {
+                "content this target will not hold where it was is kept on a page appended to the \
+                 document, carrying nothing that did not come from the file, and the page-label \
+                 tree gains a range for it"
+            }
         }
     }
 
@@ -740,6 +756,7 @@ impl Rewrite {
             Self::ForeignPermissionHandlers => "foreign-permission-handlers",
             Self::DerivedEmbeddedFile => "derived-embedded-file",
             Self::SuppliedMediaType => "supplied-media-type",
+            Self::PreservedAsPage => "preserved-as-page",
         }
     }
 }
@@ -801,6 +818,7 @@ pub(super) fn convert(
         specifications: prepared.owed.specifications.as_ref().ok(),
         signatures: Some(&prepared.signatures),
         foreign_handlers: prepared.owed.foreign_handlers.as_ref().ok(),
+        preserved: prepared.preserved.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1036,6 +1054,9 @@ struct Sites {
     names: Option<ObjectId>,
     /// Every page object §7.7.3's tree reaches.
     pages: BTreeSet<ObjectId>,
+    /// §7.7.3.2's root node of the page tree, where a rewrite has to add a page to it.
+    root_of_the_pages: Option<ObjectId>,
+
     /// Every annotation object a page's `/Annots` names, except a `Popup`.
     annotations: BTreeSet<ObjectId>,
     /// Where a `/DefaultCMYK` has to be written, where one is being written.
@@ -1065,10 +1086,23 @@ impl Sites {
         } else {
             BTreeSet::new()
         };
+        // A page appended to the document is added to the node §7.7.3.2 makes the catalog's
+        // `/Pages`, whose `/Kids` "may be a combination of page tree nodes and page objects" — so
+        // a page may be a kid of the root whatever shape the rest of the tree has.
+        let root_of_the_pages = wanted
+            .contains(&Rewrite::PreservedAsPage)
+            .then(|| {
+                document
+                    .get(catalog)
+                    .as_dict()
+                    .and_then(|dict| dict.get("Pages").and_then(Object::as_reference))
+            })
+            .flatten();
         Self {
             catalog,
             names,
             pages,
+            root_of_the_pages,
             annotations,
             default_cmyk,
         }
@@ -1496,6 +1530,8 @@ struct Rewriter<'a> {
     foreign_handlers: Option<&'a ForeignHandlers>,
     /// What the operator's configuration answered, for the two remedies that reach a rewrite.
     remedies: &'a super::remedies::Remedies,
+    /// The pages a `preserve` remedy composed, where any were composed.
+    preserved: Option<&'a Composed>,
 }
 
 impl Rewriter<'_> {
@@ -1558,6 +1594,7 @@ impl Rewriter<'_> {
         if id == self.sites.catalog {
             changed |= self.rewrite_catalog(&mut out, applied);
         }
+        changed |= self.preserve(id, &mut out, applied);
         if Some(id) == self.sites.names
             && self.wants(Rewrite::AlternatePresentations)
             && out.remove("AlternatePresentations").is_some()
@@ -2191,6 +2228,108 @@ impl Rewriter<'_> {
     }
 
     /// The catalog: §7.7.2's `/Requirements`, `/Version` and a direct `/Names`.
+    /// §12.4.2's labels, where the catalog states the number tree inline rather than by reference.
+    ///
+    /// The extended tree is the preparation's whichever of the two shapes the document used, and
+    /// [`Self::preserve`] writes the other.
+    fn state_the_labels_inline(&self, catalog: &mut Dictionary) -> bool {
+        if !self.wants(Rewrite::PreservedAsPage) {
+            return false;
+        }
+        let Some(composed) = self.preserved else {
+            return false;
+        };
+        let Some((None, labels)) = composed.labels.as_ref() else {
+            return false;
+        };
+        catalog.insert(
+            Name::new(&b"PageLabels"[..]),
+            Object::Dictionary(labels.clone()),
+        );
+        true
+    }
+
+    /// The two dictionaries an appended page changes: the page tree's root and the label tree.
+    ///
+    /// `doc/adr/0954` is why the second is here at all — a page count that changes leaves
+    /// §12.4.2's labels describing a document that no longer exists, and neither the label nor the
+    /// page is a conformance requirement, so both are owed for the reader rather than for the
+    /// validator.
+    fn preserve(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::PreservedAsPage) {
+            return false;
+        }
+        let Some(composed) = self.preserved else {
+            return false;
+        };
+        let mut changed = false;
+        if Some(id) == self.sites.root_of_the_pages && !composed.pages.is_empty() {
+            changed |= self.append_the_pages(out, composed, applied);
+        }
+        if let Some((Some(at), labels)) = composed.labels.as_ref()
+            && *at == id
+        {
+            *out = labels.clone();
+            changed = true;
+        }
+        changed
+    }
+
+    /// Adds the composed pages to the page tree's root node.
+    ///
+    /// §7.7.3.2's Table 30 is the whole of what this has to get right, and it makes the two edits
+    /// one each. `/Kids`:
+    ///
+    /// > An array of indirect references to the immediate children of this node. The children
+    /// > shall only be page objects or other page tree nodes.
+    ///
+    /// A composed page is one of the two things a kid may be, so it is added to the root node
+    /// without any other node in the tree knowing. And `/Count`:
+    ///
+    /// > The number of leaf nodes (page objects) that are descendants of this node within the page
+    /// > tree.
+    ///
+    /// The root is an ancestor of every page, so it is the only node whose count changes. The
+    /// producer's own number is added to rather than recomputed: a file whose count was wrong
+    /// before this conversion is wrong in the same way afterwards, and correcting it is a change
+    /// no failed requirement asked for.
+    fn append_the_pages(
+        &self,
+        node: &mut Dictionary,
+        composed: &Composed,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(mut kids) = self
+            .document
+            .get_key(node, "Kids")
+            .as_array()
+            .map(<[Object]>::to_vec)
+        else {
+            return false;
+        };
+        for page in &composed.pages {
+            kids.push(Object::Reference(*page));
+            count(applied, Rewrite::PreservedAsPage);
+        }
+        let was = self
+            .document
+            .get_key(node, "Count")
+            .as_integer()
+            .unwrap_or(0);
+        let gained = i64::try_from(composed.pages.len()).unwrap_or(0);
+        node.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
+        node.insert(
+            Name::new(&b"Count"[..]),
+            Object::Integer(was.saturating_add(gained)),
+        );
+        true
+    }
+
     fn rewrite_catalog(
         &self,
         catalog: &mut Dictionary,
@@ -2205,6 +2344,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::NeedsRendering);
             changed = true;
         }
+        changed |= self.state_the_labels_inline(catalog);
         if self.wants(Rewrite::CatalogVersion) && catalog.get("Version").is_some() {
             // ISO 19005-4 section 6.1.12 fixes the shape of this value; §7.7.2's Table 28 gives
             // the entry its meaning, "[t]he version of the PDF specification to which this

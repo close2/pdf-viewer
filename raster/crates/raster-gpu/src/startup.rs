@@ -77,7 +77,7 @@ pub const DEFAULT_MAX_FRAME_BYTES: u64 = 256 * 1024 * 1024;
 /// The default budget for resident resources — outlines, images, ramps, meshes — in
 /// bytes.
 ///
-/// The same principle as [`DEFAULT_MAX_FRAME_BYTES`], at resource scope: §4.7's
+/// The same principle as [`DEFAULT_MAX_FRAME_BYTES`], at resource scope: brief section 4.7's
 /// 60 000×60 000 image arrives from real files by way of a correct interpreter, and
 /// its 14.4 GB of RGBA8 must be a refusal naming this number, never an allocation
 /// attempt. 512 MiB holds every page of every corpus document the brief quotes with
@@ -109,7 +109,7 @@ pub const DEFAULT_ATLAS_BUDGET: u64 = 8 * 1024 * 1024;
 
 /// The default sub-pixel quantum of the glyph cache: 1/16 of a pixel.
 ///
-/// §4.5's fifth decision, measured by the caller (its ADR 0131): 1/16 reused 5.0× on
+/// brief section 4.5's fifth decision, measured by the caller (its ADR 0131): 1/16 reused 5.0× on
 /// a dense page and left its oracle's verdicts unmoved; 1/8 contradicted pages.
 pub const DEFAULT_GLYPH_QUANTUM: u16 = 16;
 
@@ -229,7 +229,7 @@ pub struct Options {
     /// picks the software rasteriser, `"radv"` the Radeon Vulkan driver. `None` asks
     /// wgpu for the highest-performance adapter it can find. Ties among matches are
     /// broken by name order, so the same request on the same machine picks the same
-    /// adapter (§4.6's spirit applied to setup).
+    /// adapter (brief section 4.6's spirit applied to setup).
     pub adapter: Option<String>,
     /// The per-frame budget for scene-derived allocations, in bytes. Exceeding it is
     /// a [`RenderError::FrameBudgetExceeded`] naming both numbers, before anything is
@@ -256,7 +256,7 @@ pub struct Options {
     /// glyph tiles at 1/16-pixel phases; `None` switches quantisation **off** (exact
     /// phase keying — correct everywhere, and it almost never hits, which is the
     /// caller's own measurement). Quantising moves rendered text by at most half a
-    /// quantum, which is why this is exposed rather than chosen silently (§4.5).
+    /// quantum, which is why this is exposed rather than chosen silently (brief section 4.5).
     pub glyph_quantum: Option<u16>,
     /// Which lane produces coverage ([`Coverage`]); [`Coverage::Cpu`] by default,
     /// which is the lane whose bytes are exact and whose output the caller's CPU
@@ -295,7 +295,7 @@ pub struct Options {
     /// function of one mark's own geometry, so it divides exactly; everything the
     /// frame's order depends on — the budget, the sheet's shelves, the atlas, the
     /// instance stream — stays on the calling thread, which is what makes the result
-    /// **byte-identical at any value of this field** (§4.6, and
+    /// **byte-identical at any value of this field** (brief section 4.6, and
     /// `tests/encode_threads.rs` holds it to that).
     ///
     /// **Why the host names the number, rather than this library asking the machine.**

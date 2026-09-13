@@ -10,7 +10,7 @@
 //! numbers here are what that lever is worth, per zoom, per adapter.
 //!
 //! The scene is `floor.rs`'s dense page — 5 933 glyph-lane fills over 107 distinct
-//! outlines — because it is the shape the brief's §0 says a document renderer must be
+//! outlines — because it is the shape the brief's section 0 says a document renderer must be
 //! fast at, and because zoom is exactly where its premise (a few outlines repeated
 //! many times) stops holding: a magnified letterform eventually takes more of the atlas
 //! than `MAX_TILE_SHARE` allows, leaves it for the coverage path, and is rasterised

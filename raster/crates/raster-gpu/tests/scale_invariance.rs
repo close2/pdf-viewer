@@ -217,7 +217,7 @@ fn a_fill_covers_its_own_area_at_every_magnification() {
 
 /// **A stroke deposits its own band at every magnification.**
 ///
-/// The stroke's width is stated in device pixels — §4.5's decision, settled upstream — so
+/// The stroke's width is stated in device pixels — brief section 4.5's decision, settled upstream — so
 /// a caller zooming to `s` passes `s` times the width, and this fixture does the same by
 /// building one scene per scale. The band is 32 long and 4 wide with butt caps, so its
 /// area is 128 scene units; §8.4.3.3's butt cap adds nothing beyond the endpoints, which

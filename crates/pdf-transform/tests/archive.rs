@@ -327,6 +327,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
+            preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(bytes.to_vec())],
@@ -1431,6 +1432,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
+            preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(source)],
@@ -1832,6 +1834,7 @@ fn convert_with_profile(
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
+            preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(bytes.to_vec())],
@@ -2074,6 +2077,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
+            preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(source)],
@@ -3929,6 +3933,7 @@ fn convert_with_departure(
             claim_conformance: claim,
             derivations: Vec::new(),
             supplies: Vec::new(),
+            preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
         }),
         &[Source::new(bytes.to_vec())],
@@ -4150,7 +4155,7 @@ fn convert_with_plan(bytes: &[u8], plan: &ArchivePlan) -> (Report, Option<Vec<u8
     (report, output)
 }
 
-/// An archive plan carrying a configuration's derivations and supplies.
+/// An archive plan carrying a configuration's derivations, supplies and preservations.
 fn plan_from(text: &str, target: Target) -> ArchivePlan {
     let config = pdf_transform::archive::Configuration::read(text, target).expect("it reads");
     ArchivePlan {
@@ -4164,6 +4169,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         claim_conformance: false,
         derivations: config.derivations(target),
         supplies: config.supplies(target),
+        preservations: config.preservations(target),
         tool_outputs: ToolOutputs::new(),
     }
 }
@@ -4543,5 +4549,291 @@ fn one_command_converts_a_document_whose_configuration_names_a_tool() {
         holds(&written, Target::Four(Flavour::Plain)).verdict(),
         Verdict::Conforms,
         "and it is held to the target"
+    );
+}
+
+/// Every Liberation Sans advance for the codes `/WinAnsiEncoding` gives 32 to 126, in thousandths.
+///
+/// Read off the shipped program's own `hmtx` at its 2048-unit em and rounded to the em-thousandth
+/// §9.2.4's `/Widths` is stated in, so the dictionary and the program agree inside the thousandth
+/// ISO 19005-2 section 6.2.11.5 allows — which is what keeps this fixture about the one
+/// requirement it is written for.
+const LIBERATION_SANS_ADVANCES: &str = "278 278 355 556 556 889 667 191 333 333 389 584 278 333 \
+     278 278 556 556 556 556 556 556 556 556 556 556 278 278 584 584 584 556 1015 667 667 722 722 \
+     667 611 778 722 278 500 667 556 833 722 778 667 778 722 667 611 722 667 944 667 667 611 278 \
+     278 278 469 556 333 556 556 500 556 556 278 556 556 222 222 500 222 833 556 556 556 556 333 \
+     500 278 556 500 722 500 500 500 334 260 334 584";
+
+/// A PDF/A-2b document whose packet states a property its own schema does not define, set in a
+/// face the document embeds.
+///
+/// **The document that loses content today.** `xmp:CreateDate` is defined by the XMP basic schema
+/// as a date and this packet states a sentence, so ISO 19005-2 section 6.6.2.3.1 rejects it and
+/// `doc/pdf-a-conversion-limits.md` section 3.9's only route is removal — the sentence is gone
+/// from the archive and nothing in the output says what it was.
+///
+/// The page paints in `DeviceGray` so that the conversion adds section 6.2.2's output intent, and
+/// the font is embedded with a `/ToUnicode` covering every code `/WinAnsiEncoding` gives the
+/// printable ASCII range: both are what a preserved page needs of a document and neither is
+/// contrived — a file with no output intent and no usable face is refused by name.
+fn a_packet_a_predefined_schema_rejects() -> Vec<u8> {
+    a_packet_a_predefined_schema_rejects_with(String::new())
+}
+
+/// The same, with entries of the test's own added to the catalog.
+fn a_packet_a_predefined_schema_rejects_with(catalog: String) -> Vec<u8> {
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" ");
+    packet.push_str("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" ");
+    packet.push_str("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
+    packet.push_str("<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n");
+    packet.push_str("<xmp:CreateDate>the day we shipped it</xmp:CreateDate>\n");
+    packet.push_str("<pdf:Producer>Somebody's exporter</pdf:Producer>\n");
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CMapName /Test def\n/CMapType 2 def\n\
+         1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+         1 beginbfrange\n<20> <7E> <0020>\nendbfrange\n\
+         endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+    let built = Conforming {
+        metadata: Packet::Stated(packet),
+        catalog,
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"0 g BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 32 \
+                 /LastChar 126 /Widths [{LIBERATION_SANS_ADVANCES}] /FontDescriptor 7 0 R \
+                 /Encoding /WinAnsiEncoding /ToUnicode 8 0 R >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 9 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(&format!("/Length {}", cmap.len()), cmap.as_bytes()),
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    // The builder's page is 200 units square, and an appended page is the size of the document's
+    // first — so this fixture states a page of the size people print, and the packet is set on
+    // one page rather than five. The rectangle is the same number of bytes as the builder's, so
+    // every cross-reference offset in the file still stands, and the substitution is made over
+    // the bytes rather than over a string: the file holds a font program, and reading it as text
+    // would replace every byte of it that is not UTF-8.
+    let mut out = built;
+    let was = b"/MediaBox [0 0 200 200]";
+    let now = b"/MediaBox [0 0 612 792]";
+    let at = out
+        .windows(was.len())
+        .position(|window| window == was)
+        .expect("the builder states one media box");
+    out.splice(at..at.saturating_add(was.len()), now.iter().copied());
+    out
+}
+
+/// A configuration that preserves what the metadata rule would otherwise lose.
+fn a_preserve_configuration() -> String {
+    "[site.\"metadata/properties-use-known-schemas\"]\nremedy = \"preserve\"\n\
+     placement = \"append\"\n"
+        .to_owned()
+}
+
+/// Every page's decoded content stream, in page order.
+fn page_contents(bytes: &[u8]) -> Vec<Vec<u8>> {
+    let document =
+        Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&document);
+    (0..pages.len())
+        .map(|index| {
+            let page = pages.get(index).expect("a page");
+            let contents = document.get_key(&page.dict, "Contents");
+            let stream = contents.as_stream().cloned().expect("a content stream");
+            document
+                .decoded_stream_data(&stream)
+                .expect("the content decodes")
+                .to_vec()
+        })
+        .collect()
+}
+
+#[test]
+fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_document() {
+    // `doc/adr/1014`, on the owner's `A58`: a page composed solely of content the document
+    // already holds is on the near side of `CLAUDE.md`'s authoring exclusion. This is what that
+    // permission buys — ISO 19005-2 section 6.6.2.3.1 takes the property out of the packet either
+    // way, and `remedy = "preserve"` puts the packet the producer wrote where a person can still
+    // read it, in a typeface the document itself embeds.
+    let source = a_packet_a_predefined_schema_rejects();
+    let target = Target::Two(Level::B);
+
+    // What happens today, and why the remedy exists: the sentence is removed and the archive
+    // holds nothing that says what it was.
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: true,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: false,
+        signature_assertion: false,
+    };
+    let (lost, output) = convert(&source, target, authorised);
+    let output = output.expect("the authorised loss converts");
+    assert_eq!(
+        conversion(&lost).removed.len(),
+        1,
+        "one property went, and the report is all that is left of it"
+    );
+    assert_eq!(
+        page_contents(&output).len(),
+        1,
+        "and the document is as long as it was"
+    );
+
+    // And what the configuration buys.
+    let plan = plan_from(&a_preserve_configuration(), target);
+    assert_eq!(
+        plan.preservations.len(),
+        1,
+        "the configuration names one preservation"
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert_eq!(
+        decision(&report, "metadata/properties-use-known-schemas"),
+        Decision::Configured {
+            kind: pdf_transform::archive::RemedyKind::Preserve,
+            rewrite: Rewrite::PropertyOutsideItsSchema,
+            warns: pdf_transform::archive::PRESERVED_AS_A_PAGE,
+        },
+        "the operator's answer is what the conversion does about the requirement"
+    );
+    let output = output.expect("the preservation converts");
+
+    // **Proved on the copy rather than promised** (session 971's rule): the output is re-opened
+    // and every page this conversion said it appended is read back off it.
+    let pages = page_contents(&output);
+    assert_eq!(
+        pages.len(),
+        2,
+        "one page was appended: {} pages",
+        pages.len()
+    );
+    let appended = String::from_utf8_lossy(pages.last().expect("the appended page"));
+    let mut hex = String::new();
+    for byte in "the day we shipped it".bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{byte:02X}");
+    }
+    assert!(
+        appended.contains(&hex),
+        "the page carries the producer's own sentence, code for code: {appended}"
+    );
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and the document that leaves the verb still conforms to the target"
+    );
+
+    // The property is gone from the packet all the same — the page is where it survives, not the
+    // metadata, because the metadata is what the clause is about.
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("<xmp:CreateDate>"),
+        "the property is out of the packet"
+    );
+
+    // `doc/adr/1014` section 5's condition: the report says a page was appended, carrying this,
+    // from there, placed so — and the file's own history says the same.
+    let preserved = &conversion(&report).preserved;
+    assert_eq!(preserved.len(), 1, "one thing preserved: {preserved:?}");
+    let row = preserved.first().expect("the preserved packet");
+    assert_eq!(row.site, "metadata/properties-use-known-schemas");
+    assert_eq!(row.pages, vec![1], "the appended page, zero-based");
+    assert!(
+        row.subject.contains("XMP metadata packet"),
+        "named as the document names it: {}",
+        row.subject
+    );
+    assert!(
+        written.contains("kept on a page this conversion composed"),
+        "the file's own xmpMM:History carries the fact, not only the report"
+    );
+}
+
+#[test]
+fn a_document_whose_structure_tree_would_not_describe_the_page_is_refused_by_name() {
+    // ISO 19005-2 section 6.7 requires a Level A file's logical structure to describe its
+    // content, and `doc/adr/1014` section 5 makes the entries an appended page owes part of the
+    // same permission. They are not built, so a document carrying a structure tree is refused
+    // with a sentence rather than given a page its own tree does not describe — the round's rule:
+    // a promise nothing will keep is worse than a refusal with a sentence.
+    let with_a_tree =
+        a_packet_a_predefined_schema_rejects_with("/MarkInfo << /Marked true >>".to_owned());
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&a_preserve_configuration(), target);
+    let (report, output) = convert_with_plan(&with_a_tree, &plan);
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(&report, "metadata/properties-use-known-schemas");
+    let Decision::Refused(because) = decided else {
+        panic!("the preservation is refused rather than half-done: {decided:?}");
+    };
+    assert!(
+        because.sentence().contains("structure"),
+        "and the sentence says what it waits on: {}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn a_preserve_that_names_no_mechanism_is_an_error_naming_the_site() {
+    // `doc/rfc/0007` section 4.6.1: appending is an operator's choice rather than a fallback —
+    // somebody archiving to PDF/A-4 may prefer the content visible in the document over an
+    // attachment a reader has to go looking for — so neither mechanism is a default and a
+    // configuration that names neither is refused rather than guessed at.
+    let error = pdf_transform::archive::Configuration::read(
+        "[site.\"metadata/properties-use-known-schemas\"]\nremedy = \"preserve\"\n",
+        Target::Two(Level::B),
+    )
+    .expect_err("a preserve with no placement is an error");
+    let said = error.to_string();
+    assert!(
+        said.contains("metadata/properties-use-known-schemas") && said.contains("placement"),
+        "the error names both the site and what is missing: {said}"
+    );
+}
+
+#[test]
+fn a_preserve_by_attachment_at_a_target_that_cannot_hold_the_original_names_both() {
+    // `doc/rfc/0007` section 4.6: a remedy the chosen target does not admit is an error naming
+    // both, never a quiet fall-through to `stop`. PDF/A-2 admits an embedded file only where that
+    // file itself conforms to ISO 19005-1 or -2, so keeping an attachment *as* an attachment
+    // there means attaching one derived from it — and with no tool named there is nothing to
+    // attach.
+    let error = pdf_transform::archive::Configuration::read(
+        "[site.\"embedded-files/embedded-file-is-itself-pdfa\"]\nremedy = \"preserve\"\n\
+         placement = \"attach\"\n",
+        Target::Two(Level::B),
+    )
+    .expect_err("attaching at PDF/A-2 without a tool is an error");
+    let said = error.to_string();
+    assert!(
+        said.contains("embedded-files/embedded-file-is-itself-pdfa") && said.contains("2b"),
+        "the error names the site and the target: {said}"
+    );
+    assert!(
+        said.contains("PDF/A-4f"),
+        "and says which targets hold the original unchanged: {said}"
     );
 }

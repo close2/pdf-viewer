@@ -1,11 +1,11 @@
 //! Resources: uploaded once, referenced many times, and counted against a budget.
 //!
-//! §2.2 of the brief is the reason this registry exists: the 107 distinct outlines of
+//! section 2.2 of the brief is the reason this registry exists: the 107 distinct outlines of
 //! one dense page are uploaded once and referenced 5 933 times, and a zoom re-uploads
 //! none of them. The caller keys its own pointer-identity map by the ids this module
 //! hands out (`Arc::as_ptr` → [`OutlineId`]).
 //!
-//! Every upload is validated (§4.7: a 60 000×60 000 image and a 1e30 coordinate both
+//! Every upload is validated (brief section 4.7: a 60 000×60 000 image and a 1e30 coordinate both
 //! arrive from real files by way of a correct interpreter) and priced against a stated
 //! budget before it is stored — a resource sized from document-derived arithmetic is a
 //! decompression bomb with a different name (CLAUDE.md principle 3).
@@ -84,7 +84,7 @@ pub(crate) struct StoredOutline {
     /// (ADR 0016).
     quads: OnceLock<QuadOutline>,
     /// The axis-aligned rectangle the outline traces, when it traces exactly one —
-    /// recognised once, at upload, because §6.4 turns on it: a rectangular clip is
+    /// recognised once, at upload, because brief section 6.4 turns on it: a rectangular clip is
     /// four floats, never a mask, and the encoder asks this on every frame.
     pub rect_hint: Option<Rect>,
     /// The control points' box in outline space — `min x, min y, max x, max y` —
@@ -527,7 +527,7 @@ impl ResourceStore {
     /// ascending, and colours that are valid. Ascending order is a requirement rather
     /// than something to sort into place: sampling walks the stops in the order given
     /// and interpolates between neighbours, so reordering them here would silently
-    /// redraw a document's gradient rather than refuse it (§4.7). Each failure
+    /// redraw a document's gradient rather than refuse it (brief section 4.7). Each failure
     /// names itself — [`ResourceProblem::RampEmpty`],
     /// [`ResourceProblem::RampOffsetOutOfRange`], [`ResourceProblem::RampUnordered`],
     /// [`ResourceProblem::RampColorInvalid`] — and a ramp over the budget is
@@ -888,7 +888,7 @@ mod tests {
         assert_eq!(store.in_use_bytes(), 0, "a refused upload must not charge");
     }
 
-    /// §4.7 at the upload boundary: empty, headless, non-finite and oversized
+    /// brief section 4.7 at the upload boundary: empty, headless, non-finite and oversized
     /// outlines are each refused by name.
     #[test]
     fn outline_validation_names_each_refusal() {

@@ -77,7 +77,7 @@ const RESOURCE_BUDGET: u64 = 32 * 1024;
 ///
 /// Zero size is legitimate for `Readback` and yields an empty raster; a non-finite
 /// viewport transform and a malformed damage rect are both refusals that name
-/// themselves (§4.7), and both are reachable from here. The damage list is filled in
+/// themselves (brief section 4.7), and both are reachable from here. The damage list is filled in
 /// place rather than returned because a `Viewport` borrows it.
 fn fuzz_viewport(generator: &mut Gen, damage: &mut Vec<Rect>) -> (u32, u32, Affine) {
     let (width, height) = match generator.rng.next() % 8 {

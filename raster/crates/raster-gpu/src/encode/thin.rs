@@ -59,7 +59,7 @@ pub(super) fn sample_column_spacing(samples: u32) -> f32 {
 ///
 /// A mark reaches [`Encoder::take_gpu_lane`](super::Encoder::take_gpu_lane) as device
 /// geometry plus, for a stroke, the width §8.4.3 already resolved into device pixels
-/// (§4.5 of the brief settles that upstream). Two bounds on its thickness follow, and
+/// (section 4.5 of the brief settles that upstream). Two bounds on its thickness follow, and
 /// this is the smaller of the ones that apply:
 ///
 /// - **the narrower side of its device box.** The mark lies inside that box, so across

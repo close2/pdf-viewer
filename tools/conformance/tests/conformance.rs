@@ -279,10 +279,20 @@ fn every_quotation_is_the_standards_own_words() {
 
     let mut wrong = String::new();
     let mut quotations = 0usize;
+    let mut elsewhere: BTreeMap<String, usize> = BTreeMap::new();
+    let mut unverifiable = 0usize;
     for (path, scan) in &scanned {
         for quotation in &scan.quotations {
             quotations = quotations.saturating_add(1);
             let site = format!("{}:{}", path.display(), quotation.line);
+            // A blockquote attributed to another document is that document's words, not the
+            // standard's, and checking it against a clause it never claimed to be from would
+            // report correct writing. `citation::Quotation::document` carries the argument and
+            // the rule that keeps it from being an escape hatch.
+            if let Some(document) = &quotation.document {
+                *elsewhere.entry(document.clone()).or_default() += 1usize;
+                continue;
+            }
             let Some(clause) = &quotation.clause else {
                 let _ = writeln!(
                     wrong,
@@ -293,6 +303,14 @@ fn every_quotation_is_the_standards_own_words() {
             };
             if !index.contains(clause) {
                 continue; // Already a failure of the citation test; not worth saying twice.
+            }
+            // An equation quoted under a clause the conversion emptied of equations cannot be
+            // checked here at all: `doc/md/` holds a marker where the PDF sets the formula, so
+            // the exact quotation and the paraphrase fail identically. Counted as unverifiable
+            // rather than reported as wrong — `ClauseIndex::dropped_a_formula` has the argument.
+            if quotation.text.contains('=') && index.dropped_a_formula(clause) {
+                unverifiable = unverifiable.saturating_add(1);
+                continue;
             }
             if !index.holds_quotation(clause, &quotation.text) {
                 let _ = writeln!(
@@ -305,8 +323,26 @@ fn every_quotation_is_the_standards_own_words() {
         }
     }
 
+    println!(
+        "{unverifiable} equation(s) quoted under a clause whose formulas the conversion did not \
+         decode, which this gate cannot check either way"
+    );
+    let borrowed: usize = elsewhere.values().sum();
+    println!(
+        "{borrowed} blockquote(s) attributed to a document that is not ISO 32000-2, which this \
+         gate counts and cannot check:"
+    );
+    for (document, count) in &elsewhere {
+        println!("  {count:4} {document}");
+    }
+
     assert!(wrong.is_empty(), "\n{wrong}");
-    println!("{quotations} quotations, all verbatim within the clause they cite");
+    println!(
+        "{} quotations of the standard, all verbatim within the clause they cite",
+        quotations
+            .saturating_sub(borrowed)
+            .saturating_sub(unverifiable)
+    );
 }
 
 /// Every `Table N` a comment names is a table the standard has, and its title is printed.
@@ -522,6 +558,18 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
             println!("  {status:<13} {count}");
         }
     }
+
+    // The counts above are rows; this is *work*. A heading whose subclauses still owe something
+    // cannot be assigned to a round — it flips when its last child flips — so the debt is the
+    // unsettled rows that are not headings, and reading the first number as the second is how
+    // "206 partial rows" came to mean 206 pieces of work. ADR 1035.
+    let owing = ledger.owing().len();
+    let unsettled = ledger.rows.iter().filter(|row| row.status.owes()).count();
+    println!(
+        "  {owing} of the {unsettled} unsettled rows owe a debt of their own; the other {} are \
+         headings carrying their subclauses'",
+        unsettled - owing
+    );
     println!("{}", by_clause(&ledger));
 
     // Evidence that is a whole file cannot fail when a claim stops being true; see
@@ -700,4 +748,81 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
             println!("  Table {number} — {title}");
         }
     }
+}
+
+/// Every annex is on the side of the ledger the standard's own title line puts it on.
+///
+/// # The population question, asked of an instrument instead of the tree
+///
+/// [`conformance::ledger::NORMATIVE_ANNEXES`] and
+/// [`conformance::ledger::INFORMATIVE_ANNEXES`] are seventeen letters written by hand, and
+/// `ledger::check` reports a letter that is in *neither* — so the lists cannot lose an annex.
+/// What nothing asked until the one-thousand-and-tenth session is whether a letter is in the
+/// **right** one, and the standard states that itself: `Annex D (normative) Character sets and
+/// encodings`, `Annex B (informative) Operators in Type 4 Functions`. A transposition would move
+/// an annex's requirements out of the ledger's scope in silence, which is the same defect as
+/// `SOURCE_ROOTS`' one directory further out — a classification kept beside the document that
+/// already states it.
+///
+/// Two annexes carry the word on the line *below* their heading rather than beside it, because
+/// the conversion breaks the title there; both are read, and an annex whose marker cannot be
+/// found at all is a loud failure rather than a pass, since a rule that shrugged at a missing
+/// marker would report nothing the day the conversion changed shape.
+#[test]
+fn every_annex_is_classified_as_the_standard_classifies_it() {
+    let root = conformance::workspace_root();
+    let text = std::fs::read_to_string(root.join(conformance::STANDARD)).expect("the standard");
+
+    let mut wrong = String::new();
+    let mut read = 0usize;
+    let lines: Vec<&str> = text.lines().collect();
+    for (at, line) in lines.iter().enumerate() {
+        let heading = line.trim_start();
+        if !heading.starts_with('#') {
+            continue; // A sentence naming an annex is not the annex's title line.
+        }
+        let Some(rest) = heading
+            .trim_start_matches('#')
+            .trim()
+            .strip_prefix("Annex ")
+        else {
+            continue;
+        };
+        let Some(letter) = rest.chars().next().filter(char::is_ascii_uppercase) else {
+            continue;
+        };
+        // The marker is on the heading, or on the heading the conversion broke off below it.
+        let tail = rest.to_owned() + lines.get(at.saturating_add(2)).copied().unwrap_or_default();
+        let normative = tail.contains("(normative)");
+        let informative = tail.contains("(informative)");
+        assert!(
+            normative != informative,
+            "Annex {letter}'s heading states neither (normative) nor (informative), so this gate \
+             cannot read the standard's own classification of it: {line}"
+        );
+        read = read.saturating_add(1);
+        let listed_normative = ledger::NORMATIVE_ANNEXES.contains(&letter);
+        let listed_informative = ledger::INFORMATIVE_ANNEXES.contains(&letter);
+        if normative && !listed_normative {
+            let _ = writeln!(
+                wrong,
+                "Annex {letter} is (normative) in the standard and not in NORMATIVE_ANNEXES, so \
+                 the ledger carries no row for its requirements and nothing says so"
+            );
+        }
+        if informative && !listed_informative {
+            let _ = writeln!(
+                wrong,
+                "Annex {letter} is (informative) in the standard and not in INFORMATIVE_ANNEXES"
+            );
+        }
+    }
+
+    assert!(
+        read >= ledger::NORMATIVE_ANNEXES.len() + ledger::INFORMATIVE_ANNEXES.len(),
+        "only {read} annex headings were found, which is fewer than the lists name: this gate is \
+         not reading the standard's annexes at all"
+    );
+    assert!(wrong.is_empty(), "\n{wrong}");
+    println!("{read} annexes, each on the side its own title line states");
 }

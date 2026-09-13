@@ -13,7 +13,7 @@
 //! ADR 0053 puts it.
 //!
 //! What the *scene* boundary checks is the paint that references the program — its
-//! domain, matrix, range and background — and that lives with the other §4.7 refusals in
+//! domain, matrix, range and background — and that lives with the other brief section 4.7 refusals in
 //! `scene::validate`, because those are the scene's numbers rather than the function's.
 //!
 //! # Why this exists at all
@@ -245,7 +245,7 @@ pub enum FnOp {
 ///
 /// One type rather than a `[f32; 6]` plus an `outputs: u32`, because those two can
 /// disagree and this cannot. `DeviceCMYK` is deliberately absent: colour conversion is
-/// settled upstream (§4.5), and CLAUDE.md's stack table forbids a colour-management
+/// settled upstream (brief section 4.5), and CLAUDE.md's stack table forbids a colour-management
 /// crate here. `DeviceGray` is admitted because replicating one component into three is
 /// not a colour *space* transform — it is one line of the generated shader, and it keeps
 /// what the document declared.

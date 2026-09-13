@@ -2,7 +2,7 @@
 //! (`raster/doc/notes-census.md`), beside ADR 0057's `Counters::coverage`, which is what the
 //! census reads for the work a lane causes.
 //!
-//! §1.1 of `raster/doc/PLAN.md` asserts that most of a page is repeated glyph outlines and
+//! brief section 1.1 of `raster/doc/PLAN.md` asserts that most of a page is repeated glyph outlines and
 //! axis-aligned rectangles and that general curve filling is the *rare* case. That is the
 //! premise the whole architecture is arranged around, and every claim in this file is
 //! about the counter that can now say whether a given page agrees with it.
@@ -14,7 +14,7 @@
 //! - **the lanes count marks, not commands.** A command that reaches no pixel takes no
 //!   lane, and a group draws none of its own.
 //! - **the rectangle lane rasterises nothing.** That is what makes it the fast lane and
-//!   what §6.4 of the brief insists on, so it is asserted as a zero rather than assumed.
+//!   what section 6.4 of the brief insists on, so it is asserted as a zero rather than assumed.
 
 // Test-file lint policy as in m1.rs.
 #![allow(
@@ -87,7 +87,7 @@ fn fill(builder: &mut SceneBuilder, outline: raster_scene::OutlineId, transform:
 
 /// ADR 0047's door: a fill whose outline is four axis-aligned edges takes the analytic
 /// rectangle lane, and that lane rasterises no coverage at all — which is the property
-/// §6.4 of the brief states and the reason the lane exists.
+/// section 6.4 of the brief states and the reason the lane exists.
 #[test]
 fn a_rectangular_outline_takes_the_rectangle_lane_and_rasterises_nothing() {
     let mut device = device();
@@ -114,7 +114,7 @@ fn a_rectangular_outline_takes_the_rectangle_lane_and_rasterises_nothing() {
 }
 
 /// The glyph lane counts **placements**, not tiles: a page that draws one letterform
-/// many times is exactly the case §1.1 says a document is mostly made of, and the two
+/// many times is exactly the case brief section 1.1 says a document is mostly made of, and the two
 /// numbers that say so are this one and `atlas_distinct_keys`.
 #[test]
 fn every_placement_of_one_shape_is_its_own_glyph_lane_mark() {
@@ -209,7 +209,7 @@ fn an_image_placement_is_the_image_lane() {
 /// The seam §11.2's census exists to size, in one fixture: the *same* fill takes the
 /// glyph lane on a device whose atlas will hold its tile and the path lane on one whose
 /// atlas will not. Which lane a mark takes is a device-space question, not a property of
-/// the scene (§1.1) — and this is the mechanism by which a page's shares move under
+/// the scene (brief section 1.1) — and this is the mechanism by which a page's shares move under
 /// magnification.
 #[test]
 fn one_fill_takes_the_glyph_lane_or_the_path_lane_by_what_the_atlas_will_hold() {

@@ -4,7 +4,7 @@
 //! [`DeviceError::InvalidResource`](crate::error::DeviceError::InvalidResource): one
 //! variant per question the validators in `resources.rs` ask of an outline, an image
 //! or a ramp *before* anything is stored — the whole enum is raised in that one file
-//! and nowhere else. §4.7 of the brief is why they are questions at all — a coordinate of
+//! and nowhere else. section 4.7 of the brief is why they are questions at all — a coordinate of
 //! 1e30 and a 60 000×60 000 image both arrive from real files by way of a correct
 //! interpreter, and the answer is a refusal by name rather than a repair.
 

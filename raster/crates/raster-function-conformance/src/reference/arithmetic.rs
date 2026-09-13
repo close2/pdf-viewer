@@ -119,10 +119,12 @@ pub fn binary(op: FnOp, a: Value, b: Value) -> Result<Value, EvalError> {
     }
 }
 
-/// PLRM3's `round`, which is neither of the two roundings a host provides.
+/// PLRM3's `round`, which is neither of the two roundings a host provides: it "returns
+/// the integer value nearest to num1. If num1 is equally close to its two nearest
+/// integers, round returns the greater of the two."
 ///
-/// > returns the integer value nearest to num1. If num1 is equally close to its two
-/// > nearest integers, round returns the greater of the two.
+/// Quoted in prose rather than as a blockquote, which in this tree is the standard's own
+/// words under a clause number and nothing else (`tools/conformance`).
 ///
 /// Written from the floor and the fraction rather than as `(x + 0.5).floor()`: adding
 /// 0.5 to a value at the top of `f32`'s integral range rounds *before* the floor sees

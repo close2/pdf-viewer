@@ -110,7 +110,7 @@ pub enum FunctionRefusal {
         depth: usize,
     },
     /// A literal that is NaN or infinite. §7.10.1 makes a function a map between numbers;
-    /// §4.7 of the brief refuses these loudly rather than letting them become NaN geometry —
+    /// section 4.7 of the brief refuses these loudly rather than letting them become NaN geometry —
     /// and WGSL's Finite Math Assumption would turn one into an indeterminate value, which
     /// is an arbitrary colour that looks like a colour.
     #[error("the literal at {at} is {value}, which is not a number")]

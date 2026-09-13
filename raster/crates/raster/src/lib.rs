@@ -10,7 +10,7 @@
 //! # State
 //!
 //! **M1.** A device (headless and surface-attached), the three targets of the brief's
-//! §2.4, analytically-covered axis-aligned rectangles, timestamped and truthful
+//! brief section 2.4, analytically-covered axis-aligned rectangles, timestamped and truthful
 //! frames, and the startup split of §7. The requirements are in
 //! `raster/doc/RENDER_LIBRARY.md`, the order of work in `raster/doc/PLAN.md`, and `raster/doc/adr/0003`
 //! says what a module may contain before the milestone that fills it.
@@ -54,7 +54,7 @@
 //! ```
 //!
 //! (M2 replaces the rectangle-only vocabulary with `fill`/`stroke` over uploaded
-//! outlines — the brief's §2.2 — at which point this example grows an
+//! outlines — the brief's section 2.2 — at which point this example grows an
 //! `upload_outline` call.)
 //!
 //! # Two promises worth reading before the rest

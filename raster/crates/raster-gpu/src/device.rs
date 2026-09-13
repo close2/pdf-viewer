@@ -8,7 +8,7 @@
 //! ([`crate::error`]); and a [`Frame`](crate::frame::Frame) is constructed only after
 //! every fallible step has succeeded, so a failed frame cannot report itself drawn.
 //!
-//! **Startup is a first-class requirement** (§2.1, §7 of the brief). Construction
+//! **Startup is a first-class requirement** (section 2.1, §7 of the brief). Construction
 //! blocks on adapter selection and device creation — the two things a device *is* —
 //! and on nothing else: pipelines compile on a background thread
 //! ([`Device::is_warm`]), and [`Device::headless`] is callable from any thread while
@@ -53,7 +53,7 @@
 //!   into one submission.
 //! - `binds` — the bind group and the uniform bytes each of the compositor's passes
 //!   reads.
-//! - `rare` — the same for the image and shading quads, which the brief's §0 calls the
+//! - `rare` — the same for the image and shading quads, which the brief's section 0 calls the
 //!   rare case.
 //! - `textures` — the textures a device makes, and the usages each one asks for.
 
@@ -121,7 +121,7 @@ static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(0);
 
 /// The rendering device: an adapter, a queue, and the pipelines a scene needs.
 ///
-/// Constructible on a background thread and not requiring one (§2.1). Headless is the
+/// Constructible on a background thread and not requiring one (brief section 2.1). Headless is the
 /// first-class form — it is what the caller's test suite and correctness oracle use.
 #[derive(Debug)]
 pub struct Device {

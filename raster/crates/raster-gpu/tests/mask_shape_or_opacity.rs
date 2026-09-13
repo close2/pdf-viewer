@@ -7,7 +7,8 @@
 //! > The mask may serve as a source of either shape ( fm ) or opacity ( qm ) values,
 //! > depending on the setting of the alpha source parameter in the graphics state
 //!
-//! Table 57 decides it, and it decides the constant alpha in the same sentence:
+//! §8.4.1's Table 51 decides it — the graphics state parameter, not Table 57's `AIS` key
+//! that sets it — and it decides the constant alpha in the same sentence:
 //!
 //! > alpha source … A flag specifying whether the current soft mask and alpha constant
 //! > parameters shall be interpreted as shape values ( true ) or opacity values

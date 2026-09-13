@@ -179,6 +179,21 @@ impl Status {
         }
     }
 
+    /// Whether a row wearing this status still owes the standard something.
+    ///
+    /// The four settled statuses are the four ways a row stops being work: the requirement is
+    /// executed, it has no meaning for this device, it addresses a generator, or principle 5's
+    /// closed list covers it. The other four are debt — `partial` and `reported` know what they
+    /// owe, `silent` does not say it, `unreviewed` has not been asked. [`Ledger::owing`] is what
+    /// reads this, and ADR 1035 is why it is a function rather than a `match` copied per sweep.
+    #[must_use]
+    pub fn owes(self) -> bool {
+        match self {
+            Self::Partial | Self::Reported | Self::Silent | Self::Unreviewed => true,
+            Self::Implemented | Self::Inapplicable | Self::WriterSide | Self::OutOfScope => false,
+        }
+    }
+
     /// Every status, in the order the summary prints them.
     #[must_use]
     pub fn all() -> [Self; 8] {
@@ -536,6 +551,50 @@ impl Ledger {
             })
             .collect()
     }
+
+    /// The rows whose clause number this one is a strict ancestor of.
+    ///
+    /// The standard's numbering *is* the containment, so this needs no table: §12.8 holds
+    /// §12.8.3.3.1 because the first is a prefix of the second, which [`ClauseNumber`] answers.
+    #[must_use]
+    pub fn descendants(&self, clause: &ClauseNumber) -> Vec<&Row> {
+        self.rows
+            .iter()
+            .filter(|row| clause.is_ancestor_of(&row.clause))
+            .collect()
+    }
+
+    /// Whether this row is an **aggregate**: a heading whose debt is its subclauses'.
+    ///
+    /// The rule is mechanical and that is the point of it (ADR 1035). A row is an aggregate
+    /// when it has at least one descendant row and at least one of those descendants still
+    /// [`Status::owes`] something. Such a row cannot be assigned to a round — it flips when its
+    /// last unsettled child flips — so counting it as a piece of work inflates the debt by the
+    /// depth of the numbering rather than by anything the standard requires. 58 of the
+    /// ledger's 201 `partial` rows are aggregates by this test, which is why "206 `partial`
+    /// rows" was never 206 pieces of work (`doc/reviews/1012-where-the-effort-goes.md` §2.1).
+    ///
+    /// A settled row is never an aggregate: it has already answered for itself.
+    #[must_use]
+    pub fn is_aggregate(&self, row: &Row) -> bool {
+        row.status.owes()
+            && self
+                .descendants(&row.clause)
+                .iter()
+                .any(|below| below.status.owes())
+    }
+
+    /// The rows that owe a debt of their own — every unsettled row that is not an aggregate.
+    ///
+    /// This is the number a round allocating work should read, and it is smaller than the
+    /// status counts by every heading in the tree.
+    #[must_use]
+    pub fn owing(&self) -> Vec<&Row> {
+        self.rows
+            .iter()
+            .filter(|row| row.status.owes() && !self.is_aggregate(row))
+            .collect()
+    }
 }
 
 fn write_key(out: &mut String, key: &str, value: &Value) {
@@ -663,6 +722,22 @@ pub enum Problem {
         /// How many citations there are.
         citations: usize,
     },
+    /// A heading still owes something that not one of its subclauses owes.
+    ///
+    /// The counterpart of [`Ledger::is_aggregate`], and the only way that rule can be wrong in
+    /// the direction that matters. A heading carrying its subclauses' debt is bookkeeping; a
+    /// heading carrying debt *after* every subclause has settled is either a debt of its own
+    /// that the note has never named, or a status somebody forgot to move when the last child
+    /// moved. Both are findings, and neither is visible to a sweep that reads statuses one row
+    /// at a time. ADR 1035.
+    AggregateWithoutDebt {
+        /// The heading.
+        clause: ClauseNumber,
+        /// The status it still wears.
+        status: Status,
+        /// How many subclause rows it has, every one of them settled.
+        settled_below: usize,
+    },
 }
 
 impl fmt::Display for Problem {
@@ -715,6 +790,16 @@ impl fmt::Display for Problem {
                 f,
                 "§{clause} is cited {citations} time(s), first at {first_site}, and its row is \
                  still `unreviewed`. Code that cites a clause has read it; record what it found."
+            ),
+            Self::AggregateWithoutDebt {
+                clause,
+                status,
+                settled_below,
+            } => write!(
+                f,
+                "§{clause} is `{status}` and all {settled_below} of its subclause rows are \
+                 settled, so it is carrying a debt none of them carries. Either its note says \
+                 what it owes of its own, or the status moves with its last child's."
             ),
         }
     }
@@ -806,6 +891,19 @@ pub fn check(
                 clause,
                 first_site: format!("{}:{}", path.display(), citation.line),
                 citations: sites.len(),
+            });
+        }
+    }
+
+    // A heading's debt is its subclauses' until the last of them settles. What this catches is
+    // the moment after that: a row still owing something no row under it owes (ADR 1035).
+    for row in &ledger.rows {
+        let below = ledger.descendants(&row.clause);
+        if row.status.owes() && !below.is_empty() && below.iter().all(|row| !row.status.owes()) {
+            problems.push(Problem::AggregateWithoutDebt {
+                clause: row.clause.clone(),
+                status: row.status,
+                settled_below: below.len(),
             });
         }
     }
@@ -1207,6 +1305,79 @@ mod tests {
         assert_eq!(
             requirements_by_group(&standard),
             vec![("8".to_owned(), 1usize)]
+        );
+    }
+
+    /// Rows for §8, §8.1 and §8.2 with the statuses given, in that order.
+    fn family(head: &str, first: &str, second: &str) -> Ledger {
+        ledger(&format!(
+            "[[clause]]\nclause = \"8\"\ntitle = \"Graphics\"\nstatus = \"{head}\"\n\
+             code = [\"a.rs\"]\ntest = [\"t.rs\"]\nnote = \"n\"\n\n\
+             [[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"{first}\"\n\
+             code = [\"a.rs\"]\ntest = [\"t.rs\"]\nnote = \"n\"\n\n\
+             [[clause]]\nclause = \"8.2\"\ntitle = \"Graphics objects\"\nstatus = \"{second}\"\n\
+             code = [\"a.rs\"]\ntest = [\"t.rs\"]\nnote = \"n\"\n"
+        ))
+    }
+
+    #[test]
+    fn a_heading_whose_subclause_still_owes_is_an_aggregate_and_not_a_debt() {
+        let ledger = family("partial", "partial", "implemented");
+        let head = ledger.row(&number("8")).unwrap();
+        assert!(ledger.is_aggregate(head));
+        // The heading is not work; the subclause that owes is.
+        assert_eq!(
+            ledger
+                .owing()
+                .iter()
+                .map(|row| row.clause.to_string())
+                .collect::<Vec<_>>(),
+            vec!["8.1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_leaf_is_never_an_aggregate_however_deep_its_number() {
+        let ledger = family("implemented", "partial", "implemented");
+        let leaf = ledger.row(&number("8.1")).unwrap();
+        assert!(!ledger.is_aggregate(leaf));
+    }
+
+    #[test]
+    fn a_settled_heading_over_an_owing_subclause_is_not_an_aggregate() {
+        // `is_aggregate` says "this row's debt is its children's"; a row with no debt has none
+        // to attribute, so the answer is no rather than yes-by-accident.
+        let ledger = family("implemented", "partial", "implemented");
+        let head = ledger.row(&number("8")).unwrap();
+        assert!(!ledger.is_aggregate(head));
+    }
+
+    #[test]
+    fn a_heading_owing_what_no_subclause_owes_is_a_finding() {
+        let problems = check(
+            &family("partial", "implemented", "implemented"),
+            &index(),
+            &[],
+            Path::new("."),
+        );
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            Problem::AggregateWithoutDebt { clause, settled_below: 2, .. } if clause == &number("8")
+        )));
+    }
+
+    #[test]
+    fn a_heading_whose_last_child_still_owes_is_not_that_finding() {
+        let problems = check(
+            &family("partial", "implemented", "reported"),
+            &index(),
+            &[],
+            Path::new("."),
+        );
+        assert!(
+            !problems
+                .iter()
+                .any(|problem| matches!(problem, Problem::AggregateWithoutDebt { .. }))
         );
     }
 

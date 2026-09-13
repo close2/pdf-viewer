@@ -8,8 +8,8 @@ itself; this file is what it does wrong.
 **Principle 5 is over all of it**: another implementation is evidence about our reading of the
 specification, never the definition of correct.
 
-`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
-trap keeps its number.
+[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
+the rule, which group holds which, and why every trap keeps its number.
 
 ## Traps
 

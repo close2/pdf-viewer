@@ -1,4 +1,4 @@
-//! What is read back off a rendered rule, and the two numbers §31's tables are stated in.
+//! What is read back off a rendered rule, and the two numbers the caller's section 31's tables are stated in.
 //!
 //! Everything here is arithmetic on a raster this crate produced; nothing here renders.
 //! The exact values it is compared against — `expected_centroid` is the band's own
@@ -36,7 +36,7 @@ pub(crate) struct Reading {
     pub(crate) lane: &'static str,
     /// The coverage of each lane of the raster across the swept axis, in units of a fully
     /// covered pixel — what the two numbers above are computed from, kept so that a
-    /// caller can print the row split their §31.2 tables are written as.
+    /// caller can print the row split their section 31.2 tables are written as.
     pub(crate) profile: Vec<f64>,
 }
 
@@ -122,7 +122,7 @@ fn profile(pixels: &[u8], horizontal: bool, window: Window) -> Vec<f64> {
     lanes
 }
 
-/// The centroid of a coverage profile, and its total — the two numbers the caller's §31
+/// The centroid of a coverage profile, and its total — the two numbers the caller's section 31
 /// tables are stated in.
 #[allow(clippy::cast_precision_loss)] // a lane index below 65 536
 pub(crate) fn centroid_and_ink(profile: &[f64]) -> (f64, f64) {
@@ -182,7 +182,7 @@ pub(crate) fn unpainted_lanes(exact: &[f64], sampled: &[f64]) -> usize {
 }
 
 /// The first two lanes of a profile that carry ink, as `(index, first, second)` — the
-/// shape the caller's §31.2 row tables are written in ("row 141 / row 142 / total").
+/// shape the caller's section 31.2 row tables are written in ("row 141 / row 142 / total").
 pub(crate) fn row_split(profile: &[f64]) -> (usize, f64, f64) {
     let first = profile.iter().position(|lane| *lane > 0.0).unwrap_or(0);
     let second = profile.get(first + 1).copied().unwrap_or(0.0);

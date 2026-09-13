@@ -72,10 +72,23 @@ pub fn normalise(text: &str) -> String {
             match character {
                 // Markdown emphasis, inline code, the conversion's backslash escapes — and
                 // every quotation mark, straight or curly, for the reason above.
+                //
+                // Square brackets go with them, because in a quotation they are the writer's
+                // rather than the standard's: `[a] semicircular arc` is §8.4.3.3's sentence with
+                // its opening letter lowercased to sit inside another one, and `[…]` is an
+                // elision whose ellipsis this module already understands. Dropping the brackets
+                // leaves both exactly what the standard wrote.
                 '*' | '`' | '_' | '\\' | '#' | '\'' | '"' | '\u{2018}' | '\u{2019}'
-                | '\u{201c}' | '\u{201d}' => {}
+                | '\u{201c}' | '\u{201d}' | '[' | ']' => {}
+                // Every dash the two renderings disagree about. The standard's table captions
+                // are set with an en dash and `doc/md/` writes a hyphen — "Table 42 —Operators"
+                // against "Table 42 -Operators" — and the difference is the conversion's, not a
+                // misquotation. The minus sign is here for the same reason one line down in a
+                // formula.
+                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+                | '\u{2212}' => out.push('-'),
                 character if character.is_whitespace() => out.push(' '),
-                character => out.push(character),
+                character => out.push(plain(character)),
             }
         }
         out.push(' ');
@@ -101,9 +114,38 @@ pub fn normalise(text: &str) -> String {
 ///
 /// The quotation is normalised here, and split on the ellipsis so that its fragments are
 /// required in order rather than as one string.
+///
+/// # The second attempt, with the spaces gone
+///
+/// A match is tried twice: as written, and then with every space removed from both sides.
+/// **The conversion breaks words**, and it does so silently — `doc/md/`'s §8.7.4.5.2 reads
+/// "Points wi thin the shading's bounding box", where `doc/ISO_32000-2_sponsored_EC3.pdf`
+/// reads "Points within". A quotation that is the standard's own words, checked against a
+/// rendering of the standard that is not, is reported as a misquotation of the standard;
+/// when `raster/`'s 283 files first entered this gate, **20 of the 43 divergences it
+/// reported were this and nothing else**.
+///
+/// The cost, written down rather than hidden: with the spaces gone a quotation can match
+/// across a word boundary the standard does not have — "the shape" would be found inside
+/// "…of the shapes". It is bounded by the pass order (an exact match is always preferred),
+/// by [`MIN_WORDS`], and by the length of anything a blockquote holds; and the alternative
+/// is a gate whose findings are its own conversion's defects, which teaches a round to edit
+/// correct comments until an incorrect file agrees with them.
 #[must_use]
 pub fn occurs_in(haystack: &str, quotation: &str) -> bool {
-    let quotation = normalise(quotation);
+    // Case is the writer's, not the standard's. A sentence quoted inside another one has its
+    // opening letter changed by the convention this project's own `CLAUDE.md` uses — `[t]he
+    // implementation of such a schema`, `[a] semicircular arc` — and the brackets are dropped one
+    // step earlier by [`normalise`], which leaves only the case to fold. Nothing a blockquote
+    // holds is short enough for case to have been what distinguished it.
+    let haystack = haystack.to_lowercase();
+    let quotation = normalise(quotation).to_lowercase();
+    occurs_as_written(&haystack, &quotation)
+        || occurs_as_written(&without_spaces(&haystack), &without_spaces(&quotation))
+}
+
+/// [`occurs_in`]'s ordered-fragment search over one pair of already-prepared strings.
+fn occurs_as_written(haystack: &str, quotation: &str) -> bool {
     let mut rest = haystack;
     for fragment in quotation
         .split(['\u{2026}'])
@@ -120,6 +162,57 @@ pub fn occurs_in(haystack: &str, quotation: &str) -> bool {
         rest = rest.get(after..).unwrap_or_default();
     }
     true
+}
+
+/// One character with the standard's typesetting taken off it.
+///
+/// **The standard sets its variables in a mathematical font and its indices below the line**, and
+/// a comment quoting `Domain₀ = Bounds₀` writes `Domain0 = Bounds0` because a doc comment is
+/// prose. Neither is a misquotation of the other: the letters are the same letters, and what
+/// differs is the plane of Unicode the renderer reached for. Mathematical Alphanumeric Symbols
+/// are laid out in blocks of fifty-two — twenty-six capitals then twenty-six minuscules — and
+/// their digits in blocks of ten, so the fold is arithmetic rather than a table.
+///
+/// The cost: the *style* is lost, so bold `𝐁` and italic `𝐵` both become `B`. A quotation whose
+/// meaning turned on the style would be one this comparison could not check, and the standard
+/// distinguishes its variables by letter rather than by weight.
+fn plain(character: char) -> char {
+    let code = character as u32;
+    // Every subtraction below is guarded by the range arm that reaches it, and the two additions
+    // by the modulus above them; `saturating_*` is used anyway, because a guard and a proof are
+    // different things and only one of them survives an edit.
+    let folded = match code {
+        // Subscript and superscript digits, which the conversion keeps where the PDF sets an
+        // index below or above the line: `Bounds₀`, `𝛼ₛ`.
+        0x2080..=0x2089 => Some(code.saturating_sub(0x2080)),
+        0x2070 => Some(0),
+        0x00b9 => Some(1),
+        0x00b2 => Some(2),
+        0x00b3 => Some(3),
+        0x2074..=0x2079 => Some(code.saturating_sub(0x2074).saturating_add(4)),
+        // Mathematical digits, in blocks of ten.
+        0x1d7ce..=0x1d7ff => Some(code.saturating_sub(0x1d7ce) % 10),
+        _ => None,
+    };
+    if let Some(digit) = folded {
+        return char::from_digit(digit, 10).unwrap_or(character);
+    }
+    // Mathematical Latin letters, in blocks of fifty-two.
+    if (0x1d400..=0x1d6a3).contains(&code) {
+        let offset = code.saturating_sub(0x1d400) % 52;
+        let letter = if offset < 26 {
+            b'A'.saturating_add(u8::try_from(offset).unwrap_or(0))
+        } else {
+            b'a'.saturating_add(u8::try_from(offset.saturating_sub(26)).unwrap_or(0))
+        };
+        return char::from(letter);
+    }
+    character
+}
+
+/// The same text with every space gone, the ellipsis kept so fragments stay separated.
+fn without_spaces(text: &str) -> String {
+    text.chars().filter(|character| *character != ' ').collect()
 }
 
 /// The shortest span between two marks that is treated as a quotation at all.

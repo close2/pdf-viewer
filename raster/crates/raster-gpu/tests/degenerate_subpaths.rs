@@ -38,7 +38,7 @@
 //! through `SceneBuilder` and state what we do with each shape. Two of the four answers
 //! agree with §8.5.3.2 directly; the other two — a single-point *closed* path and two
 //! coincident points, both of which the clause makes a disc under round caps — draw
-//! nothing here, and that is the inherited §4.5 divergence written down rather than
+//! nothing here, and that is the inherited brief section 4.5 divergence written down rather than
 //! assumed. It is written down because it is exactly the shape of trap 2: if this side
 //! ever assumed the caller stopped splitting, or that side ever assumed we grew the disc,
 //! a round-cap dot would vanish with no test able to see it.
@@ -185,7 +185,7 @@ fn a_path_that_is_only_a_move_to_draws_nothing_under_any_style() {
     }
 }
 
-/// **The §4.5 divergence, stated so that neither side can assume the other took it.**
+/// **The brief section 4.5 divergence, stated so that neither side can assume the other took it.**
 ///
 /// §8.5.3.2 gives a single-point *closed* path a disc under round caps: "the S operator
 /// shall paint it only if round line caps have been specified, producing a filled circle
@@ -193,7 +193,7 @@ fn a_path_that_is_only_a_move_to_draws_nothing_under_any_style() {
 /// one-point subpath at `Segment::Close` exactly as it drops one at `MoveTo`.
 ///
 /// That is correct for butt and square by the clause's own next sentence, and for round it
-/// is the brief's §4.5 in force: the caller splits the degenerate subpath out and emits the
+/// is the brief's section 4.5 in force: the caller splits the degenerate subpath out and emits the
 /// circle as a **fill** of its own geometry (`pdf-render::degenerate::split_degenerate`,
 /// whose `dots` field is documented as "the circles §8.5.3.2 asks for, to be **filled**
 /// with the stroking paint"), precisely so that neither rasteriser's round cap decides a
@@ -202,7 +202,7 @@ fn a_path_that_is_only_a_move_to_draws_nothing_under_any_style() {
 ///
 /// This test pins what happens if one arrives anyway. Its expected value is *not* derived
 /// from §8.5.3.2 — under round caps the clause asks for the disc this asserts is absent —
-/// it is derived from §4.5's allocation of the decision, and it exists so that a change on
+/// it is derived from brief section 4.5's allocation of the decision, and it exists so that a change on
 /// either side of the boundary fails a test on this one.
 #[test]
 fn a_single_point_closed_path_draws_nothing_here_because_4_5_places_the_disc_upstream() {
@@ -212,14 +212,14 @@ fn a_single_point_closed_path_draws_nothing_here_because_4_5_places_the_disc_ups
         assert_eq!(
             pixels,
             blank(),
-            "§4.5 places §8.5.3.2's disc upstream, so nothing is drawn here under {cap:?}"
+            "brief section 4.5 places §8.5.3.2's disc upstream, so nothing is drawn here under {cap:?}"
         );
     }
 }
 
 /// The clause's other degenerate shape — "two or more points at the same coordinates" —
 /// which arrives as a `LineTo` back to the point the subpath started at rather than as a
-/// `Close`. Same answer here, and the same §4.5 reason as the test above.
+/// `Close`. Same answer here, and the same brief section 4.5 reason as the test above.
 ///
 /// This one reaches a second guard as well as the first: the subpath survives
 /// `raster::flatten` with two points, and `raster::stroke_polylines` then collapses the
@@ -237,7 +237,7 @@ fn two_coincident_points_draw_nothing_here_because_4_5_places_the_disc_upstream(
         assert_eq!(
             pixels,
             blank(),
-            "§4.5 places §8.5.3.2's disc upstream, so nothing is drawn here under {cap:?}"
+            "brief section 4.5 places §8.5.3.2's disc upstream, so nothing is drawn here under {cap:?}"
         );
     }
 }

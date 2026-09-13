@@ -155,7 +155,7 @@ fn corpus(count: usize, segments: usize) -> Vec<Vec<Segment>> {
 /// One §A sample: upload every outline of a corpus, timing that and nothing else, then
 /// release them so the next sample starts from the same resident bytes.
 ///
-/// The release is outside the span deliberately — it is not what §33 asked about — and
+/// The release is outside the span deliberately — it is not what the caller's section 33 asked about — and
 /// so is the corpus's own construction, which happens once for the whole run.
 fn upload_sample(device: &mut Device, corpus: &[Vec<Segment>]) -> Duration {
     let mut ids = Vec::with_capacity(corpus.len());

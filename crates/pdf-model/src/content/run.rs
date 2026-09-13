@@ -638,21 +638,21 @@ impl Interpreter<'_> {
                 b"g" | b"G" => {
                     if let Some(grey) = number_at(operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
-                        let colour = self.colour(&space, &[grey], state.black_point());
+                        let colour = self.colour(&space, &[grey], state.rendering());
                         assign_colour(&mut state, operator == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from::<3>(operands) {
                         let space = self.device_space("DeviceRGB", resources);
-                        let colour = self.colour(&space, &values, state.black_point());
+                        let colour = self.colour(&space, &values, state.rendering());
                         assign_colour(&mut state, operator == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from::<4>(operands) {
                         let space = self.device_space("DeviceCMYK", resources);
-                        let colour = self.colour(&space, &values, state.black_point());
+                        let colour = self.colour(&space, &values, state.rendering());
                         assign_colour(&mut state, operator == b"k", colour, space);
                     }
                 }

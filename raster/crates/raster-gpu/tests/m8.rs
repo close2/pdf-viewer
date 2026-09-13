@@ -384,7 +384,7 @@ fn targets_without_retained_contents_redraw_fully_and_report() {
     assert_eq!(pixel(&pixels, SIZE, 60, 60)[3], 255);
 }
 
-/// §4.7 at the damage boundary: a NaN or inverted rectangle is refused by index,
+/// brief section 4.7 at the damage boundary: a NaN or inverted rectangle is refused by index,
 /// not guessed at — a wrong guess is exactly the stale frame damage exists to
 /// prevent.
 #[test]

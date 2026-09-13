@@ -145,16 +145,12 @@ impl Workers for ConfinedWorkers {
     fn spawn(
         &self,
         bytes: FileBytes,
-        password: Option<Secret>,
+        password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
         Ok(Box::new(Self::start(
-            &bytes,
-            password.as_ref(),
-            policy,
-            budget,
-            self.faces,
+            &bytes, password, policy, budget, self.faces,
         )?))
     }
 }

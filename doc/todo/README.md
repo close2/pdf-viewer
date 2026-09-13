@@ -152,8 +152,10 @@ whose data is in an external file (§7.3.8.1 — the renderer has no filesystem,
 §12.7.6.2's submit and §12.6.4's remote, launch, sound and movie actions (a network, a second
 file, a media engine), a filled degenerate subpath's device pixel (§8.5.3.3.1, which the clause
 itself calls "device-dependent and not generally useful"), grid-fitting a stroke's
-coordinates under `/SA` (see `_scan-conversion.md`), rendering intents beyond
-`AbsoluteColorimetric`, and **a glyph a document's own embedded subset does not contain**, which
+coordinates under `/SA` (see `_scan-conversion.md`), the output medium's white point that
+`AbsoluteColorimetric` asks to be left uncorrected (ADR 1032 selects a profile's transform by
+intent and §8.6.5.8's row carries what that name still owes), and **a glyph a document's own
+embedded subset does not contain**, which
 was traced to the end of every route the standard states: §9.7.4.2's and §9.6.5.4's rows carry
 the evidence, and `poppler` draws such glyphs from a face this machine has, which is a fallback
 rather than a reading. **The two halves of that last one are two different refusals** (ADR

@@ -46,7 +46,7 @@ use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
-use pdf_model::structure::HeaderScope;
+use pdf_model::structure::{Artifact, ArtifactKind, HeaderScope};
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
 use pdf_model::viewer_preferences::{
@@ -1470,6 +1470,8 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             summary,
             short,
             bounds,
+            allocation,
+            artifact,
             control,
             annotation,
             headers,
@@ -1510,6 +1512,20 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
                 writer.u8(0);
             }
         }
+        // §14.8.3.3's *other* rectangle. Table 379's spacing and Table 378's writing mode are both
+        // in §14.7.6's attribute objects, so nothing on the far side could add it to the first.
+        match allocation {
+            Some(rect) => {
+                writer.u8(1).numbers(rect);
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        // Table 385's artifact attributes, for an element §14.8.4.8.7 makes an `Artifact`: which
+        // kind of artifact it is, which decides what §14.8.2.2.1's text-to-speech engine does
+        // about it.
+        encode_artifact(writer, artifact.as_ref());
         // Whether the element encloses content this program refused to draw, which is the one
         // thing a host cannot join for itself: it has `Query::Reports` per page and this tree per
         // element, and the join runs through §14.7.5.2's identifiers, which do not cross.
@@ -1586,6 +1602,8 @@ pub(super) fn decode_accessibility(
             short: reader.option_string("a header's short form")?,
             bounds: reader.option_rect("a node's stated bounding box")?,
             drawn: reader.option_rect("a node's drawn extent")?,
+            allocation: reader.option_rect("a node's allocation rectangle")?,
+            artifact: decode_artifact(reader)?,
             enclosed_a_refusal: reader.bool("a node's refusal flag")?,
             control: decode_optional_control(reader)?,
             annotation: reader.option_object("a node's annotation")?,
@@ -1662,6 +1680,74 @@ fn scope_kind(scope: Option<HeaderScope>) -> u8 {
         Some(HeaderScope::Column) => 2,
         Some(HeaderScope::Both) => 3,
     }
+}
+
+/// Table 385's artifact attributes, or one byte saying the element is not an artifact.
+///
+/// The kind is a discriminant with `0` for "states none", which §14.8.2.2.2 calls a generic
+/// artifact; `/Attached` is written even though Table 385 has no such entry, because the value
+/// crossing is [`pdf_model::structure::Artifact`] and a member silently dropped here is a member
+/// a later reader of the property list form would find missing.
+fn encode_artifact(writer: &mut Writer, artifact: Option<&Artifact>) {
+    let Some(artifact) = artifact else {
+        writer.bool(false);
+        return;
+    };
+    writer
+        .bool(true)
+        .u8(artifact_kind(artifact.kind))
+        .option_str(artifact.subtype.as_deref());
+    match artifact.bbox {
+        Some(rect) => {
+            writer.u8(1).numbers(&rect);
+        }
+        None => {
+            writer.u8(0);
+        }
+    }
+    for edge in artifact.attached {
+        writer.bool(edge);
+    }
+}
+
+/// §14.8.2.2's artifact types, as one byte. `0` is an artifact that states no type.
+fn artifact_kind(kind: Option<ArtifactKind>) -> u8 {
+    match kind {
+        None => 0,
+        Some(ArtifactKind::Pagination) => 1,
+        Some(ArtifactKind::Layout) => 2,
+        Some(ArtifactKind::Page) => 3,
+        Some(ArtifactKind::Background) => 4,
+        Some(ArtifactKind::Inline) => 5,
+    }
+}
+
+/// Reads what [`encode_artifact`] wrote, refusing a type this build does not define.
+fn decode_artifact(reader: &mut Reader<'_>) -> Result<Option<Artifact>, ProtocolError> {
+    if !reader.bool("a node's artifact")? {
+        return Ok(None);
+    }
+    let kind = match reader.u8("an artifact's type")? {
+        0 => None,
+        1 => Some(ArtifactKind::Pagination),
+        2 => Some(ArtifactKind::Layout),
+        3 => Some(ArtifactKind::Page),
+        4 => Some(ArtifactKind::Background),
+        5 => Some(ArtifactKind::Inline),
+        value => return Err(unrecognised("an artifact's type", value)),
+    };
+    let subtype = reader.option_string("an artifact's subtype")?;
+    let bbox = reader.option_rect("an artifact's bounding box")?;
+    let mut attached = [false; 4];
+    for edge in &mut attached {
+        *edge = reader.bool("an artifact's attached edge")?;
+    }
+    Ok(Some(Artifact {
+        kind,
+        subtype,
+        bbox,
+        attached,
+    }))
 }
 
 /// Reads what [`scope_kind`] wrote, refusing a value this build does not define.

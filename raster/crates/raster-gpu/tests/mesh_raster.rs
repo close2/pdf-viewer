@@ -7,7 +7,7 @@
 //! lattice-form Gouraud triangle meshes, Coons patch meshes and tensor-product patch
 //! meshes — and no rasteriser in either tree has the primitive. The caller rasterises them
 //! once, upstream, and shares the result between both of its backends so that a second copy
-//! cannot drift; integration note 5 records that we inherit it:
+//! cannot drift; `raster/doc/PLAN.md` §5's integration note records that we inherit it:
 //!
 //! > Both of the caller's backends share the pre-rasterised mesh because neither rasteriser
 //! > has the primitive and a second copy would drift. We inherit that: we consume the mesh,

@@ -805,7 +805,7 @@ fn cross_adapter_bound_holds_for_the_deterministic_paths() {
     );
 }
 
-/// Determinism on one adapter (§4.6): the same M7 scene renders byte-identically
+/// Determinism on one adapter (brief section 4.6): the same M7 scene renders byte-identically
 /// twice — nearest images and CPU-sampled ramps leave the driver nothing to vary.
 #[test]
 fn m7_frames_are_deterministic_per_adapter() {

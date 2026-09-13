@@ -69,7 +69,7 @@ fn run() -> Result<(), Error> {
     // Where the crate lives is looked up rather than assumed: a sweep of a *tool*'s public
     // surface is the same question, and a hard-coded `crates/` would answer it with an empty
     // population and no error.
-    let answering = callers::directory_of(&root, &crate_name)
+    let answering = callers::directory_of(&root, &crate_name)?
         .ok_or_else(|| Error::NoSuchCrate(crate_name.clone()))?;
     let report = callers::sweep(&answering, &sources, &consumers);
 

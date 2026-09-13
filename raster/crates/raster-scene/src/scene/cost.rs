@@ -40,7 +40,7 @@ pub struct Cost {
     /// the frame rather than during it.
     ///
     /// The programs themselves are **not** in [`Cost::retained_bytes`]: they live on a
-    /// device (§2.2), and what a scene holds is four bytes of handle per reference,
+    /// device (brief section 2.2), and what a scene holds is four bytes of handle per reference,
     /// already counted inside [`Command`].
     pub function_programs: usize,
 }

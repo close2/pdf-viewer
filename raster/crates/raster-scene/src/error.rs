@@ -119,7 +119,7 @@ impl StagedComposeReason {
 }
 
 /// Why the builder refused an input. Every variant names what was wrong with which
-/// value, because §4.7's refusal is only useful to a caller if it can be attributed.
+/// value, because brief section 4.7's refusal is only useful to a caller if it can be attributed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SceneError {
     /// A rectangle had a NaN or infinite coordinate.
@@ -153,14 +153,14 @@ pub enum SceneError {
     /// a negative radius ([`crate::paint::ShadingKind::is_valid`]).
     InvalidShading,
     /// A stroke violated [`Stroke::is_valid`] — a non-positive or non-finite width
-    /// (widths arrive resolved and positive, §4.5), or a miter limit below 1.
+    /// (widths arrive resolved and positive, brief section 4.5), or a miter limit below 1.
     InvalidStroke(Stroke),
     /// A [`Paint::Function`](crate::paint::Paint::Function)'s §8.7.4.5.2 `Matrix` has no
     /// inverse, so no fragment can be mapped back into the domain the program is
     /// evaluated over.
     ///
     /// The paint's *domain* is refused by the rectangle variants above — a domain is a
-    /// rectangle, and §4.7 says one thing about rectangles.
+    /// rectangle, and brief section 4.7 says one thing about rectangles.
     SingularFunctionMatrix(Affine),
     /// A component of a function paint's §7.10.1 `Range` was NaN or infinite. A range is
     /// a clip, and a clip against NaN admits nothing and reports nothing.
@@ -229,7 +229,7 @@ pub enum SceneError {
         alpha: f32,
     },
     /// A [`ClipId`] that this scene never allocated. Clip identifiers are scene-scoped
-    /// (§2.2 of the brief; `crate::ids`), so a foreign or stale one is a caller bug
+    /// (section 2.2 of the brief; `crate::ids`), so a foreign or stale one is a caller bug
     /// surfaced here rather than a wrong picture later.
     UnknownClip {
         /// The identifier that was presented.

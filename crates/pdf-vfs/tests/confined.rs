@@ -399,13 +399,13 @@ impl Workers for Recording {
     fn spawn(
         &self,
         bytes: pdf_syntax::FileBytes,
-        password: Option<pdf_transform::Secret>,
+        password: Option<&pdf_transform::Secret>,
         policy: pdf_transform::Policy,
         budget: pdf_transform::Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
         let shared = Arc::new(ConfinedWorkers::start(
             &bytes,
-            password.as_ref(),
+            password,
             policy,
             budget,
             pdf_vfs::MachineFaces::Withheld,
@@ -782,12 +782,18 @@ impl Workers for OneStrip {
     fn spawn(
         &self,
         bytes: pdf_syntax::FileBytes,
-        password: Option<pdf_transform::Secret>,
+        password: Option<&pdf_transform::Secret>,
         policy: pdf_transform::Policy,
         budget: pdf_transform::Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
         let source = match password {
-            Some(secret) => pdf_transform::Source::with_password(bytes, secret),
+            // A `Secret` of this generation's own, through the type's own buffer — which is what
+            // `InProcessWorkers` does and for its reason.
+            Some(secret) => {
+                let mut lent = pdf_transform::Secret::new();
+                lent.push_str(secret.reveal());
+                pdf_transform::Source::with_password(bytes, lent)
+            }
             None => pdf_transform::Source::new(bytes),
         };
         Ok(Box::new(pdf_vfs::worker::InProcess::new(

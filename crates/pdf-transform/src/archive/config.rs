@@ -28,18 +28,24 @@
 //! - **`supply`** at [`SUPPLIABLE`]'s one: the operator states the media type of their own
 //!   attachments, which nothing in a file specification states and which this converter may not
 //!   infer from an extension.
+//! - **`preserve`**, in either of the two mechanisms `doc/rfc/0007` section 4.6.1 separates and
+//!   the owner's answer of 2026-09-11 is the reason for: `placement = "append"` lays the content
+//!   out on pages appended to the document, which every target admits and which `doc/adr/1014`'s
+//!   amendment to `CLAUDE.md` permits; `placement = "attach"` keeps it an attachment, unchanged at
+//!   a target that holds the original and derived into a conforming one where the target will not
+//!   — the same [`Derivation`] a `derive` row builds, wired to this word rather than written
+//!   twice. Neither is a fallback for the other, so a `preserve` stating no mechanism is an error.
 //! - **A departure** (section 4.7), the first of which accepts XML and only XML attachments when
 //!   the target is `PDF/A-2` — `A60`'s case, `ZUGFeRD` and `Factur-X`'s, and the only route an operator
 //!   has now that part 3 is not a target.
 //!
-//! Every other remedy the catalogue names — `preserve` everywhere, and `derive`, `supply` or
-//! `discard` at a site whose rewrite is unbuilt — is **recognised, validated and enumerated but
-//! not yet applied**: naming one leaves that site's requirement refused with the sentence it
-//! already carries, so the configuration promises nothing it cannot keep (`CLAUDE.md` principle 1,
-//! and the round's own rule — *a promise nothing will keep is worse than a refusal with a
-//! sentence*). Appending pages waits on the authoring amendment `doc/adr/1014` made (`A58`), which
-//! is what every `preserve` row needs. The format is built so each slots in without a reader
-//! change.
+//! Every remedy at a site whose rewrite is unbuilt — `preserve` by page anywhere but
+//! [`PRESERVABLE_BY_PAGE`], and `derive`, `supply` or `discard` outside their own lists — is
+//! **recognised, validated and enumerated but not applied**: naming one leaves that site's
+//! requirement refused with the sentence it already carries, so the configuration promises nothing
+//! it cannot keep (`CLAUDE.md` principle 1, and the round's own rule — *a promise nothing will
+//! keep is worse than a refusal with a sentence*). The format is built so each slots in without a
+//! reader change.
 //!
 //! Installing a configuration therefore changes no pipeline unless it authorises a built loss or
 //! names a departure — which is `doc/adr/0954`'s requirement that `stop` stay every site's default.
@@ -107,19 +113,16 @@ impl Kind {
     /// Whether a remedy of this kind reaches a real conversion at the sites that admit it.
     ///
     /// `stop` is a no-op, `discard` is an authorised loss, `derive` runs a declared tool over one
-    /// of [`DERIVABLE`]'s two sites and `supply` writes the operator's own fact at
-    /// [`SUPPLIABLE`]'s one. **`preserve` is the kind nothing carries out yet**: it needs the
-    /// append-as-pages mechanism `doc/adr/1014` opened and `doc/rfc/0007` section 4.6.1 specifies,
-    /// which is a converter round of its own.
+    /// of [`DERIVABLE`]'s two sites, `supply` writes the operator's own fact at [`SUPPLIABLE`]'s
+    /// one, and `preserve` moves content the target will not admit — onto pages appended to the
+    /// document ([`PRESERVABLE_BY_PAGE`], under `doc/adr/1014`'s amendment) or into an attachment
+    /// the target does admit ([`DERIVABLE`], through the same derivation `derive` uses).
     ///
     /// *Which sites* admit each is the question [`Configuration::unbuilt`] answers; this is only
     /// the kind.
     #[must_use]
     pub const fn is_built(self) -> bool {
-        matches!(
-            self,
-            Self::Stop | Self::Discard | Self::Derive | Self::Supply
-        )
+        !matches!(self, Self::Stop)
     }
 }
 
@@ -448,6 +451,79 @@ pub struct Supply {
     pub fact: Supplied,
 }
 
+/// Which of `preserve`'s two mechanisms a row asks for.
+///
+/// `doc/rfc/0007` section 4.6.1's finding is that the six targets differ about what may be
+/// *attached*, not about what may be a page — so `preserve` is not one operation with a fallback
+/// but two mechanisms an operator chooses between, and the configuration has to say which. A row
+/// that named neither would leave this converter guessing what an archive is for: somebody
+/// archiving to PDF/A-4 may reasonably prefer the content visible in the document over an
+/// attachment a reader has to go looking for, and only they know that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    /// The content is laid out on pages appended to the document (available at all six targets).
+    Append,
+    /// The content stays an attachment, unchanged where the target admits it and derived into one
+    /// the target admits where it does not.
+    Attach,
+}
+
+impl Placement {
+    /// The word a configuration names this mechanism by.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Append => "append",
+            Self::Attach => "attach",
+        }
+    }
+
+    /// The mechanism a configuration's word names.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::Append, Self::Attach]
+            .into_iter()
+            .find(|placement| placement.word() == word)
+    }
+}
+
+/// One `preserve` remedy this conversion carries out by appending pages.
+///
+/// `doc/adr/1014`: a page composed solely of content the document already holds is on the near
+/// side of `CLAUDE.md`'s authoring exclusion, and what such a page owes — the report's sentence,
+/// the page labels, the structure entries, the `xmpMM:History` record — is inside the same
+/// permission. [`super::preserve`] is where each is discharged or refused by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preservation {
+    /// The requirement identifier it answers.
+    pub site: String,
+}
+
+/// The one requirement a built `preserve` may answer by appending pages.
+///
+/// ISO 19005-2 section 6.6.2.3.1's, whose only other answer is
+/// `doc/pdf-a-conversion-limits.md` section 3.9's authorised loss: the properties come out of the
+/// packet either way, and this keeps what the producer wrote where a person can still read it.
+/// It is the owner's own example in `doc/rfc/0007` section 2 — *instead of losing metadata it
+/// could be appended or prefixed as an extra page*.
+const PRESERVABLE_BY_PAGE: [&str; 1] = ["metadata/properties-use-known-schemas"];
+
+/// Why a `preserve` row states no mechanism.
+const PRESERVE_WITHOUT_PLACEMENT: &str = "preserve has two mechanisms and neither is a fallback \
+     for the other (doc/rfc/0007 section 4.6.1): `placement = \"append\"` lays the content out on \
+     pages appended to the document, which every target admits, and `placement = \"attach\"` keeps \
+     it an attachment, which only some do. Which of those an archive wants is the operator's \
+     decision and this converter will not take it";
+
+/// Why a `preserve` by attachment at a target that admits no such attachment needs a tool.
+const ATTACHING_NEEDS_A_CONFORMING_FILE: &str = "this target admits an embedded file only where \
+     that file itself conforms to a part of ISO 19005, so preserving this attachment by keeping it \
+     an attachment means attaching one derived from it — name the tool that makes it (`tool = \
+     \"<name>\"` and a [tool.<name>] block), or choose `placement = \"append\"` to keep the \
+     content in the document's body instead. PDF/A-4f and PDF/A-4e are the targets that hold the \
+     original unchanged, and doc/pdf-a-conversion-limits.md section 9 is why this converter will \
+     not switch to one for you";
+
 /// The two requirements a built `derive` may name.
 ///
 /// `doc/pdf-a-mitigations.md` section 11's flagship entry and `doc/rfc/0007` section 5's first row:
@@ -469,6 +545,13 @@ const ONLY_STOP_ON_FAILURE: &str = "the only on-failure this version carries out
      Dropping an attachment is a rewrite of the embedded-file name tree that nobody has written, \
      and offering it here would be selling a permanent hole in somebody's archive to get past an \
      afternoon of ours (doc/pdf-a-mitigations.md section 0.2)";
+
+/// Why `on-failure` at a `preserve` by appended page takes only `stop` this version.
+const ONLY_STOP_WHEN_A_PAGE_CANNOT_BE_COMPOSED: &str = "the only on-failure this version carries \
+     out is `stop`: a preservation this converter cannot compose leaves the requirement refused \
+     with the composition's own reason, which says what stopped it. Falling back to `discard` \
+     would quietly lose the very content the remedy was named to keep, which is the one outcome \
+     an operator choosing `preserve` has ruled out";
 
 /// Why `unlisted` at a built `supply` site takes only `stop` this version.
 const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is `stop`: an \
@@ -515,6 +598,8 @@ struct Row {
     tool: Option<String>,
     /// `on-failure` — `A57`: one alternative, never a chain. `stop` where the row states none.
     on_failure: Kind,
+    /// `placement` — which of `preserve`'s two mechanisms, where the row is a `preserve`.
+    placement: Option<Placement>,
     /// `media-types`, the `supply` table this version reads.
     media_types: Vec<(String, String)>,
     /// `unlisted` — what happens to a subject the supplied table does not name.
@@ -588,58 +673,7 @@ impl Configuration {
                 _ => {}
             }
         }
-        // **The second half of `A55`'s guardrail**, and it is checked after every table has been
-        // read rather than at the row: a `[tool.…]` block may be written below the site that
-        // names it, and an error that depended on the order lines appear in would be an error
-        // about this reader rather than about the configuration.
-        for row in &sites {
-            if let Some(named) = &row.tool {
-                let Some(tool) = tools.get(named) else {
-                    return Err(ConfigError::UndeclaredTool {
-                        line: row.line,
-                        site: row.site.clone(),
-                        tool: named.clone(),
-                    });
-                };
-                // The requirement a built `derive` answers is *that the embedded file conform to a
-                // part of ISO 19005*, so a tool that promises anything else could not answer it —
-                // and a configuration whose tool makes a spreadsheet into a spreadsheet is a
-                // mistake worth naming before a conversion rather than after one.
-                if row.remedy == Kind::Derive
-                    && DERIVABLE.contains(&row.site.as_str())
-                    && tool.expects != "application/pdf"
-                {
-                    return Err(ConfigError::NotBuiltThatWay {
-                        line: row.line,
-                        site: row.site.clone(),
-                        asked: format!("a tool promising {}", tool.expects),
-                        why: WANTS_A_PDF,
-                    });
-                }
-            }
-            if row.remedy == Kind::Derive
-                && DERIVABLE.contains(&row.site.as_str())
-                && row.on_failure != Kind::Stop
-            {
-                return Err(ConfigError::NotBuiltThatWay {
-                    line: row.line,
-                    site: row.site.clone(),
-                    asked: format!("on-failure = \"{}\"", row.on_failure.word()),
-                    why: ONLY_STOP_ON_FAILURE,
-                });
-            }
-            if row.remedy == Kind::Supply
-                && SUPPLIABLE.contains(&row.site.as_str())
-                && row.unlisted != Kind::Stop
-            {
-                return Err(ConfigError::NotBuiltThatWay {
-                    line: row.line,
-                    site: row.site.clone(),
-                    asked: format!("unlisted = \"{}\"", row.unlisted.word()),
-                    why: ONLY_STOP_UNLISTED,
-                });
-            }
-        }
+        check_rows(&sites, &tools, target)?;
         Ok(Self {
             name,
             sites,
@@ -682,7 +716,15 @@ impl Configuration {
                 Kind::Discard => losses.contains_key(row.site.as_str()),
                 Kind::Derive => self.derivation(row).is_some(),
                 Kind::Supply => supplied(row).is_some(),
-                Kind::Stop | Kind::Preserve => false,
+                // A `preserve` by appended page is built at the one site `PRESERVABLE_BY_PAGE`
+                // names; one by attachment is carried out by the same derivation a `derive` row
+                // would be, so it is built wherever that is.
+                Kind::Preserve => match row.placement {
+                    Some(Placement::Append) => PRESERVABLE_BY_PAGE.contains(&row.site.as_str()),
+                    Some(Placement::Attach) => self.derivation(row).is_some(),
+                    None => false,
+                },
+                Kind::Stop => false,
             };
             if !built {
                 out.push(Unbuilt {
@@ -728,7 +770,7 @@ impl Configuration {
 
     /// One row as a built derivation, where it is one.
     fn derivation(&self, row: &Row) -> Option<Derivation> {
-        if row.remedy != Kind::Derive || !DERIVABLE.contains(&row.site.as_str()) {
+        if !answers_by_derivation(row) {
             return None;
         }
         // The tool is required of *every* `derive` row by [`ConfigError::DeriveWithoutTool`], so
@@ -739,6 +781,29 @@ impl Configuration {
             tool: tool.clone(),
             on_failure: row.on_failure,
         })
+    }
+
+    /// Every `preserve` remedy this conversion carries out by appending pages.
+    ///
+    /// A row naming a site outside [`PRESERVABLE_BY_PAGE`], or one whose mechanism is
+    /// [`Placement::Attach`], is not one: the first stays refused with the sentence it carries and
+    /// [`Self::unbuilt`] names it, and the second is carried out as a [`Derivation`] instead —
+    /// which is `doc/rfc/0007` section 4.6's table read as the two mechanisms it is rather than as
+    /// two implementations of one.
+    #[must_use]
+    pub fn preservations(&self, target: Target) -> Vec<Preservation> {
+        self.sites
+            .iter()
+            .filter(|row| requirement_binds(&row.site, target))
+            .filter(|row| {
+                row.remedy == Kind::Preserve
+                    && row.placement == Some(Placement::Append)
+                    && PRESERVABLE_BY_PAGE.contains(&row.site.as_str())
+            })
+            .map(|row| Preservation {
+                site: row.site.clone(),
+            })
+            .collect()
     }
 
     /// The departures that bind the target and this round can carry out.
@@ -752,6 +817,121 @@ impl Configuration {
             .cloned()
             .collect()
     }
+}
+
+/// Every check a row needs once the whole file has been read.
+///
+/// **Separated from the reader because it is a different question**, and one the reader cannot ask
+/// as it goes: a `[tool.…]` block may be written below the site that names it, so an error that
+/// depended on the order lines appear in would be an error about this reader rather than about the
+/// configuration.
+fn check_rows(
+    sites: &[Row],
+    tools: &BTreeMap<String, Tool>,
+    target: Target,
+) -> Result<(), ConfigError> {
+    // **The second half of `A55`'s guardrail**, and it is checked after every table has been
+    // read rather than at the row: a `[tool.…]` block may be written below the site that
+    // names it, and an error that depended on the order lines appear in would be an error
+    // about this reader rather than about the configuration.
+    for row in sites {
+        if let Some(named) = &row.tool {
+            let Some(tool) = tools.get(named) else {
+                return Err(ConfigError::UndeclaredTool {
+                    line: row.line,
+                    site: row.site.clone(),
+                    tool: named.clone(),
+                });
+            };
+            // The requirement a built `derive` answers is *that the embedded file conform to a
+            // part of ISO 19005*, so a tool that promises anything else could not answer it —
+            // and a configuration whose tool makes a spreadsheet into a spreadsheet is a
+            // mistake worth naming before a conversion rather than after one.
+            if answers_by_derivation(row) && tool.expects != "application/pdf" {
+                return Err(ConfigError::NotBuiltThatWay {
+                    line: row.line,
+                    site: row.site.clone(),
+                    asked: format!("a tool promising {}", tool.expects),
+                    why: WANTS_A_PDF,
+                });
+            }
+        }
+        // **`doc/rfc/0007` section 4.6.1, as a refusal rather than a default.** Appending is an
+        // operator's choice and not a fallback, so a `preserve` that names no mechanism is half an
+        // instruction and the half it leaves out is the one only an archive's owner can give.
+        //
+        // **Asked only where this converter carries a `preserve` out**, which is the narrowness
+        // the catalogue's own entries argue for: `preserve` at an ICC profile site is
+        // section 8.6.5.5's alternate space and at an annotation site it is the appearance the
+        // producer wrote, and neither is a page or an attachment. A row for a site with no built
+        // preserve stays inert and [`Configuration::unbuilt`] names it, as every other unbuilt
+        // remedy does.
+        if row.remedy == Kind::Preserve
+            && row.placement.is_none()
+            && (PRESERVABLE_BY_PAGE.contains(&row.site.as_str())
+                || DERIVABLE.contains(&row.site.as_str()))
+        {
+            return Err(ConfigError::NotBuiltThatWay {
+                line: row.line,
+                site: row.site.clone(),
+                asked: "remedy = \"preserve\" with no placement".to_owned(),
+                why: PRESERVE_WITHOUT_PLACEMENT,
+            });
+        }
+        // **`doc/rfc/0007` section 4.6's error naming both.** At a target that admits an
+        // embedded file only where the file itself conforms, keeping the attachment *as* an
+        // attachment means attaching a conforming one derived from it — which is `derive`'s
+        // machinery, wired to this row rather than written twice. Without a tool there is
+        // nothing to attach, and a configuration that silently did less than it said is the
+        // failure this whole feature exists to remove.
+        if row.remedy == Kind::Preserve
+            && row.placement == Some(Placement::Attach)
+            && DERIVABLE.contains(&row.site.as_str())
+            && requirement_binds(&row.site, target)
+            && row.tool.is_none()
+        {
+            return Err(ConfigError::NotBuiltThatWay {
+                line: row.line,
+                site: row.site.clone(),
+                asked: format!(
+                    "remedy = \"preserve\" with placement = \"attach\" at the target {target}"
+                ),
+                why: ATTACHING_NEEDS_A_CONFORMING_FILE,
+            });
+        }
+        if answers_by_derivation(row) && row.on_failure != Kind::Stop {
+            return Err(ConfigError::NotBuiltThatWay {
+                line: row.line,
+                site: row.site.clone(),
+                asked: format!("on-failure = \"{}\"", row.on_failure.word()),
+                why: ONLY_STOP_ON_FAILURE,
+            });
+        }
+        if row.remedy == Kind::Preserve
+            && row.placement == Some(Placement::Append)
+            && PRESERVABLE_BY_PAGE.contains(&row.site.as_str())
+            && row.on_failure != Kind::Stop
+        {
+            return Err(ConfigError::NotBuiltThatWay {
+                line: row.line,
+                site: row.site.clone(),
+                asked: format!("on-failure = \"{}\"", row.on_failure.word()),
+                why: ONLY_STOP_WHEN_A_PAGE_CANNOT_BE_COMPOSED,
+            });
+        }
+        if row.remedy == Kind::Supply
+            && SUPPLIABLE.contains(&row.site.as_str())
+            && row.unlisted != Kind::Stop
+        {
+            return Err(ConfigError::NotBuiltThatWay {
+                line: row.line,
+                site: row.site.clone(),
+                asked: format!("unlisted = \"{}\"", row.unlisted.word()),
+                why: ONLY_STOP_UNLISTED,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Reads the `[site."<id>"]` identifier, or the error that names the unknown one.
@@ -809,6 +989,18 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .and_then(Value::as_text)
         .and_then(Kind::parse)
         .unwrap_or(Kind::Stop);
+    let placement = match tbl.get("placement").and_then(Value::as_text) {
+        Some(word) => Some(
+            Placement::parse(word).ok_or_else(|| ConfigError::WrongValue {
+                line: tbl.line,
+                site: site.clone(),
+                key: "placement".to_owned(),
+                wanted: "either \"append\" or \"attach\"",
+                found: "another word",
+            })?,
+        ),
+        None => None,
+    };
     let unlisted = tbl
         .get("unlisted")
         .and_then(Value::as_text)
@@ -824,6 +1016,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         remedy,
         tool,
         on_failure,
+        placement,
         media_types,
         unlisted,
         line: tbl.line,
@@ -1188,6 +1381,22 @@ fn loss_sites() -> BTreeMap<&'static str, Loss> {
 }
 
 /// Whether a requirement identifier names a requirement the target binds.
+/// Whether one row is answered by handing an attachment to a declared program.
+///
+/// Two remedy words reach the same mechanism, and that is deliberate rather than an accident of
+/// the reader: `derive` says *make a new representation*, and `preserve` with
+/// [`Placement::Attach`] says *keep this attachment an attachment* — which at a target admitting
+/// only conforming attachments is the same act, and the report says it was derived because it
+/// was. `doc/rfc/0007` section 4.6's table is the argument, and wiring the two together is what
+/// keeps the second from being a second implementation of the first.
+fn answers_by_derivation(row: &Row) -> bool {
+    if !DERIVABLE.contains(&row.site.as_str()) {
+        return false;
+    }
+    row.remedy == Kind::Derive
+        || (row.remedy == Kind::Preserve && row.placement == Some(Placement::Attach))
+}
+
 fn requirement_binds(id: &str, target: Target) -> bool {
     table::requirements().any(|requirement| requirement.id == id && requirement.binds(target))
 }
@@ -1255,6 +1464,13 @@ use super::decision::Authorisations;
 /// decides from* so a site cannot exist undocumented and a configuration naming one that does not
 /// exist is an error rather than an ignored line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one flag per remedy a configuration may answer this site with, and they are \
+              independent of each other: a site can take a discard and a page, or a tool and a \
+              departure. An enumeration would say they were exclusive, which is the thing \
+              doc/rfc/0007 section 3.1's listing must not say"
+)]
 pub struct Site {
     /// The requirement identifier — the site's key in a configuration.
     pub requirement: &'static str,
@@ -1273,6 +1489,12 @@ pub struct Site {
     pub takes_a_tool: bool,
     /// Whether a configuration may answer this site with `supply` — the operator's own fact.
     pub takes_a_supplied_fact: bool,
+    /// Whether a configuration may answer this site with `preserve` by an appended page.
+    ///
+    /// `doc/adr/1014`'s amendment, and the listing says so because `doc/rfc/0007` section 3.1
+    /// makes enumerability a gate: a remedy a configuration may name and this listing does not
+    /// mention is a site that exists undocumented.
+    pub takes_a_page: bool,
 }
 
 /// What an operator is agreeing to when they declare a `[tool.…]` block.
@@ -1316,6 +1538,7 @@ pub fn sites(target: Target) -> Vec<Site> {
                 departable: Departure::SUPPORTED.contains(&requirement.id),
                 takes_a_tool: DERIVABLE.contains(&requirement.id),
                 takes_a_supplied_fact: SUPPLIABLE.contains(&requirement.id),
+                takes_a_page: PRESERVABLE_BY_PAGE.contains(&requirement.id),
             })
         })
         .collect()

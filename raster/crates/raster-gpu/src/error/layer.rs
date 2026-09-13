@@ -48,7 +48,7 @@ pub enum LayerProblem {
     Shape,
     /// A placement that is not a finite, invertible transform. The presenter maps each
     /// target pixel back through the inverse, so a degenerate placement has no
-    /// arithmetic to do rather than a degenerate picture to draw (§4.7).
+    /// arithmetic to do rather than a degenerate picture to draw (brief section 4.7).
     #[error("the layer's placement is not a finite, invertible transform")]
     Placement,
     /// `wgpu` refused to bind the texture — the way a texture belonging to *another*

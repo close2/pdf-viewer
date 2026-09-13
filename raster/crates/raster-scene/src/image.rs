@@ -4,7 +4,7 @@
 //! upload time; the *drawing* of images — the image lane's quad, the alpha, the
 //! per-command filter — is M7's work (`raster/doc/PLAN.md`).
 //!
-//! # The filtering decision (§4.5 of the brief, integration note 1 in `raster/doc/PLAN.md`)
+//! # The filtering decision (section 4.5 of the brief, integration note 1 in `raster/doc/PLAN.md`)
 //!
 //! ISO 32000-2 §8.9.5.3's `/Interpolate` and the caller's documented
 //! area-averaging departure from §10.7.4 are decisions settled upstream, and in the
@@ -62,7 +62,7 @@ mod tests {
     use super::ImageSpec;
 
     /// Consistency is dimensions-times-four bytes exactly, and no zero dimension —
-    /// §4.7's boundary check, defined once.
+    /// brief section 4.7's boundary check, defined once.
     #[test]
     fn consistency_checks_dimensions_and_length() {
         let good = ImageSpec {

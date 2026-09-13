@@ -50,14 +50,14 @@ pub(crate) const ACROSS: u32 = 128;
 pub(crate) const TINY_ATLAS: u64 = 1024;
 
 /// The rule's device width where the question is *placement*: the caller's population is
-/// "axis-aligned rules about one device pixel wide" (§31.2).
+/// "axis-aligned rules about one device pixel wide" (the caller's section 31.2).
 ///
 /// **A multiple of every sample pitch this instrument uses**, which is exactly why it
 /// cannot be the width the *ink* question is asked at — see [`WITNESS_WIDTH`].
 pub(crate) const HAIRLINE: f32 = 1.0;
 
 /// The rule's device width where the question is *ink*: the total coverage the caller's
-/// `issue16500.pdf` witness states, 0.439 + 0.439 (§31.2).
+/// `issue16500.pdf` witness states, 0.439 + 0.439 (the caller's section 31.2).
 ///
 /// **Not a multiple of any sample pitch**, and that is the whole point. The device
 /// lane's samples lie on a lattice of period `1/√n` down the pixel, so a band whose
@@ -68,7 +68,7 @@ pub(crate) const HAIRLINE: f32 = 1.0;
 pub(crate) const WITNESS_WIDTH: f32 = 0.878;
 
 /// The caller's own witness CTM: `bug1743245.pdf`'s graph paper is drawn under a uniform
-/// scale of this, one `q … cm … S … Q` per rule (their §31.2).
+/// scale of this, one `q … cm … S … Q` per rule (their section 31.2).
 pub(crate) const CTM: f32 = 0.317_180_62;
 
 /// Where the rule sits, before the sub-pixel offset is added: far enough from the edges
@@ -100,7 +100,7 @@ pub(crate) const fn target(horizontal: bool) -> (u32, u32) {
 /// 2026-08-23 this comment said the small atlas "is what reaches the sampled lane at
 /// all", because the lane chooser declines the device lane for anything `worth_caching`
 /// (`Encoder::gpu_lane_admissible` since ADR 0075's split; `take_gpu_lane` before it).
-/// The caller corrected that in their §37.4 and the source agrees: **it is true of a
+/// The caller corrected that in their section 37.4 and the source agrees: **it is true of a
 /// solid fill and false of a stroke.** `Encoder::push_coverage_styled` passes
 /// `CacheProspect::TooLarge` at the call site — "the atlas caches outlines by key, not
 /// polylines" — so `worth_caching()` is `false` by construction for every stroke and
@@ -194,7 +194,7 @@ pub(crate) fn rule(device: &mut Device, centre: f32, case: Case) -> Scene {
 /// each carrying its own position through its own affine, at the pitch their
 /// `bug1743245.pdf` states.
 ///
-/// This is the construction their §31.2 measures and the one a swept single rule cannot
+/// This is the construction their section 31.2 measures and the one a swept single rule cannot
 /// be: their finding is that the offset "is constant within one drawing command and
 /// different between commands", which is a statement about a *set* of commands and is
 /// invisible to a fixture that draws one.

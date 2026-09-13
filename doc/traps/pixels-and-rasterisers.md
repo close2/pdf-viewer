@@ -5,8 +5,8 @@ Read by: a round that changes what gets drawn — the interpreter's marks, eithe
 colour, or a cross-backend scene. **If this round can change a pixel, trap 1 is the one that may
 not be skipped.**
 
-`doc/HANDOVER.md` is the index: it names which group holds which trap, and it states why every
-trap keeps its number.
+[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
+the rule, which group holds which, and why every trap keeps its number.
 
 ## Traps
 

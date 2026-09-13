@@ -442,11 +442,12 @@ fn an_alpha_soft_mask_weights_the_paint_by_11_5_2s_mask_value() {
 
 /// **§11.5.3's luminosity weights this paint**, coefficients and backdrop included.
 ///
-/// > the group shall be composited with a fully opaque backdrop of the colour specified
-/// > by the **BC** entry […] the mask value at each point shall be the luminosity of the
-/// > result
-///
-/// (§11.5.3, as `reduce.wgsl` implements it and `raster-scene`'s `MaskKind` documents it.)
+/// §11.5.3 composites the group with a fully opaque backdrop and takes the luminosity of the
+/// result; §11.6.5.1 is where the backdrop's colour comes from the soft-mask dictionary's
+/// `BC` entry. Stated in prose rather than as a blockquote, because joining the two clauses'
+/// sentences into one is a paraphrase and a blockquote in this tree is verbatim
+/// (`tools/conformance`). `reduce.wgsl` implements it and `raster-scene`'s `MaskKind`
+/// documents it.
 /// The group's mark is opaque `(0.2, 0.4, 0.6)` — 51, 102 and 153, all exact in 8 bits —
 /// so inside it the composite is that colour and the mask is
 /// `(0.30 × 51 + 0.59 × 102 + 0.11 × 153) / 255 = 92.31 / 255`. Outside it the group is

@@ -41,7 +41,7 @@ pub struct Layer<'a> {
     /// [`ImageFilter::Nearest`] is a texel fetch — exact, and identical on every
     /// adapter; [`ImageFilter::Linear`] is the hardware sampler, whose interpolation
     /// precision is the driver's. The same two the image lane offers, decided by the
-    /// same caller (§4.5).
+    /// same caller (brief section 4.5).
     pub filter: ImageFilter,
 }
 
@@ -170,7 +170,7 @@ impl Layer<'_> {
         // without any (WebGPU requires every extent to be at least 1), so the shader's
         // division by the extent under a linear filter cannot meet a zero.
         //
-        // No identity fallback, deliberately (§4.7, and `Affine::invert`'s own note): a
+        // No identity fallback, deliberately (brief section 4.7, and `Affine::invert`'s own note): a
         // degenerate placement substituted by the identity is the plausible-looking
         // wrong window, which is worse than a refusal a host can act on.
         self.placement.invert().ok_or(LayerProblem::Placement)
@@ -336,7 +336,7 @@ mod tests {
     }
 
     /// A placement with no inverse has no arithmetic to do, and the refusal says so
-    /// rather than the presenter substituting an identity (§4.7).
+    /// rather than the presenter substituting an identity (brief section 4.7).
     #[test]
     fn a_degenerate_or_non_finite_placement_is_refused() {
         let device = device();
@@ -433,7 +433,7 @@ mod tests {
     /// infinity in `f32` and an ordinary number in `f64`. Computed in `f64` and clamped,
     /// what the shader gets is the window's own edge; computed in `f32` it would be a
     /// vertex no rasteriser can place, which is principle 6's silent nothing wearing an
-    /// exponent. §4.7's rule is that data from a document is not trusted for being
+    /// exponent. brief section 4.7's rule is that data from a document is not trusted for being
     /// finite.
     #[test]
     fn a_corner_outside_f32_clamps_rather_than_overflowing() {

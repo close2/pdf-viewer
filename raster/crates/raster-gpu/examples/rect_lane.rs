@@ -1,4 +1,4 @@
-//! The caller's §19 measurement: what does a `Rect` command save over a `Fill` of the
+//! The caller's section 19 measurement: what does a `Rect` command save over a `Fill` of the
 //! same four-edge outline?
 //!
 //! Their `doc/QUORRA_FEEDBACK.md` §19 reports that not one page of their 995-page corpus
@@ -217,7 +217,7 @@ fn round_robin(
     lanes
 }
 
-/// How many of the two rasters' bytes differ, and by how much at worst. §19's second
+/// How many of the two rasters' bytes differ, and by how much at worst. section 19's second
 /// condition is that the lanes draw *exactly* the same mark; this is what checks it.
 fn difference(a: &[u8], b: &[u8]) -> (usize, u8) {
     a.iter()

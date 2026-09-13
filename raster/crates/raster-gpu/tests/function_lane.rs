@@ -560,7 +560,7 @@ fn a_range_the_program_cannot_fill_refuses_the_frame() {
     }
 }
 
-/// The same scene twice is the same bytes on one adapter (§4.6), which is what says the
+/// The same scene twice is the same bytes on one adapter (brief section 4.6), which is what says the
 /// generated pipeline is reused rather than re-derived into something subtly different.
 #[test]
 fn two_frames_of_one_function_scene_are_identical() {

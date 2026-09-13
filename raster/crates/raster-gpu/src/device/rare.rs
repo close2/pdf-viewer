@@ -1,7 +1,7 @@
 //! The bindings of the two rare-case lanes: an image placement (ISO 32000-2 §8.9.5)
 //! and a shading (§8.7.4.5), each one quad driven by a uniform.
 //!
-//! The brief's §0 premise is that most of a page is glyph outlines and axis-aligned
+//! The brief's section 0 premise is that most of a page is glyph outlines and axis-aligned
 //! rectangles, so these two are deliberately not a third instance stream (ADR 0011): a
 //! page may place a handful of images and no shading at all, and a lane costs more to
 //! keep in step than a uniform costs to write. `crate::encode::rare` is the half of

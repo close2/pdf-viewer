@@ -79,7 +79,7 @@ pub const CASES: &[Case] = &[
         "PLRM3 ch. 8, `eq`, which describes equality of values and names no tolerance. \
          The two operands are adjacent binary32 values, so they differ by 5.96e−8 — less \
          than `f32::EPSILON` — and an evaluator comparing with `(a − b).abs() < EPSILON` \
-         answers 1. Research §3.3 records that the caller's own evaluator does exactly \
+         answers 1. Research section 3.3 records that the caller's own evaluator does exactly \
          that; this case is the clause, not their source.",
     ),
     Case::exact(

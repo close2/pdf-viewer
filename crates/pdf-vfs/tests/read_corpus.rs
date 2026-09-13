@@ -351,32 +351,39 @@ enum Transport {
     Here,
 }
 
-/// Workers that know §7.6.4.1's password for this document, on the transport named.
+/// Workers on the transport named, and nothing else.
+///
+/// It knows nothing about the document: §7.6.4.1's password is the mount's and reaches this
+/// through [`Workers::spawn`], which is the path a face takes.
 #[derive(Debug)]
-struct KeyedWorkers(&'static str, Transport);
+struct TransportWorkers(Transport);
 
-impl Workers for KeyedWorkers {
+impl Workers for TransportWorkers {
     fn spawn(
         &self,
         bytes: FileBytes,
-        password: Option<Secret>,
+        password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
-        let secret =
-            password.or_else(|| (!self.0.is_empty()).then(|| Secret::from(self.0.to_owned())));
-        match self.1 {
+        match self.0 {
             Transport::Confined => ConfinedWorkers::start(
                 &bytes,
-                secret.as_ref(),
+                password,
                 policy,
                 budget,
                 pdf_vfs::MachineFaces::Withheld,
             )
             .map(|worker| Box::new(worker) as Box<dyn Worker>),
             Transport::Here => {
-                let source = match secret {
-                    Some(secret) => Source::with_password(bytes, secret),
+                let source = match password {
+                    // This generation's own `Secret`, through the type's own buffer: `Source`
+                    // owns the password it is given and the mount's is only lent.
+                    Some(secret) => {
+                        let mut lent = Secret::new();
+                        lent.push_str(secret.reveal());
+                        Source::with_password(bytes, lent)
+                    }
                     None => Source::new(bytes),
                 };
                 // One strip: a rayon task per document already, and a worker that split a render
@@ -394,11 +401,19 @@ impl Workers for KeyedWorkers {
 /// (ADR 0812) instead of as a frame, which is what a mount does and what the message budget
 /// would otherwise bound.
 fn mounted(path: &Path, name: &str, transport: Transport) -> Vfs {
-    Vfs::new(
-        Box::new(FileBacking::new(path)),
-        Box::new(KeyedWorkers(password_for(name), transport)),
-        config(),
-    )
+    let backing = Box::new(FileBacking::new(path));
+    let workers = Box::new(TransportWorkers(transport));
+    let password = password_for(name);
+    if password.is_empty() {
+        Vfs::new(backing, workers, config())
+    } else {
+        Vfs::with_password(
+            backing,
+            workers,
+            config(),
+            Secret::from(password.to_owned()),
+        )
+    }
 }
 
 /// A transform source over this document, with the corpus's known password where it has one.

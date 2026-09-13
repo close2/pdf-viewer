@@ -64,6 +64,7 @@ pub mod prose;
 pub mod quote;
 pub mod quoted;
 pub mod retired;
+pub mod roots;
 pub mod tables;
 pub mod toml_subset;
 pub mod undenominated;
@@ -85,26 +86,27 @@ pub const STANDARD: &str = "doc/md/ISO_32000-2_sponsored_EC3.md";
 /// The ledger.
 pub const LEDGER: &str = "doc/conformance/ledger.toml";
 
-/// The directories whose Rust sources are scanned for citations.
-///
-/// Everything this project writes, including its build scripts and fuzz targets: a wrong
-/// clause number is wrong wherever it is written.
-pub const SOURCE_ROOTS: [&str; 3] = ["crates", "tools", "fuzz"];
-
 /// The workspace root, from this crate's own location.
 #[must_use]
 pub fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Scans every Rust source under [`SOURCE_ROOTS`], with paths relative to `root`.
+/// Scans every Rust source under [`roots::source_roots`], with paths relative to `root`.
+///
+/// Everything this project writes, including its build scripts and fuzz targets: a wrong clause
+/// number is wrong wherever it is written. *Which* directories those are is derived from the
+/// workspace manifest rather than listed here — [`roots`] says what the list cost.
 ///
 /// # Errors
 ///
-/// If a directory cannot be read: a checker that skipped what it could not open would
-/// report a clean tree for a tree it had not looked at.
+/// If a directory cannot be read, or the tree's shape cannot be derived: a checker that skipped
+/// what it could not open would report a clean tree for a tree it had not looked at.
 pub fn scan_tree(root: &Path) -> std::io::Result<Vec<(PathBuf, Scan)>> {
-    let roots: Vec<PathBuf> = SOURCE_ROOTS.iter().map(|name| root.join(name)).collect();
+    let roots: Vec<PathBuf> = roots::source_roots(root)?
+        .iter()
+        .map(|name| root.join(name))
+        .collect();
     let mut scanned = Vec::new();
     for path in citation::rust_sources(&roots)? {
         let relative = path.strip_prefix(root).unwrap_or(&path).to_path_buf();

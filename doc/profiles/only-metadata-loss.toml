@@ -34,6 +34,13 @@ remedy = "preserve"
 original = "attach"        # 4f holds the original packet as a file, which is tidier than a page
 fresh-packet = true
 
+# **The one of these that is built**, and the largest single refusal the corpus meets: a property
+# its own predefined schema does not define has to come out of the packet, and this keeps it. The
+# page is the same answer `original = "page"` asks for above, in the key the format states it in.
+[site."metadata/properties-use-known-schemas"]
+remedy = "preserve"
+placement = "append"
+
 [site."metadata/xmp-packets-state-one-rdf-element"]
 remedy = "preserve"
 original = "page"

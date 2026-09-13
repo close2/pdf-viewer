@@ -430,40 +430,118 @@ pub(crate) fn collection_names(
 ///    reaches this is a collection beyond what the clause requires.
 ///
 /// `encoding` is the Type 0 font's `/Encoding`, needed for (a) alone: the prohibition is stated
-/// of the `CMap` rather than of the descendant.
+/// of the `CMap` rather than of the descendant. `font` is that same Type 0 dictionary, and
+/// [`to_unicode_gap`] is what it is read for — the half-sentence every branch below ends with,
+/// which is the **fifth** fact this refusal was carrying unseparated.
 pub(crate) fn collection_gap(
     document: &Document,
+    font: &Dictionary,
     descendant: &Dictionary,
     encoding: Option<&str>,
 ) -> String {
+    let instead = to_unicode_gap(document, font);
+
     if let Some(name @ ("Identity-H" | "Identity-V")) = encoding {
         return format!(
             "the file states /Encoding /{name} over a descendant with no embedded program, \
              which §9.7.5.2 says shall not be used — a CID is then an index into a program \
-             nobody supplied — and it states no /ToUnicode to read the codes by instead \
-             (§9.10.2)"
+             nobody supplied — and {instead}"
         );
     }
 
     let Some((registry, ordering)) = collection_names(document, descendant) else {
-        return "the descendant states no readable /CIDSystemInfo, which Table 115 makes \
-                required, so §9.10.2 step (b) has no character collection to obtain — and it \
-                states no /ToUnicode either"
-            .to_owned();
+        return format!(
+            "the descendant states no readable /CIDSystemInfo, which Table 115 makes required, \
+             so §9.10.2 step (b) has no character collection to obtain — and {instead}"
+        );
     };
 
     if ordering == "Identity" {
         return format!(
             "the descendant's character collection is {registry}-{ordering}, whose CIDs are the \
              glyph order of a program nobody supplied (§9.7.3), so no table can say what they \
-             mean — and it states no /ToUnicode either (§9.10.2)"
+             mean — and {instead}"
         );
     }
 
     format!(
         "this reader carries no CID-to-Unicode table for the character collection \
-         {registry}-{ordering}, which is beyond the four §9.7.5.2 requires — and the font states \
-         no /ToUnicode either (§9.10.2)"
+         {registry}-{ordering}, which is beyond the four §9.7.5.2 requires — and {instead}"
+    )
+}
+
+/// Why §9.10.2's first method did not answer either, in the file's own terms.
+///
+/// **This is [`collection_gap`]'s fifth fact, and it was the half-sentence all four of the
+/// others ended with.** Each of them said "it states no `/ToUnicode`", which is a claim about the
+/// *file* rather than about this reader — and `issue11915.pdf` falsifies it. That document is a
+/// font specimen: five lines naming five faces, each shown in a non-embedded `CIDFontType2` under
+/// `/Encoding /Identity-H`, and each of its five Type 0 dictionaries states
+///
+/// ```text
+/// /ToUnicode /Identity-H
+/// ```
+///
+/// — a **name**, where §9.10.1 says of that entry that its
+///
+/// > value shall be a stream object containing a special kind of CMap file that maps character
+/// > codes to Unicode values
+///
+/// and Table 119 types it `stream`. So the entry is there and is not the thing the clause names,
+/// [`crate::loading::read_to_unicode`] rightly reads nothing out of it, and the refusal then
+/// reported a file nobody has. ADR 0836's lesson one crate over and about a report rather than
+/// about a decoder: **what a reader could not use is not the same statement as what a file did
+/// not state.**
+///
+/// **The refusal is unchanged by any of this**, which is why this returns prose and not a
+/// verdict. A name is not a stream; §9.10.3 defines a `/ToUnicode` `CMap` as the contents of one;
+/// and no clause says what a name there would mean — Table 116's predefined `CMap`s map codes to
+/// *CIDs*, so reading `/Identity-H` as "the code is already the Unicode value" is an invention,
+/// however plausible the references make it look on a page whose codes happen to be UTF-16BE.
+/// What the sentence buys is that the next reader of this message learns the file broke a second
+/// `shall`, and that a round wanting to recover the construction knows where it is.
+///
+/// Three answers, and the third is not the name of a kind:
+///
+/// - **No entry.** The original sentence, now said only where it is true.
+/// - **An entry that is not a stream.** The value's own kind, a name with its spelling, because
+///   *which* name the producer wrote is the whole of what it was trying to say.
+/// - **A stream that produced no mapping.** [`crate::loading::read_to_unicode`] answers empty for
+///   a stream that does not decode and for a `CMap` that states nothing, and neither of those is
+///   an absent entry either. **This bullet said "not because a corpus document reaches it" and the
+///   golden corrected it in the same session**: `issue5801.pdf`, another of ADR 0433's eleven, has
+///   a `/ToUnicode` that is a stream — and the stream is a copy of the *`Identity-H` CID* `CMap`,
+///   all `begincidrange` and not one `beginbfchar`, so there is nothing for a `/ToUnicode` reader
+///   to find in it. `examples/to_unicode_kind_census` counts **55 such streams over 27 documents**
+///   against the sixteen names over ten, so the commoner of the two shapes is the one that was
+///   almost written off. Trap 11 from both ends at once: a report that fires on a condition it
+///   does not name, and a comment that asserted a population nobody had counted.
+fn to_unicode_gap(document: &Document, font: &Dictionary) -> String {
+    let object = document.get_key(font, "ToUnicode");
+    let kind = match &object {
+        Object::Null => {
+            return "it states no /ToUnicode to read the codes by instead (§9.10.2)".to_owned();
+        }
+        Object::Stream(_) => {
+            return "its /ToUnicode states no mapping to read the codes by instead (§9.10.2)"
+                .to_owned();
+        }
+        Object::Name(name) => Cow::Owned(format!(
+            "the name /{}",
+            String::from_utf8_lossy(name.as_bytes())
+        )),
+        Object::Array(_) => Cow::Borrowed("an array"),
+        Object::Dictionary(_) => Cow::Borrowed("a dictionary"),
+        Object::String(_) => Cow::Borrowed("a string"),
+        Object::Boolean(_) => Cow::Borrowed("a boolean"),
+        Object::Integer(_) | Object::Real(_) => Cow::Borrowed("a number"),
+        // `get_key` resolves indirect objects, and a dangling one answers `Null` rather than
+        // itself, so this arm is the match's completeness rather than a file's.
+        Object::Reference(_) => Cow::Borrowed("an unresolved reference"),
+    };
+    format!(
+        "its /ToUnicode is {kind}, where §9.10.1 says the value \"shall be a stream object\" and \
+         Table 119 types it a stream, so there is no CMap to read the codes by instead (§9.10.2)"
     )
 }
 
@@ -519,6 +597,10 @@ mod tests {
     /// below asserts the phrase its own case is named by *and* that no other row's phrase
     /// appears, which is what makes this a test of the split rather than of the wording.
     ///
+    /// Every row states no `/ToUnicode`, so every one of them ends in [`to_unicode_gap`]'s first
+    /// answer — which is the sentence all four used to end in unconditionally, and is asserted
+    /// here so that the split above stays a test of the *other* four facts.
+    ///
     /// Calibrated (trap 13) by making the function return one constant: all four rows fail.
     #[test]
     fn four_facts_about_a_file_reach_four_different_refusals() {
@@ -543,7 +625,7 @@ mod tests {
         let phrases: Vec<&str> = cases.iter().map(|(_, _, phrase)| *phrase).collect();
         for (encoding, entries, expected) in cases {
             let (document, descendant) = font_dictionary(entries);
-            let said = super::collection_gap(&document, &descendant, encoding);
+            let said = super::collection_gap(&document, &descendant, &descendant, encoding);
             for phrase in &phrases {
                 assert_eq!(
                     said.contains(phrase),
@@ -551,6 +633,51 @@ mod tests {
                     "{encoding:?} over {entries} should say only {expected:?}, and said: {said}"
                 );
             }
+            assert!(
+                said.contains("it states no /ToUnicode to read the codes by instead"),
+                "a dictionary with no /ToUnicode entry says so: {said}"
+            );
         }
+    }
+
+    /// And the fifth fact: a `/ToUnicode` that is there and is not a stream.
+    ///
+    /// `issue11915.pdf` is the witness and it states `/ToUnicode /Identity-H` on all five of its
+    /// Type 0 dictionaries. §9.10.1 requires that entry's "value shall be a stream object" and
+    /// Table 119 types it a stream, so what the file states is not a `CMap` — but it is also not
+    /// *nothing*, which is what the refusal said for a hundred sessions. The name is printed with
+    /// its spelling because which name the producer wrote is the whole of what it meant.
+    ///
+    /// The second row is the control and it is the one that makes this a test of the condition
+    /// rather than of the wording: the identical dictionary with the entry removed goes back to
+    /// the original sentence, and neither row may say the other's.
+    ///
+    /// Calibrated (trap 13) by making [`to_unicode_gap`] answer its first arm unconditionally:
+    /// the first row fails and the second still passes.
+    #[test]
+    fn a_to_unicode_that_is_not_a_stream_is_not_an_absent_one() {
+        let identity = "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>";
+        let (document, with_name) = font_dictionary(&format!("{identity} /ToUnicode /Identity-H"));
+        let said = super::collection_gap(&document, &with_name, &with_name, Some("Identity-H"));
+        assert!(
+            said.contains("its /ToUnicode is the name /Identity-H")
+                && said.contains("shall be a stream object"),
+            "the entry is reported as what it is: {said}"
+        );
+        assert!(
+            !said.contains("states no /ToUnicode"),
+            "and not as an entry the file never wrote: {said}"
+        );
+
+        let (document, without) = font_dictionary(identity);
+        let said = super::collection_gap(&document, &without, &without, Some("Identity-H"));
+        assert!(
+            said.contains("it states no /ToUnicode to read the codes by instead"),
+            "and the same dictionary without the entry says the original sentence: {said}"
+        );
+        assert!(
+            !said.contains("shall be a stream object"),
+            "and nothing about a type nobody wrote: {said}"
+        );
     }
 }

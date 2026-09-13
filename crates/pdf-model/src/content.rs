@@ -26,6 +26,7 @@ use pdf_render::{
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::colour::{ColourSpace, Compositing};
+use crate::icc::Rendering;
 use crate::page::Page;
 
 use colour::{BlackPoint, Intent, output_intent_space};
@@ -338,9 +339,13 @@ impl GraphicsState {
         }
     }
 
-    /// Whether §8.6.5.9's black point compensation applies to an object painted now.
+    /// How an object painted now converts its colours: §8.6.5.8's intent and §8.6.5.9's black
+    /// point compensation.
     ///
-    /// The clause states the override over the object rather than over the entry:
+    /// The intent decides both halves. It selects which of an ICC profile's "to CIE" transforms
+    /// the colour goes through — `crate::icc::A2b`, and `Intent::a2b` is the mapping — and it
+    /// can force the compensation off, which the clause states over the object rather than over
+    /// the entry:
     ///
     /// > If the current render intent of an object is AbsColorimetric then the value of
     /// > UseBlackPtComp shall be treated as OFF .
@@ -351,16 +356,21 @@ impl GraphicsState {
     /// one field: a `ri` naming any other intent used to reset an explicit `/UseBlackPtComp
     /// OFF` back to compensating, and a `/UseBlackPtComp ON` set *after* an absolute intent
     /// used to compensate although the intent still in force says it shall not.
-    fn black_point(&self) -> BlackPoint {
-        self.black_point_under(self.intent)
+    fn rendering(&self) -> Rendering {
+        self.rendering_under(self.intent)
     }
 
-    /// As [`GraphicsState::black_point`], for an object that states an intent of its own.
+    /// As [`GraphicsState::rendering`], for an object that states an intent of its own.
     ///
     /// The clause says *the current render intent of an object*, and §8.6.5.8 gives an object
     /// three routes to one: the `ri` operator, an `/ExtGState`'s `/RI`, and §8.9.5.1 Table 87's
     /// `/Intent`, which is an image's own. Only the third can differ from the state's, which is
     /// why this takes the intent as an argument rather than reading it.
+    fn rendering_under(&self, intent: Intent) -> Rendering {
+        Rendering::new(intent.a2b(), self.black_point_under(intent).applies())
+    }
+
+    /// Whether §8.6.5.9's black point compensation applies under `intent`.
     fn black_point_under(&self, intent: Intent) -> BlackPoint {
         if intent == Intent::Absolute {
             // Absolute colorimetry reproduces the source's measured colours, including its own

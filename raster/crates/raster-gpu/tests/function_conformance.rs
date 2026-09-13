@@ -27,9 +27,9 @@
 //!   than `Agreement::Bounded`, deliberately: `Bounded` means no inexact operator's value
 //!   reaches an *amplifier*, which still permits a last-bit difference in the colour, while
 //!   a program that calls none of `atan`, `sin`, `cos`, `exp`, `ln`, `log`, `sqrt` or `div`
-//!   has nothing WGSL §15.7.4.1 licenses a difference in.
+//!   has nothing WGSL section 15.7.4.1 licenses a difference in.
 //! - **Everything else is compared to 1e-3, relative or absolute, whichever is larger.**
-//!   The loosest row of WGSL §15.7.4.1 is `atan` at **4 096 ULP**, which at a result of
+//!   The loosest row of WGSL section 15.7.4.1 is `atan` at **4 096 ULP**, which at a result of
 //!   magnitude *m* is `m × 4 096 × 2⁻²³ ≈ m × 4.9e-4` — inside a relative 1e-3 at every
 //!   magnitude, and inside an absolute 1e-3 below 1. `sin` and `cos` are stated as an
 //!   absolute 2⁻¹¹ ≈ 4.9e-4 over `[-π, π]`; `div` is 2.5 ULP and `sqrt` is inherited from
@@ -70,7 +70,7 @@ use raster_scene::{FnOp, FnRange};
 /// specify tightly. Its derivation is in this file's header; it is the test's instrument.
 const INEXACT_BOUND: f32 = 1e-3;
 
-/// The operators WGSL §15.7.4.1 gives a loose accuracy or none at all. A program free of all
+/// The operators WGSL section 15.7.4.1 gives a loose accuracy or none at all. A program free of all
 /// of them is one the device and the host should agree with bit for bit.
 fn calls_an_inexact_operator(program: &[FnOp]) -> bool {
     program.iter().any(|op| {

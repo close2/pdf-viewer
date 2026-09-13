@@ -419,3 +419,86 @@ fn every_workspace_in_the_tree_is_formatted_compiled_and_linted_by_the_sequence(
          are a copy of the root's and must stay identical to it. ADR 0742."
     );
 }
+
+/// Every crate of this tree is one the citation and quotation sweeps actually read.
+///
+/// # The defect this is the fix for
+///
+/// `SOURCE_ROOTS` was `["crates", "tools", "fuzz"]`, written by hand beside a workspace manifest
+/// whose members are a glob — `["crates/*", "tools/*", "raster/crates/*"]`. A list and a glob are
+/// two populations and only one of them grew when `raster/` was folded into this workspace on
+/// 2026-09-06, so **1,884 clause citations in 243 of that sub-project's 283 Rust files sat
+/// outside the citation and quotation gate for the four months that followed**, producing no
+/// findings because nothing read them. Session 1004 found it (ADR 1024 §4) and could only say so
+/// from `tools/round.sh`, because this crate was another round's; session 1010 derived the roots
+/// (`conformance::roots`) and moved the check here, where the thing it is about lives.
+///
+/// # Why the two sides are derived differently, and why that is the point
+///
+/// The scan's population comes from the workspace manifest plus the crates at the top of the
+/// tree; this gate's comes from **git**, which knows every tracked `Cargo.toml` however the
+/// manifests are arranged. A check whose two sides are the same derivation is a tautology. These
+/// two disagree exactly when a crate arrives somewhere the manifest cannot reach — a second
+/// excluded workspace under `raster/`, say — which is the shape the original defect had.
+///
+/// git rather than a walk for `tracked_manifests`' reason, stated at the top of this file: a
+/// worktree round replaces its submodules with symlinks into the primary checkout, and a walk
+/// would follow them out of this tree.
+#[test]
+fn every_workspace_member_is_scanned() {
+    let root = repository_root();
+    let scanned: BTreeSet<String> = conformance::roots::source_roots(root)
+        .expect("the tree's crates are derived from the workspace manifest")
+        .into_iter()
+        .collect();
+
+    let mut unread = Vec::new();
+    for manifest in tracked_manifests(root) {
+        let Some((directory, _)) = manifest.rsplit_once("/Cargo.toml") else {
+            continue; // The workspace's own manifest, which is not a crate directory.
+        };
+        let text = std::fs::read_to_string(root.join(&manifest))
+            .unwrap_or_else(|why| panic!("{manifest} is tracked and unreadable: {why}"));
+        if !text.lines().any(|line| line.trim() == "[package]") {
+            continue; // A manifest with no package is a workspace, and holds no sources of its own.
+        }
+        if !scanned.contains(directory) {
+            unread.push(directory.to_owned());
+        }
+    }
+
+    assert!(
+        unread.is_empty(),
+        "these crates are in the tree and `conformance::roots::source_roots` does not name them, \
+         so every clause citation and every quotation under them is outside the gate that checks \
+         citations and quotations — and the gate's output looks exactly as it always did, because \
+         a directory nobody reads produces no findings: {unread:?}\n\
+         \n\
+         The roots are derived from the workspace manifest's members and from the crates at the \
+         top of the tree. A crate that is neither — a second excluded workspace nested under a \
+         member, say — needs a rule in `conformance::roots`, not a name in a list."
+    );
+
+    // A scan that reads nothing would satisfy the assertion above by having nothing to miss.
+    let read = conformance::scan_tree(root).expect("the tree's sources");
+    let covered: BTreeSet<&str> = read
+        .iter()
+        .filter_map(|(path, _)| path.to_str())
+        .filter_map(|path| {
+            scanned
+                .iter()
+                .find(|directory| path.starts_with(&format!("{directory}/")))
+                .map(String::as_str)
+        })
+        .collect();
+    let silent: Vec<&String> = scanned
+        .iter()
+        .filter(|directory| !covered.contains(directory.as_str()))
+        .filter(|directory| *directory != conformance::NOT_SCANNED)
+        .collect();
+    assert!(
+        silent.is_empty(),
+        "these crates are among the roots and the scan returned not one source from them, which \
+         is the same silence one step further on: {silent:?}"
+    );
+}

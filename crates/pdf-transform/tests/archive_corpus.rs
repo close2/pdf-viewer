@@ -208,6 +208,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 claim_conformance: false,
                 derivations: Vec::new(),
                 supplies: Vec::new(),
+                preservations: Vec::new(),
                 tool_outputs: ToolOutputs::new(),
             }),
             &[Source::new(bytes)],

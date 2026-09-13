@@ -313,7 +313,7 @@ fn draw(threads: usize, scene: impl Fn(&mut Device) -> Scene) -> (Vec<u8>, Count
     (frame.into_raster().unwrap().into_pixels(), counters)
 }
 
-/// §4.6, and the caller's §5: *a frame drawn on 24 threads must be the same bytes as the
+/// brief section 4.6, and the caller's §5: *a frame drawn on 24 threads must be the same bytes as the
 /// same frame drawn on one.*
 #[test]
 fn a_busy_page_is_the_same_bytes_at_every_thread_count() {

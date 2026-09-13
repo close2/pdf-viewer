@@ -306,10 +306,20 @@ Three things this item still owes, none of them blocking a face:
 - `text/document.txt` is built whole rather than streamed page by page, so its first byte costs
   the whole document. RFC §5.5 names the streaming.
 - The cache has a memory bound and no disk half, which §5.5 offers as optional.
-- An encrypted document opens only under §7.6.4.1's default user password. A worker is made per
-  generation and `viewer_core::Secret` is deliberately not `Clone`, so a mount that survives a
-  change of the file needs a design for re-supplying the password — a lending `Secret`, or a
-  `SecretSource` a face implements. `doc/todo/57` §1 records the same shape for `merge`.
+- ~~An encrypted document opens only under §7.6.4.1's default user password … a mount that
+  survives a change of the file needs a design for re-supplying the password — a lending `Secret`,
+  or a `SecretSource` a face implements.~~ **The lending `Secret` is the one that landed, in
+  session 1011 (ADR 1030)**, and it is the cheaper of the two this line named: `Workers::spawn`
+  takes `Option<&Secret>`, so the mount holds §7.6.4.1's password for its own life and lends it to
+  every generation's worker — no new trait, and the `Clone` this type refuses is still refused.
+  `Vfs::with_password` is where a face hands one over and `pdffs --password-fd <n>` is the first
+  face that does, on the transform suite's own convention (there is no `--password`, because argv
+  is public). What is left of the line is narrower and is what the shortfall says now: a password
+  cannot be supplied *after* the mount exists, so a document encrypted under the mount, or
+  replaced by one wanting a different password, is refused rather than asked about — a `readdir`
+  has nobody to prompt. The KIO face could ask, and has not been given the ABI to: that is one
+  entry point and a version bump, and it is what `doc/todo/58` still owes here.
+  `doc/todo/57` §1 records the same shape for `merge`.
 - ~~A *listing* of `images/NNNN/` re-runs that page's extraction every time … Caching the listing
   itself is a second kind of entry the cache does not have.~~ **Closed in session 923 (ADR 0886),
   and it was worse than this line said**: not only the listing but *every* question about a path

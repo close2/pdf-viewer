@@ -31,7 +31,7 @@ fn uniform_entry(
     }
 }
 
-/// A sampled texture read by `textureLoad` alone: exact fetches, no filtering (§4.6).
+/// A sampled texture read by `textureLoad` alone: exact fetches, no filtering (brief section 4.6).
 fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -46,7 +46,7 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
 }
 
 /// The image's texture, the one filterable binding in the crate: linear filtering is the
-/// placement's resolved decision (§4.5), so the hardware sampler must be usable on it.
+/// placement's resolved decision (brief section 4.5), so the hardware sampler must be usable on it.
 fn filterable_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,

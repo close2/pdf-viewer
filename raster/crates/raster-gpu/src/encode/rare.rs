@@ -1,7 +1,7 @@
 //! The rare-case lanes: an image, a ramp sweep, a mesh, a §7.10.5 program — one
 //! uniform-driven quad each.
 //!
-//! The brief's §0 premise is that most of a page is a few glyph outlines repeated and
+//! The brief's section 0 premise is that most of a page is a few glyph outlines repeated and
 //! axis-aligned rectangles; ADR 0011 encodes what is left to match that premise rather
 //! than to match its own complexity. An image (ISO 32000-2 §8.9.5) and a shading
 //! (§8.7.4.5) each become a single quad carrying its own parameters, not a third and
@@ -62,7 +62,7 @@ pub(crate) struct ImageOp {
     pub axis_aligned: bool,
     /// The command's constant alpha (§11.6.4.4).
     pub alpha: f32,
-    /// The placement's resolved filter: `true` for linear (§4.5, integration
+    /// The placement's resolved filter: `true` for linear (brief section 4.5, integration
     /// note 1 — resolved here since ADR 0089 where the command says `Auto`).
     pub linear: bool,
     /// The area-averaged variant this placement asks for, as `(x, y)` factors — the
@@ -315,7 +315,7 @@ impl Encoder<'_> {
 
     /// The shading-space geometry of a non-solid paint. `None` means a singular
     /// shading transform made the sweep unmappable — a degenerate shading matrix
-    /// paints nothing rather than something arbitrary (§4.7).
+    /// paints nothing rather than something arbitrary (brief section 4.7).
     ///
     /// Callers guarantee `paint` is not `Solid`. The shaded *command's* transform is
     /// deliberately absent here: a shading anchors to the scene through its own

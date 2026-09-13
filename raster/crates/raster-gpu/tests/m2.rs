@@ -43,7 +43,7 @@ fn glyph_like_outline() -> Vec<Segment> {
     ]
 }
 
-/// §2.2's shape at device level: 107 distinct outlines uploaded once, thousands of
+/// brief section 2.2's shape at device level: 107 distinct outlines uploaded once, thousands of
 /// references built against them with no further device involvement, and rendering a
 /// *rect-only* scene afterwards touches none of it (a zoom re-uploads nothing).
 #[test]
@@ -76,7 +76,7 @@ fn the_upload_once_reference_many_round_trip() {
     let scene = builder.finish();
     assert_eq!(scene.cost().commands, 5_933);
 
-    // Since M4 the fills draw through the glyph lane, and the keying proves §2.2's
+    // Since M4 the fills draw through the glyph lane, and the keying proves brief section 2.2's
     // arithmetic: 5 933 fills, integer translations (phase 0), one linear part —
     // exactly 107 distinct keys, one atlas entry per distinct outline.
     let frame = device

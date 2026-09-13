@@ -1,6 +1,7 @@
 //! No shape entry point can reach the soft mask (ADR 0066).
 //!
-//! ISO 32000-2 Table 57 gives one flag for two parameters:
+//! ISO 32000-2 §8.4.1's Table 51 gives one flag for two parameters — Table 57's `AIS` is
+//! the key that sets it:
 //!
 //! > alpha source … A flag specifying whether the current soft mask and alpha constant
 //! > parameters shall be interpreted as shape values ( true ) or opacity values

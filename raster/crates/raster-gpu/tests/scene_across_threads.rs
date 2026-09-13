@@ -89,7 +89,7 @@ fn device(threads: usize) -> Device {
 /// **Uploaded resources are the device's and a scene names them by identifier**, so a
 /// device that is to draw a scene it did not see built must be given the same resources in
 /// the same order. That is a real part of the contract rather than a convenience of this
-/// test: it is what lets one viewport-free scene (§2.3) be rendered by devices that have
+/// test: it is what lets one viewport-free scene (brief section 2.3) be rendered by devices that have
 /// never met, and it is why `shapes` is a separate step from `page`.
 struct Shapes {
     curve: OutlineId,
@@ -180,7 +180,7 @@ fn draw(device: &mut Device, scene: &Scene) -> Vec<u8> {
         .into_pixels()
 }
 
-/// §2.3's three claims about a [`Scene`], each as the kind of statement it is.
+/// brief section 2.3's three claims about a [`Scene`], each as the kind of statement it is.
 ///
 /// `Send` and `Sync` are trait bounds and are stated as bounds. **Cheap to clone** is not a
 /// bound and is usually left as prose, so it is stated here as the fact that makes it true:
@@ -194,7 +194,7 @@ fn a_scene_is_send_sync_and_one_pointer_wide() {
     assert_eq!(
         size_of::<Scene>(),
         size_of::<usize>(),
-        "§2.3 asks for a scene that is cheap to clone, and ADR 0001 holds it with an Arc \
+        "brief section 2.3 asks for a scene that is cheap to clone, and ADR 0001 holds it with an Arc \
          around immutable data: one pointer, so a clone is a pointer copy and a refcount"
     );
 }

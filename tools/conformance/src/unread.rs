@@ -10,7 +10,7 @@
 //! fifty sessions after §8.11.4.4 read it per group.
 //!
 //! So the sweep takes each such claim apart into keys and asks the tree: **does any Rust source
-//! under [`crate::SOURCE_ROOTS`] read the entry it says nobody reads?** Reading, here, is the
+//! under [`crate::roots::source_roots`] read the entry it says nobody reads?** Reading, here, is the
 //! quoted-string form a lookup uses — `document.get_key(annotation, "FS")` — because a `/FS` in
 //! a comment is *naming* the entry, which is exactly what the note already does. A key quoted by
 //! a file the row's own `code = [...]` lists is the sharpest hit there is: the row's implementing
@@ -134,7 +134,7 @@ impl Report {
 /// Runs the sweep over one ledger and one set of sources.
 ///
 /// The sources are [`crate::entries::sources`]' — every Rust file under
-/// [`crate::SOURCE_ROOTS`], tests included, because the population the prose sweep walked was
+/// [`crate::roots::source_roots`], tests included, because the population the prose sweep walked was
 /// the whole tree and a witness path says what kind of file quotes the key.
 #[must_use]
 pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {

@@ -4,7 +4,6 @@
 //! > intersects the shape, no matter how small the intersection is. This ensures that no
 //! > shape ever disappears as a result of unfavourable placement relative to the device
 //! > pixel grid […] A zero-width or zero-height rectangle paints a line 1 pixel wide.
-//! > (ISO 32000-2 §10.7.4)
 //!
 //! `848 1085 10159 0 re f` is how a real corpus document rules every line of its grid,
 //! and an area rule computes that shape's coverage as zero at every pixel. Until this

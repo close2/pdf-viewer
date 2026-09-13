@@ -175,7 +175,7 @@ const COMPILE_ROUNDS: usize = 3;
 ///
 /// The round-robin matters more here than anywhere else in the spike: a compile is
 /// host work on a machine whose load average swings between 2 and 50, and it is the
-/// number `PLAN.md` §1.8 and the caller's §5.2 both judge shape (ii) by.
+/// number `PLAN.md` §1.8 and the caller's section 5.2 both judge shape (ii) by.
 fn compile_all(gpu: &Gpu, cases: &[Case]) -> (Paint, Vec<Option<Paint>>) {
     let mut sources = vec![(
         "shape (i)  interpreter".to_string(),

@@ -690,3 +690,141 @@ fn a_recompressed_stream_decodes_to_what_it_did_and_never_grows() {
     assert_eq!(written.recompressed, 0);
     assert_eq!(written.saved, 0);
 }
+
+/// The 184 bytes that made the `serialize` fuzz target abort on its first seed pass, and the
+/// refusal that answers them — ISO 32000-2 §7.5.5's Table 15 and §7.3.10.
+///
+/// # What the file is
+///
+/// A damaged file with no `endobj`, no `xref` and an unterminated stream, whose trailer says
+/// `/Root 1 0 R`. Nothing closes object 1's dictionary, so the scan that recovers this document
+/// finds no object 1 at all and `Document::catalog` reports the file has no catalog. The
+/// trailer's claim survives the recovery because it is what the file's own bytes state.
+///
+/// Copied object for object into an assembly — which is what every transform does, and what the
+/// fuzz target does — that claim would go straight back out: a trailer naming object 1, above an
+/// object 1 written as `null`. §7.3.10 makes a reference to an undefined object "a reference to
+/// the null object", and Table 15 gives `/Root` the type `dictionary`, so such a file states a
+/// catalog it does not hold and this tree's own reader will not open it. RFC 0002 section 11.3
+/// is what that costs: "[a] malformed output is this project's defect in a way a misrendered
+/// page never was". So the writer refuses instead, and this pins the refusal.
+///
+/// `CLAUDE.md` principle 3 asks that a crasher become a permanent regression test, and the bytes
+/// are here rather than in `fuzz/corpus/` alone because that directory is gitignored.
+#[test]
+fn a_root_that_reaches_no_dictionary_is_refused_rather_than_written() {
+    // The crasher, byte for byte, as ADR 1024 §5 records it; libFuzzer named its artifact
+    // `crash-3a47ca5ddd5f24ad7eaa69d33b4fb85321931d51`, in a directory git does not carry.
+    let crasher: &[u8] = b"%PDF-1.4\n1 0 obj \n<<\n/Pages 2 0 R\n2 0 obj \n<<\n/Resources \n>>\n\
+        /Contents 811 0 R\n811 0 obj \n<<\n/Length 17863\n>>\nstream\nBI\n/W 62\n/H 62\n/D[1\n0]\n\
+        /F/CCF\x8a/DP<</K -1\ntrailer\n<<\n/Root 1 0 R\n>>\n";
+    assert_eq!(
+        crasher.len(),
+        184,
+        "the case is the one ADR 1024 §5 records"
+    );
+
+    let source = open(crasher.to_vec());
+    let root = source
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .expect("the trailer states /Root, which is the whole difficulty");
+    assert!(
+        source.catalog().is_err(),
+        "the premise: this document's own /Root reaches no dictionary"
+    );
+
+    let mut assembly = Assembly::new(vec![&source]);
+    for number in 1..=8 {
+        assembly.copy(0, ObjectId::new(number, 0)).unwrap();
+    }
+    let mapped = assembly.copied(0, root).expect("object 1 was copied");
+    assembly.set_root(mapped);
+
+    // Both forms, because the trailer is written twice over: §7.5.5's `trailer` keyword and
+    // §7.5.8's cross-reference stream dictionary, which carries the same Table 15 entries.
+    for form in [Form::Table, Form::Stream] {
+        let mut bytes = Vec::new();
+        let error = serialize(
+            &assembly,
+            Version { major: 1, minor: 7 },
+            Options::new(form),
+            &mut bytes,
+        )
+        .expect_err("a file whose /Root reaches null is not a file this project writes");
+        assert!(
+            matches!(error, SerializeError::RootNotADictionary { id } if id == mapped),
+            "{form:?}: {error:?}"
+        );
+        assert!(
+            bytes.is_empty(),
+            "{form:?}: the refusal arrives before the sink is written to"
+        );
+    }
+}
+
+/// The other road to the same null: a `/Root` naming a number the output has no slot for.
+///
+/// §7.3.10 — "[a]n indirect reference to an undefined object shall not be considered an error by
+/// a PDF processor; it shall be treated as a reference to the null object" — so a trailer naming
+/// object 99 of a three-object file names null just as surely as one naming an object written as
+/// null, and the two are one refusal.
+#[test]
+fn a_root_naming_no_slot_at_all_is_refused() {
+    let source = open(one_page());
+    let mut assembly = Assembly::new(vec![&source]);
+    assembly.copy(0, ObjectId::new(1, 0)).unwrap();
+    assembly.set_root(ObjectId::new(99, 0));
+
+    let mut bytes = Vec::new();
+    let error = serialize(
+        &assembly,
+        Version { major: 1, minor: 7 },
+        Options::new(Form::Table),
+        &mut bytes,
+    )
+    .expect_err("a /Root past the end of the table reaches nothing");
+    assert!(
+        matches!(error, SerializeError::RootNotADictionary { id } if id.number == 99),
+        "{error:?}"
+    );
+}
+
+/// Calibration, and the reason the check follows a chain instead of testing one object's kind.
+///
+/// §7.5.5 wants `/Root` to *be* an indirect reference to the catalog, and §7.3.10 makes a
+/// reference to an object that is itself a reference resolve onward — which `Document::resolve`
+/// does and `Document::catalog` therefore does too. A file whose `/Root` names an object holding
+/// `2 0 R`, where object 2 is the catalog, is one this reader opens, so the writer must not
+/// refuse it. Without this, the refusal above would be a stricter rule than the one being
+/// protected.
+#[test]
+fn a_root_that_reaches_its_dictionary_through_a_reference_is_written() {
+    let source = open(file_of(
+        &[
+            "3 0 R",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+            "<< /Type /Catalog /Pages 2 0 R >>",
+        ],
+        "",
+    ));
+    let mut assembly = Assembly::new(vec![&source]);
+    for number in 1..=3 {
+        assembly.copy(0, ObjectId::new(number, 0)).unwrap();
+    }
+    let root = assembly.copied(0, ObjectId::new(1, 0)).unwrap();
+    assembly.set_root(root);
+
+    let (bytes, _) = write_out(&assembly, Form::Table);
+    let read = open(bytes);
+    let catalog = read.catalog().expect("the chain reaches the catalog");
+    assert_eq!(
+        catalog
+            .get("Type")
+            .and_then(Object::as_name)
+            .map(Name::to_string),
+        Some("/Catalog".to_owned()),
+        "and it is the catalog rather than the link"
+    );
+}

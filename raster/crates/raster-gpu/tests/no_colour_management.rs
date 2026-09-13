@@ -287,7 +287,7 @@ fn a_published_crate_depends_on_four_names_and_each_has_a_reason() {
 /// ADR 0001, as a fact about the graph: **building a scene requires no device.**
 ///
 /// `raster-scene` has an empty `[dependencies]`, and `wgpu` in particular is not in it.
-/// The brief's §2.3 rests on this, and the manifest's own comment says the ADR has to be
+/// The brief's section 2.3 rests on this, and the manifest's own comment says the ADR has to be
 /// rewritten before it changes — so the ADR gets a gate rather than a comment.
 #[test]
 fn the_scene_crate_has_no_dependencies_at_all() {
@@ -301,7 +301,7 @@ fn the_scene_crate_has_no_dependencies_at_all() {
     assert_eq!(
         manifest_section(&manifest, "dependencies"),
         Vec::<String>::new(),
-        "raster-scene has acquired a dependency; §2.3's \"building a scene requires no \
+        "raster-scene has acquired a dependency; brief section 2.3's \"building a scene requires no \
          device\" is held by this being empty (ADR 0001)"
     );
 }

@@ -15,7 +15,7 @@ use crate::{AdapterRasters, Case, SIZES, SLOTS};
 
 /// Do the two adapters draw the same bytes?
 ///
-/// §4.6 of the brief and `CLAUDE.md`'s environment note both rest on the answer being
+/// section 4.6 of the brief and `CLAUDE.md`'s environment note both rest on the answer being
 /// yes for the current backend — it is what lets the caller's CI use a software
 /// rasteriser. A new paint does not inherit that promise; it has to be measured.
 pub(crate) fn cross_adapter(rasters: &[AdapterRasters]) {

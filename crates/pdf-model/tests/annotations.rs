@@ -19,6 +19,7 @@
 
 use std::fmt::Write as _;
 
+use pdf_model::appearance::Intent;
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
@@ -3100,5 +3101,182 @@ fn an_appearance_group_the_file_states_is_named_and_the_default_one_is_not() {
     assert!(
         reported.contains("knockout group (§12.5.5)"),
         "a knockout appearance group with an element over another is a departure: {reported}"
+    );
+}
+
+/// The annotation dictionary of a one-page fixture that carries exactly one.
+///
+/// `/Rect` and an appearance are beside the point for both entries this builds a document for:
+/// §12.5.2's list of keys a reader ignores while rendering a stored appearance names neither
+/// `/IT` nor `/Measure`, so they are read from the dictionary whatever is drawn.
+fn annotation_of(annotation: &str) -> (Document, pdf_syntax::Dictionary) {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Annots [4 0 R] >>\nendobj\n\
+         4 0 obj\n{annotation}\nendobj\n"
+    );
+    let document = Document::open(assemble(&body)).expect("the fixture is a valid PDF");
+    let dict = document
+        .get(pdf_syntax::ObjectId {
+            number: 4,
+            generation: 0,
+        })
+        .as_dict()
+        .expect("object 4 is the annotation")
+        .clone();
+    (document, dict)
+}
+
+/// §12.5.6.7's `/IT` has two valid values and §12.5.6.9's three, and which table applies is the
+/// annotation's own `/Subtype`.
+///
+/// Table 178: "Valid values shall be LineArrow , which means that the annotation is intended to
+/// function as an arrow, and LineDimension , which means that the annotation is intended to
+/// function as a dimension line." Table 181: "The following values shall be valid:" —
+/// `PolygonCloud`, `PolyLineDimension`, `PolygonDimension`.
+///
+/// The rows that make this a test of the *tables* rather than of five string comparisons are the
+/// crossed ones: a `Line` stating `PolygonCloud` and a `Polygon` stating `LineArrow` have each
+/// named something their own table does not define, and are kept as the names they are rather
+/// than dropped — a file that named a purpose may not read as one that named none.
+///
+/// The last row is the entry this clause shares its spelling with: §12.5.6.6's free text callout
+/// intent, whose reader is `appearance::callout` and which this one does not answer for.
+///
+/// Calibrated (trap 13) by making [`pdf_model::appearance::intent`] ignore the `/Subtype`: the
+/// two crossed rows fail and the `FreeText` row fails with them.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes Table 178 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn an_intent_is_read_against_the_table_its_own_subtype_names() {
+    let cases = [
+        ("/Line", "/LineArrow", Some(Intent::LineArrow)),
+        ("/Line", "/LineDimension", Some(Intent::LineDimension)),
+        ("/Polygon", "/PolygonCloud", Some(Intent::PolygonCloud)),
+        (
+            "/PolyLine",
+            "/PolyLineDimension",
+            Some(Intent::PolyLineDimension),
+        ),
+        (
+            "/Polygon",
+            "/PolygonDimension",
+            Some(Intent::PolygonDimension),
+        ),
+        (
+            "/Line",
+            "/PolygonCloud",
+            Some(Intent::Unknown("PolygonCloud".to_owned())),
+        ),
+        (
+            "/Polygon",
+            "/LineArrow",
+            Some(Intent::Unknown("LineArrow".to_owned())),
+        ),
+        ("/FreeText", "/FreeTextCallout", None),
+    ];
+    for (subtype, stated, expected) in cases {
+        let (document, annotation) = annotation_of(&format!(
+            "<< /Type /Annot /Subtype {subtype} /Rect [0 0 100 100] /IT {stated} >>"
+        ));
+        assert_eq!(
+            pdf_model::appearance::intent(&document, &annotation),
+            expected,
+            "{subtype} stating /IT {stated}"
+        );
+    }
+
+    // An annotation of a subtype this reader answers for that states no `/IT` at all: the entry
+    // is "(Optional)" in both tables, so its absence is not a value.
+    let (document, annotation) =
+        annotation_of("<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /L [0 0 1 1] >>");
+    assert_eq!(pdf_model::appearance::intent(&document, &annotation), None);
+}
+
+/// §12.5.6.7's and §12.5.6.9's `/Measure`, applied to the geometry each clause states.
+///
+/// Table 178 gives a line annotation "[a] measure dictionary … that shall specify the scale and
+/// units that apply to the line annotation", and Table 181 says the same of a polygon's and a
+/// polyline's. Table 267 then states the arithmetic and, twice, its *order*: the scale factors
+/// from `/X`, `/Y` and `/CYX` "shall be used to convert from default user space to the
+/// appropriate units before applying the distance function", and the same sentence again for the
+/// area function.
+///
+/// **The `/X` factor of 2 is what makes this a test of that order.** A 3 by 4 line is 5 units
+/// long in user space and 10 metres long in this drawing's; a reader that took the distance first
+/// and converted afterwards would answer `5 m`, because `/D`'s own conversion is 1. The same
+/// factor squares for the area: a 3 by 4 rectangle is 12 in user space and 48 here.
+///
+/// The perimeter rows are §12.5.6.9's own sentence about what closes a shape — a polyline is a
+/// polygon "except that the first and last vertex are not implicitly connected" — so the polygon
+/// walks 6 + 8 + 6 + 8 and the polyline, over the identical vertices, walks 6 + 8 + 6.
+///
+/// Calibrated (trap 13) by converting after the distance rather than before: every row fails.
+#[test]
+fn an_annotations_own_measure_states_the_units_its_geometry_is_in() {
+    const MEASURE: &str = "/Measure << /Subtype /RL /R (1 pt = 2 m) \
+                           /X [<< /U (m) /C 2 >>] /D [<< /U (m) /C 1 >>] \
+                           /A [<< /U (sqm) /C 1 >>] >>";
+
+    let (document, line) = annotation_of(&format!(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /L [0 0 3 4] {MEASURE} >>"
+    ));
+    let measured = pdf_model::measurement::annotation_measurement(&document, &line)
+        .expect("a line annotation stating a rectilinear /Measure measures");
+    assert_eq!(measured.length.as_deref(), Some("10 m"));
+    assert_eq!(measured.area, None, "a line encloses nothing");
+
+    let vertices = "/Vertices [0 0 3 0 3 4 0 4]";
+    let (document, polygon) = annotation_of(&format!(
+        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] {vertices} {MEASURE} >>"
+    ));
+    let measured = pdf_model::measurement::annotation_measurement(&document, &polygon)
+        .expect("a polygon stating a rectilinear /Measure measures");
+    assert_eq!(measured.length.as_deref(), Some("28 m"));
+    assert_eq!(measured.area.as_deref(), Some("48 sqm"));
+
+    let (document, polyline) = annotation_of(&format!(
+        "<< /Type /Annot /Subtype /PolyLine /Rect [0 0 100 100] {vertices} {MEASURE} >>"
+    ));
+    let measured = pdf_model::measurement::annotation_measurement(&document, &polyline)
+        .expect("a polyline stating a rectilinear /Measure measures");
+    assert_eq!(
+        measured.length.as_deref(),
+        Some("20 m"),
+        "the same vertices, with the leg back to the first not walked"
+    );
+    assert_eq!(measured.area, None, "an open shape encloses nothing");
+
+    // Table 178's `/LL` makes `/L` "the endpoints of the leader lines rather than the endpoints
+    // of the line itself", and the line proper is that segment translated perpendicular to
+    // itself — so the length is the same one.
+    let (document, leadered) = annotation_of(&format!(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /L [0 0 3 4] /LL 20 {MEASURE} >>"
+    ));
+    let measured = pdf_model::measurement::annotation_measurement(&document, &leadered)
+        .expect("leader lines do not stop a line from being measured");
+    assert_eq!(measured.length.as_deref(), Some("10 m"));
+
+    // An annotation stating no `/Measure` has stated no units, and one stating a `/Path` has
+    // stated curves Table 267's conversions do not describe.
+    let (document, plain) = annotation_of(
+        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] /Vertices [0 0 3 0 3 4] >>",
+    );
+    assert_eq!(
+        pdf_model::measurement::annotation_measurement(&document, &plain),
+        None
+    );
+    let (document, curved) = annotation_of(&format!(
+        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] \
+         /Path [[0 0] [3 0 3 4 0 4]] {MEASURE} >>"
+    ));
+    assert_eq!(
+        pdf_model::measurement::annotation_measurement(&document, &curved),
+        None,
+        "the length of a cubic Bezier is not a quantity Table 267 states a conversion for"
     );
 }

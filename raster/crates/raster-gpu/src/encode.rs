@@ -1,7 +1,7 @@
 //! Phase 1 of a frame: classify into lanes, rasterise coverage, count, then lay out
 //! instance data.
 //!
-//! One CPU walk over the scene's commands (PLAN.md Part 1 §1.2), sorting each into
+//! One CPU walk over the scene's commands (PLAN.md Part 1 brief section 1.2), sorting each into
 //! the cheapest lane that draws it exactly:
 //!
 //! - **rectangle** — axis-aligned rect, axis-preserving transform, fully rectangular
@@ -33,7 +33,7 @@
 //!
 //! M7 completes the vocabulary with the **rare-case lanes** (ADR 0011): an image, a
 //! ramp shading or a mesh becomes a single uniform-driven quad ([`ImageOp`],
-//! [`ShadedOp`]) rather than a fourth instance stream — the brief's §0 premise is
+//! [`ShadedOp`]) rather than a fourth instance stream — the brief's section 0 premise is
 //! that most of a page is glyphs and rectangles, and the encoding matches it.
 //!
 //! # This file, and the sixteen modules under it
@@ -54,9 +54,9 @@
 //!   reach it are held to.
 //! - `fill` — which of three lanes draws a fill, and the description all three are
 //!   handed.
-//! - `stroke` — a width §4.5 resolved before it reached us, expanded into a fill, plus
+//! - `stroke` — a width brief section 4.5 resolved before it reached us, expanded into a fill, plus
 //!   the reach that expansion adds to every visibility test.
-//! - `rare` — the image and shading lanes: the quads the brief's §0 calls the rare case
+//! - `rare` — the image and shading lanes: the quads the brief's section 0 calls the rare case
 //!   (ADR 0011).
 //! - `layer` — a child layer: the group that becomes one, and the composite that puts
 //!   it back (ISO 32000-2 §11.4.5).
@@ -203,7 +203,7 @@ struct Encoder<'a> {
     mask_plans: Vec<Option<MaskPlan>>,
     /// The active drawing style, set by the enclosing knockout group.
     style: DrawStyle,
-    /// Which lane made each mark's coverage (§1.1, `Counters::lanes`). Accumulated at
+    /// Which lane made each mark's coverage (brief section 1.1, `Counters::lanes`). Accumulated at
     /// the two seams a mark becomes drawable at — `instance` and `plan`'s `append_op` —
     /// rather than at the arms that *choose* a lane, because a choice can still change
     /// afterwards: a glyph tile the atlas refuses falls through to the sheet at commit.

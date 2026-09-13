@@ -69,7 +69,7 @@ pub const CASES: &[Case] = &[
         1.0e-5,
         "PLRM3 ch. 8, `add`, example `9.9 1.1 add ⇒ 11.0`. Neither operand is \
          representable in binary floating point, so the bound is the test's instrument \
-         and not a claim: no clause states a precision (research §1.7).",
+         and not a claim: no clause states a precision (research section 1.7).",
     ),
     Case::exact(
         "add/integer-overflow-becomes-real",
@@ -367,7 +367,7 @@ pub const CASES: &[Case] = &[
         PsError::RangeCheck,
         "PLRM3 ch. 8, `cvi`: \"A rangecheck error occurs if a real number is too large \
          to convert to an integer.\" Both host conversions produce a number instead, and \
-         not the same one: `1e20f32 as i32` in Rust is 2 147 483 647, and WGSL §15.7.6's \
+         not the same one: `1e20f32 as i32` in Rust is 2 147 483 647, and WGSL section 15.7.6's \
          clamp gives 2 147 483 520.",
     ),
     // ---- cvr ----------------------------------------------------------------

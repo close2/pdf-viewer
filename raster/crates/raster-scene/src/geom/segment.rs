@@ -1,7 +1,7 @@
 //! The one step an outline is made of, and the one shape a run of them is recognised as.
 //!
 //! [`Segment`] is the vocabulary — move, line, cubic, close, and deliberately nothing
-//! else (§1.1 of the brief). [`axis_aligned_rect`] is the *recogniser* §6.4 of the brief
+//! else (section 1.1 of the brief). [`axis_aligned_rect`] is the *recogniser* section 6.4 of the brief
 //! asks for, and it is a decision about which lane a mark takes rather than a property of
 //! a curve: the caller's display list has no rectangle type, so a rectangular clip has to
 //! be found in a sequence of segments before it can become four floats instead of a mask.
@@ -11,7 +11,7 @@ use super::{Point, Rect};
 
 /// The axis-aligned rectangle an outline traces, if it traces exactly one.
 ///
-/// §6.4 of the brief: most clips are rectangles, and a rectangular clip must become
+/// section 6.4 of the brief: most clips are rectangles, and a rectangular clip must become
 /// four floats, never a mask texture. The caller's clips arrive as outlines (its
 /// display list has no rectangle type), so the rectangle has to be *recognised*, and
 /// this is the recogniser: one subpath of four axis-aligned line edges, closed
@@ -80,7 +80,7 @@ pub fn axis_aligned_rect(segments: &[Segment]) -> Option<Rect> {
 ///
 /// No quadratic variant exists because PDF has no quadratic operator and TrueType
 /// outlines are elevated to cubics during glyph loading upstream, so one curve type
-/// reaches this library (§1.1 of the brief).
+/// reaches this library (section 1.1 of the brief).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Segment {
     /// Begin a new subpath at the point.

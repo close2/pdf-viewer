@@ -427,13 +427,22 @@ pub trait Worker: Send + Sync + std::fmt::Debug {
 pub trait Workers: Send + Sync + std::fmt::Debug {
     /// A worker over these bytes.
     ///
+    /// **§7.6.4.1's password is lent, not given**, and that is what lets a mount outlive one
+    /// generation of an encrypted document. One worker per generation is this trait's whole
+    /// design, and `viewer_core::Secret` is not `Clone` on purpose — so a factory handed the
+    /// password by value would leave the mount with none for the next generation, which is the
+    /// shortfall [`crate::Vfs::shortfalls`] used to declare. A borrow costs neither implementation
+    /// anything it did not already pay: the confined one writes the password onto the wire and the
+    /// in-process one puts it in the [`Source`] it owns, and neither wants the mount's buffer
+    /// afterwards.
+    ///
     /// # Errors
     ///
     /// Whatever starting one costs; [`InProcess`] cannot fail, and a confined one can.
     fn spawn(
         &self,
         bytes: FileBytes,
-        password: Option<Secret>,
+        password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
     ) -> Result<Box<dyn Worker>, WorkerError>;
@@ -447,12 +456,20 @@ impl Workers for InProcessWorkers {
     fn spawn(
         &self,
         bytes: FileBytes,
-        password: Option<Secret>,
+        password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
         let source = match password {
-            Some(password) => Source::with_password(bytes, password),
+            // `Source` owns its password, so this generation gets a `Secret` of its own — built
+            // through the type's own buffer rather than through a `String`, so that the only
+            // copies of §7.6.4.1's password are ones a `Drop` clears. `Secret::from` would take a
+            // `String` this function would have no way to clear afterwards.
+            Some(password) => {
+                let mut lent = Secret::new();
+                lent.push_str(password.reveal());
+                Source::with_password(bytes, lent)
+            }
             None => Source::new(bytes),
         };
         Ok(Box::new(InProcess::new(source, policy, budget, None)))

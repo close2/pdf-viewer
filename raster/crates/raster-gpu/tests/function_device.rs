@@ -17,7 +17,7 @@
 //! # What a failure here means, and what it does not
 //!
 //! Bitwise equality is asserted only for programs with no inexact operator in them. For the
-//! rest the tolerance is explicit and generous, because WGSL §15.7.4.1 licenses the
+//! rest the tolerance is explicit and generous, because WGSL section 15.7.4.1 licenses the
 //! disagreement: 2.5 ULP on `div`, 4 096 ULP on `atan`, an absolute 2⁻¹¹ on `sin`. A tighter
 //! bound would be a promise about a driver rather than a check on this crate.
 //!

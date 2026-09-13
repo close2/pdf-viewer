@@ -2,8 +2,8 @@
 //! the validated copy `resources.rs` holds, and the texture a frame draws from.
 //!
 //! They are one module because they are two halves of one lifetime. An upload is where
-//! §4.7's refusals and the resource budget are answered, and it hands back an
-//! identifier the caller references many times (§2.2 of the brief: the caller keys
+//! brief section 4.7's refusals and the resource budget are answered, and it hands back an
+//! identifier the caller references many times (section 2.2 of the brief: the caller keys
 //! these by `Arc::as_ptr` identity, so a zoom re-uploads nothing). The *texture* an
 //! image, ramp or mesh becomes is made on the first frame that draws it and not at
 //! upload, because startup and a page of text must not pay for a picture nothing
@@ -27,12 +27,12 @@ use crate::error::{DeviceError, RenderError};
 impl Device {
     /// Upload an outline: validated, priced against the resource budget, resident
     /// until [`Device::release`]. The id is what a scene's `fill`/`stroke`/`clip`
-    /// reference — uploaded once, referenced many times (§2.2 of the brief: the
+    /// reference — uploaded once, referenced many times (section 2.2 of the brief: the
     /// caller keys these by `Arc::as_ptr` identity, so a zoom re-uploads nothing).
     ///
     /// # Errors
     ///
-    /// [`DeviceError::InvalidResource`] naming what §4.7 refused, or
+    /// [`DeviceError::InvalidResource`] naming what brief section 4.7 refused, or
     /// [`DeviceError::ResourceBudgetExceeded`] naming all three numbers. A device that
     /// has issued all `u32::MAX` identifiers refuses with
     /// [`DeviceError::ResourceIdsExhausted`] — ids are never reused, because a reissued

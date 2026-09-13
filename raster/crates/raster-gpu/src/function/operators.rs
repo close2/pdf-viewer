@@ -11,12 +11,13 @@
 //! - [`Unary::is_inexact`] / [`Binary::is_inexact`] — the two sides may compute different
 //!   values from the same input, because WGSL declines to specify the operation as tightly
 //!   as IEEE 754 does. Nothing here is a *bug*; every row is a deliberate concession WGSL
-//!   §15.7.4.1 makes to what GPUs do.
+//!   section 15.7.4.1 makes to what GPUs do.
 //! - [`Unary::amplifies`] / [`Binary::amplifies`] — the operator is exact but
 //!   discontinuous, so a difference of one unit in the last place upstream becomes a
 //!   difference of order one downstream.
 //!
-//! §3.1 of the research states the composition rule this file exists to serve:
+//! `raster/doc/research-function-paint-arithmetic.md` §3.1 states the composition rule this
+//! file exists to serve:
 //!
 //! > No operator is dangerous on its own. `ge` is exact; so is `truncate`. The danger is
 //! > always a composition: an inexact operator upstream of an amplifier.
@@ -108,7 +109,7 @@ impl Unary {
     /// Whether a conformant WGSL implementation and a conformant host may compute
     /// different values from the same input.
     ///
-    /// `sin` and `cos`: WGSL §15.7.4.1 bounds the absolute error by 2⁻¹¹ only over
+    /// `sin` and `cos`: WGSL section 15.7.4.1 bounds the absolute error by 2⁻¹¹ only over
     /// `[-π, π]`, and "the accuracy is undefined for input values outside that range" —
     /// while §7.10.5.3's own worked example evaluates `sin` at ±360°. `ln`/`log`: absolute
     /// 2⁻²¹ inside `[0.5, 2.0]` and 3 ULP outside, against a correctly-rounded host libm.
@@ -245,7 +246,7 @@ impl Binary {
     /// Whether a conformant WGSL implementation and a conformant host may compute
     /// different values from the same inputs.
     ///
-    /// `div`: WGSL §15.7.4.1 allows 2.5 ULP where IEEE 754 requires correct rounding.
+    /// `div`: WGSL section 15.7.4.1 allows 2.5 ULP where IEEE 754 requires correct rounding.
     /// `atan`: 4 096 ULP, which after conversion to Table 42's degrees is 0.028° — three
     /// orders of magnitude worse than any other row, and not a last-bit problem at all.
     /// `exp`: PLRM3 defines `−9 −1 exp ⇒ −0.111111`, a negative base, so it cannot be
@@ -253,7 +254,7 @@ impl Binary {
     /// rows.
     ///
     /// `add`, `sub` and `mul` are *not* on this list, and that is a narrower claim than it
-    /// looks: WGSL §15.7.5 permits an implementation to reassociate and fuse them, and a
+    /// looks: WGSL section 15.7.5 permits an implementation to reassociate and fuse them, and a
     /// generated shader is exactly the shape that hands it a whole expression tree to do it
     /// over. They are excluded because the difference that licence permits is a rounding of
     /// the same magnitude as the operation's own, where the rows above are bounded by

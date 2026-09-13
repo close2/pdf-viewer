@@ -2,8 +2,8 @@
 //!
 //! The six numbers are the clause's; everything else here exists because some other part
 //! of the library needs one number off a transform and must ask for it the same way
-//! everywhere. [`Affine::max_coefficient`] is what §4.7's coordinate bound is applied to,
-//! [`Affine::preserves_axes`] is what §6.4's rectangle lane turns on,
+//! everywhere. [`Affine::max_coefficient`] is what brief section 4.7's coordinate bound is applied to,
+//! [`Affine::preserves_axes`] is what brief section 6.4's rectangle lane turns on,
 //! [`Affine::max_stretch`] is what §6.3's atlas scale bucket is keyed by, and
 //! [`Affine::invert`] refuses rather than substituting an identity.
 
@@ -107,7 +107,7 @@ impl Affine {
 
     /// The largest magnitude among the six coefficients.
     ///
-    /// The number §4.7's coordinate bound is applied to: a transform is refused when this
+    /// The number brief section 4.7's coordinate bound is applied to: a transform is refused when this
     /// exceeds [`MAX_COORDINATE`](crate::scene::MAX_COORDINATE), and it lives here so
     /// that every boundary asking that question asks it the same way.
     #[must_use]
@@ -139,7 +139,7 @@ impl Affine {
     /// (`a = d = 0`). The test is exact, deliberately: transforms in documents carry
     /// exact zeros, and a transform that is only *nearly* axis-preserving maps a
     /// rectangle to something that is not one, which is the general path's job to draw
-    /// (§6.4 of the brief is about the rectangles that really are rectangles).
+    /// (section 6.4 of the brief is about the rectangles that really are rectangles).
     #[must_use]
     pub fn preserves_axes(self) -> bool {
         // Exact comparison is the semantics, not an oversight: see the doc comment.
@@ -170,7 +170,7 @@ impl Affine {
     ///
     /// `None` for a degenerate (zero-determinant) or non-finite transform. There is no
     /// identity fallback on purpose: a silently-substituted identity is exactly the
-    /// plausible-looking wrong answer §4.7 forbids.
+    /// plausible-looking wrong answer brief section 4.7 forbids.
     #[must_use]
     pub fn invert(self) -> Option<Self> {
         let det = self.determinant();

@@ -2,7 +2,7 @@
 //! acquisition per frame — and **who holds it**, which since ADR 0056 is a question
 //! with three answers rather than two.
 //!
-//! Tier 2 of §2.4 — the target kind that pays no readback at all, which §6.1 measured
+//! Tier 2 of brief section 2.4 — the target kind that pays no readback at all, which §6.1 measured
 //! as the largest single item in an offscreen frame. Everything here serves one rule:
 //! a surface problem is a typed refusal ([`RenderError::SurfaceUnavailable`]) the
 //! caller can retry on, never a quietly skipped frame.

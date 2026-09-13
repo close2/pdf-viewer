@@ -133,7 +133,7 @@ fn maybe_mask(rng: &mut Rng, pool: &Pool) -> Option<MaskId> {
 // Uploads
 // ---------------------------------------------------------------------------
 
-/// An image spec from across the whole shape of §4.7's check: consistent small ones a
+/// An image spec from across the whole shape of brief section 4.7's check: consistent small ones a
 /// device stores, a zero dimension, a byte count that disagrees with the dimensions in
 /// both directions, dimensions no allocation could ever match, and one large enough to
 /// be refused by the seed's stated budget. Nothing here allocates more than 36 KiB.

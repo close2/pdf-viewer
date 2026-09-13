@@ -44,7 +44,7 @@ impl Rng {
     }
 
     /// A hostile spread on purpose: ordinary values, huge values, negatives, NaN and
-    /// infinities. Everything §4.7 says to refuse loudly is in here.
+    /// infinities. Everything brief section 4.7 says to refuse loudly is in here.
     pub(crate) fn f32(&mut self) -> f32 {
         match self.next() % 12 {
             0 => f32::NAN,
@@ -96,7 +96,7 @@ impl Rng {
         }
     }
 
-    /// A coordinate that is usually drawable and occasionally §4.7's problem.
+    /// A coordinate that is usually drawable and occasionally brief section 4.7's problem.
     pub(crate) fn coord(&mut self) -> f32 {
         if self.one_in(8) {
             self.f32()

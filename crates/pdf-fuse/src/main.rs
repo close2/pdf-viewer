@@ -17,6 +17,18 @@
 //! bytes by anything that opens a folder, which is what makes it "the most exposed surface this
 //! project would ship".
 //!
+//! # ISO 32000-2 §7.6.4.1's password, and why it never appears in argv
+//!
+//! A mount cannot prompt. The clause's second step — "the interactive PDF processor should prompt
+//! for a password" — has no one to put the question to at the `readdir` that needs the answer, so
+//! the password is supplied here, once, while this program still has a caller, and the mount
+//! holds it for its life ([`pdf_vfs::Vfs::with_password`]). Without one a mount opens whatever
+//! the clause's default user password opens and refuses the rest by name.
+//!
+//! **`--password-fd <n>` and no `--password`**, which is the transform suite's decision and its
+//! reason: an argv password is visible in `/proc` and in every shell history. An interactive
+//! prompt that suppresses echo needs a terminal-mode dependency this tree has not taken.
+//!
 //! The **invalidation thread** is here rather than in the library, and that placement is RFC 0003
 //! section 5.4's requirement rather than a preference: the notifications must be issued "from a
 //! separate task — separate because issuing them synchronously from a request handler can
@@ -39,7 +51,7 @@ use std::time::Duration;
 
 use fuser::{INodeNo, MountOption, Notifier, SessionACL};
 use pdf_fuse::{Face, Mount};
-use pdf_vfs::{ConfinedWorkers, FileBacking, MachineFaces, Vfs};
+use pdf_vfs::{ConfinedWorkers, FileBacking, MachineFaces, Secret, Vfs};
 
 /// How often the notifier thread asks whether the document has changed.
 ///
@@ -67,11 +79,20 @@ struct Arguments {
     /// "the cli would wrap the access with a flag". Off by default, because the port is a `can`
     /// rather than a `must` and a mount that says nothing is the mount that shipped before it.
     faces: MachineFaces,
+    /// The descriptor ISO 32000-2 §7.6.4.1's password is to be read from, where one was named.
+    ///
+    /// **The number rather than the password, and that is the point of the field.** A `Secret` in
+    /// here would be a password inside a `Debug`, a `PartialEq` and whatever a test prints; the
+    /// descriptor is an integer, and [`run`] reads one line from it at the moment the mount is
+    /// built.
+    password_fd: Option<u32>,
 }
 
 /// The usage line, which is also the whole of this program's interface.
-const USAGE: &str =
-    "usage: quorrafs [--allow-other] [--foreground] [--machine-fonts] <file.pdf> <mountpoint>";
+const USAGE: &str = "usage: quorrafs [--allow-other] [--foreground] [--machine-fonts] \
+                     [--password-fd <n>] <file.pdf> <mountpoint>\n  --password-fd <n>  read \
+                     §7.6.4.1's password, one line, from descriptor n; there is no --password, \
+                     because argv is public";
 
 /// Reads the command line, or says what is wrong with it.
 ///
@@ -83,7 +104,17 @@ fn arguments(raw: impl Iterator<Item = OsString>) -> Result<Arguments, String> {
     let mut positional = Vec::new();
     let mut allow_other = false;
     let mut faces = MachineFaces::Withheld;
+    let mut password_fd = None;
+    // `--password-fd 3` as well as `--password-fd=3`, because the transform suite's command line
+    // accepts both spellings of every valued flag and a person moving between the two programs
+    // should not have to remember which.
+    let mut wants_a_descriptor = false;
     for argument in raw {
+        if wants_a_descriptor {
+            wants_a_descriptor = false;
+            password_fd = Some(descriptor(argument.to_str().unwrap_or_default())?);
+            continue;
+        }
         match argument.to_str() {
             Some("--allow-other") => allow_other = true,
             // The whole of this face's answer to `doc/todo/59`: one word, off unless it is
@@ -91,6 +122,19 @@ fn arguments(raw: impl Iterator<Item = OsString>) -> Result<Arguments, String> {
             // descriptor to the worker — never the worker opening anything.
             Some("--machine-fonts") => faces = MachineFaces::Offered,
             Some("--foreground") => {}
+            Some("--password-fd") => wants_a_descriptor = true,
+            Some(flag) if flag.starts_with("--password-fd=") => {
+                password_fd = Some(descriptor(&flag["--password-fd=".len()..])?);
+            }
+            // Named so that its absence is a decision rather than an oversight: an argv password
+            // is in `/proc` and in every shell history, which is the transform suite's own reason
+            // for having no such flag either.
+            Some(flag) if flag == "--password" || flag.starts_with("--password=") => {
+                return Err(format!(
+                    "there is no --password, because argv is public — use --password-fd \
+                     <n>\n{USAGE}"
+                ));
+            }
             Some("--help" | "-h") => return Err(USAGE.to_owned()),
             Some(flag) if flag.starts_with("--") => {
                 return Err(format!("{flag} is not an option of this program\n{USAGE}"));
@@ -109,7 +153,33 @@ fn arguments(raw: impl Iterator<Item = OsString>) -> Result<Arguments, String> {
         mountpoint: mountpoint.clone(),
         allow_other,
         faces,
+        password_fd,
     })
+}
+
+/// A descriptor number, or what is wrong with what was written.
+fn descriptor(written: &str) -> Result<u32, String> {
+    written
+        .parse()
+        .map_err(|_| format!("--password-fd wants a descriptor number, not {written:?}\n{USAGE}"))
+}
+
+/// One line from an open descriptor, without its line ending — what a script hands over.
+///
+/// The same shape as the transform suite's `password_from`, deliberately: two programs of one
+/// project should take a password the same way, and `/dev/fd/<n>` is how a descriptor is opened
+/// without a dependency. The line is moved into the [`Secret`] rather than copied, and the
+/// `String` it was read into is what `Secret`'s own `Drop` then clears.
+fn password_from(fd: u32) -> Result<Secret, String> {
+    let file = std::fs::File::open(format!("/dev/fd/{fd}"))
+        .map_err(|error| format!("--password-fd {fd}: cannot be read ({error})"))?;
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(file), &mut line)
+        .map_err(|error| format!("--password-fd {fd}: cannot be read ({error})"))?;
+    while line.ends_with(['\n', '\r']) {
+        line.pop();
+    }
+    Ok(Secret::from(line))
 }
 
 fn main() -> std::process::ExitCode {
@@ -141,17 +211,23 @@ fn run(arguments: &Arguments) -> Result<(), String> {
         ));
     }
     let named = arguments.document.display().to_string();
+    let backing = Box::new(FileBacking::new(arguments.document.clone()));
+    // RFC 0003 section 6. There is no flag for *whether* the worker is confined, and there is one
+    // for what it may be handed: `--machine-fonts` is `doc/todo/59`'s port, and it widens nothing
+    // the worker can reach on its own.
+    let workers = Box::new(ConfinedWorkers {
+        faces: arguments.faces,
+    });
+    let config = pdf_vfs::Config::default();
+    // §7.6.4.1's password is read here and nowhere else: before the mount exists, while this
+    // program still has a terminal and a caller, and once — because the mount holds it from then
+    // on and a `readdir` has nobody to ask.
+    let vfs = match arguments.password_fd {
+        Some(fd) => Vfs::with_password(backing, workers, config, password_from(fd)?),
+        None => Vfs::new(backing, workers, config),
+    };
     let face = Arc::new(Face::new(
-        Vfs::new(
-            Box::new(FileBacking::new(arguments.document.clone())),
-            // RFC 0003 section 6. There is no flag for *whether* the worker is confined, and
-            // there is one for what it may be handed: `--machine-fonts` is `doc/todo/59`'s port,
-            // and it widens nothing the worker can reach on its own.
-            Box::new(ConfinedWorkers {
-                faces: arguments.faces,
-            }),
-            pdf_vfs::Config::default(),
-        ),
+        vfs,
         Box::new(move |sentence: &str| eprintln!("pdffs: {named}: {sentence}")),
     ));
 
@@ -244,6 +320,7 @@ mod tests {
                 mountpoint: PathBuf::from("mnt"),
                 allow_other: false,
                 faces: MachineFaces::Withheld,
+                password_fd: None,
             }),
             "`--allow-other` is off by default, which RFC 0003 section 7 states, and so is \
              `--machine-fonts`, which `doc/todo/59` states"
@@ -264,5 +341,35 @@ mod tests {
         assert!(read(&["--read-only", "doc.pdf", "mnt"]).is_err());
         assert!(read(&["doc.pdf"]).is_err());
         assert!(read(&["a.pdf", "b.pdf", "mnt"]).is_err());
+    }
+
+    /// ISO 32000-2 §7.6.4.1's password: the descriptor, in both spellings, and never in argv.
+    #[test]
+    fn the_password_is_a_descriptor_and_never_an_argument() {
+        let read = |words: &[&str]| arguments(words.iter().map(|word| OsString::from(*word)));
+        for spelling in [
+            ["--password-fd", "3", "doc.pdf", "mnt"],
+            ["--password-fd=3", "doc.pdf", "mnt", "--foreground"],
+        ] {
+            assert_eq!(
+                read(&spelling).map(|arguments| arguments.password_fd),
+                Ok(Some(3)),
+                "both spellings of a valued flag, as the transform suite accepts them: {spelling:?}"
+            );
+        }
+        // The refusal names the replacement, because a person who typed `--password` has a
+        // password in hand and needs to be told where to put it rather than that this is not an
+        // option. An argv password is in `/proc` and in every shell history.
+        for written in ["--password", "--password=hunter2"] {
+            let said = read(&[written, "doc.pdf", "mnt"]).expect_err("no --password");
+            assert!(
+                said.contains("argv is public") && said.contains("--password-fd"),
+                "the refusal says why and what to use instead: {said}"
+            );
+        }
+        // A descriptor is a number. Trap 5 again: `--password-fd stdin` is refused rather than
+        // parsed as something and silently mounted without a password.
+        assert!(read(&["--password-fd", "stdin", "doc.pdf", "mnt"]).is_err());
+        assert!(read(&["--password-fd=", "doc.pdf", "mnt"]).is_err());
     }
 }

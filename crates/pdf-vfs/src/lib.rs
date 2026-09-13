@@ -52,6 +52,11 @@
 //! that `pages/` holds PDFs has taken layout knowledge out of this table, and the next directory
 //! added would have to be added twice; a face that chose its own `errno` for a refusal is the
 //! same mistake one layer down.
+//!
+//! **And it is the face's job to ask for ISO 32000-2 §7.6.4.1's password**, because a face is the
+//! only part of this arrangement with somebody to ask. [`Vfs::with_password`] takes one and holds
+//! it for the mount's life; a mount built without one opens whatever the clause's default user
+//! password opens and refuses the rest by name.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -91,6 +96,12 @@ pub use pdf_font::provider::MachineFaces;
 /// Re-exported rather than redefined, because it is `pdf_transform::apply`'s own answer to the
 /// same question — which is what makes asking first and acting afterwards one reading.
 pub use pdf_transform::Consulted;
+
+/// ISO 32000-2 §7.6.4.1's user or owner password, for a face that has one to hand over.
+///
+/// Re-exported for the same reason as [`Consulted`]: a face should not have to depend on
+/// `pdf-transform` to name a type this crate takes in [`Vfs::with_password`].
+pub use pdf_transform::Secret;
 
 /// The resolutions `renders/` offers.
 ///
@@ -270,7 +281,10 @@ impl VfsError {
                 WorkerError::Restricted(_) | WorkerError::Unanswerable(_) => {
                     Errno::PermissionDenied
                 }
-                // §7.6.4.1's password, which a mount has no way to ask for yet.
+                // §7.6.4.1's password. `EACCES` and the sentence beside it, which is the same
+                // poverty as the two above: there is no errno for "and here is how to supply
+                // one", so the face that built the mount is where the password goes in
+                // ([`Vfs::with_password`]) and the sentence is what says so.
                 WorkerError::PasswordRequired(_) => Errno::PermissionDenied,
                 WorkerError::NotPresent(_) => Errno::NoSuchFile,
                 // The document, or the file being written into it, could not be read as one.
@@ -478,6 +492,18 @@ pub struct Vfs {
     workers: Box<dyn Workers>,
     /// The ceilings and the policy.
     config: Config,
+    /// ISO 32000-2 §7.6.4.1's password, where the face that built this mount was given one.
+    ///
+    /// **Held for the mount's whole life, and lent to every generation's worker.** The clause's
+    /// own sentence is what makes that the right lifetime: "Correctly supplying either password (
+    /// owner or user password) should enable the user to gain access to the document" — access to
+    /// the document, not to one reading of it — while RFC 0003 section 5.4 makes every change to
+    /// the file a *new* worker. A password held per worker would have to be supplied again every
+    /// time somebody else saved the file, and a mount has nobody to ask.
+    ///
+    /// Deliberately not in [`Config`]: that struct is `Clone` and has a [`Default`], and
+    /// `viewer_core::Secret` is neither.
+    password: Option<Secret>,
     /// Generated content, keyed by generation and path.
     cache: Cache,
     /// The generation being served, the writes in flight, and the key this tree's own last
@@ -862,11 +888,50 @@ impl Vfs {
     /// one of them.
     #[must_use]
     pub fn new(backing: Box<dyn Backing>, workers: Box<dyn Workers>, config: Config) -> Self {
+        Self::with(backing, workers, config, None)
+    }
+
+    /// The same tree, over a document that wants ISO 32000-2 §7.6.4.1's password.
+    ///
+    /// **§7.6.4.1 is answered in two halves and this is the second.** The first is the clause's
+    /// own default: "the PDF reader shall first try to authenticate the encrypted document using
+    /// the padding string defined in 7.6.4.3 … (default user password)", which [`Vfs::new`] gets
+    /// for nothing because the reader below tries it on every encrypted document. The second is
+    /// what happens when that fails — "the interactive PDF processor should prompt for a password.
+    /// Correctly supplying either password ( owner or user password) should enable the user to
+    /// gain access to the document" — and a mount is the half of that sentence a *prompt* cannot
+    /// serve: the person who could answer is not present at the `readdir` that needs the answer,
+    /// and there is no channel to reach them through. So the password is supplied when the mount
+    /// is built, by whichever face was in a position to ask for it, and is then the mount's for
+    /// its life. Either password works, because the clause names both and authentication is
+    /// `pdf-syntax`'s.
+    ///
+    /// A face that has no password calls [`Vfs::new`] and an encrypted document is refused by
+    /// name — `WorkerError::PasswordRequired` with the sentence that says so, which is trap 5's
+    /// loudness rather than an `EACCES` a caller has to guess at.
+    #[must_use]
+    pub fn with_password(
+        backing: Box<dyn Backing>,
+        workers: Box<dyn Workers>,
+        config: Config,
+        password: Secret,
+    ) -> Self {
+        Self::with(backing, workers, config, Some(password))
+    }
+
+    /// What both constructors are.
+    fn with(
+        backing: Box<dyn Backing>,
+        workers: Box<dyn Workers>,
+        config: Config,
+        password: Option<Secret>,
+    ) -> Self {
         Self {
             cache: Cache::new(config.cache_bytes),
             backing,
             workers,
             config,
+            password,
             state: Mutex::new(Serving::default()),
             generated: std::sync::atomic::AtomicU64::new(0),
             questions: Arc::new(Totals::default()),
@@ -921,10 +986,10 @@ impl Vfs {
         });
         out.push(Shortfall {
             pattern: "/",
-            detail: "an encrypted document opens only under §7.6.4.1's default user password: a \
-                     worker is created per generation and `viewer_core::Secret` is deliberately \
-                     not Clone, so a mount that survived a change of the file would need the \
-                     password re-supplied, and nothing here asks for one yet",
+            detail: "§7.6.4.1's password is supplied when the mount is built and cannot be \
+                     supplied later: a document that is encrypted after the mount opened, or \
+                     replaced under it by one wanting a different password, is refused rather \
+                     than asked about, because a readdir has nobody to prompt",
         });
         out
     }
@@ -979,8 +1044,12 @@ impl Vfs {
             error,
         })?;
         let worker = Consenting::new(
-            self.workers
-                .spawn(bytes, None, self.config.policy, self.config.budget)?,
+            self.workers.spawn(
+                bytes,
+                self.password.as_ref(),
+                self.config.policy,
+                self.config.budget,
+            )?,
             Arc::clone(&self.questions),
         );
         let pages = match worker.ask(&Query::PageCount)? {

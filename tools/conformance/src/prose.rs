@@ -78,6 +78,38 @@ pub const NOT_READ: [&str; 5] = [
     "rasterrocket",
 ];
 
+/// The documents under `doc/` that are **records** rather than instructions.
+///
+/// `doc/history/` is one file per round and `doc/history.md` is the closed table of the rounds
+/// before 446. `CLAUDE.md` says what they are: session bookkeeping, "which no round reads to do
+/// its work", and three other instruments already name them to skip them — `retired.rs`'s
+/// `NOT_SWEPT`, `tools/governing-quotations.py`, and `tools/round.sh`, which reads only the
+/// digits of a filename.
+///
+/// They are read here anyway, and reported apart, which is the one answer that is neither of the
+/// two wrong ones. **Skipping them would lose a finding**: a quotation of the standard is a claim
+/// about the standard wherever it is written, and `CLAUDE.md`'s rule that a record may not be
+/// rewritten for tidiness does not cover a sentence that misquotes — correcting a misquotation is
+/// not tidying. **Counting them in the standing figure loses a different thing**: 565 files a
+/// round may not otherwise edit is a population that only grows, so a figure carrying it cannot be
+/// read to zero and stops being a number anybody acts on. So the live documents are the figure a
+/// round moves, and the records are a second figure beside it, corrected when the quotation itself
+/// is wrong and never for anything else (ADR 1036).
+pub const RECORDS: [&str; 2] = ["history", "history.md"];
+
+/// Whether `path` is one of the [`RECORDS`], given the `doc/` directory it was found under.
+///
+/// By path component rather than by prefix string, so that a future `doc/x/history.md` is not
+/// swept into the record population by its name alone.
+#[must_use]
+pub fn is_a_record(doc: &Path, path: &Path) -> bool {
+    path.strip_prefix(doc)
+        .unwrap_or(path)
+        .components()
+        .next()
+        .is_some_and(|first| RECORDS.contains(&&*first.as_os_str().to_string_lossy()))
+}
+
 /// The one file under `doc/` this sweep does not read.
 ///
 /// `doc/errata.md` is what `tools/spec-errata` emits from the specifications' own annotations
@@ -882,6 +914,30 @@ mod tests {
         let standard = conversion("aligning the darkest colour of the source with the display.");
         assert!(standard.holds("aligning the darkest \u{2026} with the display"));
         assert!(!standard.holds("with the display \u{2026} aligning the darkest"));
+    }
+
+    /// The record population is picked out by its first path component, so that the sweep can
+    /// report `doc/history/` apart from the documents a round may edit.
+    #[test]
+    fn a_history_file_is_a_record_and_a_todo_file_is_not() {
+        let doc = Path::new("/tree/doc");
+        assert!(is_a_record(
+            doc,
+            Path::new("/tree/doc/history/1018-a-round.md")
+        ));
+        assert!(is_a_record(doc, Path::new("/tree/doc/history.md")));
+        assert!(!is_a_record(
+            doc,
+            Path::new("/tree/doc/todo/02-every-round.md")
+        ));
+        assert!(
+            !is_a_record(doc, Path::new("/tree/doc/adr/1036-the-index.md")),
+            "an ADR is read and cited, so its quotations stay in the figure a round moves"
+        );
+        assert!(
+            !is_a_record(doc, Path::new("/tree/doc/questions/history.md")),
+            "the component rather than the name, so a file called history elsewhere is not one"
+        );
     }
 
     #[test]

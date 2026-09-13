@@ -78,7 +78,7 @@ impl BlendMode {
     /// Every mode ISO 32000-2 §11.3.5 defines, in the clause's own order.
     ///
     /// Exhaustive by construction rather than by good intentions: the conformance scene
-    /// of §4.3 is generated from this array, so a mode that exists cannot be a mode the
+    /// of brief section 4.3 is generated from this array, so a mode that exists cannot be a mode the
     /// suite does not draw.
     pub const ALL: [Self; 16] = [
         Self::Normal,

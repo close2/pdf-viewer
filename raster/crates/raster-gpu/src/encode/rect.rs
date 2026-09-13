@@ -4,7 +4,7 @@
 //! axis-aligned mark under an axis-preserving transform inside a rectangular clip needs
 //! no coverage at all — the clip is applied here by intersection, the shader evaluates
 //! one box, and a rectangular clip costs a pixel nothing. That is the premise the brief's
-//! §0 names beside repeated glyphs, and it is why the box is computed in exactly one
+//! brief section 0 names beside repeated glyphs, and it is why the box is computed in exactly one
 //! place: [`Encoder::clipped_device_rect`] is shared by the two commands that reach the
 //! lane — a `Command::Rect` and, since ADR 0047, a solid fill whose outline is four
 //! axis-aligned edges, which is the only form a document's rectangles actually arrive

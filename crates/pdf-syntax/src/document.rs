@@ -32,7 +32,12 @@ use crate::xref::{Location, XrefTable};
 ///
 /// `1 0 obj 2 0 R endobj` pointing back at itself is a cycle, and a chain of a thousand
 /// references is hostile rather than merely unusual.
-const MAX_REFERENCE_DEPTH: usize = 64;
+///
+/// `pub(crate)` for one reader outside this module: [`crate::serialize`] asks whether a file it
+/// is about to write reaches §7.5.5's catalog, and the only answer that means anything is the
+/// one *this* reader would give — so the two follow chains the same distance or the writer is
+/// checking a different question from the one it is protecting.
+pub(crate) const MAX_REFERENCE_DEPTH: usize = 64;
 
 /// How many bytes of decoded stream data one open document may hold.
 ///

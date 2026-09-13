@@ -189,9 +189,9 @@ pub enum Agreement {
     /// already measures a shading's accuracy in — rather than a difference of branch.
     ///
     /// **What this does not claim.** It is not bitwise identity — which is why the variant
-    /// is `Bounded` and not `Exact`, ADR 0053's first name for it. WGSL §15.7.5 lets an implementation
+    /// is `Bounded` and not `Exact`, ADR 0053's first name for it. WGSL section 15.7.5 lets an implementation
     /// reassociate and fuse the arithmetic of the straight-line expression a generated
-    /// shader hands it; §15.7.4.1 gives `div` 2.5 ULP where IEEE 754 gives the host correct
+    /// shader hands it; WGSL section 15.7.4.1 gives `div` 2.5 ULP where IEEE 754 gives the host correct
     /// rounding; and ADR 0006's store rounding still sits between the shader and the texel
     /// (`raster/doc/spike-function-paint.md` §5 measured 246 044 texels off by one from that step
     /// alone). The claim is that the disagreement stays *bounded and small*, which for a

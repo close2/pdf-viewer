@@ -6,7 +6,7 @@
 //! (§6.3 of the brief). A glyph's sub-pixel phase is an arbitrary float, so an
 //! exactly-correct cache never hits; quantised to 1/16 of a pixel it hit 5.0× on that
 //! page and left the caller's oracle unmoved, where 1/8 contradicted pages (their
-//! ADR 0131). The quantum is therefore §4.5's fifth decision — the one that is the
+//! ADR 0131). The quantum is therefore brief section 4.5's fifth decision — the one that is the
 //! caller's to make and ours to expose: [`crate::startup::Options::glyph_quantum`],
 //! default 1/16, settable, and `None` switches quantisation off (exact-phase keying,
 //! which still caches exact repeats).
@@ -112,7 +112,7 @@ pub(crate) struct GlyphPlacement {
 impl GlyphPlacement {
     /// Splits a placement's translation and builds its key.
     ///
-    /// `quantum` is §4.5's fifth decision, the one that is ours to expose: `Some(q)`
+    /// `quantum` is brief section 4.5's fifth decision, the one that is ours to expose: `Some(q)`
     /// rounds the phase to `1/q` of a pixel so that repeats collide, `None` keys the
     /// exact bits so that only exact repeats do.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a fraction
@@ -505,7 +505,7 @@ impl AtlasStore {
     /// On a full atlas this does **not** evict piecemeal: it fails, and the *device*
     /// may repack between frames (`reset`, `Device::settle_atlas`), which keeps the
     /// packing deterministic — the same scene always produces the same atlas layout
-    /// (§4.6). Insertion itself never moves an entry that is already here, which is what
+    /// (brief section 4.6). Insertion itself never moves an entry that is already here, which is what
     /// lets a retained encode name absolute texel origins and still be replayed after a
     /// frame that inserted more tiles.
     #[allow(clippy::arithmetic_side_effects)] // row arithmetic is bounded by the
@@ -644,7 +644,7 @@ mod tests {
     /// **The quantum is a bound on where a mark lands, and this is that bound.**
     ///
     /// `Options::glyph_quantum` rounds a placement's fractional device offset to `1/q` of
-    /// a pixel so that repeats of one outline share a rasterisation (ADR 0009, §4.5's
+    /// a pixel so that repeats of one outline share a rasterisation (ADR 0009, brief section 4.5's
     /// fifth decision). Rounding to the nearest of `q` buckets moves a mark by at most
     /// half a bucket, so the whole of what the setting costs in *position* is
     /// `1/2q` — 1/32 of a device pixel at the default 16, in each axis independently.

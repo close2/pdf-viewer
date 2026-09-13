@@ -23,7 +23,7 @@ use raster_scene::{
 /// The glyph page's ink.
 const INK: Color = Color::new(0.1, 0.1, 0.1, 1.0);
 
-/// A page of letterforms placed on a grid: the shape the brief's §0 says a document
+/// A page of letterforms placed on a grid: the shape the brief's section 0 says a document
 /// renderer must be fast at, and the one the glyph atlas exists for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlyphPage {

@@ -658,6 +658,7 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         claim_conformance: read.claim_conformance,
         derivations: read.derivations,
         supplies: read.supplies,
+        preservations: read.preservations,
         tool_outputs: pdf_transform::tool::ToolOutputs::new(),
     })
 }
@@ -672,6 +673,8 @@ struct FromConfig {
     derivations: Vec<pdf_transform::archive::Derivation>,
     /// The `supply` remedies it names.
     supplies: Vec<pdf_transform::archive::Supply>,
+    /// The `preserve` remedies it names that append pages.
+    preservations: Vec<pdf_transform::archive::Preservation>,
 }
 
 /// Reads `--config <file>`, folds its built `discard` remedies into `authorised`, and returns its
@@ -695,6 +698,7 @@ fn read_config(
             claim_conformance: claim,
             derivations: Vec::new(),
             supplies: Vec::new(),
+            preservations: Vec::new(),
         });
     };
     let path = PathBuf::from(path);
@@ -727,6 +731,7 @@ fn read_config(
     }
     let derivations = config.derivations(target);
     let supplies = config.supplies(target);
+    let preservations = config.preservations(target);
     // **`doc/questions/A56`'s warning, where the operator meets it.** The answer put it at the
     // configuration site rather than in a security document nobody opens, and the two places an
     // operator meets a tool are the `[tool.…]` block they wrote and this line: a run that is about
@@ -745,6 +750,7 @@ fn read_config(
         claim_conformance: claim,
         derivations,
         supplies,
+        preservations,
     })
 }
 
@@ -774,7 +780,7 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
     );
     let mut takes_a_tool = 0_usize;
     for site in &sites {
-        let remedy = match site.built_discard {
+        let mut remedy = match site.built_discard {
             Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
             None if site.takes_a_tool => {
                 "derive, with `tool = \"<name>\"` and a [tool.<name>] block — never a default, and \
@@ -793,6 +799,17 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             }
             None => "stop; the catalogued remedy is not built yet".to_owned(),
         };
+        // **`doc/adr/1014`'s amendment, in the listing an operator reads.** A site may take more
+        // than one remedy, and the page is the one that keeps what a `discard` at the same site
+        // would lose — so it is named beside it rather than instead of it.
+        if site.takes_a_page {
+            remedy.push_str(
+                "\n      preserve, with `placement = \"append\"` — the content is kept on a page \
+                 appended to the document, which every target admits (doc/rfc/0007 section 4.6.1) \
+                 and doc/adr/1014 permits; every page is named in the report and recorded in the \
+                 file's own xmpMM:History",
+            );
+        }
         println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
         if site.takes_a_tool {
             // **`doc/questions/A56`.** The warning lives where an operator configures a tool rather

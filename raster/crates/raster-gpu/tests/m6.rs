@@ -601,7 +601,7 @@ fn groups_composite_as_a_unit_not_per_element() {
     );
 }
 
-/// Compositor frames are deterministic on one adapter (§4.6), and the layered path
+/// Compositor frames are deterministic on one adapter (brief section 4.6), and the layered path
 /// reports itself truthfully: a masked, blended, nested scene renders identically
 /// twice, and still within ADR 0006's bound across adapters.
 #[test]

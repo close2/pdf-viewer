@@ -50,7 +50,7 @@ pub(crate) fn resolve_width(stroke: Stroke, t: DeviceTransform) -> f32 {
 ///
 /// The device width arrives from [`resolve_width`] (ADR 0085: §8.4.3.2's zero and
 /// §10.7.5's adjustment applied at encode); dashing is already applied and degenerate
-/// subpaths pre-split upstream (§4.5 of the brief); consecutive coincident points are
+/// subpaths pre-split upstream (section 4.5 of the brief); consecutive coincident points are
 /// skipped here so flattening artefacts cannot produce zero-length pieces.
 #[allow(clippy::arithmetic_side_effects)]
 pub(crate) fn stroke_polylines(
@@ -298,7 +298,7 @@ fn cap_fan(end: Point, dir: Point, hw: f32) -> Polyline {
     }
 }
 
-/// The angle one step of an arc advances: deterministic (§4.6), and within
+/// The angle one step of an arc advances: deterministic (brief section 4.6), and within
 /// [`FLATTEN_TOLERANCE`](super::flatten::FLATTEN_TOLERANCE) for any stroke width a page
 /// realistically holds.
 const ARC_STEP: f32 = 0.35;

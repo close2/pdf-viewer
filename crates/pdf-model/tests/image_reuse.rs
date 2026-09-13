@@ -644,7 +644,7 @@ fn a_raster_is_not_shared_across_compositing() {
     let mut cache = RasterCache::default();
     let press = Conversion::new(
         Compositing::Subtractive(Half::Black, pdf_model::colour::assumed_press()),
-        true,
+        pdf_model::icc::Rendering::compensating(),
     );
 
     let on_the_device = cached(
@@ -703,7 +703,10 @@ fn a_raster_is_not_shared_across_black_points() {
         )])),
     )]);
     let mut cache = RasterCache::default();
-    let without = Conversion::new(Compositing::Device, false);
+    let without = Conversion::new(
+        Compositing::Device,
+        pdf_model::icc::Rendering::without_black_point(),
+    );
 
     let compensated = cached(
         &mut cache,

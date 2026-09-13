@@ -4,7 +4,7 @@
 //! off the alpha it is drawn with, which is right for the half of §11.4.6 where they are
 //! the same quantity and wrong for the other half — a nested group, or an element under a
 //! soft mask, where §11.6.4.2 gives shape from geometry while §11.6.4.3's mask and
-//! §11.6.4.4's constant alpha are opacity. The clause's own sentence:
+//! §11.6.4.4's constant alpha are opacity. §11.4.6's own sentence:
 //!
 //! > The existence of the knockout feature is the main reason for maintaining a separate
 //! > shape value rather than only a single alpha that combines shape and opacity.
@@ -431,7 +431,8 @@ fn the_pair_inside_a_knockout_group_is_the_clause() {
 }
 
 /// **A group can be the source of one stage**, which is what §11.6.4.2 forces for a
-/// knockout element that is itself a group (ADR 0033).
+/// knockout element that is itself a group (ADR 0033), on §11.3.7.2's definition of a
+/// group's shape.
 ///
 /// > The shape of a group object shall be the union […] of the shapes of the objects it
 /// > contains.

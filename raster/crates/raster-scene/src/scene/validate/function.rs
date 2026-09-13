@@ -6,7 +6,7 @@
 //! can be executed was settled at `Device::upload_function` before this scene existed
 //! (its structural half is [`check_program`](crate::function::check_program)).
 //!
-//! What is left is a rectangle, a matrix, a range and a colour — one §4.7 refusal each,
+//! What is left is a rectangle, a matrix, a range and a colour — one brief section 4.7 refusal each,
 //! stated in the order §8.7.4.5.2 states its entries.
 
 use super::SceneBuilder;
@@ -22,7 +22,7 @@ use crate::paint::Color;
 /// without a builder in hand, and the rule is worth exactly one place to live.
 ///
 /// The domain reuses the scene's own rectangle rule: a domain *is* a rectangle in the
-/// shading's own space, and §4.7 says the same thing about it that it says about every
+/// shading's own space, and brief section 4.7 says the same thing about it that it says about every
 /// other rectangle. It is refused by [`SceneError::NonFiniteRect`],
 /// [`SceneError::UnorderedRect`] or [`SceneError::RectTooLarge`] carrying the rectangle
 /// that failed — a second set of names for one rule would make "how often does this
@@ -44,7 +44,7 @@ pub(crate) fn check_function_paint(
     // Table 78's `Matrix` maps *the domain into* the target space; a fragment shader has
     // to go the other way to know which point of the domain it is standing on. A singular
     // matrix collapses the domain onto a line, so there is no such point — and there is no
-    // identity fallback, because a substituted identity is §4.7's plausible wrong answer.
+    // identity fallback, because a substituted identity is brief section 4.7's plausible wrong answer.
     if matrix.invert().is_none() {
         return Err(SceneError::SingularFunctionMatrix(matrix));
     }
@@ -108,7 +108,7 @@ mod tests {
             .expect("a background is a colour like any other");
     }
 
-    /// A domain is a rectangle, so §4.7's rectangle rule is the rule — and the error names
+    /// A domain is a rectangle, so brief section 4.7's rectangle rule is the rule — and the error names
     /// the rectangle that failed rather than inventing a second vocabulary for it.
     #[test]
     fn a_malformed_domain_is_refused_by_the_scene_rectangle_rule() {

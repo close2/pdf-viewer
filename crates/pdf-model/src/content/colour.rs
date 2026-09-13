@@ -8,6 +8,7 @@ use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::colour::{ColourSpace, Compositing, Conversion};
+use crate::icc::{A2b, Rendering};
 
 use super::report::Unsupported;
 use super::run::{name_at, number_at};
@@ -41,12 +42,13 @@ impl BlackPoint {
 
 /// A rendering intent, per ISO 32000-2 §8.6.5.8 Table 69.
 ///
-/// Three of the four reach nothing further in this tree — `crate::icc` reads a profile's `A2B1`
-/// whatever the intent says, taking `A2B0` only where there is no `A2B1`, and selects neither
-/// `A2B0` nor `A2B2` by an intent — and they are still kept apart rather than collapsed
-/// into "absolute or not", because §8.6.5.9's override is stated over *the current render
-/// intent of an object* and an object's intent is a parameter in its own right. Collapsing the
-/// two is what let a `ri` of any other name silently switch black point compensation back on.
+/// Each of the four decides something. Three of them decide which of a profile's "to CIE"
+/// transforms a colour goes through — [`Intent::a2b`] is that mapping and `crate::icc::A2b`
+/// carries it — and the fourth, `AbsoluteColorimetric`, is the one §8.6.5.9 makes turn black
+/// point compensation off. They are kept apart rather than collapsed into "absolute or not"
+/// because §8.6.5.9's override is stated over *the current render intent of an object* and an
+/// object's intent is a parameter in its own right. Collapsing the two is what let a `ri` of any
+/// other name silently switch black point compensation back on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Intent {
     /// Table 69's `AbsoluteColorimetric`, the one name that changes what this renderer does.
@@ -85,6 +87,19 @@ impl Intent {
             _ => Self::Relative,
         }
     }
+
+    /// Which of an ICC profile's "to CIE" transforms this intent selects.
+    ///
+    /// Four names onto three transforms: `crate::icc::A2b`'s own documentation carries the two
+    /// clauses that make the mapping the standard's, and the pair that share a transform are
+    /// the two colorimetric ones, which differ here in the black point alone.
+    pub(super) fn a2b(self) -> A2b {
+        match self {
+            Self::Absolute | Self::Relative => A2b::Colorimetric,
+            Self::Saturation => A2b::Saturation,
+            Self::Perceptual => A2b::Perceptual,
+        }
+    }
 }
 
 impl Interpreter<'_> {
@@ -98,9 +113,9 @@ impl Interpreter<'_> {
         &mut self,
         space: &ColourSpace,
         values: &[f32],
-        black_point: BlackPoint,
+        rendering: Rendering,
     ) -> Color {
-        convert(space, values, black_point, &self.compositing)
+        convert(space, values, rendering, &self.compositing)
     }
 
     /// How an object painted under `state` converts its colours.
@@ -113,7 +128,7 @@ impl Interpreter<'_> {
     /// certain colour conversions … they may need to be applied earlier than the actual
     /// rendering of colour onto the page".
     pub(super) fn conversion(&self, state: &GraphicsState) -> Conversion {
-        self.conversion_under(state.black_point())
+        self.conversion_under(state.rendering())
     }
 
     /// As [`Interpreter::conversion`], for colours whose black point setting is not the current
@@ -123,12 +138,12 @@ impl Interpreter<'_> {
     /// state the content stream *began* with rather than the one the `scn` or the mark is in.
     /// Split out rather than inlined there so that the compositing target is still read in one
     /// place — see [`Interpreter::colour`].
-    pub(super) fn conversion_under(&self, black_point: BlackPoint) -> Conversion {
+    pub(super) fn conversion_under(&self, rendering: Rendering) -> Conversion {
         // The page's §14.11.5 intent goes with the target and the black point, because the
         // three routes named above parse their own `/ColorSpace` after this interpreter has
         // handed the work over, and a device space parsed without the intent is the assumed
         // press beside a fill drawn through the document's own (ADR 1008).
-        Conversion::new(self.compositing.clone(), black_point.applies())
+        Conversion::new(self.compositing.clone(), rendering)
             .under_output_intent(self.output_intent.as_ref())
     }
 
@@ -207,7 +222,7 @@ impl Interpreter<'_> {
         let colour = if initial.is_empty() {
             Color::TRANSPARENT
         } else {
-            self.colour(&space, &initial, state.black_point())
+            self.colour(&space, &initial, state.rendering())
         };
         if fill {
             state.fill_space = space;
@@ -269,19 +284,19 @@ impl Interpreter<'_> {
             (0, _) => return,
             (given, expected) if given == expected => {
                 let space = space.clone();
-                self.colour(&space, &values, state.black_point())
+                self.colour(&space, &values, state.rendering())
             }
             (1, _) => {
                 let space = self.device_space("DeviceGray", resources);
-                self.colour(&space, &values, state.black_point())
+                self.colour(&space, &values, state.rendering())
             }
             (3, _) => {
                 let space = self.device_space("DeviceRGB", resources);
-                self.colour(&space, &values, state.black_point())
+                self.colour(&space, &values, state.rendering())
             }
             (4, _) => {
                 let space = self.device_space("DeviceCMYK", resources);
-                self.colour(&space, &values, state.black_point())
+                self.colour(&space, &values, state.rendering())
             }
             (given, expected) => {
                 self.note(Unsupported::Shading {
@@ -366,10 +381,10 @@ pub(super) fn assign_colour(
 pub(super) fn convert(
     space: &ColourSpace,
     values: &[f32],
-    black_point: BlackPoint,
+    rendering: Rendering,
     into: &Compositing,
 ) -> Color {
-    into.paint(space, values, black_point.applies())
+    into.paint(space, values, rendering)
 }
 
 /// Reads the colour space the output intent in force for this page describes.

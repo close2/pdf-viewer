@@ -19,9 +19,9 @@
 //!
 //! # The rules, and why they are the uniform ones
 //!
-//! WGSL §14.4.4 gives each type an alignment and a size — a scalar 4 and 4, `vec2` 8
+//! WGSL section 14.4.4 gives each type an alignment and a size — a scalar 4 and 4, `vec2` 8
 //! and 8, `vec3` 16 and 12, `vec4` 16 and 16 — and lays a struct out by rounding each
-//! member up to its own alignment. §14.4.6 then adds what the *uniform* address space
+//! member up to its own alignment. WGSL section 14.4.6 then adds what the *uniform* address space
 //! requires and the storage one does not: a struct's alignment and an array's element
 //! stride are both rounded up to 16. Every uniform in this crate is bound as
 //! `var<uniform>`, so the uniform rules are the ones that apply.
@@ -116,14 +116,14 @@ fn declarations(source: &str, struct_name: &str) -> Vec<(String, String)> {
     out
 }
 
-/// A type's `(alignment, size)` in the uniform address space (WGSL §14.4.4, §14.4.6).
+/// A type's `(alignment, size)` in the uniform address space (WGSL section 14.4.4, section 14.4.6).
 fn measure(ty: &str, struct_name: &str, field: &str) -> (usize, usize) {
     if let Some(inner) = ty.strip_prefix("array<").and_then(|t| t.strip_suffix('>')) {
         let (element, count) = inner.rsplit_once(',').unwrap_or_else(|| {
             panic!("`{struct_name}.{field}` is a runtime-sized array, which no uniform may be")
         });
         let (element_align, element_size) = measure(element.trim(), struct_name, field);
-        // §14.4.6: an array in the uniform address space has its element stride rounded
+        // WGSL section 14.4.6: an array in the uniform address space has its element stride rounded
         // up to 16, so `array<vec4<u32>, 16>` is 16 tightly packed elements while
         // `array<f32, 16>` would be sixteen floats each alone in its own 16 bytes.
         let stride = round_up(element_size, element_align.max(16));
@@ -232,8 +232,8 @@ mod tests {
     /// Offsets are the specification's, not the declaration order's: a `vec4f` after a
     /// `u32` starts at 16 and not at 4, and the struct's own size rounds up to 16.
     ///
-    /// The expected numbers are derived from WGSL §14.4.4's alignment table — scalars
-    /// align to 4, `vec2` to 8, `vec4` to 16 — and §14.4.6's uniform rule that a
+    /// The expected numbers are derived from WGSL section 14.4.4's alignment table — scalars
+    /// align to 4, `vec2` to 8, `vec4` to 16 — and WGSL section 14.4.6's uniform rule that a
     /// struct's alignment is at least 16.
     #[test]
     fn a_field_is_placed_at_its_own_alignment() {
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(layout.size, 48);
     }
 
-    /// An array in the uniform address space has a stride of at least 16 (§14.4.6),
+    /// An array in the uniform address space has a stride of at least 16 (WGSL section 14.4.6),
     /// which is what makes `array<vec4<u32>, 16>` 256 bytes and tightly packed.
     #[test]
     fn a_uniform_array_strides_by_sixteen() {

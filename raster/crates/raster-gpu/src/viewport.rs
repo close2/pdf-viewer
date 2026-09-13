@@ -1,6 +1,6 @@
 //! Where a scene lands: size, device transform, and what changed.
 //!
-//! A viewport is everything about the target that a scene is forbidden to know (§2.3
+//! A viewport is everything about the target that a scene is forbidden to know (brief section 2.3
 //! of the brief). One scene renders at many viewports: **zoom, scroll, window resize
 //! and tiled output are all the same scene at a different viewport**, which is what
 //! makes smooth zoom possible at all and what keeps 1.1–1.6 ms of encoding per frame

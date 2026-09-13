@@ -10,7 +10,7 @@
 //! in device pixels ([`FLATTEN_TOLERANCE`]) and as a fraction of the curve's own size
 //! ([`RELATIVE_FLATTEN_TOLERANCE`], ADR 0044) — and the tighter of the two binds.
 //! Subdivision is at `t = 1/2`, which is exact in `f32`, so a flattening is the same
-//! on every adapter and in every thread (ADR 0008's determinism, §4.6).
+//! on every adapter and in every thread (ADR 0008's determinism, brief section 4.6).
 
 use raster_scene::{Point, Segment};
 

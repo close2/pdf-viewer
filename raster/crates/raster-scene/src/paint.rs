@@ -50,7 +50,7 @@ use crate::scene::MAX_COORDINATE;
 ///
 /// The fields are public and unvalidated: a `Color` is a plain value, and the range and
 /// finiteness checks live at the scene boundary ([`crate::scene::SceneBuilder`]), which
-/// is where §4.7's loud refusal belongs.
+/// is where brief section 4.7's loud refusal belongs.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Color {
     /// Red, `0..=1`.
@@ -83,7 +83,7 @@ impl Color {
 
 /// The geometry of a ramp-based shading, in the shading's **own** coordinate space —
 /// [`Paint::Shading`]'s `transform` carries it into the scene's space, and the
-/// viewport carries the scene to the device (a scene stays viewport-free, §2.3).
+/// viewport carries the scene to the device (a scene stays viewport-free, brief section 2.3).
 ///
 /// The shading space is deliberately independent of the shaded command's transform:
 /// ISO 32000-2 §8.7.4.3's shading matrix anchors a shading to the page, not to the
@@ -92,7 +92,7 @@ impl Color {
 ///
 /// The decision deferred from M2 — geometry on the paint versus resolved at upload —
 /// lands on the paint: a ramp uploaded once serves any number of placements, which
-/// is the §2.2 economy, and the geometry is six floats plus the transform
+/// is the brief section 2.2 economy, and the geometry is six floats plus the transform
 /// (integration note 9 records it).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ShadingKind {
@@ -153,7 +153,7 @@ impl ShadingKind {
 ///
 /// Every heavy paint is a resource identifier plus the geometry that places it, and
 /// [`Paint::Function`] is deliberately the same shape as [`Paint::Shading`]: the program
-/// is uploaded once (§2.2's economy, and ADR 0053's shader cache keys on it), while the
+/// is uploaded once (brief section 2.2's economy, and ADR 0053's shader cache keys on it), while the
 /// domain, matrix, range and background belong to the *shading* — two shadings may share
 /// one program under different matrices.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -295,7 +295,7 @@ pub enum LineJoin {
 }
 
 /// Parameters of a stroke, with the decisions that are the caller's already taken
-/// (§4.5 of the brief): the width is resolved (a PDF `0 w` arrived here as one device
+/// (section 4.5 of the brief): the width is resolved (a PDF `0 w` arrived here as one device
 /// pixel's width), dashing already happened, and degenerate subpaths were pre-split.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Stroke {
@@ -345,7 +345,7 @@ mod tests {
 
     /// The boundary's definition of a valid colour: finite, and inside the unit range
     /// on every component. Out-of-range and NaN are refused, not clamped — clamping
-    /// would be a silent repair of data §4.7 says to refuse loudly.
+    /// would be a silent repair of data brief section 4.7 says to refuse loudly.
     #[test]
     fn validity_is_finite_and_in_unit_range() {
         assert!(Color::new(0.0, 0.5, 1.0, 1.0).is_valid());

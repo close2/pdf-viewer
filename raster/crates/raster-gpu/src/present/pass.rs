@@ -342,7 +342,7 @@ mod tests {
     }
 
     /// The host's bytes are `struct Params` of `present.wgsl`, field for field, at the
-    /// offsets WGSL §14.4.4 and §14.4.6 put them at — the gate every uniform writer in
+    /// offsets WGSL section 14.4.4 and section 14.4.6 put them at — the gate every uniform writer in
     /// this crate carries, because `wgpu` checks a uniform's size and never its layout.
     ///
     /// Each field gets a distinct value so that two of one width exchanged fails.

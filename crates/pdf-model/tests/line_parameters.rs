@@ -215,3 +215,37 @@ fn the_stack_saves_and_restores_them() {
         (LineCap::Round, LineJoin::Bevel, 3.0)
     );
 }
+
+/// Table 57's `/FL` is read and reaches nothing, which §10.7.2 permits in as many words.
+///
+/// > PDF processors may choose to ignore any flatness tolerance specified within a PDF file.
+///
+/// The other route to the same parameter, the `i` operator, has been read and discarded since
+/// the interpreter's first commit; this is §8.4.1 NOTE 1's second route getting the same answer,
+/// and there are two ways to get it wrong. A `/FL` that set some *other* parameter would be
+/// flatness reaching the page by the back door — the failure `/LC`, `/LJ` and `/ML` had in the
+/// other direction, one entry's value landing where another's belongs. And a `/FL` that stopped
+/// the dictionary being read would cut §8.4.5's "one or more graphics state parameters" short on
+/// an entry the standard says may be ignored.
+///
+/// So each half is a dictionary stating `/FL` beside entries this file already checks, compared
+/// against the same dictionary without it: the page a document gets is the page it would have
+/// got, and the entry is still asked for.
+#[test]
+fn flatness_is_read_and_reaches_nothing() {
+    assert_eq!(
+        parameters("/GS gs", "/FL 0.5 /LC 1 /LJ 2 /ML 3"),
+        parameters("/GS gs", "/LC 1 /LJ 2 /ML 3"),
+        "the cap, join and limit are the dictionary's own, whether or not it states a flatness"
+    );
+    assert_eq!(
+        width("/GS gs", "/FL 0.5 /LW 4"),
+        4.0,
+        "the line width is /LW's, and a flatness read after it does not become one"
+    );
+    assert_eq!(
+        width("/GS gs", "/FL 0.5"),
+        width("/GS gs", ""),
+        "a dictionary whose only entry is a flatness sets no parameter at all"
+    );
+}

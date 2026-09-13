@@ -77,14 +77,20 @@ impl Workers for OneColumn {
     fn spawn(
         &self,
         bytes: FileBytes,
-        password: Option<Secret>,
+        password: Option<&Secret>,
         policy: Policy,
         budget: Budget,
     ) -> Result<Box<dyn Worker>, WorkerError> {
         match self.0 {
             Column::Here => Ok(Box::new(InProcess::new(
                 match password {
-                    Some(secret) => Source::with_password(bytes, secret),
+                    // This generation's own `Secret`, through the type's own buffer: `Source`
+                    // owns the password it is given and the mount's is only lent.
+                    Some(secret) => {
+                        let mut lent = Secret::new();
+                        lent.push_str(secret.reveal());
+                        Source::with_password(bytes, lent)
+                    }
                     None => Source::new(bytes),
                 },
                 policy,

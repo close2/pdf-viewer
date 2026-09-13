@@ -130,6 +130,7 @@ mod decision;
 mod fonts;
 mod jpeg2000;
 mod prepare;
+mod preserve;
 mod remedies;
 mod report;
 mod rewrite;
@@ -151,15 +152,15 @@ use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
-    ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Site,
-    Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, sites,
+    ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Placement,
+    Preservation, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, sites,
 };
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
 pub use report::{
     Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
-    SignatureDecision, SuppliedFact,
+    Preserved, SignatureDecision, SuppliedFact,
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
@@ -169,6 +170,7 @@ use prepare::{
     DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
     substituted_fonts_recorded,
 };
+pub use preserve::PRESERVED_AS_A_PAGE;
 use remedies::Remedies;
 pub use remedies::{DERIVED_NOT_ORIGINAL, SUPPLIED_BY_THE_OPERATOR};
 use report::describe_decision;
@@ -241,6 +243,14 @@ pub struct ArchivePlan {
     pub derivations: Vec<Derivation>,
     /// The `supply` remedies the caller's configuration named — facts the document does not state.
     pub supplies: Vec<Supply>,
+    /// The `preserve` remedies the caller's configuration named that append pages.
+    ///
+    /// `doc/adr/1014`, on the owner's `A58`: a page composed solely of content the document
+    /// already holds is on the near side of `CLAUDE.md`'s authoring exclusion, so this is the one
+    /// place a caller can ask this program to compose a page. Empty for every conversion that
+    /// preserves nothing, which is every conversion until an operator's file says otherwise, and
+    /// a site named here whose requirement the document meets is inert — there is nothing to keep.
+    pub preservations: Vec<Preservation>,
     /// What the caller's executor got back from the programs the derivations name.
     ///
     /// **`doc/questions/A54`'s second half.** The first pass over a document whose configuration
@@ -455,6 +465,7 @@ fn decide_every_failure(
         departures,
         derived: remedies.derived_report.clone(),
         supplied: remedies.supplied_report.clone(),
+        preserved: Vec::new(),
     };
     let prepared = Prepared::of(plan, document, input, omit_identification, provenance);
     let mut version = None;
@@ -474,7 +485,7 @@ fn decide_every_failure(
         // **The operator's own answer comes first**, because it is an answer to a requirement the
         // table refuses: a configured remedy that reached this document is what the conversion
         // does about the requirement, and `decide` would only restate the refusal it replaces.
-        let mut decision = configured(remedies, judgement.id, &prepared)
+        let mut decision = configured(plan, remedies, judgement.id, &prepared)
             .unwrap_or_else(|| decide(input, judgement, plan.authorised, &prepared));
         if decision.rewrite() == Some(Rewrite::FileHeader) {
             match version_for(document, plan.target) {
@@ -490,6 +501,12 @@ fn decide_every_failure(
             decision,
             changed: 0,
         });
+    }
+    // What the appended pages carry is the report's to say and the packet's to record, and both
+    // are read off the one composition rather than recomputed: `doc/adr/1014` section 5's *a page
+    // was appended, carrying this, from there, placed so*.
+    if let Ok(composed) = &prepared.preserved {
+        conversion.preserved.clone_from(&composed.carried);
     }
     conversion.signatures = signature_decision(plan, &prepared);
     (conversion, version, prepared)
@@ -511,7 +528,35 @@ fn decide_every_failure(
 /// `doc/questions/A48`'s construction applied to `A55`'s: the permission and its condition are one
 /// thing, and a converter that kept the first while dropping the second would be helping itself to
 /// a licence it had not earned.
-fn configured(remedies: &Remedies, id: &'static str, prepared: &Prepared) -> Option<Decision> {
+fn configured(
+    plan: &ArchivePlan,
+    remedies: &Remedies,
+    id: &'static str,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    // **`preserve` answers before the other two are looked at**, because it is the only configured
+    // remedy that answers a requirement the table would otherwise *authorise a loss* for: the
+    // properties come out of the packet either way, and what the operator asked for is that what
+    // comes out is still in the archive. A preservation that could not be composed refuses with
+    // the composition's own reason rather than falling through to the loss — the operator asked
+    // for the content kept, and losing it instead would be answering a question nobody put.
+    if plan
+        .preservations
+        .iter()
+        .any(|preservation| preservation.site == id)
+    {
+        return Some(match &prepared.preserved {
+            Ok(composed) if composed.carried.iter().any(|row| row.site == id) => {
+                Decision::Configured {
+                    kind: RemedyKind::Preserve,
+                    rewrite: Rewrite::PropertyOutsideItsSchema,
+                    warns: PRESERVED_AS_A_PAGE,
+                }
+            }
+            Ok(_) => Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE)),
+            Err(because) => Decision::Refused(*because),
+        });
+    }
     let kind = if remedies.derive_sites.contains(id) {
         Some((
             RemedyKind::Derive,
@@ -545,6 +590,12 @@ fn configured(remedies: &Remedies, id: &'static str, prepared: &Prepared) -> Opt
             remedies::AWAITING_TOOL,
         )))
 }
+
+/// Why a `preserve` that composed pages answered no requirement.
+const NOTHING_TO_PRESERVE: &str = "this configuration answers this requirement by preserving what \
+     it would otherwise lose on a page appended to the document, and this conversion composed \
+     pages for other content but none for this requirement — so nothing here is preserved and the \
+     requirement keeps its own refusal";
 
 /// Why a configured remedy is withdrawn even though it could have been carried out.
 const NOT_RECORDED: &str = "this configuration answers this requirement with a remedy that is \
@@ -758,9 +809,17 @@ fn rewrites_wanted(conversion: &Conversion, omit_identification: bool) -> BTreeS
         .derived
         .iter()
         .any(|row| row.outcome == DerivedOutcome::Attached)
-        || !conversion.supplied.is_empty();
+        || !conversion.supplied.is_empty()
+        || !conversion.preserved.is_empty();
     if omit_identification || departed || configured {
         wanted.insert(Rewrite::IdentificationSchema);
+    }
+    // The pages themselves are a rewrite of the page tree rather than of the requirement the
+    // remedy answered — that one is answered by taking the properties out of the packet — so the
+    // decision names the removal and this names the pages. Both happen or neither does:
+    // `Prepared` composes nothing it cannot record and removes nothing it cannot cut.
+    if !conversion.preserved.is_empty() {
+        wanted.insert(Rewrite::PreservedAsPage);
     }
     wanted
 }

@@ -33,7 +33,7 @@
 //! 621 599 548 → 620 321 847, which is **−0.21 %**: its encode is 34× more instructions a
 //! command than dense text's and effectively all of it is the 600 residue tiles being
 //! rasterised, so bounding is 0.2 % of it either way. The memo is worth a fifth of the
-//! encode on the shape the brief's §0 is about and is a wash on the shape it is not.
+//! encode on the shape the brief's section 0 is about and is a wash on the shape it is not.
 //! Neither page loses, which is the property a per-placement probe had to earn.
 //!
 //! # Why "bit for bit" is a theorem and not a hope
