@@ -16,6 +16,32 @@ which gates a change actually needs.
   `git status --short | grep -vE '^[AMD] '` before committing and unstage every `T `. Session 1005
   did both in one commit and caught them by reading the staged count against the file count.
 
+- **And `git status` cannot see the submodule half at all, which is how session 1019 committed it
+  anyway** — having run exactly the check the bullet above prescribes, and got an empty answer. In a
+  worktree whose resources were symlinked in, the *index* already records mode `120000` for those
+  paths, so the index and the working tree agree and there is nothing for `git status` to report.
+  The typechange sits between the index and the **committed tree**, and it surfaces only when the
+  branch is diffed against a commit that still holds the gitlinks — which, for a batch branch, is
+  the `git merge --ff-only` into `main`, long after the commit is written. `git status` is the wrong
+  instrument; the right one names the population from `.gitmodules` and asks the index what mode it
+  holds:
+
+  ```sh
+  git config -f .gitmodules --get-regexp path | awk '{print $2}' |
+    while read -r p; do [ "$(git ls-files -s -- "$p" | cut -d' ' -f1)" = 160000 ] ||
+      echo "NOT A GITLINK: $p"; done
+  ```
+
+  Run it before committing in a worktree. The repair, if it is already committed, is
+  `git update-index --cacheinfo 160000,<sha>,<path>` for each path with the sha read from the
+  parent commit, then `--amend`; the working tree is then restored with `git submodule update
+  --init`, which re-clones whatever `.git/modules` no longer holds. Session 1019 lost the working
+  copies of seven submodules this way — the symlinks the checkout wrote pointed at their own paths,
+  so following one went nowhere — and all seven came back from their remotes.
+
+  The general shape is worth more than the commands: **a check that reads the working tree cannot
+  see a claim that lives in the index**, and the two staging traps above are both of that kind.
+
 - **On a shared machine, stop a run by its pid, never by a pattern.** `pkill -f 'cargo …'` written
   to stop one round's own gate sequence matched that round's shell as well, and would have matched
   any sibling's `cargo` had the pattern been a word wider (session 997). A background sequence
