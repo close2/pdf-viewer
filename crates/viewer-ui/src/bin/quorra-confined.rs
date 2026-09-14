@@ -596,6 +596,18 @@ impl Host {
             Event::OpenUri { uri, .. } => {
                 eprintln!("this window does not open links; the document asked for: {uri}");
             }
+            // §12.7.6.2, the same way: composed by the confined process and declined here,
+            // because whether this machine makes a network request is a host's answer and this
+            // window has none to give (ADR 1062).
+            Event::Submit { submission, .. } => {
+                eprintln!(
+                    "{}",
+                    viewer_host::policy::submission_note(
+                        &submission,
+                        viewer_host::policy::may_submit().err().as_deref(),
+                    )
+                );
+            }
             // A file the document asks for is a question about *this* machine's filesystem
             // (rule 2), and this window supplies none: said, not swallowed.
             Event::NeedsFile { .. } => {

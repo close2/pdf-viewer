@@ -1,4 +1,4 @@
-//! The three decisions `doc/todo/30` says a host owns, and why they are a host's.
+//! The decisions `doc/todo/30` says a host owns, and why they are a host's.
 //!
 //! `viewer_core`'s rule 2 is that the crate has no filesystem: "[a] document naming a file is a
 //! document asking this machine for something, and whether to give it is not a rendering
@@ -29,9 +29,19 @@
 //! them off**". [`IGNORE_RESTRICTIONS`] is the word that turns them off and [`refused`] is the
 //! sentence that names it, and they are one unit here for the reason ADR 0604 records: they were
 //! apart, and two of the three windows said the word without taking it.
+//!
+//! **And a fifth, which used to be four words inside `pdf_model::action::refused`** — whether a
+//! submit-form action's request leaves this machine. §12.7.6.2's `shall` is to "transmit the
+//! names and values of selected interactive form fields" to a URL, and
+//! `pdf_model::submission::compose` has answered every part of that which is about the
+//! *document*; what reaches a host is one question about *this machine*, the same kind the
+//! §12.7.6.4 paragraph asks about a filesystem. [`may_submit`] is where it is asked and
+//! [`submission_note`] is the sentence, and they are one unit here for [`refused`]'s reason
+//! (ADR 1062).
 
 use std::path::{Component, Path, PathBuf};
 
+use pdf_model::submission::{Method, Submission};
 use viewer_core::Extraction;
 
 /// The word a person types to turn a document's restrictions off, in every host that has a
@@ -203,6 +213,54 @@ pub fn resolve_import(directory: Option<&Path>, name: &str) -> Result<PathBuf, I
 pub fn read_import(directory: Option<&Path>, name: &str) -> Result<Vec<u8>, String> {
     let path = resolve_import(directory, name).map_err(|refusal| refusal.to_string())?;
     std::fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+/// Whether §12.7.6.2's composed submission may be **transmitted** from this machine.
+///
+/// §12.7.6.2 says an interactive PDF processor "shall transmit the names and values of selected
+/// interactive form fields to a specified uniform resource locator (URL)", and every part of
+/// that sentence except the verb is a question about the document, which
+/// `pdf_model::submission::compose` has already answered. The verb is a network request, and
+/// `CLAUDE.md` principle 3 gives the process that read the file neither a network nor any way to
+/// acquire one — so the answer here is a refusal, and it is a refusal about *this program*
+/// rather than about the file.
+///
+/// **A function rather than a refusal written at each call site**, for the reason
+/// [`may_open_extracted`] gives and ADR 1062 repeats: the policy is asked once, in a place a
+/// host can supply, so that a host which *does* have a network — or `doc/todo/38`'s *ask* and
+/// *warn* levels — is a change here and nowhere else. A refusal that cannot become an "ask" is
+/// the thing `CLAUDE.md` says to avoid, and one spelled out in four windows is exactly that.
+///
+/// # Errors
+///
+/// The sentence to say to the person. Every host in this tree gets one today.
+pub fn may_submit() -> Result<(), String> {
+    Err("no network — CLAUDE.md principle 3 gives this program none".to_owned())
+}
+
+/// What a host says about a submission, whether it sends it or declines.
+///
+/// The request in one line, because the person who pressed the button is owed *where it was
+/// going and what would have gone* rather than the word "declined" on its own. What the
+/// composition did not do is not repeated here: `viewer_core` has already put every sentence of
+/// `Submission::owed` into an `Event::Reported`, and a host that said both would say them twice.
+#[must_use]
+pub fn submission_note(submission: &Submission, refused: Option<&str>) -> String {
+    let method = match submission.method {
+        Method::Get => "GET",
+        Method::Post => "POST",
+    };
+    let what = format!(
+        "{method} {} ({}), {} field(s), {} byte(s)",
+        submission.url,
+        submission.format.content_type(),
+        submission.fields,
+        submission.body.len(),
+    );
+    match refused {
+        Some(why) => format!("submit-form: declined — {why}. It would have been {what}"),
+        None => format!("submit-form: {what}"),
+    }
 }
 
 /// Whether §7.11.4's extracted bytes may be **opened as a document** in this reader.

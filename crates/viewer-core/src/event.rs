@@ -79,6 +79,24 @@ pub enum Event {
         /// The resolved URI.
         uri: String,
     },
+    /// §12.7.6.2: a form asks to be submitted. Transmit it, or decline and say so.
+    ///
+    /// Handed over rather than sent, for [`Self::OpenUri`]'s reason with one thing added: the
+    /// clause's `shall` is "transmit the names and values of selected interactive form fields
+    /// to a specified uniform resource locator (URL)", and *which* names and values is a
+    /// question about the document that `pdf_model::submission::compose` has already answered.
+    /// What is left is the network request, which no crate under principle 3's sandbox makes
+    /// and which is a decision about this machine rather than about the file (ADR 1062).
+    ///
+    /// Everything the action asked for that the composition did not do is already in
+    /// [`Self::Reported`]'s notes, so a host that only prints events still tells a person the
+    /// difference between what the document asked for and what was made.
+    Submit {
+        /// Which document asked.
+        document: DocumentId,
+        /// The request, composed: where to, how, in what format, and the bytes.
+        submission: Box<pdf_model::submission::Submission>,
+    },
     /// The document asks for a file. Answer with [`crate::Command::Supply`].
     ///
     /// The name is the document's own words and is **not** a path: resolving it — or refusing

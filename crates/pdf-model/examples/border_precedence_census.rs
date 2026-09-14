@@ -120,7 +120,8 @@ struct Counts {
     styles: BTreeMap<String, usize>,
     /// The subtypes carrying a non-zero ignored corner radius, which is the sharper claim.
     radius_on: BTreeMap<String, usize>,
-    /// The subtypes carrying Table 168's `B` or `I`, which this tree draws as `S` and reports.
+    /// The subtypes carrying Table 168's `B` or `I`, whose relief is ADR 1061's choice and which
+    /// no curated document reaches — so this is the line that says how far the corpus can rank it.
     bevelled_on: BTreeMap<String, usize>,
 }
 
@@ -206,6 +207,24 @@ fn main() {
     println!("  border styles among the constructed: {:?}", total.styles);
     println!("  a non-zero ignored radius sits on: {:?}", total.radius_on);
     println!("  Table 168's B and I sit on: {:?}", total.bevelled_on);
+    let in_relief: Vec<&(String, Counts)> = measured
+        .iter()
+        .filter(|(_, counts)| !counts.bevelled_on.is_empty())
+        .collect();
+    println!(
+        "  {} document(s) state a B or an I on a border this tree constructs: {:?}{}",
+        in_relief.len(),
+        in_relief
+            .iter()
+            .take(MAX_NAMED)
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        if in_relief.len() > MAX_NAMED {
+            format!(" and {} more", in_relief.len().saturating_sub(MAX_NAMED))
+        } else {
+            String::new()
+        }
+    );
 
     let witnesses: Vec<&(String, Counts)> = measured
         .iter()

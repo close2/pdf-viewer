@@ -160,7 +160,7 @@ impl Interpreter<'_> {
                 adjust,
             } => {
                 // What the subtype's clause asks for and `crate::appearance` could not
-                // construct — a field's value, a bevel's shadow — said out loud beside the
+                // construct — a field's value, a stamp's legend — said out loud beside the
                 // part that *is* drawn, rather than either being lost.
                 if let Some(detail) = owed {
                     self.note(Unsupported::Annotation { detail });

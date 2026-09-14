@@ -18,6 +18,8 @@ Code: `crates/pdf-archive/src/reach.rs` (the walk, the population and the carve-
 `crates/pdf-archive/src/finding.rs` (`Findings::exempting`, `named_an_object`),
 `crates/pdf-archive/tests/reach.rs` (the fixtures §4's fourth point asked for),
 `crates/pdf-archive/examples/unreferenced.rs` (the census, now a printer over the method),
+`crates/pdf-archive/tests/unwitnessed.rs` (a fail/pass pair for each row `examples/withdrawn.rs`
+finds no corpus document failing — §7's other half, pinned where the corpus cannot rank it),
 `crates/pdf-archive/src/clarification.rs` (A010's record).
 
 ## 1. What the two parts say, and what this crate does about it now

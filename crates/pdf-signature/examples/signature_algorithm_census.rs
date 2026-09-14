@@ -210,6 +210,10 @@ fn verdict(answer: &Authenticity) -> String {
         Authenticity::RangeNotInThisFile => "RangeNotInThisFile".into(),
         Authenticity::RangeNotReadable => "RangeNotReadable".into(),
         Authenticity::Unreadable(_) => "Unreadable".into(),
+        // A row of its own rather than a share of `Unreadable`: RFC 5652 section 5.3's one DER
+        // region is the whole reason the reader's BER tolerance has a boundary, and how many real
+        // signatures cross it is the count that prices it.
+        Authenticity::SignedAttributesNotDer => "SignedAttributesNotDer".into(),
         Authenticity::SigningCertificateMismatch { version, digest } => format!(
             "SigningCertificateMismatch ({}, {})",
             version.attribute_name(),

@@ -771,6 +771,7 @@ impl Survey {
             actual_text_budget: ACTUAL_TEXT_BUDGET,
             marks: Vec::new(),
             seen: BTreeSet::new(),
+            page_resources: Dictionary::new(),
             ledger,
             survey: Self::default(),
         };
@@ -1283,6 +1284,13 @@ struct Walk<'a> {
     /// specification 317 127 colour records where 25 distinct ones say the same thing; the set
     /// is what turns that into an allocation nobody pays for.
     seen: BTreeSet<Observation>,
+    /// ISO 32000-2 §7.8.3's resource dictionary of the page being walked, inherited entries in.
+    ///
+    /// What a form `XObject` or a Type 3 font stating no `/Resources` of its own is read against
+    /// — the page's, which the clause names, and not the stream that invoked it, which is the
+    /// same dictionary only until a form is nested in a form. Set by [`Walk::page`] and read by
+    /// [`Walk::form`] and [`Walk::type3`]; a tiling pattern gets neither (ADR 1059).
+    page_resources: Dictionary,
     /// Every named resource looked up, where [`Survey::ledgered`] asked for them.
     ///
     /// `None` for every other caller, and then the cost is one test per lookup. The ledger is
@@ -1375,6 +1383,7 @@ impl Walk<'_> {
             ..State::default()
         };
         let origin = self.open_record(index, None, Where::page(index), "the page content", own);
+        self.page_resources = page.resources.clone();
         let mut reader = ContentReader::for_page(self.document, page);
         if let Some(ledger) = &mut self.ledger {
             ledger.enter(Via::Page, page.id);
@@ -1502,7 +1511,7 @@ impl Walk<'_> {
                 continue;
             };
             for (_, entry) in appearances.iter() {
-                self.appearance(entry, page, index, &state);
+                self.appearance(entry, index, &state);
             }
         }
     }
@@ -1513,31 +1522,17 @@ impl Walk<'_> {
     }
 
     /// One `/AP` entry, which is either the stream itself or a dictionary of appearance states.
-    fn appearance(&mut self, entry: &Object, page: &Page, index: usize, state: &State) {
+    fn appearance(&mut self, entry: &Object, index: usize, state: &State) {
         let id = entry.as_reference();
         match self.document.resolve(entry) {
-            Object::Stream(stream) => self.form(
-                &stream,
-                id,
-                &page.resources,
-                index,
-                0,
-                state,
-                Via::Appearance,
-            ),
+            Object::Stream(stream) => {
+                self.form(&stream, id, index, 0, state, Via::Appearance);
+            }
             Object::Dictionary(states) => {
                 for (_, one) in states.iter() {
                     let id = one.as_reference();
                     if let Object::Stream(stream) = self.document.resolve(one) {
-                        self.form(
-                            &stream,
-                            id,
-                            &page.resources,
-                            index,
-                            0,
-                            state,
-                            Via::Appearance,
-                        );
+                        self.form(&stream, id, index, 0, state, Via::Appearance);
                     }
                 }
             }
@@ -1883,13 +1878,20 @@ impl Walk<'_> {
             return;
         }
         // §9.6.4: a Type 3 font's own `/Resources` are what its glyph procedures are read
-        // against, and a font that states none falls back on the invoking stream's.
+        // against, and a font that states none is read against the **page's**. §7.8.3's search
+        // ends there — the glyph description's own dictionary, the font's, then the page and
+        // what §7.7.3.4 gave it (Errata Collection 3, Issue #128) — and not at the stream whose
+        // text-showing operator reached the glyph, which is a different dictionary whenever that
+        // stream is a form with `/Resources` of its own. The same reading `pdf_model`'s
+        // interpreter has since ADR 1059, and the cross-check is calibrated on the place the two
+        // part. A glyph description's own `/Resources`, that search's first step, is read where
+        // the glyph is opened.
         let own = self.document.get_key(font, "Resources");
         let stated = own.as_dict().is_some();
         let resources = own
             .as_dict()
             .cloned()
-            .unwrap_or_else(|| context.resources.clone());
+            .unwrap_or_else(|| self.page_resources.clone());
         let procedures = self.document.get_key(font, "CharProcs");
         let Some(procedures) = procedures.as_dict() else {
             return;
@@ -1925,15 +1927,9 @@ impl Walk<'_> {
         let subtype = self.document.get_key(&stream.dict, "Subtype");
         let subtype = subtype.as_name().map(|name| name.as_bytes().to_vec());
         match subtype.as_deref() {
-            Some(b"Form") => self.form(
-                &stream,
-                id,
-                context.resources,
-                context.page,
-                context.depth,
-                state,
-                Via::Form,
-            ),
+            Some(b"Form") => {
+                self.form(&stream, id, context.page, context.depth, state, Via::Form);
+            }
             Some(b"Image") => self.image(&stream, id, context),
             _ => {}
         }
@@ -1944,16 +1940,17 @@ impl Walk<'_> {
     /// ISO 32000-2 §11.6.6 makes an isolated group's own `CS` the blending colour space for
     /// what it contains; a non-isolated group, or one that states no `CS`, inherits the space of
     /// the page or group it is painted into.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the two routes into a form — `Do` and an annotation's appearance — share \
-                  everything but the route, and the ledger has to be told which"
-    )]
+    ///
+    /// A form stating no `/Resources` is read against the page's dictionary — §7.8.3's NOTE 3
+    /// since Errata Collection 3 names "the resource dictionary of the page on which they are
+    /// used", and Table 93's `/Resources` cell says the same of a PDF 1.1 file in its own words
+    /// — and not against the stream that invoked it, whatever route that was. The two are one
+    /// dictionary until a form is nested inside a form with `/Resources` of its own, and there
+    /// `pdf_model`'s interpreter reads the page's too (ADR 1059).
     fn form(
         &mut self,
         stream: &Stream,
         id: Option<ObjectId>,
-        fallback: &Dictionary,
         page: usize,
         depth: u32,
         state: &State,
@@ -1962,7 +1959,10 @@ impl Walk<'_> {
         let mut state = state.clone();
         let own = self.document.get_key(&stream.dict, "Resources");
         let stated_resources = own.as_dict().is_some();
-        let resources = own.as_dict().cloned().unwrap_or_else(|| fallback.clone());
+        let resources = own
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| self.page_resources.clone());
         let group = self.document.get_key(&stream.dict, "Group");
         if let Some(group) = group.as_dict()
             && self.is_transparency_group(group)
@@ -2218,15 +2218,18 @@ impl Walk<'_> {
         };
         let id = entry.as_reference();
         match self.document.resolve(&entry) {
-            // A tiling pattern is a content stream, read against its own resources where it
-            // states them — which is why a `/DefaultCMYK` on the page does not reach into one.
+            // A tiling pattern is a content stream, read against its own resources — which is
+            // why a `/DefaultCMYK` on the page does not reach into one — and against nothing
+            // where it states none: Table 74 makes the entry "( Required )", and no sentence
+            // gives a pattern the fallback §7.8.3 gives a form XObject, a Type 3 font and
+            // (since Errata Collection 3's NOTE 3) an annotation appearance stream. So every
+            // name such a cell uses is a resource the file never defined, which is what
+            // `pdf_model`'s interpreter has always reported and what this walk reads now.
+            // ADR 1059.
             Object::Stream(stream) => {
                 let own = self.document.get_key(&stream.dict, "Resources");
                 let stated = own.as_dict().is_some();
-                let resources = own
-                    .as_dict()
-                    .cloned()
-                    .unwrap_or_else(|| context.resources.clone());
+                let resources = own.as_dict().cloned().unwrap_or_default();
                 self.nested(
                     &stream,
                     id,

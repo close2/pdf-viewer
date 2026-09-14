@@ -882,14 +882,14 @@ impl Viewer {
                     events.push(damage(viewport));
                 }
                 if selecting || pressed.is_none() || pressed != under {
-                    self.raise(id, raised, events);
+                    self.raise(id, raised, point.map(|(_, at)| at), events);
                     return;
                 }
                 let Some((page, (x, y))) = point else {
-                    self.raise(id, raised, events);
+                    self.raise(id, raised, point.map(|(_, at)| at), events);
                     return;
                 };
-                self.raise(id, raised, events);
+                self.raise(id, raised, point.map(|(_, at)| at), events);
                 let Some(open) = self.focused_mut() else {
                     return;
                 };
@@ -898,16 +898,28 @@ impl Viewer {
                 return;
             }
         }
-        self.raise(id, raised, events);
+        self.raise(id, raised, point.map(|(_, at)| at), events);
     }
 
     /// Performs §12.6.3's events the pointer just raised, in the order they were raised.
-    fn raise(&mut self, id: DocumentId, raised: Vec<(ObjectId, Trigger)>, events: &mut Vec<Event>) {
+    ///
+    /// `at` is where the pointer was, in the page's default user space, for the events a
+    /// pointer raised — and `None` for the ones it did not, which are Table 198's page open and
+    /// close and a focus change. Table 240 bit 5 is the one thing that reads it: "the
+    /// coordinates of the mouse click that caused the submit-form action", and a submit button
+    /// is a widget, so this is the path those coordinates arrive by.
+    fn raise(
+        &mut self,
+        id: DocumentId,
+        raised: Vec<(ObjectId, Trigger)>,
+        at: Option<(f32, f32)>,
+        events: &mut Vec<Event>,
+    ) {
         for (annotation, event) in raised {
             let Some(open) = self.focused_mut() else {
                 return;
             };
-            let outcome = interact::trigger(open, annotation, event);
+            let outcome = interact::trigger(open, annotation, event, at);
             self.apply(id, outcome, events);
         }
     }
@@ -959,6 +971,12 @@ impl Viewer {
         }
         for uri in outcome.uris {
             events.push(Event::OpenUri { document: id, uri });
+        }
+        for submission in outcome.submissions {
+            events.push(Event::Submit {
+                document: id,
+                submission: Box::new(submission),
+            });
         }
         if let Some((purpose, name)) = outcome.needs_file {
             events.push(Event::NeedsFile {
@@ -1905,7 +1923,7 @@ impl Viewer {
         );
         open.focus = wants;
         let viewport = self.viewport;
-        self.raise(id, raised, events);
+        self.raise(id, raised, None, events);
         // A focus ring is chrome the host draws, so what changed is the viewport rather than the
         // page — the same statement a selection makes, and for the same reason.
         events.push(damage(viewport));
@@ -2957,7 +2975,7 @@ impl Viewer {
             }
             opened = pages.get(open.page_index).map(|page| page.dict.clone());
         }
-        self.raise(id, raised, events);
+        self.raise(id, raised, None, events);
         for (page, event) in [
             (closed, pdf_model::action::PageTrigger::Close),
             (opened.clone(), pdf_model::action::PageTrigger::Open),
@@ -2977,7 +2995,7 @@ impl Viewer {
                 raised.push((annotation, Trigger::PageVisible));
             }
         }
-        self.raise(id, raised, events);
+        self.raise(id, raised, None, events);
         self.raising = false;
     }
 

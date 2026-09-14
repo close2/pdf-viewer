@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 19u
+#define QUORRA_EVENT_KIND_COUNT 20u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -91,6 +91,11 @@ extern "C" {
 #define QUORRA_EVENT_ASKING            16u
 #define QUORRA_EVENT_WARNED            17u
 #define QUORRA_EVENT_ATTACHMENTS_CHANGED 18u
+
+/* ISO 32000-2 §12.7.6.2's submit-form action, composed and handed over: a caller with a network
+ * sends it and one without says so. `quorra_events_describe` gives the URL and the field count,
+ * and `quorra_events_bytes` gives the body. */
+#define QUORRA_EVENT_SUBMIT            19u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u

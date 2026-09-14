@@ -329,6 +329,33 @@ impl Digest {
         }
     }
 
+    /// The algorithm a PDF *name* names, which is how a dictionary spells one rather than an OID.
+    ///
+    /// Table 256's `/DigestMethod` is the entry that states one - "[a] name identifying the
+    /// algorithm that shall be used when computing the digest if not specified in the
+    /// certificate" - and the table prints its own value list: "Valid values are MD5, SHA1
+    /// SHA256, SHA384, SHA512 and RIPEMD160". Six, and this function recognises exactly those
+    /// six; the four ISO/TS 32001 section 5.1.3 added to the entry are not among them, because
+    /// Errata Collection 3's issue #236 deletes that subclause entire (§12.8.1's ledger row
+    /// carries the reading and `tools/spec-errata` is what sees it).
+    ///
+    /// `None` for any other name, which is the file stating a value the entry does not admit.
+    /// The caller says so rather than choosing one of the six on the producer's behalf: which
+    /// digest a modification analysis is computed under is exactly what this entry decides, and
+    /// guessing it would answer a question nobody asked.
+    #[must_use]
+    pub fn from_pdf_name(name: &[u8]) -> Option<Self> {
+        match name {
+            b"MD5" => Some(Self::Md5),
+            b"SHA1" => Some(Self::Sha1),
+            b"SHA256" => Some(Self::Sha256),
+            b"SHA384" => Some(Self::Sha384),
+            b"SHA512" => Some(Self::Sha512),
+            b"RIPEMD160" => Some(Self::Ripemd160),
+            _ => None,
+        }
+    }
+
     /// The encoded object identifier of this algorithm — [`Self::from_oid`] the other way round.
     ///
     /// Needed because RFC 8017 section 9.2's `DigestInfo` puts the algorithm identifier *inside* the
@@ -1384,7 +1411,46 @@ pub(crate) mod fixtures {
         )
     }
 
-    /// The two above, which differ only in whether the signer states signed attributes.
+    /// [`detached_dsa`] with one signed attribute, written in DER or in X.690's indefinite form.
+    ///
+    /// The pair is a calibration and nothing else: RFC 5652 section 5.3 requires signed attributes
+    /// in DER "even if the rest of the structure is BER encoded", so the two values differ by
+    /// exactly the defect the rule is about and by nothing else. `indefinite` being false is the
+    /// control that must *not* be refused for its encoding.
+    ///
+    /// The attribute is `signing-time`, chosen because it carries no meaning this program acts on:
+    /// what the test is reading is the encoding, and an attribute the verifier consults would put
+    /// a second reason in the way of the first.
+    pub(crate) fn detached_dsa_stating_signing_time(
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+        signature: &[u8],
+        indefinite: bool,
+    ) -> Vec<u8> {
+        let value = tagged(0x31, &[primitive(0x17, b"260807000000Z")]);
+        let attribute = if indefinite {
+            // X.690 clause 8.1.3.6: a constructed value may state `80` and close with the
+            // end-of-contents marker instead of counting its bytes. The same members as
+            // `attribute` writes, with only the outer SEQUENCE's length octets changed.
+            let mut out = vec![0x30, 0x80];
+            out.extend_from_slice(&primitive(0x06, ID_SIGNING_TIME));
+            out.extend_from_slice(&value);
+            out.extend_from_slice(&[0x00, 0x00]);
+            out
+        } else {
+            tagged(0x30, &[primitive(0x06, ID_SIGNING_TIME), value])
+        };
+        detached_dsa_with(
+            certificate,
+            issuer,
+            serial,
+            signature,
+            Some(vec![attribute]),
+        )
+    }
+
+    /// The three above, which differ only in whether the signer states signed attributes.
     fn detached_dsa_with(
         certificate: &[u8],
         issuer: &[u8],

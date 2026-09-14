@@ -120,6 +120,10 @@ impl Events {
                 rect.min.x, rect.min.y, rect.max.x, rect.max.y
             ),
             Event::OpenUri { uri, .. } => format!("a link asks for {uri}"),
+            Event::Submit { submission, .. } => format!(
+                "§12.7.6.2 asks for {} field(s) to be sent to {}",
+                submission.fields, submission.url
+            ),
             Event::NeedsFile { name, purpose, .. } => {
                 format!("the document asks for the file {name:?} ({purpose:?})")
             }
@@ -280,7 +284,8 @@ impl Events {
             | Event::Searched { document, .. }
             | Event::Asking { document, .. }
             | Event::Warned { document, .. }
-            | Event::AttachmentsChanged { document } => document.0,
+            | Event::AttachmentsChanged { document }
+            | Event::Submit { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })

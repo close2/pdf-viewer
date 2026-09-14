@@ -627,6 +627,7 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
             A::Thread(_) => "Thread",
             A::ResetForm(_) => "ResetForm",
             A::ImportData(_) => "ImportData",
+            A::SubmitForm(_) => "SubmitForm",
             A::GoToE(_) => "GoToE",
             A::GoToDp(_) => "GoToDp",
             A::Trans(_) => "Trans",
@@ -652,8 +653,8 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
         ("Named", "/S /Named /N /NextPage", Performed("Named")),
         (
             "SubmitForm",
-            "/S /SubmitForm /F (https://example.invalid)",
-            Refused,
+            "/S /SubmitForm /F << /FS /URL /F (https://example.invalid) >>",
+            Performed("SubmitForm"),
         ),
         ("ResetForm", "/S /ResetForm", Performed("ResetForm")),
         (

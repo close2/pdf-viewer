@@ -62,8 +62,9 @@ a dependency needs from those three ADRs:
   and four of the corpus's ten signature values begin `30 80` — X.690 clause 8.1.3.6's indefinite
   length, which DER forbids and Adobe's handler emits. `openssl pkcs7` refuses exactly those four.
   This is why the CMS/X.509 *parsing* stays in tree whatever the arithmetic does.
-- **Elliptic curves are taken, and what refuses now is four curves rather than a family** (ADR
-  0532, measured 2026-08-23; supersedes the refusal ADRs 0314 and 0331 recorded). `p256`, `p384`
+- **Elliptic curves are taken, and what refuses now is two curves rather than a family** (ADR
+  0532, measured 2026-08-23, and ADR 1063, 2026-09-14; supersedes the refusal ADRs 0314 and 0331
+  recorded). `p256`, `p384`
   and `p521` 0.14.0 plus `ed25519-dalek` 3.0.0, all stable on this tree's `digest` 0.11 line, with
   `ecdsa` named directly so one generic verification serves three curves. **23 new locked
   packages** plus two patch bumps, `cargo deny` green on all four sections with no exception added
@@ -72,12 +73,19 @@ a dependency needs from those three ADRs:
   `precomputed-tables` is deliberately **off**: it trades image size for scalar-multiplication
   speed, and a signature is verified a handful of times per document off the launch path while
   every byte of a table is paged in at launch.
-  - **What is not takeable, re-measured rather than quoted**: `bp256` and `bp384` are
-    0.14.0-**rc.15** and their stable 0.6 is the old hash line; **`bp512` does not exist on
-    crates.io**; `ed448-goldilocks`'s stable 0.9.0 has the field arithmetic and **no signature
-    scheme**, on `rand_core` 0.6, and its 0.14 line is a pre-release. So four of ISO/TS 32002's
-    eight curves are refused by *package availability*, each named at runtime by its own
-    identifier.
+  - **Two more curves were takeable the week their line went stable** (ADR 1063, measured and
+    taken 2026-09-14): `bp256` and `bp384` 0.14.0, published 2026-09-10 and 09-11, same supplier
+    and same `digest` 0.11 line as the NIST three, `Apache-2.0 OR MIT`, MSRV 1.85,
+    `#![forbid(unsafe_code)]`, and **no new transitive package** — `primefield` and `primeorder`
+    were already here. RFC 5639 sections 3.4 and 3.6 state the two curves' parameters and
+    `doc/md/rfc/rfc5639.txt` holds them, so the arithmetic is reviewed code over constants a held
+    document states. `ecdsa.rs`'s one generic verification now serves five curves.
+  - **What is still not takeable, re-measured rather than quoted** (2026-09-14): **`bp512` does
+    not exist on crates.io**; `ed448-goldilocks`'s stable 0.9.0 has the field arithmetic and **no
+    signature scheme**, on `rand_core` 0.6, and its only line carrying one is 0.14.0-pre.15. So
+    two of ISO/TS 32002's eight curves are refused by *package availability*, each named at
+    runtime by its own identifier — and the gap is about supply rather than about specification,
+    since RFC 5639 section 3.7 and RFC 8032 state both curves.
   - **`const-oid`'s `db` feature is the identifier supply, at zero new packages** — it is already
     here through `digest` — and it is what keeps a dozen object identifiers out of this project's
     memory. It also gave `cms::Digest` a second reading for six of its ten, retiring ADR 0390's

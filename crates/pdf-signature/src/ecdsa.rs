@@ -15,13 +15,15 @@
 //! brainpoolP384r1 and brainpoolP512r1. The Edwards pair is a different group law and lives in
 //! [`crate::eddsa`].
 //!
-//! # Three of the six, and the other three are named rather than silent
+//! # Five of the six, and the sixth is named rather than silent
 //!
-//! [`Curve`] holds P-256, P-384 and P-521. The Brainpool three are [`UnsupportedCurve`]: their
-//! `RustCrypto` packages are release-candidate-only on this tree's `digest` 0.11 line and
-//! brainpoolP512r1 has no package at all (measured 2026-08-23; ADR 0532 has the table). A
-//! certificate stating one reaches a reader as *that curve, refused*, rather than as a shrug —
-//! which is the whole of what this module owes a curve it cannot compute on.
+//! [`Curve`] holds P-256, P-384, P-521, brainpoolP256r1 and brainpoolP384r1. The last of the six,
+//! brainpoolP512r1, is [`UnsupportedCurve`]: RFC 5639 section 3.7 states its parameters, so the
+//! curve is specified in a text this tree holds, but no `RustCrypto` package carries it (measured
+//! 2026-09-14; ADR 1063 has the table) and the arithmetic under it would then be this tree's own,
+//! which ADR 0331 declines. A certificate stating it reaches a reader as *that curve, refused*,
+//! rather than as a shrug — which is the whole of what this module owes a curve it cannot compute
+//! on.
 //!
 //! **Every sentence quoted here is ISO/TS 32002's and is in prose rather than in a blockquote**,
 //! for the reason `cms::Digest` records: `tools/conformance` checks a rustdoc blockquote verbatim
@@ -53,8 +55,8 @@
 //! rather than in-tree code, because the defect class that matters in a verifier is *wrong
 //! arithmetic* and a widely-used library has been run over shapes nobody here thought of. A curve
 //! crate's prime, base point and order are reviewed constants on exactly that footing. So this
-//! module is the *encoding*, the *budget* and the *vocabulary*; `p256`, `p384`, `p521` and
-//! `ecdsa` are the group law.
+//! module is the *encoding*, the *budget* and the *vocabulary*; `p256`, `p384`, `p521`, `bp256`,
+//! `bp384` and `ecdsa` are the group law.
 //!
 //! Two properties of that dependency are worth stating rather than assuming:
 //!
@@ -91,15 +93,15 @@ use crate::der::{INTEGER, Reader, SEQUENCE};
 
 /// `elliptic-curve`, reached through `ecdsa` rather than named as a dependency of its own.
 ///
-/// All four packages are built against one version of it, and reaching it through one of them is
+/// All six packages are built against one version of it, and reaching it through one of them is
 /// what keeps that true: a second direct dependency could resolve to a different version and
 /// silently become a second, incompatible set of types.
 use ecdsa::elliptic_curve;
 
 /// One of ISO/TS 32002 Table 3's curves that this program computes on.
 ///
-/// Three of the table's six. The other three are [`UnsupportedCurve`], and the split is a fact
-/// about the packages rather than about the standard — see the module documentation.
+/// Five of the table's six. The sixth is [`UnsupportedCurve`], and the split is a fact about the
+/// packages rather than about the standard — see the module documentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Curve {
     /// ISO/TS 32002 Table 3's "P-256", RFC 5912's `secp256r1` — `1.2.840.10045.3.1.7`.
@@ -108,20 +110,23 @@ pub enum Curve {
     P384,
     /// ISO/TS 32002 Table 3's "P-521", RFC 5912's `secp521r1` — `1.3.132.0.35`.
     P521,
+    /// ISO/TS 32002 Table 3's "brainpoolP256r1", RFC 5639 section 3.4's curve —
+    /// `1.3.36.3.3.2.8.1.1.7`, assigned by its section 4.1.
+    BrainpoolP256r1,
+    /// ISO/TS 32002 Table 3's "brainpoolP384r1", RFC 5639 section 3.6's curve —
+    /// `1.3.36.3.3.2.8.1.1.11`, assigned by its section 4.1.
+    BrainpoolP384r1,
 }
 
-/// One of ISO/TS 32002 Table 3's curves that this program does **not** compute on.
+/// The one ISO/TS 32002 Table 3 curve that this program does **not** compute on.
 ///
 /// Carried as a value rather than collapsed into "unknown" so that a report can say which curve a
-/// certificate stated. All three are curves the standard admits, so this is a gap in this program
-/// and never a defect in the file — which is the difference between this and an identifier
-/// [`Curve::of`] and this type both fail to recognise, where the file has left the table.
+/// certificate stated. It is a curve the standard admits and RFC 5639 section 3.7 specifies, so
+/// this is a gap in this program and never a defect in the file — which is the difference between
+/// this and an identifier [`Curve::of`] and this type both fail to recognise, where the file has
+/// left the table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedCurve {
-    /// RFC 5639's `brainpoolP256r1` — `1.3.36.3.3.2.8.1.1.7`.
-    BrainpoolP256r1,
-    /// RFC 5639's `brainpoolP384r1` — `1.3.36.3.3.2.8.1.1.11`.
-    BrainpoolP384r1,
     /// RFC 5639's `brainpoolP512r1` — `1.3.36.3.3.2.8.1.1.13`.
     BrainpoolP512r1,
 }
@@ -131,8 +136,6 @@ impl UnsupportedCurve {
     #[must_use]
     pub fn oid(self) -> ObjectIdentifier {
         match self {
-            Self::BrainpoolP256r1 => rfc5639::BRAINPOOL_P_256_R_1,
-            Self::BrainpoolP384r1 => rfc5639::BRAINPOOL_P_384_R_1,
             Self::BrainpoolP512r1 => rfc5639::BRAINPOOL_P_512_R_1,
         }
     }
@@ -141,22 +144,14 @@ impl UnsupportedCurve {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Self::BrainpoolP256r1 => "brainpoolP256r1",
-            Self::BrainpoolP384r1 => "brainpoolP384r1",
             Self::BrainpoolP512r1 => "brainpoolP512r1",
         }
     }
 
-    /// Whether an encoded `namedCurve` identifier is one of these three.
+    /// Whether an encoded `namedCurve` identifier is this curve's.
     #[must_use]
     pub fn of(oid: &[u8]) -> Option<Self> {
-        [
-            Self::BrainpoolP256r1,
-            Self::BrainpoolP384r1,
-            Self::BrainpoolP512r1,
-        ]
-        .into_iter()
-        .find(|curve| curve.oid().as_bytes() == oid)
+        (Self::BrainpoolP512r1.oid().as_bytes() == oid).then_some(Self::BrainpoolP512r1)
     }
 }
 
@@ -173,6 +168,8 @@ impl Curve {
             Self::P256 => rfc5912::SECP_256_R_1,
             Self::P384 => rfc5912::SECP_384_R_1,
             Self::P521 => rfc5912::SECP_521_R_1,
+            Self::BrainpoolP256r1 => rfc5639::BRAINPOOL_P_256_R_1,
+            Self::BrainpoolP384r1 => rfc5639::BRAINPOOL_P_384_R_1,
         }
     }
 
@@ -183,25 +180,34 @@ impl Curve {
             Self::P256 => "P-256",
             Self::P384 => "P-384",
             Self::P521 => "P-521",
+            Self::BrainpoolP256r1 => "brainpoolP256r1",
+            Self::BrainpoolP384r1 => "brainpoolP384r1",
         }
     }
 
-    /// Whether an encoded `namedCurve` identifier is one of the three this program computes on.
+    /// Whether an encoded `namedCurve` identifier is one of the five this program computes on.
     #[must_use]
     pub fn of(oid: &[u8]) -> Option<Self> {
-        [Self::P256, Self::P384, Self::P521]
-            .into_iter()
-            .find(|curve| curve.oid().as_bytes() == oid)
+        [
+            Self::P256,
+            Self::P384,
+            Self::P521,
+            Self::BrainpoolP256r1,
+            Self::BrainpoolP384r1,
+        ]
+        .into_iter()
+        .find(|curve| curve.oid().as_bytes() == oid)
     }
 
     /// The field element width in octets, which is also `r`'s and `s`'s.
     ///
-    /// P-521's field is 521 bits, so this is 66 rather than 65: SEC1 pads to whole octets.
+    /// P-521's field is 521 bits, so this is 66 rather than 65: SEC1 pads to whole octets. The
+    /// Brainpool primes are exactly 256 and 384 bits (RFC 5639 section 3.4 and section 3.6).
     #[must_use]
     pub fn field_octets(self) -> usize {
         match self {
-            Self::P256 => 32,
-            Self::P384 => 48,
+            Self::P256 | Self::BrainpoolP256r1 => 32,
+            Self::P384 | Self::BrainpoolP384r1 => 48,
             Self::P521 => 66,
         }
     }
@@ -216,8 +222,8 @@ impl Curve {
     #[must_use]
     pub fn bits(self) -> usize {
         match self {
-            Self::P256 => 256,
-            Self::P384 => 384,
+            Self::P256 | Self::BrainpoolP256r1 => 256,
+            Self::P384 | Self::BrainpoolP384r1 => 384,
             Self::P521 => 521,
         }
     }
@@ -259,7 +265,7 @@ pub fn is_ecdsa(oid: &[u8]) -> bool {
 /// [`verify`]'s question rather than [`crate::x509`]'s, because answering it is arithmetic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicKey<'a> {
-    /// Which of the three curves the certificate's `namedCurve` stated.
+    /// Which of the five curves the certificate's `namedCurve` stated.
     pub curve: Curve,
     /// `subjectPublicKey`'s octets, SEC1 section 2.3.3's encoding of a point.
     pub point: &'a [u8],
@@ -325,14 +331,16 @@ pub fn verify(key: PublicKey<'_>, signature: &[u8], digest: &[u8]) -> Result<boo
         Curve::P256 => verify_on::<p256::NistP256>(key.point, &r, &s, digest),
         Curve::P384 => verify_on::<p384::NistP384>(key.point, &r, &s, digest),
         Curve::P521 => verify_on::<p521::NistP521>(key.point, &r, &s, digest),
+        Curve::BrainpoolP256r1 => verify_on::<bp256::BrainpoolP256r1>(key.point, &r, &s, digest),
+        Curve::BrainpoolP384r1 => verify_on::<bp384::BrainpoolP384r1>(key.point, &r, &s, digest),
     }
 }
 
 /// The same, once the curve is a type.
 ///
-/// One function rather than three copies: the three arms of [`verify`] differ only in which
-/// curve's constants the compiler substitutes, and a security check written three times is a
-/// security check that can be edited twice.
+/// One function rather than five copies: the five arms of [`verify`] differ only in which
+/// curve's constants the compiler substitutes, and a security check written five times is a
+/// security check that can be edited four times.
 fn verify_on<C>(point: &[u8], r: &[u8], s: &[u8], digest: &[u8]) -> Result<bool, EcdsaError>
 where
     C: EcdsaCurve + CurveArithmetic,
@@ -502,8 +510,11 @@ pub(crate) mod fixtures {
         cc600bbb8ff402644a57016bbba4db2d591bc51ffcf299f17c12ac29dc930cf9\
         c31e64645e7ff178b249ef";
 
-    /// A self-signed brainpoolP256r1 certificate: a curve ISO/TS 32002 Table 3 names and this
-    /// program refuses, so that the refusal has a witness rather than a comment.
+    /// A self-signed brainpoolP256r1 certificate.
+    ///
+    /// Made in the six-hundred-and-eighty-ninth session as the witness of a refusal; since ADR
+    /// 1063 the same pair is the witness of a verification, with nothing about it changed — which
+    /// is the one property a fixture that outlives a decision should have.
     pub(crate) const BP256_CERTIFICATE: &str = "\
         308201963082013ca0030201020214562e870e03edd9391fba57a2f8dce46a73\
         16eb9b300a06082a8648ce3d0403023020311e301c06035504030c157064662d\
@@ -520,14 +531,69 @@ pub(crate) mod fixtures {
         ab953865c503d9f47dc5abefc33546ec737cfc711dce82995f76";
 
     /// `ECDSA-Sig-Value` over `SHA-256(MESSAGE)` under the brainpool key above.
-    ///
-    /// Present so that the refusal is reached with a *whole* signature rather than with an absent
-    /// one: what stops this verifying is the curve, and a fixture missing its signature would
-    /// prove only that something stopped it.
     pub(crate) const BP256_SIGNATURE: &str = "\
         304402201f69c424e73c9c10ab65f15e4d56e2533c315da8a9c1906b89fda8b2\
         7cf5655d022013a6b8ad85aadc62c19a9ff6f4e00657911480354f995b18d29f\
         7f75558f206b";
+
+    /// A self-signed brainpoolP384r1 certificate (`openssl ecparam -name brainpoolP384r1`).
+    pub(crate) const BP384_CERTIFICATE: &str = "\
+        308201d53082015ca00302010202146fef3d778ebca54caf559fd934c9237a1a\
+        8027af300a06082a8648ce3d0403033020311e301c06035504030c157064662d\
+        7669657765722062703338342074657374301e170d3236303931343132343135\
+        395a170d3336303931313132343135395a3020311e301c06035504030c157064\
+        662d7669657765722062703338342074657374307a301406072a8648ce3d0201\
+        06092b240303020801010b036200046f8d8aadd5ca68b9473e634cc4b5ad7b79\
+        b4315eded3d04994a5ad42e1d7e0512f6a55ee6235542c46efd1b8e2e88ad94c\
+        d5317b0c209cdffc9832291c11da0c1199e14b2f807cecc6cb0c96a08c3071e2\
+        79b6d4db4afef634fd672041f6ba89a3533051301d0603551d0e0416041461de\
+        2d4c8987d34ed3e5cb048a5d63d12ae64765301f0603551d2304183016801461\
+        de2d4c8987d34ed3e5cb048a5d63d12ae64765300f0603551d130101ff040530\
+        030101ff300a06082a8648ce3d04030303670030640230188e994ab136b7477f\
+        2898bd0dcbe5bed698c5a7b2da2c9fe897bd22eaabad5cdeeded731c911c3346\
+        9c5e5ed88d0cf602307785bd352cea5953aa4d26b5fdcc9e7e39721cdc16a2a6\
+        aa1460121200ed49339dfed9927ae082f42a232d78d404922a";
+
+    /// `ECDSA-Sig-Value` over `SHA-384(MESSAGE)` under the key above — ISO/TS 32002 Table 3's
+    /// first digest for this curve.
+    pub(crate) const BP384_SIGNATURE: &str = "\
+        306402307b927a2d0011492f4e531fc12b217a0607f6190b2bb32739d91a7106\
+        b9bfb82b617fda8b98a7511be1790bc26d4a4dfd02306e658ad6c8d3c1facadc\
+        5bfcea8c69533049efaad9daac57f4edd81142a101f12eb14ba200c6bdb594de\
+        a30fa7476a4c";
+
+    /// A self-signed brainpoolP512r1 certificate: the one curve ISO/TS 32002 Table 3 names and
+    /// this program refuses, so that the refusal has a witness rather than a comment.
+    pub(crate) const BP512_CERTIFICATE: &str = "\
+        308202193082017ea00302010202145334caf02422f65fdec5045cb57278db6f\
+        cdd54b300a06082a8648ce3d0403043020311e301c06035504030c157064662d\
+        7669657765722062703531322074657374301e170d3236303931343132343135\
+        395a170d3336303931313132343135395a3020311e301c06035504030c157064\
+        662d766965776572206270353132207465737430819b301406072a8648ce3d02\
+        0106092b240303020801010d03818200041a08b3179787dacc891e6138668f76\
+        b675bb8cccee4f1a4f5d1c3d309f17a733fa015a2424a95996d95244f2b17a75\
+        6615340e0b83cbd490d460855826928daa4fbf783beb1eeb96a3f3450f1fd214\
+        3a76c44d6063f0f983847ef244359811597c5b1ea76b104244135d7d45de83cf\
+        18dfa0f293468bb33514d79a5f3250ddd6a3533051301d0603551d0e04160414\
+        797a2dbc4688121b4d2a8db662069dfc7d493d6c301f0603551d230418301680\
+        14797a2dbc4688121b4d2a8db662069dfc7d493d6c300f0603551d130101ff04\
+        0530030101ff300a06082a8648ce3d0403040381880030818402400c70ffc4cb\
+        e399eb23d50bbceb6865733c180f50cee459ef6586a3be80a5974482760d316f\
+        d7205d35a2d870934c44ae719a3121952400ebf5567ce2654ea3eb02407ac163\
+        55bad29416e4e6f4eca50d7275c99afb2f981256690d11c9243180c1d2d51699\
+        aa5f9ae545f533d34aba89bd2d824dc8b5755715f923ad6481594dadf1";
+
+    /// `ECDSA-Sig-Value` over `SHA-512(MESSAGE)` under the brainpoolP512r1 key above.
+    ///
+    /// Present so that the refusal is reached with a *whole* signature rather than with an absent
+    /// one: what stops this verifying is the curve, and a fixture missing its signature would
+    /// prove only that something stopped it.
+    pub(crate) const BP512_SIGNATURE: &str = "\
+        308184024024efabbfa1bbe5f246bcac4b932fc9fe88647519c310e7454a2c3f\
+        52c7b42ae9f7e39aa244621427b9854bc4a3645b8e28d276564664c3f0082a44\
+        0eac3eb48b02405c86a9de2c849ae7327e484cc93469bd1c94d57da1bef4bc3e\
+        79039f2d096be6e0ab9ff9f39f2223eb2621ac05e2c5619062b4f0bcfdd6fc48\
+        e0376df4268b7b";
 
     /// Hexadecimal to bytes.
     pub(crate) fn hex(text: &str) -> Vec<u8> {
@@ -541,8 +607,9 @@ pub(crate) mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        BP256_CERTIFICATE, MESSAGE, P256_CERTIFICATE, P256_SIGNATURE, P384_CERTIFICATE,
-        P384_SIGNATURE, P521_CERTIFICATE, P521_SIGNATURE, hex,
+        BP256_CERTIFICATE, BP256_SIGNATURE, BP384_CERTIFICATE, BP384_SIGNATURE, BP512_CERTIFICATE,
+        MESSAGE, P256_CERTIFICATE, P256_SIGNATURE, P384_CERTIFICATE, P384_SIGNATURE,
+        P521_CERTIFICATE, P521_SIGNATURE, hex,
     };
     use super::{Curve, EcdsaError, UnsupportedCurve, verify};
     use crate::cms::Digest;
@@ -557,7 +624,7 @@ mod tests {
         }
     }
 
-    /// The whole path, on each of ISO/TS 32002 Table 3's three curves this program computes on.
+    /// The whole path, on each of ISO/TS 32002 Table 3's five curves this program computes on.
     ///
     /// A signature made with a key verifies under the key the certificate carries, and stops
     /// verifying when one bit of the message moves. The pair is what makes this a test of the
@@ -583,6 +650,18 @@ mod tests {
                 P521_SIGNATURE,
                 Digest::Sha512,
                 Curve::P521,
+            ),
+            (
+                BP256_CERTIFICATE,
+                BP256_SIGNATURE,
+                Digest::Sha256,
+                Curve::BrainpoolP256r1,
+            ),
+            (
+                BP384_CERTIFICATE,
+                BP384_SIGNATURE,
+                Digest::Sha384,
+                Curve::BrainpoolP384r1,
             ),
         ] {
             let certificate = hex(certificate);
@@ -684,16 +763,16 @@ mod tests {
         );
     }
 
-    /// A curve ISO/TS 32002 Table 3 names and this program does not compute on, named rather than
-    /// dropped.
+    /// The curve ISO/TS 32002 Table 3 names and this program does not compute on, named rather
+    /// than dropped.
     #[test]
-    fn a_brainpool_certificate_carries_its_curve_out_to_the_report() {
-        let certificate = hex(BP256_CERTIFICATE);
+    fn a_brainpool_p512_certificate_carries_its_curve_out_to_the_report() {
+        let certificate = hex(BP512_CERTIFICATE);
         let certificate = x509::parse(&certificate).expect("a certificate");
         assert_eq!(
             certificate.public_key,
             PublicKey::EcCurveNotVerifiable {
-                curve: Some(UnsupportedCurve::BrainpoolP256r1.oid().as_bytes())
+                curve: Some(UnsupportedCurve::BrainpoolP512r1.oid().as_bytes())
             }
         );
     }
@@ -705,7 +784,13 @@ mod tests {
     /// same way, in both directions, for all six of ISO/TS 32002 Table 3's curves.
     #[test]
     fn the_curve_identifiers_decode_to_the_numbers_the_constants_state() {
-        for curve in [Curve::P256, Curve::P384, Curve::P521] {
+        for curve in [
+            Curve::P256,
+            Curve::P384,
+            Curve::P521,
+            Curve::BrainpoolP256r1,
+            Curve::BrainpoolP384r1,
+        ] {
             let oid = curve.oid();
             assert_eq!(
                 x509::dotted(oid.as_bytes()).as_deref(),
@@ -715,21 +800,18 @@ mod tests {
             );
             assert_eq!(Curve::of(oid.as_bytes()), Some(curve));
         }
-        for curve in [
-            UnsupportedCurve::BrainpoolP256r1,
-            UnsupportedCurve::BrainpoolP384r1,
-            UnsupportedCurve::BrainpoolP512r1,
-        ] {
-            let oid = curve.oid();
-            assert_eq!(
-                x509::dotted(oid.as_bytes()).as_deref(),
-                Some(oid.to_string().as_str()),
-                "{}",
-                curve.name()
-            );
-            assert_eq!(UnsupportedCurve::of(oid.as_bytes()), Some(curve));
-            assert_eq!(Curve::of(oid.as_bytes()), None, "{}", curve.name());
-        }
+        // One curve rather than a loop over three since ADR 1063: the other two are computed and
+        // are above. `Curve::of` answering `None` is the half that keeps the two lists disjoint.
+        let curve = UnsupportedCurve::BrainpoolP512r1;
+        let oid = curve.oid();
+        assert_eq!(
+            x509::dotted(oid.as_bytes()).as_deref(),
+            Some(oid.to_string().as_str()),
+            "{}",
+            curve.name()
+        );
+        assert_eq!(UnsupportedCurve::of(oid.as_bytes()), Some(curve));
+        assert_eq!(Curve::of(oid.as_bytes()), None, "{}", curve.name());
     }
 
     /// `SEQUENCE { r INTEGER, s INTEGER }` around two contents, for the tests above.

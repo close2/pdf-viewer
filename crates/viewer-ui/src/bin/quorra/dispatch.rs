@@ -88,6 +88,21 @@ impl App {
         }
     }
 
+    /// §12.7.6.2's composed request, said out loud under the host policy that decides it.
+    ///
+    /// A function of its own rather than four lines in the arm above, and not only for the
+    /// line count: this is the whole of what a *host* contributes to the clause, and a reader
+    /// looking for where the decision is made should find one name to follow.
+    fn submit(submission: &pdf_model::submission::Submission) {
+        println!(
+            "{}",
+            viewer_host::policy::submission_note(
+                submission,
+                viewer_host::policy::may_submit().err().as_deref(),
+            )
+        );
+    }
+
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
@@ -157,6 +172,10 @@ impl App {
             // string a document controls to a browser, because that is a decision about this
             // machine and not about the document.
             Event::OpenUri { uri, .. } => println!("link: {uri}"),
+            // §12.7.6.2: the policy is `viewer_host::policy::may_submit`'s and not this
+            // window's, so that a host with a network — or `doc/todo/38`'s ask and warn levels —
+            // is a change in one place (ADR 1062). What this arm owns is saying it out loud.
+            Event::Submit { submission, .. } => Self::submit(&submission),
             Event::NeedsFile { purpose, name, .. } => {
                 let bytes = self.supply(purpose, &name);
                 queue.push_back(Command::Supply { purpose, bytes });

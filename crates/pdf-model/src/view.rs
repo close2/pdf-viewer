@@ -388,6 +388,17 @@ pub enum Request {
     /// window's business rather than this state's.
     /// [`crate::action::EmbeddedGoTo::target_in`] opens it.
     Embedded(EmbeddedGoTo),
+    /// §12.7.6.2: submit the form to the URL Table 239 names, which means transmitting it.
+    ///
+    /// The same division as [`Self::Resolve`] and for the same reason, one step further on:
+    /// §12.7.6.2's `shall` is to "transmit the names and values of selected interactive form
+    /// fields to a specified uniform resource locator (URL)", and the transmission is a network
+    /// request no crate under principle 3's sandbox performs. *Which* names and values, in
+    /// *which* format, to *which* URL by *which* method are all functions of the document and of
+    /// this state, so a caller composes them with [`crate::submission::compose`] — which needs
+    /// the click Table 240 bit 5 asks for, and this function has none — and hands the composed
+    /// request to whoever has a network (ADR 1062).
+    Submit(crate::action::SubmitForm),
     /// §12.7.6.4: import this file's form data, which means finding and reading it.
     ///
     /// The same division as [`Self::Resolve`], and for the same reason: a document naming a file
@@ -2253,6 +2264,7 @@ impl ViewState {
             Action::Thread(jump) => return Some(Request::Thread(jump.clone())),
             Action::GoToDp(jump) => return Some(Request::DocumentPart(*jump)),
             Action::ImportData(import) => return Some(Request::Import(import.clone())),
+            Action::SubmitForm(submit) => return Some(Request::Submit(submit.clone())),
             Action::GoToE(target) => return Some(Request::Embedded(target.clone())),
             Action::Trans(transition) => {
                 return Some(Request::Transition(transition.clone()));
@@ -2559,7 +2571,7 @@ fn walk(
 ///
 /// Bounded by [`MAX_FIELD_DEPTH`] and guarded against a cycle for [`walk`]'s reason: `/Kids` is
 /// the document's to write and §12.7.4.1 states no acyclicity rule.
-fn widgets_under(document: &Document, field: ObjectId) -> Vec<ObjectId> {
+pub(crate) fn widgets_under(document: &Document, field: ObjectId) -> Vec<ObjectId> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     descend(document, field, &mut out, &mut seen, 0);

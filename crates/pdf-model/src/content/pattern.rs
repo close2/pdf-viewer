@@ -1955,6 +1955,17 @@ impl Interpreter<'_> {
             _ => None,
         };
 
+        // Table 74 makes a tiling pattern's `/Resources` "( Required )", and §7.8.3 requires it
+        // of a pattern in the same breath as of a form: "This shall apply to content streams that
+        // define form XObjects, patterns, and annotation appearances." What no sentence does is
+        // give a pattern the *fallback* it gives the other two — the fourth bullet Errata
+        // Collection 3 retired named form XObjects and Type 3 fonts, its NOTE 3 adds annotation
+        // appearance streams, and neither names a pattern. So a pattern stating none has a
+        // current resource dictionary that defines nothing: every name its cell uses is reported
+        // by `draw_xobject`, `font` and their neighbours as a resource the file never defined,
+        // and what the cell draws without a name is still drawn (trap 5). Reading the invoking
+        // stream's dictionary instead would be a fallback the clause does not state, and it is
+        // the reading `pdf-archive`'s survey had until ADR 1059 (ADR 1055 section 5).
         let resources = self
             .document
             .get_key(dict, "Resources")

@@ -1,0 +1,58 @@
+%PDF-1.4
+% ISO 32000-2 7.8.3: a form XObject stating no /Resources inherits the page's dictionary,
+% not its invoker's. /Inner names /Sq (page only) and /Inv (invoker only).
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /Outer 5 0 R /Sq 7 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<<  /Length 13 >>
+stream
+q /Outer Do Q
+endstream
+endobj
+5 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << /XObject << /Inner 6 0 R /Inv 8 0 R >> >> /Length 13 >>
+stream
+q /Inner Do Q
+endstream
+endobj
+6 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Length 22 >>
+stream
+q /Sq Do Q q /Inv Do Q
+endstream
+endobj
+7 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Length 20 >>
+stream
+0 g 20 20 60 60 re f
+endstream
+endobj
+8 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Length 20 >>
+stream
+0 g 10 10 20 20 re f
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000174 00000 n 
+0000000223 00000 n 
+0000000280 00000 n 
+0000000422 00000 n 
+0000000486 00000 n 
+0000000655 00000 n 
+0000000777 00000 n 
+0000000897 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1017
+%%EOF

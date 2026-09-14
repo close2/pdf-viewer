@@ -409,19 +409,33 @@ crypto-bigint = { version = "0.7.5", default-features = false, features = ["allo
 # verified at most a handful of times per document, on the document's own thread, never on the
 # launch path, while every byte of a table is in the image a launch pages in.
 #
-# **Brainpool is not here and it is not an oversight.** `bp256` and `bp384`'s current line is
-# 0.14.0-rc.15 — this tree takes no pre-release — their stable 0.6 is the old `digest` line, and
-# **brainpoolP512r1 has no crate on crates.io at all**. All three reach a reader as the curve
-# identifier the certificate states rather than as a silence; `ecdsa.rs` names them by the
-# constants `const-oid` carries. Re-measured 2026-08-23; ADR 0331 measured the same on 08-14.
+# **`bp256` and `bp384` are the same supplier's Brainpool pair, on the same line, taken the day
+# their 0.14.0 went stable** (published 2026-09-10 and 09-11; measured and taken 2026-09-14, ADR
+# 1063). RFC 5639 section 3.4 and section 3.6 state the two curves' parameters and `doc/md/rfc/`
+# holds that text, so what these packages supply is reviewed arithmetic over constants a held
+# document states, which is exactly ADR 0331's footing. Their feature names differ from the NIST
+# three: `ecdsa` is the optional dependency's implicit feature and `arithmetic` is the group law,
+# and the hash bindings (`sha256`, `sha384`) are not taken because `verify_prehash` takes a digest
+# this tree already computed. Both are `#![forbid(unsafe_code)]`, `Apache-2.0 OR MIT`, MSRV 1.85,
+# and they add **no transitive package at all**: `Cargo.lock` gains the two crates and nothing
+# else, because `primefield` and `primeorder` — the field and curve arithmetic they build on —
+# are already here under the NIST three.
 #
-# **`ecdsa` is named directly and costs nothing**: it is the same package the three curve crates
+# **brainpoolP512r1 has no crate on crates.io at all** (re-measured 2026-09-14). RFC 5639 section
+# 3.7 states its parameters, so the curve is not unspecified — but the arithmetic under it would
+# be this tree's own, which is what ADR 0331 declines. It reaches a reader as the curve identifier
+# the certificate states rather than as a silence; `ecdsa.rs` names it by the constant `const-oid`
+# carries.
+#
+# **`ecdsa` is named directly and costs nothing**: it is the same package the five curve crates
 # already lock, and naming it is what lets `ecdsa.rs` write *one* generic verification over the
-# three curves instead of three copies of a security-critical path.
+# five curves instead of five copies of a security-critical path.
 ecdsa = { version = "0.17.0", default-features = false, features = ["algorithm"] }
 p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
 p521 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+bp256 = { version = "0.14.0", default-features = false, features = ["ecdsa", "arithmetic"] }
+bp384 = { version = "0.14.0", default-features = false, features = ["ecdsa", "arithmetic"] }
 
 # ISO/TS 32002 section 5.1.2 adds an EdDSA row to Table 260 — "IETF RFC 8032, Edwards-curve
 # Digital Signature Algorithm (EdDSA) (PDF 2.x) using the Ed25519 or Ed448 elliptic curves" — and
@@ -450,10 +464,11 @@ ed25519-dalek = { version = "3.0.0", default-features = false }
 # a compiled-in table of object identifiers grouped by the RFC that assigns each one.
 #
 # What it buys is principle 5's problem in `cms::Digest::oid`, solved for a whole family at once:
-# the elliptic-curve identifiers — `id-ecPublicKey`, the three `namedCurve`s, the three Brainpool
-# ones this tree refuses by name, `ecdsa-with-SHA*`, `id-ecdsa-with-sha3-*`, `id-Ed25519` and
-# `id-Ed448` — are numbers no document under `doc/` prints, and this is a second party's reading
-# of the registries that do. Nothing here is transcribed from memory.
+# the elliptic-curve identifiers — `id-ecPublicKey`, the five `namedCurve`s this tree computes
+# on and the Brainpool one it refuses by name, `ecdsa-with-SHA*`, `id-ecdsa-with-sha3-*`,
+# `id-Ed25519` and `id-Ed448` — are numbers that, until RFC 5639 was put under `doc/md/rfc/`, no
+# document under `doc/` printed, and this is a second party's reading of the registries that do.
+# Nothing here is transcribed from memory.
 #
 # The table is `static` data, so it costs no parse time at launch (`CLAUDE.md`'s startup rule),
 # and the linker keeps only the constants that are named: the `DB` name index is referenced by

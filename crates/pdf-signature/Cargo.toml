@@ -27,6 +27,10 @@ md-5.workspace = true
 p256.workspace = true
 p384.workspace = true
 p521.workspace = true
+# Two of Table 3's three Brainpool curves — RFC 5639 section 3.4's and section 3.6's — for the
+# same module; the third has no package and is refused by name. ADR 1063.
+bp256.workspace = true
+bp384.workspace = true
 # §12.8.1's `/ByteRange` is a range of the file's bytes and Table 255 is a dictionary, so the
 # object reader is what this crate is built over. It is the only internal dependency, and
 # `pdf-model` is deliberately not among them: a signature is read from the object graph, never

@@ -74,6 +74,7 @@
 use std::borrow::Cow;
 
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
+use crate::der;
 use crate::dsa::{self, DsaError};
 use crate::ecdsa::{self, EcdsaError};
 use crate::eddsa::{self, EdDsaError};
@@ -221,6 +222,35 @@ pub struct Signature {
     /// Sorted, so that a report naming them reads the same twice, and bounded by
     /// [`MAX_INDIRECT_VALUES`] because the count would otherwise come out of the file.
     pub indirect_values: Vec<String>,
+    /// What each of `/Reference`'s signature reference dictionaries states as its
+    /// `/DigestMethod`, in the order the array states them.
+    ///
+    /// Table 256: "[a] name identifying the algorithm that shall be used when computing the
+    /// digest if not specified in the certificate." So the entry parameterises §12.8.2's
+    /// modification analysis rather than the byte range digest [`Self::integrity`] takes - which
+    /// is why reading it changes no answer this program gives today and is still worth doing:
+    /// §12.8.2.2.2's comparison of two revisions is not implemented, and a file that names a
+    /// digest for a comparison nobody makes has said something a reader should be told rather
+    /// than something a reader may drop.
+    ///
+    /// **The entry is Optional and deprecated in PDF 2.0, which is an erratum's doing rather than
+    /// the printed table's**: the cell in `doc/md/` opens "(Required)" and Errata Collection 3's
+    /// issue #117 strikes that word out. §12.8.1's ledger row carries the reading.
+    pub reference_digests: Vec<ReferenceDigest>,
+}
+
+/// What one signature reference dictionary's Table 256 `/DigestMethod` states.
+///
+/// Three answers rather than an `Option<Digest>`, because a name outside the entry's value list
+/// and no name at all are different facts about a file and only one of them is a departure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReferenceDigest {
+    /// One of the six names Table 256 admits, as the function this program computes.
+    Stated(Digest),
+    /// A name the entry's own value list does not admit, carried so a report can say which.
+    NotInTheTable(String),
+    /// No `/DigestMethod` at all, which Errata Collection 3's issue #117 makes conforming.
+    Absent,
 }
 
 /// What a signature's `/ByteRange` covers, measured against the file.
@@ -634,6 +664,26 @@ pub enum Authenticity {
         /// What stopped it.
         statement: String,
     },
+    /// The signer's signed attributes are not DER encoded, so what they signed is not in the file.
+    ///
+    /// §12.8.3.3 requires that "[t]he CMS object shall conform to Internet RFC 5652", and RFC 5652
+    /// section 5.3 places one encoding requirement inside a structure it otherwise writes in BER:
+    /// "SignedAttributes MUST be DER encoded, even if the rest of the structure is BER encoded."
+    /// Section 5.4 is what makes that a verifier's problem rather than a producer's tidiness -
+    /// the signature is over "the message digest of the complete DER encoding of the SignedAttrs
+    /// value", so where an attribute inside the set states X.690 clause 8.1.3.6's indefinite
+    /// length the octets the file holds are not the octets the signer digested.
+    ///
+    /// **A refusal rather than a verdict, and that is the whole point of the variant.** Digesting
+    /// the file's bytes anyway would answer [`Self::NotUnderThatKey`] - *this signature does not
+    /// verify* - where the truth is that this program could not construct what the signature was
+    /// made over. [`crate::der::every_length_is_definite`] is the question, and it is asked of the
+    /// set's *contents*: the `signedAttrs [0] IMPLICIT` header's own length octets are the one
+    /// thing section 5.4 replaces - "[t]he IMPLICIT [0] tag in the signedAttrs is not used for the
+    /// DER encoding, rather an EXPLICIT SET OF tag is used" - so a producer that wrote the wrapper
+    /// in the indefinite form has departed from section 5.3 without changing a byte any verifier
+    /// digests, and this program can still complete the check.
+    SignedAttributesNotDer,
     /// The signature value could not be read as §12.8.3.3's CMS object.
     Unreadable(CmsError),
 }
@@ -674,6 +724,8 @@ impl Family {
             Self::Ecdsa(ecdsa::Curve::P256) => "ECDSA (P-256)",
             Self::Ecdsa(ecdsa::Curve::P384) => "ECDSA (P-384)",
             Self::Ecdsa(ecdsa::Curve::P521) => "ECDSA (P-521)",
+            Self::Ecdsa(ecdsa::Curve::BrainpoolP256r1) => "ECDSA (brainpoolP256r1)",
+            Self::Ecdsa(ecdsa::Curve::BrainpoolP384r1) => "ECDSA (brainpoolP384r1)",
             Self::EdDsa => "EdDSA (Ed25519)",
         }
     }
@@ -776,6 +828,7 @@ impl std::fmt::Debug for Signature {
             .field("certification", &self.certification)
             .field("format_version", &self.format_version)
             .field("indirect_values", &self.indirect_values)
+            .field("reference_digests", &self.reference_digests)
             .finish()
     }
 }
@@ -1337,6 +1390,17 @@ impl Signature {
         // PKCS #1 v1.5 and DSA take the `SignerInfo`'s own `digestAlgorithm`, while RSASSA-PSS
         // is parameterised by the hash its `RSASSA-PSS-params` state — so what is signed is
         // settled here and each arm below digests it with the algorithm its scheme names.
+        // RFC 5652 section 5.3's one DER region inside a BER structure, checked before it is
+        // digested: an indefinite length among the attributes means the bytes the signer signed
+        // are not the bytes this file holds, and the honest answer is a refusal by name rather
+        // than a digest over the wrong octets. See [`Authenticity::SignedAttributesNotDer`].
+        if let Some(contents) = cms.signed_attributes {
+            match der::every_length_is_definite(contents) {
+                Ok(true) => {}
+                Ok(false) => return Authenticity::SignedAttributesNotDer,
+                Err(error) => return Authenticity::Unreadable(CmsError::from(error)),
+            }
+        }
         let attributes = cms.signed_attributes_encoding();
         let over = match (&attributes, cms.encapsulated) {
             (Some(_), _) => Signed::SignedAttributes,
@@ -1781,7 +1845,7 @@ pub fn signing_certificate_bindings(cms: &SignedData<'_>) -> Vec<SigningCertific
 /// `SignerInfo` may use instead. A signature naming neither, or naming one no certificate answers
 /// to, yields `None` — deliberately rather than falling back to "the only certificate present",
 /// which would verify against a key the signature never claimed.
-fn signer_certificate<'a>(cms: &SignedData<'a>) -> Option<crate::der::Value<'a>> {
+fn signer_certificate<'a>(cms: &SignedData<'a>) -> Option<der::Value<'a>> {
     if let Some((issuer, serial)) = cms.signer_issuer_and_serial {
         return cms.certificates.iter().copied().find(|entry| {
             x509::read(*entry).is_ok_and(|certificate| certificate.is_named_by(issuer, serial))
@@ -2186,6 +2250,7 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
         certification: has_transform(document, dict, b"DocMDP"),
         format_version: document.get_key(dict, "V").as_integer(),
         indirect_values: indirect_values(dict),
+        reference_digests: reference_digests(document, dict),
     })
 }
 
@@ -2584,6 +2649,42 @@ fn modification(document: &Document, signature: &Dictionary) -> Option<Modificat
         });
     }
     None
+}
+
+/// What each of the signature's `/Reference` dictionaries states as its Table 256 `/DigestMethod`.
+///
+/// **The whole array, in the file's order**, for [`field_mdp`]'s reason: §12.8.2.1 makes
+/// `/Reference` plural - "[t]ransform methods, along with transform parameters, shall determine
+/// which objects are included and excluded in revision comparison" - and the corpus's one
+/// certification signature states two of them, a `DocMDP` and a `FieldMDP`. Each may name its own
+/// digest, so one answer per dictionary is the only shape that does not lose which named what.
+///
+/// Bounded by [`MAX_INDIRECT_VALUES`], which is a count of dictionary entries and serves here for
+/// the same reason it serves there: the array's length comes out of the file.
+fn reference_digests(document: &Document, signature: &Dictionary) -> Vec<ReferenceDigest> {
+    let references = document.get_key(signature, "Reference");
+    let Some(references) = references.as_array().map(<[Object]>::to_vec) else {
+        return Vec::new();
+    };
+    references
+        .iter()
+        .take(MAX_INDIRECT_VALUES)
+        .filter_map(|reference| {
+            let resolved = document.resolve(reference);
+            let reference = resolved.as_dict()?;
+            Some(
+                match document.get_key(reference, "DigestMethod").as_name() {
+                    None => ReferenceDigest::Absent,
+                    Some(name) => match Digest::from_pdf_name(name.as_bytes()) {
+                        Some(digest) => ReferenceDigest::Stated(digest),
+                        None => ReferenceDigest::NotInTheTable(
+                            String::from_utf8_lossy(name.as_bytes()).into_owned(),
+                        ),
+                    },
+                },
+            )
+        })
+        .collect()
 }
 
 /// Whether the signature's `/Reference` names a transform method.
@@ -3005,8 +3106,8 @@ fn census(document: &Document) -> Vec<(String, i64)> {
 mod tests {
     use super::{
         Authenticity, Coverage, Excluded, Family, Integrity, Modification, PadesDeparture,
-        Signature, Signed, SignedEnd, SigningCertificateBinding, ess, legal, permissions,
-        security_store, signatures, signing_certificate_bindings,
+        ReferenceDigest, Signature, Signed, SignedEnd, SigningCertificateBinding, ess, legal,
+        permissions, security_store, signatures, signing_certificate_bindings,
     };
     use crate::cms::{Digest, fixtures};
     use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
@@ -3127,6 +3228,63 @@ mod tests {
             permissions(&doc).doc_mdp,
             Some(Modification::FormFilling),
             "a real is not Table 257's integer, so the default level 2 stands"
+        );
+    }
+
+    /// Table 256's `/DigestMethod`, in each of the three states the entry can be in.
+    ///
+    /// The table prints its own value list - "Valid values are MD5, SHA1 SHA256, SHA384, SHA512
+    /// and RIPEMD160" - so one signature names one of the six, one names something else, and one
+    /// names nothing, which Errata Collection 3's issue #117 makes conforming by striking
+    /// "(Required)" out. Three answers because the middle case is a departure and the third is
+    /// not, and an `Option` could not tell them apart.
+    ///
+    /// The first signature states **two** reference dictionaries, which is the shape the corpus's
+    /// one certification signature has: §12.8.2.1 makes `/Reference` plural and each dictionary
+    /// carries its own digest, so a reader taking the first entry would lose the second's.
+    #[test]
+    fn a_reference_dictionary_says_which_digest_its_modification_analysis_uses() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R 9 0 R] \
+             /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Named) /V 5 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0 10 20 10] /Contents <00> /Reference [8 0 R 11 0 R] >>",
+            "<< /FT /Sig /T (Outside) /V 7 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0 10 20 10] /Contents <00> /Reference [10 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /SHA384 >>",
+            "<< /FT /Sig /T (Silent) /V 12 0 R >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /SHA2 >>",
+            "<< /Type /SigRef /TransformMethod /FieldMDP /Data 4 0 R /DigestMethod /RIPEMD160 >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0 10 20 10] /Contents <00> /Reference [13 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP >>",
+        ]);
+
+        let found = signatures(&doc);
+        let [named, outside, silent] = found.as_slice() else {
+            panic!("three signatures, one per state of the entry: {found:?}");
+        };
+        assert_eq!(
+            named.reference_digests,
+            vec![
+                ReferenceDigest::Stated(Digest::Sha384),
+                ReferenceDigest::Stated(Digest::Ripemd160),
+            ],
+            "both reference dictionaries, in the order §12.8.2.1's array states them"
+        );
+        assert_eq!(
+            outside.reference_digests,
+            vec![ReferenceDigest::NotInTheTable("SHA2".to_owned())],
+            "a name the entry's value list does not admit is carried rather than guessed at"
+        );
+        assert_eq!(
+            silent.reference_digests,
+            vec![ReferenceDigest::Absent],
+            "the control: a reference dictionary stating no /DigestMethod at all"
         );
     }
 
@@ -4051,6 +4209,7 @@ mod tests {
             certification: false,
             format_version: None,
             indirect_values: Vec::new(),
+            reference_digests: Vec::new(),
         }
     }
 
@@ -4093,6 +4252,7 @@ mod tests {
             certification: false,
             format_version: None,
             indirect_values: Vec::new(),
+            reference_digests: Vec::new(),
         };
         assert_eq!(
             signature.authenticity(&FileBytes::from(file)),
@@ -4240,13 +4400,86 @@ mod tests {
         );
     }
 
-    /// A curve ISO/TS 32002 Table 3 names and no package on this tree's line computes.
+    /// RFC 5652's one DER region, planted and controlled.
+    ///
+    /// Two CMS values differing by exactly one thing: whether a signed attribute's SEQUENCE states
+    /// X.690 clause 8.1.3.6's indefinite length. RFC 5652 section 5.3 requires signed attributes
+    /// in DER "even if the rest of the structure is BER encoded", and section 5.4 digests "the
+    /// complete DER encoding of the SignedAttrs value" - so the planted one cannot be digested
+    /// into what the signer signed, and is refused by name.
+    ///
+    /// **The control is what makes this a test rather than an assertion.** The same value written
+    /// in DER reaches the arithmetic and answers [`Authenticity::NotUnderThatKey`]: this DSA
+    /// signature was made over the byte range, and adding any signed attribute makes RFC 5652
+    /// sign the attributes instead, so a failure to verify is what a correct reader answers there.
+    /// If the refusal fired on both, it would be firing on the attributes rather than on their
+    /// encoding.
+    #[test]
+    fn signed_attributes_that_are_not_der_are_refused_rather_than_digested() {
+        let file = b"the signed bytes";
+        let certificate = hex(crate::dsa::fixtures::CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let value = |indefinite| {
+            fixtures::detached_dsa_stating_signing_time(
+                &certificate,
+                parsed.issuer,
+                parsed.serial_number,
+                &hex(crate::dsa::fixtures::SIGNATURE),
+                indefinite,
+            )
+        };
+        assert_eq!(
+            curve_signature(value(true)).authenticity(&FileBytes::from(file)),
+            Authenticity::SignedAttributesNotDer,
+            "RFC 5652 section 5.3 requires the set in DER, and this one is not"
+        );
+        assert_eq!(
+            curve_signature(value(false)).authenticity(&FileBytes::from(file)),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha256,
+                family: Family::Dsa,
+                key_bits: 2048,
+                over: Signed::SignedAttributes,
+            },
+            "the control: the same attribute in DER is digested, and the answer is arithmetic's"
+        );
+    }
+
+    /// The curve ISO/TS 32002 Table 3 names and no package on this tree's line computes.
     ///
     /// What a reader is owed is the *curve*, not the key algorithm: every certificate in this case
     /// states `1.2.840.10045.2.1`, so a report naming that would say nothing about which of the
-    /// six the file used. The fixture is a real brainpoolP256r1 certificate.
+    /// six the file used. The fixture is a real brainpoolP512r1 certificate carrying a real
+    /// signature, so what stops this is the curve rather than a value that was never there.
     #[test]
     fn a_curve_this_program_does_not_compute_on_is_named_by_its_own_identifier() {
+        use crate::ecdsa::fixtures as ec;
+        let file = b"the signed bytes";
+        let certificate = ec::hex(ec::BP512_CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = curve_signature(fixtures::detached_curve(
+            &certificate,
+            parsed.issuer,
+            parsed.serial_number,
+            Digest::Sha512,
+            const_oid::db::rfc5912::ECDSA_WITH_SHA_512.as_bytes(),
+            &ec::hex(ec::BP512_SIGNATURE),
+        ));
+        assert_eq!(
+            signature.authenticity(&FileBytes::from(file)),
+            Authenticity::CurveNotVerifiable {
+                curve: "1.3.36.3.3.2.8.1.1.13 (brainpoolP512r1)".to_owned(),
+            }
+        );
+    }
+
+    /// The same path, on a curve this program *does* compute on since ADR 1063.
+    ///
+    /// The pair matters: the test above proves a refusal is by name, and this one proves the
+    /// refusal is about that curve rather than about everything Brainpool. RFC 5639 section 3.4
+    /// states brainpoolP256r1's parameters and `bp256` is the arithmetic over them.
+    #[test]
+    fn a_brainpool_signature_verifies_through_the_whole_path_a_document_takes() {
         use crate::ecdsa::fixtures as ec;
         let file = b"the signed bytes";
         let certificate = ec::hex(ec::BP256_CERTIFICATE);
@@ -4261,8 +4494,20 @@ mod tests {
         ));
         assert_eq!(
             signature.authenticity(&FileBytes::from(file)),
-            Authenticity::CurveNotVerifiable {
-                curve: "1.3.36.3.3.2.8.1.1.7 (brainpoolP256r1)".to_owned(),
+            Authenticity::Verified {
+                digest: Digest::Sha256,
+                family: Family::Ecdsa(crate::ecdsa::Curve::BrainpoolP256r1),
+                key_bits: 256,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+        assert_eq!(
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha256,
+                family: Family::Ecdsa(crate::ecdsa::Curve::BrainpoolP256r1),
+                key_bits: 256,
+                over: Signed::TheDocumentsBytes,
             }
         );
     }
@@ -4286,6 +4531,7 @@ mod tests {
             certification: false,
             format_version: None,
             indirect_values: Vec::new(),
+            reference_digests: Vec::new(),
         }
     }
 
@@ -4326,6 +4572,7 @@ mod tests {
             certification: false,
             format_version: None,
             indirect_values: Vec::new(),
+            reference_digests: Vec::new(),
         };
         assert_eq!(
             signature.authenticity(&FileBytes::from(file)),
@@ -4380,6 +4627,7 @@ mod tests {
             certification: false,
             format_version: None,
             indirect_values: Vec::new(),
+            reference_digests: Vec::new(),
         };
         assert_eq!(
             signature.authenticity(&FileBytes::from(file)),
@@ -4571,6 +4819,7 @@ mod tests {
             certification: false,
             format_version: None,
             indirect_values: Vec::new(),
+            reference_digests: Vec::new(),
         };
 
         // The hash the attribute would carry if the signer meant this certificate.

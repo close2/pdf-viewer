@@ -1910,6 +1910,12 @@ impl Host {
             // controls, and giving it to a browser is a decision about this machine that this
             // host has not been given — the same answer `viewer-ui` and `viewer-gtk` give.
             Event::OpenUri { uri, .. } => self.say(&format!("link: {uri}")),
+            // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
+            // `viewer_host::policy::may_submit`'s one answer rather than this window's (ADR 1062).
+            Event::Submit { submission, .. } => self.say(&viewer_host::policy::submission_note(
+                &submission,
+                viewer_host::policy::may_submit().err().as_deref(),
+            )),
             Event::NeedsFile { purpose, name, .. } => {
                 let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), &name)
                 {

@@ -1276,47 +1276,176 @@ fn a_circle_is_an_ellipse_inscribed_in_its_rectangle() {
     }
 }
 
-/// A square's `/BS` gives it a width and a dash and no style, so a `B` there is not a gap.
+/// A square's `/BS` gives it a width and a dash and no style, so a `B` there raises nothing.
 ///
 /// Table 180 gives this subtype two of Table 168's entries — "specifying the line width and dash
 /// pattern that shall be used in drawing the rectangle or ellipse" — and §12.5.4 states the same
 /// restriction for four subtypes at once: "[s]uch dictionaries may also be used to specify the
 /// width and dash pattern for the lines drawn by line, square, circle, and ink annotations". The
 /// mark is the annotation's own rectangle, not §12.5.4's border around one, so there is no
-/// simulated bevel left undrawn to report.
+/// relief to draw inside it.
 ///
 /// **The pair is the discriminating part**: the identical `/BS` on a link *is* §12.5.4's border,
-/// where Table 168's `S` entry applies in full and the bevel is a real absence. A reader that
-/// asked the border dictionary the same question for both subtypes reports twice or not at all.
+/// where Table 168's `S` entry applies in full and `B` is "[a] simulated embossed rectangle that
+/// appears to be raised above the surface of the page" — the relief ADR 1061 chooses, inside the
+/// line. A reader that asked the border dictionary the same question for both subtypes draws two
+/// reliefs or none.
+///
+/// `/Rect [20 20 80 60]` and a line four wide: the line is the band within four of each side and
+/// the relief the band within eight, so (26, 40) is on the left band, (74, 40) on the right,
+/// (50, 54) on the top and (50, 26) on the bottom. The light falls from the upper left, so a
+/// raised rectangle's top and left are lit and its bottom and right are shaded.
 #[test]
-fn a_squares_border_style_names_no_bevel_to_report_and_a_links_does() {
-    let square = interpret(pdf_with(
+fn a_squares_border_style_raises_nothing_and_a_links_is_drawn_in_relief() {
+    let square = render(pdf_with(
         "<< /Type /Annot /Subtype /Square /Rect [20 20 80 60] /F 4 /C [0 1 0] \
          /BS << /W 4 /S /B >> >>",
         "/BBox [0 0 10 10]",
         "",
     ));
-    assert!(
-        !square.display_list.commands().is_empty(),
-        "the rectangle Table 180 requires is drawn"
+    assert_eq!(
+        colour_at(&square, 22, 40),
+        (0, 255, 0),
+        "Table 180's rectangle"
     );
-    assert!(
-        square.unsupported.is_empty(),
-        "a square's /BS states only a width and a dash: {:?}",
-        square.unsupported
-    );
+    for (x, y) in [(26, 40), (74, 40), (50, 54), (50, 26)] {
+        assert!(
+            !painted(&square, x, y),
+            "({x}, {y}) is inside a square's line, where its /BS states nothing"
+        );
+    }
 
-    let link = interpret(pdf_with(
+    let link = render(pdf_with(
         "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] \
          /BS << /W 4 /S /B >> >>",
         "/BBox [0 0 10 10]",
         "",
     ));
-    let reported = format!("{:?}", link.unsupported);
-    assert!(
-        reported.contains("beveled"),
-        "a link's /BS is §12.5.4's border, whose /S this cannot draw: {reported}"
+    assert_eq!(
+        colour_at(&link, 22, 40),
+        (0, 255, 0),
+        "the line is Table 166's /C"
     );
+    assert_eq!(
+        colour_at(&link, 26, 40),
+        (255, 255, 255),
+        "the left of a raised rectangle is lit"
+    );
+    assert_eq!(
+        colour_at(&link, 50, 54),
+        (255, 255, 255),
+        "and so is its top"
+    );
+    assert!(
+        shaded(colour_at(&link, 74, 40)),
+        "its right is in shade: {:?}",
+        colour_at(&link, 74, 40)
+    );
+    assert!(
+        shaded(colour_at(&link, 50, 26)),
+        "and so is its bottom: {:?}",
+        colour_at(&link, 50, 26)
+    );
+    assert!(!painted(&link, 50, 40), "the relief is a frame, not a fill");
+}
+
+/// Whether a pixel is the relief's mid-grey, which eight-bit arithmetic puts at 127 or 128.
+fn shaded(colour: (u8, u8, u8)) -> bool {
+    colour.0 == colour.1 && colour.1 == colour.2 && (127..=128).contains(&colour.0)
+}
+
+/// Table 168's `I` is the same relief the other way round, on a widget's Table 192 border.
+///
+/// "A simulated engraved rectangle that appears to be recessed below the surface of the page":
+/// under the same light, a recessed rectangle's top and left are in shade and its bottom and
+/// right are lit. The widget's `/BG` is what the relief sits on — the shaded band is opaque grey
+/// over the yellow, and the lit band is white over it, not yellow — because the illusion is of
+/// the page's surface and not a tint of the background (ADR 1061).
+///
+/// Same rectangle and width as the link above, so the same four probes.
+#[test]
+fn an_inset_border_is_shaded_on_the_top_and_left_and_lit_on_the_bottom_and_right() {
+    let widget = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (b) /Rect [20 20 80 60] /F 4 \
+         /MK << /BC [0 0 1] /BG [1 1 0] >> /BS << /W 4 /S /I >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        widget.unsupported.is_empty(),
+        "an inset border is drawn, not reported: {:?}",
+        widget.unsupported
+    );
+    let widget = render_incomplete(&widget);
+    assert_eq!(
+        colour_at(&widget, 22, 40),
+        (0, 0, 255),
+        "the line is Table 192's /BC"
+    );
+    assert!(
+        shaded(colour_at(&widget, 26, 40)),
+        "the left of a recessed rectangle is in shade: {:?}",
+        colour_at(&widget, 26, 40)
+    );
+    assert!(
+        shaded(colour_at(&widget, 50, 54)),
+        "and so is its top: {:?}",
+        colour_at(&widget, 50, 54)
+    );
+    assert_eq!(
+        colour_at(&widget, 74, 40),
+        (255, 255, 255),
+        "its right is lit"
+    );
+    assert_eq!(
+        colour_at(&widget, 50, 26),
+        (255, 255, 255),
+        "and so is its bottom"
+    );
+    assert_eq!(
+        colour_at(&widget, 50, 40),
+        (255, 255, 0),
+        "the background shows inside the relief"
+    );
+}
+
+/// A bevelled border's relief is part of the border, so a field's text starts inside it.
+///
+/// §12.5.4 puts the border "completely inside the annotation rectangle", and what a text field
+/// has left for §12.7.4.3's layout is the rectangle inset by the whole of it. With `/S /S` and a
+/// width of four the text may begin at 24; with `/S /B` the lit band occupies 24 to 28 and the
+/// first glyph begins past it. Same field, one name changed.
+#[test]
+fn a_fields_text_begins_inside_the_relief_of_a_bevelled_border() {
+    let leftmost_ink = |style: &str| {
+        let widget = interpret(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /FT /Tx /T (t) /V (M) /Rect [20 20 80 60] /F 4 \
+                 /DA (/Helv 12 Tf 0 g) /MK << /BC [0 0 1] >> /BS << /W 4 /S /{style} >> >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        let raster = render_incomplete(&widget);
+        // Black is the text: the line is blue and the relief is white or grey.
+        (0..raster.width)
+            .find(|&x| {
+                (0..raster.height)
+                    .any(|y| colour_at(&raster, x, y) == (0, 0, 0) && painted(&raster, x, y))
+            })
+            .expect("the field's value is drawn")
+    };
+    let solid = leftmost_ink("S");
+    let bevelled = leftmost_ink("B");
+    assert!(
+        (24..28).contains(&solid),
+        "text begins just inside a solid border: {solid}"
+    );
+    assert!(
+        bevelled >= 28,
+        "and past a bevelled border's relief: {bevelled}"
+    );
+    assert_eq!(bevelled, solid + 4, "moved by exactly the relief's width");
 }
 
 /// Table 169's cloudy border is drawn as scallops inside the square, not refused and not straight.

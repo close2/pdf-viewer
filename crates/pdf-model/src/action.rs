@@ -20,10 +20,11 @@
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
 //! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
 //! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
+//! | `SubmitForm` | §12.7.6.2 | yes — read here, composed by [`crate::submission`], transmitted by whoever has a network |
 //! | everything else | | [`Action::Refused`], by name |
 //!
-//! The refusals are not laziness and they are not uniform. `GoToR`, `Launch` and
-//! `SubmitForm` want a file system or a network, which principle 3's sandbox
+//! The refusals are not laziness and they are not uniform. `GoToR` and `Launch` want a file
+//! system, which principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
 //! same list. A `Thread` action naming *another file* joins the first group, for the
@@ -107,6 +108,12 @@ pub enum Action {
     ResetForm(ResetForm),
     /// §12.7.6.4: import form data from the file Table 243 names.
     ImportData(ImportData),
+    /// §12.7.6.2: submit the form's names and values to the URL Table 239 names.
+    ///
+    /// Read whole here; what the submission *is* — which fields, in which format, to which
+    /// URL by which method — is [`crate::submission::compose`]'s, and transmitting it is a
+    /// host's (ADR 1062).
+    SubmitForm(SubmitForm),
     /// §12.6.4.4: go to a destination in a document embedded in this one.
     GoToE(EmbeddedGoTo),
     /// §12.6.4.5: show the page a document part begins at.
@@ -273,6 +280,123 @@ pub enum ResetTarget {
     Field(ObjectId),
     /// "[A] text string representing the fully qualified name of a field" (PDF 1.3).
     Name(String),
+}
+
+/// §12.7.6.2's submit-form action. Tables 239 and 240.
+///
+/// > Upon invocation of a submit-form action, an interactive PDF processor shall transmit the
+/// > names and values of selected interactive form fields to a specified uniform resource
+/// > locator (URL).
+///
+/// This is the action as the file states it. The *names and values* are a function of the
+/// document and of what a person has entered since it opened, so they are composed where that
+/// state lives — [`crate::submission::compose`] over a [`crate::view::ViewState`] — and the
+/// transmission is the one part no crate under principle 3's sandbox performs: the composed
+/// request crosses to the host, which is the only party with a network (ADR 1062).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmitForm {
+    /// Table 239's `/F`, "[a] URL file specification (see 7.11.5, \"URL specifications\")
+    /// giving the uniform resource locator (URL) of the script at the Web server that will
+    /// process the submission".
+    ///
+    /// §7.11.5's form is a dictionary stating `/FS /URL`, and that is what is read first. A
+    /// plain string is read as the URL it spells, **as a recovery**: Table 239 types the entry
+    /// as a URL and nothing else, so a string there has no other reading, and the alternative
+    /// is declining a submission a producer plainly stated.
+    pub url: String,
+    /// Table 239's `/Fields`, in whichever of its two forms each element takes.
+    ///
+    /// The same two spellings as Table 241's, word for word — "[e]ach element of the array
+    /// shall be either an indirect reference to a field dictionary or (PDF 1.3) a text string
+    /// representing the fully qualified name of a field. Elements of both kinds may be mixed
+    /// in the same array" — so it is [`ResetTarget`] here too. Empty means the entry was
+    /// absent: "[i]f this entry is omitted, the Include/Exclude flag shall be ignored, and all
+    /// fields in the document's interactive form shall be submitted except those whose
+    /// `NoExport` flag … is set".
+    pub fields: Vec<ResetTarget>,
+    /// Table 239's `/Flags`, "[a] set of flags specifying various characteristics of the
+    /// action". Default value 0.
+    pub flags: SubmitFlags,
+    /// Table 239's `/CharSet` (PDF 2.0), as the file spells it: "utf-8, utf-16, Shift-JIS,
+    /// `BigFive`, GBK, or UHC".
+    pub charset: Option<String>,
+}
+
+/// Table 240's flag word, bit by bit.
+///
+/// "Bit positions within the flag word shall be numbered starting with 1 (low-order)", so
+/// Table 240's bit *n* is the value `1 << (n - 1)`. Each accessor is one row of the table,
+/// named as the table names it, and the sentence each row states is quoted where the flag is
+/// applied — [`crate::submission`] — rather than here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SubmitFlags(pub u32);
+
+impl SubmitFlags {
+    /// Bit 1, `Include/Exclude`: set, and `/Fields` "tells which fields to exclude".
+    #[must_use]
+    pub const fn exclude(self) -> bool {
+        self.0 & 1 != 0
+    }
+    /// Bit 2, `IncludeNoValueFields`.
+    #[must_use]
+    pub const fn include_no_value_fields(self) -> bool {
+        self.0 & (1 << 1) != 0
+    }
+    /// Bit 3, `ExportFormat`: set, HTML Form format; clear, FDF.
+    #[must_use]
+    pub const fn export_format(self) -> bool {
+        self.0 & (1 << 2) != 0
+    }
+    /// Bit 4, `GetMethod`: set, an HTTP GET request; clear, POST.
+    #[must_use]
+    pub const fn get_method(self) -> bool {
+        self.0 & (1 << 3) != 0
+    }
+    /// Bit 5, `SubmitCoordinates`.
+    #[must_use]
+    pub const fn submit_coordinates(self) -> bool {
+        self.0 & (1 << 4) != 0
+    }
+    /// Bit 6, `XFDF`.
+    #[must_use]
+    pub const fn xfdf(self) -> bool {
+        self.0 & (1 << 5) != 0
+    }
+    /// Bit 7, `IncludeAppendSaves`.
+    #[must_use]
+    pub const fn include_append_saves(self) -> bool {
+        self.0 & (1 << 6) != 0
+    }
+    /// Bit 8, `IncludeAnnotations`.
+    #[must_use]
+    pub const fn include_annotations(self) -> bool {
+        self.0 & (1 << 7) != 0
+    }
+    /// Bit 9, `SubmitPDF`.
+    #[must_use]
+    pub const fn submit_pdf(self) -> bool {
+        self.0 & (1 << 8) != 0
+    }
+    /// Bit 10, `CanonicalFormat`.
+    #[must_use]
+    pub const fn canonical_format(self) -> bool {
+        self.0 & (1 << 9) != 0
+    }
+    /// Bit 11, `ExclNonUserAnnots`.
+    #[must_use]
+    pub const fn exclude_non_user_annotations(self) -> bool {
+        self.0 & (1 << 10) != 0
+    }
+    /// Bit 12, `ExclFKey`.
+    #[must_use]
+    pub const fn exclude_f_key(self) -> bool {
+        self.0 & (1 << 11) != 0
+    }
+    /// Bit 14, `EmbedForm`.
+    #[must_use]
+    pub const fn embed_form(self) -> bool {
+        self.0 & (1 << 13) != 0
+    }
 }
 
 /// §12.7.6.4's import-data action. Table 243.
@@ -970,6 +1094,7 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"Thread" => thread(document, dict)?,
         b"ResetForm" => Action::ResetForm(reset_form(document, dict)),
         b"ImportData" => import_data(document, dict)?,
+        b"SubmitForm" => submit_form(document, dict)?,
         b"GoToE" => embedded_go_to(document, dict)?,
         // Table 219 makes `/Trans` required, so an action without one has stated no transition
         // and is a dictionary rather than an action.
@@ -994,7 +1119,60 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
 /// No `None` case: `/Fields` and `/Flags` are both optional, and an action stating neither is the
 /// one the table describes — every field in the document reset.
 fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
-    let fields = match document.get_key(dict, "Fields") {
+    let fields = field_targets(document, dict);
+    ResetForm {
+        fields,
+        // Table 242 numbers "from 1 (low-order)", so bit 1 is the value 1.
+        exclude: document
+            .get_key(dict, "Flags")
+            .as_integer()
+            .is_some_and(|flags| flags & 1 != 0),
+    }
+}
+
+/// Tables 239 and 240, read whole.
+///
+/// `None` where `/F` is absent or names no URL — the table makes `/F` required, so a submit-form
+/// action naming no server has stated nowhere to send anything, which is a dictionary rather than
+/// an action. Everything else defaults as the table says it does: `/Fields` absent means every
+/// field, `/Flags` "[d]efault value: 0".
+///
+/// `/Fields` is read exactly as [`reset_form`] reads Table 241's, and shares its type, because
+/// the two tables state the element identically; the comment in that function about a reference
+/// naming a *field* rather than a widget holds here word for word.
+///
+/// **Nothing here walks a parent, and the printed table says two entries are inheritable.** Table
+/// 239 marks `/Flags` and `/CharSet` "(Optional; inheritable)"; Errata Collection 3's Issue #122,
+/// state Review/Completed, strikes the word from both cells. An action dictionary has no field
+/// hierarchy to inherit along in the first place — it is reached from a widget's `/A`, not from a
+/// `/Parent` chain — so the erratum is the table catching up with the construct, and reading both
+/// entries from this dictionary alone is what the corrected table asks for.
+fn submit_form(document: &Document, dict: &Dictionary) -> Option<Action> {
+    let spec = crate::file_spec::FileSpec::parse(document, &document.get_key(dict, "F"))?;
+    // §7.11.5's dictionary form first; the string form is the recovery `SubmitForm::url`
+    // records.
+    let url = spec.url().or_else(|| spec.display_name())?;
+    let fields = field_targets(document, dict);
+    let flags = document
+        .get_key(dict, "Flags")
+        .as_integer()
+        .and_then(|flags| u32::try_from(flags).ok())
+        .map_or(SubmitFlags::default(), SubmitFlags);
+    let charset = match document.get_key(dict, "CharSet") {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    };
+    Some(Action::SubmitForm(SubmitForm {
+        url,
+        fields,
+        flags,
+        charset,
+    }))
+}
+
+/// The `/Fields` array Tables 239 and 241 both state, in both of its spellings.
+fn field_targets(document: &Document, dict: &Dictionary) -> Vec<ResetTarget> {
+    match document.get_key(dict, "Fields") {
         Object::Array(items) => items
             .iter()
             .filter_map(|item| match item {
@@ -1015,14 +1193,6 @@ fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
             })
             .collect(),
         _ => Vec::new(),
-    };
-    ResetForm {
-        fields,
-        // Table 242 numbers "from 1 (low-order)", so bit 1 is the value 1.
-        exclude: document
-            .get_key(dict, "Flags")
-            .as_integer()
-            .is_some_and(|flags| flags & 1 != 0),
     }
 }
 
@@ -1288,15 +1458,13 @@ fn launch(document: &Document, dict: &Dictionary) -> &'static str {
     "Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing"
 }
 
-/// The nine of Table 201's types this reader declines with one sentence each.
+/// The eight of Table 201's types this reader declines with one sentence each.
 ///
-/// **This comment said "Table 201's other seventeen types" until the six-hundred-and-forty-eighth
-/// session**, and no reading of the table produced that number: ISO 32000-2's Table 201 lists
-/// twenty types, [`one`] performs eleven of them, and nine are left with no arm of its own. Ten
-/// were named here rather than nine because `Thread` appears on both sides — §12.6.4.7's action is
-/// performed for a thread in this file and refused for one in another — which is the clause's
-/// distinction rather than this function's. `Launch` is the tenth and has left, because its
-/// sentence depends on what the dictionary says: [`launch`] is where it went.
+/// ISO 32000-2's Table 201 lists twenty types, [`one`] performs twelve of them, and eight are
+/// left with no arm of their own. Nine are named here rather than eight because `Thread` appears
+/// on both sides — §12.6.4.7's action is performed for a thread in this file and refused for one
+/// in another — which is the clause's distinction rather than this function's. `Launch` is not
+/// here, because its sentence depends on what the dictionary says: [`launch`] is where it went.
 ///
 /// Returning `None` for a name outside the table matters: §12.6.2 says `/S` names a type "see
 /// Table 201 for specific values", so a name the table does not hold is not an action this
@@ -1317,7 +1485,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"RichMediaExecute" => {
             "RichMediaExecute: clause 13's multimedia, excluded by CLAUDE.md principle 5"
         }
-        b"SubmitForm" => "SubmitForm: §12.7.6.2's submission, which needs a network",
         _ => return None,
     })
 }
@@ -1326,7 +1493,7 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
 mod tests {
     use super::{
         Action, AttachmentIndex, AttachmentPage, BeadTarget, Change, HideTarget, Named,
-        TargetError, TargetStep, ThreadTarget, read,
+        ResetTarget, TargetError, TargetStep, ThreadTarget, read,
     };
     use pdf_syntax::{Document, Object, ObjectId};
 
@@ -1665,17 +1832,16 @@ mod tests {
     ///
     /// That clause is a list and nothing else — submit-form, reset-form, import-data, "in
     /// addition to those described in 12.6.4" — so what a processor owes it is that all three
-    /// names arrive somewhere deliberate. Two are performed and the third is refused *by name*,
-    /// which is the distinction worth pinning: a reader that dropped `SubmitForm` on the floor
-    /// and one that refuses it out loud are indistinguishable from the action's own return
-    /// value, and only the second tells a person why nothing happened.
+    /// names arrive somewhere deliberate. The third is read whole: Table 239's URL in §7.11.5's
+    /// dictionary form, its `/Fields`, and Table 240's flags bit for bit.
     #[test]
     fn each_of_the_three_form_action_types_reaches_its_own_answer() {
         let doc = document(&[
             "<< /Type /Catalog >>",
             "<< /S /ResetForm >>",
             "<< /S /ImportData /F (data.fdf) >>",
-            "<< /S /SubmitForm /F << /F (https://example.invalid/) >> >>",
+            "<< /S /SubmitForm /F << /FS /URL /F (https://example.invalid/) >> \
+             /Fields [(name) 2 0 R] /Flags 5 /CharSet (utf-8) >>",
         ]);
 
         assert!(
@@ -1693,13 +1859,23 @@ mod tests {
             "§12.7.6.4's import is performed"
         );
         let submission = read(&doc, &Object::Reference(id(4)));
-        let [Action::Refused(reason)] = submission.as_slice() else {
-            panic!("§12.7.6.2's submission is refused: {submission:?}");
+        let [Action::SubmitForm(submit)] = submission.as_slice() else {
+            panic!("§12.7.6.2's submission is read: {submission:?}");
         };
-        assert!(
-            reason.contains("SubmitForm"),
-            "the refusal names the action: {reason}"
+        assert_eq!(submit.url, "https://example.invalid/");
+        assert_eq!(
+            submit.fields,
+            vec![
+                ResetTarget::Name("name".to_owned()),
+                ResetTarget::Field(id(2))
+            ],
+            "Table 239's two spellings, mixed in one array"
         );
+        // 5 is bits 1 and 3: Include/Exclude and ExportFormat, numbered "starting with 1
+        // (low-order)".
+        assert!(submit.flags.exclude() && submit.flags.export_format());
+        assert!(!submit.flags.get_method() && !submit.flags.xfdf());
+        assert_eq!(submit.charset.as_deref(), Some("utf-8"));
     }
 
     /// An `/S` outside Table 201 is not an action, and is not reported as a refused one.

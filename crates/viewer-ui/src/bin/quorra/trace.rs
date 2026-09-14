@@ -329,6 +329,12 @@ pub(crate) fn describe_event(event: &Event) -> String {
         ),
         Event::Damage(_) => "damage".to_owned(),
         Event::OpenUri { uri, .. } => format!("open uri {uri}"),
+        Event::Submit { submission, .. } => format!(
+            "submit {} field(s) to {}, {} byte(s)",
+            submission.fields,
+            submission.url,
+            submission.body.len()
+        ),
         Event::NeedsFile { name, .. } => format!("needs file {name}"),
         Event::Transition { .. } => "a transition".to_owned(),
         Event::Dirty { dirty, .. } => format!("dirty {dirty}"),

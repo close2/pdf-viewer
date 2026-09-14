@@ -10,7 +10,7 @@
 //!
 //! Nothing here is an error and nothing here stops a document opening.
 
-use pdf_signature::signature::{PadesDeparture, SigningCertificateBinding};
+use pdf_signature::signature::{PadesDeparture, ReferenceDigest, SigningCertificateBinding};
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
@@ -664,6 +664,51 @@ fn about_one(
                     .to_owned(),
             );
         }
+        // **Table 256's `/DigestMethod` is the other entry of that family a reader is owed**, and
+        // it names the function rather than the fact: "[a] name identifying the algorithm that
+        // shall be used when computing the digest if not specified in the certificate". The digest
+        // it parameterises is §12.8.2's modification analysis and not the byte range digest, so a
+        // file that states one has named the function for a comparison this program does not make
+        // — which is worth a sentence for the same reason `/V 1` is, and for no other. Two
+        // conditions, both the entry's own and neither added to (trap 11): a name outside the six
+        // the table admits is the file departing from its value list, and a name inside them is
+        // the file parameterising a comparison that is not made. A dictionary stating no
+        // `/DigestMethod` says nothing, which Errata Collection 3's issue #117 makes conforming.
+        let outside: Vec<&str> = signature
+            .reference_digests
+            .iter()
+            .filter_map(|digest| match digest {
+                ReferenceDigest::NotInTheTable(name) => Some(name.as_str()),
+                ReferenceDigest::Stated(_) | ReferenceDigest::Absent => None,
+            })
+            .collect();
+        if !outside.is_empty() {
+            notes.push(format!(
+                "that signature's reference dictionary names {} as its /DigestMethod, which is \
+                 not among the six Table 256 admits — MD5, SHA1, SHA256, SHA384, SHA512 and \
+                 RIPEMD160 — so the file has not said which function its modification analysis \
+                 is computed under",
+                outside.join(", ")
+            ));
+        }
+        let mut stated: Vec<String> = signature
+            .reference_digests
+            .iter()
+            .filter_map(|digest| match digest {
+                ReferenceDigest::Stated(digest) => Some(format!("{digest:?}")),
+                ReferenceDigest::NotInTheTable(_) | ReferenceDigest::Absent => None,
+            })
+            .collect();
+        stated.dedup();
+        if !stated.is_empty() {
+            notes.push(format!(
+                "that signature's reference dictionary states /DigestMethod {}, which Table 256 \
+                 makes the algorithm for computing the digest of its transform method's \
+                 modification analysis — and this program makes no such comparison, so the name \
+                 is read and said rather than acted on",
+                stated.join(", ")
+            ));
+        }
         // §12.8.3.4's rules on a PAdES signature that need no certificate to check. Silent for
         // every other `/SubFilter`, which is §12.8.3.4.1's own scope.
         if let Ok(cms) = signature.signed_data() {
@@ -1043,6 +1088,11 @@ fn verifies(
         Authenticity::RefusedDsa(error) => not_checked(error),
         Authenticity::RefusedEcdsa(error) => not_checked(error),
         Authenticity::RefusedEdDsa(error) => not_checked(error),
+        Authenticity::SignedAttributesNotDer => "and its signed attributes are not DER encoded, \
+             which RFC 5652 section 5.3 requires of them even where the rest of a CMS object is \
+             BER, so the bytes the signer digested are not the bytes this file holds and the \
+             signature was not checked against any key"
+            .to_owned(),
         Authenticity::UnknownDigest { algorithm } => format!(
             "and it names digest algorithm {algorithm}, which this program does not compute, so \
              it was not checked against the signer's key either"
@@ -1255,6 +1305,62 @@ mod tests {
             critical[0].contains("this program evaluates no transform method"),
             "the sentence names what was not done rather than only what the file asked for: \
              {critical:?}"
+        );
+    }
+
+    /// Table 256's `/DigestMethod` is said, and the calibration is a signature that states none.
+    ///
+    /// Two sentences on two conditions the entry itself states - a name among the six the table
+    /// admits, and a name that is not - and three signatures, the third of which states no
+    /// `/DigestMethod` at all and must produce neither. A guard widened to "the signature has a
+    /// reference dictionary" fails on that third one, which is what makes it a control rather
+    /// than a third assertion (trap 11, trap 13).
+    #[test]
+    fn a_reference_dictionary_naming_a_digest_for_an_analysis_nobody_makes_says_so() {
+        let document = document(&[
+            "<< /Type /Catalog /Pages 2 0 R \
+             /AcroForm << /Fields [4 0 R 6 0 R 8 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Named) /V 5 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /Name (A. Author) /ByteRange [0 10 20 10] /Contents <00> /Reference [10 0 R] >>",
+            "<< /FT /Sig /T (Outside) /V 7 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /Name (B. Author) /ByteRange [0 10 20 10] /Contents <00> /Reference [11 0 R] >>",
+            "<< /FT /Sig /T (Silent) /V 9 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /Name (C. Author) /ByteRange [0 10 20 10] /Contents <00> /Reference [12 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /SHA512 >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /SHA2 >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP >>",
+        ]);
+        let said = about(&document);
+        let stated: Vec<_> = said
+            .iter()
+            .filter(|note| note.contains("states /DigestMethod"))
+            .collect();
+        assert_eq!(
+            stated.len(),
+            1,
+            "one of the three names a digest the table admits: {said:?}"
+        );
+        assert!(
+            stated[0].contains("Sha512") && stated[0].contains("makes no such comparison"),
+            "the sentence names the function and what was not done with it: {stated:?}"
+        );
+        let outside: Vec<_> = said
+            .iter()
+            .filter(|note| note.contains("not among the six Table 256 admits"))
+            .collect();
+        assert_eq!(
+            outside.len(),
+            1,
+            "one of the three names something outside the value list: {said:?}"
+        );
+        assert!(
+            outside[0].contains("SHA2"),
+            "the sentence names what the file wrote: {outside:?}"
         );
     }
 

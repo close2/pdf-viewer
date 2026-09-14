@@ -741,7 +741,7 @@ impl<'a> Interpreter<'a> {
     /// that then runs the page.
     fn for_page(
         document: &'a Document,
-        page: &Page,
+        page: &'a Page,
         state: &'a crate::view::ViewState,
         compositing: Compositing,
         presses: &'a crate::colour::Presses,
@@ -800,6 +800,7 @@ impl<'a> Interpreter<'a> {
             // Table 51's and Table 52's initial values.
             pattern_initial: PatternInitial::of(&GraphicsState::initial(base_transform(page))),
             page: size,
+            page_resources: &page.resources,
             shadings: crate::shading::Cache::default(),
             resource_tables: std::cell::RefCell::default(),
             icc_spaces: BTreeMap::new(),
@@ -863,6 +864,7 @@ impl<'a> Interpreter<'a> {
             base: _,
             pattern_initial: _,
             page: _,
+            page_resources: _,
             structure: _,
             output_intent: _,
             optional_content: _,
@@ -1718,6 +1720,15 @@ struct Interpreter<'a> {
     pattern_initial: PatternInitial,
     /// The page's extent, used to bound a shading painted by `sh`.
     page: Size,
+    /// §7.8.3's resource dictionary of the page, with what §7.7.3.4 inherits already in it.
+    ///
+    /// What a form `XObject` or a Type 3 font stating no `/Resources` of its own is read
+    /// against — **the page's, and not the stream that invoked it**, which are the same
+    /// dictionary until a form is nested in a form. §7.8.3's last bullet names "the resource
+    /// dictionary of the page on which they are used", and Table 110's `/Resources` cell says
+    /// the same of a Type 3 font. Kept here rather than threaded through every `run`, because
+    /// it is one dictionary per interpretation and every nested stream inherits the same one.
+    page_resources: &'a Dictionary,
     /// Shadings already built, by the object that states them (§8.7, ADR 0069).
     ///
     /// A page paints one shading object many times — a pattern under every cell of a chart,

@@ -31,6 +31,15 @@
 //! one value in each of four documents, so this sentence and §12.8.3.4.2's ledger row agree
 //! despite counting different things.
 //!
+//! **And the tolerance has a boundary the RFC draws rather than this reader**, which
+//! [`every_length_is_definite`] is: RFC 5652 section 2 permits the indefinite form throughout a
+//! CMS object and then names the one exception - "Signed attributes and authenticated attributes
+//! are the only data types used in the CMS that require DER encoding." A caller about to digest a
+//! region the RFC requires in DER asks that function first, and refuses by name where the answer
+//! is no. So this module accepts BER where RFC 5652 writes BER and lets a caller refuse where RFC
+//! 5652 writes DER, which is a narrower statement than either "this reader checks DER" or "this
+//! reader cannot tell".
+//!
 //! # The bounds, and where each comes from
 //!
 //! Untrusted input reaches this module first, so every loop is bounded by something that is not
@@ -339,6 +348,59 @@ fn consumed<'a>(whole: &'a [u8], rest: &[u8]) -> &'a [u8] {
     whole.get(..taken).unwrap_or(whole)
 }
 
+/// Whether every value in a region states a definite length, at every depth.
+///
+/// # The one question this reader's tolerance makes a caller ask
+///
+/// RFC 5652 encodes a CMS object in BER and says so in its section 2: "each content type permits
+/// single pass processing using indefinite-length Basic Encoding Rules (BER) encoding". So the
+/// indefinite lengths this reader accepts are the RFC's own, and a reader that refused them would
+/// be refusing conforming objects. The same paragraph then names the exception, and it is the
+/// whole of it: "Signed attributes and authenticated attributes are the only data types used in
+/// the CMS that require DER encoding." Section 5.3 states it as a requirement — "SignedAttributes
+/// MUST be DER encoded, even if the rest of the structure is BER encoded" — and section 5.4 says
+/// why it is load-bearing rather than tidy: what a signature over signed attributes is verified
+/// against is "the message digest of the complete DER encoding of the SignedAttrs value".
+///
+/// A caller holding a region the RFC requires in DER asks this before digesting it. An answer of
+/// `false` means the octets the producer wrote are not the octets the signer signed, and the
+/// caller owes a refusal by name rather than a digest over the wrong bytes — which would come
+/// back as *this signature does not verify*, a sentence about the signature where the truth is a
+/// sentence about the encoding.
+///
+/// # What this does **not** answer
+///
+/// It is not "is this DER". X.690 clause 10 restricts more than the length form — length octets
+/// must be the fewest possible, a `SET OF`'s members must be sorted, a string must be primitive —
+/// and none of those is checked here. The length form is checked because it is the one DER
+/// restriction *this reader* relaxes, and the only one that changes which octets a digest is
+/// computed over: a value re-tagged out of an indefinite-length encoding carries an
+/// end-of-contents marker where a definite-length one carries nothing.
+///
+/// # Errors
+///
+/// Any [`DerError`] the region's encoding produces. An unreadable region is not a `false`: the
+/// question was never answered, and the two are different things for a caller to say.
+pub fn every_length_is_definite(bytes: &[u8]) -> Result<bool, DerError> {
+    definite_throughout(&mut Reader::new(bytes)?)
+}
+
+/// [`every_length_is_definite`], once the region is a reader.
+///
+/// Recursion is bounded by [`MAX_DEPTH`], which [`Value::children`] enforces by returning
+/// [`DerError::TooDeep`] rather than by descending.
+fn definite_throughout(reader: &mut Reader<'_>) -> Result<bool, DerError> {
+    while let Some(value) = reader.next_value()? {
+        if value.had_indefinite_length() {
+            return Ok(false);
+        }
+        if value.is_constructed() && !definite_throughout(&mut value.children()?)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Where an indefinite-length value's contents stop: the offset of its end-of-contents marker.
 ///
 /// The scan walks the children, because a marker is only this value's if it is not inside one of
@@ -399,6 +461,44 @@ fn end_of_contents(bytes: &[u8], depth: u8) -> Result<usize, DerError> {
 #[cfg(test)]
 mod tests {
     use super::{Class, DerError, MAX_VALUE, OBJECT_IDENTIFIER, Reader, SEQUENCE};
+
+    /// The question a caller holding one of RFC 5652's DER-only regions asks, at every depth.
+    ///
+    /// Three inputs and the middle one is the calibration: the indefinite length is moved one
+    /// level down, where a check that looked only at the region's top-level values would miss it.
+    /// RFC 5652 section 5.4 digests "the complete DER encoding of the SignedAttrs value", which is
+    /// every octet of it and not just the outermost headers.
+    #[test]
+    fn a_region_says_whether_every_length_in_it_is_definite() {
+        // `SEQUENCE { OBJECT IDENTIFIER 1.2 }`, wholly definite.
+        let definite = vec![SEQUENCE, 0x04, OBJECT_IDENTIFIER, 0x02, 0x2A, 0x03];
+        assert_eq!(super::every_length_is_definite(&definite), Ok(true));
+        // The same SEQUENCE, written in X.690 clause 8.1.3.6's indefinite form.
+        let shallow = vec![
+            SEQUENCE,
+            0x80,
+            OBJECT_IDENTIFIER,
+            0x02,
+            0x2A,
+            0x03,
+            0x00,
+            0x00,
+        ];
+        assert_eq!(super::every_length_is_definite(&shallow), Ok(false));
+        // And one level further down: a definite SEQUENCE whose only child is `shallow`.
+        let mut deep = vec![SEQUENCE, 0x08];
+        deep.extend_from_slice(&shallow);
+        assert_eq!(
+            super::every_length_is_definite(&deep),
+            Ok(false),
+            "a check reading only the region's top-level values would answer true here"
+        );
+        // An unreadable region is neither answer: the question was not put.
+        assert_eq!(
+            super::every_length_is_definite(&[SEQUENCE, 0x09, 0x02]),
+            Err(DerError::Truncated)
+        );
+    }
 
     /// Each value hands back the octets the file wrote, header and all.
     ///

@@ -776,7 +776,7 @@ impl Interpreter<'_> {
                 }
                 b"Tj" => {
                     if let Some(bytes) = string_at(operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_object, resources);
+                        self.show_text(&bytes, &state, &mut text_object);
                     }
                 }
                 b"TJ" => {
@@ -786,7 +786,7 @@ impl Interpreter<'_> {
                     for operand in operands {
                         match operand {
                             Object::String(bytes) => {
-                                self.show_text(bytes, &state, &mut text_object, resources);
+                                self.show_text(bytes, &state, &mut text_object);
                             }
                             other => {
                                 if let Some(adjust) = other.as_number() {
@@ -817,7 +817,7 @@ impl Interpreter<'_> {
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
                     if let Some(bytes) = string_at(operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_object, resources);
+                        self.show_text(&bytes, &state, &mut text_object);
                     }
                 }
                 b"\"" => {
@@ -832,7 +832,7 @@ impl Interpreter<'_> {
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
                     if let Some(bytes) = string_at(operands, 2) {
-                        self.show_text(&bytes, &state, &mut text_object, resources);
+                        self.show_text(&bytes, &state, &mut text_object);
                     }
                 }
 

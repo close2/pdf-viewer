@@ -156,7 +156,7 @@ use crate::view::FieldValue;
 /// outrank a depth no legitimate form comes near. Reaching it is reported rather than treated as
 /// "no value", so the departure cannot hide: a bound that is silent is the defect, not the
 /// bound.
-const MAX_FIELD_ANCESTRY: usize = 32;
+pub(crate) const MAX_FIELD_ANCESTRY: usize = 32;
 
 /// The default border width §12.5.4 states: "If neither the Border nor the BS entry is present,
 /// the border shall be drawn as a solid line with a width of 1 point."
@@ -742,7 +742,7 @@ pub(crate) fn regenerate(
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
     let width = Border::read(document, annotation, source, "BC")
-        .map(|border| border.width)
+        .map(|border| border.thickness())
         .unwrap_or_default();
 
     // §12.7.4.3 puts the appearance stream's `/BBox` at the origin, so the text is laid out in
@@ -1105,7 +1105,7 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         return Ok(Painted::EMPTY);
     }
     border.draw(stream, rect);
-    Ok(border.simulated())
+    Ok(Painted::DRAWN)
 }
 
 /// Draws §12.5.6.4's icon: the background the standard states, and the symbol it does not.
@@ -1278,12 +1278,10 @@ fn largest_square_within(rect: [f32; 4]) -> [f32; 4] {
 /// > by line, square, circle, and ink annotations.
 ///
 /// So Table 168's `/S` styles nothing here: the mark is the annotation's own rectangle or ellipse
-/// rather than §12.5.4's border around one, and there is no `U` underline or `B` bevel of it to
-/// draw. **This reported a beveled or inset `/S` as an appearance it could not derive until the
-/// four-hundred-and-fifty-ninth session**, which named a gap the clause does not have — the
-/// mirror of [`Border::outline`]'s departure, one sentence over: an entry consulted where its own
-/// table says it supplies nothing. §12.5.6.9's polygon, under the identically worded Table 181,
-/// never reported it.
+/// rather than §12.5.4's border around one, and there is no `U` underline or `B` relief of it to
+/// draw — an entry consulted where its own table says it supplies nothing would be a gap the
+/// clause does not have. §12.5.6.9's polygon, under the identically worded Table 181, is read the
+/// same way.
 fn square_or_circle(
     document: &Document,
     annotation: &Dictionary,
@@ -2433,10 +2431,10 @@ fn widget(
     }
 
     // §12.5.4 has the border "drawn completely inside the annotation rectangle", so the part
-    // of the rectangle the border does not cover is it inset by the whole width — which is
+    // of the rectangle the border does not cover is it inset by the whole thickness — which is
     // where text can go without being struck through by its own frame. Nothing states a
     // further margin and none is added.
-    let inner = inset(rect, border.width);
+    let inner = inset(rect, border.thickness());
 
     // Table 192's push-button half: the icon, its fit and where the caption goes. Reached only
     // where the `/MK` states one of the entries, so the 807 corpus widgets that are not
@@ -2456,7 +2454,7 @@ fn widget(
         rotation.end(stream);
         return Ok(Painted {
             drawn: frame || button.drawn,
-            report: button.report.or(border.simulated().report),
+            report: button.report,
         });
     }
 
@@ -2472,7 +2470,7 @@ fn widget(
     };
     let Some(laid_out) = laid_out else {
         rotation.end(stream);
-        let report = button.report.or(border.simulated().report);
+        let report = button.report;
         return Ok(if frame || button.drawn || report.is_some() {
             Painted {
                 drawn: frame || button.drawn,
@@ -2491,11 +2489,7 @@ fn widget(
     rotation.end(stream);
     Ok(Painted {
         drawn: true,
-        report: laid_out
-            .owed
-            .map(Refusal::Text)
-            .or(button.report)
-            .or(border.simulated().report),
+        report: laid_out.owed.map(Refusal::Text).or(button.report),
     })
 }
 
@@ -3342,7 +3336,7 @@ fn frame(
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
     let width = Border::read(document, annotation, source, "BC")
-        .map(|border| border.width)
+        .map(|border| border.thickness())
         .unwrap_or_default();
     if let Some((bbox, placement)) = crate::annotation::stored_frame(document, annotation, view) {
         return Some((inset(bbox, width), placement));
@@ -3820,7 +3814,7 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
 /// Table 177 gives this subtype a `/BE` too, and §12.5.4 says so: "Beginning with PDF 1.6, free
 /// text annotations may also have a BE entry". A cloudy one is drawn as it is on a square, inside
 /// the inner rectangle `/RD` names, and Table 168's `/S` styles nothing under it — the cloud is
-/// the style, so no bevel is left undrawn to report.
+/// the style.
 fn free_text_border(
     document: &Document,
     annotation: &Dictionary,
@@ -3847,7 +3841,7 @@ fn free_text_border(
         return Painted::DRAWN;
     }
     border.draw(stream, box_);
-    border.simulated()
+    Painted::DRAWN
 }
 
 /// §12.5.6.6's text, laid out by §12.7.4.3 in the box the annotation leaves for it.
@@ -4519,11 +4513,24 @@ enum Style {
     Dashed,
     /// `U`: "A single line along the bottom of the annotation rectangle."
     Underline,
-    /// `B` or `I`: "A simulated embossed rectangle that appears to be raised above the surface
-    /// of the page", or an engraved one. Table 168 states neither the highlight nor the shadow
-    /// colour that produces the illusion, so the rectangle is drawn and the effect reported.
-    Simulated,
+    /// `B`: "A simulated embossed rectangle that appears to be raised above the surface of the
+    /// page." Table 168 states the illusion and not the marks that produce it, so the relief
+    /// inside the line is [`Border::relief`]'s choice (ADR 1061).
+    Bevelled,
+    /// `I`: "A simulated engraved rectangle that appears to be recessed below the surface of
+    /// the page." The same relief with its light and its shade exchanged.
+    Inset,
 }
+
+/// The lit band of a bevelled or inset border's relief: white, in `DeviceGray`.
+///
+/// A choice and not a derivation — Table 168 states no colour for either band — recorded in
+/// ADR 1061 beside the reason it is a grey rather than a tint of the border's own colour: the
+/// illusion is of the page's surface catching the light, and the border's colour is the line.
+const RELIEF_LIT: Colour = Colour::Components([1.0; 4], 1);
+
+/// The shaded band of the same relief: mid-grey, for the same reason.
+const RELIEF_SHADED: Colour = Colour::Components([0.5; 4], 1);
 
 /// An annotation's border: §12.5.4's width, style and dash, with the colour to stroke it in.
 struct Border {
@@ -4654,7 +4661,8 @@ impl Border {
         let kind = match name.as_name().map(Name::as_bytes) {
             Some(b"D") => Style::Dashed,
             Some(b"U") => Style::Underline,
-            Some(b"B" | b"I") => Style::Simulated,
+            Some(b"B") => Style::Bevelled,
+            Some(b"I") => Style::Inset,
             // Table 168: "An interactive PDF processor shall tolerate other border styles that
             // it does not recognise", which leaves the default.
             _ => Style::Solid,
@@ -4742,6 +4750,7 @@ impl Border {
             self.apply(stream);
             self.outline(stream, rect);
             stream.paint(false, true);
+            self.relief(stream, rect);
         } else {
             stream.set_colour(self.colour, false);
             stream.rounded_rectangle(rect, self.radii);
@@ -4774,20 +4783,66 @@ impl Border {
         }
     }
 
-    /// The report a `B` or `I` border owes: the rectangle is drawn, the illusion is not.
+    /// The relief inside a bevelled or inset border: the part of Table 168's "simulated
+    /// embossed rectangle" the table does not state, drawn as ADR 1061 chooses it.
     ///
-    /// Asked only by the subtypes whose `/BS` is a *border* — §12.5.6.5's link, §12.5.6.19's
-    /// widget and, since [`free_text_border`], §12.5.6.6's note. §12.5.4 gives "line, square,
-    /// circle, and ink annotations" a `/BS` that supplies
-    /// "the width and dash pattern" alone, so on those four there is no style to be unable to
-    /// draw; see [`square_or_circle`].
-    fn simulated(&self) -> Painted {
-        if self.style == Style::Simulated && self.strokes() {
-            Painted::partly(Refusal::NotDerivable(
-                "Table 168's beveled and inset borders state no highlight or shadow colour",
-            ))
-        } else {
-            Painted::DRAWN
+    /// The line itself is [`Self::outline`]'s, stroked in the border's colour like any other
+    /// style; what makes it "appear to be raised above the surface of the page" is two bands
+    /// inside it, one lit and one in shade, meeting at the corners on the diagonal. Every number
+    /// here is a choice and none is the standard's: the light falls from the upper left, so a
+    /// raised rectangle is lit along its top and left and shaded along its bottom and right, and
+    /// a recessed one the other way round; the two bands are [`RELIEF_LIT`] and [`RELIEF_SHADED`];
+    /// and each band is as wide as the line, the one width the dictionary states, because a
+    /// relief narrower than its line vanishes at the common width of one point. It sits inside
+    /// the line rather than under it because §12.5.4 puts the whole border "completely inside
+    /// the annotation rectangle" and the line is already at the rectangle's edge.
+    ///
+    /// Reached only through [`Self::draw`], and so only by the subtypes whose `/BS` is a
+    /// *border* — §12.5.6.5's link, §12.5.6.19's widget and §12.5.6.6's free text. §12.5.4 gives
+    /// "line, square, circle, and ink annotations" a `/BS` that supplies "the width and dash
+    /// pattern" alone, so on those four there is no style and nothing to raise; see
+    /// [`square_or_circle`].
+    fn relief(&self, stream: &mut Stream, rect: [f32; 4]) {
+        let (top_left, bottom_right) = match self.style {
+            Style::Bevelled => (RELIEF_LIT, RELIEF_SHADED),
+            Style::Inset => (RELIEF_SHADED, RELIEF_LIT),
+            Style::Solid | Style::Dashed | Style::Underline => return,
+        };
+        // The line's inner edge is the relief's outer one, and [`Self::inset_by`]'s clamp keeps
+        // the inner edge on the rectangle's centre lines where the relief would otherwise cross
+        // them, so the two polygons stay polygons on a rectangle too small for their bands.
+        let [x0, y0, x1, y1] = Self::inset_by(rect, self.width);
+        let [u0, v0, u1, v1] = Self::inset_by(rect, self.width * 2.0);
+        stream.set_colour(top_left, false);
+        stream.move_to([x0, y0]);
+        stream.line_to([x0, y1]);
+        stream.line_to([x1, y1]);
+        stream.line_to([u1, v1]);
+        stream.line_to([u0, v1]);
+        stream.line_to([u0, v0]);
+        stream.close();
+        stream.paint(true, false);
+        stream.set_colour(bottom_right, false);
+        stream.move_to([x1, y1]);
+        stream.line_to([x1, y0]);
+        stream.line_to([x0, y0]);
+        stream.line_to([u0, v0]);
+        stream.line_to([u1, v0]);
+        stream.line_to([u1, v1]);
+        stream.close();
+        stream.paint(true, false);
+    }
+
+    /// How far into the rectangle this border reaches: its width, or twice it under a relief.
+    ///
+    /// §12.5.4 puts the border "completely inside the annotation rectangle", so what a caller
+    /// laying out text or an icon has left is the rectangle inset by this. A bevelled or inset
+    /// border's relief is part of the border, and text laid out over it would be struck through
+    /// by its own frame.
+    fn thickness(&self) -> f32 {
+        match self.style {
+            Style::Bevelled | Style::Inset => self.width * 2.0,
+            Style::Solid | Style::Dashed | Style::Underline => self.width,
         }
     }
 

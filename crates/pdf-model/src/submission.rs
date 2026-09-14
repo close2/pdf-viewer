@@ -1,0 +1,922 @@
+//! ISO 32000-2 §12.7.6.2's submission: the names and values, composed here and transmitted by
+//! whoever has a network.
+//!
+//! > Upon invocation of a submit-form action, an interactive PDF processor shall transmit the
+//! > names and values of selected interactive form fields to a specified uniform resource
+//! > locator (URL).
+//!
+//! That sentence has two halves and this crate can do one of them. *Which* names and values,
+//! in *which* format, to *which* URL by *which* method are all functions of the document, of
+//! Tables 239 and 240, and of what a person has entered since the file opened — every one of
+//! which is state this crate holds. *Transmitting* is a network request, and a crate that runs
+//! under principle 3's sandbox has no network and is not going to be given one. So [`compose`]
+//! produces the request whole — URL, method, media type, body — and hands it up as a value; a
+//! host is what sends it, under a policy the host supplies, or declines it and says so. The
+//! division is ADR 1062's, and it is the same one §12.6.4.8's URI and §12.7.6.4's import already
+//! sit on: the core decides what the document asked for, the host decides whether this machine
+//! does it.
+//!
+//! # The four formats, and which are composed
+//!
+//! §12.7.6.2 lists four — "HTML Form format", "Forms Data Format (FDF)", "XFDF, a version of FDF
+//! based on XML as defined by ISO 19444-1", and "PDF (in this case, the entire document shall be
+//! submitted rather than individual fields and values)". Three are composed:
+//!
+//! - **FDF** is §12.7.8's own structure and this crate already reads it; [`fdf`] writes the same
+//!   thing — a `%FDF-` header, one catalog object, a trailer naming it — with the fields as
+//!   Table 249's dictionaries, nested down `/Kids` exactly as §12.7.4.2's qualified names nest.
+//! - **HTML Form format** is "described in the HTML 4.01 Specification", whose section 17.13.4
+//!   defines `application/x-www-form-urlencoded`; [`urlencoded`] is that definition. That
+//!   specification is not a document this tree holds a copy of; it is a free W3C Recommendation
+//!   at <https://www.w3.org/TR/html401/interact/forms.html>, and the quotations below were taken
+//!   from it rather than from any reader's behaviour.
+//! - **PDF** is the document with §7.5.6's update appended, which is what
+//!   [`crate::view::ViewState::save`] already produces.
+//!
+//! **XFDF is declined by name**, for the reason §12.7.6.4's import declines it: ISO 19444-1 is
+//! not on this disk, and `CLAUDE.md` principle 5 makes a grammar taken from another reader or from
+//! sample files not a reading of a specification at all.
+//!
+//! # What is composed and what is owed, by flag
+//!
+//! Every flag of Table 240 is read, and each is either applied or named on
+//! [`Submission::owed`], because a submission that silently dropped a flag the document set
+//! would be trap 5's silence inside a feature otherwise built:
+//!
+//! | bit | name | here |
+//! |---|---|---|
+//! | 1 | `Include/Exclude` | applied, with Table 239's `/Fields` |
+//! | 2 | `IncludeNoValueFields` | applied |
+//! | 3 | `ExportFormat` | applied: HTML Form format against FDF |
+//! | 4 | `GetMethod` | applied; owed where set against a clear bit 3, which the table forbids |
+//! | 5 | `SubmitCoordinates` | applied from the click, where there was one |
+//! | 6 | `XFDF` | declined: ISO 19444-1 is not held |
+//! | 7 | `IncludeAppendSaves` | owed: Table 246's `/Differences` is not written |
+//! | 8 | `IncludeAnnotations` | owed: §12.7.8.3.4's annotation dictionaries are not written |
+//! | 9 | `SubmitPDF` | applied |
+//! | 10 | `CanonicalFormat` | owed: which fields hold dates "is not specified explicitly in the field itself but only in the ECMAScript code that processes it" (its NOTE 1), and ECMAScript is excluded |
+//! | 11 | `ExclNonUserAnnots` | owed, with bit 8 |
+//! | 12 | `ExclFKey` | met: Table 246's `/F` is never written, because the document's own path is the host's and not this crate's |
+//! | 14 | `EmbedForm` | owed: the FDF's `/F` is not written at all |
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
+
+use crate::action::{ResetTarget, SubmitForm};
+use crate::appearance::{FLAG_FILE_SELECT, FLAG_NO_EXPORT, Field, FieldKind};
+use crate::view::{ViewState, widgets_by_field_name, widgets_under};
+
+/// The request a submit-form action composes, ready for a host to send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Submission {
+    /// Where to: Table 239's `/F`, with the form data appended as a query for an HTTP GET.
+    pub url: String,
+    /// How: Table 240 bit 4.
+    pub method: Method,
+    /// What the body is.
+    pub format: Format,
+    /// The body. Empty for a GET, whose data is in [`Self::url`].
+    pub body: Vec<u8>,
+    /// How many fields the body names.
+    pub fields: usize,
+    /// What the action asked for that this composition does not do, one sentence each.
+    ///
+    /// A host prints these beside the request, because a person who pressed a button is owed
+    /// the difference between what the document asked for and what was made.
+    pub owed: Vec<String>,
+}
+
+/// Table 240 bit 4: "If set, field names and values shall be submitted using an HTTP GET request.
+/// If clear, they shall be submitted using a POST request."
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Method {
+    /// An HTTP GET: the data is in the URL's query and the body is empty.
+    Get,
+    /// An HTTP POST: the data is the body.
+    Post,
+}
+
+/// Which of §12.7.6.2's formats the body is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// "Forms Data Format (FDF), which is described in 12.7.8".
+    Fdf,
+    /// "HTML Form format (described in the HTML 4.01 Specification)".
+    HtmlForm,
+    /// "PDF (in this case, the entire document shall be submitted rather than individual fields
+    /// and values)".
+    Pdf,
+}
+
+impl Format {
+    /// The media type a host puts in the request.
+    ///
+    /// Table 240 bit 9 states the third — "the MIME media type application/pdf as defined by
+    /// Internet RFC 8118" — and HTML 4.01 section 17.13.4 states the second. ISO 32000-2 states
+    /// none for FDF, so the third comes from the registry rather than from a habit:
+    /// `application/fdf`, registered 2022-04-05 by ISO TC 171/SC 2 — the committee that owns this
+    /// standard — at <https://www.iana.org/assignments/media-types/application/fdf>. The older
+    /// `application/vnd.fdf` is a vendor-tree name for the same bytes and is not what the
+    /// registry lists.
+    #[must_use]
+    pub const fn content_type(self) -> &'static str {
+        match self {
+            Self::Fdf => "application/fdf",
+            Self::HtmlForm => "application/x-www-form-urlencoded",
+            Self::Pdf => "application/pdf",
+        }
+    }
+}
+
+/// Why a submission could not be composed at all.
+#[derive(Debug, thiserror::Error)]
+pub enum Refusal {
+    /// Table 240 bit 6.
+    #[error(
+        "SubmitForm: Table 240 bit 6 asks for XFDF, whose ISO 19444-1 is not held, so no reading \
+         of it can be written"
+    )]
+    Xfdf,
+    /// Table 240 bit 9 asks for the document, and §7.5.6's update cannot be appended to it.
+    #[error(
+        "SubmitForm: Table 240 bit 9 asks for the whole document, which cannot be written: {0}"
+    )]
+    Unsavable(#[from] pdf_syntax::write::UpdateError),
+}
+
+/// The click that invoked the action, for Table 240 bit 5.
+///
+/// Two things and not three: the cursor in default user space, and the annotation it was over.
+/// The rectangle the bit measures from is read here rather than passed in, because the bit
+/// names a *particular* one — "the field's widget annotation rectangle" — where §12.6.4.8's
+/// `/IsMap` names "the annotation with which the URI action is associated". The two are the
+/// same annotation whenever a widget was pressed and different when a `/Link` carries the
+/// action, and a caller handing over one rectangle for both would be answering the second
+/// clause's question under the first clause's name.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Click {
+    /// The cursor, in default user space.
+    pub point: (f32, f32),
+    /// The annotation that was pressed, where the caller knows which.
+    ///
+    /// `None` for an action raised with no annotation under the pointer — an outline item, a
+    /// navigation node — which Table 240 bit 5 has no rectangle to measure from and which
+    /// [`Submission::owed`] therefore names.
+    pub widget: Option<ObjectId>,
+}
+
+/// One field as it goes into the body.
+struct Entry {
+    /// §12.7.4.2's fully qualified name.
+    name: String,
+    /// Table 226's `/V`, resolved, or `None` for a field submitted "by name only".
+    value: Option<Object>,
+}
+
+/// Composes §12.7.6.2's submission for one action over one document as this view shows it.
+///
+/// The clause's selection rules, in the order they bind:
+///
+/// > The NoExport flag in the field dictionary's Ff entry … takes precedence over the action's
+/// > Fields array and Include/ Exclude flag. Fields whose NoExport flag is set shall not be
+/// > included in a submit-form action.
+///
+/// > If the Include/Exclude flag is clear, the submission consists of all fields listed in the
+/// > Fields array, along with any descendants of those fields in the field hierarchy. If the
+/// > Include/Exclude flag is set, the submission shall consist of all fields in the document's
+/// > interactive form except those listed in the Fields array.
+///
+/// > Fields with no value (that is, whose field dictionary does not contain a V entry) are
+/// > ordinarily not included in the submission. The submitform action's IncludeNoValueFields flag
+/// > may override this behaviour. If this flag is set, such valueless fields shall be included in
+/// > the submission by name only, with no associated value.
+///
+/// > For push-button fields submitted in FDF, the value submitted shall be that of the AP entry in
+/// > the field's widget annotation dictionary. If the submit-form action dictionary contains no
+/// > Fields entry, such pushbutton fields shall not be submitted.
+///
+/// A push-button *named* by `/Fields` is owed rather than submitted: its value would be its
+/// appearance streams, which live in this document's object space, and carrying them into an FDF
+/// is the second-document question §12.7.8.3.2's row leaves open. The value of every other field
+/// is "specified by the V entry" — whichever of the four statements about it this view holds
+/// current, which is why this takes a [`ViewState`] and not a document alone.
+///
+/// # Errors
+///
+/// [`Refusal`]: XFDF, or a document the update cannot be appended to.
+pub fn compose(
+    document: &Document,
+    view: &ViewState,
+    action: &SubmitForm,
+    click: Option<&Click>,
+) -> Result<Submission, Refusal> {
+    let flags = action.flags;
+    let mut owed = Vec::new();
+
+    // Table 240 bit 9: "If set, the document shall be submitted as PDF … If set, all other
+    // flags shall be ignored except GetMethod." Read before bit 6 for that reason.
+    if flags.submit_pdf() {
+        return whole_document(document, view, action, owed);
+    }
+    // Table 240 bit 6: "shall be used only if the SubmitPDF flags are clear. If set, field
+    // names and values shall be submitted as XFDF."
+    if flags.xfdf() {
+        return Err(Refusal::Xfdf);
+    }
+    // Table 240 bit 3: "If set, field names and values shall be submitted in HTML Form format.
+    // If clear, they shall be submitted in Forms Data Format (FDF)." Two formats and not three,
+    // because bit 9's PDF returned above — which is why this is one boolean carried down rather
+    // than a match over [`Format`] with an arm that cannot happen.
+    let html = flags.export_format();
+    let format = if html { Format::HtmlForm } else { Format::Fdf };
+
+    let table = widgets_by_field_name(document);
+    let entries = chosen(document, view, action, format, &table, &mut owed);
+    let fields = entries.len();
+    let (url, method, body) = if html {
+        if let Some(charset) = action
+            .charset
+            .as_deref()
+            .filter(|charset| !charset.eq_ignore_ascii_case("utf-8"))
+        {
+            owed.push(format!(
+                "Table 239's /CharSet {charset} is not applied; names and values are written \
+                 in UTF-8"
+            ));
+        }
+        if flags.canonical_format() {
+            owed.push(
+                "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
+                 stated only by ECMAScript, which CLAUDE.md principle 5 excludes"
+                    .to_owned(),
+            );
+        }
+        let mut query = urlencoded(document, &entries, &mut owed);
+        if flags.submit_coordinates() {
+            coordinates(document, &table, click, &mut query, &mut owed);
+        }
+        if flags.get_method() {
+            (with_query(&action.url, &query), Method::Get, Vec::new())
+        } else {
+            (action.url.clone(), Method::Post, query.into_bytes())
+        }
+    } else {
+        fdf_owed(action, &mut owed);
+        (
+            action.url.clone(),
+            Method::Post,
+            fdf(document, &entries, &mut owed),
+        )
+    };
+    Ok(Submission {
+        url,
+        method,
+        format,
+        body,
+        fields,
+        owed,
+    })
+}
+
+/// Table 240 bit 9's whole document, which "shall be submitted rather than individual fields and
+/// values".
+///
+/// §7.5.6's update over the file as it stands, which is `ViewState::save`'s — the same bytes a
+/// person saving the document would get, and the reason the bit says every other flag is ignored:
+/// there are no field names in this body to select between.
+///
+/// # Errors
+///
+/// [`Refusal::Unsavable`], where the update cannot be appended.
+fn whole_document(
+    document: &Document,
+    view: &ViewState,
+    action: &SubmitForm,
+    mut owed: Vec<String>,
+) -> Result<Submission, Refusal> {
+    let written = view.save(document)?;
+    // §12.7.5.3's Table 231 bit 14 keeps a password out of the file this writes, so the
+    // submission carries less than the form holds; a person is owed that sentence.
+    for name in written.withheld {
+        owed.push(format!(
+            "field {name}: a Table 231 bit 14 password, whose value is not written into the \
+             document submitted"
+        ));
+    }
+    Ok(Submission {
+        url: action.url.clone(),
+        method: if action.flags.get_method() {
+            Method::Get
+        } else {
+            Method::Post
+        },
+        format: Format::Pdf,
+        body: written.bytes,
+        fields: 0,
+        owed,
+    })
+}
+
+/// The fields that go into the body, with the values this view shows for them.
+///
+/// [`selected_names`] applies Table 239's array and Table 240 bit 1; this applies everything the
+/// clause says about a field rather than about the action — `NoExport`, the push-button sentence,
+/// the valueless-field sentence, and §12.7.5.3's file-select control.
+fn chosen(
+    document: &Document,
+    view: &ViewState,
+    action: &SubmitForm,
+    format: Format,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+    owed: &mut Vec<String>,
+) -> Vec<Entry> {
+    let flags = action.flags;
+    let selected = selected_names(document, action, table);
+    let mut entries = Vec::new();
+
+    for name in &selected {
+        let Some(widget) = table.get(name).and_then(|widgets| widgets.first()) else {
+            continue;
+        };
+        let object = document.get(*widget);
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        let field = Field::read(document, dict, view.annotation(*widget).value);
+        if field.too_deep {
+            owed.push(format!(
+                "field {name}: its /Parent chain is deeper than this reader walks, so \
+                 §12.7.4.1's inheritance could not be resolved and neither its flags nor its \
+                 value are known"
+            ));
+            continue;
+        }
+        if field.flags & FLAG_NO_EXPORT != 0 {
+            continue;
+        }
+        if matches!(field.kind, Some(FieldKind::Button { toggling: false })) {
+            if !action.fields.is_empty() && format == Format::Fdf {
+                owed.push(format!(
+                    "push-button {name}: its submitted value would be its /AP appearance \
+                     streams, which are this document's objects and are not carried into an FDF"
+                ));
+            }
+            continue;
+        }
+        let value = field
+            .value
+            .as_ref()
+            .map(|value| resolved(document, name, value, owed));
+        // A stream that would not decode is a field whose value this reader does not know, which
+        // is not the same as a field that has none: it is left out even where bit 2 is set.
+        if matches!(value, Some(None)) {
+            continue;
+        }
+        let value = value.flatten();
+        // A cleared field — `FieldValue::Edited` with no value — and a field stating no `/V`
+        // are the same thing to this clause: "whose field dictionary does not contain a V
+        // entry".
+        let Some(value) = value else {
+            if flags.include_no_value_fields() {
+                entries.push(Entry {
+                    name: name.clone(),
+                    value: None,
+                });
+            }
+            continue;
+        };
+        // §12.7.5.3, under Table 231 bit 21: "If the FileSelect flag (PDF 1.4) is set, the field
+        // shall function as a file-select control. In this case, the field's text represents the
+        // pathname of a file whose contents shall be submitted as the field's value".
+        let file_select =
+            matches!(field.kind, Some(FieldKind::Text)) && field.flags & FLAG_FILE_SELECT != 0;
+        if file_select {
+            match format {
+                // "For Forms Data Format (FDF) submission, the value of the V entry in the FDF
+                // field dictionary … shall be a file specification (7.11, "File specifications")
+                // identifying the selected file." §7.11.3 gives a file specification a string
+                // form, and the pathname a person typed is written in it as typed: §7.11.2's
+                // platform-independent spelling of a path is a host's knowledge of its own
+                // filesystem, which this crate has none of. A choice, recorded.
+                Format::Fdf => match text_bytes(document, &value) {
+                    Some(pathname) => entries.push(Entry {
+                        name: name.clone(),
+                        value: Some(Object::String(pathname.into())),
+                    }),
+                    // The clause says the field's text *is* the pathname, so a `/V` that holds
+                    // no text holds no pathname; writing an empty file specification would name
+                    // a file rather than say that none was named.
+                    None => owed.push(format!(
+                        "field {name}: a file-select control whose value is {}, which states no \
+                         pathname, so no file specification is written for it",
+                        value.type_name()
+                    )),
+                },
+                // "For fields submitted in HTML Form format, the submission shall use the MIME
+                // content type multipart / form-data, as described in Internet RFC 2045" — with
+                // the file's *contents*, which are on a filesystem this crate cannot open.
+                Format::HtmlForm => owed.push(format!(
+                    "field {name}: a file-select control, whose file's contents the HTML Form \
+                     format submits as multipart/form-data; the contents are the host's to read \
+                     and are not in this body"
+                )),
+                Format::Pdf => {}
+            }
+            continue;
+        }
+        entries.push(Entry {
+            name: name.clone(),
+            value: Some(value),
+        });
+    }
+
+    entries
+}
+
+/// The fully qualified names the action selects, before `NoExport` and before values.
+///
+/// [`ResetTarget::Name`] is a prefix test, because a descendant's fully qualified name is its
+/// ancestor's with `.` and more appended (§12.7.4.2); [`ResetTarget::Field`] is a walk down
+/// `/Kids` to the widgets and back to their names, because a reference names a field that may
+/// have several.
+fn selected_names(
+    document: &Document,
+    action: &SubmitForm,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+) -> Vec<String> {
+    if action.fields.is_empty() {
+        return table.keys().cloned().collect();
+    }
+    let by_widget: BTreeMap<ObjectId, &str> = table
+        .iter()
+        .flat_map(|(name, widgets)| widgets.iter().map(move |widget| (*widget, name.as_str())))
+        .collect();
+    let named: BTreeSet<&str> = action
+        .fields
+        .iter()
+        .flat_map(|target| match target {
+            ResetTarget::Field(id) => widgets_under(document, *id)
+                .into_iter()
+                .filter_map(|widget| by_widget.get(&widget).copied())
+                .collect::<Vec<_>>(),
+            ResetTarget::Name(name) => table
+                .keys()
+                .filter(|candidate| {
+                    *candidate == name
+                        || candidate
+                            .strip_prefix(name.as_str())
+                            .is_some_and(|rest| rest.starts_with('.'))
+                })
+                .map(String::as_str)
+                .collect(),
+        })
+        .collect();
+    table
+        .keys()
+        .filter(|name| named.contains(name.as_str()) != action.flags.exclude())
+        .cloned()
+        .collect()
+}
+
+/// A value with every reference followed, so that the body carries objects and not identities.
+///
+/// A stream is §12.7.5.3's "beginning with PDF 1.5, a stre am" form of a text value, and goes in
+/// as the text it holds: an FDF has no object of this document's to refer to.
+///
+/// A stream this reader cannot decode — an unsupported filter, or one over the document's own
+/// budget — is `None` and **not** an empty string. The two are different values and the second
+/// one lies: it submits the field as though the person had left it blank, which is trap 5's
+/// silence. Inside §12.7.5.4's array of selected values the same refusal drops that element and
+/// keeps the others, because an array is a list of independent choices and the rest of them are
+/// still what the person chose; either way the sentence goes on [`Submission::owed`], so a
+/// shorter list is reported rather than merely shorter.
+fn resolved(
+    document: &Document,
+    name: &str,
+    value: &Object,
+    owed: &mut Vec<String>,
+) -> Option<Object> {
+    Some(match document.resolve(value) {
+        Object::Array(items) => Object::Array(
+            items
+                .iter()
+                .filter_map(|item| resolved(document, name, item, owed))
+                .collect(),
+        ),
+        Object::Stream(stream) => match document.decoded_stream_data_reported(&stream) {
+            Ok(decoded) => Object::String(decoded.data.to_vec().into()),
+            Err(refusal) => {
+                owed.push(format!(
+                    "field {name}: its value is a stream this reader could not decode \
+                     ({refusal:?}), so the field is not submitted at all rather than submitted empty"
+                ));
+                return None;
+            }
+        },
+        other => other,
+    })
+}
+
+/// The characters of a resolved value, as UTF-8, for a body that carries text rather than
+/// objects. `None` for a value that is not text and not a name.
+fn text_bytes(document: &Document, value: &Object) -> Option<Vec<u8>> {
+    match document.resolve(value) {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes).into_bytes()),
+        // A check box's or radio button's value is §12.7.5.2.3's appearance-state name, and
+        // §7.3.5 makes a name's bytes the thing it is.
+        Object::Name(name) => Some(name.as_bytes().to_vec()),
+        _ => None,
+    }
+}
+
+/// The flags FDF submission reads and this composition does not carry out, named.
+fn fdf_owed(action: &SubmitForm, owed: &mut Vec<String>) {
+    let flags = action.flags;
+    if flags.get_method() {
+        owed.push(
+            "Table 240 bit 4's GetMethod is set against a clear ExportFormat, which the table \
+             forbids (\"if ExportFormat is clear, this flag shall also be clear\"); the FDF is \
+             sent by POST"
+                .to_owned(),
+        );
+    }
+    if flags.submit_coordinates() {
+        owed.push(
+            "Table 240 bit 5's SubmitCoordinates \"shall be used only when the ExportFormat flag \
+             is set\", and it is clear; no coordinates are written into the FDF"
+                .to_owned(),
+        );
+    }
+    if flags.include_append_saves() {
+        owed.push(
+            "Table 240 bit 7's IncludeAppendSaves is not applied: Table 246's /Differences \
+             stream is not written"
+                .to_owned(),
+        );
+    }
+    if flags.include_annotations() {
+        owed.push(
+            "Table 240 bit 8's IncludeAnnotations is not applied: §12.7.8.3.4's annotation \
+             dictionaries are not written"
+                .to_owned(),
+        );
+    }
+    if flags.exclude_non_user_annotations() {
+        owed.push(
+            "Table 240 bit 11's ExclNonUserAnnots is not applied, with bit 8 above".to_owned(),
+        );
+    }
+    if flags.canonical_format() {
+        owed.push(
+            "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is stated \
+             only by ECMAScript, which CLAUDE.md principle 5 excludes"
+                .to_owned(),
+        );
+    }
+    if flags.embed_form() {
+        owed.push(
+            "Table 240 bit 14's EmbedForm is not applied: Table 246's /F is not written, so there \
+             is no file specification to embed the document in"
+                .to_owned(),
+        );
+    }
+}
+
+/// One node of Table 249's `/Kids` tree, on the way to being written.
+#[derive(Default)]
+struct Node {
+    /// Table 249's `/V`, where this node is a field with one.
+    value: Option<Object>,
+    /// Whether this node is a field the submission names, as against an ancestor it passes
+    /// through on the way to one.
+    named: bool,
+    /// Children, in first-seen order, by partial name.
+    kids: Vec<(String, Node)>,
+}
+
+impl Node {
+    /// The child with this partial name, made if absent.
+    fn kid(&mut self, partial: &str) -> &mut Self {
+        let index = if let Some(index) = self.kids.iter().position(|(name, _)| name == partial) {
+            index
+        } else {
+            self.kids.push((partial.to_owned(), Self::default()));
+            self.kids.len().saturating_sub(1)
+        };
+        &mut self.kids[index].1
+    }
+
+    /// Table 249's dictionary for this node.
+    fn dictionary(self, partial: &str) -> Dictionary {
+        let mut dict = Dictionary::new();
+        dict.insert(
+            Name::new(&b"T"[..]),
+            Object::String(pdf_syntax::text_string::encode_text_string(partial).into()),
+        );
+        if let Some(value) = self.value {
+            dict.insert(Name::new(&b"V"[..]), value);
+        }
+        if !self.kids.is_empty() {
+            dict.insert(
+                Name::new(&b"Kids"[..]),
+                Object::Array(
+                    self.kids
+                        .into_iter()
+                        .map(|(name, kid)| Object::Dictionary(kid.dictionary(&name)))
+                        .collect(),
+                ),
+            );
+        }
+        dict
+    }
+}
+
+/// §12.7.8's file, holding these fields.
+///
+/// §12.7.8.2.2's header, §12.7.8.2.3's body of one indirect object — Table 245's catalog with
+/// its Required `/FDF`, holding Table 246's `/Fields` and, where this document's trailer states
+/// one, its `/ID` — and §12.7.8.2.4's trailer, "[t]he only required key is Root". No
+/// cross-reference table, which §12.7.8.1 says an FDF file need not have. The header's version is
+/// `1.2`, and that is the only number available rather than a choice between several: the
+/// `application/fdf` registration, written by ISO TC 171/SC 2, states that "[o]nly a single
+/// version of FDF has ever been defined, which is version 1.2 that was introduced with PDF 1.2".
+///
+/// Table 246's `/F` — "[t]he source file or target file" — is not written, because the document's
+/// path on this machine is the host's knowledge and not this crate's, which is also why Table
+/// 240 bit 12 has nothing to exclude.
+fn fdf(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> Vec<u8> {
+    let mut root = Node::default();
+    for entry in entries {
+        let mut node = &mut root;
+        for partial in entry.name.split('.') {
+            node = node.kid(partial);
+        }
+        if node.named {
+            owed.push(format!(
+                "field {}: named twice by the field table, written once",
+                entry.name
+            ));
+            continue;
+        }
+        node.named = true;
+        node.value.clone_from(&entry.value);
+    }
+    let mut fdf = Dictionary::new();
+    fdf.insert(
+        Name::new(&b"Fields"[..]),
+        Object::Array(
+            root.kids
+                .into_iter()
+                .map(|(name, kid)| Object::Dictionary(kid.dictionary(&name)))
+                .collect(),
+        ),
+    );
+    // Table 246's `/ID`: "taken from the ID entry in the file's trailer dictionary", where that
+    // trailer states §14.4's pair of strings.
+    if let Some(Object::Array(identifier)) = document.trailer().get("ID")
+        && let [first, second] = identifier.as_slice()
+        && first.as_string().is_some()
+        && second.as_string().is_some()
+    {
+        fdf.insert(
+            Name::new(&b"ID"[..]),
+            Object::Array(vec![first.clone(), second.clone()]),
+        );
+    }
+    let mut catalog = Dictionary::new();
+    catalog.insert(Name::new(&b"FDF"[..]), Object::Dictionary(fdf));
+
+    let mut out = b"%FDF-1.2\n1 0 obj\n".to_vec();
+    pdf_syntax::write::object(&Object::Dictionary(catalog), &mut out);
+    out.extend_from_slice(b"\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+    out
+}
+
+/// HTML 4.01 section 17.13.4's `application/x-www-form-urlencoded`, over these fields.
+///
+/// That definition, which §12.7.6.2 points at by naming the specification. It writes each
+/// literal between a GRAVE ACCENT and an APOSTROPHE, and they are rustdoc code spans here — the
+/// same substitution of markup this project's own quotation checker makes on both sides:
+///
+/// 1. "Control names and values are escaped. Space characters are replaced by `+`, and then
+///    reserved characters are escaped as described in [RFC1738], section 2.2: Non-alphanumeric
+///    characters are replaced by `%HH`, a percent sign and two hexadecimal digits representing
+///    the ASCII code of the character. Line breaks are represented as "CR LF" pairs (i.e.,
+///    `%0D%0A`)."
+/// 2. "The control names/values are listed in the order they appear in the document. The name is
+///    separated from the value by `=` and name/value pairs are separated from each other by `&`."
+///
+/// The bytes escaped are UTF-8, which is Table 239's `/CharSet` default and the one value of it
+/// this writes. The order is the field table's — §12.7.4.2's names, sorted — rather than the
+/// document's, which is a choice recorded as one: the clause states no order and HTML's is about
+/// a page's controls, which a field tree does not have.
+///
+/// A field with several values — §12.7.5.4's multiple selection, an array — is written as one
+/// pair per value under the same name. **This is a choice and nothing more.** §12.7.6.2 states
+/// nothing about it, and the specification it names states the encoding of a *control* without
+/// saying what a control with several chosen values contributes; repeating the name is the only
+/// shape the encoding above leaves available, since it has no syntax for a list.
+fn urlencoded(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> String {
+    let mut out = String::new();
+    for entry in entries {
+        let values: Vec<Vec<u8>> = match &entry.value {
+            None => vec![Vec::new()],
+            Some(Object::Array(items)) => items
+                .iter()
+                .filter_map(|item| text_bytes(document, item))
+                .collect(),
+            Some(value) => {
+                if let Some(bytes) = text_bytes(document, value) {
+                    vec![bytes]
+                } else {
+                    owed.push(format!(
+                        "field {}: its value is {}, which no field type gives a text value, so it \
+                         is not written",
+                        entry.name,
+                        value.type_name()
+                    ));
+                    continue;
+                }
+            }
+        };
+        for value in values {
+            if !out.is_empty() {
+                out.push('&');
+            }
+            escape(entry.name.as_bytes(), &mut out);
+            out.push('=');
+            escape(&value, &mut out);
+        }
+    }
+    out
+}
+
+/// HTML 4.01 section 17.13.4's escaping of one name or value, appended.
+fn escape(bytes: &[u8], out: &mut String) {
+    let mut previous = 0u8;
+    for &byte in bytes {
+        match byte {
+            b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' => out.push(char::from(byte)),
+            b' ' => out.push('+'),
+            // "Line breaks are represented as "CR LF" pairs": a lone LF becomes the pair, and an
+            // LF already after a CR is the pair's own second half.
+            b'\n' if previous != b'\r' => out.push_str("%0D%0A"),
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+        previous = byte;
+    }
+}
+
+/// Table 240 bit 5's coordinates, appended to the query. §12.7.6.2 states the whole rule:
+///
+/// > If set, the coordinates of the mouse click that caused the submit-form action shall be
+/// > transmitted as part of the form data. The coordinate values are relative to the upper-left
+/// > corner of the field's widget annotation rectangle. They shall be represented in the data in
+/// > the format name . x = xval & name . y = yval where name is the field's mapping name ( TM in
+/// > the field dictionary) if present; otherwise, name is the field name. If the value of the TM
+/// > entry is a single ASCII SPACE (20h) character, both the name and the ASCII PERIOD (2Eh)
+/// > following it shall be suppressed, resulting in the format x = xval & y = yval
+///
+/// Rounded to integers the way §12.6.4.8's `/IsMap` coordinates are, and for the same reason: the
+/// table states no precision and a pixel is the unit a click has.
+fn coordinates(
+    document: &Document,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+    click: Option<&Click>,
+    query: &mut String,
+    owed: &mut Vec<String>,
+) {
+    let Some(click) = click else {
+        owed.push(
+            "Table 240 bit 5's SubmitCoordinates: the action was not invoked by a click, so there \
+             are no coordinates to transmit"
+                .to_owned(),
+        );
+        return;
+    };
+    let (x, y) = click.point;
+    // "the field's widget annotation rectangle", read from the annotation the click was over
+    // rather than taken from the caller: §12.6.4.8's `/IsMap` measures from a different one.
+    let rect = click
+        .widget
+        .and_then(|widget| document.get(widget).as_dict().cloned())
+        .and_then(|dict| crate::annotation::rectangle(document, &dict, "Rect"));
+    let Some([llx, _, _, ury]) = rect else {
+        owed.push(
+            "Table 240 bit 5's SubmitCoordinates: the click was over no widget annotation with a \
+             /Rect, so there is no rectangle to measure the coordinates from"
+                .to_owned(),
+        );
+        return;
+    };
+    let across = (x - llx).round();
+    let down = (ury - y).round();
+    if !across.is_finite() || !down.is_finite() {
+        owed.push(
+            "Table 240 bit 5's SubmitCoordinates: the click names no finite position".to_owned(),
+        );
+        return;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "rounded and finite, and a page is bounded by §14.11.2's 14 400 units"
+    )]
+    let (across, down) = (across as i64, down as i64);
+
+    // The field's mapping name, up §12.7.4.1's inheritance: Table 226 makes `/TM` inheritable.
+    let widget = click.widget;
+    let field_name = widget.and_then(|widget| {
+        table
+            .iter()
+            .find(|(_, widgets)| widgets.contains(&widget))
+            .map(|(name, _)| name.clone())
+    });
+    let mapping = widget
+        .and_then(|widget| document.get(widget).as_dict().cloned())
+        .and_then(|dict| mapping_name(document, &dict));
+    let prefix = match (mapping, field_name) {
+        (Some(mapping), _) if mapping == " " => String::new(),
+        (Some(mapping), _) => {
+            let mut prefix = String::new();
+            escape(mapping.as_bytes(), &mut prefix);
+            prefix.push('.');
+            prefix
+        }
+        (None, Some(name)) => {
+            let mut prefix = String::new();
+            escape(name.as_bytes(), &mut prefix);
+            prefix.push('.');
+            prefix
+        }
+        (None, None) => {
+            owed.push(
+                "Table 240 bit 5's SubmitCoordinates: the widget pressed belongs to no named \
+                 field, so the coordinates are written without a name"
+                    .to_owned(),
+            );
+            String::new()
+        }
+    };
+    if !query.is_empty() {
+        query.push('&');
+    }
+    let _ = write!(query, "{prefix}x={across}&{prefix}y={down}");
+}
+
+/// Table 226's `/TM`, "[t]he mapping name that shall be used when exporting interactive form
+/// field data from the document", from the nearest dictionary up the `/Parent` chain that states
+/// it.
+fn mapping_name(document: &Document, widget: &Dictionary) -> Option<String> {
+    let mut current = widget.clone();
+    for _ in 0..crate::appearance::MAX_FIELD_ANCESTRY {
+        if let Object::String(bytes) = document.get_key(&current, "TM") {
+            return Some(pdf_syntax::text_string(&bytes));
+        }
+        current = document.get_key(&current, "Parent").as_dict()?.clone();
+    }
+    None
+}
+
+/// The URL with the query appended, for an HTTP GET.
+///
+/// **A deliberate departure from the specification §12.7.6.2 names, in one case only.** HTML 4.01
+/// section 17.13.3 says the user agent "takes the value of action, appends a `?` to it, then
+/// appends the form data set" — unconditionally, so an action that already carries a query would
+/// get a second `?`. RFC 3986 section 3.4 says a URI has one query and that it is "indicated by
+/// the first question mark ("?") character", so that second `?` is data inside the first query
+/// rather than a separator, and the server reads the field names of a submission as part of a
+/// value. The form data is joined with `&` instead, which is the separator the same encoding uses
+/// between its own pairs and which leaves every name a name. Table 239 types `/F` as a URL and
+/// says nothing about whether it may carry a query, so this is a choice about malformed-adjacent
+/// input rather than a rule either document states.
+fn with_query(url: &str, query: &str) -> String {
+    if query.is_empty() {
+        return url.to_owned();
+    }
+    let joiner = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{joiner}{query}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape, with_query};
+
+    /// HTML 4.01 section 17.13.4, character class by character class.
+    #[test]
+    fn html_forms_escaping_keeps_alphanumerics_and_replaces_the_rest() {
+        let mut out = String::new();
+        escape("a b&c=d\né\r\n".as_bytes(), &mut out);
+        assert_eq!(out, "a+b%26c%3Dd%0D%0A%C3%A9%0D%0A");
+    }
+
+    #[test]
+    fn a_query_joins_an_existing_one_rather_than_starting_a_second() {
+        assert_eq!(with_query("https://h/p", "a=1"), "https://h/p?a=1");
+        assert_eq!(with_query("https://h/p?k=v", "a=1"), "https://h/p?k=v&a=1");
+        assert_eq!(with_query("https://h/p", ""), "https://h/p");
+    }
+}

@@ -318,3 +318,118 @@ fn two_names_differing_only_in_a_byte_outside_utf_8_are_two_names() {
         "0xF4 and 0xF5 are different names however a text conversion renders them"
     );
 }
+
+/// One of the fixtures the cross-check is calibrated on, opened from disk.
+///
+/// They live beside `pdf-archive`'s `tests/cross_check.rs` because that gate is the instrument
+/// that proves the two machines *can* see them differ; this file proves what the interpreter
+/// alone says. One artefact for both, so that the two cannot drift apart.
+fn fixture(name: &str) -> Document {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pdf-archive/tests/fixtures/resource-fallbacks")
+        .join(name);
+    let bytes = std::fs::read(&path).expect("the fixture is in the tree");
+    Document::open(bytes).expect("the fixture is a valid PDF")
+}
+
+/// What the interpreter reported about a fixture, and how many fills it drew.
+fn reports_and_fills(name: &str) -> (Vec<String>, usize) {
+    let document = fixture(name);
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reported = interpretation
+        .unsupported
+        .iter()
+        .map(|report| format!("{report:?}"))
+        .collect();
+    let fills = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, pdf_render::Command::Fill { .. }))
+        .count();
+    (reported, fills)
+}
+
+/// **A form nested inside a form, stating no `/Resources`, inherits the page's — not its
+/// invoker's.** §7.8.3's NOTE 3, since Errata Collection 3 Issue #128, has the fallback
+/// inherit "from the resource dictionary of the page on which they are used"
+/// (`content/annotations.rs` quotes the NOTE in full), and Table 93's `/Resources` cell says
+/// the same as a `shall` for the files that omit the entry: "In a PDF whose version is 1.1 and
+/// earlier, all named resources used in the form `XObject` shall be included in the resource
+/// dictionary of each page object on which the form `XObject` appears". The invoker's dictionary
+/// *is* the page's until a form is nested in a form with `/Resources` of its own, which is what this
+/// fixture is: `/Inner` names `/Sq`, which only the page defines, and `/Inv`, which only the
+/// outer form defines. Under the clause the square draws and `/Inv` is missing; under the
+/// reading both machines shared until ADR 1059 it was exactly the other way round.
+///
+/// Synthetic for trap 8's reason, and measured: the cross-check over 2 908 corpus documents
+/// found no form nested in a form whose dictionaries disagree (ADR 1055 section 5).
+#[test]
+fn a_form_nested_in_a_form_inherits_the_pages_resources_and_not_its_invokers() {
+    let (reported, fills) = reports_and_fills("form-in-form-without-resources.pdf");
+
+    assert_eq!(
+        reported,
+        vec![
+            r#"MissingResource { category: "XObject", detail: "/Inv is not in /XObject" }"#
+                .to_owned()
+        ],
+        "/Inv is defined by the invoking form alone, and the page's dictionary is the one in force"
+    );
+    assert_eq!(
+        fills, 1,
+        "/Sq is defined by the page, so the inner form draws its one square and nothing else"
+    );
+}
+
+/// **A Type 3 font stating no `/Resources` has its glyphs read against the page's, wherever
+/// the text-showing operator stood.** §9.6.4's step d) sent the question to Table 110's
+/// `/Resources` cell and then to "the resource dictionary of the page on which the font is
+/// used"; Errata Collection 3's Issue #128 replaces both with §7.8.3's four-step search, whose
+/// last two steps are that same page and what §7.7.3.4 gave it (`type3.rs`'s `resources` states
+/// all four). The font here is selected inside a form with
+/// `/Resources` of its own, so the invoking stream's dictionary and the page's differ: the
+/// glyph names `/Sq`, which only the page defines, and `/Inv`, which only the form defines.
+#[test]
+fn a_type3_font_shown_inside_a_form_reads_the_pages_resources_and_not_the_forms() {
+    let (reported, fills) = reports_and_fills("type3-in-form-without-resources.pdf");
+
+    assert_eq!(
+        reported,
+        vec![
+            r#"MissingResource { category: "XObject", detail: "/Inv is not in /XObject" }"#
+                .to_owned()
+        ],
+        "/Inv is defined by the form that showed the text, which is not where the clause looks"
+    );
+    assert_eq!(
+        fills, 1,
+        "/Sq is defined by the page, so the glyph description draws its one square"
+    );
+}
+
+/// **A tiling pattern stating no `/Resources` inherits nothing.** Table 74 makes the entry
+/// "( Required )", §7.8.3 requires it of "form `XObject`s, patterns, and annotation appearances"
+/// alike, and its leniency for an omitted entry — NOTE 3 since Errata Collection 3 — names a
+/// form `XObject`, a Type 3 glyph description and an appearance stream, and no pattern.
+/// So the cell's `/Sq`, which the page defines, is a resource the file never defined for this
+/// stream, reported by name; the survey used to read it against the invoker's dictionary and
+/// find it, which was the one disagreement the cross-check could already see (ADR 1059).
+#[test]
+fn a_tiling_pattern_stating_no_resources_is_read_against_nothing() {
+    let (reported, fills) = reports_and_fills("tiling-pattern-without-resources.pdf");
+
+    assert_eq!(
+        reported,
+        vec![
+            r#"MissingResource { category: "XObject", detail: "/Sq is not in /XObject" }"#
+                .to_owned()
+        ],
+        "the cell names /Sq and the pattern states no dictionary to find it in"
+    );
+    assert_eq!(
+        fills, 0,
+        "a cell that draws nothing tiles nothing, and the page's dictionary is not reached for"
+    );
+}

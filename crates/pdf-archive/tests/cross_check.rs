@@ -502,6 +502,47 @@ fn report(tally: &Tally, elapsed: std::time::Duration) {
     println!("cross-check: {elapsed:.1?}");
 }
 
+/// The fixtures the corpus cannot witness: a form nested in a form, a Type 3 font shown inside a
+/// form, and a tiling pattern, each stating no `/Resources`, each built so that the page's
+/// dictionary and the invoking stream's disagree.
+///
+/// ADR 1055 section 5 recorded that both machines read a form's and a Type 3 font's fallback as the
+/// *invoker's* where §7.8.3 names the *page's*, and that no corpus document could tell the two
+/// apart — a defect this gate cannot find while both machines share it. These three documents are
+/// what it is calibrated on now (ADR 1059): with the invoker's reading planted back into one
+/// machine, each fixture's nested stream is named here as a disagreement, which is trap 13's
+/// proof that the gate can see the defect once the two machines differ. Run every round rather
+/// than with the corpus, because three documents cost nothing and the corpus is not what holds
+/// this.
+#[test]
+fn the_two_machines_agree_on_the_fixtures_the_corpus_cannot_witness() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/resource-fallbacks");
+    let started = Instant::now();
+    let mut paths = Vec::new();
+    documents(&root, &mut paths);
+    let mut tally = Tally::default();
+    for path in &paths {
+        cross_check(path, &mut tally);
+    }
+    report(&tally, started.elapsed());
+    assert_eq!(
+        tally.documents,
+        3,
+        "the three fixtures under {} open",
+        root.display()
+    );
+    assert_eq!(
+        tally.paired_places, 8,
+        "page, outer form, inner form; page, form, glyph; page, tiling cell — every one of them \
+         run by both machines, so nothing here is out of the comparison's scope"
+    );
+    assert!(
+        tally.disagreements.is_empty(),
+        "{} resource selections on which the survey and the interpreter disagree, listed above",
+        tally.disagreements.len()
+    );
+}
+
 #[test]
 #[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
 fn the_survey_and_the_interpreter_select_the_same_resources() {

@@ -232,6 +232,9 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_EVENT_ATTACHMENTS_CHANGED",
             EventKind::AttachmentsChanged,
         ),
+        // §12.7.6.2's composed submission, written here in the same commit as the `#define`, for
+        // the reason the paragraph above records.
+        ("QUORRA_EVENT_SUBMIT", EventKind::Submit),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

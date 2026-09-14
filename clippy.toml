@@ -28,4 +28,17 @@ allow-panic-in-tests = true
 # RFC for the signing-certificate attributes, and its section 5.4 is the sentence that tells the
 # two apart. Declared here for the reason above rather than backticked at each site, because the
 # sentences they appear in are quotations.
-doc-valid-idents = ["AToB", "BToA", "SigningCertificate", "SigningCertificateV2", ".."]
+# RFC 5652's two spellings of the same member, for the same reason: its section 5.3 requires that
+# "SignedAttributes MUST be DER encoded, even if the rest of the structure is BER encoded" and its
+# section 5.4 digests "the complete DER encoding of the SignedAttrs value" — one sentence per
+# spelling, both quoted where `pdf_signature::der` and `pdf_signature::signature` say why a
+# reader's BER tolerance stops at that member.
+doc-valid-idents = [
+    "AToB",
+    "BToA",
+    "SignedAttributes",
+    "SignedAttrs",
+    "SigningCertificate",
+    "SigningCertificateV2",
+    "..",
+]

@@ -130,7 +130,7 @@ impl Interpreter<'_> {
             return;
         };
 
-        // A form carries its own matrix and its own resources, falling back to the page's.
+        // A form carries its own matrix and its own resources, or inherits the page's.
         let mut inner = state.clone();
         if let Some(matrix) = self.matrix(&stream.dict) {
             inner.transform = matrix.then(inner.transform);
@@ -158,23 +158,37 @@ impl Interpreter<'_> {
             inner.clip = Some(clip);
         }
 
-        // A form that omits `/Resources` is looked up in its parent's, which §7.8.3's NOTE 3
-        // reports of earlier versions of PDF and Table 93 now makes "Sometimes required" rather
-        // than "Optional but strongly recommended" (Errata Collection 3, Issues #128 and #292).
+        // A form that omits `/Resources` is looked up in the **page's** dictionary, and every
+        // sentence on the subject names that dictionary and no other. §7.8.3's NOTE 3, which
+        // Errata Collection 3 Issue #128 put where the struck fourth bullet was, and which
+        // `annotations.rs` quotes in full one construct over: resources referenced from such a
+        // stream "can be inherited from the resource dictionary of the page on which they are
+        // used". Table 93's `/Resources` cell says the same as a `shall` for the files that
+        // omit the entry — "In a PDF whose version is 1.1 and earlier, all named resources used
+        // in the form XObject shall be included in the resource dictionary of each page object
+        // on which the form XObject appears" — so the *direction* of the fallback is stated
+        // twice even though the fallback itself is now a choice about pre-2.0 and malformed
+        // files rather than a `shall` (ADR 0255).
+        //
+        // The stream that *invoked* the form is the page's dictionary only until a form is
+        // nested inside a form with `/Resources` of its own, and that is where the two readings
+        // part: the inner form's names are the page's to define, and a name only the outer form
+        // defines is one nothing defines. ADR 1059, and `tests/missing_resources.rs` holds the
+        // fixture the corpus cannot (trap 8).
+        //
         // **The fallback is on the entry's absence and not on a name's**: a form that states a
         // `/Resources` has stated which names it uses, so a name that dictionary omits is
-        // reported by `draw_xobject` above rather than looked up a second time here. Both
-        // readings are choices about a malformed file — the standard defines neither — and this
-        // one is the same choice `font` makes for `Tf`, which matters because the alternative
-        // is what session 127 had to undo: a page's `/Fm0` and a form's `/Fm0` are two objects
-        // as often as they are one, and reaching past the dictionary that names them is how a
-        // reader draws the wrong one and says nothing.
+        // reported by `draw_xobject` above rather than looked up a second time here. That is
+        // the same choice `font` makes for `Tf`, which matters because the alternative is what
+        // session 127 had to undo: a page's `/Fm0` and a form's `/Fm0` are two objects as often
+        // as they are one, and reaching past the dictionary that names them is how a reader
+        // draws the wrong one and says nothing (ADR 0255).
         let form_resources = self
             .document
             .get_key(&stream.dict, "Resources")
             .as_dict()
             .cloned()
-            .unwrap_or_else(|| resources.clone());
+            .unwrap_or_else(|| self.page_resources.clone());
 
         // §8.7.2: a pattern's matrix maps pattern space to "the default coordinate system of
         // the pattern's parent content stream", and the clause says what that means here:

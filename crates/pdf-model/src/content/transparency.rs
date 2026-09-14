@@ -2521,6 +2521,28 @@ impl Interpreter<'_> {
     /// everything away; a luminosity mask over a white backdrop is a mask of *one*. Both
     /// answers are the mask's own, so the group is registered either way and only an
     /// unreadable one gives up here.
+    ///
+    /// A group stating no `/Resources` of its own is read against the **page's** dictionary,
+    /// the same rule `draw_xobject` applies to a form a `Do` names and `text` to a Type 3
+    /// glyph description. Table 142 makes `/G` a transparency group `XObject`, so §7.8.3's
+    /// page fallback reaches a mask's group as it reaches any other form. ISO 32000-2:2020
+    /// printed it as a fourth bullet — quoted below as printed, because that is what
+    /// `doc/md/` holds — and Errata Collection 3 Issue #128 retired the bullet into the
+    /// informative NOTE 3 that now stands in its place and names the same dictionary
+    /// (`doc/errata-read.md`, §7.8.3):
+    ///
+    /// > PDF files written obeying earlier versions of PDF may have omitted the Resources
+    /// > entry in all form XObjects and Type 3 fonts used on a page. All resources that are
+    /// > referenced from those forms and fonts shall be inherited from the resource
+    /// > dictionary of the page on which they are used.
+    ///
+    /// ADR 1059 is why that dictionary is the page's and not the stream that invoked the
+    /// group; the two are one dictionary until a form is nested inside a form.
+    /// `GHOSTSCRIPT-691218-1.pdf` is the witness: a Ghostscript 8.71 page whose every form
+    /// omits the entry, whose photograph and price figures are painted through luminosity
+    /// masks, and whose mask groups ran against an empty dictionary here — every `gs`, `Do`,
+    /// `Tf` and `scn` inside them reported as a name nobody defined, and the marks under the
+    /// masks lost.
     pub(super) fn build_soft_mask(
         &mut self,
         request: &crate::soft_mask::SoftMaskRequest,
@@ -2574,12 +2596,12 @@ impl Interpreter<'_> {
             }
         }
 
-        let resources = self
+        let group_resources = self
             .document
             .get_key(&request.group.dict, "Resources")
             .as_dict()
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(|| self.page_resources.clone());
 
         for detail in &request.departures {
             self.note(Unsupported::TransparencyGroup {
@@ -2680,7 +2702,7 @@ impl Interpreter<'_> {
         // resolved — and the ledger needs the route more than the object: a soft mask's group
         // is the construct the survey does not walk, so nothing under it is compared.
         self.enter_ledger_frame(super::ledger::Route::SoftMask, None);
-        self.run(&content, &resources, &inner);
+        self.run(&content, &group_resources, &inner);
         // §11.4.7's second raster, where the mask group's blending colour space has four
         // components: the same content stream interpreted again in the black component, with
         // the readback its first run collected put back off (`ReadbackMark`). Taken here,
@@ -2693,7 +2715,7 @@ impl Interpreter<'_> {
         // the end and an opaque Normal mark carries its colour through whatever space it was
         // carried in. A mask's four components are converted to *one number* by §11.5.3's
         // `Y`, which is a function of all four however opaque the marks are.
-        let (commands, black) = self.mask_halves(request, &content, &resources, &inner, mark);
+        let (commands, black) = self.mask_halves(request, &content, &group_resources, &inner, mark);
         self.leave_ledger_frame();
         self.base = saved_base;
         self.nested_space_departed = saved_departed;

@@ -803,3 +803,81 @@ fn reports(bytes: Vec<u8>) -> Vec<String> {
         .map(|item| format!("{item:?}"))
         .collect()
 }
+
+/// A mask group that states no `/Resources` is read against the **page's** dictionary.
+///
+/// §7.8.3's page fallback, quoted as ISO 32000-2:2020 printed it — a fourth bullet that Errata
+/// Collection 3 Issue #128 retired into the informative NOTE 3 now in its place, which names the
+/// same dictionary (`doc/errata-read.md`, §7.8.3):
+///
+/// > PDF files written obeying earlier versions of PDF may have omitted the Resources entry in
+/// > all form XObjects and Type 3 fonts used on a page. All resources that are referenced from
+/// > those forms and fonts shall be inherited from the resource dictionary of the page on
+/// > which they are used.
+///
+/// Table 142 makes `/G` a transparency group `XObject`, so the rule reaches a mask's group as
+/// it reaches a `Do`'s form, and `GHOSTSCRIPT-691218-1.pdf` — a Ghostscript 8.71 page whose
+/// every form omits the entry — lost its photograph and price figures for as long as the mask
+/// group ran against an empty dictionary instead.
+///
+/// The fixture separates the page's dictionary from the invoking stream's, which is the only
+/// place the two readings differ (ADR 1059): the `gs` sits inside an outer form that carries a
+/// `/Resources` of its own naming `/GS` and no `/XObject` at all, while the mask group's whole
+/// content is `/Fm Do`, a form only the *page* defines. So a group read against the page paints
+/// white over the left quarter; a group read against the invoking stream — or against an empty
+/// dictionary — reports a name nobody defined and paints nothing, which `render` refuses.
+///
+/// The group's `/BBox` is the left half and `/BC` is 0, so the black rectangle is painted in
+/// full where the form drew (mask 1.0), not at all across the rest of the box (the group
+/// painted nothing there, and the backdrop's luminosity is 0), and not at all outside it.
+#[test]
+fn a_mask_group_stating_no_resources_is_read_against_the_pages_dictionary() {
+    let raster = render(assemble(&[
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /XObject << /Fm 7 0 R /Outer 8 0 R >> >> \
+          /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", b"q /Outer Do Q"),
+        b"5 0 obj\n<< /Type /ExtGState \
+          /SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0] >> >>\nendobj\n"
+            .to_vec(),
+        // No `/Resources`: the entry's absence is the condition, not a name's.
+        stream_object(
+            6,
+            "/Type /XObject /Subtype /Form /BBox [0 0 20 40] \
+             /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
+            b"/Fm Do",
+        ),
+        stream_object(
+            7,
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40]",
+            b"1 g 0 0 10 40 re f",
+        ),
+        // The invoking stream: its own dictionary names the `/GS` the `gs` needs and nothing
+        // else, so the group's `/Fm` is the page's to define or nobody's.
+        stream_object(
+            8,
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+             /Resources << /ExtGState << /GS 5 0 R >> >>",
+            b"/GS gs 0 g 0 0 40 40 re f",
+        ),
+    ]));
+
+    near(
+        level(&raster, 5, 20),
+        0,
+        "the page's form, found through the page's dictionary, made the mask 1.0",
+    );
+    near(
+        level(&raster, 15, 20),
+        255,
+        "inside the box where the group painted nothing the mask is /BC's luminosity, 0",
+    );
+    near(
+        level(&raster, 30, 20),
+        255,
+        "outside the box the mask is /BC's luminosity, 0",
+    );
+}

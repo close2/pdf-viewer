@@ -12,6 +12,7 @@
 use pdf_model::Pages;
 use pdf_model::action::{Action, EmbeddedGoTo, ImportData, Trigger};
 use pdf_model::navigation::Transition;
+use pdf_model::submission::Click;
 use pdf_model::view::{Pointer, Request};
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -30,6 +31,8 @@ pub(crate) struct Outcome {
     pub(crate) notes: Vec<String>,
     /// §12.6.4.8: URIs to resolve somewhere this program is not.
     pub(crate) uris: Vec<String>,
+    /// §12.7.6.2: submissions to transmit somewhere this program is not.
+    pub(crate) submissions: Vec<pdf_model::submission::Submission>,
     /// §12.7.6.4: a file the document asked for, which only the host can fetch.
     pub(crate) needs_file: Option<(Purpose, String)>,
     /// §12.4.4: transitions to play, for a caller that has one.
@@ -101,12 +104,20 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
         return Outcome::default();
     };
     let (actions, destination, rect) = (link.actions.clone(), link.destination, link.rect);
+    let link_id = link.id;
     drop(links);
     perform(
         open,
         &actions,
         destination,
         Some(((x, y), rect)),
+        // Table 240 bit 5 measures from "the field's widget annotation rectangle", which is a
+        // different annotation from §12.6.4.8's `rect` above whenever a `/Link` carries the
+        // action; `submission::compose` reads the one it names from the object handed over.
+        Some(Click {
+            point: (x, y),
+            widget: link_id,
+        }),
         "this link",
     )
 }
@@ -174,13 +185,14 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
             &[Action::Thread(jump)],
             None,
             None,
+            None,
             "this article thread",
         );
     }
     // **No position.** §12.6.4.8's `/IsMap` "applies only to actions triggered by the user's
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.
-    perform(open, &actions, destination, None, "this item")
+    perform(open, &actions, destination, None, None, "this item")
 }
 
 /// Whether a dictionary is one of §12.4.3's article threads.
@@ -219,7 +231,12 @@ fn is_thread(document: &Document, dict: &Dictionary) -> bool {
 /// No position is handed on, and the clause is why: §12.6.4.8's `/IsMap` "applies only to
 /// actions triggered by the user's clicking an annotation", and a cursor *entering* a region is
 /// not a click. A mouse-up over a link is not routed through here at all — see the caller.
-pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> Outcome {
+pub(crate) fn trigger(
+    open: &mut Open,
+    annotation: ObjectId,
+    event: Trigger,
+    at: Option<(f32, f32)>,
+) -> Outcome {
     let object = open.document.get(annotation);
     let Some(dict) = object.as_dict() else {
         return Outcome::default();
@@ -228,7 +245,21 @@ pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> 
     if actions.is_empty() {
         return Outcome::default();
     }
-    perform(open, &actions, None, None, "this annotation")
+    // Table 240 bit 5 wants "the coordinates of the mouse click that caused the submit-form
+    // action", and a submit button is a widget rather than a link — so this is the path a
+    // submission's coordinates actually arrive by. `None` for the events a pointer did not
+    // raise: Table 198's page open and close, and a focus change.
+    perform(
+        open,
+        &actions,
+        None,
+        None,
+        at.map(|point| Click {
+            point,
+            widget: Some(annotation),
+        }),
+        "this annotation",
+    )
 }
 
 /// §12.4.4.2: performs the action sequence a navigation node names.
@@ -243,7 +274,7 @@ pub(crate) fn navigate(open: &mut Open, actions: &[Action]) -> Outcome {
     if actions.is_empty() {
         return Outcome::default();
     }
-    perform(open, actions, None, None, "this navigation node")
+    perform(open, actions, None, None, None, "this navigation node")
 }
 
 /// Table 198's two page-scoped events, which nothing raised until the two-hundred-and-fourth
@@ -261,7 +292,7 @@ pub(crate) fn page_trigger(
     if actions.is_empty() {
         return Outcome::default();
     }
-    perform(open, &actions, None, None, "this page")
+    perform(open, &actions, None, None, None, "this page")
 }
 
 /// Performs §12.6.2's action sequence and resolves whatever page it names.
@@ -309,6 +340,7 @@ fn perform(
     actions: &[Action],
     destination: Option<pdf_model::destination::Destination>,
     at: Option<((f32, f32), [f32; 4])>,
+    click: Option<Click>,
     subject: &str,
 ) -> Outcome {
     let mut outcome = Outcome::default();
@@ -356,6 +388,32 @@ fn perform(
             // Deferred rather than performed here: both need `&mut open` and `pages` still
             // borrows the document. Nothing is lost by the wait — §12.6.2 makes a chain a
             // sequence, and neither changes a page number.
+            // §12.7.6.2: composed here, because *which* names and values is a function of the
+            // document and of this view, and transmitted by nobody in this process. A host
+            // with a network sends it under its own policy; a host without one says what the
+            // document asked for and declines (ADR 1062).
+            Request::Submit(submit) => {
+                match pdf_model::submission::compose(
+                    &open.document,
+                    &open.view,
+                    submit,
+                    click.as_ref(),
+                ) {
+                    Ok(submission) => {
+                        // Trap 5: every flag the action set that this composition does not
+                        // carry out arrives as a sentence, because a submission quietly
+                        // missing one is a submission that reports nothing.
+                        outcome.notes.extend(
+                            submission
+                                .owed
+                                .iter()
+                                .map(|owed| format!("{subject} submits — {owed}")),
+                        );
+                        outcome.submissions.push(submission);
+                    }
+                    Err(why) => outcome.notes.push(format!("{subject} declines — {why}")),
+                }
+            }
             Request::Import(request) => import = Some(request.clone()),
             Request::Embedded(request) => embedded = Some(request.clone()),
             Request::Transition(transition) => outcome.transitions.push(transition.clone()),

@@ -11,7 +11,6 @@ use std::sync::Arc;
 use pdf_font::Code;
 use pdf_render::display_list::Clip;
 use pdf_render::{ClipId, Command, FillRule, Path, Point, Rect, Transform};
-use pdf_syntax::Dictionary;
 
 use super::font::Font;
 use super::pattern::{PatternPaint, Tiled};
@@ -308,13 +307,7 @@ impl Interpreter<'_> {
                   spacing parameters. Splitting it would need nine parameters to carry the \
                   loop's state into the piece that was moved"
     )]
-    pub(super) fn show_text(
-        &mut self,
-        bytes: &[u8],
-        state: &GraphicsState,
-        text: &mut TextObject,
-        resources: &Dictionary,
-    ) {
+    pub(super) fn show_text(&mut self, bytes: &[u8], state: &GraphicsState, text: &mut TextObject) {
         let Some(font) = state.text.font.clone() else {
             // Text we cannot draw is counted so the page says it is incomplete — unless the
             // layer it belongs to is off, in which case not drawing it is correct.
@@ -604,7 +597,7 @@ impl Interpreter<'_> {
                         // added to the clipping path."
                         if fills || strokes {
                             self.glyphs = self.glyphs.saturating_add(1);
-                            self.draw_type3_glyph(type3, code.value(), state, transform, resources);
+                            self.draw_type3_glyph(type3, code.value(), state, transform);
                             if painting.knockout_can_show {
                                 // A Type 3 glyph's ink is whatever its description painted,
                                 // which is not knowable without running it again.
@@ -1162,7 +1155,6 @@ impl Interpreter<'_> {
         code: u32,
         state: &GraphicsState,
         text_rendering: Transform,
-        resources: &Dictionary,
     ) {
         // §9.6.4 b): "If the name is not present as a key in CharProcs, no glyph shall be
         // painted." Neither that nor a code the encoding does not name is a failure — both
@@ -1240,7 +1232,18 @@ impl Interpreter<'_> {
             super::ledger::Route::Type3Glyph,
             font.glyph_reference(self.document, code),
         );
-        self.run(&data, font.resources(stated.as_ref(), resources), &inner);
+        // §7.8.3's search for a glyph description's resources ends at the page: the glyph
+        // stream's own dictionary, then the Type 3 font dictionary that held `/CharProcs`, then
+        // the page and what §7.7.3.4 gave it — Errata Collection 3's Issue #128, stated in full
+        // on [`crate::type3::Type3Font::resources`], whose last parameter is the page's for that
+        // reason. **Not the stream whose text-showing operator reached this glyph**, which is a
+        // different dictionary whenever that stream is a form with `/Resources` of its own, and
+        // which is what this call site passed until ADR 1059.
+        self.run(
+            &data,
+            font.resources(stated.as_ref(), self.page_resources),
+            &inner,
+        );
         self.leave_ledger_frame();
         self.glyph_depth = self.glyph_depth.saturating_sub(1);
         // `d1` inside the description raised this; the description is over. Restoring rather

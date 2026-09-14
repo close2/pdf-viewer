@@ -1503,18 +1503,17 @@ fn a_file_newer_than_this_program_says_so_when_it_is_asked() {
 
 #[test]
 fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
-    // The five action types whose ledger rows are `reported` rather than `silent`, which is a
-    // claim that the refusal reaches a person: §12.6.4.3's `GoToR`, §12.6.4.6's `Launch`,
-    // §12.6.4.9's `Sound`, §12.6.4.10's `Movie` and §12.7.6.2's `SubmitForm`. **Nothing in the
-    // tree reached it.** All five rows cited
+    // The action types whose ledger rows are `reported` rather than `silent`, which is a claim
+    // that the refusal reaches a person: §12.6.4.3's `GoToR`, §12.6.4.6's `Launch`, §12.6.4.9's
+    // `Sound` and §12.6.4.10's `Movie`. **Nothing in the tree reached it.** All the rows cited
     // `action.rs::a_name_the_table_does_not_hold_is_not_an_action`, which asserts that `/Teleport`
     // produces *no* action at all and therefore never touches `action::refused`; the only other
     // test that came near was `a_next_chain_is_flattened_in_execution_order`, which reaches
     // `Launch`'s refusal and splits the sentence off at the colon.
     //
-    // **Three of the five were covered here in the six-hundred-and-twenty-sixth session and two
-    // were left behind**, still citing the test that cannot reach them, which is why `GoToR` and
-    // `SubmitForm` join the table below. `refused`'s arms are the population: every name it
+    // **Three were covered here in the six-hundred-and-twenty-sixth session and two were left
+    // behind**, still citing the test that cannot reach them, which is why `GoToR` joins the
+    // table below. `refused`'s arms are the population: every name it
     // answers either has a row that owes this assertion or an `out-of-scope` one that owes
     // nothing, and those two were the remainder.
     //
@@ -1600,11 +1599,6 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
             "<< /S /GoToR /F (other.pdf) /D [0 /Fit] >>",
             "GoToR: a destination in another file, which this reader has no filesystem to open",
         ),
-        // Table 239's required `/F`, a §7.11.5 URL file specification, for the same reason.
-        (
-            "<< /S /SubmitForm /F << /FS /URL /F (https://example.invalid/) >> >>",
-            "SubmitForm: §12.7.6.2's submission, which needs a network",
-        ),
     ] {
         let notes = said(action);
         assert!(
@@ -1620,6 +1614,98 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
     assert!(
         !performed.iter().any(|note| note.contains("declines")),
         "an action this program performs is not a refusal: {performed:?}"
+    );
+}
+
+#[test]
+fn a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves_out() {
+    // §12.7.6.2: "Upon invocation of a submit-form action, an interactive PDF processor shall
+    // transmit the names and values of selected interactive form fields to a specified uniform
+    // resource locator (URL)." Every part of that sentence except the verb is a question about
+    // the document, and `pdf_model::submission` answers it; the verb needs a network, which
+    // principle 3's sandbox withholds. So what this pins is the *whole path a host sees*: the
+    // click, the composition, `Event::Submit` carrying the request out of the crate, and
+    // `Event::Reported` carrying what the composition did not do.
+    //
+    // **The distinction this exists to defend is the one the refusal test above used to hold.**
+    // A reader that dropped the action on the floor and one that handed the request over are
+    // indistinguishable from the click; only the second lets a person see where their form was
+    // going. `Submission::owed` is the same claim one level in: Table 240 bit 10 is set here and
+    // is not applied, and a submission that had silently dropped it would report nothing.
+    //
+    // The button is a `/Widget` and not a `/Link`, which is what real forms carry and what makes
+    // the coordinates reachable at all: `link::links` reads `/Link` annotations, so a submit
+    // button arrives through Table 197's `/U` instead.
+    let bytes = "%PDF-2.0\n\
+         1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R] >> \
+         >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+         /Annots [4 0 R 6 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [10 10 90 40] /F 4 /FT /Btn \
+         /Ff 65536 /T (send) /A 5 0 R >>\nendobj\n\
+         5 0 obj\n<< /S /SubmitForm /F << /FS /URL /F (https://example.invalid/cgi) >> \
+         /Flags 516 >>\nendobj\n\
+         6 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [10 100 190 130] /F 4 /FT /Tx \
+         /T (name) /V (Ada) >>\nendobj\n\
+         trailer\n<< /Root 1 0 R /Size 7 >>\n"
+        .to_owned()
+        .into_bytes();
+
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let at = device_point(&viewer, [10.0, 10.0, 90.0, 40.0], 200.0);
+    viewer
+        .handle(Command::Pointer {
+            at,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Pointer {
+            at,
+            action: PointerAction::Released,
+        })
+        .collect();
+
+    // Table 240 bit 3 is set, so the body is HTML 4.01 section 17.13.4's encoding of the one field
+    // with a value; bit 4 is clear, so it is a POST and the body is where the data is.
+    let submitted = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Submit { submission, .. } => Some(submission),
+            _ => None,
+        })
+        .expect("the click reaches §12.7.6.2");
+    assert_eq!(submitted.url, "https://example.invalid/cgi");
+    assert_eq!(
+        String::from_utf8_lossy(&submitted.body),
+        "name=Ada",
+        "the names and values, in the format bit 3 asked for"
+    );
+    assert_eq!(submitted.fields, 1, "the push-button itself is not a value");
+
+    // Table 240 bit 10's `CanonicalFormat`, which this composition does not apply because which
+    // fields hold dates "is not specified explicitly in the field itself but only in the
+    // ECMAScript code that processes it" — and ECMAScript is excluded outright.
+    let notes: Vec<&String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Reported { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(
+        notes.iter().any(|note| note.contains("CanonicalFormat")),
+        "the flag that was not applied is said out loud: {notes:?}"
     );
 }
 

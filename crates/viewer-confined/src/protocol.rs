@@ -22,6 +22,7 @@
 
 use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
 use pdf_model::restriction::Operation;
+use pdf_model::submission::{Format, Method, Submission};
 use pdf_model::view::{Entered, Markup, WidgetAppearances};
 use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::Confinement;
@@ -1810,6 +1811,8 @@ mod event_kind {
     pub(super) const ASKING: u8 = 16;
     pub(super) const WARNED: u8 = 17;
     pub(super) const ATTACHMENTS_CHANGED: u8 = 18;
+    /// §12.7.6.2's composed submission, for a host with a network. ADR 1062.
+    pub(super) const SUBMIT: u8 = 19;
 }
 
 /// Encodes one event.
@@ -1863,6 +1866,29 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
         }
         Event::OpenUri { document, uri } => {
             writer.u8(k::OPEN_URI).document(*document).str(uri);
+        }
+        // §12.7.6.2. `owed` does not cross: `interact::perform` has already put every sentence
+        // of it into an `Event::Reported`, and carrying the same words twice would have a host
+        // print them twice.
+        Event::Submit {
+            document,
+            submission,
+        } => {
+            writer
+                .u8(k::SUBMIT)
+                .document(*document)
+                .str(&submission.url)
+                .u8(match submission.method {
+                    Method::Get => 0,
+                    Method::Post => 1,
+                })
+                .u8(match submission.format {
+                    Format::Fdf => 0,
+                    Format::HtmlForm => 1,
+                    Format::Pdf => 2,
+                })
+                .usize(submission.fields)
+                .bytes(&submission.body);
         }
         Event::NeedsFile {
             document,
@@ -2039,6 +2065,36 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             min: Point::new(reader.f32("a rectangle")?, reader.f32("a rectangle")?),
             max: Point::new(reader.f32("a rectangle")?, reader.f32("a rectangle")?),
         }),
+        k::SUBMIT => Event::Submit {
+            document: reader.document(what)?,
+            submission: Box::new(Submission {
+                url: reader.string("a submission's URL")?,
+                method: match reader.u8("a submission's method")? {
+                    0 => Method::Get,
+                    1 => Method::Post,
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "a submission's method",
+                            value: u32::from(value),
+                        });
+                    }
+                },
+                format: match reader.u8("a submission's format")? {
+                    0 => Format::Fdf,
+                    1 => Format::HtmlForm,
+                    2 => Format::Pdf,
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "a submission's format",
+                            value: u32::from(value),
+                        });
+                    }
+                },
+                fields: reader.usize("a submission's field count")?,
+                body: reader.owned_bytes("a submission's body")?,
+                owed: Vec::new(),
+            }),
+        },
         k::OPEN_URI => Event::OpenUri {
             document: reader.document(what)?,
             uri: reader.string("a URI")?,
@@ -3755,6 +3811,32 @@ mod tests {
                 notes: Vec::new(),
             },
             Event::AttachmentsChanged { document },
+            // §12.7.6.2. `owed` is deliberately empty on the far side — `interact::perform` has
+            // already sent those sentences as an `Event::Reported`, so the encoder drops them
+            // rather than have a host print them twice, and this pins that rather than hiding
+            // it: an `owed` built here would come back empty and fail the comparison.
+            Event::Submit {
+                document,
+                submission: Box::new(Submission {
+                    url: "https://example.invalid/cgi?x=1".to_owned(),
+                    method: Method::Post,
+                    format: Format::Fdf,
+                    body: b"%FDF-1.2\n".to_vec(),
+                    fields: 3,
+                    owed: Vec::new(),
+                }),
+            },
+            Event::Submit {
+                document,
+                submission: Box::new(Submission {
+                    url: "https://example.invalid/cgi".to_owned(),
+                    method: Method::Get,
+                    format: Format::HtmlForm,
+                    body: Vec::new(),
+                    fields: 0,
+                    owed: Vec::new(),
+                }),
+            },
             Event::Reported {
                 document,
                 page: Some(0),
