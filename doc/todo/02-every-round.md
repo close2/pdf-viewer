@@ -855,10 +855,29 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    `tools/batch.sh gates` for tiers 2 and 3 (about twelve minutes; one line per gate in the log, a
    failure's tail beside it). A moved ratchet is moved *with its reason above the constant*; a bare
    count that can only rise is replaced by a named population (`REFUSED_OPEN` is the shape).
-5. **Commit in the worktree, then on `main`:** `git merge --ff-only <branch>` — a fast-forward
-   makes `main` byte-identical to the tree the gates ran on, so no second sequence is owed. Check
-   `git show --raw HEAD | grep -E '^:1[26]0000'` prints nothing. Then `tools/batch.sh close`.
+5. **Commit in the worktree, then fast-forward `main` — from the main checkout,
+   `git merge --ff-only <branch>`, never from inside the
+   worktree.** Run inside the worktree, that command merges the branch into itself, exits 0, and
+   prints the branch's own HEAD where a reader expects `main`'s; the merge of sessions 1038–1043
+   did exactly that and then closed the batch, deleting the only ref to its commit (recovered from
+   the object store because nothing had run `gc`). `tools/batch.sh close` now refuses a branch
+   `main` lacks commits from, and refuses to run from inside the worktree — but the order is the
+   rule, the guard is the net. Leave nothing uncommitted on `main` while a batch is open: an
+   uncommitted file there refuses the fast-forward. A fast-forward makes `main` byte-identical to
+   the tree the gates ran on, so no second sequence is owed. Check `git show --raw HEAD | grep -E
+   '^:1[26]0000'` prints nothing, and `git log --oneline -1` on `main` names the batch commit.
+   Then `tools/batch.sh close`, from the main checkout.
 6. **Commit only, never push** (owner, 2026-09-07). Then the next batch.
+7. **When a quota kills a batch mid-flight**, the notification's last visible line ("I'll start by
+   reading…") is the round's *first* message, not its last act. The six rounds of sessions
+   1044–1049 died with 967 insertions across 21 files, a finished record, an ADR and an
+   unbuildable crate in the worktree. Before relaunching: `git -C /home/AI/pdf-viewer-rounds
+   status --short` and `cargo check --workspace --all-targets`. Then relaunch the *same*
+   contracts, and message each new round the list of its predecessor's files — "you own it:
+   read it, keep what is right, finish or revert" — naming the crate that does not build and
+   which round owns it. Each resumed round read its predecessor against the clause and found
+   real defects in the draft (a decoded-to-empty value, a wrong media type, a struck sentence
+   quoted as current), which is why the handover says *read*, not *continue*.
 
 Where the closable rows are is a question for the ledger, not this file:
 `cargo run -p conformance --bin ledger` prints the status counts, and `doc/todo/01` is the reading
