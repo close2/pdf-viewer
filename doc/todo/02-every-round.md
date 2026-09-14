@@ -824,3 +824,41 @@ verbatim, and never paraphrases the round's own reading in the owner's voice.
   the two-hundred-and-sixty-fifth session — a text annotation attached to a point, drawn as
   nothing — on a page the ranking rated harmless because a nearly blank page resembles a nearly
   blank page.
+
+## 8. A batch of rounds, and the merge that follows it
+
+This is the loop an orchestrating session runs; a single round reads §1–§7 and stops. It exists
+here because a session that resumes after a quota should find the loop in the tree, not in the
+memory of the session the quota ended. `tools/batch.sh` is the command; this is the reason.
+
+1. **Open one worktree for the whole batch**: `tools/batch.sh open batch-<first>-<last>`. Six
+   rounds share it on one short-lived branch, gitignored data symlinked in, and every submodule
+   pinned `--skip-worktree` so no `git add` can stage a symlink over a gitlink.
+2. **Brief each round with the ledger rows it must close — by number, never by topic.** A round
+   briefed "work on partial rows" writes prose; one briefed "close §8.4.5 and §9.9.1" writes code.
+   Over 58 sessions of topic briefs, one row of 875 changed status and it went backwards; over the
+   first 24 rounds of row briefs, 27 did (ADR 1036, `doc/reviews/1012`). The brief carries: read the
+   **clause**, never the row's note (every real defect of those rounds came from a clause, and none
+   from a sweep's count — `doc/habits/measuring.md`); tier 1 plus only the tier 2 lines the change
+   reaches; one record ≤40 lines; an ADR only for a decision a later round must not re-litigate;
+   ledger notes use only `\\ \" \n \t` (a `\uXXXX` blocks tier 1 for the whole worktree); no
+   `git stash`, no `git checkout -- .`, no unscoped `cargo fmt --all`, no whole-file `cp` restore;
+   stop runs by pid. Take from both denominators: four slots on ledger rows, one on what the corpus
+   names, one on instruments — and a sweep's count is not a finding until ten of its hits have
+   been read against the standard.
+3. **Verify each report against the standard before believing it.** `grep -n` the quoted sentence
+   in `doc/md/`, and find its enclosing `##` heading. Rounds have cited a real sentence under the
+   wrong clause, named a file that does not exist, and attributed their own lint errors to a
+   sibling; the merge is where that is caught.
+4. **When all are in**: `cargo fmt --all` (now safe — nobody is editing), tier 1 in full, then
+   `tools/batch.sh gates` for tiers 2 and 3 (about twelve minutes; one line per gate in the log, a
+   failure's tail beside it). A moved ratchet is moved *with its reason above the constant*; a bare
+   count that can only rise is replaced by a named population (`REFUSED_OPEN` is the shape).
+5. **Commit in the worktree, then on `main`:** `git merge --ff-only <branch>` — a fast-forward
+   makes `main` byte-identical to the tree the gates ran on, so no second sequence is owed. Check
+   `git show --raw HEAD | grep -E '^:1[26]0000'` prints nothing. Then `tools/batch.sh close`.
+6. **Commit only, never push** (owner, 2026-09-07). Then the next batch.
+
+Where the closable rows are is a question for the ledger, not this file:
+`cargo run -p conformance --bin ledger` prints the status counts, and `doc/todo/01` is the reading
+list. Open questions for the owner are `doc/questions/Q*.md` with no `A` beside them (§6a).
