@@ -37,6 +37,7 @@
 )]
 
 use std::fmt::Write as _;
+use std::path::Path;
 
 use pdf_model::{Interpretation, Unsupported};
 use pdf_syntax::Document;
@@ -160,6 +161,63 @@ fn an_operator_with_too_few_operands_is_unchanged() {
     assert!(
         !format!("{:?}", interpretation.display_list).contains("Fill"),
         "three operands do not make a rectangle"
+    );
+}
+
+/// And the page says so. "[A]ll of the operands needed by an operator shall immediately
+/// precede that operator" is a count as well as a position, and an operator short of it was
+/// refused in silence until the thousand-and-forty-second session — a `cm` short of a number
+/// would have left every later mark under the previous matrix and said nothing.
+#[test]
+fn an_operator_short_of_operands_is_reported() {
+    let interpretation = interpretation("10 10 100 re f");
+    assert_eq!(
+        interpretation.unsupported,
+        vec![Unsupported::OperandShortfall {
+            operator: "re".to_owned(),
+            given: 3,
+            takes: 4,
+        }],
+        "three operands where Table 58 states four is a refusal the page has to name"
+    );
+}
+
+/// `issue2391-1.pdf` is the witness, and it breaks the clause twice in three tokens:
+/// `undefined 10 Tf`. The keyword is one §7.8.2 does not recognise — "an error shall occur" —
+/// and it leaves the `Tf` behind it one operand where Table 103 states two. This tree reported
+/// the first and was silent about the second, which is the one of the two `poppler` blanks the
+/// whole page on; `mupdf`, `ghostscript` and `hayro` draw the line, as this tree does, because
+/// the `/R8 10 Tf` that follows sets the font the show needs.
+#[test]
+fn the_witness_reports_both_of_its_defects_and_draws_its_line() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue2391-1.pdf");
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    let document = Document::open(bytes).expect("issue2391-1.pdf opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("issue2391-1.pdf has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert_eq!(
+        interpretation.unsupported,
+        vec![
+            Unsupported::Operator {
+                operator: "undefined".to_owned(),
+            },
+            Unsupported::OperandShortfall {
+                operator: "Tf".to_owned(),
+                given: 1,
+                takes: 2,
+            },
+        ],
+        "the keyword and the operator it left short are two defects, and the page names both"
+    );
+    let drawn = format!("{:?}", interpretation.display_list);
+    assert!(
+        drawn.contains("Glyph") || drawn.contains("Fill"),
+        "the `Tf` that follows sets the font, so the line is drawn"
     );
 }
 

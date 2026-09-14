@@ -207,14 +207,14 @@ impl Interpreter<'_> {
         // sequence — has said: the form is part of that sequence rather than a container of its
         // own.
         let outer_structure = self.enter_stream_structure(named, &stream.dict);
-        let Some(group) = self.transparency_group(&stream.dict) else {
-            self.run(&data, &form_resources, &inner);
-            self.leave_stream_structure(outer_structure);
-            self.stream = outer_stream;
-            self.base = outer_base;
-            return;
-        };
-        self.run_transparency_group(&group, &data, &form_resources, &inner, state);
+        self.enter_ledger_frame(super::ledger::Route::Form, named);
+        match self.transparency_group(&stream.dict) {
+            None => self.run(&data, &form_resources, &inner),
+            Some(group) => {
+                self.run_transparency_group(&group, &data, &form_resources, &inner, state);
+            }
+        }
+        self.leave_ledger_frame();
         self.leave_stream_structure(outer_structure);
         self.stream = outer_stream;
         self.base = outer_base;

@@ -367,6 +367,22 @@ impl Type3Font {
             .cloned()
     }
 
+    /// The object a character code's glyph description is, where `/CharProcs` names it by
+    /// reference — which §7.3.8.1 requires of a stream, so this is `None` only for a code that
+    /// reaches no description or a `/CharProcs` that is not what Table 110 says.
+    ///
+    /// The identity rather than the stream: [`Self::glyph`] resolves, and a caller that has to
+    /// say *which* stream ran — the content ledger — needs the reference that resolving loses.
+    #[must_use]
+    pub fn glyph_reference(&self, document: &Document, code: u32) -> Option<ObjectId> {
+        let code = u8::try_from(code).ok()?;
+        let name = self.encoding.get(&code)?;
+        // The `/CharProcs` dictionary itself may be a reference this font holds resolved, so
+        // the entry is read out of the dictionary in hand and left unresolved.
+        let _ = document;
+        self.char_procs.get_by_name(name)?.as_reference()
+    }
+
     /// The glyph name §9.6.4 step a) maps a code to, which is what step b) then looks up.
     ///
     /// Separate from [`Self::glyph`] because a report about a glyph description names the

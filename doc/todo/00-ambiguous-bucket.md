@@ -910,6 +910,49 @@ constant does not, so nobody had put the two side by side. It is the counted fig
 `ambiguous`, every row is **byte-identical** to the before-run — the same numbers, the same labels
 — and the single row that left is `bug866395.pdf`. Nothing else moved a thousandth.
 
+**The other three of those four were taken in the thousand-and-forty-second session, and the head
+was empty again first** — the ranking printed nothing and the seven verdict counts were the
+thousand-and-thirty-sixth's. Each was rendered by this tree and the four references and *looked at*
+(trap 1), and each is one of principle 5's three cases:
+
+- **`issue4575.pdf` — the file's, and the sentence was the defect.** Its `/I1` writes `/Width
+  /Height` and no `/Height`, against Table 87's two required integers; all five renderers refuse the
+  image and draw the text, and the image would have been one unit square at the origin in any
+  case. The refusal read *missing or invalid /Width*, true of the file twice over without saying
+  either thing; it now names what the entry *is* — the name, the absence, the type, or the value
+  that counts no samples — and `image_dimensions.rs` reads the dictionary out of the file beside it.
+- **`issue2391-1.pdf` — the file's, twice in three tokens, and this tree said it once.** `undefined
+  10 Tf`: §7.8.2's "an error shall occur" for the keyword, which was reported, and the `Tf` it left
+  one operand where Table 103 states two, which was refused *in silence* — as was every operator
+  short of its operands, so a `cm` short of a number would have moved every later mark and said
+  nothing. `Unsupported::OperandShortfall` says it now, the corpus gate prints it under a §7.8.2
+  row of its own, and its whole population is five documents already incomplete for a malformed
+  token beside it. **The reference that disagrees disagrees on the second break, not the first**:
+  `poppler` blanks the whole page, and stripping the tokens one at a time shows it is the
+  one-operand `Tf` that does it. What follows "an error shall occur" is the clause's silence, and
+  drawing on is this tree's choice, shared with `mupdf`, `ghostscript` and `hayro`.
+- **`issue6413.pdf` — the JPEG report is right, and the outlier was never about the JPEG.** Round
+  505 read `mupdf`'s ink (3.55 against 6.3) as the JPEG whose frame contradicts its dictionary.
+  The pixels say otherwise: **no renderer draws that image**, because the form holding it states
+  `/BBox [0 0 0 0]`, and what `mupdf` loses is the *black bar* drawn after the form — whose stream
+  ends `Q W`. A `W` the stream ends on modifies nothing (§8.5.4 has it "modify the effect of the
+  succeeding painting operator"; §8.10.1 makes a form "a self-contained description"); `mupdf`
+  carries it out into the page, where the red bar's fill becomes the clip. The file's, reported now
+  beside `BT` without `ET`; a `W` with no path *in front of* it is deliberately not reported, on ADR
+  0563's argument for `h` — `issue14438.pdf` states one, loses nothing, and all four references
+  agree with us. **And the zero-area BBox is a reading this tree owes, priced**: §8.5.3.3.1's "If a
+  subpath is degenerate (consists entirely of one or more points at the same coordinates), the
+  subpath shall be considered to enclose the single device pixel lying under that point", with
+  §10.7.4's clip as "the set of pixels that would be included by a fill operation", makes the form
+  one pixel rather than nothing, and both rasterisers give a degenerate clip path no coverage. On
+  this document at 72 dpi that pixel's centre lies outside the image's region, so §10.7.4's image
+  rule paints nothing there anyway — "device-dependent and not generally useful", as the clause
+  says of itself — and every reference draws the same blank. Recorded on §8.5.3.3.1's ledger row,
+  not taken in a corpus round.
+
+The four are now all named somewhere in this tree, and the grep over the gate's `incomplete:`
+lines that found them is the standing method for the next empty head.
+
 **Re-run whole in the eight-hundred-and-sixth**, over every page the gate prints as `ambiguous`,
 after the round that gave a patterned stroke its own region (ADR 0735) had gone in and while
 nothing in this round could move a pixel. On this file's own recipe (`-alpha off -colorspace

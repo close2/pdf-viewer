@@ -49,8 +49,13 @@ impl ClipId {
 /// > "Blending colour space"). The resulting colours shall then be interpreted in the
 /// > group's colour space when the group is subsequently composited with its backdrop.
 ///
-/// Where the parent composites on the device's three components, the same construction that
-/// draws §11.4.7's page group applies one scope down, in one of two shapes:
+/// The same construction that draws §11.4.7's page group applies one scope down, in one of
+/// three shapes, and what each resolves *into* is what the parent composites in: the device's
+/// three components where the parent composites on the device, and otherwise the parent's own
+/// channels, with §11.6.6's conversion into the parent — "[i]f colour conversion needs to take
+/// place in order to composite the group into its parent" — composed onto the group's own
+/// conversion out by `pdf-model` before the list is built. A backend resolves one grid, curve
+/// or cube per group and never learns which of the two it was handed.
 ///
 /// - **Four components** ([`crate::blending`]): the group's elements are interpreted twice,
 ///   once carrying the additive complements of cyan, magenta and yellow —

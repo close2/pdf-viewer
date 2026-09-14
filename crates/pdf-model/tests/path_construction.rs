@@ -24,9 +24,11 @@
 )]
 
 use std::fmt::Write as _;
+use std::path::Path;
 
+use pdf_model::Unsupported;
 use pdf_render::{Command, FillRule, PathCommand, Point};
-use pdf_syntax::Document;
+use pdf_syntax::{Document, ObjectId};
 
 /// Builds a one-page fixture whose content stream is `content`.
 fn fixture(content: &str) -> Vec<u8> {
@@ -84,7 +86,7 @@ fn one_path(content: &str) -> Vec<PathCommand> {
 }
 
 /// What interpreting the content stream reported.
-fn reports(content: &str) -> Vec<pdf_model::Unsupported> {
+fn reports(content: &str) -> Vec<Unsupported> {
     let document = Document::open(fixture(content)).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     pdf_model::interpret(&document, &page).unsupported
@@ -327,13 +329,13 @@ fn a_refused_segment_defines_no_current_point_for_the_next_one() {
 ///
 /// §7.8.2 gives a content stream's other error the same shape — "when a PDF reader encounters an
 /// operator in a content stream that it does not recognise, an error shall occur" — and this
-/// program raises that one as an [`pdf_model::Unsupported`] too. Trap 5: a segment the file wrote
+/// program raises that one as an [`Unsupported`] too. Trap 5: a segment the file wrote
 /// and the page does not carry may not pass in silence.
 #[test]
 fn a_segment_with_no_current_point_is_reported() {
     assert_eq!(
         reports("10 10 m 20 20 l f 30 30 l 40 40 l S"),
-        [pdf_model::Unsupported::UndefinedCurrentPoint { segments: 2 }],
+        [Unsupported::UndefinedCurrentPoint { segments: 2 }],
         "both refused segments are counted, and nothing else is reported"
     );
 }
@@ -412,6 +414,74 @@ fn a_clip_with_no_path_at_all_is_not_an_empty_clip() {
         })
         .expect("the fixture fills");
     assert_eq!(clip, None, "no path was stated, so no clip is built");
+}
+
+/// And it is not reported, on the argument ADR 0563 makes for `h` on an empty path: the clip
+/// is what it was and no mark is lost, so a report would only take the page out of the
+/// oracle's judgement (trap 11). `issue14438.pdf` states exactly this and nothing else, and
+/// all four references draw it as this tree does.
+#[test]
+fn a_clip_with_no_path_in_front_of_it_costs_the_page_nothing_to_report() {
+    assert_eq!(reports("W n 0 0 100 100 re f"), vec![]);
+}
+
+/// A `W` the stream ends on modified nothing. §8.5.4 has it "modify the effect of the
+/// succeeding painting operator", and none succeeded it in this stream; nor does it reach the
+/// stream that invoked this one, which §8.10.1 makes "a self-contained description". Reported
+/// like `BT` without `ET`, for the same reason: a stream that ends inside a path object is
+/// malformed, and the alternative readings are not academic — see the witness below.
+#[test]
+fn a_clip_the_stream_ends_on_is_reported() {
+    assert_eq!(
+        reports("0 0 100 100 re f W"),
+        vec![Unsupported::Operator {
+            operator: "W without a path-painting operator after it".to_owned(),
+        }]
+    );
+    assert_eq!(
+        reports("0 0 100 100 re f W*"),
+        vec![Unsupported::Operator {
+            operator: "W* without a path-painting operator after it".to_owned(),
+        }]
+    );
+}
+
+/// `issue6413.pdf`'s form `/Xi0` ends `Q W`, and page one reports it. `mupdf` reads the same
+/// bytes the other way — the pending `W` survives the form, the page's next fill (a red bar)
+/// becomes the clip, and the black bar drawn after it vanishes; `poppler`, `ghostscript` and
+/// `hayro` draw both bars, as this tree does. The form's stream is read out of the file so the
+/// report cannot come to be about some other construct.
+#[test]
+fn the_witness_ends_its_form_on_a_clipping_operator() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue6413.pdf");
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    let document = Document::open(bytes).expect("issue6413.pdf opens");
+    let form = document.get(ObjectId {
+        number: 4,
+        generation: 0,
+    });
+    let stream = form.as_stream().expect("object 4 is the form /Xi0");
+    let content = document
+        .decoded_stream_data(stream)
+        .expect("the form's content decodes");
+    assert!(
+        content.trim_ascii_end().ends_with(b"Q\nW"),
+        "the form's last two tokens are `Q W`: {}",
+        String::from_utf8_lossy(&content)
+    );
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("issue6413.pdf has a page");
+    let reported = pdf_model::interpret(&document, &page).unsupported;
+    assert!(
+        reported.contains(&Unsupported::Operator {
+            operator: "W without a path-painting operator after it".to_owned(),
+        }),
+        "the form's dangling `W` is reported on the page that drew it: {reported:?}"
+    );
 }
 
 /// The fill rule each painting operator selects, ISO 32000-2 §8.5.3.1 Table 59.

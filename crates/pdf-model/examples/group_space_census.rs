@@ -20,6 +20,9 @@
 //! ```sh
 //! cargo run --release -p pdf-model --example group_space_census -- doc/pdf.js/test/pdfs/*.pdf
 //! ```
+//!
+//! An argument of the form `@paths.txt` names a file holding one path per line, for a corpus
+//! too large for one command line — `corpus-cache/safedocs` is sixty-five thousand documents.
 
 #![expect(
     clippy::print_stdout,
@@ -49,6 +52,8 @@ struct Group {
     effective: String,
     /// Whether this group is where that space is introduced, rather than one that inherited it.
     introduces: bool,
+    /// The space in force outside this group: what its result is composited into at its `Do`.
+    parent: String,
     /// Every blend mode any `/ExtGState` the group's own resources reach names.
     blends: BTreeSet<String>,
     /// Every content-stream operator that sets a colour or paints something not a path.
@@ -82,9 +87,22 @@ fn main() {
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
     let mut effective: BTreeMap<String, usize> = BTreeMap::new();
     let mut introduced = 0_usize;
+    // Every group whose space differs from its parent's, keyed `parent -> group`: the
+    // population §11.6.6's conversion out at the `Do` reaches, whichever space either is.
+    let mut changes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut lines: Vec<String> = Vec::new();
 
-    for path in std::env::args().skip(1) {
+    let mut paths: Vec<String> = Vec::new();
+    for argument in std::env::args().skip(1) {
+        if let Some(list) = argument.strip_prefix('@') {
+            if let Ok(text) = std::fs::read_to_string(list) {
+                paths.extend(text.lines().map(str::to_owned));
+            }
+        } else {
+            paths.push(argument);
+        }
+    }
+    for path in paths {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
@@ -145,6 +163,12 @@ fn main() {
             *counter = counter.saturating_add(1);
             let counter = effective.entry(group.effective.clone()).or_default();
             *counter = counter.saturating_add(1);
+            if group.introduces {
+                changes
+                    .entry(format!("{} -> {}", group.parent, group.effective))
+                    .or_default()
+                    .insert(name.clone());
+            }
             if is_device_rgb(&group.effective) {
                 continue;
             }
@@ -182,6 +206,13 @@ fn main() {
     println!("  declared /CS: {declared:?}");
     println!("  effective space: {effective:?}");
     println!("  {introduced} group(s) introduce a space that is not a three-component RGB one");
+    println!("  groups whose space differs from their parent's, as parent -> group, by document:");
+    for (change, names) in &changes {
+        println!("    {change}: {} document(s)", names.len());
+        for name in names {
+            println!("      {name}");
+        }
+    }
     for line in &lines {
         println!("{line}");
     }
@@ -349,6 +380,7 @@ fn read_group(document: &Document, stream: &Stream, inherited: &str) -> Group {
         declared: declared.unwrap_or_else(|| "absent".to_owned()),
         effective,
         introduces,
+        parent: inherited.to_owned(),
         blends: BTreeSet::new(),
         operators: BTreeSet::new(),
         drawn: BTreeSet::new(),

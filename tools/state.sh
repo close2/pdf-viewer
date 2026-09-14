@@ -252,6 +252,9 @@ section_archive() {
     run "the converter over the veraPDF corpus (conforms in, conforms out, no glyph moves)" \
         '^archive |^    answering nothing|not here|^bounded:' \
         tools/bounded.sh -- cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
+    run "the survey's resource selections held to the interpreter's (A61, ADR 1055)" \
+        '^cross-check: |not here|^bounded:' \
+        tools/bounded.sh -- cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture
 }
 
 section_dates() {

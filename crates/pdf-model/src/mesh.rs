@@ -11,6 +11,21 @@
 //! actually draw — carrying a colour at each corner, or, where the shading states a
 //! `/Function`, the parametric value at each corner beside the sampled function.
 //!
+//! # Where the interpolation happens is a `shall` about a space
+//!
+//! §8.7.4.4 makes the shading's `/ColorSpace` the space "in which colour interpolation is
+//! performed", and gives each family a rule. A device space may be converted "at any time
+//! (before or after any interpolation on the colour values in the shading)", so a vertex in one
+//! is converted as it is read and the rasteriser's linear interpolation between device colours is
+//! the clause's own answer. A CIE-based, `Separation` or `DeviceN` space is not: "all gradient
+//! fill calculations shall be performed in that space", and conversion "shall occur only after
+//! all interpolation calculations have been performed". A display list carries device colours,
+//! so a vertex in one of those spaces keeps its [`Components`] here and its triangle is
+//! subdivided until linear interpolation between the converted corners stays within §10.7.3's
+//! tolerance of the conversion of the interpolated components — which is that clause's own
+//! licence, "PDF processors may actually compute colour values only for some subset of the
+//! points in the target area", taken at the tolerance it names. [`Corner::emit`] is the seam.
+//!
 //! # Which of the two a mesh carries is a `shall` about an order
 //!
 //! §8.7.4.5.5: "[a]ll linear interpolation within the triangle mesh shall be done using the t
@@ -64,6 +79,30 @@ use crate::shading::{Colouring, transferred};
 /// start dropping patches out of a real document, which is what makes the two constants one
 /// decision rather than two.
 const PATCH_STEPS: usize = 10;
+
+/// How many times one triangle may be halved along each edge before §8.7.4.4's subdivision
+/// stops and the triangle is emitted as it stands.
+///
+/// Each level quarters the interpolation error of a smooth conversion and multiplies the
+/// triangles by four. A tint transform curving over its whole range — `t²`, the fixture in
+/// `tests/shadings.rs` — starts a quarter of the component range out and is inside §10.7.3's
+/// default tolerance of 1/256 after three levels, so six leaves the same margin again. A
+/// triangle still outside the tolerance at this depth has a conversion that is not smooth at
+/// the scale of the triangle, which is §10.7.3's NOTE 1 — a sampled function "sampled at too low
+/// a frequency, in which case the accuracy defined by the smoothness tolerance cannot be
+/// guaranteed" — and it is emitted and said, not pursued: [`Mesh::coarse`].
+const MAX_REFINEMENT_DEPTH: usize = 6;
+
+/// How many triangles a mesh may hold before §8.7.4.4's subdivision stops adding to it.
+///
+/// Half of [`MAX_TRIANGLES`], so that the document's own triangles always fit ahead of the ones
+/// this crate adds to draw them accurately: a subdivision that ran a mesh into that bound would
+/// have the document's later patches dropped and reported as `max_mesh_triangles`, which is the
+/// wrong sentence for what happened. Past this the remaining triangles are emitted as the file
+/// states them and [`Mesh::coarse`] says so. A subdivision already under way finishes, so the
+/// count may pass this by fewer than `4^MAX_REFINEMENT_DEPTH` triangles, which is under the
+/// other half.
+const REFINED_TRIANGLES: usize = MAX_TRIANGLES / 2;
 
 /// Most triangles one shading may produce.
 ///
@@ -137,6 +176,9 @@ pub(crate) fn read(
         return None;
     }
 
+    // §8.7.4.4's rule for the family, answered once: `Some` is the space the gradient is
+    // calculated in, and `None` is a device space converted as it is read.
+    let interpolation = space.interpolates_in();
     let reader = MeshReader {
         decode,
         components,
@@ -144,6 +186,7 @@ pub(crate) fn read(
         component_bits,
         flag_bits,
         space,
+        interpolation: interpolation.unwrap_or(space),
         functions,
         colouring,
     };
@@ -167,22 +210,38 @@ pub(crate) fn read(
     };
 
     let mut bits = BitReader::new(&data);
-    // The two readings differ only in what a vertex carries, which is what the clause makes
-    // the whole question: components, or the one parametric value the function takes.
-    let ((triangles, truncated), ramp) = if functions.is_empty() {
-        (reader.triangles::<Color>(&mut bits, kind, per_row)?, None)
-    } else {
+    let mut refinement = Refinement::default();
+    // The three readings differ only in what a vertex carries, which is what the two clauses
+    // make the whole question: the one parametric value the function takes (§8.7.4.5.5), the
+    // components of a space the gradient shall be calculated in (§8.7.4.4), or a device colour.
+    let ((triangles, truncated), ramp) = if !functions.is_empty() {
         (
-            reader.triangles::<f32>(&mut bits, kind, per_row)?,
+            reader.triangles::<f32>(&mut bits, kind, per_row, &mut refinement)?,
             Some(reader.ramp()),
+        )
+    } else if interpolation.is_some() {
+        // §10.5's transfer is inside `Components`'s conversion, so it is inside the tolerance.
+        (
+            reader.triangles::<Components>(&mut bits, kind, per_row, &mut refinement)?,
+            None,
+        )
+    } else {
+        let (triangles, truncated) =
+            reader.triangles::<Color>(&mut bits, kind, per_row, &mut refinement)?;
+        (
+            (
+                transferred_corners(triangles, colouring.transfer),
+                truncated,
+            ),
+            None,
         )
     };
 
-    let triangles = transferred_corners(triangles, colouring.transfer);
     (!triangles.is_empty()).then_some(Mesh {
         triangles,
         ramp,
         truncated,
+        coarse: refinement.coarse,
     })
 }
 
@@ -201,9 +260,25 @@ pub(crate) struct Mesh {
     pub(crate) ramp: Option<Ramp>,
     /// [`MAX_TRIANGLES`] stopped the reading with a vertex, a row or a patch still to come.
     pub(crate) truncated: bool,
+    /// [`MAX_REFINEMENT_DEPTH`] or [`REFINED_TRIANGLES`] stopped §8.7.4.4's subdivision with a
+    /// triangle still outside §10.7.3's tolerance, so somewhere in this mesh a rasteriser's
+    /// linear interpolation between device colours stands in for the clause's interpolation in
+    /// the shading's own space by more than the tolerance allows.
+    pub(crate) coarse: bool,
 }
 
-/// Every corner colour through ISO 32000-2 §10.5's transfer function.
+/// What §8.7.4.4's subdivision has to say for itself once a mesh has been read.
+#[derive(Debug, Default)]
+struct Refinement {
+    /// A bound stopped a subdivision short of the tolerance; see [`Mesh::coarse`].
+    coarse: bool,
+}
+
+/// Every corner colour through ISO 32000-2 §10.5's transfer function, on the device-space route.
+///
+/// A mesh in a space §8.7.4.4 has the gradient calculated in does not come this way: its
+/// [`Components`] are converted after the subdivision and the transfer is inside that
+/// conversion, so the tolerance the subdivision is measured against includes it.
 ///
 /// **After the subdivision rather than before it**, which is the whole reason this is a pass over
 /// the finished triangles instead of a line inside `Corner::read`. §8.7.4.5.7 makes the colour
@@ -279,31 +354,108 @@ fn decode_ranges(document: &Document, dict: &Dictionary) -> Option<Vec<(f32, f32
 }
 
 /// One vertex: where it is and what it carries — a colour, or §8.7.4.5.5's parameter.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Vertex<C> {
     point: Point,
     corner: C,
 }
 
-/// What a vertex carries, and the two things the reader does with it.
+impl<C: Corner> Vertex<C> {
+    /// The vertex halfway to `other`, in position and in what it carries.
+    ///
+    /// Straight in both: the geometry inside a mesh triangle is linear by §8.7.4.5.5, and the
+    /// carried quantity is linear in the space this reader interpolates it in.
+    fn midpoint(&self, other: &Self) -> Self {
+        Self {
+            point: Point::new(
+                (self.point.x + other.point.x) * 0.5,
+                (self.point.y + other.point.y) * 0.5,
+            ),
+            corner: self.corner.mix(&other.corner, 0.5),
+        }
+    }
+}
+
+/// What a vertex carries, and the three things the reader does with it.
 ///
 /// A mesh states either a colour per vertex or one parametric value per vertex, and the
-/// clause makes that a choice about *what is interpolated* rather than about a format. The
-/// reading of the stream is identical either way — the flags, the lattice, the patches and
-/// their shared edges — so the difference between the two lives here and nowhere else.
-trait Corner: Copy {
+/// clause makes that a choice about *what is interpolated* rather than about a format — and
+/// §8.7.4.4 then makes a colour's own space a third answer to the same question. The reading
+/// of the stream is identical in all three cases — the flags, the lattice, the patches and
+/// their shared edges — so the difference between them lives here and nowhere else.
+trait Corner: Clone {
     /// Reads one vertex's worth of the stream.
     fn read(reader: &MeshReader<'_>, bits: &mut BitReader<'_>) -> Option<Self>;
 
     /// The value `t` of the way from `self` to `other`, which a patch's interior needs.
-    fn mix(self, other: Self, t: f32) -> Self;
-
-    /// Three of these as the display list carries them.
-    fn corners(values: [Self; 3]) -> Corners;
+    fn mix(&self, other: &Self, t: f32) -> Self;
 
     /// A value for a patch slot the stream is about to fill, so that a patch's four corners
     /// can be an array before all four have been read.
     fn placeholder() -> Self;
+
+    /// Appends the triangles a rasteriser draws for this one.
+    ///
+    /// One triangle wherever a rasteriser's linear interpolation between its corners *is* the
+    /// clause's answer — device colours, or §8.7.4.5.5's parameter — and, for [`Components`],
+    /// as many as §8.7.4.4 needs. `refinement` is where the last of those says a bound stopped
+    /// it. Every triangle goes through here so that the bound the callers count,
+    /// [`MAX_TRIANGLES`], counts what was actually emitted.
+    fn emit(
+        reader: &MeshReader<'_>,
+        vertices: [Vertex<Self>; 3],
+        out: &mut Vec<Triangle>,
+        refinement: &mut Refinement,
+    );
+
+    /// Appends the triangles of one tessellated patch: `points` and `corners` are the
+    /// [`PATCH_STEPS`]` + 1` square grid [`tessellate`] evaluated, `u`-major.
+    ///
+    /// Two triangles per cell through [`Self::emit`], which is the whole of it for a colour or
+    /// a parameter. [`Components`] overrides it, because a patch is where §8.7.4.4's
+    /// conversion-after-interpolation has a cost worth measuring — 121 conversions a patch where
+    /// the file's own route needed four — and a patch is also where one question, asked once,
+    /// answers for two hundred triangles.
+    fn emit_patch(
+        reader: &MeshReader<'_>,
+        points: &[Point],
+        corners: &[Self],
+        out: &mut Vec<Triangle>,
+        refinement: &mut Refinement,
+    ) {
+        for (_, _, a, b, c, d) in patch_cells() {
+            let corner = |index: usize| Vertex {
+                point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),
+                corner: corners
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(Self::placeholder),
+            };
+            Self::emit(reader, [corner(a), corner(b), corner(c)], out, refinement);
+            Self::emit(reader, [corner(b), corner(d), corner(c)], out, refinement);
+        }
+    }
+}
+
+/// The cells of a tessellated patch as `(u, v)` and the grid indices of their four corners —
+/// `(u, v)`, `(u, v+1)`, `(u+1, v)`, `(u+1, v+1)` — in the order [`tessellate`] documents: `v`
+/// outer, so that the last cell written over any point is the one with the largest `v`
+/// (ADR 0778).
+fn patch_cells() -> impl Iterator<Item = (usize, usize, usize, usize, usize, usize)> {
+    let stride = PATCH_STEPS.saturating_add(1);
+    let at = move |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
+    (0..PATCH_STEPS).flat_map(move |v_step| {
+        (0..PATCH_STEPS).map(move |u_step| {
+            (
+                u_step,
+                v_step,
+                at(u_step, v_step),
+                at(u_step, v_step.saturating_add(1)),
+                at(u_step.saturating_add(1), v_step),
+                at(u_step.saturating_add(1), v_step.saturating_add(1)),
+            )
+        })
+    })
 }
 
 impl Corner for Color {
@@ -316,22 +468,271 @@ impl Corner for Color {
         Some(reader.colouring.into.paint(reader.space, &values))
     }
 
-    fn mix(self, other: Self, t: f32) -> Self {
-        Color {
-            r: self.r + (other.r - self.r) * t,
-            g: self.g + (other.g - self.g) * t,
-            b: self.b + (other.b - self.b) * t,
-            a: self.a + (other.a - self.a) * t,
-        }
-    }
-
-    fn corners(values: [Self; 3]) -> Corners {
-        Corners::Colours(values)
+    fn mix(&self, other: &Self, t: f32) -> Self {
+        mix_colour(*self, *other, t)
     }
 
     fn placeholder() -> Self {
         Color::BLACK
     }
+
+    fn emit(
+        _: &MeshReader<'_>,
+        vertices: [Vertex<Self>; 3],
+        out: &mut Vec<Triangle>,
+        _: &mut Refinement,
+    ) {
+        let [a, b, c] = vertices;
+        out.push(Triangle {
+            points: [a.point, b.point, c.point],
+            corners: Corners::Colours([a.corner, b.corner, c.corner]),
+        });
+    }
+}
+
+/// The colour `t` of the way from `from` to `to`, channel by channel — what a rasteriser does
+/// between two corners it is handed, written once so the tolerance below measures the same
+/// arithmetic.
+fn mix_colour(from: Color, to: Color, t: f32) -> Color {
+    Color {
+        r: from.r + (to.r - from.r) * t,
+        g: from.g + (to.g - from.g) * t,
+        b: from.b + (to.b - from.b) * t,
+        a: from.a + (to.a - from.a) * t,
+    }
+}
+
+/// A vertex's colour as the components the file states, in the space ISO 32000-2 §8.7.4.4 has
+/// the gradient calculated in.
+///
+/// > If ColorSpace is a CIE-based colour space, all gradient fill calculations shall be
+/// > performed in that space. Conversion to device colours shall occur only after all
+/// > interpolation calculations have been performed.
+///
+/// and, of a `Separation` or `DeviceN` space,
+///
+/// > In that case, gradient fill calculations shall be performed in the designated Separation
+/// > or DeviceN colour space before conversion to the alternate space. Thus, nonlinear tint
+/// > transformation functions shall be accommodated for an optimal representation of the
+/// > shading.
+///
+/// An `Indexed` space's values "shall be immediately converted to the base colour space", which
+/// [`ColourSpace::entry_of`] is, and the base's rule then applies.
+///
+/// A display list carries device colours, so what leaves here is still a triangle with a colour
+/// at each corner — but as many triangles as it takes for linear interpolation between those
+/// corners to stay within §10.7.3's tolerance of the conversion of the interpolated components.
+/// [`MeshReader::refine`] is the subdivision.
+#[derive(Debug, Clone)]
+struct Components(Vec<f32>);
+
+impl Corner for Components {
+    fn read(reader: &MeshReader<'_>, bits: &mut BitReader<'_>) -> Option<Self> {
+        let mut values = Vec::with_capacity(reader.components);
+        for index in 0..reader.components {
+            let raw = bits.read(reader.component_bits)?;
+            values.push(reader.decode_at(index.checked_add(2)?, raw, reader.component_bits));
+        }
+        Some(Self(reader.space.entry_of(&values)))
+    }
+
+    fn mix(&self, other: &Self, t: f32) -> Self {
+        Self(
+            self.0
+                .iter()
+                .zip(other.0.iter())
+                .map(|(from, to)| from + (to - from) * t)
+                .collect(),
+        )
+    }
+
+    fn placeholder() -> Self {
+        Self(Vec::new())
+    }
+
+    fn emit(
+        reader: &MeshReader<'_>,
+        vertices: [Vertex<Self>; 3],
+        out: &mut Vec<Triangle>,
+        refinement: &mut Refinement,
+    ) {
+        let colours = vertices
+            .each_ref()
+            .map(|vertex| reader.colour_of(&vertex.corner));
+        reader.refine(vertices, colours, 0, out, refinement);
+    }
+
+    /// A patch, asked once whether its conversion is linear across it.
+    ///
+    /// **Measured before it was written** (`examples/open_one`, `personwithdog.pdf`, two
+    /// `DeviceN` tensor meshes of some three hundred patches): converting every grid vertex and
+    /// every triangle's midpoints through a type 4 tint transform took the page from 92 ms to
+    /// 2.6 s and moved no pixel, because the transform is linear and the subdivision never
+    /// fired. So the question is asked of the *patch* first, at nine of its grid vertices — the
+    /// four corners, whose colours the file's own route would have converted anyway, the four
+    /// edge midpoints and the centre. Where the five converted colours agree with the bilinear
+    /// mix of the four corner colours to §10.7.3's tolerance, the conversion is linear across
+    /// this patch to that tolerance and the grid's colours *are* that mix: nine conversions a
+    /// patch against four, and the same triangles as before. Where they do not, every grid
+    /// vertex is converted — which is the clause's requirement paid in full — and each cell is
+    /// asked in turn, from the converted grid alone, whether a rasteriser's plane through its
+    /// corners is within tolerance of the conversion: [`cell_error`] is the estimate, and a cell
+    /// it cannot clear goes to [`MeshReader::refine`], which measures rather than estimates.
+    fn emit_patch(
+        reader: &MeshReader<'_>,
+        points: &[Point],
+        corners: &[Self],
+        out: &mut Vec<Triangle>,
+        refinement: &mut Refinement,
+    ) {
+        let stride = PATCH_STEPS.saturating_add(1);
+        let at = |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
+        let convert = |index: usize| {
+            corners
+                .get(index)
+                .map_or(Color::BLACK, |components| reader.colour_of(components))
+        };
+        // The four corners in `bilinear`'s order: (0,0), (0,1), (1,1), (1,0).
+        let last = PATCH_STEPS;
+        let corner_colours = [
+            convert(at(0, 0)),
+            convert(at(0, last)),
+            convert(at(last, last)),
+            convert(at(last, 0)),
+        ];
+        let mixed = |u_step: usize, v_step: usize| {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "PATCH_STEPS is a small constant"
+            )]
+            let (u, v) = (
+                u_step as f32 / PATCH_STEPS as f32,
+                v_step as f32 / PATCH_STEPS as f32,
+            );
+            let top = mix_colour(corner_colours[0], corner_colours[1], v);
+            let bottom = mix_colour(corner_colours[3], corner_colours[2], v);
+            mix_colour(top, bottom, u)
+        };
+        let tolerance = reader.tolerance();
+        let mid = PATCH_STEPS / 2;
+        let linear = [(mid, 0), (mid, last), (0, mid), (last, mid), (mid, mid)]
+            .into_iter()
+            .all(|(u, v)| within(convert(at(u, v)), mixed(u, v), tolerance));
+
+        let colours: Vec<Color> = if linear {
+            (0..stride)
+                .flat_map(|u| (0..stride).map(move |v| (u, v)))
+                .map(|(u, v)| mixed(u, v))
+                .collect()
+        } else {
+            (0..corners.len()).map(convert).collect()
+        };
+
+        for (u_step, v_step, a, b, c, d) in patch_cells() {
+            let colour = |index: usize| colours.get(index).copied().unwrap_or(Color::BLACK);
+            let (ca, cb, cc, cd) = (colour(a), colour(b), colour(c), colour(d));
+            if linear || cell_error(&colours, u_step, v_step) <= tolerance {
+                let point =
+                    |index: usize| points.get(index).copied().unwrap_or(Point::new(0.0, 0.0));
+                out.push(Triangle {
+                    points: [point(a), point(b), point(c)],
+                    corners: Corners::Colours([ca, cb, cc]),
+                });
+                out.push(Triangle {
+                    points: [point(b), point(d), point(c)],
+                    corners: Corners::Colours([cb, cd, cc]),
+                });
+                continue;
+            }
+            let vertex = |index: usize| Vertex {
+                point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),
+                corner: corners
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(Self::placeholder),
+            };
+            reader.refine(
+                [vertex(a), vertex(b), vertex(c)],
+                [ca, cb, cc],
+                0,
+                out,
+                refinement,
+            );
+            reader.refine(
+                [vertex(b), vertex(d), vertex(c)],
+                [cb, cd, cc],
+                0,
+                out,
+                refinement,
+            );
+        }
+    }
+}
+
+/// An estimate of how far a rasteriser's linear interpolation across the cell at `(u, v)` of a
+/// converted patch grid can stray from the conversion, from the grid alone.
+///
+/// Linear interpolation of a twice-differentiable function over a step `h` errs by at most
+/// `h²·|f″|/8`, and `h²·f″` is what a central second difference of the grid measures — so along
+/// each axis the bound is an eighth of the largest second difference at the cell's corners,
+/// taken one cell in from the grid's edge where a corner has no neighbour on one side. The plane
+/// through three corners also misses the bilinear term of a quadrilateral cell, which the mixed
+/// difference `f(u+1,v+1) − f(u+1,v) − f(u,v+1) + f(u,v)` measures and which reaches a quarter of
+/// itself at the cell's centre. Summed, and taken over every channel, because §10.7.3 asks for
+/// "the maximum independent error". What the estimate cannot see is a conversion that turns
+/// between two grid vertices and back, which is the sampled-function case §10.7.3's NOTE 1
+/// concedes; what it costs is nothing, since every value in it was converted already.
+fn cell_error(colours: &[Color], u: usize, v: usize) -> f32 {
+    let stride = PATCH_STEPS.saturating_add(1);
+    let colour = |u: usize, v: usize| {
+        colours
+            .get(u.saturating_mul(stride).saturating_add(v))
+            .copied()
+            .unwrap_or(Color::BLACK)
+    };
+    let channels = |colour: Color| [colour.r, colour.g, colour.b, colour.a];
+    let second = |back: Color, centre: Color, forward: Color| {
+        let (back, centre, forward) = (channels(back), channels(centre), channels(forward));
+        (0..4)
+            .map(|channel| (back[channel] - 2.0 * centre[channel] + forward[channel]).abs())
+            .fold(0.0_f32, f32::max)
+    };
+    // A second difference centred on the cell's first corner reaches one step back and one
+    // centred on its second reaches one step forward; at the grid's edge, where there is no such
+    // neighbour, the difference one cell in is the nearest measurement there is.
+    let (u_next, v_next) = (u.saturating_add(1), v.saturating_add(1));
+    let along_u = second(
+        colour(u.saturating_sub(1), v),
+        colour(u, v),
+        colour(u_next, v),
+    )
+    .max(second(
+        colour(u, v),
+        colour(u_next, v),
+        colour(u_next.saturating_add(1).min(PATCH_STEPS), v),
+    ));
+    let along_v = second(
+        colour(u, v.saturating_sub(1)),
+        colour(u, v),
+        colour(u, v_next),
+    )
+    .max(second(
+        colour(u, v),
+        colour(u, v_next),
+        colour(u, v_next.saturating_add(1).min(PATCH_STEPS)),
+    ));
+    let mixed = {
+        let (pa, pb, pc, pd) = (
+            channels(colour(u, v)),
+            channels(colour(u, v_next)),
+            channels(colour(u_next, v)),
+            channels(colour(u_next, v_next)),
+        );
+        (0..4)
+            .map(|channel| (pd[channel] - pc[channel] - pb[channel] + pa[channel]).abs())
+            .fold(0.0_f32, f32::max)
+    };
+    (along_u + along_v) / 8.0 + mixed / 4.0
 }
 
 impl Corner for f32 {
@@ -340,16 +741,25 @@ impl Corner for f32 {
         Some(reader.fraction_of_range(reader.decode_at(2, raw, reader.component_bits)))
     }
 
-    fn mix(self, other: Self, t: f32) -> Self {
+    fn mix(&self, other: &Self, t: f32) -> Self {
         self + (other - self) * t
-    }
-
-    fn corners(values: [Self; 3]) -> Corners {
-        Corners::Parameters(values)
     }
 
     fn placeholder() -> Self {
         0.0
+    }
+
+    fn emit(
+        _: &MeshReader<'_>,
+        vertices: [Vertex<Self>; 3],
+        out: &mut Vec<Triangle>,
+        _: &mut Refinement,
+    ) {
+        let [a, b, c] = vertices;
+        out.push(Triangle {
+            points: [a.point, b.point, c.point],
+            corners: Corners::Parameters([a.corner, b.corner, c.corner]),
+        });
     }
 }
 
@@ -361,6 +771,10 @@ struct MeshReader<'a> {
     component_bits: u32,
     flag_bits: u32,
     space: &'a ColourSpace,
+    /// The space §8.7.4.4 has the gradient calculated in — `space` itself, or an `Indexed`
+    /// space's base — and the one a [`Components`] vertex is converted from. Read by nothing on
+    /// the other two routes.
+    interpolation: &'a ColourSpace,
     functions: &'a [Function],
     /// §10.7.3's resolution, §8.6.5.9's conversion and §10.5's transfer, which every colour a
     /// mesh produces needs.
@@ -380,13 +794,151 @@ impl MeshReader<'_> {
         bits: &mut BitReader<'_>,
         kind: i64,
         per_row: usize,
+        refinement: &mut Refinement,
     ) -> Option<(Vec<Triangle>, bool)> {
         match kind {
-            4 => Some(self.free_form::<C>(bits)),
-            5 => Some(self.lattice::<C>(bits, per_row)),
-            6 | 7 => Some(self.patches::<C>(bits, kind == 7)),
+            4 => Some(self.free_form::<C>(bits, refinement)),
+            5 => Some(self.lattice::<C>(bits, per_row, refinement)),
+            6 | 7 => Some(self.patches::<C>(bits, kind == 7, refinement)),
             _ => None,
         }
+    }
+
+    /// §10.7.3's tolerance, as the fraction of a component's range it is stated in.
+    ///
+    /// [`Colouring::resolution`] is the sample count `Ramp::resolution_for` derived from the
+    /// same tolerance — at least `1/t` samples for a tolerance of `t` — so the reciprocal is
+    /// the tolerance as this device honours it, and a mesh and a ramp under one graphics state
+    /// answer to one number.
+    fn tolerance(&self) -> f32 {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a sample count between 256 and 4096, exact in an f32"
+        )]
+        let resolution = self.colouring.resolution as f32;
+        1.0 / resolution
+    }
+
+    /// The device colour a set of components in [`Self::interpolation`] becomes: §8.6.5.9's
+    /// conversion, then §10.5's transfer.
+    fn colour_of(&self, components: &Components) -> Color {
+        transferred(
+            self.colouring.into.paint(self.interpolation, &components.0),
+            self.colouring.transfer,
+        )
+    }
+
+    /// Emits `vertices` as one triangle where a rasteriser's linear interpolation between
+    /// `colours` stays within §10.7.3's tolerance of §8.7.4.4's answer, and as four otherwise,
+    /// each asked the same question.
+    ///
+    /// The question is asked at the three edge midpoints and the centroid: the clause's colour
+    /// there is the conversion of the interpolated components, the rasteriser's is the same mix
+    /// of the converted corners, and §10.7.3 says how the two are compared — "[t]he error shall
+    /// be measured for each colour component, and the maximum independent error shall be used."
+    /// Four points see a conversion that curves across the triangle; what they cannot see is
+    /// one that steps between them, which the clause's NOTE 1 already concedes of a sampled
+    /// function. A triangle whose corners state one colour is emitted unasked, since nothing
+    /// between them can differ.
+    ///
+    /// The four children are emitted in a fixed order, and the parent's place in the mesh's
+    /// order is the place all four take: §8.7.4.5.7's precedence between patches, and within
+    /// one, is by emission order, and a subdivision keeps it.
+    fn refine(
+        &self,
+        vertices: [Vertex<Components>; 3],
+        colours: [Color; 3],
+        depth: usize,
+        out: &mut Vec<Triangle>,
+        refinement: &mut Refinement,
+    ) {
+        let emit = |out: &mut Vec<Triangle>, vertices: &[Vertex<Components>; 3]| {
+            out.push(Triangle {
+                points: [vertices[0].point, vertices[1].point, vertices[2].point],
+                corners: Corners::Colours(colours),
+            });
+        };
+        let [a, b, c] = &vertices;
+        if a.corner.0 == b.corner.0 && b.corner.0 == c.corner.0 {
+            emit(out, &vertices);
+            return;
+        }
+
+        let midpoints = [a.midpoint(b), b.midpoint(c), c.midpoint(a)];
+        let midpoint_colours = midpoints
+            .each_ref()
+            .map(|vertex| self.colour_of(&vertex.corner));
+        let centroid = Components(
+            a.corner
+                .0
+                .iter()
+                .zip(&b.corner.0)
+                .zip(&c.corner.0)
+                .map(|((x, y), z)| (x + y + z) / 3.0)
+                .collect(),
+        );
+        let centroid_colour = self.colour_of(&centroid);
+        let tolerance = self.tolerance();
+        let along_edges = [(0, 1), (1, 2), (2, 0)].into_iter().all(|(from, to)| {
+            within(
+                midpoint_colours[from],
+                mix_colour(colours[from], colours[to], 0.5),
+                tolerance,
+            )
+        });
+        // A third of the way from the midpoint of one edge to the opposite corner is the
+        // centroid, and a rasteriser's colour there is the same mix of the corner colours.
+        let across = within(
+            centroid_colour,
+            mix_colour(
+                mix_colour(colours[0], colours[1], 0.5),
+                colours[2],
+                1.0 / 3.0,
+            ),
+            tolerance,
+        );
+        if along_edges && across {
+            emit(out, &vertices);
+            return;
+        }
+        if depth >= MAX_REFINEMENT_DEPTH || out.len() >= REFINED_TRIANGLES {
+            refinement.coarse = true;
+            emit(out, &vertices);
+            return;
+        }
+
+        let [a, b, c] = vertices;
+        let [ab, bc, ca] = midpoints;
+        let [ab_colour, bc_colour, ca_colour] = midpoint_colours;
+        let deeper = depth.saturating_add(1);
+        self.refine(
+            [a, ab.clone(), ca.clone()],
+            [colours[0], ab_colour, ca_colour],
+            deeper,
+            out,
+            refinement,
+        );
+        self.refine(
+            [ab.clone(), b, bc.clone()],
+            [ab_colour, colours[1], bc_colour],
+            deeper,
+            out,
+            refinement,
+        );
+        self.refine(
+            [ca.clone(), bc.clone(), c],
+            [ca_colour, bc_colour, colours[2]],
+            deeper,
+            out,
+            refinement,
+        );
+        self.refine(
+            [ab, bc, ca],
+            [ab_colour, bc_colour, ca_colour],
+            deeper,
+            out,
+            refinement,
+        );
     }
 
     /// Maps a raw sample onto the range `/Decode` gives for that position.
@@ -491,11 +1043,15 @@ impl MeshReader<'_> {
     ///
     /// The second half of the answer is [`MAX_TRIANGLES`] having stopped the reading with a
     /// vertex still to come — see [`read`] for what is done with it.
-    fn free_form<C: Corner>(&self, bits: &mut BitReader<'_>) -> (Vec<Triangle>, bool) {
+    fn free_form<C: Corner>(
+        &self,
+        bits: &mut BitReader<'_>,
+        refinement: &mut Refinement,
+    ) -> (Vec<Triangle>, bool) {
         let mut triangles = Vec::new();
         let mut truncated = false;
         // The previous two triangles' vertices, in the specification's `va`, `vb`, `vc`.
-        let mut previous: Option<(Vertex<C>, Vertex<C>, Vertex<C>)> = None;
+        let mut previous: Option<[Vertex<C>; 3]> = None;
 
         while let Some((flag, vertex)) = self.read_vertex(bits, true) {
             // The bound is tested *after* a vertex has been read rather than before, so that
@@ -514,16 +1070,16 @@ impl MeshReader<'_> {
                     let Some((_, third)) = self.read_vertex(bits, true) else {
                         break;
                     };
-                    (vertex, second, third)
+                    [vertex, second, third]
                 }
                 // Flag 1 keeps the previous triangle's `vb` and `vc`; flag 2 keeps `va`
                 // and `vc`. Reversing these produces a mesh with folded triangles.
-                (1, Some((_, b, c))) => (b, c, vertex),
-                (2, Some((a, _, c))) => (a, c, vertex),
+                (1, Some([_, b, c])) => [b, c, vertex],
+                (2, Some([a, _, c])) => [a, c, vertex],
                 // A continuation with nothing to continue is malformed.
                 _ => break,
             };
-            triangles.push(triangle(corners));
+            C::emit(self, corners.clone(), &mut triangles, refinement);
             previous = Some(corners);
         }
         (triangles, truncated)
@@ -537,6 +1093,7 @@ impl MeshReader<'_> {
         &self,
         bits: &mut BitReader<'_>,
         per_row: usize,
+        refinement: &mut Refinement,
     ) -> (Vec<Triangle>, bool) {
         let mut rows: Vec<Vec<Vertex<C>>> = Vec::new();
         let mut truncated = false;
@@ -573,8 +1130,18 @@ impl MeshReader<'_> {
                 ) else {
                     continue;
                 };
-                triangles.push(triangle((*a, *b, *c)));
-                triangles.push(triangle((*b, *d, *c)));
+                C::emit(
+                    self,
+                    [a.clone(), b.clone(), c.clone()],
+                    &mut triangles,
+                    refinement,
+                );
+                C::emit(
+                    self,
+                    [b.clone(), d.clone(), c.clone()],
+                    &mut triangles,
+                    refinement,
+                );
             }
         }
         (triangles, truncated)
@@ -590,7 +1157,12 @@ impl MeshReader<'_> {
     ///
     /// The second half of the answer is [`MAX_TRIANGLES`] having stopped the reading with a
     /// patch still to come — see [`read`] for what is done with it.
-    fn patches<C: Corner>(&self, bits: &mut BitReader<'_>, tensor: bool) -> (Vec<Triangle>, bool) {
+    fn patches<C: Corner>(
+        &self,
+        bits: &mut BitReader<'_>,
+        tensor: bool,
+        refinement: &mut Refinement,
+    ) -> (Vec<Triangle>, bool) {
         let boundary = 12usize;
         let total = if tensor { 16 } else { boundary };
 
@@ -609,17 +1181,23 @@ impl MeshReader<'_> {
 
             // A continuation reuses four points and two corners from the previous patch's
             // named edge, so only the rest is in the stream.
-            let (mut points, mut corners, start, corner_start) = match (flag, previous) {
-                (0, _) => ([Point::new(0.0, 0.0); 16], [C::placeholder(); 4], 0, 0),
+            let (mut points, mut corners, start, corner_start) = match (flag, previous.as_ref()) {
+                (0, _) => (
+                    [Point::new(0.0, 0.0); 16],
+                    std::array::from_fn(|_| C::placeholder()),
+                    0,
+                    0,
+                ),
                 (_, Some((last, last_corners))) => {
-                    let (edge, shared) = shared_edge(flag, &last, &last_corners);
+                    let (edge, shared) = shared_edge(flag, last, last_corners);
                     let mut points = [Point::new(0.0, 0.0); 16];
                     for (slot, point) in points.iter_mut().zip(edge.iter()) {
                         *slot = *point;
                     }
-                    let mut corners = [C::placeholder(); 4];
-                    corners[0] = shared[0];
-                    corners[1] = shared[1];
+                    let mut corners: [C; 4] = std::array::from_fn(|_| C::placeholder());
+                    let [first, second] = shared;
+                    corners[0] = first;
+                    corners[1] = second;
                     (points, corners, 4, 2)
                 }
                 // A continuation with no previous patch is malformed.
@@ -665,7 +1243,7 @@ impl MeshReader<'_> {
             // with `/BitsPerFlag 2` would be the witness that decides it.
 
             let grid = control_grid(&points, tensor);
-            triangles.extend(tessellate(&grid, &corners));
+            tessellate(self, &grid, &corners, &mut triangles, refinement);
             previous = Some((points, corners));
         }
         (triangles, truncated)
@@ -701,9 +1279,12 @@ fn shared_edge<C: Corner>(
         ]
     };
     match flag {
-        1 => (pick([3, 4, 5, 6]), [corners[1], corners[2]]),
-        2 => (pick([6, 7, 8, 9]), [corners[2], corners[3]]),
-        _ => (pick([9, 10, 11, 0]), [corners[3], corners[0]]),
+        1 => (pick([3, 4, 5, 6]), [corners[1].clone(), corners[2].clone()]),
+        2 => (pick([6, 7, 8, 9]), [corners[2].clone(), corners[3].clone()]),
+        _ => (
+            pick([9, 10, 11, 0]),
+            [corners[3].clone(), corners[0].clone()],
+        ),
     }
 }
 
@@ -796,7 +1377,13 @@ fn control_grid(points: &[Point; 16], tensor: bool) -> [[Point; 4]; 4] {
 /// over any point is the one with the largest `v`, and among equal `v` the largest `u`.
 /// Nesting them the other way round answers with the largest `u` instead, which is the
 /// clause's *tie-breaker* promoted over its rule (ADR 0778).
-fn tessellate<C: Corner>(grid: &[[Point; 4]; 4], patch: &[C; 4]) -> Vec<Triangle> {
+fn tessellate<C: Corner>(
+    reader: &MeshReader<'_>,
+    grid: &[[Point; 4]; 4],
+    patch: &[C; 4],
+    out: &mut Vec<Triangle>,
+    refinement: &mut Refinement,
+) {
     let mut points = Vec::with_capacity(
         PATCH_STEPS
             .saturating_add(1)
@@ -821,27 +1408,17 @@ fn tessellate<C: Corner>(grid: &[[Point; 4]; 4], patch: &[C; 4]) -> Vec<Triangle
         }
     }
 
-    let stride = PATCH_STEPS.saturating_add(1);
-    let mut triangles =
-        Vec::with_capacity(PATCH_STEPS.saturating_mul(PATCH_STEPS).saturating_mul(2));
-    for v_step in 0..PATCH_STEPS {
-        for u_step in 0..PATCH_STEPS {
-            let at = |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
-            let (a, b, c, d) = (
-                at(u_step, v_step),
-                at(u_step, v_step.saturating_add(1)),
-                at(u_step.saturating_add(1), v_step),
-                at(u_step.saturating_add(1), v_step.saturating_add(1)),
-            );
-            let corner = |index: usize| Vertex {
-                point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),
-                corner: corners.get(index).copied().unwrap_or_else(C::placeholder),
-            };
-            triangles.push(triangle((corner(a), corner(b), corner(c))));
-            triangles.push(triangle((corner(b), corner(d), corner(c))));
-        }
-    }
-    triangles
+    out.reserve(PATCH_STEPS.saturating_mul(PATCH_STEPS).saturating_mul(2));
+    C::emit_patch(reader, &points, &corners, out, refinement);
+}
+
+/// Whether `actual` and `interpolated` agree to §10.7.3's `tolerance` in every channel — "the
+/// maximum independent error shall be used".
+fn within(actual: Color, interpolated: Color, tolerance: f32) -> bool {
+    (actual.r - interpolated.r).abs() <= tolerance
+        && (actual.g - interpolated.g).abs() <= tolerance
+        && (actual.b - interpolated.b).abs() <= tolerance
+        && (actual.a - interpolated.a).abs() <= tolerance
 }
 
 /// A point on the bicubic Bézier surface the control grid defines.
@@ -871,15 +1448,7 @@ fn bernstein(t: f32) -> [f32; 4] {
 /// for a triangle: where the corners are parameters, this interpolates the parameter and the
 /// function is called afterwards, at each device pixel, by the rasteriser.
 fn bilinear<C: Corner>(corners: &[C; 4], u: f32, v: f32) -> C {
-    let top = corners[0].mix(corners[1], v);
-    let bottom = corners[3].mix(corners[2], v);
-    top.mix(bottom, u)
-}
-
-fn triangle<C: Corner>(vertices: (Vertex<C>, Vertex<C>, Vertex<C>)) -> Triangle {
-    let (a, b, c) = vertices;
-    Triangle {
-        points: [a.point, b.point, c.point],
-        corners: C::corners([a.corner, b.corner, c.corner]),
-    }
+    let top = corners[0].mix(&corners[1], v);
+    let bottom = corners[3].mix(&corners[2], v);
+    top.mix(&bottom, u)
 }

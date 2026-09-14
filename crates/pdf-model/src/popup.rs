@@ -179,21 +179,36 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
 /// clause's own sentence read literally: a group is "a set of annotations … grouped so that they
 /// function as a single unit when a user interacts with them", and one window for the unit is what
 /// that means for the one interaction §12.5.1 defines.
+///
+/// **A watermark has none**, whatever its dictionary says: §12.5.6.22's "Watermark annotations
+/// shall have no popup window nor other interactive elements" is a sentence about the subtype,
+/// and Table 171 makes it no markup annotation either, so a `/Popup` written on one names a
+/// window this clause forbids. `None`, as for an annotation that states no entry (ADR 1057).
 #[must_use]
 pub fn popup_of(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
+    if crate::annotation::is_watermark(document, annotation) {
+        return None;
+    }
     let source = crate::markup::group_source(document, annotation);
     source.get("Popup")?.as_reference()
 }
 
-/// Reads one popup dictionary, or `None` where its `/Rect` states no rectangle.
+/// Reads one popup dictionary, or `None` where its `/Rect` states no rectangle — or where its
+/// parent is a watermark, which §12.5.6.22 says "shall have no popup window"; see [`popup_of`].
 ///
-/// A window with no rectangle has nowhere to be, and Table 166 makes `/Rect` required — so this
-/// is the one refusal here, and it is the file's.
+/// A window with no rectangle has nowhere to be, and Table 166 makes `/Rect` required — so that
+/// is the one refusal here that is the file's.
 fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
     let parent = dict
         .get("Parent")
         .and_then(pdf_syntax::Object::as_reference);
     let resolved = document.get_key(dict, "Parent");
+    if resolved
+        .as_dict()
+        .is_some_and(|parent| crate::annotation::is_watermark(document, parent))
+    {
+        return None;
+    }
     let source = resolved.as_dict().unwrap_or(dict);
     // **Two clauses compose here, and the second was unread until the four-hundred-and-eightieth
     // session.** Table 186 makes the parent's `Contents`, `M`, `C` and `T` override the popup's;
@@ -465,6 +480,41 @@ mod tests {
 
     fn page(document: &Document) -> crate::Page {
         crate::Pages::new(document).get(0).expect("one page")
+    }
+
+    /// §12.5.6.22: "Watermark annotations shall have no popup window nor other interactive
+    /// elements." A popup hanging off a watermark is not a window, and the watermark opens none;
+    /// the same pair with a square for a parent is the control, since Table 171 makes a square a
+    /// markup annotation and §12.5.6.8 gives it a window "[w]hen opened".
+    #[test]
+    fn a_watermark_has_no_popup_window_and_a_square_has_one() {
+        let pair = |subtype: &str| {
+            document(
+                "4 0 R 5 0 R",
+                &format!(
+                    "4 0 obj << /Type /Annot /Subtype /{subtype} /Rect [10 10 30 30] /Popup 5 0 R \
+                     /Contents (text) /T (author) >> endobj\n\
+                     5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R \
+                     /Open true >> endobj\n"
+                ),
+            )
+        };
+        for (subtype, windows) in [("Watermark", 0), ("Square", 1)] {
+            let document = pair(subtype);
+            let view = crate::view::ViewState::of(&document);
+            assert_eq!(
+                popups(&document, &page(&document), &view).len(),
+                windows,
+                "{subtype}"
+            );
+            let parent = document.get(pdf_syntax::ObjectId::new(4, 0));
+            let parent = parent.as_dict().expect("the parent");
+            assert_eq!(
+                popup_of(&document, parent).is_some(),
+                windows == 1,
+                "{subtype}"
+            );
+        }
     }
 
     #[test]

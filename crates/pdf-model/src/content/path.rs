@@ -175,7 +175,11 @@ impl Interpreter<'_> {
         // leave that shading undrawn. A painting operator with *no* path in front of it is
         // the other case — §8.5.3.1 calls it an error — and leaves the clip alone rather
         // than blanking everything after it, which is the recovery a viewer owes a
-        // malformed file.
+        // malformed file. **And it is not reported**, on the argument ADR 0563 makes for `h`
+        // on an empty path: the clip is what it was and no mark is lost, so a report would
+        // only take the page out of the oracle's judgement (trap 11) — `issue14438.pdf` states
+        // exactly this, reports nothing else, and all four references draw it as this tree
+        // does. A `W` the *stream ends on* is a different case, and `run_reader` reports it.
         if let Some(rule) = pending_clip.take()
             && stated
         {

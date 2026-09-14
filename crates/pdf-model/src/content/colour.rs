@@ -42,16 +42,17 @@ impl BlackPoint {
 
 /// A rendering intent, per ISO 32000-2 §8.6.5.8 Table 69.
 ///
-/// Each of the four decides something. Three of them decide which of a profile's "to CIE"
+/// Each of the four decides something. All four decide which of a profile's "to CIE"
 /// transforms a colour goes through — [`Intent::a2b`] is that mapping and `crate::icc::A2b`
-/// carries it — and the fourth, `AbsoluteColorimetric`, is the one §8.6.5.9 makes turn black
-/// point compensation off. They are kept apart rather than collapsed into "absolute or not"
+/// carries it — and the fourth, `AbsoluteColorimetric`, is also the one §8.6.5.9 makes turn
+/// black point compensation off. They are kept apart rather than collapsed into "absolute or not"
 /// because §8.6.5.9's override is stated over *the current render intent of an object* and an
 /// object's intent is a parameter in its own right. Collapsing the two is what let a `ri` of any
 /// other name silently switch black point compensation back on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Intent {
-    /// Table 69's `AbsoluteColorimetric`, the one name that changes what this renderer does.
+    /// Table 69's `AbsoluteColorimetric`: the one name whose transform is a derivation rather
+    /// than a tag, and the one §8.6.5.9 makes turn black point compensation off.
     Absolute,
     /// Table 69's `RelativeColorimetric`, which Table 51 also makes the initial value and
     /// which §8.6.5.8 makes the answer to a name this processor does not recognise.
@@ -90,12 +91,14 @@ impl Intent {
 
     /// Which of an ICC profile's "to CIE" transforms this intent selects.
     ///
-    /// Four names onto three transforms: `crate::icc::A2b`'s own documentation carries the two
-    /// clauses that make the mapping the standard's, and the pair that share a transform are
-    /// the two colorimetric ones, which differ here in the black point alone.
+    /// Four names onto four transforms, three of them tags and one a derivation from the
+    /// second: `crate::icc::A2b`'s own documentation carries the two clauses that make the
+    /// mapping the standard's, and the media white point that tells the two colorimetric
+    /// intents apart.
     pub(super) fn a2b(self) -> A2b {
         match self {
-            Self::Absolute | Self::Relative => A2b::Colorimetric,
+            Self::Absolute => A2b::Absolute,
+            Self::Relative => A2b::Colorimetric,
             Self::Saturation => A2b::Saturation,
             Self::Perceptual => A2b::Perceptual,
         }

@@ -765,6 +765,16 @@ pub(crate) fn interacts(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
+    // §12.5.6.22 states a fourth suppression, for one subtype and whatever its flags say:
+    //
+    // > Watermark annotations shall have no popup window nor other interactive elements.
+    //
+    // So a watermark's rectangle is not a region a press lands on, a hover chooses no appearance
+    // over, and no trigger is raised from; `crate::popup` keeps the first half of the sentence.
+    // ADR 1057.
+    if is_watermark(document, annotation) {
+        return false;
+    }
     let stated = document
         .get_key(annotation, "F")
         .as_integer()
@@ -792,6 +802,15 @@ pub(crate) fn interacts(
         .as_name()
         .is_some_and(|subtype| subtype.as_bytes() == b"Widget");
     flags & FLAG_READ_ONLY == 0 || widget
+}
+
+/// Whether this is one of §12.5.6.22's watermark annotations, the subtype that "shall have no
+/// popup window nor other interactive elements".
+pub(crate) fn is_watermark(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"Watermark")
 }
 
 /// Decides what, if anything, an annotation contributes to the page.

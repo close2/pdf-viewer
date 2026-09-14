@@ -400,15 +400,13 @@ fn narrow_glyph(glyph: GlyphId) -> Option<u16> {
 ///
 /// Bit 3 of `/Flags`, counting from one. A symbolic font's character set is outside the
 /// standard Latin set, so the encoding built into the font program describes it and a
-/// Latin base encoding does not.
+/// Latin base encoding does not. Read through [`crate::metrics::flag`], which is what makes a
+/// word §9.8.2 excludes mean the same thing here as it does to the substitution's five bits.
 fn is_symbolic(document: &Document, descriptor: &Dictionary) -> bool {
     /// Bit 3, counting from one as the specification does.
-    const SYMBOLIC: i64 = 1 << 2;
+    const SYMBOLIC: u32 = 1 << 2;
 
-    document
-        .get_key(descriptor, "Flags")
-        .as_integer()
-        .is_some_and(|flags| flags & SYMBOLIC != 0)
+    crate::metrics::flag(document, descriptor, SYMBOLIC)
 }
 
 #[cfg(test)]

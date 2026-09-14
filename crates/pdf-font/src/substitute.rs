@@ -236,12 +236,9 @@ impl Flags {
     const FORCE_BOLD: u32 = 1 << 18;
 }
 
+/// [`crate::metrics::flag`], which is the one reader of `/Flags` this crate has.
 fn flag(document: &Document, descriptor: &Dictionary, bit: u32) -> bool {
-    document
-        .get_key(descriptor, "Flags")
-        .as_integer()
-        .and_then(|flags| u32::try_from(flags).ok())
-        .is_some_and(|flags| flags & bit != 0)
+    crate::metrics::flag(document, descriptor, bit)
 }
 
 /// §9.8.3.3's `/FD`: per-glyph-class metric overrides, listed and not applied.

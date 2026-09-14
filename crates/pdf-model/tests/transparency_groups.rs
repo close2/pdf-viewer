@@ -2513,36 +2513,68 @@ fn a_group_declared_inside_a_soft_mask_leaves_the_pages_blending_space_alone() {
     }
 }
 
-/// The same group on the page itself keeps the report, which is what makes the test above one.
+/// The same group on the page itself is drawn in its grey and converted into the page's ink at
+/// its `Do`, which is what makes the test above one: the mask's group is left alone because it is
+/// a mask's, not because a group's space is ever ignored.
 ///
 /// Trap 5: a population stops being reported because what the clause states is drawn, never
 /// because a condition was narrowed until it stopped firing. §11.6.6 gives an isolated group's
 /// `/CS` effect — "all painting operators shall convert source colours in a colour space (that
 /// are not equivalent to the group colour space) to the group colour space before compositing
-/// objects into the group" — and this tree has no second pair of rasters to composite such a
-/// group in, so a page carrying one is still drawn on the device's components and still says so.
-///
-/// The pixel is the other half of that statement: converting each colour first and averaging on
-/// the device gives 127.5 where the clause's own arithmetic gives 76, which is the 51 of 255
-/// ADR 0251 measured and the whole reason §11.4.7 is drawn rather than approximated.
+/// objects into the group" — so the group's `0.5 g` is its one component, and its final
+/// compositing converts that component into the page's ink: "[i]f colour conversion needs to take
+/// place in order to composite the group into its parent". The page keeps its pair, and the
+/// pixel is registration black at ½ over that grey's separation, composited in ink and taken
+/// out through the cube — where the page used to fall back to the device, average two converted
+/// colours to 127.5, and say so.
 #[test]
-fn the_same_group_on_the_page_still_reports_and_still_draws_on_the_device() {
+fn the_same_group_on_the_page_is_drawn_in_its_grey_and_composited_in_the_pages_ink() {
     let drawn = interpret(mask_group_fixture(
         "0.5 g 0 0 100 100 re f",
         "0 0 0 0 k 0 0 100 100 re f\n\
          q /In Do Q\n\
          /GS gs 1 1 1 1 k 0 0 100 100 re f",
     ));
-    let reported = format!("{:?}", drawn.unsupported);
     assert!(
-        reported.contains("a group inside it composites in a different space"),
-        "a group on the page introduces the space the page does not composite in: {reported}"
+        drawn.is_complete(),
+        "a grey group on a page in ink is drawn and converted at its Do, not reported: {:?}",
+        drawn.unsupported
     );
-    let painted = pixel(&drawn, 50, 50);
+    let press = pdf_model::colour::assumed_press();
+    let [cyan, magenta, yellow, black] = pdf_model::colour::ColourSpace::Rgb.to_cmyk(
+        &[0.5; 3],
+        pdf_model::icc::Rendering::compensating(),
+        &press,
+    );
+    // §11.3.6 at ½, per ink, then the cube: half the grey's separation and half of every ink.
+    let want = pdf_model::colour::device_cmyk_blending_space().convert(
+        f32::midpoint(cyan, 1.0),
+        f32::midpoint(magenta, 1.0),
+        f32::midpoint(yellow, 1.0),
+        f32::midpoint(black, 1.0),
+    );
+    // The group's mark is `DECLARES_A_SPACE`'s corner: page (0..10, 0..10) is device (5, 95).
+    let painted = pixel(&drawn, 5, 95);
+    for (axis, (got, want)) in painted.iter().zip(want).enumerate() {
+        let want = (want * 255.0 + 0.5) as i32;
+        assert!(
+            (i32::from(*got) - want).abs() <= 2,
+            "registration black at ½ over the grey's separation, composited in ink: channel \
+             {axis} of {painted:?} against {want}"
+        );
+    }
     assert!(
-        (127..=128).contains(&painted[0]),
-        "averaging two converted colours on the device gives 127.5 of 255: {painted:?}"
+        !(127..=128).contains(&painted[0]),
+        "and not the device's average of two converted colours: {painted:?}"
     );
+    let beside = pixel(&drawn, 50, 50);
+    for (axis, want) in [76, 66, 64].into_iter().enumerate() {
+        assert!(
+            (i32::from(beside[axis]) - want).abs() <= 1,
+            "and beside it the page is still in ink — half of registration black over paper \
+             is the cube's mean: channel {axis} of {beside:?} against {want}"
+        );
+    }
 }
 
 /// §11.4.6's rule composites each element with the group's *initial* backdrop, and where it
@@ -2865,9 +2897,25 @@ fn a_shading_pattern_carried_into_a_press_is_rebuilt_in_the_groups_space() {
 /// change one entry of one of them and nothing else. The inner group's one element blends,
 /// which is the only thing that can tell one initial backdrop from another (§11.4.4 NOTE 2).
 fn nested_group_fixture(outer: &str, inner: &str) -> Vec<u8> {
-    const OUTER: &str = "0 0 1 rg 0 0 100 100 re f /In Do";
-    const INNER: &str = "/GB gs 1 0 0 rg 20 20 60 60 re f";
+    nested_content_fixture(
+        outer,
+        inner,
+        "0 0 1 rg 0 0 100 100 re f /In Do",
+        "/GB gs 1 0 0 rg 20 20 60 60 re f",
+    )
+}
+
+/// [`nested_group_fixture`] with both content streams stated: the outer form's, which paints
+/// the inner form by the name `/In`, and the inner's. Each form's resources carry `/GS` (half
+/// alpha) and `/GB` (Multiply).
+fn nested_content_fixture(
+    outer: &str,
+    inner: &str,
+    outer_content: &str,
+    inner_content: &str,
+) -> Vec<u8> {
     const PAGE: &str = "/Fm Do";
+    const STATES: &str = "/ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> >>";
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -2875,83 +2923,274 @@ fn nested_group_fixture(outer: &str, inner: &str) -> Vec<u8> {
          /Resources << /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{PAGE}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {outer} \
-         /Resources << /XObject << /In 6 0 R >> >> /Length {} >>\n\
-         stream\n{OUTER}\nendstream\nendobj\n\
+         /Resources << /XObject << /In 6 0 R >> {STATES} >> /Length {} >>\n\
+         stream\n{outer_content}\nendstream\nendobj\n\
          6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {inner} \
-         /Resources << /ExtGState << /GB << /BM /Multiply >> >> >> /Length {} >>\n\
-         stream\n{INNER}\nendstream\nendobj\n",
+         /Resources << {STATES} >> /Length {} >>\n\
+         stream\n{inner_content}\nendstream\nendobj\n",
         PAGE.len() + 1,
-        OUTER.len() + 1,
-        INNER.len() + 1
+        outer_content.len() + 1,
+        inner_content.len() + 1
     );
     assemble(&body)
 }
 
-/// A group that introduces a second space *inside* the pair keeps the pair off and the
-/// reports on.
+/// A device colour composited into the assumed press and converted back out: what a group's
+/// result becomes on its way through a `/DeviceCMYK` parent, `pdf_model::colour`'s own
+/// conversion in followed by the cube every backend interpolates.
+fn through_the_assumed_press(rgb: [f32; 3]) -> [u8; 3] {
+    let press = pdf_model::colour::assumed_press();
+    let [cyan, magenta, yellow, black] = pdf_model::colour::ColourSpace::Rgb.to_cmyk(
+        &rgb,
+        pdf_model::icc::Rendering::compensating(),
+        &press,
+    );
+    let out = pdf_model::colour::device_cmyk_blending_space().convert(cyan, magenta, yellow, black);
+    out.map(|value| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)
+}
+
+/// The innermost group anywhere inside `commands` — a pair's black half included — that
+/// carries a conversion out of its own space.
+fn nested_own_space(commands: &[Command]) -> Option<&pdf_render::GroupBlending> {
+    commands.iter().find_map(|command| match command {
+        Command::Group {
+            commands, blending, ..
+        } => nested_own_space(commands)
+            .or_else(|| {
+                blending
+                    .as_deref()
+                    .and_then(pdf_render::GroupBlending::black)
+                    .and_then(nested_own_space)
+            })
+            .or(blending.as_deref()),
+        _ => None,
+    })
+}
+
+/// A group that introduces a second space *inside* the pair composites in it and is converted
+/// into the press at its `Do` (ISO 32000-2 §11.6.6, §11.7.2).
 ///
-/// §11.6.6's departure reports fire where the device's components are what is composited
-/// on; during a pair's subtractive runs they cannot, so a group met there that changes the
-/// space in force — with something compositing in it — is recorded, the pair is discarded,
-/// and the content re-runs on the device where both groups report ordinarily. Without the
-/// record the inner group's elements would composite in the outer group's ink with nothing
-/// said, which is trap 5's silence; `bug1721218_reduced.pdf` is the corpus shape that
-/// stays *drawn* — its inner one-component groups hold nothing that composites, so §11.3.4
-/// cannot tell the spaces apart there and the pair stands.
+/// §11.6.6's final compositing: "[i]f colour conversion needs to take place in order to
+/// composite the group into its parent, the rendering intent and black point compensation from
+/// the graphics state at the point of invocation of the Do operator shall be used for the
+/// conversion." Here the parent composites in four components and the group in three or one, so
+/// a conversion does need to take place, and the group's result — "interpreted in the group's
+/// colour space", §11.7.2 — goes into the press by the same conversion every mark inside the
+/// press takes, and the whole leaves by the press's cube.
 ///
-/// The second case is a change whose target is the device's own components: an isolated
-/// `/DeviceRGB` group inside the pair is just as much a second space, and it is the one
-/// whose report has no name to print — on the device rerun its space *is* the device's, so
-/// only the outer group reports.
+/// The arithmetic that tells the constructions apart is a yellow multiplied over a blue inside
+/// the inner group. In the group's own `/DeviceRGB` that is §11.3.5.2's product per component,
+/// black; in `/DeviceGray` it is 0.11 × 0.89, a grey of 0.098; composited in the press's ink
+/// instead — which is what inheriting the parent's space would do — it is neither. The expected
+/// pixel is each result taken through the press by [`through_the_assumed_press`], and the two
+/// arms differ from each other by exactly the space the multiplication happened in.
 ///
-/// **The inner `/DeviceGray` group reported its own name until ADR 0790, and now it is
-/// drawn**: on the device rerun the parent composites on the device, which is where
-/// `Compositing::Grey` applies, so the group's one red element is painted as §10.4.2.2's
-/// grey of red — `0.3 × 1.0`, 76.5 of 255 — and the outer group is the only report left.
-/// The `/DeviceRGB` arm keeps its red, which is what says the grey is the group's and not
-/// the rerun's.
+/// **Until this construction existed the pair was given up here**: the record set inside the
+/// subtractive run sent the outer group back to the device, where both groups reported. The
+/// display list assertions are what changed — the outer pair stands, and the inner group inside
+/// each of its halves carries the conversion into that half.
 #[test]
-fn a_second_space_inside_the_pair_falls_back_to_the_device_and_reports() {
+fn a_second_space_inside_the_pair_is_composited_in_it_and_converted_into_the_press() {
     let outer = "/Group << /S /Transparency /I true /CS /DeviceCMYK >>";
-    for (inner, red_becomes) in [
-        (
-            "/Group << /S /Transparency /I true /CS /DeviceGray >>",
-            [76, 76, 76],
-        ),
+    let grey_of_the_product = 0.11 * 0.89;
+    for (inner, result, one_component) in [
         (
             "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
-            [255, 0, 0],
+            [0.0, 0.0, 0.0],
+            false,
+        ),
+        (
+            "/Group << /S /Transparency /I true /CS /DeviceGray >>",
+            [grey_of_the_product; 3],
+            true,
         ),
     ] {
-        let drawn = interpret(nested_group_fixture(outer, inner));
-        let reported = format!("{:?}", drawn.unsupported);
+        let drawn = interpret(nested_content_fixture(
+            outer,
+            inner,
+            "0 0 1 rg 0 0 100 100 re f /In Do",
+            "0 0 1 rg 20 20 60 60 re f /GB gs 1 1 0 rg 20 20 60 60 re f",
+        ));
         assert!(
-            reported.contains("blending colour space /DeviceCMYK"),
-            "the outer group's departure is named on the device rerun: {reported}"
+            drawn.is_complete(),
+            "both groups are drawn in their own spaces under {inner}: {:?}",
+            drawn.unsupported
         );
-        assert!(
-            !reported.contains("blending colour space /DeviceGray"),
-            "and the inner group's is not, because it is drawn in its grey: {reported}"
-        );
-        let painted = pixel(&drawn, 50, 50);
-        for (axis, want) in red_becomes.into_iter().enumerate() {
-            assert!(
-                (i32::from(painted[axis]) - want).abs() <= 1,
-                "the inner group's red element under {inner}: channel {axis} of {painted:?} \
-                 against {want}"
+        let pair = drawn
+            .display_list
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Group {
+                    commands,
+                    blending: Some(pair),
+                    ..
+                } => Some((commands, pair.as_ref())),
+                _ => None,
+            })
+            .expect("the outer group carries its pair");
+        let black = pair
+            .1
+            .black()
+            .expect("the outer group's pair has a black half");
+        for (half, commands) in [("chromatic", pair.0.as_slice()), ("black", black)] {
+            let inner_out = nested_own_space(commands).unwrap_or_else(|| {
+                panic!("the inner group leaves by a conversion in the {half} half")
+            });
+            assert_eq!(
+                matches!(inner_out, pdf_render::GroupBlending::OneComponent { .. }),
+                one_component,
+                "under {inner} the conversion into the {half} half is a curve for one \
+                 component and a cube for three: {inner_out:?}"
             );
         }
+        let want = through_the_assumed_press(result);
+        let painted = pixel(&drawn, 50, 50);
+        for (axis, (got, want)) in painted.iter().zip(want).enumerate() {
+            assert!(
+                (i32::from(*got) - i32::from(want)).abs() <= 2,
+                "under {inner} the product composited in the group's own space goes through \
+                 the press: channel {axis} of {painted:?} against {want:?}"
+            );
+        }
+        let blue = through_the_assumed_press([0.0, 0.0, 1.0]);
+        let outside = pixel(&drawn, 10, 10);
+        for (axis, (got, want)) in outside.iter().zip(blue).enumerate() {
+            assert!(
+                (i32::from(*got) - i32::from(want)).abs() <= 2,
+                "and the outer group's own blue is still drawn in ink: channel {axis} of \
+                 {outside:?} against {blue:?}"
+            );
+        }
+    }
+    let black = through_the_assumed_press([0.0; 3]);
+    let grey = through_the_assumed_press([grey_of_the_product; 3]);
+    assert!(
+        black
+            .iter()
+            .zip(grey)
+            .any(|(a, b)| (i32::from(*a) - i32::from(b)).abs() > 8),
+        "the two arms are different pictures, which is what says the product was taken in \
+         each group's own space: {black:?} against {grey:?}"
+    );
+}
+
+/// A press group inside a `CalRGB` group composites in ink and leaves by the cube into the
+/// parent's components (ISO 32000-2 §11.6.6, §11.7.2, §11.7.5.3).
+///
+/// The inner group is `a_group_that_introduces_a_press_composites_in_it`'s: paper and
+/// registration black at constant alpha ½, whose composite in the assumed inks is half of each
+/// and whose conversion out is the cube's mean, (76.0, 66.1, 63.9) of 255. That result is
+/// opaque, so its conversion into the parent's linear components and back out through the
+/// parent's own curve is a round trip — the pixel is the same mean. What is not the same is the
+/// parent: half of black over white beside the inner group composites in the parent's linear
+/// light, `srgb_encode(½)` — 188 — where the device's average, which is what the page used to
+/// fall back to with a report, is 128. And inheriting the parent's space would have composited
+/// the inner group's registration black in linear components instead, nowhere near the mean.
+#[test]
+fn a_press_group_inside_a_cal_rgb_group_leaves_by_the_cube_into_the_components() {
+    let drawn = interpret(nested_content_fixture(
+        &format!("/Group << /S /Transparency /I true /CS {LINEAR_CAL_RGB} >>"),
+        "/Group << /S /Transparency /I true /CS /DeviceCMYK >>",
+        "1 g 0 0 100 100 re f q /GS gs 0 g 0 0 10 100 re f Q /In Do",
+        "0 0 0 0 k 10 10 80 80 re f /GS gs 1 1 1 1 k 20 20 60 60 re f",
+    ));
+    assert!(
+        drawn.is_complete(),
+        "a press inside a CalRGB group is drawn, not reported: {:?}",
+        drawn.unsupported
+    );
+    let mean = pdf_model::colour::device_cmyk_blending_space().convert(0.5, 0.5, 0.5, 0.5);
+    let painted = pixel(&drawn, 50, 50);
+    for (axis, (got, want)) in painted.iter().zip(mean).enumerate() {
+        let want = (want * 255.0 + 0.5) as i32;
         assert!(
-            !drawn.display_list.commands().iter().any(|command| matches!(
-                command,
-                Command::Group {
-                    blending: Some(_),
-                    ..
-                }
-            )),
-            "no pair is carried where a second space composites inside it"
+            (i32::from(*got) - want).abs() <= 2,
+            "half of registration black over paper is the cube's mean, through the parent \
+             and back: channel {axis} of {painted:?} against {want}"
         );
     }
+    assert!(
+        (75..=77).contains(&painted[0]),
+        "and that mean is ADR 0251's 76.0 of 255: {painted:?}"
+    );
+    assert_grey(
+        "beside it the parent composites half of black over white in linear light",
+        pixel(&drawn, 5, 50),
+        srgb_encode(0.5),
+    );
+    let inner_out = nested_own_space(drawn.display_list.commands())
+        .expect("the inner group carries its pair into the parent");
+    assert!(
+        matches!(inner_out, pdf_render::GroupBlending::FourComponents { .. }),
+        "the inner group's pair leaves through a grid composed into the parent: {inner_out:?}"
+    );
+}
+
+/// A page whose group composites in the assumed inks, drawing one form whose group composites in
+/// the press [`icc_cmyk_profile`] describes.
+fn press_in_press_fixture(inner: &str) -> Vec<u8> {
+    let hex = profile_stream();
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
+         /Resources << /XObject << /Fm 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 7 >>\nstream\n/Fm Do\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /I true /CS [/ICCBased 5 0 R] >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> /Length {} >>\n\
+         stream\n{inner}\nendstream\nendobj\n",
+        hex.len() + 1,
+        inner.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A press inside a press: the group composites in its own profile's inks and its result is
+/// separated into the parent's at its `Do` (ISO 32000-2 §11.6.6, §11.7.2).
+///
+/// §11.7.2's second paragraph redefines `DeviceCMYK` inside an `ICCBased` 'CMYK' group to be
+/// that profile's inks, so the inner group's registration black at ½ over paper composites to
+/// half of each of *the profile's* inks and its result is the profile's own colour there —
+/// `Profile::to_rgb` at (½, ½, ½, ½), which `the_three_routes_to_a_press_all_composite_in_it`
+/// already holds against the assumed cube's 76. That colour then goes into the page's press —
+/// the assumed inks — by the conversion every mark on the page takes, and out by the page's
+/// cube: [`through_the_assumed_press`] of it. Inheriting the page's press instead would have
+/// composited the same `k` operators in the assumed inks and shown 76.
+#[test]
+fn a_press_inside_a_press_converts_between_the_two_at_its_do() {
+    let drawn = interpret(press_in_press_fixture(HALF_REGISTRATION));
+    assert!(
+        drawn.is_complete(),
+        "a press inside a press is drawn, not reported: {:?}",
+        drawn.unsupported
+    );
+    let profile =
+        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
+    let own = profile.to_rgb(&[0.5, 0.5, 0.5, 0.5]);
+    let want = through_the_assumed_press([own.r, own.g, own.b]);
+    let painted = pixel(&drawn, 50, 50);
+    for (axis, (got, want)) in painted.iter().zip(want).enumerate() {
+        assert!(
+            (i32::from(*got) - i32::from(want)).abs() <= 3,
+            "the profile's half-registration colour, separated into the assumed inks and \
+             back: channel {axis} of {painted:?} against {want:?}"
+        );
+    }
+    assert!(
+        (i32::from(painted[0]) - 76).abs() > 8,
+        "and it is not the assumed inks' own 76, which inheriting would show: {painted:?}"
+    );
+    let inner_out = nested_own_space(drawn.display_list.commands())
+        .expect("the inner group carries its pair inside the page's");
+    assert!(
+        matches!(inner_out, pdf_render::GroupBlending::FourComponents { .. }),
+        "the inner press leaves through a grid composed into the page's: {inner_out:?}"
+    );
 }
 
 /// §11.4.6's NOTE 6: a non-isolated group nested in a knockout group takes the *outer* group's
@@ -3164,37 +3403,58 @@ fn an_isolated_group_of_one_component_composites_its_elements_in_grey() {
     );
 }
 
-/// A grey page whose inner group blends in another space falls back to the device and reports.
+/// A colour group inside a grey page composites in its own colour and leaves as the page's grey
+/// (ISO 32000-2 §11.6.6, §11.7.2).
 ///
-/// §11.6.6's conversion at the inner group's `Do` — its RGB result into the page's grey — is
-/// one per pixel between two spaces, which no display list here carries; the standing answer
-/// is the one the four-component pair gives the same shape (see
-/// `a_second_space_inside_the_pair_falls_back_to_the_device_and_reports`): the page is drawn
-/// on the device's components and the departure is named where it was introduced. The
-/// control is the same inner group with nothing compositing in it, where converting each
-/// mark first and compositing after is the same picture (§11.3.6, and §10.4.2.2 is affine),
-/// so the grey run stands.
+/// §11.6.6 gives an isolated group its own `/CS`, and §11.7.2 puts every compositing computation
+/// inside it there: "all blending and compositing computations shall be done in that space".
+/// So a yellow multiplied over a blue inside a `/DeviceRGB` group is §11.3.5.2's product per
+/// component — (0, 0, 0) — whatever the page composites in, and only *then* is the group's result
+/// "interpreted in the group's colour space when the group is subsequently composited with its
+/// backdrop": black, whose §10.4.2.3 grey is 0. Composited in the page's grey instead, the same
+/// two marks would be 0.11 × 0.89 — 25 of 255 — and drawn on the device, the page's own red
+/// would be red. The two assertions below are each of those told apart.
+///
+/// The control is the same group with nothing compositing inside it, which needs no raster of
+/// its own: an opaque blue converted into the page's grey per mark is the same picture.
 #[test]
-fn a_grey_page_whose_inner_group_blends_in_colour_falls_back_and_reports() {
+fn a_colour_group_inside_a_grey_page_composites_in_colour_and_leaves_as_grey() {
     let blending = interpret(one_component_fixture(
         "/Group << /S /Transparency /CS /DeviceGray >>",
         "",
         "1 0 0 rg 0 0 100 100 re f\n/Fm Do",
         "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
-        "/GB gs 0 0 1 rg 20 20 60 60 re f",
+        "0 0 1 rg 20 20 60 60 re f /GB gs 1 1 0 rg 20 20 60 60 re f",
     ));
-    let reported = format!("{:?}", blending.unsupported);
     assert!(
-        reported.contains(
-            "the page group's blending colour space /DeviceGray (§11.4.7): a group inside it \
-             composites in a different space (§11.6.6)"
-        ),
-        "{reported}"
+        blending.is_complete(),
+        "a colour group inside a grey page is drawn, not reported: {:?}",
+        blending.unsupported
     );
-    assert_eq!(
-        pixel(&blending, 10, 10)[..3],
-        [255, 0, 0],
-        "and the page is drawn on the device's components, red for red"
+    assert_grey(
+        "the page stays in its grey: its red is §10.4.2.3's 0.3",
+        pixel(&blending, 10, 10),
+        0.3,
+    );
+    assert_grey(
+        "blue under yellow multiplied in the group's own RGB is black, and black's grey is 0",
+        pixel(&blending, 50, 50),
+        0.0,
+    );
+    assert!(
+        blending
+            .display_list
+            .commands()
+            .iter()
+            .any(|command| matches!(
+                command,
+                Command::Group {
+                    blending: Some(pair),
+                    ..
+                } if matches!(pair.as_ref(), pdf_render::GroupBlending::ThreeComponents { .. })
+            )),
+        "the group leaves by a cube into the page's grey: {:?}",
+        blending.display_list.commands()
     );
 
     let opaque = interpret(one_component_fixture(
@@ -3924,24 +4184,31 @@ fn a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb() {
         srgb_encode(0.5),
     );
 
-    let other = "[/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [2.2 2.2 2.2] >>]";
+    // A second `CalRGB` inside the first — the same primaries under a gamma of 3 — is a change
+    // of space, and §11.6.6 has the inner group composite in its own: white and half of black
+    // are components ½ there, which §8.6.5.3 decodes as ½³ = ⅛ of linear light. The group's
+    // result is converted into the page's linear space at its `Do` and leaves by the page's
+    // own curve as `srgb_encode(⅛)`, 99 of 255 — where inheriting the page's space would
+    // composite the same two marks to ½ of linear light, 188, and the device to 128.
+    let other = "[/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [3 3 3] \
+                 /Matrix [0.4124 0.2126 0.0193 0.3576 0.7152 0.1192 0.1805 0.0722 0.9505] >>]";
     let changes = interpret(one_component_fixture(
         &format!("/Group << /S /Transparency /CS {LINEAR_CAL_RGB} >>"),
         "",
         "1 g 0 0 100 100 re f /Fm Do",
         &format!("/Group << /S /Transparency /I true /CS {other} >>"),
-        "q /GS gs 0 g 0 0 50 100 re f Q",
+        "1 g 0 0 100 100 re f q /GS gs 0 g 0 0 50 100 re f Q",
     ));
-    let reported = format!("{:?}", changes.unsupported);
     assert!(
-        reported.contains("blending colour space"),
-        "a second CalRGB inside the first, with something compositing, is a change of space \
-         the page reports: {reported}"
+        changes.is_complete(),
+        "a second CalRGB inside the first is drawn in its own space and converted into the \
+         page's at its Do, not reported: {:?}",
+        changes.unsupported
     );
     assert_grey(
-        "and the page is drawn on the device, where half of black over white is 128",
+        "half of black over white composites to ½ under a gamma of 3, and leaves as ⅛ of light",
         pixel(&changes, 25, 50),
-        0.5,
+        srgb_encode(0.125),
     );
 }
 

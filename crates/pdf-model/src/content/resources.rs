@@ -67,13 +67,24 @@ impl Interpreter<'_> {
     pub(super) fn resource(
         &self,
         resources: &Dictionary,
-        category: &str,
+        category: &'static str,
         name: &Name,
     ) -> Option<Object> {
         Some(
             self.document
                 .resolve(&self.resource_entry(resources, category, name)?),
         )
+    }
+
+    /// Tells the ledger what a lookup found, where a caller asked to be told.
+    ///
+    /// **The one place a selection is recorded**, reached by every lookup below, which is what
+    /// makes the ledger a fact about lookups rather than a surface each operator feeds — see
+    /// [`super::ledger`].
+    fn record_selection(&self, category: &'static str, name: &Name, entry: Option<&Object>) {
+        if let Some(ledger) = self.ledger {
+            ledger.borrow_mut().select(category, name.as_bytes(), entry);
+        }
     }
 
     /// The same lookup, *unresolved*: the reference a resource dictionary states.
@@ -83,6 +94,18 @@ impl Interpreter<'_> {
     /// paint one shading object thousands of times, and only the reference says they are the
     /// same one.
     pub(super) fn resource_entry(
+        &self,
+        resources: &Dictionary,
+        category: &'static str,
+        name: &Name,
+    ) -> Option<Object> {
+        let entry = self.resource_entry_unrecorded(resources, category, name);
+        self.record_selection(category, name, entry.as_ref());
+        entry
+    }
+
+    /// [`Interpreter::resource_entry`] before the ledger hears of it.
+    fn resource_entry_unrecorded(
         &self,
         resources: &Dictionary,
         category: &str,
@@ -134,10 +157,14 @@ impl Interpreter<'_> {
     pub(super) fn unresolved_resource(
         &self,
         resources: &Dictionary,
-        category: &str,
+        category: &'static str,
         name: &Name,
     ) -> Option<Object> {
         let table = self.document.get_key(resources, category);
-        Some(table.as_dict()?.get_by_name(name)?.clone())
+        let entry = table
+            .as_dict()
+            .and_then(|table| table.get_by_name(name).cloned());
+        self.record_selection(category, name, entry.as_ref());
+        entry
     }
 }

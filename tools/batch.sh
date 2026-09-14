@@ -78,6 +78,7 @@ gates() {
     for t in writer_corpus split_corpus merge_corpus pages_corpus optimize_corpus foreign_corpus archive_corpus; do
         run "t3-$t" cargo test --profile gates -p pdf-transform --test "$t" -- --ignored --nocapture; done
     run t3-archive-val    cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
+    run t3-cross-check    cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture
     run t3-vfs_write      cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
     run t3-vfs_read       cargo test --profile gates -p pdf-vfs --test read_corpus -- --ignored --nocapture
     run t3-awkward        cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture

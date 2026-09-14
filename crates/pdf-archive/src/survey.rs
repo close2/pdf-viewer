@@ -143,6 +143,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::content::ledger::{Ledger, Route as Via};
 use pdf_model::content::reader::{ContentReader, LOOKAHEAD, NestedContent, WINDOW};
 use pdf_model::page::Page;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream, Token};
@@ -745,6 +746,22 @@ impl Survey {
     /// Walks one document's content and reports what it found.
     #[must_use]
     pub fn of(document: &Document) -> Self {
+        Self::walked(document, None).0
+    }
+
+    /// The same walk, keeping every named resource it looked up.
+    ///
+    /// The survey is unchanged by the keeping; what comes back beside it is the walk's half of
+    /// the cross-check `doc/questions/A61` asked for — one [`Ledger`] in the interpreter's own
+    /// shape, so that `tests/cross_check.rs` can hold the two to each other. ADR 1055.
+    #[must_use]
+    pub fn ledgered(document: &Document) -> (Self, Ledger) {
+        let (survey, ledger) = Self::walked(document, Some(Ledger::new()));
+        (survey, ledger.unwrap_or_default())
+    }
+
+    /// One walk, with or without a ledger.
+    fn walked(document: &Document, ledger: Option<Ledger>) -> (Self, Option<Ledger>) {
         let mut walk = Walk {
             document,
             visited: BTreeSet::new(),
@@ -754,6 +771,7 @@ impl Survey {
             actual_text_budget: ACTUAL_TEXT_BUDGET,
             marks: Vec::new(),
             seen: BTreeSet::new(),
+            ledger,
             survey: Self::default(),
         };
         let pages = Pages::new(document);
@@ -764,7 +782,7 @@ impl Survey {
             };
             walk.page(&page, index);
         }
-        walk.survey
+        (walk.survey, walk.ledger)
     }
 
     /// The fonts the content streams selected.
@@ -1049,6 +1067,35 @@ enum Operator {
     Other,
 }
 
+impl Operator {
+    /// The operator's own keyword, or the family's name where this walk keeps one case for
+    /// several keywords — enough for the ledger to say what made a selection.
+    const fn label(&self) -> &'static str {
+        match self {
+            Self::Save => "q",
+            Self::Restore => "Q",
+            Self::SetFont => "Tf",
+            Self::SetRenderMode => "Tr",
+            Self::Show => "a text-showing operator",
+            Self::Invoke => "Do",
+            Self::SetGraphicsState => "gs",
+            Self::SetSpace { stroking: true } => "CS",
+            Self::SetSpace { stroking: false } => "cs",
+            Self::SetColour { stroking: true } => "SC or SCN",
+            Self::SetColour { stroking: false } => "sc or scn",
+            Self::SetDeviceColour { .. } => "a device colour operator",
+            Self::Shade => "sh",
+            Self::SetRenderingIntent => "ri",
+            Self::Paint { .. } => "a path-painting operator",
+            Self::InlineImage => "BI",
+            Self::BeginMarked => "BMC or BDC",
+            Self::EndMarked => "EMC",
+            Self::MarkedPoint => "DP",
+            Self::Other => "an operator this walk ignores",
+        }
+    }
+}
+
 /// One step of the walk: an operand worth keeping, an operator, or the end.
 enum Step {
     /// A name operand.
@@ -1236,6 +1283,12 @@ struct Walk<'a> {
     /// specification 317 127 colour records where 25 distinct ones say the same thing; the set
     /// is what turns that into an allocation nobody pays for.
     seen: BTreeSet<Observation>,
+    /// Every named resource looked up, where [`Survey::ledgered`] asked for them.
+    ///
+    /// `None` for every other caller, and then the cost is one test per lookup. The ledger is
+    /// `pdf_model`'s type rather than one of this crate's so that the two walks record the same
+    /// fact in the same shape, which is what makes them comparable at all.
+    ledger: Option<Ledger>,
     /// What has been found so far.
     survey: Survey,
 }
@@ -1323,7 +1376,13 @@ impl Walk<'_> {
         };
         let origin = self.open_record(index, None, Where::page(index), "the page content", own);
         let mut reader = ContentReader::for_page(self.document, page);
+        if let Some(ledger) = &mut self.ledger {
+            ledger.enter(Via::Page, page.id);
+        }
         self.run(&mut reader, &page.resources, index, 0, &state, origin);
+        if let Some(ledger) = &mut self.ledger {
+            ledger.leave();
+        }
         self.annotations(page, index, &blending);
     }
 
@@ -1457,12 +1516,28 @@ impl Walk<'_> {
     fn appearance(&mut self, entry: &Object, page: &Page, index: usize, state: &State) {
         let id = entry.as_reference();
         match self.document.resolve(entry) {
-            Object::Stream(stream) => self.form(&stream, id, &page.resources, index, 0, state),
+            Object::Stream(stream) => self.form(
+                &stream,
+                id,
+                &page.resources,
+                index,
+                0,
+                state,
+                Via::Appearance,
+            ),
             Object::Dictionary(states) => {
                 for (_, one) in states.iter() {
                     let id = one.as_reference();
                     if let Object::Stream(stream) = self.document.resolve(one) {
-                        self.form(&stream, id, &page.resources, index, 0, state);
+                        self.form(
+                            &stream,
+                            id,
+                            &page.resources,
+                            index,
+                            0,
+                            state,
+                            Via::Appearance,
+                        );
                     }
                 }
             }
@@ -1555,6 +1630,9 @@ impl Walk<'_> {
                     }
                 }
                 Step::Unlisted(word) => {
+                    if let Some(ledger) = &mut self.ledger {
+                        ledger.operator(&word);
+                    }
                     self.note_unlisted_operator(&word, page, origin);
                     names.clear();
                     strings.clear();
@@ -1562,6 +1640,9 @@ impl Walk<'_> {
                     property = None;
                 }
                 Step::Operator(operator) => {
+                    if let Some(ledger) = &mut self.ledger {
+                        ledger.operator(operator.label().as_bytes());
+                    }
                     let context = Context {
                         resources,
                         defaults,
@@ -1619,6 +1700,13 @@ impl Walk<'_> {
             Operator::SetFont => {
                 if let Some(name) = operands.first() {
                     state.font = Some(name.clone());
+                    // §9.3.1's `Tf` is where the font resource is selected; what this walk
+                    // *judges* is recorded at the text-showing operator ([`Walk::select`]),
+                    // and the ledger keeps both so that the interpreter's `Tf` has a twin.
+                    if self.ledger.is_some() {
+                        let found = self.peek("Font", name, context);
+                        self.note_selection("Font", name, found.as_ref());
+                    }
                 }
             }
             Operator::SetRenderMode => {
@@ -1820,6 +1908,7 @@ impl Walk<'_> {
                 state,
                 "a Type 3 glyph procedure",
                 stated,
+                Via::Type3Glyph,
             );
         }
     }
@@ -1843,6 +1932,7 @@ impl Walk<'_> {
                 context.page,
                 context.depth,
                 state,
+                Via::Form,
             ),
             Some(b"Image") => self.image(&stream, id, context),
             _ => {}
@@ -1854,6 +1944,11 @@ impl Walk<'_> {
     /// ISO 32000-2 §11.6.6 makes an isolated group's own `CS` the blending colour space for
     /// what it contains; a non-isolated group, or one that states no `CS`, inherits the space of
     /// the page or group it is painted into.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the two routes into a form — `Do` and an annotation's appearance — share \
+                  everything but the route, and the ledger has to be told which"
+    )]
     fn form(
         &mut self,
         stream: &Stream,
@@ -1862,6 +1957,7 @@ impl Walk<'_> {
         page: usize,
         depth: u32,
         state: &State,
+        route: Via,
     ) {
         let mut state = state.clone();
         let own = self.document.get_key(&stream.dict, "Resources");
@@ -1887,6 +1983,7 @@ impl Walk<'_> {
             &state,
             "a form XObject",
             stated_resources,
+            route,
         );
     }
 
@@ -2139,6 +2236,7 @@ impl Walk<'_> {
                     state,
                     "a tiling pattern",
                     stated,
+                    Via::TilingPattern,
                 );
             }
             Object::Dictionary(dict) => self.shading(&dict, state, context),
@@ -2302,11 +2400,8 @@ impl Walk<'_> {
         {
             opened.referenced = true;
         }
-        let table = self.document.get_key(context.resources, category);
-        let found = table
-            .as_dict()
-            .and_then(|table| table.get_by_name(&Name::new(name.to_vec())))
-            .cloned();
+        let found = self.peek(category, name, context);
+        self.note_selection(category, name, found.as_ref());
         if found.is_none() {
             let printed = String::from_utf8_lossy(name).into_owned();
             if self.first_time(Observation::Missing(
@@ -2450,7 +2545,7 @@ impl Walk<'_> {
     /// about documents nobody has looked at; it is a change worth making on its own evidence
     /// rather than as a side effect of this one.
     fn property_list<'o>(
-        &self,
+        &mut self,
         operands: &Operands<'o>,
         context: &Context<'_>,
     ) -> PropertyList<'o> {
@@ -2464,11 +2559,10 @@ impl Walk<'_> {
         let Some(name) = operands.names.last() else {
             return PropertyList::Absent;
         };
-        let table = self.document.get_key(context.resources, "Properties");
-        let found = table
-            .as_dict()
-            .and_then(|table| table.get_by_name(&Name::new(name.clone())))
-            .cloned();
+        let found = self.peek("Properties", name, context);
+        // The ledger is told, and the two facts above are not: a ledger entry is no route to
+        // either of them.
+        self.note_selection("Properties", name, found.as_ref());
         let Some(found) = found else {
             return PropertyList::Unreadable;
         };
@@ -2589,6 +2683,7 @@ impl Walk<'_> {
         state: &State,
         description: &'static str,
         own_resources: bool,
+        route: Via,
     ) {
         if depth >= MAX_FORM_DEPTH || self.opened >= MAX_STREAMS {
             return;
@@ -2607,6 +2702,9 @@ impl Walk<'_> {
         let place = id.map_or_else(|| Where::page(page), Where::object);
         let origin = self.open_record(page, id, place, description, own_resources);
         let mut reader = content.reader();
+        if let Some(ledger) = &mut self.ledger {
+            ledger.enter(route, id);
+        }
         self.run(
             &mut reader,
             resources,
@@ -2615,6 +2713,29 @@ impl Walk<'_> {
             state,
             origin,
         );
+        if let Some(ledger) = &mut self.ledger {
+            ledger.leave();
+        }
+    }
+
+    /// One named resource as the resources in force define it, with no side effect.
+    ///
+    /// [`Walk::look_up`] is this plus the two facts ISO 19005 section 6.2.2 reads — that the
+    /// stream referenced a name, and that the name reached nothing — and the `Tf` record above
+    /// wants the entry without either.
+    fn peek(&self, category: &'static str, name: &[u8], context: &Context<'_>) -> Option<Object> {
+        let table = self.document.get_key(context.resources, category);
+        table
+            .as_dict()
+            .and_then(|table| table.get_by_name(&Name::new(name.to_vec())))
+            .cloned()
+    }
+
+    /// Tells the ledger what a lookup found, where [`Survey::ledgered`] asked.
+    fn note_selection(&mut self, category: &'static str, name: &[u8], found: Option<&Object>) {
+        if let Some(ledger) = &mut self.ledger {
+            ledger.select(category, name, found);
+        }
     }
 }
 

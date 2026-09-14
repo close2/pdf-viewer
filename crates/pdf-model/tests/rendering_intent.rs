@@ -95,6 +95,76 @@ fn dark_black_profile() -> Vec<u8> {
     out
 }
 
+/// The paper a press profile states as its medium: a warm white, as D50 XYZ.
+const PAPER: [f32; 3] = [0.85, 0.88, 0.65];
+
+/// A one-component press profile whose unprinted medium is `white` and whose `wtpt`, where
+/// `medium` is given, states that medium.
+///
+/// The same two-point table as [`dark_black_profile`] — no ink at grid point 0, a tenth of it
+/// at grid point 1 — over whichever white the caller states, and a `prtr` class so that the
+/// media white point is the tag's rather than the value ICC.1:2022 clause 9.2.36 fixes for a
+/// display. Two profiles built by this are the whole of the absolute-intent test: one states
+/// D50 in its table and the paper in its `wtpt`, the other the paper in its table and no `wtpt`,
+/// and Equations (4) to (6) of that standard's clause 6.3.2.2 say the first under
+/// `AbsoluteColorimetric` is the second under `RelativeColorimetric`.
+fn paper_profile(white: [f32; 3], medium: Option<[f32; 3]>) -> Vec<u8> {
+    let fixed = |value: f32| ((value * 32768.0) as u16).to_be_bytes();
+
+    let mut table = Vec::new();
+    table.extend_from_slice(b"mft2");
+    table.extend_from_slice(&[0; 4]);
+    table.extend_from_slice(&[1, 3, 2, 0]); // one in, three out, two grid points
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        table.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    table.extend_from_slice(&2u16.to_be_bytes()); // input table entries
+    table.extend_from_slice(&2u16.to_be_bytes()); // output table entries
+    for value in [0u16, 0xFFFF] {
+        table.extend_from_slice(&value.to_be_bytes());
+    }
+    for point in [white, [white[0] / 10.0, white[1] / 10.0, white[2] / 10.0]] {
+        for value in point {
+            table.extend_from_slice(&fixed(value));
+        }
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            table.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+
+    let mut tags: Vec<(&[u8; 4], Vec<u8>)> = vec![(b"A2B1", table)];
+    if let Some(medium) = medium {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"XYZ ");
+        tag.extend_from_slice(&[0; 4]);
+        for value in medium {
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tags.push((b"wtpt", tag));
+    }
+
+    let mut out = vec![0u8; 128];
+    out[8] = 2;
+    out[12..16].copy_from_slice(b"prtr");
+    out[16..20].copy_from_slice(b"GRAY");
+    out[20..24].copy_from_slice(b"XYZ ");
+    out[36..40].copy_from_slice(b"acsp");
+    out.extend_from_slice(&(tags.len() as u32).to_be_bytes());
+    let mut offset = 128 + 4 + 12 * tags.len();
+    let mut data = Vec::new();
+    for (name, tag) in &tags {
+        out.extend_from_slice(*name);
+        out.extend_from_slice(&(offset as u32).to_be_bytes());
+        out.extend_from_slice(&(tag.len() as u32).to_be_bytes());
+        offset += tag.len();
+        data.extend_from_slice(tag);
+    }
+    out.extend_from_slice(&data);
+    out
+}
+
 /// One `mft2` lookup table of [`three_table_profile`]'s three.
 ///
 /// Three grid points on one input axis. The two ends are the same in all three tables — D50's
@@ -736,12 +806,14 @@ fn an_intent_with_no_table_of_its_own_falls_back() {
     );
 }
 
-/// The two colorimetric intents share a transform and differ in the black point alone.
+/// The two colorimetric intents share a table.
 ///
 /// ISO 15076-1:2010 tabulates three intents and derives the absolute colorimetric one from the
 /// media-relative colorimetric transform (its clause 6.2), so there is no `A2B3` to select and
 /// `AbsoluteColorimetric` takes `A2B1` — while §8.6.5.9 still makes it turn compensation off.
-/// Both halves in one fixture: the colour is the neutral table's, uncompensated.
+/// Both halves in one fixture: the colour is the neutral table's, uncompensated. This profile
+/// states no `wtpt`, so the derivation has nothing to scale by and the table is the whole
+/// answer; [`an_absolute_intent_draws_unprinted_paper_as_the_paper`] is the profile that does.
 #[test]
 fn an_absolute_intent_takes_the_colorimetric_transform_without_compensation() {
     let absolute = centre_colour(pdf_with(
@@ -755,4 +827,55 @@ fn an_absolute_intent_takes_the_colorimetric_transform_without_compensation() {
         "an absolute intent is the colorimetric table, not a fourth one"
     );
     assert_uncompensated(absolute, "`ri /AbsoluteColorimetric` on a fill");
+}
+
+/// Table 69's other half of `AbsoluteColorimetric`: "no correction shall be made for the output
+/// medium's white point (such as the colour of unprinted paper)". Unprinted paper in a profile
+/// whose `wtpt` states a warm white draws as that warm white under the absolute intent, and as
+/// the display's white under the relative one — which is the same table's own second row, a
+/// medium's white "reproduced on a printer by simply leaving the paper unmarked".
+///
+/// The expected pixel is derived rather than read off this tree's raster: ICC.1:2022 clause
+/// 6.3.2.2's Equations (4) to (6) scale the media-relative XYZ by the media white point over
+/// the connection space's, so a D50-white table under the absolute intent *is* a paper-white
+/// table under the relative intent, and the two fixtures are compared pixel for pixel.
+/// Calibrated by taking the scaling out of `Profile::to_xyz_with`, which draws the first
+/// fixture as the display's white and fails both assertions.
+#[test]
+fn an_absolute_intent_draws_unprinted_paper_as_the_paper() {
+    let d50 = [0.964_2f32, 1.0, 0.824_9];
+    // Compensation off throughout, so that the relative fixture is the table's own white and
+    // not §8.6.5.9's stretch of it — the absolute intent turns it off by itself, and the
+    // comparison is between the two intents' white points and nothing else.
+    let no_ink = |profile: &[u8], before: &str| {
+        centre_colour(pdf_with(
+            &icc_object(5, profile),
+            "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+             /ExtGState << /GS0 << /UseBlackPtComp /OFF >> >>",
+            &format!("/GS0 gs {before} /CS0 cs 0 scn 0 0 20 20 re f"),
+        ))
+    };
+    let relative = no_ink(&paper_profile(d50, Some(PAPER)), "");
+    assert!(
+        relative.0 >= 254 && relative.1 >= 254 && relative.2 >= 254,
+        "relative: unprinted paper is the display's white, got {relative:?}"
+    );
+
+    let absolute = no_ink(&paper_profile(d50, Some(PAPER)), "/AbsoluteColorimetric ri");
+    let paper = no_ink(&paper_profile(PAPER, None), "");
+    assert!(
+        paper.2 + 10 < paper.0 && paper.0 < 250,
+        "the paper the second profile states is a warm white the display can show: {paper:?}"
+    );
+    for (axis, (got, want)) in [absolute.0, absolute.1, absolute.2]
+        .into_iter()
+        .zip([paper.0, paper.1, paper.2])
+        .enumerate()
+    {
+        assert!(
+            got.abs_diff(want) <= 1,
+            "absolute: channel {axis} is {got} where the paper's own table gives {want} \
+             ({absolute:?} against {paper:?})"
+        );
+    }
 }

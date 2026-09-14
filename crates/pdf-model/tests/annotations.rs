@@ -1319,6 +1319,155 @@ fn a_squares_border_style_names_no_bevel_to_report_and_a_links_does() {
     );
 }
 
+/// Table 169's cloudy border is drawn as scallops inside the square, not refused and not straight.
+///
+/// §12.5.4 makes the effect a `shall` — a `/BE` "specifies an effect that shall be applied to the
+/// border of the annotations" — and Table 169 states its look in words alone: "a series of convex
+/// curved line segments in a manner that simulates the appearance of a cloud". The geometry is
+/// ADR 1057's choice; what this test pins is the reading, with the arithmetic that follows from it.
+///
+/// `/Rect [10 10 90 90]`, a line two wide and `/I 1`: the line's path is the rectangle inset by
+/// one, `[11 11 89 89]`, the cusps sit a radius of four inside that, `[15 15 85 85]`, and each
+/// seventy-point edge takes nine scallops of radius 3.89. So the middle of the left edge is an
+/// apex reaching back out to x ≈ 11.1 — exactly where the straight line was — while the corner
+/// `(11, 11)` a straight square inks is four points from the nearest cusp and bare, and so is the
+/// inscribed line just below the corner cusp, where the first scallop of the left edge has not
+/// yet bulged out to it. **A straight square paints both of those pixels**, which is what makes
+/// them the discriminating half; the apex is the half that says the cloud reaches the inscribed
+/// rectangle and no further.
+#[test]
+fn a_cloudy_square_is_scalloped_inside_its_rectangle() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F 4 /C [1 0 0] \
+         /BS << /W 2 >> /BE << /S /C /I 1 >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        painted(&raster, 11, 50),
+        "an apex reaches the inscribed line"
+    );
+    assert!(
+        painted(&raster, 14, 22),
+        "an arc leaves the cusp four points inside it"
+    );
+    assert!(
+        !painted(&raster, 11, 11),
+        "the corner a straight square inks is bare"
+    );
+    assert!(
+        !painted(&raster, 11, 14),
+        "and so is the inscribed line just below the corner cusp"
+    );
+}
+
+/// A cloudy circle's cusps lie on an ellipse a radius inside the line, spaced by arc length.
+///
+/// With no `/I` the intensity is Table 169's default 0 and the radius two, so the cusp ellipse is
+/// `[13 13 87 87]` and its first cusp, at angle zero, is `(87, 50)` — a pixel the straight
+/// ellipse, whose line runs from x = 88 to 90 there, leaves bare.
+#[test]
+fn a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Circle /Rect [10 10 90 90] /F 4 /C [0 0 1] \
+         /BS << /W 2 >> /BE << /S /C >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(painted(&raster, 87, 50), "the cusp at angle zero");
+    assert!(!painted(&raster, 84, 50), "and nothing further in");
+}
+
+/// A polygon's cloud bulges outward from its own vertices; a polyline's `/BE` is not read.
+///
+/// Table 181's `/BE` is "(Optional; meaningful only for polygon annotations)", so the same entry
+/// on a polyline is a key the standard defines nothing for: the polyline is drawn straight and
+/// nothing is reported, where refusing it would name a gap the clause does not state (trap 11).
+/// The polygon is a sixty-point square at `/I 2`, radius six: five scallops an edge, the first
+/// apex of the bottom edge at `(26, 14)`, and the straight edge at `(26, 20)` bare.
+#[test]
+fn a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful() {
+    let polygon = render(pdf_with(
+        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] /F 4 /C [0 0 1] \
+         /Vertices [20 20 80 20 80 80 20 80] /BS << /W 2 >> /BE << /S /C /I 2 >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        painted(&polygon, 26, 13),
+        "an apex six points outside the edge"
+    );
+    assert!(
+        !painted(&polygon, 26, 20),
+        "the straight edge under it is bare"
+    );
+
+    let polyline = render(pdf_with(
+        "<< /Type /Annot /Subtype /PolyLine /Rect [0 0 100 100] /F 4 /C [0 0 1] \
+         /Vertices [20 20 80 20 80 80 20 80] /BS << /W 2 >> /BE << /S /C /I 2 >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        painted(&polyline, 26, 20),
+        "a polyline's edge stays straight"
+    );
+    assert!(!painted(&polyline, 26, 13), "and nothing bulges from it");
+}
+
+/// A cloudy `/Path` polygon is scalloped too, its curve flattened into one edge of the outline.
+///
+/// Table 181's `/Path` supersedes `/Vertices`; this one is a square whose top side is a curve
+/// bowing upward to y = 95 at its middle, and the cloud follows the curve rather than a chord
+/// of it. The flattened curve is 73.1 long, so at `/I 1` it takes nine scallops of radius 4.06
+/// and its middle is an apex, at about y = 99; the chord's middle, y = 80, is bare.
+#[test]
+fn a_cloudy_path_polygon_follows_its_curve() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 120] /F 4 /C [0 0 1] \
+         /Path [[20 20] [80 20] [80 80] [80 100 20 100 20 80]] /BS << /W 2 >> \
+         /BE << /S /C /I 1 >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(painted(&raster, 50, 98), "an apex above the curve's crown");
+    assert!(
+        !painted(&raster, 50, 80),
+        "the chord a straight reading would draw is bare"
+    );
+}
+
+/// §12.5.6.22: "Watermark annotations shall have no popup window nor other interactive
+/// elements." So the pointer does not land on one — `annotation_at`, which every press, hover
+/// and §12.6.3 trigger goes through, answers `None` over a watermark's rectangle — and the same
+/// rectangle under a square, whose flags are identical, is found. The `/AP` `/D` the fixture
+/// gives both is the interactive element the sentence forbids a watermark to have.
+#[test]
+fn a_watermark_is_not_under_the_pointer_and_a_square_is() {
+    let found = |subtype: &str| {
+        let bytes = pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /{subtype} /Rect [10 10 90 90] /F 4 \
+                 /AP << /N 6 0 R /D 6 0 R >> >>"
+            ),
+            "/BBox [0 0 80 80]",
+            "1 0 0 rg 0 0 80 80 re f",
+        );
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let view = pdf_model::view::ViewState::of(&document);
+        pdf_model::view::annotation_at(&document, &page, &view, 50.0, 50.0).is_some()
+    };
+    assert!(
+        !found("Watermark"),
+        "a watermark has no interactive elements"
+    );
+    assert!(
+        found("Square"),
+        "and the same rectangle on a square is live"
+    );
+}
+
 /// A link's border is §12.5.4's rectangle, in Table 166's `/C`, inside `/Rect`.
 ///
 /// Table 166 makes `/C` "a colour used for ... The border of a link annotation" and §12.5.4

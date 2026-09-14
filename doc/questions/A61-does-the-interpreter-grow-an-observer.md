@@ -1,6 +1,6 @@
 Status: complete
 Given: 2026-09-14, in conversation — transcribed by the round
-Owes: the cross-check test, scoped to the constructs the survey walks (acting round)
+Owes: nothing — the cross-check test is `crates/pdf-archive/tests/cross_check.rs`, scoped as this answer asks, and ADR 1055 states the scope (session 1038)
 
 > Cross-check test first.
 

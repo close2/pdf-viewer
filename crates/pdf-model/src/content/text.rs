@@ -1236,7 +1236,12 @@ impl Interpreter<'_> {
 
         let saved_uncoloured = self.uncoloured;
         self.glyph_depth = self.glyph_depth.saturating_add(1);
+        self.enter_ledger_frame(
+            super::ledger::Route::Type3Glyph,
+            font.glyph_reference(self.document, code),
+        );
         self.run(&data, font.resources(stated.as_ref(), resources), &inner);
+        self.leave_ledger_frame();
         self.glyph_depth = self.glyph_depth.saturating_sub(1);
         // `d1` inside the description raised this; the description is over. Restoring rather
         // than clearing is what lets an uncoloured glyph invoke another one without the

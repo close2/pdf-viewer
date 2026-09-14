@@ -8,10 +8,18 @@
 //! population that clause can reach before anything is decided about it.
 //!
 //! Counted per document and per shading, with the colour space family beside it, because
-//! §8.7.4.4's own rule about *where* interpolation happens turns on that family.
+//! §8.7.4.4's own rule about *where* interpolation happens turns on that family — and the last
+//! line names the population that rule reaches: a mesh stating no `/Function` in a space that is
+//! not a device space, which `pdf_model::mesh` subdivides to §10.7.3's tolerance rather than
+//! interpolating in device colour. An `Indexed` space is counted by its own name, since the rule
+//! then turns on its base.
+//!
+//! Walks `doc/pdf.js/test/pdfs` and every `.pdf` under `doc/corpora/`, or the directories named
+//! on the command line.
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example mesh_census
+//! cargo run --release -p pdf-model --example mesh_census -- corpus-cache/openpreserve
 //! ```
 #![expect(
     clippy::print_stdout,
@@ -29,14 +37,43 @@ use std::path::{Path, PathBuf};
 use pdf_syntax::{Document, Object, ObjectId};
 
 fn corpus() -> Vec<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&root)
-        .expect("the submodule is checked out")
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().is_some_and(|e| e == "pdf"))
-        .collect();
+    let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let roots: Vec<PathBuf> = {
+        let named: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
+        if named.is_empty() {
+            vec![tree.join("doc/pdf.js/test/pdfs"), tree.join("doc/corpora")]
+        } else {
+            named
+        }
+    };
+    let mut files = Vec::new();
+    for root in roots {
+        collect(&root, &mut files);
+    }
     files.sort();
     files
+}
+
+/// Every `.pdf` under `root`, however deep — the `doc/corpora/` submodules nest theirs.
+fn collect(root: &Path, into: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(root).expect("the corpus directory is on the disk");
+    for path in entries.filter_map(|entry| entry.ok().map(|entry| entry.path())) {
+        if path.is_dir() {
+            collect(&path, into);
+        } else if path.extension().is_some_and(|e| e == "pdf") {
+            into.push(path);
+        }
+    }
+}
+
+/// Whether §8.7.4.4 names a space the gradient shall be calculated in, by the family's name:
+/// everything but the three device spaces. The clause's rule for `Indexed` turns on the base,
+/// which a name cannot see, so an `Indexed` mesh is counted here and listed by name.
+fn interpolates_in_its_own_space(family: &str) -> bool {
+    !matches!(
+        family,
+        "DeviceGray" | "DeviceRGB" | "DeviceCMYK" | "G" | "RGB" | "CMYK"
+    )
 }
 
 /// The family of a `/ColorSpace` entry, named as the standard names it.
@@ -65,6 +102,9 @@ fn main() {
     let mut spaces_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut documents: Vec<String> = Vec::new();
     let mut with_function: Vec<String> = Vec::new();
+    // Meshes §8.7.4.4's rule reaches — no `/Function`, and a space that is not a device space —
+    // as `document (count family)`.
+    let mut own_space: Vec<String> = Vec::new();
 
     for path in corpus() {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -78,6 +118,7 @@ fn main() {
         // This document's own meshes by colour space family, so that the population a
         // §8.7.4.4 departure reaches can be attributed to a file rather than to a total.
         let mut mine: BTreeMap<String, usize> = BTreeMap::new();
+        let mut mine_own_space: BTreeMap<String, usize> = BTreeMap::new();
         for number in document.xref().object_numbers() {
             let object = document.get(ObjectId {
                 number,
@@ -101,6 +142,9 @@ fn main() {
             entry.1 += usize::from(function);
             let space = family(&document, &document.get_key(dict, "ColorSpace"));
             *mine.entry(space.clone()).or_insert(0) += 1;
+            if !function && interpolates_in_its_own_space(&space) {
+                *mine_own_space.entry(space.clone()).or_insert(0) += 1;
+            }
             spaces_of
                 .entry(space.clone())
                 .or_default()
@@ -118,6 +162,13 @@ fn main() {
         }
         if parametric > 0 {
             with_function.push(format!("{name} ({parametric})"));
+        }
+        if !mine_own_space.is_empty() {
+            let spaces: Vec<String> = mine_own_space
+                .iter()
+                .map(|(space, count)| format!("{count} {space}"))
+                .collect();
+            own_space.push(format!("{name} ({})", spaces.join(" + ")));
         }
     }
 
@@ -140,4 +191,11 @@ fn main() {
     println!("mesh: {}", documents.join(", "));
     println!();
     println!("with a /Function: {}", with_function.join(", "));
+    println!();
+    println!(
+        "interpolated in the shading's own space (§8.7.4.4, no /Function, not a device space): \
+         {} documents — {}",
+        own_space.len(),
+        own_space.join(", ")
+    );
 }

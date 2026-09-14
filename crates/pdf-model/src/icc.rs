@@ -78,20 +78,30 @@ const MAX_CLUT: usize = 1 << 22;
 /// That standard numbers the rendering intents (its clause 6.2) and gives `A2B0`, `A2B1` and
 /// `A2B2` the device-to-connection transform of one intent each (its tag listing, clause 9.2).
 /// There is no fourth tag, because it derives the absolute colorimetric intent from the
-/// media-relative colorimetric one instead of tabulating it — which is why Table 69's
-/// `AbsoluteColorimetric` and `RelativeColorimetric` are one variant here and differ in
-/// §8.6.5.9's black point compensation alone.
+/// media-relative colorimetric one instead of tabulating it — so the fourth variant here is
+/// the same table as [`A2b::Colorimetric`] with that derivation applied, which is what Table
+/// 69 asks of the name: "no correction shall be made for the output medium's white point
+/// (such as the colour of unprinted paper)". ICC.1:2022 — the ICC's own current text of the
+/// same standard — writes the derivation out as its clause 6.3.2.2, Equations (4) to (6):
+/// each connection-space tristimulus value is multiplied by the ratio of the profile's media
+/// white point, its `wtpt` tag, to the connection space's own. [`Profile::to_xyz_with`]
+/// performs it and [`Profile::to_device`] undoes it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum A2b {
     /// `A2B0`: Table 69's `Perceptual`.
     Perceptual,
-    /// `A2B1`: Table 69's `RelativeColorimetric` and `AbsoluteColorimetric`.
+    /// `A2B1`: Table 69's `RelativeColorimetric`.
     ///
     /// The default, three times over: Table 51 makes `RelativeColorimetric` the graphics
     /// state's initial rendering intent, §8.6.5.8 makes it the answer to a name a processor
     /// does not recognise, and §11.4.7 makes it the page group's conversion.
     #[default]
     Colorimetric,
+    /// `A2B1` scaled onto the profile's media white point: Table 69's `AbsoluteColorimetric`.
+    ///
+    /// The one variant that is a derivation rather than a tag. Its other half is §8.6.5.9's,
+    /// which [`Rendering::new`] enforces: under this intent black point compensation is off.
+    Absolute,
     /// `A2B2`: Table 69's `Saturation`.
     Saturation,
 }
@@ -126,11 +136,20 @@ impl Default for Rendering {
 
 impl Rendering {
     /// The parameters an object states.
+    ///
+    /// One combination cannot be built, and it is §8.6.5.9's:
+    ///
+    /// > If the current render intent of an object is AbsColorimetric then the value of
+    /// > UseBlackPtComp shall be treated as OFF .
+    ///
+    /// `crate::content` asks that sentence over the object before it gets here; the type holds
+    /// it too, so that no caller building a `Rendering` by hand can compensate under
+    /// [`A2b::Absolute`].
     #[must_use]
     pub fn new(transform: A2b, black_point: bool) -> Self {
         Self {
             transform,
-            black_point,
+            black_point: black_point && transform != A2b::Absolute,
         }
     }
 
@@ -193,6 +212,14 @@ pub struct Profile {
     /// *source* space and forbids of one used as a blending space; a press without one keeps
     /// the right inverse of its own `A2B` that every press took before ADR 0796.
     inverse: Option<Box<Lut>>,
+    /// The medium's white in connection-space XYZ, which [`A2b::Absolute`] reproduces.
+    ///
+    /// ICC.1:2022 clause 9.2.36's `wtpt` tag: the media white point as chromatically adapted
+    /// XYZ tristimulus values — except for a display profile, whose value the same clause fixes
+    /// at the PCS illuminant rather than leaving to the tag (cited, not quoted: the ICC texts on
+    /// this disk are read under a single-reader licence). [`Profile::parse`] says what a
+    /// profile without the tag gets.
+    media_white: [f32; 3],
     /// What distinguishes this profile's bytes from another's. See [`Profile::identity`].
     identity: u128,
 }
@@ -887,6 +914,26 @@ impl Profile {
                 .map(Arc::from),
             route: OnceLock::new(),
         };
+        // The media white point, for the absolute colorimetric intent. A display's is the
+        // connection space's own by ICC.1:2022 clause 9.2.36's statement — "For displays, the
+        // values specified shall be those of the PCS illuminant" — and ICC.1:2001-12 clause
+        // 6.4.27 said the same of a v2 profile, so a display profile's tag is not consulted:
+        // the standard states the value, and the one profile class whose tag is known to
+        // disagree with it (a 1998 sRGB carrying its monitor's D65) is a class the standard
+        // has already answered for. Every other class reads the tag, and a profile that omits
+        // one keeps the connection space's white, which makes the absolute intent the
+        // relative one: the derivation needs a value the profile did not state, and inventing
+        // a paper colour is not a reading of anything.
+        let media_white = if data.get(12..16)? == b"mntr" {
+            WHITE
+        } else {
+            find(b"wtpt")
+                .filter(|tag| tag.get(..4) == Some(b"XYZ "))
+                .and_then(|tag| Some([fixed_at(tag, 8)?, fixed_at(tag, 12)?, fixed_at(tag, 16)?]))
+                .filter(|white| white.iter().all(|value| *value > 0.0 && value.is_finite()))
+                .unwrap_or(WHITE)
+        };
+
         let mut profile = Self {
             channels,
             lab_pcs,
@@ -898,6 +945,7 @@ impl Profile {
             perceptual: alternate(b"A2B0"),
             saturation: alternate(b"A2B2"),
             inverse,
+            media_white,
             identity: identity_of(data),
         };
         profile.colorimetric.black = profile.detect_black(&profile.colorimetric.transform);
@@ -1034,7 +1082,7 @@ impl Profile {
     /// has.
     fn route(&self, transform: A2b) -> &Route {
         let alternate = match transform {
-            A2b::Colorimetric => return &self.colorimetric,
+            A2b::Colorimetric | A2b::Absolute => return &self.colorimetric,
             A2b::Perceptual => &self.perceptual,
             A2b::Saturation => &self.saturation,
         };
@@ -1100,6 +1148,21 @@ impl Profile {
         let route = self.route(rendering.transform());
         let mut xyz = self.connection(&route.transform, values);
 
+        // The absolute colorimetric intent: ICC.1:2022 clause 6.3.2.2's Equations (4) to (6),
+        // each media-relative tristimulus value multiplied by the ratio of the media white
+        // point to the connection space's white. A table states media-relative colorimetry —
+        // the medium's own white lands on the connection space's — and this is what puts the
+        // paper back: under Table 69's `AbsoluteColorimetric` "no correction shall be made for
+        // the output medium's white point (such as the colour of unprinted paper)". The screen
+        // this converts for is a display, whose media white point clause 9.2.36 fixes at the
+        // connection space's, so the destination's side of the ratio is one and the source's
+        // is the whole of it.
+        if rendering.transform() == A2b::Absolute {
+            for ((value, white), medium) in xyz.iter_mut().zip(WHITE).zip(self.media_white) {
+                *value *= medium / white;
+            }
+        }
+
         // Black point compensation: stretch the profile's range so its darkest colour
         // lands on the display's black instead of on a dark grey. Linear in XYZ, with the
         // white point fixed, which is the standard construction.
@@ -1158,17 +1221,26 @@ impl Profile {
     /// answer is the profile writer's mapping, which is what §11.7.5.3 means by the rendering
     /// intent "taking into account the target space's colour gamut".
     ///
-    /// `black_point` says whether `xyz` was produced *with* [`Self::to_rgb_with`]'s black
-    /// point compensation, in which case the stretch is undone first so that the two
-    /// directions are inverses in the same sense: a colour taken out of the press with the
-    /// compensation on and brought back in lands on the device colour it came from, to the
+    /// `rendering` says what `xyz` was produced *under* by [`Self::to_xyz_with`], so that the
+    /// two directions are inverses in the same sense: its black point compensation is undone
+    /// first, and so is [`A2b::Absolute`]'s media white — ICC.1:2022 clause 6.3.2.2's
+    /// Equations (1) to (3), the reciprocal ratio, applied to *this* profile's white since a
+    /// colour entering a press is relative to the press's paper — so that a colour taken out
+    /// of the press and brought back in lands on the device colour it came from, to the
     /// profile's own round-trip precision.
     ///
     /// The result has the profile's channel count and zeros beyond it. `None` where the
     /// profile carries no table this crate reads, which [`Self::is_bidirectional`] says in
     /// advance.
     #[must_use]
-    pub fn to_device(&self, xyz: [f32; 3], black_point: bool) -> Option<[f32; MAX_OUTPUTS]> {
+    pub fn to_device(&self, xyz: [f32; 3], rendering: Rendering) -> Option<[f32; MAX_OUTPUTS]> {
+        let mut xyz = xyz;
+        if rendering.transform() == A2b::Absolute {
+            for ((value, white), medium) in xyz.iter_mut().zip(WHITE).zip(self.media_white) {
+                // Positive by construction — `parse` keeps no media white with a zero axis.
+                *value *= white / medium;
+            }
+        }
         // A matrix profile's conversion in is its own two stages run backwards — ISO 15076-1
         // states the PCS-to-device direction of a three-component matrix profile as the
         // inverse of the matrix followed by the inverse of each tone curve — and it has no
@@ -1185,8 +1257,7 @@ impl Profile {
             return Some(out);
         }
         let inverse = self.inverse.as_ref()?;
-        let mut xyz = xyz;
-        if let Some(black) = self.colorimetric.black.filter(|_| black_point) {
+        if let Some(black) = self.colorimetric.black.filter(|_| rendering.black_point()) {
             for (axis, value) in xyz.iter_mut().enumerate() {
                 let white = WHITE.get(axis).copied().unwrap_or(1.0);
                 let low = black.get(axis).copied().unwrap_or(0.0);
@@ -1972,6 +2043,21 @@ pub(crate) mod fixtures {
         tag
     }
 
+    /// An `XYZ ` tag stating one colour, which is what `wtpt` is.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    pub(crate) fn xyz_tag(xyz: [f32; 3]) -> Vec<u8> {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"XYZ ");
+        tag.extend_from_slice(&[0; 4]);
+        for value in xyz {
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tag
+    }
+
     /// A "from CIE" table whose corners state one minus each input on the three chromatic
     /// inks and no black — an affine rule, so trilinear interpolation of the corners *is* the
     /// rule and a test's expected value is `1 − input` and nothing else.
@@ -2035,9 +2121,9 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::{
         black_only_clut, complement_clut, mba_tag, mft2_tag, one_way_cmyk_profile, profile_of,
-        two_way_cmyk_profile,
+        two_way_cmyk_profile, xyz_tag,
     };
-    use super::{Encoding, Identification, Profile, Rendering};
+    use super::{A2b, Encoding, Identification, Profile, Rendering, WHITE};
 
     /// The profile this program ships for `doc/questions/A18`'s output intent, read out of the
     /// file rather than off the page that offers it — which is what `data/icc/PROVENANCE.md`
@@ -2569,7 +2655,9 @@ mod tests {
         assert!(profile.is_bidirectional());
 
         let xyz = [0.482_1, 0.5, 0.412_45];
-        let inks = profile.to_device(xyz, false).expect("a from-CIE table");
+        let inks = profile
+            .to_device(xyz, Rendering::without_black_point())
+            .expect("a from-CIE table");
         let want = [
             1.0 - 0.482_1 * 32768.0 / 65535.0,
             1.0 - 0.5 * 32768.0 / 65535.0,
@@ -2589,7 +2677,11 @@ mod tests {
     fn a_profile_without_a_from_cie_table_is_not_bidirectional() {
         let profile = Profile::parse(&one_way_cmyk_profile()).expect("parses");
         assert!(!profile.is_bidirectional());
-        assert!(profile.to_device([0.5, 0.5, 0.5], false).is_none());
+        assert!(
+            profile
+                .to_device([0.5, 0.5, 0.5], Rendering::without_black_point())
+                .is_none()
+        );
         // The "to CIE" half is untouched: black point compensation still finds the press's
         // black at a tenth of white and stretches it to the display's.
         assert_eq!(bytes(profile.to_rgb(&[0.0, 0.0, 0.0, 1.0])), (0, 0, 0));
@@ -2606,12 +2698,15 @@ mod tests {
             [0.3, 0.2, 0.1, 0.7],
         ] {
             let compensated = profile
-                .to_device(profile.to_xyz_with(&inks, Rendering::compensating()), true)
+                .to_device(
+                    profile.to_xyz_with(&inks, Rendering::compensating()),
+                    Rendering::compensating(),
+                )
                 .expect("a from-CIE table");
             let plain = profile
                 .to_device(
                     profile.to_xyz_with(&inks, Rendering::without_black_point()),
-                    false,
+                    Rendering::without_black_point(),
                 )
                 .expect("a from-CIE table");
             for (axis, (got, want)) in compensated.iter().zip(plain).enumerate() {
@@ -2625,12 +2720,15 @@ mod tests {
         // a different colour, by the whole of the range the stretch aligned.
         let inks = [0.0f32, 0.0, 0.0, 0.5];
         let mixed = profile
-            .to_device(profile.to_xyz_with(&inks, Rendering::compensating()), false)
+            .to_device(
+                profile.to_xyz_with(&inks, Rendering::compensating()),
+                Rendering::without_black_point(),
+            )
             .expect("a from-CIE table");
         let plain = profile
             .to_device(
                 profile.to_xyz_with(&inks, Rendering::without_black_point()),
-                false,
+                Rendering::without_black_point(),
             )
             .expect("a from-CIE table");
         assert!(
@@ -2654,7 +2752,10 @@ mod tests {
         ))
         .expect("parses");
         let inks = profile
-            .to_device(crate::colour::lab_to_xyz(50.0, 0.0, 0.0), false)
+            .to_device(
+                crate::colour::lab_to_xyz(50.0, 0.0, 0.0),
+                Rendering::without_black_point(),
+            )
             .expect("a from-CIE table");
         let scale = 65280.0 / 65535.0;
         let want = [
@@ -2690,7 +2791,10 @@ mod tests {
             ))
             .expect("parses");
             let inks = profile
-                .to_device(crate::colour::lab_to_xyz(50.0, 0.0, 0.0), false)
+                .to_device(
+                    crate::colour::lab_to_xyz(50.0, 0.0, 0.0),
+                    Rendering::without_black_point(),
+                )
                 .expect("a from-CIE table");
             let want = [1.0 - first, 1.0 - 128.0 / 255.0, 1.0 - 128.0 / 255.0, 0.0];
             for (axis, (got, want)) in inks.iter().zip(want).enumerate() {
@@ -2827,6 +2931,166 @@ mod tests {
         assert!(
             Profile::parse(bytes).is_some(),
             "and the whole profile builds a transform"
+        );
+    }
+    /// The paper a press profile states as its medium, in connection-space XYZ: a warm white
+    /// well inside D50, so that reproducing it is a colour and not a rounding.
+    const PAPER: [f32; 3] = [0.85, 0.88, 0.65];
+
+    /// [`one_way_cmyk_profile`]'s press with a `wtpt` stating [`PAPER`].
+    fn paper_press_profile() -> Vec<u8> {
+        profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"wtpt", xyz_tag(PAPER)),
+            ],
+        )
+    }
+
+    fn assert_xyz(got: [f32; 3], want: [f32; 3], what: &str) {
+        for (axis, (got, want)) in got.iter().zip(want).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-3,
+                "{what}: axis {axis} is {got} where {want} was expected ({got:?})"
+            );
+        }
+    }
+
+    /// ISO 32000-2 Table 69: under `AbsoluteColorimetric` "no correction shall be made for the
+    /// output medium's white point (such as the colour of unprinted paper)". The table states
+    /// media-relative colorimetry, so no ink is the connection space's white; ICC.1:2022 clause
+    /// 6.3.2.2's Equations (4) to (6) scale that by the media white point, and the paper comes
+    /// back. Under `RelativeColorimetric` the same no-ink is the display's white, which is Table
+    /// 69's other row: the medium's white "can be reproduced on a printer by simply leaving the
+    /// paper unmarked".
+    #[test]
+    fn an_absolute_intent_reproduces_the_mediums_white() {
+        let profile = Profile::parse(&paper_press_profile()).expect("parses");
+        let no_ink = [0.0f32; 4];
+        assert_xyz(
+            profile.to_xyz_with(&no_ink, Rendering::without_black_point()),
+            WHITE,
+            "relative: unprinted paper is the connection space's white",
+        );
+        assert_xyz(
+            profile.to_xyz_with(&no_ink, Rendering::new(A2b::Absolute, false)),
+            PAPER,
+            "absolute: unprinted paper is the paper",
+        );
+        // Every colour scales by the same ratio, not only white: Equations (4) to (6) are
+        // per-axis multiplications of the whole transform's output.
+        let half = [0.0f32, 0.0, 0.0, 0.5];
+        let relative = profile.to_xyz_with(&half, Rendering::without_black_point());
+        let absolute = profile.to_xyz_with(&half, Rendering::new(A2b::Absolute, false));
+        let want = [
+            relative[0] * PAPER[0] / WHITE[0],
+            relative[1] * PAPER[1] / WHITE[1],
+            relative[2] * PAPER[2] / WHITE[2],
+        ];
+        assert_xyz(
+            absolute,
+            want,
+            "absolute: a half-ink grey scales by the same ratio",
+        );
+    }
+
+    /// §8.6.5.9:
+    ///
+    /// > If the current render intent of an object is AbsColorimetric then the value of
+    /// > UseBlackPtComp shall be treated as OFF .
+    ///
+    /// The type refuses the combination, so a caller asking for both gets the clause's answer.
+    #[test]
+    fn an_absolute_rendering_cannot_compensate() {
+        assert!(!Rendering::new(A2b::Absolute, true).black_point());
+        assert!(Rendering::new(A2b::Colorimetric, true).black_point());
+        assert_eq!(
+            Rendering::new(A2b::Absolute, true),
+            Rendering::new(A2b::Absolute, false)
+        );
+    }
+
+    /// ICC.1:2022 clause 9.2.36: "For displays, the values specified shall be those of the PCS
+    /// illuminant." A display profile's `wtpt` is therefore the standard's value and not the
+    /// tag's — this one states its monitor's D65, as the 1998 sRGB profile does — so its
+    /// absolute intent is its relative one.
+    #[test]
+    fn a_display_profiles_media_white_is_the_connection_spaces() {
+        let mut bytes = profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"wtpt", xyz_tag([0.950_5, 1.0, 1.089_1])),
+            ],
+        );
+        bytes[12..16].copy_from_slice(b"mntr");
+        let profile = Profile::parse(&bytes).expect("parses");
+        let no_ink = [0.0f32; 4];
+        assert_xyz(
+            profile.to_xyz_with(&no_ink, Rendering::new(A2b::Absolute, false)),
+            WHITE,
+            "a display's medium is the connection space's white",
+        );
+    }
+
+    /// A profile that states no `wtpt` has given the derivation nothing to scale by, and the
+    /// absolute intent is the relative one rather than a guessed paper.
+    #[test]
+    fn a_profile_without_a_media_white_point_keeps_the_relative_answer() {
+        let profile = Profile::parse(&one_way_cmyk_profile()).expect("parses");
+        let inks = [0.2f32, 0.1, 0.0, 0.3];
+        assert_xyz(
+            profile.to_xyz_with(&inks, Rendering::new(A2b::Absolute, false)),
+            profile.to_xyz_with(&inks, Rendering::without_black_point()),
+            "no tag, no scaling",
+        );
+    }
+
+    /// The conversion in undoes the media white the conversion out applied — Equations (1) to
+    /// (3) against (4) to (6) — so a press's colour taken out under the absolute intent and
+    /// brought back in lands where it started, as it does under the relative one.
+    #[test]
+    fn the_conversion_in_undoes_the_media_white_the_conversion_out_applied() {
+        let bytes = profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+                (*b"wtpt", xyz_tag(PAPER)),
+            ],
+        );
+        let profile = Profile::parse(&bytes).expect("parses");
+        let absolute = Rendering::new(A2b::Absolute, false);
+        let relative = Rendering::without_black_point();
+        for inks in [[0.0f32, 0.0, 0.0, 0.0], [0.3, 0.2, 0.1, 0.7]] {
+            let round_absolute = profile
+                .to_device(profile.to_xyz_with(&inks, absolute), absolute)
+                .expect("a from-CIE table");
+            let round_relative = profile
+                .to_device(profile.to_xyz_with(&inks, relative), relative)
+                .expect("a from-CIE table");
+            for (axis, (got, want)) in round_absolute.iter().zip(round_relative).enumerate() {
+                assert!(
+                    (got - want).abs() < 1e-4,
+                    "ink {axis} of {inks:?}: {got} absolute against {want} relative"
+                );
+            }
+        }
+        // And the test discriminates: an absolute XYZ read *without* undoing the scaling is a
+        // different ink, by the paper's distance from the connection space's white.
+        let xyz = profile.to_xyz_with(&[0.0, 0.0, 0.0, 0.0], absolute);
+        let mixed = profile.to_device(xyz, relative).expect("a from-CIE table");
+        let plain = profile.to_device(xyz, absolute).expect("a from-CIE table");
+        assert!(
+            (mixed[2] - plain[2]).abs() > 0.05,
+            "the paper moves the yellow ink: {mixed:?} against {plain:?}"
         );
     }
 }

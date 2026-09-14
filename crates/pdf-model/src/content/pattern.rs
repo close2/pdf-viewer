@@ -13,7 +13,7 @@ use pdf_render::{
     Rect, Shading, ShadingKind, SoftMask, SoftMaskId, SoftMaskKind, Stroke, Transform,
     stroked_bounds,
 };
-use pdf_syntax::{Dictionary, Name, Object};
+use pdf_syntax::{Dictionary, Name, Object, ObjectId};
 
 use crate::colour::ColourSpace;
 use crate::icc::Rendering;
@@ -364,6 +364,11 @@ pub(super) struct Tiling {
     content: super::reader::NestedContent,
     /// The resources its operators name.
     resources: Dictionary,
+    /// The pattern stream's own object, where the `/Pattern` entry named it by reference.
+    ///
+    /// Carried for the ledger alone: the cell is run where the pattern is painted, not where
+    /// it is selected, and the run is what has to say which stream it is.
+    source: Option<ObjectId>,
     /// Spacing between cells, in pattern space. Never zero.
     step: (f32, f32),
     /// ISO 32000-2 §8.7.3.1 Table 74's `/BBox`, the pattern cell's bounding box, in pattern
@@ -609,7 +614,9 @@ impl Interpreter<'_> {
         // that showed it: one radial gradient, page-anchored, under a cell the size of the
         // page.
         let outer_base = std::mem::replace(&mut self.base, to_page);
+        self.enter_ledger_frame(super::ledger::Route::TilingPattern, tiling.source);
         self.run(&tiling.content, &tiling.resources, &cell);
+        self.leave_ledger_frame();
         self.base = outer_base;
         self.uncoloured = saved_uncoloured;
         box_clip
@@ -1374,15 +1381,18 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         state: &GraphicsState,
     ) {
+        // The name's bytes do the finding (§7.3.5, `resources.rs`); the text says so afterwards.
+        // Looked up before the visibility is asked, because the operator selects its shading
+        // whether or not the layer it stands in is shown — which is what the ledger records.
+        let entry = self.resource_entry(resources, "Shading", name);
         // `sh` marks the page and changes nothing else, so a hidden layer skips it whole —
         // including the report a shading we cannot build would otherwise make about a
         // shading that was never going to be drawn.
         if self.is_hidden() {
             return;
         }
-        // The name's bytes do the finding (§7.3.5, `resources.rs`); the text says so afterwards.
         let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
-        let Some(object) = self.resource_entry(resources, "Shading", name) else {
+        let Some(object) = entry else {
             self.note(Unsupported::Shading {
                 name: format!("/{label} is not in /Shading"),
             });
@@ -1426,6 +1436,15 @@ impl Interpreter<'_> {
                 if built.truncated {
                     self.note(Unsupported::LimitReached {
                         limit: "max_mesh_triangles",
+                    });
+                }
+                // And a mesh whose colours §8.7.4.4's subdivision could not bring within
+                // §10.7.3's tolerance before a bound stopped it is said the same way: the
+                // triangles are all there, and what is coarser than the clause asks is the
+                // colour between them.
+                if built.coarse {
+                    self.note(Unsupported::LimitReached {
+                        limit: "max_mesh_refinement",
                     });
                 }
                 let shading = built.shading;
@@ -1544,10 +1563,14 @@ impl Interpreter<'_> {
         fill: bool,
     ) -> Option<PatternPaint> {
         let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
-        let Some(object) = self.resource(resources, "Pattern", name) else {
+        // Unresolved first, for the same reason `draw_xobject` reads its entry that way: the
+        // reference is the one thing that says which stream a tiling cell is.
+        let Some(entry) = self.resource_entry(resources, "Pattern", name) else {
             self.note_missing_resource("Pattern", name, "is not in /Pattern");
             return None;
         };
+        let source = entry.as_reference();
+        let object = self.document.resolve(&entry);
         let dict = match &object {
             Object::Dictionary(dict) => dict.clone(),
             Object::Stream(stream) => stream.dict.clone(),
@@ -1564,7 +1587,7 @@ impl Interpreter<'_> {
         match self.document.get_key(&dict, "PatternType").as_integer() {
             Some(1) => {
                 return self
-                    .tiling(&label, &object, &dict, tint, state, fill)
+                    .tiling(&label, &object, source, &dict, tint, state, fill)
                     .map(PatternPaint::Tiling);
             }
             Some(2) => {}
@@ -1717,6 +1740,11 @@ impl Interpreter<'_> {
                 limit: "max_mesh_triangles",
             });
         }
+        if built.coarse {
+            self.note(Unsupported::LimitReached {
+                limit: "max_mesh_refinement",
+            });
+        }
         let shading = built.shading;
         if definition.paints_background {
             return Ok(shading);
@@ -1821,10 +1849,16 @@ impl Interpreter<'_> {
     }
 
     /// Reads a tiling pattern's cell and how it repeats.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the pattern's entry arrives in three shapes — the object, its reference and \
+                  its dictionary — and each is read by a different part of the cell's construction"
+    )]
     fn tiling(
         &mut self,
         name: &str,
         object: &Object,
+        source: Option<ObjectId>,
         dict: &Dictionary,
         tint: &[f32],
         state: &GraphicsState,
@@ -1966,6 +2000,7 @@ impl Interpreter<'_> {
         Some(Rc::new(Tiling {
             content,
             resources,
+            source,
             step,
             bbox: cell_box,
             to_page: crate::shading::matrix_of(self.document, dict, "Matrix").then(self.base),

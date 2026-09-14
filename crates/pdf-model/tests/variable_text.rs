@@ -2796,26 +2796,36 @@ fn a_free_texts_border_is_drawn_at_the_width_its_entries_state() {
     );
 }
 
-/// Table 169's cloudy border is named rather than drawn as the straight one it is not.
+/// Table 169's cloudy border is drawn as scallops, and the note under it is drawn either way.
 ///
 /// §12.5.4 gives this subtype the entry — "Beginning with PDF 1.6, free text annotations may also
 /// have a BE entry" — and Table 169 says the border "should be drawn as a series of convex curved
-/// line segments in a manner that simulates the appearance of a cloud". A rectangle in its place
-/// is a shape the file did not describe, which is ADR 0106's substitutive case and the same
-/// refusal `square_or_circle` takes.
-///
-/// **The note itself is still drawn**, which is the other half of that rule: the border is one
-/// mark of two and the text is what the subtype *is*.
+/// line segments in a manner that simulates the appearance of a cloud". The scallops sit inside
+/// the rectangle exactly where the straight border did, so what tells the two apart is a corner:
+/// a straight six-point border inks `/Rect`'s own corner `(20, 40)`, and a cloud, whose nearest
+/// cusp is nine points in from it — the line's own six of radius, plus half its width — leaves it
+/// bare (ADR 1057).
 #[test]
-fn a_free_texts_cloudy_border_is_named_rather_than_drawn_straight() {
+fn a_free_texts_cloudy_border_is_scalloped_rather_than_refused() {
     let (reports, cloudy) = draw(bordered_annotation("/Border [0 0 6] /BE << /S /C >>"));
     assert!(
-        reports.iter().any(|report| report.contains("cloudy")),
-        "{reports:?}"
+        reports.is_empty(),
+        "a cloud is drawn rather than named: {reports:?}"
+    );
+    let (_, straight) = draw(bordered_annotation("/Border [0 0 6]"));
+    let row = |y: u32| cloudy.height.saturating_sub(1).saturating_sub(y);
+    assert!(
+        opacity(&straight, 20, row(40)) > 0,
+        "a straight border inks the corner"
+    );
+    assert_eq!(
+        opacity(&cloudy, 20, row(40)),
+        0,
+        "a cloud has no corner to ink"
     );
     assert!(
-        inked_rows(&cloudy).is_empty(),
-        "and nothing is drawn in its place"
+        !inked_rows(&cloudy).is_empty(),
+        "and the scallops are on the page"
     );
 
     let (told, drawn) = draw(pdf_with(
@@ -2823,12 +2833,9 @@ fn a_free_texts_cloudy_border_is_named_rather_than_drawn_straight() {
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
          /DA (/Helv 12 Tf 0 g) /Border [0 0 6] /BE << /S /C >> >>",
     ));
-    assert!(
-        told.iter().any(|report| report.contains("cloudy")),
-        "{told:?}"
-    );
+    assert!(told.is_empty(), "{told:?}");
     assert!(
         !inked_rows(&drawn).is_empty(),
-        "a border this reader cannot draw is not a reason to withhold the note"
+        "the note is drawn under its cloud"
     );
 }

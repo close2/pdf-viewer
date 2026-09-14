@@ -366,6 +366,27 @@ pub enum Unsupported {
         /// How many `l`, `c`, `v` and `y` operators the page's content streams issued with none.
         segments: usize,
     },
+    /// An operator given fewer operands than its table states, ISO 32000-2 §7.8.2.
+    ///
+    /// > In PDF, all of the operands needed by an operator shall immediately precede that
+    /// > operator.
+    ///
+    /// The operator is dispatched with what is there and each arm declines what it cannot read,
+    /// which is what this interpreter always did; what changed is that the page says so. Before
+    /// it did, `issue2391-1.pdf`'s `undefined 10 Tf` reported the unrecognised keyword and was
+    /// silent about the `Tf` behind it — the one of the two `poppler` blanks the whole page on —
+    /// and a `cm` short of a number would have left every later mark where the previous matrix
+    /// put it and said nothing, which is the plausible-looking silence trap 5 is about. What the
+    /// operator *does* with a short list stays each arm's: `Tf` given only a name still sets the
+    /// font, because the size it keeps is the one in force and the name is the one stated.
+    OperandShortfall {
+        /// The operator, as written.
+        operator: String,
+        /// How many operands preceded it.
+        given: usize,
+        /// How many its table states.
+        takes: usize,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.

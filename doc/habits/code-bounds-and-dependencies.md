@@ -152,6 +152,27 @@ Read by: a round that writes code, sets or lifts a bound, or takes a dependency.
   link, the mouse is four lines and the rest is Table 176's three conditions, §12.5.2's coordinate
   space and §7.7.3.3's rotation.
 
+- **A scratch checkout that shares the build directory poisons it for everyone the moment it is
+  deleted.** Round 1041 ran its gates in a private worktree under its scratchpad, sharing
+  `/home/AI/cargo-target/pdf-viewer` with the five rounds beside it, then removed the worktree.
+  Cargo had run `pdf-font`'s and `pdf-sandbox`'s build scripts from *that* checkout, and their
+  outputs record the path they read (`cargo::rerun-if-changed=…/scratchpad/r1041/…/data/cmaps`);
+  the next `cargo check` in the shared tree re-ran them against a directory that no longer
+  existed and the whole workspace stopped building for a reason no source diff could explain.
+  `cargo clean -p pdf-font -p pdf-sandbox` was the repair, 2.6 GiB of it — and then `-p conformance`
+  as well, because a *test binary* bakes `CARGO_MANIFEST_DIR` at compile time the same way: four of
+  its unit tests opened the deleted checkout's `Cargo.toml` and reported the workspace unreadable,
+  while a `nextest` run made before the deletion had reported them passing. A stale binary passes
+  until the path it remembers is gone. And `cargo clean -p` cleans **one profile**: the `gates` and
+  `release` profiles each keep their own build outputs, so the merge's tier 2 and 3 — every line
+  under `--profile gates` — failed 30 of 31 on the same panic after `debug` had been cleaned.
+  `cargo clean --profile gates -p …` and `--profile release -p …` too, then
+  `grep -rl <the dead path> <target>/*/build/*/output` until it prints nothing.
+
+  `tools/worktree.sh open` exists so that this cannot happen: every worktree it makes gets its
+  own `target-dir` in `.cargo/config.toml`. A checkout made any other way must do the same or
+  must not be deleted while anything else builds. `tools/round.sh` already checks for a build
+  script baked against a checkout that no longer exists — this is what that check is for.
 - **Never restore a whole file in a shared worktree, not even one you are editing.** Round 1020 made
   a `cp` backup of `crates/pdf-signature/src/signature.rs` before planting a calibration defect and
   copied it back afterwards — the ordinary, careful thing to do alone. A sibling round was editing

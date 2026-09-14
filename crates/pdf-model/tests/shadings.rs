@@ -1032,6 +1032,155 @@ fn a_mesh_with_a_function_interpolates_the_parameter() {
     );
 }
 
+/// A mesh in a `Separation` space interpolates the *tint* and converts afterwards (§8.7.4.4).
+///
+/// > If ColorSpace is a Separation or DeviceN colour space, a colour conversion (to the
+/// > alternate colour space) occurs only if one or more of the specified colourants is not
+/// > supported by the device. In that case, gradient fill calculations shall be performed in
+/// > the designated Separation or DeviceN colour space before conversion to the alternate
+/// > space. Thus, nonlinear tint transformation functions shall be accommodated for an optimal
+/// > representation of the shading.
+///
+/// The same fixture as [`a_mesh_with_a_function_interpolates_the_parameter`] with the curve
+/// moved from a `/Function` into the tint transform, because the clause's two orders differ by
+/// the same arithmetic: the corners carry tints 0, 1 and 0, the transform makes red `t²`, and at
+/// the sampled pixel the interpolated tint is 0.505, whose conversion is `0.255` of full red —
+/// 65. Converting each corner first and interpolating the device colours gives 129. Until this
+/// tree read the sentence it drew 129, and no report said so.
+#[test]
+fn a_mesh_in_a_separation_space_interpolates_the_tint_before_converting() {
+    let data = "00 00 00 00  00 FF 00 FF  00 00 FF 00 >";
+    let mesh = format!(
+        "<< /ShadingType 4 \
+         /ColorSpace [/Separation /Spot /DeviceRGB \
+           << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 0 0] /N 2 >>] \
+         /BitsPerCoordinate 8 /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let bytes = pdf_with(&mesh, "/Sh0 sh");
+    let document = Document::open(bytes.clone()).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "a smooth tint transform is inside the tolerance without reaching a bound: {:?}",
+        interpretation.unsupported
+    );
+
+    let raster = render(bytes);
+    // Device (50, 95) is page (50.5, 4.5): barycentric 0.505 towards the tint-1 corner.
+    let tint = 0.505_f32;
+    let (red, green, blue, alpha) = pixel(&raster, 50, 95);
+    assert_eq!(alpha, 255, "the mesh paints this pixel");
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "test code: a fraction of full scale, so the rounded product is in 0..=255"
+    )]
+    let expected = (tint * tint * 255.0).round() as u8;
+    assert!(
+        red.abs_diff(expected) <= 3,
+        "§8.7.4.4 interpolates the tint and converts afterwards, which is {expected} here; \
+         interpolating the converted corners would give 129. Got {red}"
+    );
+    assert!(
+        green < 4 && blue < 4,
+        "the tint transform states red alone: {red},{green},{blue}"
+    );
+}
+
+/// A Coons patch in a `Separation` space converts its grid after interpolating, not its corners
+/// before (§8.7.4.4, §8.7.4.5.7).
+///
+/// The patch route is its own code — a patch is asked once whether its conversion is linear
+/// across it, and only a patch that fails is converted vertex by vertex — so it has its own
+/// witness. One square patch with corner tints 0, 1, 0, 1 under the same `t²` transform as the
+/// triangle fixture: the bilinear tint at `(0.53, 0.53)` is 0.498, whose conversion is 0.248 of
+/// full red — 63 — and the plane a rasteriser lays across the converted grid cell there is
+/// within a few levels of it. Mixing the four converted corners instead, which is what a linear
+/// conversion would licence and what this tree did for every space, gives 0.498 of full red —
+/// 127.
+#[test]
+fn a_patch_in_a_separation_space_converts_its_grid_after_interpolating() {
+    // Table 84, f = 0: twelve points anticlockwise around a square, then one tint per corner.
+    // Eight bits each, `/Decode` mapping 0..255 onto 0..100 for the coordinates — so raw 10 is
+    // page 3.9 and raw 70 is page 27.5 — and onto 0..1 for the tint.
+    let data = "00 0A0A 1E0A 320A 460A 461E 4632 4646 3246 1E46 0A46 0A32 0A1E 00 FF 00 FF >";
+    let mesh = format!(
+        "<< /ShadingType 6 \
+         /ColorSpace [/Separation /Spot /DeviceRGB \
+           << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 0 0] /N 2 >>] \
+         /BitsPerCoordinate 8 /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let bytes = pdf_with(&mesh, "/Sh0 sh");
+    let document = Document::open(bytes.clone()).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "a smooth tint transform is inside the tolerance without reaching a bound: {:?}",
+        interpretation.unsupported
+    );
+
+    let raster = render(bytes);
+    // Device (16, 83) is page (16.5, 16.5): parameter 0.535 along both axes of the square.
+    let (red, green, blue, alpha) = pixel(&raster, 16, 83);
+    assert_eq!(alpha, 255, "the patch paints this pixel");
+    assert!(
+        (55..=70).contains(&red),
+        "§8.7.4.4 converts the interpolated tint, which is about 63 here; mixing the converted \
+         corners would give about 127. Got {red}"
+    );
+    assert!(
+        green < 4 && blue < 4,
+        "the tint transform states red alone: {red},{green},{blue}"
+    );
+}
+
+/// A tint transform that *steps* defeats the subdivision, and the mesh says so.
+///
+/// §10.7.3's NOTE 1 concedes the case — a conversion "sampled at too low a frequency, in which
+/// case the accuracy defined by the smoothness tolerance cannot be guaranteed" — and this
+/// fixture is its sharpest form: red is 0 up to a tint of one half and 1 above it, so between
+/// any two samples that straddle the step the interpolated colour is half a range wrong at every
+/// depth. The subdivision stops at its depth bound with the triangle still outside the tolerance,
+/// and `pdf_model::mesh` reports the bound by name rather than drawing the mesh as though the
+/// clause were met. The test above is the other direction: a smooth transform reports nothing.
+#[test]
+fn a_mesh_whose_tint_transform_steps_is_reported_when_the_subdivision_gives_up() {
+    let data = "00 00 00 00  00 FF 00 FF  00 00 FF 00 >";
+    let step = "{ 0.5 gt { 1 } { 0 } ifelse 0 0 }";
+    let mesh = format!(
+        "<< /ShadingType 4 \
+         /ColorSpace [/Separation /Spot /DeviceRGB 7 0 R] \
+         /BitsPerCoordinate 8 /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let transform = format!(
+        "7 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{step}\nendstream\nendobj\n",
+        step.len()
+    );
+    let bytes = pdf_with_extra(&mesh, "/Sh0 sh", &transform);
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("max_mesh_refinement"),
+        "a subdivision the depth bound stopped outside the tolerance must be reported by the \
+         bound's name: {reported}"
+    );
+    assert!(
+        !reported.contains("max_mesh_triangles"),
+        "the document's own triangle is drawn whole; only the refinement was bounded: {reported}"
+    );
+}
+
 /// A shading type that does not exist must be reported, not skipped.
 #[test]
 fn an_unknown_shading_type_is_reported() {

@@ -803,8 +803,8 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         // reader's — so the class rests on every operator the standard defines being implemented,
         // which was read off the population rather than assumed: what the corpus reports here is
         // byte soup out of a fuzzed stream, a keyword a file ran into its neighbour, or one of
-        // this interpreter's own sentences about a token §7.3.6 or §7.8.2 does not admit where it
-        // stands. A round that leaves a *defined* operator unimplemented owes this arm a second
+        // this interpreter's own sentences about a token §7.3.6, §7.8.2 or §8.5.4 does not admit
+        // where it stands. A round that leaves a *defined* operator unimplemented owes this arm a second
         // row, and the wording above is what makes that visible rather than silent.
         Unsupported::Operator { .. } => (
             Whose::TheFile,
@@ -848,6 +848,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         Unsupported::UndefinedCurrentPoint { .. } => (
             Whose::TheFile,
             "a path segment issued with no current point (§8.5.2.1)",
+        ),
+        Unsupported::OperandShortfall { .. } => (
+            Whose::TheFile,
+            "an operator given fewer operands than its table states (§7.8.2)",
         ),
     })
 }

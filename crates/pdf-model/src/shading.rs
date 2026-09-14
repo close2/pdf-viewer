@@ -170,6 +170,9 @@ struct Built {
     /// documentation forbids, and every other bound in that module is already reported as
     /// [`crate::Unsupported::LimitReached`].
     truncated: bool,
+    /// §8.7.4.4's subdivision of this mesh stopped short of §10.7.3's tolerance; see
+    /// [`Shaded::coarse`].
+    coarse: bool,
 }
 
 /// A built shading, and what a bound this program set cost it.
@@ -185,6 +188,13 @@ pub struct Shaded {
     /// [`crate::mesh::MAX_TRIANGLES`] stopped this shading's mesh stream part-way, so the
     /// triangles are some of what the document states rather than all of them.
     pub truncated: bool,
+    /// A bound in [`crate::mesh`] stopped ISO 32000-2 §8.7.4.4's subdivision of this shading's
+    /// mesh with a triangle still outside §10.7.3's tolerance, so somewhere in it the
+    /// rasteriser's interpolation between device colours stands in for the clause's
+    /// interpolation in the shading's own space by more than the tolerance allows. The triangles
+    /// are all of what the document states; what is coarser than asked is the colour between
+    /// them.
+    pub coarse: bool,
 }
 
 impl Cache {
@@ -243,6 +253,7 @@ impl Cache {
                     background: built.background,
                 },
                 truncated: built.truncated,
+                coarse: built.coarse,
             });
         }
         let space = self.space_of(document, object, resources, colouring.into);
@@ -258,6 +269,7 @@ impl Cache {
                 background: built.background,
             },
             truncated: built.truncated,
+            coarse: built.coarse,
         })
     }
 
@@ -332,6 +344,7 @@ pub fn build(
             background: built.background,
         },
         truncated: built.truncated,
+        coarse: built.coarse,
     })
 }
 
@@ -406,6 +419,7 @@ fn kind_of(
     };
 
     let mut truncated = false;
+    let mut coarse = false;
     let (kind, own) = match kind {
         // Only a type 1 shading has a `/Matrix`, which places its domain rectangle within
         // the shading's own space. It composes ahead of the caller's transform rather than
@@ -424,8 +438,9 @@ fn kind_of(
             Transform::IDENTITY,
         ),
         4..=7 => {
-            let (kind, cut) = mesh(document, &resolved, &dict, &space, kind, colouring)?;
-            truncated = cut;
+            let (kind, read) = mesh(document, &resolved, &dict, &space, kind, colouring)?;
+            truncated = read.truncated;
+            coarse = read.coarse;
             (kind, Transform::IDENTITY)
         }
         other => return Err(ShadingError::UnsupportedType { kind: other }),
@@ -436,6 +451,7 @@ fn kind_of(
         own,
         background: background_of(document, &dict, &space, colouring),
         truncated,
+        coarse,
     })
 }
 
@@ -729,10 +745,20 @@ fn radial(
     })
 }
 
+/// What a bound cost a mesh, beside the mesh: the two flags [`Built`] carries on to the
+/// interpreter, kept apart from the geometry so that neither can be dropped by accident.
+#[derive(Debug, Clone, Copy)]
+struct MeshBounds {
+    /// [`crate::mesh::MAX_TRIANGLES`] stopped the stream part-way; [`Shaded::truncated`].
+    truncated: bool,
+    /// §8.7.4.4's subdivision stopped short of §10.7.3's tolerance; [`Shaded::coarse`].
+    coarse: bool,
+}
+
 /// Reads one of the four mesh types into triangles.
 ///
-/// The second half of the answer is [`crate::mesh::MAX_TRIANGLES`] having stopped the stream
-/// part-way, which travels to the interpreter as [`Shaded::truncated`].
+/// The second half of the answer is what the two bounds in [`crate::mesh`] did to it, which
+/// travels to the interpreter as [`Shaded::truncated`] and [`Shaded::coarse`].
 fn mesh(
     document: &Document,
     object: &Object,
@@ -740,7 +766,7 @@ fn mesh(
     space: &ColourSpace,
     kind: i64,
     colouring: Colouring<'_>,
-) -> Result<(ShadingKind, bool), ShadingError> {
+) -> Result<(ShadingKind, MeshBounds), ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
     })?;
@@ -767,7 +793,10 @@ fn mesh(
             triangles: read.triangles.into(),
             ramp: read.ramp,
         },
-        read.truncated,
+        MeshBounds {
+            truncated: read.truncated,
+            coarse: read.coarse,
+        },
     ))
 }
 

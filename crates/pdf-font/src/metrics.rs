@@ -482,6 +482,32 @@ pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> 
 /// session**, and Table 109 is the Type 1 font dictionary — `/Widths`, `/FirstChar`,
 /// `/LastChar` and no `/MissingWidth` anywhere in it. `doc/todo/01`'s ninth sweep, and the
 /// code below had the right answer all along: it reads the entry off `descriptor`.)
+/// Whether the descriptor's `/Flags` sets the bit `mask` names.
+///
+/// ISO 32000-2 §9.8.2:
+///
+/// > The value of the Flags entry in a font descriptor shall be an unsigned 32-bit integer
+/// > containing flags specifying various characteristics of the font. Bit positions within the
+/// > flag word are numbered from 1 (low-order) to 32 (high-order).
+///
+/// One reader for every consumer, so that a value the sentence excludes — negative, or wider
+/// than 32 bits — gets one answer everywhere rather than one per module: it is not a flags
+/// word, and it is read as no entry at all, every flag clear. That is the reading that adds
+/// nothing. A malformed word might be a signed serialisation of the writer's bits or might be
+/// anything, and guessing would make the Symbolic bit — the one §9.6.5.4 hangs a whole
+/// encoding on — depend on the guess. `pdf-model/examples/font_flags_census` counts how often
+/// a corpus writes one.
+///
+/// `mask` is the bit's value, `1 << (position − 1)`; the callers name theirs by Table 121's
+/// position.
+pub(crate) fn flag(document: &Document, descriptor: &Dictionary, mask: u32) -> bool {
+    document
+        .get_key(descriptor, "Flags")
+        .as_integer()
+        .and_then(|flags| u32::try_from(flags).ok())
+        .is_some_and(|flags| flags & mask != 0)
+}
+
 pub(crate) fn missing_width(document: &Document, descriptor: Option<&Dictionary>) -> f32 {
     descriptor
         .map(|descriptor| document.get_key(descriptor, "MissingWidth"))
@@ -834,6 +860,56 @@ mod missing_width_tests {
 
         assert_eq!(missing_width(&document, descriptor.as_dict()), 0.0);
         assert_eq!(missing_width(&document, None), 0.0);
+    }
+}
+
+/// ISO 32000-2 §9.8.2's one sentence about the *word* rather than its bits.
+#[cfg(test)]
+mod flag_tests {
+    use crate::fixture::font_dictionary;
+
+    use super::flag;
+
+    /// Bit 3, Table 121's Symbolic — the bit a wrong reading would cost a page an encoding.
+    const SYMBOLIC: u32 = 1 << 2;
+
+    fn symbolic(flags: &str) -> bool {
+        let (document, dict) = font_dictionary(&format!("/FontDescriptor << /Flags {flags} >>"));
+        let descriptor = document.get_key(&dict, "FontDescriptor");
+        flag(
+            &document,
+            descriptor
+                .as_dict()
+                .expect("the fixture states a descriptor"),
+            SYMBOLIC,
+        )
+    }
+
+    /// A word inside the unsigned 32-bit range is read bit by bit, up to bit 32.
+    #[test]
+    fn a_word_in_range_is_read_by_its_bits() {
+        assert!(symbolic("4"));
+        assert!(!symbolic("32"));
+        assert!(
+            symbolic("4294967295"),
+            "bit 3 of an all-ones 32-bit word is set"
+        );
+    }
+
+    /// "[S]hall be an unsigned 32-bit integer": a negative integer and one wider than 32 bits
+    /// are neither, and both read as no entry at all — every flag clear — rather than as the
+    /// bits a guess about the writer would recover from them.
+    #[test]
+    fn a_word_outside_thirty_two_unsigned_bits_sets_nothing() {
+        assert!(
+            !symbolic("-2147483644"),
+            "a signed word with bit 3 set is not an unsigned 32-bit integer"
+        );
+        assert!(
+            !symbolic("4294967300"),
+            "a word wider than 32 bits with bit 3 set is not one either"
+        );
+        assert!(!symbolic("4.0"), "a real is not an integer");
     }
 }
 

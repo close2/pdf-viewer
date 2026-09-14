@@ -33,6 +33,14 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::Operator { operator } => {
             format!("the operator {operator} is not implemented")
         }
+        Unsupported::OperandShortfall {
+            operator,
+            given,
+            takes,
+        } => format!(
+            "the operator {operator} was given {given} operand(s) where it takes {takes}, so it \
+             was not carried out as written (§7.8.2)"
+        ),
         Unsupported::Font { detail } => format!("a font was not drawn: {detail}"),
         Unsupported::Content { issue } => {
             format!("part of the page's content is missing: {issue:?}")

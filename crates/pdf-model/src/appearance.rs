@@ -1259,6 +1259,15 @@ fn largest_square_within(rect: [f32; 4]) -> [f32; 4] {
 /// Table 180's `/IC` fills it and Table 166's `/C` strokes it. `/RD` is the difference between
 /// `/Rect` and the shape, which exists because a `/BE` border effect can push the two apart.
 ///
+/// # A cloudy `/BE` is the same shape with a different border
+///
+/// Table 180's `/BE` is "[a] border effect dictionary describing an effect applied to the border
+/// described by the BS entry", and §12.5.4 makes applying it a `shall`. The scallops go where
+/// the straight line went — inside the shape, so that the cloud's outer reach is the rectangle
+/// or ellipse the clause inscribes — and `/IC` fills the cloud, since the cloud *is* this
+/// annotation's rectangle or ellipse under its effect. [`crate::cloud`] holds the geometry and
+/// the choice behind it (ADR 1057).
+///
 /// # What this subtype's `/BS` supplies, and what it does not
 ///
 /// Table 180 gives it two of Table 168's entries and no more — "specifying the line width and
@@ -1281,9 +1290,6 @@ fn square_or_circle(
     stream: &mut Stream,
     subtype: &[u8],
 ) -> Outcome {
-    if cloudy(document, annotation) {
-        return Err(CLOUDY);
-    }
     let rect = rectangle(document, annotation)?;
     // §12.5.6.2's group attributes: `/C` is on the list and `/IC` is not, so they are read from
     // two dictionaries where this annotation is a group's subordinate.
@@ -1303,15 +1309,34 @@ fn square_or_circle(
     let box_ = if covered { shape } else { border.inset(shape) };
     border.apply(stream);
     stream.set_colour(if covered { border.colour } else { interior }, false);
+    // The cusps sit a radius inside the line's own path, so the arcs reach out to it: a cloud
+    // occupies exactly the band the straight line did. A line that covers the shape has no
+    // border left to scallop, which is why `covered` is asked first.
+    let cloud = cloudy(document, annotation, border.width)
+        .filter(|_| !covered)
+        .and_then(|radius| {
+            let cusps = Border::inset_by(box_, radius);
+            let outline = if subtype == b"Circle" {
+                crate::cloud::ellipse(cusps)
+            } else {
+                crate::cloud::rectangle(cusps)
+            };
+            crate::cloud::cloud(&outline, radius)
+        });
+    let (fill, stroke) = (
+        covered || interior != Colour::None,
+        border.strokes() && !covered,
+    );
+    if let Some(cloud) = cloud {
+        stream.cloud(&cloud, fill, stroke);
+        return Ok(Painted::DRAWN);
+    }
     if subtype == b"Circle" {
         stream.ellipse(box_);
     } else {
         stream.rectangle(box_);
     }
-    stream.paint(
-        covered || interior != Colour::None,
-        border.strokes() && !covered,
-    );
+    stream.paint(fill, stroke);
     Ok(Painted::DRAWN)
 }
 
@@ -1321,20 +1346,18 @@ fn square_or_circle(
 /// these two share a clause but not a routine: "For Polyline annotations, the value of the IC
 /// key is used to fill only the line ending. However, for Polygon annotations, the value of the
 /// IC key is used to fill the entire shape, much as the F operator would fill a shape in a
-/// content stream." A polyline's `/IC` is a line-ending colour, and line endings are refused.
+/// content stream." A polyline's `/IC` is a line-ending colour, and its line endings are drawn.
+///
+/// Table 181's `/BE` is "meaningful only for polygon annotations", so a polyline's is not read
+/// and a polygon's scallops its own vertices — the straight line straddled the vertex path and
+/// the cloud straddles it too, its arcs bulging outward by the radius [`crate::cloud`] chooses.
 fn polygon(
     document: &Document,
     annotation: &Dictionary,
     stream: &mut Stream,
     subtype: &[u8],
 ) -> Outcome {
-    if cloudy(document, annotation) {
-        return Err(CLOUDY);
-    }
-    // As on a line annotation, and drawn since the three-hundred-and-fourteenth session. `/BE`
-    // above is *not* the same case and stays a refusal — a cloudy border is a different border
-    // rather than an extra mark, and drawing a straight one would put a shape on the page the
-    // file did not describe.
+    // As on a line annotation.
     let endings = line_endings(document, annotation)?;
 
     let closed = subtype == b"Polygon";
@@ -1352,19 +1375,39 @@ fn polygon(
 
     border.apply(stream);
     stream.set_colour(interior, false);
-    let vertices = if path(document, annotation, stream)? {
+    let cloud = if closed {
+        cloudy(document, annotation, border.width)
+    } else {
+        None
+    };
+    let (fill, stroke) = (interior != Colour::None, border.strokes());
+    let vertices = if let Some(segments) = path_segments(document, annotation)? {
         // §12.5.6.9's `/Path` is a sequence of curves, and Table 181 makes `/Vertices` "not
         // present" where it is used — so the ends an ending would decorate are inside a
         // construction this routine does not hold. Reported below rather than guessed at.
+        if let Some(cloud) =
+            cloud.and_then(|radius| crate::cloud::cloud(&path_outline(&segments), radius))
+        {
+            stream.cloud(&cloud, fill, stroke);
+        } else {
+            write_path(stream, &segments);
+            stream.paint(fill, stroke);
+        }
         None
     } else {
         let Some(vertices) = points(document, annotation, "Vertices") else {
             return Err(Refusal::Missing("/Vertices or /Path"));
         };
-        polyline(stream, &vertices, closed);
+        if let Some(cloud) =
+            cloud.and_then(|radius| crate::cloud::cloud(&crate::cloud::polygon(&vertices), radius))
+        {
+            stream.cloud(&cloud, fill, stroke);
+        } else {
+            polyline(stream, &vertices, closed);
+            stream.paint(fill, stroke);
+        }
         Some(vertices)
     };
-    stream.paint(interior != Colour::None, border.strokes());
 
     // **A polygon's ends meet, so it has none.** Table 181 gives `/LE` to both subtypes and
     // §12.5.6.9 gives a polygon no end to put one on: a polyline is what it calls a polygon
@@ -3772,26 +3815,36 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
 ///
 /// What is left is ADR 0106's test, and the border passes it: an entry that states no shape must
 /// not erase the shape the clause does state. No entry claims this colour, so painting in the
-/// initial one substitutes for nothing — where a cloudy `/BE` *does* state a different shape and
-/// is refused below, exactly as it is on a square.
+/// initial one substitutes for nothing.
+///
+/// Table 177 gives this subtype a `/BE` too, and §12.5.4 says so: "Beginning with PDF 1.6, free
+/// text annotations may also have a BE entry". A cloudy one is drawn as it is on a square, inside
+/// the inner rectangle `/RD` names, and Table 168's `/S` styles nothing under it — the cloud is
+/// the style, so no bevel is left undrawn to report.
 fn free_text_border(
     document: &Document,
     annotation: &Dictionary,
     stream: &mut Stream,
     box_: [f32; 4],
 ) -> Painted {
-    // Table 177 gives this subtype a `/BE`, and §12.5.4 says so: "Beginning with PDF 1.6, free
-    // text annotations may also have a BE entry". A cloudy border is a different border rather
-    // than an extra mark, so it is refused whole (ADR 0106) — the text is drawn either way.
-    if cloudy(document, annotation) {
-        return Painted {
-            drawn: false,
-            report: Some(CLOUDY),
-        };
-    }
     let border = Border::geometry(document, annotation, BLACK);
     if !border.strokes() {
         return Painted::EMPTY;
+    }
+    let cloud = cloudy(document, annotation, border.width)
+        .filter(|_| !border.fills(box_))
+        .and_then(|radius| {
+            let cusps = Border::inset_by(border.inset(box_), radius);
+            crate::cloud::cloud(&crate::cloud::rectangle(cusps), radius)
+        });
+    if let Some(cloud) = cloud {
+        // The `q`/`Q` is [`Border::draw`]'s own, for the same reason: the width and dash
+        // [`Border::apply`] writes would otherwise outlive the border.
+        stream.text.push_str("q\n");
+        border.apply(stream);
+        stream.cloud(&cloud, false, true);
+        stream.text.push_str("Q\n");
+        return Painted::DRAWN;
     }
     border.draw(stream, box_);
     border.simulated()
@@ -4389,12 +4442,6 @@ impl FieldKind {
 /// What a subtype's routine returns: what it painted, or what it could not read.
 type Outcome = Result<Painted, Refusal>;
 
-/// Table 169's cloudy border effect: "the border should be drawn as a series of convex curved
-/// line segments in a manner that simulates the appearance of a cloud" — which states no curve,
-/// no segment count, and no relation between `/I`'s intensity and either.
-const CLOUDY: Refusal =
-    Refusal::NotDerivable("§12.5.4's cloudy /BE border states no curve to draw");
-
 /// Table 179's line endings: nine named shapes — "A square", "Two short lines meeting in an
 /// acute angle" — and not one dimension among them.
 ///
@@ -4642,9 +4689,17 @@ impl Border {
     /// no picture: [`Self::fills`] is true at exactly the widths that reach the clamp, and every
     /// caller asks that first.
     fn inset(&self, rect: [f32; 4]) -> [f32; 4] {
-        let half = self.width * 0.5;
-        let inset_x = half.min((rect[2] - rect[0]) * 0.5);
-        let inset_y = half.min((rect[3] - rect[1]) * 0.5);
+        Self::inset_by(rect, self.width * 0.5)
+    }
+
+    /// Shrinks a rectangle by a distance on every side, stopping at its centre lines.
+    ///
+    /// The clamp keeps the result from inverting where the distance reaches a dimension; a
+    /// cloud's cusps on a shape too small for its scallops sit on the shape's middle, and the
+    /// scallops still bulge out to the shape's edge.
+    fn inset_by(rect: [f32; 4], distance: f32) -> [f32; 4] {
+        let inset_x = distance.min((rect[2] - rect[0]) * 0.5);
+        let inset_y = distance.min((rect[3] - rect[1]) * 0.5);
         [
             rect[0] + inset_x,
             rect[1] + inset_y,
@@ -4906,6 +4961,25 @@ impl Stream {
         let _ = writeln!(self.text, "h");
     }
 
+    /// Paints §12.5.4's cloudy border, as the closed path [`crate::cloud`] built.
+    ///
+    /// Under §8.4.3.4's round join, and in a `q`/`Q` of its own so that nothing after it — a
+    /// polyline's line endings — inherits it. Two scallops meet at a cusp by reversing direction,
+    /// which is the one angle the default miter join cannot draw: §8.4.3.5 makes the miter length
+    /// grow without bound as the angle closes, and the limit that stops it turns each cusp into a
+    /// bevel or a spike depending on how exactly the two arcs' tangents happen to align. A round
+    /// join is a semicircle of the line's own half-width at every cusp, whatever the angle.
+    fn cloud(&mut self, cloud: &crate::cloud::Cloud, fill: bool, stroke: bool) {
+        self.text.push_str("q 1 j\n");
+        self.move_to(cloud.start);
+        for curve in &cloud.curves {
+            self.curve_to(curve.first, curve.second, curve.end);
+        }
+        self.close();
+        self.paint(fill, stroke);
+        self.text.push_str("Q\n");
+    }
+
     /// Paints the current path: filled, stroked, or both, with Table 59's operators.
     fn paint(&mut self, fill: bool, stroke: bool) {
         let operator = match (fill, stroke) {
@@ -5031,7 +5105,18 @@ fn polyline(stream: &mut Stream, vertices: &[[f32; 2]], closed: bool) {
     }
 }
 
-/// Builds §12.5.6.9's and §12.5.6.13's PDF 2.0 `/Path`, if the annotation has one.
+/// One operator of §12.5.6.9's `/Path`: a move, a line, or a curve to a point.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Segment {
+    /// The first array, "of length 2 and specifies the operand of a moveto operator".
+    Move([f32; 2]),
+    /// A later array of length 2, "the operands of lineto operators".
+    Line([f32; 2]),
+    /// An array of length 6, "the operands for curveto operators".
+    Curve(crate::cloud::Curve),
+}
+
+/// Reads §12.5.6.9's and §12.5.6.13's PDF 2.0 `/Path`, if the annotation has one.
 ///
 /// Table 181: "An array of n arrays, each supplying the operands for a path building operator
 /// (m, l or c). ... The first array shall be of length 2 and specifies the operand of a moveto
@@ -5040,33 +5125,92 @@ fn polyline(stream: &mut Stream, vertices: &[[f32; 2]], closed: bool) {
 /// `/Vertices`, which Table 181 says "shall be ignored" where it is present — and it is drawn
 /// ahead of §12.5.6.13's `/InkList` too, which **Table 185 does not say**: see [`ink`] for why
 /// that one is this crate's choice rather than a rule.
+///
+/// `None` where there is no `/Path`; a refusal where there is one and it does not begin with a
+/// move or holds an array of some other length.
+fn path_segments(
+    document: &Document,
+    annotation: &Dictionary,
+) -> Result<Option<Vec<Segment>>, Refusal> {
+    let entry = document.get_key(annotation, "Path");
+    let Some(arrays) = entry.as_array() else {
+        return Ok(None);
+    };
+    let mut segments = Vec::new();
+    for array in arrays {
+        let resolved = document.resolve(array);
+        let Some(values) = resolved.as_array() else {
+            continue;
+        };
+        let coordinates = pairs(document, values);
+        match (segments.is_empty(), coordinates.as_slice()) {
+            (true, [start]) => segments.push(Segment::Move(*start)),
+            (false, [next]) => segments.push(Segment::Line(*next)),
+            (false, [first, second, end]) => segments.push(Segment::Curve(crate::cloud::Curve {
+                first: *first,
+                second: *second,
+                end: *end,
+            })),
+            _ => return Err(Refusal::Missing("/Path")),
+        }
+    }
+    Ok((!segments.is_empty()).then_some(segments))
+}
+
+/// Writes a `/Path`'s segments as the operators Table 181 names.
+fn write_path(stream: &mut Stream, segments: &[Segment]) {
+    for segment in segments {
+        match *segment {
+            Segment::Move(point) => stream.move_to(point),
+            Segment::Line(point) => stream.line_to(point),
+            Segment::Curve(curve) => stream.curve_to(curve.first, curve.second, curve.end),
+        }
+    }
+}
+
+/// A `/Path` as the closed outline a cloud is built on: each line one straight edge, each curve
+/// one flattened edge, and the last point joined back to the first where the file left it open.
+fn path_outline(segments: &[Segment]) -> Vec<crate::cloud::Edge> {
+    let mut edges = Vec::new();
+    let mut at = None;
+    let mut start = None;
+    for segment in segments {
+        match (*segment, at) {
+            (Segment::Move(point), _) => {
+                at = Some(point);
+                start = start.or(Some(point));
+            }
+            (Segment::Line(point), Some(from)) => {
+                edges.push(vec![from, point]);
+                at = Some(point);
+            }
+            (Segment::Curve(curve), Some(from)) => {
+                edges.push(crate::cloud::flattened(from, curve));
+                at = Some(curve.end);
+            }
+            (Segment::Line(_) | Segment::Curve(_), None) => {}
+        }
+    }
+    if let (Some(first), Some(last)) = (start, at)
+        && (first[0] - last[0]).hypot(first[1] - last[1]) > f32::EPSILON
+    {
+        edges.push(vec![last, first]);
+    }
+    edges
+}
+
+/// Builds §12.5.6.9's and §12.5.6.13's PDF 2.0 `/Path` into the stream, if the annotation has
+/// one; see [`path_segments`].
 fn path(
     document: &Document,
     annotation: &Dictionary,
     stream: &mut Stream,
 ) -> Result<bool, Refusal> {
-    let entry = document.get_key(annotation, "Path");
-    let Some(segments) = entry.as_array() else {
+    let Some(segments) = path_segments(document, annotation)? else {
         return Ok(false);
     };
-    let mut started = false;
-    for segment in segments {
-        let resolved = document.resolve(segment);
-        let Some(values) = resolved.as_array() else {
-            continue;
-        };
-        let coordinates = pairs(document, values);
-        match (started, coordinates.as_slice()) {
-            (false, [start]) => {
-                stream.move_to(*start);
-                started = true;
-            }
-            (true, [next]) => stream.line_to(*next),
-            (true, [first, second, end]) => stream.curve_to(*first, *second, *end),
-            _ => return Err(Refusal::Missing("/Path")),
-        }
-    }
-    Ok(started)
+    write_path(stream, &segments);
+    Ok(true)
 }
 
 /// Reads the annotation's `/Rect`, normalised, or refuses.
@@ -5129,14 +5273,23 @@ fn differences(document: &Document, annotation: &Dictionary, rect: [f32; 4]) -> 
     ]
 }
 
-/// Whether the annotation's `/BE` asks for §12.5.4's cloudy border.
-fn cloudy(document: &Document, annotation: &Dictionary) -> bool {
-    document
-        .get_key(annotation, "BE")
-        .as_dict()
-        .map(|effect| document.get_key(effect, "S"))
-        .and_then(|name| name.as_name().cloned())
-        .is_some_and(|name| name.as_bytes() == b"C")
+/// The scallop radius §12.5.4's cloudy border asks for, where the annotation's `/BE` asks for one.
+///
+/// Table 169: `/S` `C` is the effect and `/I` its intensity, "valid only if the value of S is C"
+/// and defaulting to 0 — so an intensity beside `/S` `S` is not read, and a cloud with no stated
+/// intensity is the smallest one. What a radius *is* for an intensity is [`crate::cloud::radius`]'s
+/// choice, not this table's; `width` is the line's, which that choice never goes below.
+fn cloudy(document: &Document, annotation: &Dictionary, width: f32) -> Option<f32> {
+    let entry = document.get_key(annotation, "BE");
+    let effect = entry.as_dict()?;
+    if document.get_key(effect, "S").as_name().map(Name::as_bytes) != Some(b"C") {
+        return None;
+    }
+    let intensity = document
+        .get_key(effect, "I")
+        .as_number()
+        .map_or(0.0, narrow);
+    Some(crate::cloud::radius(intensity, width))
 }
 
 /// Whether `/LE` names a line ending other than Table 179's `None`.

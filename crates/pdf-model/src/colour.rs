@@ -682,8 +682,22 @@ impl RgbRoute {
         space.rgb_components_at(values, 0, rendering, self)
     }
 
+    /// The components a colour this processor holds as device RGB becomes inside the space,
+    /// from that colour's XYZ.
+    ///
+    /// §11.6.6's conversion of a *group's* result into a parent compositing in this space: the
+    /// group's raster holds its result as sRGB — the device §10.3.2 has this processor assume
+    /// — and that result is not a `DeviceRGB` graphics object, so §11.7.2's rule that such an
+    /// object "shall be the CIE-based space of the nearest such ancestor" for compositing
+    /// purposes does not reach it. It goes in as [`RgbRoute::components_of`] sends every other
+    /// colour: through its XYZ (§10.3.1), which for sRGB is [`srgb_to_xyz_d50`].
+    #[must_use]
+    pub fn components_of_srgb(&self, colour: Color, rendering: Rendering) -> [f32; 3] {
+        self.components_with_xyz(srgb_to_xyz_d50(colour), rendering)
+    }
+
     /// The components whose colour has the D50 XYZ `xyz`.
-    fn components_with_xyz(&self, xyz: [f32; 3], black_point: bool) -> [f32; 3] {
+    fn components_with_xyz(&self, xyz: [f32; 3], rendering: Rendering) -> [f32; 3] {
         match &self.inward {
             Inward::CalRgb {
                 white,
@@ -709,7 +723,7 @@ impl RgbRoute {
                 components
             }
             Inward::Profile(profile) => profile
-                .to_device(xyz, black_point)
+                .to_device(xyz, rendering)
                 .map_or([0.0; 3], |device| {
                     [channel(device[0]), channel(device[1]), channel(device[2])]
                 }),
@@ -1811,12 +1825,44 @@ impl ColourSpace {
         1.0 - self.ink(values).min(1.0)
     }
 
+    /// The space ISO 32000-2 §8.7.4.4 has a shading's gradient calculated in, where the clause
+    /// names one.
+    ///
+    /// The clause gives each family its rule. A device space's values may be converted "at any
+    /// time (before or after any interpolation on the colour values in the shading)", so it names
+    /// none and this answers `None`. Of a CIE-based space: "all gradient fill calculations shall
+    /// be performed in that space. Conversion to device colours shall occur only after all
+    /// interpolation calculations have been performed." Of a `Separation` or `DeviceN` space:
+    ///
+    /// > In that case, gradient fill calculations shall be performed in the designated
+    /// > Separation or DeviceN colour space before conversion to the alternate space.
+    ///
+    /// An `Indexed` space's values "shall be immediately converted to the base colour space" —
+    /// [`Self::entry_of`] — after which "gradient fill calculations shall be performed as stated
+    /// above", so this answers for the base. A `Pattern` space is not one a shading may state
+    /// (Table 77).
+    #[must_use]
+    pub(crate) fn interpolates_in(&self) -> Option<&Self> {
+        match self {
+            Self::Gray | Self::Rgb | Self::Cmyk | Self::Pattern { .. } => None,
+            Self::Indexed { base, .. } => base.interpolates_in(),
+            Self::Lab { .. }
+            | Self::CalGray { .. }
+            | Self::CalRgb { .. }
+            | Self::Icc { .. }
+            | Self::Separation { .. }
+            | Self::AllColourants
+            | Self::NoColourant { .. } => Some(self),
+        }
+    }
+
     /// The `Indexed` table entry `values` selects, in the base space's components.
     ///
     /// Shared by [`Self::to_rgb_at`] and [`Self::ink_at`] so that an index is rounded and
     /// clamped once: two readings of §8.6.6.3's table would be two chances to round it
-    /// differently.
-    fn entry_of(&self, values: &[f32]) -> Vec<f32> {
+    /// differently. Any other space's values are its own components already, and come back as
+    /// they went in — which is what lets [`crate::mesh`] call this for every vertex it reads.
+    pub(crate) fn entry_of(&self, values: &[f32]) -> Vec<f32> {
         let Self::Indexed { base, lookup, high } = self else {
             return values.to_vec();
         };
@@ -2037,10 +2083,10 @@ impl ColourSpace {
                 base.rgb_components_at(values, depth.saturating_add(1), rendering, route)
             }),
             _ => match self.cie_xyz_at(values, depth, rendering) {
-                Some(xyz) => route.components_with_xyz(xyz, rendering.black_point()),
+                Some(xyz) => route.components_with_xyz(xyz, rendering),
                 None => route.components_with_xyz(
                     srgb_to_xyz_d50(self.to_rgb_at(values, depth, rendering)),
-                    rendering.black_point(),
+                    rendering,
                 ),
             },
         }
@@ -3091,7 +3137,7 @@ fn xyz_to_ink(press: &Press, xyz: [f32; 3]) -> [f32; 4] {
     if let Some(inks) = press
         .profile
         .as_deref()
-        .and_then(|profile| profile.to_device(xyz, press.rendering.black_point()))
+        .and_then(|profile| profile.to_device(xyz, press.rendering))
     {
         return [
             channel(inks[0]),
@@ -4054,7 +4100,10 @@ mod tests {
 
         let grey = ColourSpace::Rgb.to_cmyk(&[0.5, 0.5, 0.5], Rendering::compensating(), &press);
         let want = profile
-            .to_device(super::srgb_to_xyz_d50(Color::grey(0.5)), true)
+            .to_device(
+                super::srgb_to_xyz_d50(Color::grey(0.5)),
+                Rendering::compensating(),
+            )
             .expect("a from-CIE table");
         assert_eq!(grey, want, "a device colour goes in through sRGB's XYZ");
         // And that answer is the table's rule on the stretched XYZ — the fixture's black is
@@ -4073,7 +4122,10 @@ mod tests {
         };
         let from_lab = lab.to_cmyk(&[50.0, 20.0, -30.0], Rendering::compensating(), &press);
         let want = profile
-            .to_device(super::lab_to_xyz(50.0, 20.0, -30.0), true)
+            .to_device(
+                super::lab_to_xyz(50.0, 20.0, -30.0),
+                Rendering::compensating(),
+            )
             .expect("a from-CIE table");
         assert_eq!(
             from_lab, want,

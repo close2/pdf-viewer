@@ -1038,7 +1038,10 @@ fn stroke_adjustment_is_read_and_restored() {
 /// its interior exactly where it was.
 #[test]
 fn flatness_changes_nothing_because_the_clause_permits_ignoring_it() {
-    let curve = "0 0 1 rg 2 2 m 2 18 18 18 18 2 c f 0 0 0 RG 5 w 1 10 m 10 19 19 10 c S";
+    // Both curves carry Table 58's six operands, and `raster_of` asserts the page reports
+    // nothing: a `c` short of a number is skipped and reported (§7.8.2), and a stroke never
+    // drawn would compare equal under any flatness at all.
+    let curve = "0 0 1 rg 2 2 m 2 18 18 18 18 2 c f 0 0 0 RG 5 w 1 10 m 10 19 15 19 19 10 c S";
     let plain = raster_of(pdf_with("", "", curve));
     let tolerant = raster_of(pdf_with(
         "",

@@ -408,6 +408,9 @@ impl Interpreter<'_> {
                 });
                 return;
             }
+            if let Some(ledger) = self.ledger {
+                ledger.borrow_mut().operator(operator);
+            }
 
             // §8.6.8: inside a `d1` glyph description or an uncoloured tiling pattern —
             // and inside everything either of them invokes — "all of the following operators
@@ -429,6 +432,17 @@ impl Interpreter<'_> {
             // `T02-05-01_008_Font-set-operator-missing.pdf` writes `/F0 36. (Hello
             // PDF-world!) Tj`, whose `Tj` was reading the name and drawing nothing.
             let operands: &[Object] = operands_before(&pending, operator);
+            // The same sentence's other half — "all of the operands needed" — read as a count:
+            // an operator short of them is dispatched with what is there, and the page says so.
+            if let Some(takes) = count_of(operator)
+                && operands.len() < takes
+            {
+                self.note(Unsupported::OperandShortfall {
+                    operator: String::from_utf8_lossy(operator).into_owned(),
+                    given: operands.len(),
+                    takes,
+                });
+            }
 
             match operator {
                 // --- graphics state ---
@@ -1120,6 +1134,22 @@ impl Interpreter<'_> {
             });
         }
 
+        // A `W` the stream ended on modified nothing: §8.5.4 has it "modify the effect of the
+        // succeeding painting operator", and none succeeded it in this stream. It does not
+        // reach the stream that invoked this one either — §8.10.1 makes a form "a self-contained
+        // description", and the only content a path object may straddle is a page's own
+        // `/Contents` array (§7.8.2), which arrives here as one stream. `issue6413.pdf`'s form
+        // ends `Q W`, and `mupdf` carries that `W` out into the page, where the next fill becomes
+        // the clip and the rest of the page vanishes under it.
+        if let Some(rule) = pending_clip {
+            self.note(Unsupported::Operator {
+                operator: format!(
+                    "{} without a path-painting operator after it",
+                    clip_operator(rule)
+                ),
+            });
+        }
+
         // A marked-content section left open by a malformed stream must not leave this
         // stream's hidden layers hiding the next one. The annotation pass runs after the
         // page's content, and a leaked counter would silently blank every annotation.
@@ -1139,6 +1169,14 @@ impl Interpreter<'_> {
         for section in &marked {
             self.close_marking(section.mcid);
         }
+    }
+}
+
+/// Which of Table 60's two operators set a pending clip, from the rule it set.
+const fn clip_operator(rule: FillRule) -> &'static str {
+    match rule {
+        FillRule::NonZero => "W",
+        FillRule::EvenOdd => "W*",
     }
 }
 

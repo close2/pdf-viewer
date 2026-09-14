@@ -474,6 +474,223 @@ fn own_space_conversion(compositing: &Compositing) -> Option<pdf_render::GroupBl
     }
 }
 
+/// How many samples an axis of the conversion into a parent's components takes.
+///
+/// The conversion is sampled over device RGB with identity curves on both sides, which is the
+/// shape `crate::colour` gives a table profile's cube and at the same side: a conversion with no
+/// linear stage to separate is sampled whole, and thirty-three an axis is where that crate found
+/// a profile's table reproduced to within its own interpolation.
+const INTO_PARENT_SIDE: usize = 33;
+
+/// How many samples an axis of a press's conversion out takes once it is composed with the
+/// conversion into a parent's components.
+///
+/// The assumed inks' grid has two samples an axis and is multilinear between them
+/// (`crate::colour::Press::assumed`); composed with a conversion that is not linear, two samples
+/// would interpolate a different function from the composition, so the composed grid is resampled
+/// at the side `crate::colour` samples a profile's press at.
+const COMPOSED_PRESS_SIDE: usize = 17;
+
+/// The channels a parent's raster holds for a colour a group's raster holds as device RGB, or
+/// `None` where the parent composites on the device and no conversion is owed.
+///
+/// §11.6.6's final compositing: a group's result "shall then be painted into the parent group
+/// or page", and where the parent composites in a space of its own that painting converts the
+/// result into that space — the same conversion in every mark inside the parent takes
+/// ([`Compositing::paint`]), asked of the device colour the group's own conversion out
+/// produced. One route in per space, which is trap 6's rule.
+///
+/// The exception is a CIE-based parent of three components, and it is the clause's: §11.7.2
+/// lets a `DeviceRGB` *graphics object* keep its components inside such a parent "for
+/// compositing purposes only", and a group's result is not one — §11.6.6 interprets it "in the
+/// group colour space", which differs from the parent's or this would not be called — so it goes
+/// in from its XYZ ([`crate::colour::RgbRoute::components_of_srgb`]) as any other colour in a
+/// space of its own does (§10.3.1).
+fn parent_channels(parent: &Compositing, rendering: Rendering, rgb: [f32; 3]) -> Option<[f32; 3]> {
+    match parent {
+        Compositing::Device => None,
+        Compositing::Additive(route) => {
+            Some(route.components_of_srgb(Color::rgb(rgb[0], rgb[1], rgb[2]), rendering))
+        }
+        Compositing::Luminosity(_)
+        | Compositing::Grey
+        | Compositing::Calibrated(_)
+        | Compositing::Subtractive(..) => {
+            let painted = parent.paint(&ColourSpace::Rgb, &rgb, rendering);
+            Some([painted.r, painted.g, painted.b])
+        }
+    }
+}
+
+/// [`parent_channels`] sampled over device RGB, as the cube a backend interpolates — or `None`
+/// where the parent composites on the device.
+fn into_parent_cube(parent: &Compositing, rendering: Rendering) -> Option<pdf_render::ColourCube> {
+    let side = INTO_PARENT_SIDE;
+    #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+    let at = |index: usize| index as f32 / (side - 1) as f32;
+    let mut grid = Vec::with_capacity(side.pow(3));
+    for blue in 0..side {
+        for green in 0..side {
+            for red in 0..side {
+                grid.push(parent_channels(
+                    parent,
+                    rendering,
+                    [at(red), at(green), at(blue)],
+                )?);
+            }
+        }
+    }
+    pdf_render::ColourCube::new(
+        Arc::from([[0.0f32; 3], [1.0f32; 3]]),
+        side,
+        Arc::from(grid),
+        Arc::from([0.0f32, 1.0]),
+    )
+}
+
+/// A conversion out of a group's own space with the conversion into its parent's composed
+/// onto it, as the data the display list carries.
+///
+/// What the parent's raster holds for a group's composited result is one function of that
+/// result — the group's conversion out, then [`parent_channels`] — and the backends apply one
+/// grid, curve or cube per group, so the two are composed here, where both are known. Each shape
+/// is sampled where the group's own conversion already is: a curve at its own samples, a cube
+/// and a press resampled at [`INTO_PARENT_SIDE`] and [`COMPOSED_PRESS_SIDE`] with identity
+/// curves, because the composition has no linear stage left to separate. What that costs is one
+/// interpolation's precision on top of the conversion out's own, which §11.7.2's NOTE 5 is about.
+#[derive(Debug, Clone)]
+pub(super) enum ComposedOut {
+    /// Four components of a press, leaving into the parent's channels.
+    Space(pdf_render::BlendingSpace),
+    /// One component, leaving into the parent's channels.
+    Curve(pdf_render::GreyCurve),
+    /// Three components, or the device's own, leaving into the parent's channels.
+    Cube(pdf_render::ColourCube),
+}
+
+/// The conversion out of `own` composed with `into`, or `None` where the shape cannot be sampled.
+///
+/// `out` is what the group carries where its parent composites on the device
+/// ([`own_space_conversion`], or a press's grid); `own` says which of the two `None`s a missing
+/// one is — device grey, whose conversion out is the identity (§10.4.2.2), or the device's own
+/// three components — because the composition is a different curve or cube for each.
+fn composed_into_parent(
+    own: &Compositing,
+    out: Option<&pdf_render::GroupBlending>,
+    into: &pdf_render::ColourCube,
+) -> Option<ComposedOut> {
+    match (own, out) {
+        (_, Some(pdf_render::GroupBlending::FourComponents { space, .. })) => {
+            let side = COMPOSED_PRESS_SIDE;
+            #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+            let at = |index: usize| index as f32 / (side - 1) as f32;
+            let mut grid = Vec::with_capacity(side.pow(4));
+            for black in 0..side {
+                for yellow in 0..side {
+                    for magenta in 0..side {
+                        for cyan in 0..side {
+                            grid.push(into.convert(space.convert(
+                                at(cyan),
+                                at(magenta),
+                                at(yellow),
+                                at(black),
+                            )));
+                        }
+                    }
+                }
+            }
+            pdf_render::BlendingSpace::new(side, Arc::from(grid)).map(ComposedOut::Space)
+        }
+        (_, Some(pdf_render::GroupBlending::OneComponent { curve })) => {
+            let samples: Vec<[f32; 3]> = curve
+                .samples()
+                .iter()
+                .map(|sample| into.convert(*sample))
+                .collect();
+            pdf_render::GreyCurve::new(Arc::from(samples)).map(ComposedOut::Curve)
+        }
+        (_, Some(pdf_render::GroupBlending::ThreeComponents { cube })) => {
+            resampled_cube(|components| into.convert(cube.convert(components)))
+                .map(ComposedOut::Cube)
+        }
+        (Compositing::Grey, None) => {
+            let samples: Vec<[f32; 3]> = (0..GREY_SAMPLES)
+                .map(|index| {
+                    #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+                    let grey = index as f32 / (GREY_SAMPLES - 1) as f32;
+                    into.convert([grey; 3])
+                })
+                .collect();
+            pdf_render::GreyCurve::new(Arc::from(samples)).map(ComposedOut::Curve)
+        }
+        (Compositing::Device, None) => Some(ComposedOut::Cube(into.clone())),
+        (
+            Compositing::Luminosity(_)
+            | Compositing::Calibrated(_)
+            | Compositing::Additive(_)
+            | Compositing::Subtractive(..),
+            None,
+        ) => None,
+    }
+}
+
+/// How many samples a device-grey group's composed curve takes: one per eight-bit level, so
+/// that the curve is exact at every value the raster can hold.
+const GREY_SAMPLES: usize = 256;
+
+/// `convert` sampled over three components at [`INTO_PARENT_SIDE`] with identity curves.
+fn resampled_cube(convert: impl Fn([f32; 3]) -> [f32; 3]) -> Option<pdf_render::ColourCube> {
+    let side = INTO_PARENT_SIDE;
+    #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+    let at = |index: usize| index as f32 / (side - 1) as f32;
+    let mut grid = Vec::with_capacity(side.pow(3));
+    for third in 0..side {
+        for second in 0..side {
+            for first in 0..side {
+                grid.push(convert([at(first), at(second), at(third)]));
+            }
+        }
+    }
+    pdf_render::ColourCube::new(
+        Arc::from([[0.0f32; 3], [1.0f32; 3]]),
+        side,
+        Arc::from(grid),
+        Arc::from([0.0f32, 1.0]),
+    )
+}
+
+/// Whether two groups' conversions out are the same construction.
+///
+/// [`paired`]'s question asked of a group's own space: the two halves of a pair are one content
+/// stream interpreted twice, so a group inside states its space in both or in neither, and a
+/// press's own pair inside must pair in turn. The grids differ by construction — each half's is
+/// composed into that half — and are not compared.
+fn blending_paired(
+    left: Option<&pdf_render::GroupBlending>,
+    right: Option<&pdf_render::GroupBlending>,
+) -> bool {
+    match (left, right) {
+        (
+            Some(pdf_render::GroupBlending::FourComponents { black: ours, .. }),
+            Some(pdf_render::GroupBlending::FourComponents { black: theirs, .. }),
+        ) => paired(ours, theirs),
+        (Some(ours), Some(theirs)) => {
+            std::mem::discriminant(ours) == std::mem::discriminant(theirs)
+        }
+        (None, None) => true,
+        (None, Some(_)) | (Some(_), None) => false,
+    }
+}
+
+/// Whether a group ran in a space of its own, and what it leaves by if it did.
+enum OwnSpaceRun {
+    /// Drawn in its own space, leaving by this conversion — `None` where the raster already
+    /// holds what the parent composites in.
+    Drawn(Option<pdf_render::GroupBlending>),
+    /// One of [`Interpreter::group_commands`]' conditions gave the space up.
+    GivenUp,
+}
+
 /// Whether a group's change of blending colour space can change a pixel of its elements.
 ///
 /// Something compositing in the group can, in any space (§11.3.4). A space of one component
@@ -1180,7 +1397,7 @@ fn paired(first: &[Command], second: &[Command]) -> bool {
                         blending: other,
                         ..
                     },
-                ) => pair.is_none() && other.is_none() && paired(ours, theirs),
+                ) => blending_paired(pair.as_deref(), other.as_deref()) && paired(ours, theirs),
                 (
                     Command::Shaped {
                         object: left_object,
@@ -1937,13 +2154,10 @@ impl Interpreter<'_> {
     /// - **The group is isolated.** §11.6.6: "[f]or non-isolated groups, or if no group
     ///   colour space is specified, the group colour space shall be inherited from the
     ///   parent group or page."
-    /// - **The parent composites on the device's three components.** A group inside
-    ///   §11.4.7's four-component page, or inside another such group, already composites in
-    ///   a press — restating it is not a departure, and naming a *different* press there
-    ///   would need a per-pixel conversion between two presses this tree does not have, so
-    ///   that case keeps its report. A soft mask's group never reaches here with `Device`
-    ///   compositing unless its own derivation chose it, in which case the same
-    ///   construction answers.
+    /// - **The parent's space is one this group's result can be converted into**, which is
+    ///   [`Interpreter::group_compositing`]'s condition and not this function's: it asks
+    ///   this only where the parent composites on the device or where the group changes
+    ///   the space in force and [`parent_channels`] has a conversion into the parent's.
     /// - **The `/CS` names four components this tree can sample** — `/DeviceCMYK` through
     ///   §8.6.5.6's and §14.11.5's ranking, or a four-component `ICCBased` profile
     ///   (§11.7.2). Table 145 subjects a device space here to remapping through the
@@ -1986,12 +2200,7 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         rendering: Rendering,
     ) -> Option<Arc<Press>> {
-        if self.compositing != Compositing::Device
-            || !group.isolated
-            || group.knockout
-            || self.uncoloured
-            || self.black_generation_stated
-        {
+        if !group.isolated || group.knockout || self.uncoloured || self.black_generation_stated {
             return None;
         }
         // The page's own §14.11.5 intent, resolved once when this interpretation began — a
@@ -2031,19 +2240,161 @@ impl Interpreter<'_> {
     ///
     /// Two of [`Interpreter::group_press`]'s conditions stay, for the reasons given there: the
     /// group must be isolated, because §11.6.6 gives a non-isolated group's `/CS` no effect;
-    /// and no uncoloured cell may be supplying the colour from outside. And the parent must be
-    /// compositing on the device — a grey group inside a press is a conversion between two
-    /// spaces at its `Do`, which `doc/todo/23` keeps. A grey group inside a grey page is not
-    /// this function's: it inherits, and [`group_blending`] says so.
+    /// and no uncoloured cell may be supplying the colour from outside. Which parents it may
+    /// be asked under is [`Interpreter::group_compositing`]'s question. A grey group inside a
+    /// grey page is not this function's: it inherits, and [`group_blending`] says so.
     fn group_own_space(
         &self,
         group: &TransparencyGroup,
         resources: &Dictionary,
     ) -> Option<Compositing> {
-        if self.compositing != Compositing::Device || !group.isolated || self.uncoloured {
+        if !group.isolated || self.uncoloured {
             return None;
         }
         own_space_compositing(self.document, &group.colour_space, resources, self.presses)
+    }
+
+    /// What an isolated group's own `/CS` asks its elements to composite in, where this run
+    /// can honour it — or `None`, which is "what the parent composites in" (§11.6.6, §11.7.2).
+    ///
+    /// Three answers, in the order the group's entry is read: a press
+    /// ([`Interpreter::group_press`]), one component or three CIE-based ones
+    /// ([`Interpreter::group_own_space`]), and — only inside a parent that composites in a
+    /// space of its own — the device's own three components, for a `/DeviceRGB` group that
+    /// §11.7.2's same-count rule did not fold into its parent.
+    ///
+    /// # Which parents
+    ///
+    /// Where the parent composites on the device, every one of the three is a construction
+    /// this tree draws and the group's result leaves by its own conversion out. Where the
+    /// parent composites in a space of its own, the group's result owes a second conversion
+    /// at its `Do` — §11.6.6: "[i]f colour conversion needs to take place in order to
+    /// composite the group into its parent" — and [`parent_channels`] is that conversion, so
+    /// the group is drawn in its own space exactly where `changed` says the space differs
+    /// ([`group_blending`]) and the parent is one that function has a route into. A group
+    /// restating its parent's space, or naming the parent's own press under another spelling,
+    /// inherits: there is nothing to convert between.
+    fn group_compositing(
+        &mut self,
+        group: &TransparencyGroup,
+        resources: &Dictionary,
+        rendering: Rendering,
+        changed: bool,
+    ) -> Option<Compositing> {
+        let nested = self.compositing != Compositing::Device;
+        if nested && !(changed && parent_channels(&self.compositing, rendering, [0.0; 3]).is_some())
+        {
+            return None;
+        }
+        if let Some(press) = self.group_press(group, resources, rendering) {
+            if let Compositing::Subtractive(_, parent) = &self.compositing
+                && parent.identity() == press.identity()
+            {
+                return None;
+            }
+            return Some(Compositing::Subtractive(
+                crate::colour::Half::Chromatic,
+                press,
+            ));
+        }
+        if let Some(own) = self.group_own_space(group, resources) {
+            return Some(own);
+        }
+        // §11.7.2 folds a device space of the parent's own count into the parent
+        // (`group_blending`), so a `/DeviceRGB` entry that still changed the space is inside
+        // a parent of another count, or of the same count but a device one: the device's
+        // three components are the group's own here.
+        (nested
+            && group.isolated
+            && !self.uncoloured
+            && matches!(
+                ColourSpace::parse(self.document, &group.colour_space, resources),
+                Some(ColourSpace::Rgb)
+            ))
+        .then_some(Compositing::Device)
+    }
+
+    /// The second run of a group compositing in a press — its elements in the black
+    /// component — paired with the first, or `None` where the pair is given up.
+    ///
+    /// Given up, each with the report or record it always had, where nothing composites in
+    /// the group (an opaque Normal mark carries its colour through whatever space it is
+    /// carried through), where §11.7.5.3's black generation is in force (the conversion into
+    /// the space does not read it), where a group inside changed the space with something
+    /// compositing in it and could not be drawn there, and where the two runs drew different
+    /// structures, which no valid content stream does and is therefore checked rather than
+    /// assumed.
+    fn black_half(
+        &mut self,
+        press: &Arc<Press>,
+        content: &NestedContent,
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        mark: usize,
+        chromatic: &[Command],
+    ) -> Option<pdf_render::GroupBlending> {
+        if self.nested_space_departed
+            || self.black_generation_stated
+            || !any_command(chromatic, &command_composites)
+        {
+            return None;
+        }
+        let rewind = self.readback_mark();
+        let saved = std::mem::replace(
+            &mut self.compositing,
+            Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(press)),
+        );
+        self.run(content, resources, inner);
+        self.compositing = saved;
+        self.rewind_readback(rewind);
+        let black = self.list.split_off_commands(mark);
+        paired(chromatic, &black).then(|| pdf_render::GroupBlending::FourComponents {
+            space: press.blending_space(),
+            black,
+        })
+    }
+
+    /// The conversion a group drawn in `own` carries out to the backend, composed with the
+    /// conversion into what this run composites in — or `None` where that cannot be sampled.
+    ///
+    /// `out` is the group's own conversion out; where the parent composites on the device it
+    /// is the whole answer. Elsewhere
+    /// [`composed_into_parent`] is applied, so that what the backend resolves the group's
+    /// raster through lands in the parent's channels — §11.7.2's "interpreted in the group's
+    /// colour space when the group is subsequently composited with its backdrop", with the
+    /// backdrop's own space read off `self.compositing`. Both samplings are memoised on this
+    /// interpretation, because a page drawing one shape of group many times would otherwise
+    /// sample the same conversion once per `Do`.
+    fn conversion_into_parent(
+        &mut self,
+        own: &Compositing,
+        out: Option<pdf_render::GroupBlending>,
+        rendering: Rendering,
+    ) -> OwnSpaceRun {
+        if self.compositing == Compositing::Device {
+            return OwnSpaceRun::Drawn(out);
+        }
+        let key = (own.clone(), self.compositing.clone(), rendering);
+        let composed = if let Some(composed) = self.into_parent.get(&key) {
+            composed.clone()
+        } else {
+            let Some(composed) = into_parent_cube(&self.compositing, rendering)
+                .and_then(|into| composed_into_parent(own, out.as_ref(), &into))
+            else {
+                return OwnSpaceRun::GivenUp;
+            };
+            self.into_parent.insert(key, composed.clone());
+            composed
+        };
+        OwnSpaceRun::Drawn(Some(match (composed, out) {
+            (
+                ComposedOut::Space(space),
+                Some(pdf_render::GroupBlending::FourComponents { black, .. }),
+            ) => pdf_render::GroupBlending::FourComponents { space, black },
+            (ComposedOut::Space(_), _) => return OwnSpaceRun::GivenUp,
+            (ComposedOut::Curve(curve), _) => pdf_render::GroupBlending::OneComponent { curve },
+            (ComposedOut::Cube(cube), _) => pdf_render::GroupBlending::ThreeComponents { cube },
+        }))
     }
 
     /// Reports a blend mode inside a mask group whose channel is more than one component.
@@ -2126,7 +2477,7 @@ impl Interpreter<'_> {
         let on_device = |interpreter: &mut Self, detail: String| {
             interpreter.note(Unsupported::TransparencyGroup { detail });
             let saved = std::mem::replace(&mut interpreter.compositing, Compositing::Device);
-            let redrawn = interpreter.rerun_on_device(content, resources, inner, mark);
+            let redrawn = interpreter.rerun_inheriting(content, resources, inner, mark);
             interpreter.compositing = saved;
             (redrawn, None)
         };
@@ -2325,6 +2676,10 @@ impl Interpreter<'_> {
         // `draw_xobject` has made this replacement since the clause was first read; this is
         // the second door into the same room.
         let saved_base = std::mem::replace(&mut self.base, inner.transform);
+        // The group's own object is not to hand here — `SoftMaskRequest` carries the stream
+        // resolved — and the ledger needs the route more than the object: a soft mask's group
+        // is the construct the survey does not walk, so nothing under it is compared.
+        self.enter_ledger_frame(super::ledger::Route::SoftMask, None);
         self.run(&content, &resources, &inner);
         // §11.4.7's second raster, where the mask group's blending colour space has four
         // components: the same content stream interpreted again in the black component, with
@@ -2339,6 +2694,7 @@ impl Interpreter<'_> {
         // carried in. A mask's four components are converted to *one number* by §11.5.3's
         // `Y`, which is a function of all four however opaque the marks are.
         let (commands, black) = self.mask_halves(request, &content, &resources, &inner, mark);
+        self.leave_ledger_frame();
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
@@ -2455,29 +2811,32 @@ impl Interpreter<'_> {
         // the point the file introduces it, rather than once per group that lives inside it.
         let changed = entered != self.blending;
         let introduced = changed.then(|| entered.clone()).flatten();
-        self.blending_changed |= changed;
         let outside = std::mem::replace(&mut self.blending, entered);
         let GroupRun {
             commands,
             pair,
             alpha_sources,
             in_own_space,
-        } = self.group_commands(group, content, resources, (&inner, outer));
+        } = self.group_commands(group, content, resources, (&inner, outer), changed);
         self.blending = outside;
         self.inside_knockout = enclosing_knockout;
         self.transparent_initial_backdrop = enclosing_transparent;
-        // A group that changes the space in force, with something compositing in it, is a
-        // departure the reports can only name on the device's components — so on any other
-        // compositing it is *recorded* instead, and the enclosing pair run reads the record
-        // and falls back to the device, where this same group will report ordinarily. Both
-        // directions of change count, including one whose `entered` is `None`: a group
-        // returning to the device's three components inside a four-component pair
-        // composites in the wrong space just as surely as one leaving them.
-        if changed
-            && self.compositing != Compositing::Device
-            && change_is_visible(introduced.as_ref(), &commands)
-        {
-            self.nested_space_departed = true;
+        // A group that changes the space in force, with something compositing in it, and
+        // is not drawn in that space is a departure the reports can only name on the
+        // device's components — so on any other compositing it is *recorded* instead, and
+        // the enclosing run reads the record and falls back to the device, where this same
+        // group will report ordinarily. Both directions of change count, including one whose
+        // `entered` is `None`: a group returning to the device's three components inside a
+        // four-component pair composites in the wrong space just as surely as one leaving
+        // them. A group drawn in its own space and converted into its parent's at its `Do`
+        // (`group_commands`) changed nothing the parent has to answer for, and a change
+        // nothing can see — §11.3.4 tells two spaces apart only where something composites —
+        // is not one either.
+        if changed && !in_own_space && change_is_visible(introduced.as_ref(), &commands) {
+            self.blending_changed = true;
+            if self.compositing != Compositing::Device {
+                self.nested_space_departed = true;
+            }
         }
         if commands.is_empty() {
             return;
@@ -2680,6 +3039,7 @@ impl Interpreter<'_> {
         content: &NestedContent,
         resources: &Dictionary,
         states: (&GraphicsState, &GraphicsState),
+        changed: bool,
     ) -> GroupRun {
         let (inner, outer) = states;
         let mark = self.list.command_count();
@@ -2705,13 +3065,8 @@ impl Interpreter<'_> {
         // time the `Do` operator is applied to the group". §11.6.6 has already reset the
         // group's own parameters on `inner`, so `inner` is the wrong state to ask — and the
         // parameters this names are not among the ones it resets in any case.
-        let ink = self.group_press(group, resources, outer.rendering());
-        let grey = if ink.is_none() {
-            self.group_own_space(group, resources)
-        } else {
-            None
-        };
-        let own_space = ink.is_some() || grey.is_some();
+        let own = self.group_compositing(group, resources, outer.rendering(), changed);
+        let own_space = own.is_some();
         let saved = self.compositing.clone();
         // Scoped only where the group is being drawn in a space of its own: everywhere else
         // the record has to propagate *up* to whatever such run this group may be inside.
@@ -2720,61 +3075,63 @@ impl Interpreter<'_> {
         } else {
             self.nested_space_departed
         };
-        if let Some(press) = ink.clone() {
-            self.compositing = Compositing::Subtractive(crate::colour::Half::Chromatic, press);
-        } else if let Some(one_component) = grey.clone() {
-            self.compositing = one_component;
+        if let Some(own) = &own {
+            self.compositing = own.clone();
         }
         self.run(content, resources, inner);
         self.compositing = saved.clone();
         let mut commands = self.list.split_off_commands(mark);
         let mut pair = None;
         let mut in_own_space = false;
-        if let Some(one_component) = grey
+        if let Some(own) = &own
             && !commands.is_empty()
         {
-            if self.nested_space_departed {
-                // A group inside changed the space with something compositing in it, so its
-                // `Do` owes a conversion between two spaces per pixel that no list here
-                // carries; the device's components and the standing report are the answer.
-                commands = self.rerun_on_device(content, resources, inner, mark);
-            } else {
-                in_own_space = true;
-                pair = own_space_conversion(&one_component);
-            }
-        }
-        if let Some(press) = ink.clone()
-            && !commands.is_empty()
-        {
-            if !self.nested_space_departed
-                && any_command(&commands, &command_composites)
-                && !self.black_generation_stated
-            {
-                let rewind = self.readback_mark();
-                self.compositing =
-                    Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press));
-                self.run(content, resources, inner);
-                self.compositing = saved.clone();
-                self.rewind_readback(rewind);
-                let black = self.list.split_off_commands(mark);
-                if paired(&commands, &black) {
-                    pair = Some(pdf_render::GroupBlending::FourComponents {
-                        space: press.blending_space(),
-                        black,
-                    });
-                    in_own_space = true;
-                } else {
-                    // The halves diverged structurally, which no valid content stream
-                    // does; the device's components and the standing report are the
-                    // answer that was right before this construction and is still right.
-                    commands = self.rerun_on_device(content, resources, inner, mark);
+            // `Some(out)` is drawn in its own space and leaves by `out`; `None` gave the
+            // space up and runs the content again in what the parent composites in — with
+            // the report or record it always had, since a report about a space can only be
+            // made where the device's components are what is being composited on, which the
+            // rerun is where the parent is the device, and elsewhere the record is what the
+            // enclosing run reads.
+            let drawn = match own {
+                Compositing::Subtractive(_, press) => self
+                    .black_half(press, content, resources, inner, mark, &commands)
+                    .map_or(OwnSpaceRun::GivenUp, |pair| OwnSpaceRun::Drawn(Some(pair))),
+                // A group inside changed the space with something compositing in it and
+                // could not be drawn there, so its `Do` owes a conversion no list here
+                // carries.
+                Compositing::Grey | Compositing::Calibrated(_) | Compositing::Additive(_) => {
+                    if self.nested_space_departed {
+                        OwnSpaceRun::GivenUp
+                    } else {
+                        OwnSpaceRun::Drawn(own_space_conversion(own))
+                    }
                 }
-            } else {
-                // Nothing composites, §11.7.5.3's black generation is in force, or a group
-                // inside introduced a space of its own — the last recorded rather than
-                // reported, because a report about a space can only be made where the
-                // device's components are what is being composited on, which the rerun is.
-                commands = self.rerun_on_device(content, resources, inner, mark);
+                // The device's own components inside a parent that composites elsewhere:
+                // a raster of its own only where something composites in it, since an
+                // opaque Normal mark converted into the parent per mark is the same picture.
+                Compositing::Device => {
+                    if !self.nested_space_departed && any_command(&commands, &command_composites) {
+                        OwnSpaceRun::Drawn(None)
+                    } else {
+                        OwnSpaceRun::GivenUp
+                    }
+                }
+                // Never handed out by `group_compositing`: a mask's channel is derived, not
+                // painted at a `Do`.
+                Compositing::Luminosity(_) => OwnSpaceRun::GivenUp,
+            };
+            let drawn = match drawn {
+                OwnSpaceRun::Drawn(out) => self.conversion_into_parent(own, out, outer.rendering()),
+                OwnSpaceRun::GivenUp => OwnSpaceRun::GivenUp,
+            };
+            match drawn {
+                OwnSpaceRun::Drawn(out) => {
+                    in_own_space = true;
+                    pair = out;
+                }
+                OwnSpaceRun::GivenUp => {
+                    commands = self.rerun_inheriting(content, resources, inner, mark);
+                }
             }
         }
         if own_space {
@@ -2799,9 +3156,10 @@ impl Interpreter<'_> {
         }
     }
 
-    /// One more run of a group's content with colours resolved for the device, replacing
-    /// what a subtractive run drew. See [`Interpreter::group_commands`] for the two cases.
-    fn rerun_on_device(
+    /// One more run of a group's content with colours resolved for what the parent
+    /// composites in, replacing what a run in the group's own space drew. See
+    /// [`Interpreter::group_commands`] for the cases.
+    fn rerun_inheriting(
         &mut self,
         content: &NestedContent,
         resources: &Dictionary,

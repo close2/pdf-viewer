@@ -114,6 +114,16 @@ fn unrecognised(run: &str) -> Unsupported {
     }
 }
 
+/// The operator the run starved, given what was left and wanting what its table states —
+/// the report §7.8.2's "all of the operands needed" earns beside the token's own.
+fn short(operator: &str, given: usize, takes: usize) -> Unsupported {
+    Unsupported::OperandShortfall {
+        operator: operator.to_owned(),
+        given,
+        takes,
+    }
+}
+
 /// The witness itself: `/F0 . Tf`.
 ///
 /// The `.` is no operand, so the `Tf` that follows it states no size — and §9.3.1 gives size
@@ -126,7 +136,11 @@ fn a_font_size_that_states_no_digit_is_reported_rather_than_read_as_zero() {
     let interpretation = interpretation("BT /F0 . Tf 10 10 Td (Hi) Tj ET");
     assert_eq!(
         interpretation.unsupported,
-        vec![Unsupported::Text { operations: 1 }, unrecognised(".")],
+        vec![
+            Unsupported::Text { operations: 1 },
+            unrecognised("."),
+            short("Tf", 0, 2)
+        ],
         "a lone `.` is not a number, and the show it costs has to be reported"
     );
     assert!(
@@ -146,7 +160,10 @@ fn a_coordinate_that_states_no_digit_is_reported_rather_than_read_as_zero() {
     draws_in_silence("10 10 100 20 re f");
 
     let interpretation = interpretation("10 10 . 20 re f");
-    assert_eq!(interpretation.unsupported, vec![unrecognised(".")]);
+    assert_eq!(
+        interpretation.unsupported,
+        vec![unrecognised("."), short("re", 1, 4)]
+    );
     assert!(
         !format!("{:?}", interpretation.display_list).contains("Fill"),
         "three operands do not make a rectangle"
@@ -162,7 +179,7 @@ fn a_lone_sign_is_no_number_either() {
     let interpretation = interpretation("0 0 - rg 10 10 100 20 re f");
     assert_eq!(
         interpretation.unsupported,
-        vec![unrecognised("-")],
+        vec![unrecognised("-"), short("rg", 0, 3)],
         "`-` states no digit, so it is no number and the `rg` that wanted it is malformed"
     );
 }
@@ -272,7 +289,11 @@ fn a_run_whose_front_spells_no_number_is_reported_rather_than_read() {
         let interpretation = interpretation(&format!("BT /F0 {run} Tf 10 30 Td (Hi) Tj ET"));
         assert_eq!(
             interpretation.unsupported,
-            vec![Unsupported::Text { operations: 1 }, unrecognised(run)],
+            vec![
+                Unsupported::Text { operations: 1 },
+                unrecognised(run),
+                short("Tf", 0, 2)
+            ],
             "`{run}` spells no number, so the `Tf` after it states no size and the show is lost"
         );
         assert!(

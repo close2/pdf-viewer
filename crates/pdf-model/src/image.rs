@@ -801,17 +801,45 @@ fn samples_of(
     }
 }
 
-/// Reads a required positive dimension.
+/// Reads a required positive dimension, Table 87's `/Width` or `/Height`.
+///
+/// The refusal names what the entry *is* — absent, a value of another type, or a number that
+/// is no sample count — rather than which of those it might be: `issue4575.pdf` writes
+/// `/Width /Height` and no `/Height` at all, and a sentence reading "missing or invalid" was
+/// true of it twice over without saying either thing.
 fn positive_integer(
     document: &Document,
     dict: &Dictionary,
     key: &'static str,
 ) -> Result<u32, ImageError> {
-    crate::integer_entry::dimension(document, dict, key)
-        .filter(|value| *value > 0)
-        .ok_or(ImageError::Malformed {
-            detail: format!("missing or invalid /{key}"),
-        })
+    if let Some(count) =
+        crate::integer_entry::dimension(document, dict, key).filter(|count| *count > 0)
+    {
+        return Ok(count);
+    }
+    let detail = match &document.get_key(dict, key) {
+        Object::Null => format!("no /{key}, which Table 87 requires"),
+        Object::Integer(written) => format!("/{key} is {written}, which counts no samples"),
+        Object::Real(written) => format!("/{key} is {written}, which counts no samples"),
+        Object::Name(name) => format!(
+            "/{key} is the name /{}, where Table 87 requires an integer",
+            String::from_utf8_lossy(name.as_bytes())
+        ),
+        other => format!(
+            "/{key} is {} {}, where Table 87 requires an integer",
+            article(other.type_name()),
+            other.type_name()
+        ),
+    };
+    Err(ImageError::Malformed { detail })
+}
+
+/// The indefinite article a type name takes, for a sentence that reads as one.
+const fn article(word: &str) -> &'static str {
+    match word.as_bytes().first() {
+        Some(b'a' | b'e' | b'i' | b'o' | b'u') => "an",
+        _ => "a",
+    }
 }
 
 /// An image dictionary, the document holding it, and the resources it was named from.

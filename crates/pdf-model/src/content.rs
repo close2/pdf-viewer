@@ -43,6 +43,7 @@ mod colour;
 mod ext_gstate;
 mod font;
 mod image;
+pub mod ledger;
 mod marked;
 mod path;
 mod pattern;
@@ -55,6 +56,7 @@ mod transparency;
 mod xobject;
 
 pub use font::{FONT_BUDGET, FontCache, FontCacheReport};
+pub use ledger::Ledger;
 pub use report::{
     ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed, Shortfall,
     UnnamedCodes, Unsupported, named_sequences,
@@ -503,7 +505,28 @@ pub fn interpret_with_fonts(
     state: &crate::view::ViewState,
     fonts: &FontCache,
 ) -> Interpretation {
-    interpreted(document, page, state, fonts, Keep::Nothing).0
+    interpreted(document, page, state, fonts, Keep::Nothing, None).0
+}
+
+/// Interprets a page and hands back every named resource its content selected.
+///
+/// The same [`Interpretation`] [`interpret`] produces — the ledger changes nothing the
+/// interpreter does, only what it remembers — beside a [`Ledger`] of §7.8.3's lookups: which
+/// entry each `Tf`, `Do`, `gs`, `cs`, `scn`, `sh` and `BDC` found in the resource dictionary in
+/// force, under which nested stream. `pdf-archive`'s cross-check test is the caller, and
+/// [`ledger`] says what the ledger is and is not.
+#[must_use]
+pub fn interpret_ledgered(document: &Document, page: &Page) -> (Interpretation, Ledger) {
+    let ledger = std::cell::RefCell::new(Ledger::new());
+    let (interpretation, _) = interpreted(
+        document,
+        page,
+        &crate::view::ViewState::of(document),
+        &FontCache::new(),
+        Keep::Nothing,
+        Some(&ledger),
+    );
+    (interpretation, ledger.into_inner())
 }
 
 /// Interprets a page and keeps what re-running §12.5.3's annotation pass would need.
@@ -530,7 +553,7 @@ pub fn interpret_replaceable(
     state: &crate::view::ViewState,
     fonts: &FontCache,
 ) -> (Interpretation, Option<Replacement>) {
-    interpreted(document, page, state, fonts, Keep::Replacement)
+    interpreted(document, page, state, fonts, Keep::Replacement, None)
 }
 
 /// Runs §12.5.3's annotation pass again, over the content half a [`Replacement`] kept.
@@ -560,6 +583,7 @@ pub fn replace(
         replacement.checkpoint.compositing.clone(),
         &replacement.presses,
         fonts,
+        None,
     );
     interpreter.restore(replacement.checkpoint.clone());
     complete(document, page, base_transform(page), interpreter).0
@@ -597,6 +621,7 @@ fn interpreted(
     state: &crate::view::ViewState,
     fonts: &FontCache,
     keep: Keep,
+    ledger: Option<&std::cell::RefCell<Ledger>>,
 ) -> (Interpretation, Option<Replacement>) {
     // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
     // compositing shall be done in the default blending colour space of the page" — and where
@@ -624,6 +649,7 @@ fn interpreted(
             &presses,
             fonts,
             Keep::Nothing,
+            ledger,
         );
         if drawable {
             let (black, _, _) = interpret_into(
@@ -634,6 +660,7 @@ fn interpreted(
                 &presses,
                 fonts,
                 Keep::Nothing,
+                ledger,
             );
             // The two runs differ only in what a colour resolves to, so their geometry is
             // identical by construction — and this is what checks it, because the halves are
@@ -668,8 +695,9 @@ fn interpreted(
     // `CalRGB` or `ICCBased` 'RGB ' page group composites the space's three components and
     // the cube they leave by rides on the display list beside the curve.
     if let Some(own_space) = transparency::page_own_space(document, page, &presses) {
-        let (grey, drawable, checkpoint) =
-            interpret_into(document, page, state, own_space, &presses, fonts, keep);
+        let (grey, drawable, checkpoint) = interpret_into(
+            document, page, state, own_space, &presses, fonts, keep, ledger,
+        );
         if drawable {
             let replacement = checkpoint
                 .filter(|_| grey.view_dependent)
@@ -688,6 +716,7 @@ fn interpreted(
         &presses,
         fonts,
         keep,
+        ledger,
     );
     // A checkpoint the pass then found nothing to use is dropped rather than kept: the seam's
     // condition is Table 167's bit read off the file, and `draw_annotations` may decline to draw
@@ -717,6 +746,7 @@ impl<'a> Interpreter<'a> {
         compositing: Compositing,
         presses: &'a crate::colour::Presses,
         across: &'a FontCache,
+        ledger: Option<&'a std::cell::RefCell<Ledger>>,
     ) -> Self {
         let size = displayed_size(page);
         // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host
@@ -802,8 +832,10 @@ impl<'a> Interpreter<'a> {
             opaque_ancestry: true,
             transfer_painted_opaquely: false,
             nested_space_departed: false,
+            into_parent: BTreeMap::new(),
             presses,
             blending_beyond: beyond,
+            ledger,
         }
     }
 
@@ -837,6 +869,7 @@ impl<'a> Interpreter<'a> {
             delegated: _,
             blending: _,
             blending_beyond: _,
+            ledger: _,
             // Memos of pure functions. A resumed run starts with empty ones and computes the same
             // answers — the cost is that an annotation's appearance loads its own fonts, shadings
             // and images again, which `Self::across` already answers for the fonts. Carrying them
@@ -850,6 +883,7 @@ impl<'a> Interpreter<'a> {
             image_rasters: _,
             stream_structures: _,
             clip_extents: _,
+            into_parent: _,
             // Accumulated: the tail of every one of these is what the annotation pass appends.
             list,
             unsupported,
@@ -1133,10 +1167,35 @@ struct Checkpoint {
     nested_space_departed: bool,
 }
 
+impl Interpreter<'_> {
+    /// Tells the ledger, where a caller asked for one, that a nested content stream has begun.
+    ///
+    /// Every site that runs one of §7.8.2's nested streams brackets the run with this pair, at
+    /// the site rather than in [`Interpreter::run`], because the site is what knows the route
+    /// and the object; `run` sees a decoded source and nothing else.
+    pub(super) fn enter_ledger_frame(&self, route: ledger::Route, stream: Option<ObjectId>) {
+        if let Some(ledger) = self.ledger {
+            ledger.borrow_mut().enter(route, stream);
+        }
+    }
+
+    /// The companion of [`Interpreter::enter_ledger_frame`].
+    pub(super) fn leave_ledger_frame(&self) {
+        if let Some(ledger) = self.ledger {
+            ledger.borrow_mut().leave();
+        }
+    }
+}
+
 /// One interpretation of a page, into the components `compositing` names.
 ///
 /// The second half of the answer is whether the page may be drawn in the blending space it
 /// states — see [`Interpreter::blending_undrawable`], which is what decides it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one interpretation's inputs, threaded from the four public entry points to \
+              `Interpreter::for_page`; a struct for them would name the same eight things once more"
+)]
 fn interpret_into(
     document: &Document,
     page: &Page,
@@ -1145,6 +1204,7 @@ fn interpret_into(
     presses: &crate::colour::Presses,
     fonts: &FontCache,
     keep: Keep,
+    ledger: Option<&std::cell::RefCell<Ledger>>,
 ) -> (Interpretation, bool, Option<Checkpoint>) {
     // **The page's `/Contents` is read through a window and never assembled into one buffer**,
     // which is road D of `doc/todo/10` §5 and ADR 0365. What it buys, measured: a
@@ -1154,7 +1214,8 @@ fn interpret_into(
     // to interpret an ordinary page, and one report arriving late: a part damaged half way
     // through is met half way through, so the reader is asked twice, here and after the run.
     let mut reader = reader::ContentReader::for_page(document, page);
-    let mut interpreter = Interpreter::for_page(document, page, state, compositing, presses, fonts);
+    let mut interpreter =
+        Interpreter::for_page(document, page, state, compositing, presses, fonts, ledger);
 
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
@@ -1242,7 +1303,9 @@ fn interpret_into(
     // is applied, once per target, by all three rasterisers.
     interpreter.list.set_content_clip(content_clip(page, base));
     let initial = GraphicsState::initial(base);
+    interpreter.enter_ledger_frame(ledger::Route::Page, page.id);
     interpreter.run_reader(&mut reader, &page.resources, &initial);
+    interpreter.leave_ledger_frame();
     // §7.4.1's second half, for a part whose damage the pump met while the page was being
     // drawn: the bytes are on the page and the shortfall is in the report (ADR 0343). The
     // order the two loops find issues in does not matter — `note` collects them into a map
@@ -1992,6 +2055,20 @@ struct Interpreter<'a> {
     /// ordinary group still reaches the pair enclosing it; a soft mask's run restores it
     /// exactly, since a space inside a mask is the mask's own (ADR 0276).
     nested_space_departed: bool,
+    /// The conversion out of a group's own space composed with the conversion into its
+    /// parent's, per pair of spaces and rendering, sampled once per interpretation.
+    ///
+    /// A memo of a pure function of its key, kept because a page draws one shape of group many
+    /// times and the sampling is thousands of conversions. See
+    /// `Interpreter::conversion_into_parent`.
+    into_parent: BTreeMap<(Compositing, Compositing, Rendering), transparency::ComposedOut>,
+    /// The named-resource lookups this interpretation makes, where a caller asked to be told.
+    ///
+    /// `None` for every caller but [`interpret_ledgered`], and then the cost is one test per
+    /// lookup. Borrowed rather than owned so that §11.4.7's two runs of one page write one
+    /// ledger between them, and so that `for_page` produces the same interpreter from the same
+    /// inputs whether or not anybody is keeping the ledger. [`ledger`] says what it is for.
+    ledger: Option<&'a std::cell::RefCell<Ledger>>,
     /// Why the four components §11.4.7 names cannot be sampled into a press, if they cannot.
     ///
     /// [`PagePress::Beyond`]'s reason, carried into the report. Since the

@@ -45,6 +45,12 @@
 # `corpus-cache/` is a machine-local crawl (`tools/safedocs`). Rows whose document is absent are
 # skipped and counted; a run that finds none of them says so and fails.
 
+# `"OperandShortfall"` is admitted on `4605705.pdf`'s row since session 1042: §7.8.2 says all of
+# an operator's operands shall immediately precede it, and an operator short of them was skipped
+# in silence until then. That page's eight damaged streams state twenty-six such operators; the
+# defect the row was fixed for is unchanged, and the page now says one more true thing about
+# itself. The row was found by the gate's own output, not chosen by hand.
+
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/0100/0100223.pdf"
 page = 1
@@ -349,7 +355,7 @@ why = "the same refusal on a page whose hatching is most of its ink: 41.262 of 2
 path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605705.pdf"
 page = 1
 session = 653
-reports = ["NoninvertibleMatrix", "Damaged", "Operator", "UndefinedCurrentPoint"]
+reports = ["NoninvertibleMatrix", "Damaged", "Operator", "UndefinedCurrentPoint", "OperandShortfall"]
 ink = 145.204 .. 147.204
 why = "a page refused whole — no raster at all, and the 282 commands that did draw lost with it — because one cm among eight damaged content streams has no inverse and all three backends turned that into an error about the target; §8.3.4's NOTE 3 makes only the mark undefined. The reports are what a noise stream says: 8 damaged parts, 2194 operators nobody wrote, and the 97 marks the six-hundred-and-fifty-third round named (ADR 0482, 8.3.4, 10.7.4). The fourth name arrived in the seven-hundred-and-second: 99 of those noise operators are §8.5.2.1 segments with no current point, which used to be drawn from the origin of user space and are now refused and counted, and the ink band holds because they were an edge at the left margin rather than a mark anybody reads (ADR 0563, 8.5.2.1)"
 
@@ -557,8 +563,15 @@ why = "a JBIG2 stream whose /Length counted the end-of-line marker before endstr
 path = "corpus-cache/tika-issue-tracker/batch5/sumatrapdf/sumatrapdf-LINK-1618-0.pdf"
 page = 1
 session = 890
-reports = ["/DR does not define", "PolyLine: no appearance stream", "Square: no appearance stream", "is outside the seven names"]
-ink = 8.978 .. 9.178
+# "PolyLine: no appearance stream" and "Square: no appearance stream" were pinned here from
+# session 890 to 1040; both appearances are constructed now (§12.5.6.8 and §12.5.6.9 are
+# `implemented`), so the report that said they were not has nothing left to say.
+reports = ["/DR does not define", "is outside the seven names"]
+# 8.978 .. 9.178 until session 1040 drew Table 169's cloudy border (ADR 1057): §12.5.4 makes a
+# border effect one that "shall be applied", and this sheet states fourteen `/BE` dictionaries
+# and no `/AP`, so its square, circle, polygon and callout carry scallops that were refused
+# before. mupdf draws the square's cloud too; the ink rose by the clouds and by nothing else.
+ink = 11.820 .. 12.020
 why = "thirteen markup annotations with no /AP and a /Rect written as a point — six Underline, two Squiggly, two Highlight, a StrikeOut, a Line and a PolyLine, each with its /QuadPoints, /L or /Vertices whole — were dropped before any appearance was constructed, drawn nowhere and reported nowhere; §12.5.5's scale onto no extent is a stored stream's arithmetic and those six subtypes state their marks in default user space (ADR 0825, 12.5.6.10). The band is a tenth rather than a level because the twelve marks it stands for are worth 0.693 of one on an A4 sheet"
 
 [[document]]
