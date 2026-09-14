@@ -42,12 +42,14 @@
 //! - **(n)** `keyUsage`, where present, asserting `keyCertSign`;
 //! - **(o)** every critical extension this reader does not recognise, as a refusal.
 //!
+//! **(a)(3), revocation, is done from the material the document carries** — §12.8.4's document
+//! security store, whose whole purpose is that a verifier needs no network to reach it.
+//! [`crate::revocation`] is the reader and the algorithm; [`Trust::Anchored`] carries what it
+//! answered, and [`Revocation::Unknown`] rather than [`Revocation::Good`] is what a certificate no
+//! material covers gets. ADR 1067.
+//!
 //! **Not done, and named at every level rather than assumed:**
 //!
-//! - **(a)(3), revocation.** Not checked, and no outcome of this module says otherwise:
-//!   [`Trust::Anchored`] carries [`Revocation::NotChecked`] and there is no second variant to
-//!   carry. A CRL or an OCSP response is §12.8.3.3.2's and §12.8.3.4.6's subject and needs a
-//!   network, which is a security argument this project has not had.
 //! - **The policy tree** — section 6.1.2 (a), 6.1.3 (d) to (f), 6.1.4 (h) to (j) and 6.1.5 (g).
 //!   This module fixes `user-initial-policy-set` to `any-policy` and `initial-explicit-policy`,
 //!   `initial-policy-mapping-inhibit` and `initial-any-policy-inhibit` all to false, under which
@@ -72,9 +74,10 @@
 //! search, and no certificate appears twice in one path — which is also RFC 5280 section 6.1's own
 //! rule: "A certificate MUST NOT appear more than once in a prospective certification path."
 
-use crate::cms::Digest;
-use crate::x509::{self, Certificate, Instant, PublicKey};
-use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
+use crate::revocation::{self, Material, Subject};
+use crate::x509::{self, Certificate, Instant, KeyUsage, PublicKey};
+
+pub use crate::revocation::{Evidence, Revocation, RevocationReason, Undetermined};
 
 /// How many certificates a prospective certification path may hold, the target included.
 ///
@@ -112,6 +115,18 @@ pub struct TrustAnchor<'a> {
     pub name: &'a [u8],
     /// The trusted public key.
     pub key: PublicKey<'a>,
+    /// The same name with its header, which is what RFC 6960 section 4.1.1's `issuerNameHash`
+    /// hashes. Carried because an anchor issues the topmost certificate on a path, and an OCSP
+    /// response about that certificate names this anchor by the hash of these octets.
+    pub name_encoding: &'a [u8],
+    /// The trusted public key's `subjectPublicKey` octets, for `issuerKeyHash`.
+    pub key_bits: &'a [u8],
+    /// The anchor certificate's `keyUsage`, where it stated one.
+    ///
+    /// RFC 5280 section 6.3.3 (f) asks for it and asks conditionally — "If a key usage extension
+    /// is present in the CRL issuer's certificate" — so `None` is a certificate that stated none
+    /// and is not a gap.
+    pub key_usage: Option<KeyUsage>,
 }
 
 impl<'a> TrustAnchor<'a> {
@@ -132,6 +147,9 @@ impl<'a> TrustAnchor<'a> {
         Self {
             name: certificate.subject,
             key: certificate.public_key,
+            name_encoding: certificate.subject_encoding,
+            key_bits: certificate.public_key_bits,
+            key_usage: certificate.extensions.key_usage,
         }
     }
 }
@@ -185,20 +203,6 @@ impl<'a> TrustAnchors<'a> {
     pub fn anchors(&self) -> &[TrustAnchor<'a>] {
         &self.anchors
     }
-}
-
-/// Whether anything was asked about revocation, which today is always no.
-///
-/// A one-variant enum rather than an omitted field, and that is the point: RFC 5280 section 6.1.3
-/// (a)(3) is a step of path validation — "At the current time, the certificate is not revoked" —
-/// so a result that did not mention it would be claiming a check it had not made. The day a CRL
-/// or an OCSP response is read, this type gains the variant that says so and every reader of
-/// [`Trust::Anchored`] is made to look at it by the compiler.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Revocation {
-    /// Nothing was asked. §12.8.3.3.2 and §12.8.3.4.6 are what would ask, and both need a network.
-    NotChecked,
 }
 
 /// Why a prospective path was refused, in RFC 5280 section 6.1's own terms.
@@ -272,7 +276,8 @@ pub enum Trust {
         /// How many certificates the path holds, the target included and the anchor excluded —
         /// RFC 5280 section 6.1's `n`.
         length: usize,
-        /// What was asked about revocation, which is nothing.
+        /// What §12.8.4's material in this document said about revocation, over every
+        /// certificate on the path — [`Revocation::NotChecked`] where the caller supplied none.
         revocation: Revocation,
     },
     /// No path from the signer's certificate to any supplied anchor could be built.
@@ -297,8 +302,13 @@ pub enum Trust {
 /// RFC 5280 section 6.1's path validation, over the certificates a file carries.
 ///
 /// `target` is the signer's certificate — section 6.1's certificate `n` — `others` the rest of
-/// what the signature carried, `anchors` what the host supplied, and `at` section 6.1.1's input
-/// (b), "the current date/time", which is the caller's to know.
+/// what the signature carried, `anchors` what the host supplied, `material` §12.8.4's CRLs and
+/// OCSP responses out of the document, and `at` section 6.1.1's input (b), "the current
+/// date/time", which is the caller's to know.
+///
+/// [`Material::none`] is a caller that asks nothing about revocation and gets
+/// [`Revocation::NotChecked`]; a non-empty one runs section 6.3.3 over every certificate on the
+/// path and the answer is the worst of theirs.
 ///
 /// The path is *built* here as well as validated, which section 6.1 leaves open: "The procedure
 /// performed to obtain this sequence of certificates is outside the scope of this specification."
@@ -309,6 +319,7 @@ pub fn validate<'p, 'c: 'p>(
     target: &'p Certificate<'c>,
     others: &'p [Certificate<'c>],
     anchors: &'p TrustAnchors<'c>,
+    material: &'p Material<'c>,
     at: Instant,
 ) -> Trust {
     if anchors.is_empty() {
@@ -320,9 +331,11 @@ pub fn validate<'p, 'c: 'p>(
     let mut search = Search {
         candidates,
         anchors,
+        material,
         at,
         steps: 0,
         first_refusal: None,
+        revocation: Revocation::NotChecked,
     };
     // The path is held target-first while it is built and reversed before validation, because
     // section 6.1 numbers certificates from the anchor down and every step reads in that order.
@@ -330,7 +343,7 @@ pub fn validate<'p, 'c: 'p>(
     if let Some(length) = search.extend(&mut path) {
         return Trust::Anchored {
             length,
-            revocation: Revocation::NotChecked,
+            revocation: search.revocation,
         };
     }
     match search.first_refusal {
@@ -352,6 +365,7 @@ pub fn validate<'p, 'c: 'p>(
 struct Search<'p, 'c: 'p> {
     candidates: &'p [Certificate<'c>],
     anchors: &'p TrustAnchors<'c>,
+    material: &'p Material<'c>,
     at: Instant,
     steps: usize,
     /// The first refusal any prospective path produced.
@@ -360,6 +374,11 @@ struct Search<'p, 'c: 'p> {
     /// tried several paths refused each for its own reason, and reporting the newest would make
     /// the answer depend on the order the file happened to list its certificates in.
     first_refusal: Option<PathRefusal>,
+    /// What section 6.1.3 (a)(3) answered over the path that validated.
+    ///
+    /// Written by [`Self::walk`] on the one path that passes, so a prospective path that was
+    /// refused for some other reason leaves nothing behind here.
+    revocation: Revocation,
 }
 
 impl<'p, 'c: 'p> Search<'p, 'c> {
@@ -430,8 +449,22 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
         // n", which here is the bound this program imposes rather than a number off the file.
         let mut working_issuer_name = anchor.name;
         let mut working_public_key = anchor.key;
+        // Three more pieces of the same issuer, for section 6.3.3 and RFC 6960 section 4.1.1: the
+        // name with its header, the key's own octets, and whether the issuer's certificate limits
+        // what its key may sign. All three start at the anchor's.
+        let mut working_issuer_encoding = anchor.name_encoding;
+        let mut working_issuer_key_bits = anchor.key_bits;
+        let mut working_issuer_key_usage = anchor.key_usage;
         let mut max_path_length = MAX_PATH_LENGTH;
         let last = path.len().saturating_sub(1);
+        let mut revocation = if self.material.is_empty() {
+            Revocation::NotChecked
+        } else {
+            Revocation::Good {
+                from: Evidence::CertificateRevocationList,
+                covered: 0,
+            }
+        };
         for (index, certificate) in path.iter().rev().enumerate() {
             // One certificate looked at, whether it passes or not: `examined` is the cost this
             // search paid, which is what a bound is about, rather than the number that passed.
@@ -442,12 +475,43 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 working_public_key,
                 self.at,
             )?;
+            // (a)(3). Asked of every certificate on the path rather than of the target alone,
+            // which is what the step's position inside section 6.1.3's per-certificate loop makes
+            // it: an intermediate whose own certificate was revoked invalidates everything under
+            // it.
+            if !self.material.is_empty() {
+                let subject = Subject {
+                    certificate,
+                    issuer_name: working_issuer_encoding,
+                    issuer_key_bits: working_issuer_key_bits,
+                    issuer_key: working_public_key,
+                    issuer_key_usage: working_issuer_key_usage,
+                    position: last.saturating_sub(index),
+                };
+                revocation = revocation::worst(
+                    revocation,
+                    revocation::status(&subject, self.material, self.at),
+                );
+            }
             if index < last {
                 prepare_for_next(certificate, &mut max_path_length)?;
                 working_issuer_name = certificate.subject;
                 working_public_key = certificate.public_key;
+                working_issuer_encoding = certificate.subject_encoding;
+                working_issuer_key_bits = certificate.public_key_bits;
+                working_issuer_key_usage = certificate.extensions.key_usage;
             }
         }
+        // A path is covered only if every certificate on it was, which is why the count is written
+        // once at the end rather than accumulated: `worst` keeps the *worst* answer, and the
+        // number of certificates it covers is only meaningful when that answer is `Good`.
+        if let Revocation::Good { from, .. } = revocation {
+            revocation = Revocation::Good {
+                from,
+                covered: path.len(),
+            };
+        }
+        self.revocation = revocation;
         // Section 6.1.5's wrap-up is (c) to (e) — assigning the target's key to the working key,
         // which nothing after this reads — and (a), (b) and (g), which are the policy tree's and
         // which this module's own documentation argues are satisfied for every path under
@@ -551,94 +615,20 @@ fn prepare_for_next(
 ///
 /// Section 4.1.1.3 says what is signed — the `signatureValue` is "generated upon the ASN.1 DER
 /// encoded tbsCertificate" — so [`Certificate::tbs`] is the message and no re-encoding happens
-/// anywhere on this path.
-///
-/// The pair rather than either alone, for the reason [`crate::signature::Authenticity`] states:
-/// an algorithm identifier naming one family over a key of another is two contradictory claims by
-/// one producer, and choosing between them would be this program inventing a fact.
+/// anywhere on this path. The arithmetic is [`x509::verify_signature`], which a CRL and an OCSP
+/// response reach for the same three fields.
 fn verify_certificate(
     certificate: &Certificate<'_>,
     key: PublicKey<'_>,
 ) -> Result<bool, PathRefusal> {
-    let named = || {
-        x509::dotted(certificate.signature_algorithm)
-            .unwrap_or_else(|| "an unreadable object identifier".to_owned())
-    };
-    let algorithm = crate::cms::SignatureAlgorithm::from_oid(certificate.signature_algorithm);
-    let tbs = certificate.tbs;
-    match (algorithm, key) {
-        (crate::cms::SignatureAlgorithm::RsaPkcs1V15, PublicKey::Rsa(key)) => {
-            let Some(digest) = digest_of(certificate.signature_algorithm) else {
-                return Err(PathRefusal::AlgorithmNotVerifiable(named()));
-            };
-            let computed = digest.compute(&[tbs]);
-            pkcs1::verify(key, certificate.signature, digest, &computed)
-                .map_err(|_| PathRefusal::AlgorithmNotVerifiable(named()))
-        }
-        (crate::cms::SignatureAlgorithm::RsaPss, PublicKey::Rsa(key)) => {
-            let parameters = pss::parameters(certificate.signature_parameters)
-                .map_err(|_| PathRefusal::AlgorithmNotVerifiable(named()))?;
-            let computed = parameters.hash.compute(&[tbs]);
-            pss::verify(key, certificate.signature, parameters, &computed)
-                .map_err(|_| PathRefusal::AlgorithmNotVerifiable(named()))
-        }
-        (crate::cms::SignatureAlgorithm::Dsa, PublicKey::Dsa(key)) => {
-            let Some(digest) = digest_of(certificate.signature_algorithm) else {
-                return Err(PathRefusal::AlgorithmNotVerifiable(named()));
-            };
-            let computed = digest.compute(&[tbs]);
-            dsa::verify(key, certificate.signature, &computed)
-                .map_err(|_| PathRefusal::AlgorithmNotVerifiable(named()))
-        }
-        (crate::cms::SignatureAlgorithm::Ecdsa, PublicKey::Ec(key)) => {
-            let Some(digest) = digest_of(certificate.signature_algorithm) else {
-                return Err(PathRefusal::AlgorithmNotVerifiable(named()));
-            };
-            let computed = digest.compute(&[tbs]);
-            ecdsa::verify(key, certificate.signature, &computed)
-                .map_err(|_| PathRefusal::AlgorithmNotVerifiable(named()))
-        }
-        (crate::cms::SignatureAlgorithm::EdDsa, PublicKey::Ed25519(key)) => {
-            // RFC 8032 signs the message rather than a digest of it, which is why this arm has no
-            // `digest_of` call and why a certificate signed with Ed25519 states no hash anywhere.
-            eddsa::verify(key, certificate.signature, &[tbs])
-                .map_err(|_| PathRefusal::AlgorithmNotVerifiable(named()))
-        }
-        _ => Err(PathRefusal::AlgorithmNotVerifiable(named())),
-    }
-}
-
-/// Which digest a certificate's combined signature algorithm identifier names.
-///
-/// A certificate differs from a CMS `SignerInfo` here and the difference is the whole reason this
-/// function exists: RFC 5652 puts the digest in its own `digestAlgorithm` member, which
-/// [`crate::cms`] reads, while RFC 5280 section 4.1.1.2 carries one identifier for the pair — so
-/// `sha256WithRSAEncryption` is the only place a certificate says SHA-256.
-///
-/// The identifiers come from `const_oid`'s database, which is a second party's reading of the
-/// registries that assign them rather than digits typed here; `id-RSASSA-PSS` is deliberately
-/// absent, because its hash is in its parameters and [`crate::pss::parameters`] is what reads it.
-fn digest_of(oid: &[u8]) -> Option<Digest> {
-    use const_oid::db::{rfc5912, rfc9688};
-    let table: [(const_oid::ObjectIdentifier, Digest); 13] = [
-        (rfc5912::MD_5_WITH_RSA_ENCRYPTION, Digest::Md5),
-        (rfc5912::SHA_1_WITH_RSA_ENCRYPTION, Digest::Sha1),
-        (rfc5912::SHA_256_WITH_RSA_ENCRYPTION, Digest::Sha256),
-        (rfc5912::SHA_384_WITH_RSA_ENCRYPTION, Digest::Sha384),
-        (rfc5912::SHA_512_WITH_RSA_ENCRYPTION, Digest::Sha512),
-        (rfc5912::DSA_WITH_SHA_1, Digest::Sha1),
-        (rfc5912::DSA_WITH_SHA_256, Digest::Sha256),
-        (rfc5912::ECDSA_WITH_SHA_256, Digest::Sha256),
-        (rfc5912::ECDSA_WITH_SHA_384, Digest::Sha384),
-        (rfc5912::ECDSA_WITH_SHA_512, Digest::Sha512),
-        (rfc9688::ID_ECDSA_WITH_SHA_3_256, Digest::Sha3_256),
-        (rfc9688::ID_ECDSA_WITH_SHA_3_384, Digest::Sha3_384),
-        (rfc9688::ID_ECDSA_WITH_SHA_3_512, Digest::Sha3_512),
-    ];
-    table
-        .iter()
-        .find(|(identifier, _)| identifier.as_bytes() == oid)
-        .map(|&(_, digest)| digest)
+    x509::verify_signature(
+        certificate.tbs,
+        certificate.signature_algorithm,
+        certificate.signature_parameters,
+        certificate.signature,
+        key,
+    )
+    .map_err(PathRefusal::AlgorithmNotVerifiable)
 }
 
 #[cfg(test)]

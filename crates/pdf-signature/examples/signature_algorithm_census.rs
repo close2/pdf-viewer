@@ -24,6 +24,12 @@
 //! signer's signed attributes — and each witness is printed by path so that a row can name one
 //! without a round having to remember which.
 //!
+//! **Three more since the thousand-and-fifty-third session**, and for ADR 1067's reason: §12.8.4's
+//! document security store is the whole supply a revocation check has, because no host here has a
+//! network — so how many documents carry one, how much of what they carry reads as an RFC 5280 or
+//! RFC 6960 structure, and what section 6.1.3 (a)(3) then answers are the three facts that say how
+//! large the new capability's subject is. All three are counted over the same walk.
+//!
 //! ```sh
 //! cargo run --release -p pdf-model --example signature_algorithm_census -- \
 //!     doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf
@@ -47,11 +53,13 @@
 use std::collections::BTreeMap;
 
 use pdf_signature::cms::{self, SignatureAlgorithm};
+use pdf_signature::revocation::Revocation;
 use pdf_signature::signature::{
-    Authenticity, Signature, SigningCertificateBinding, permissions, signatures,
+    Authenticity, Signature, SigningCertificateBinding, permissions, security_store, signatures,
     signing_certificate_bindings,
 };
-use pdf_signature::x509::{self, PublicKey};
+use pdf_signature::trust::{Trust, TrustAnchors};
+use pdf_signature::x509::{self, Instant, PublicKey};
 use pdf_syntax::Document;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
@@ -130,6 +138,32 @@ struct Counts {
     witnesses: Vec<String>,
     /// Documents carrying a signature whose algorithm this program does not verify.
     unverifiable_documents: Vec<String>,
+    /// Documents stating a §12.8.4.3 document security store with anything in it.
+    ///
+    /// **The denominator ADR 1067 rests on.** The revocation reader can say only as much as the
+    /// documents supply, because no host here has a network and the DSS is the whole supply — so
+    /// how many documents carry one at all is the size of what it is for, and that is a fact about
+    /// the world rather than about the standard (trap 8). The corpus gate counts this over the 963
+    /// documents of `doc/pdf.js`; this counts it over every document the tree can reach.
+    security_stores: usize,
+    /// How many CRLs, OCSP responses and certificates those stores hold between them.
+    store_crls: usize,
+    /// Likewise for `/OCSPs`.
+    store_ocsps: usize,
+    /// Likewise for `/Certs`.
+    store_certs: usize,
+    /// How many of those CRLs and OCSP responses read as RFC 5280 and RFC 6960 structures.
+    material_read: usize,
+    /// What the rest were refused as, by the refusal's own words.
+    material_refused: BTreeMap<String, usize>,
+    /// What RFC 5280 section 6.1.3 (a)(3) answered, by variant, over the signatures in a document
+    /// that carries a store.
+    ///
+    /// **The anchor is the file's own self-signed certificate, and that is not a trust decision.**
+    /// Believing a root a document supplies is precisely what a trust store exists to prevent; what
+    /// this exercises is the *algorithm* over chains and revocation material nobody here could have
+    /// made, which is the half a fixture cannot reach (ADR 1067). Nothing here says valid.
+    revocation: BTreeMap<String, usize>,
 }
 
 impl Counts {
@@ -146,6 +180,11 @@ impl Counts {
         self.indefinite_lengths = self
             .indefinite_lengths
             .saturating_add(other.indefinite_lengths);
+        self.security_stores = self.security_stores.saturating_add(other.security_stores);
+        self.store_crls = self.store_crls.saturating_add(other.store_crls);
+        self.store_ocsps = self.store_ocsps.saturating_add(other.store_ocsps);
+        self.store_certs = self.store_certs.saturating_add(other.store_certs);
+        self.material_read = self.material_read.saturating_add(other.material_read);
         self.witnesses.append(&mut other.witnesses);
         self.signing_certificate_witnesses
             .append(&mut other.signing_certificate_witnesses);
@@ -159,6 +198,8 @@ impl Counts {
             (&mut self.digest_algorithms, other.digest_algorithms),
             (&mut self.key_algorithms, other.key_algorithms),
             (&mut self.authenticity, other.authenticity),
+            (&mut self.material_refused, other.material_refused),
+            (&mut self.revocation, other.revocation),
         ] {
             for (key, count) in theirs {
                 let slot = map.entry(key).or_default();
@@ -344,17 +385,11 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
         opened: 1,
         ..Counts::default()
     };
-    // §12.8.2.2's certification: read from the permissions dictionary rather than from a
-    // signature, because `/Perms /DocMDP` is what §12.8.6 makes the transform *binding* — a
-    // `/DocMDP` transform on a signature nothing points at asserts nothing.
-    if let Some(level) = permissions(document).doc_mdp {
-        let named = format!("{level:?}");
-        let slot = counts.certifications.entry(named).or_default();
-        *slot = slot.saturating_add(1);
-        counts
-            .witnesses
-            .push(format!("{path}: §12.8.2.2 certification, /P {level:?}"));
-    }
+    count_certification(path, document, &mut counts);
+
+    let store = security_store(document);
+    let has_store = !store.is_empty();
+    count_store(path, &store, &mut counts);
 
     let signatures = every_signature(document);
     if signatures.is_empty() {
@@ -391,6 +426,9 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
             counts
                 .witnesses
                 .push(format!("{path}: §12.8.3.4.2 indefinite ASN.1 length"));
+        }
+        if has_store {
+            count_revocation(&store, signature, &mut counts);
         }
         let answer = signature.authenticity(bytes);
         let unverifiable = matches!(
@@ -441,6 +479,113 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
         }
     }
     counts
+}
+
+/// §12.8.2.2's certification level, read from the permissions dictionary rather than from a
+/// signature.
+///
+/// `/Perms /DocMDP` is what §12.8.6 makes the transform *binding*, so a `/DocMDP` transform on a
+/// signature nothing points at asserts nothing and is not counted here.
+fn count_certification(path: &str, document: &Document, counts: &mut Counts) {
+    if let Some(level) = permissions(document).doc_mdp {
+        let named = format!("{level:?}");
+        let slot = counts.certifications.entry(named).or_default();
+        *slot = slot.saturating_add(1);
+        counts
+            .witnesses
+            .push(format!("{path}: §12.8.2.2 certification, /P {level:?}"));
+    }
+}
+
+/// §12.8.4.3's store, counted whether or not the document is signed.
+///
+/// Counted for an unsigned document too: a DSS where there is no signature is a producer's
+/// mistake this census would otherwise never see, and the question it answers — how many documents
+/// carry the material a validator needs — is about documents rather than about signatures.
+fn count_store(path: &str, store: &pdf_signature::signature::SecurityStore, counts: &mut Counts) {
+    if store.is_empty() {
+        return;
+    }
+    counts.security_stores = 1;
+    counts.store_certs = store.certificates.len();
+    counts.store_crls = store.revocation_lists.len();
+    counts.store_ocsps = store.ocsp_responses.len();
+    let material = store.material();
+    counts.material_read = material
+        .lists
+        .len()
+        .saturating_add(material.responses.len());
+    for refusal in &material.refused {
+        let slot = counts
+            .material_refused
+            .entry(refusal.to_string())
+            .or_default();
+        *slot = slot.saturating_add(1);
+    }
+    counts.witnesses.push(format!(
+        "{path}: §12.8.4.3 store, {} certs, {} CRLs, {} OCSPs, {} VRI",
+        store.certificates.len(),
+        store.revocation_lists.len(),
+        store.ocsp_responses.len(),
+        store.validation_information.len(),
+    ));
+}
+
+/// What §12.8.4's material says about one signature's certification path.
+///
+/// The instant is fixed rather than the clock's, for the reason the corpus gate's is: a census
+/// whose answer changed with the day would be measuring the calendar. 2026-06-01 is inside the
+/// period of the certificates most of these files carry and past the `thisUpdate` of most of their
+/// material; a `Stale` here is therefore a real answer about a document rather than an artefact.
+fn count_revocation(
+    store: &pdf_signature::signature::SecurityStore,
+    signature: &Signature,
+    counts: &mut Counts,
+) {
+    let at = Instant::from_unix_seconds(1_780_272_000);
+    let Ok(cms) = signature.signed_data() else {
+        return;
+    };
+    let roots: Vec<_> = cms
+        .certificates
+        .iter()
+        .filter_map(|entry| x509::read(*entry).ok())
+        .filter(|certificate| certificate.subject == certificate.issuer)
+        .collect();
+    if roots.is_empty() {
+        return;
+    }
+    let anchors = TrustAnchors::of(&roots);
+    let material = store.material();
+    let named = match signature.trust(&anchors, &material, at) {
+        Trust::Anchored { revocation, .. } => match revocation {
+            Revocation::NotChecked => "NotChecked".to_owned(),
+            Revocation::Good { from, .. } => format!("Good, from {}", from.name()),
+            Revocation::Revoked { reason, from, .. } => format!(
+                "Revoked ({}), from {}",
+                reason.map_or("no reason stated", |reason| reason.name()),
+                from.name()
+            ),
+            Revocation::Unknown { why, .. } => format!("Unknown: {why}"),
+            // Both enumerations are `#[non_exhaustive]`, which is what makes a new variant a
+            // compiler error inside the crate and a census row here rather than a silent gap.
+            ref other => format!("(a revocation answer this census does not name: {other:?})"),
+        },
+        other => format!("(no path: {})", variant(&other)),
+    };
+    let slot = counts.revocation.entry(named).or_default();
+    *slot = slot.saturating_add(1);
+}
+
+/// A [`Trust`] without the fields a count would scatter over.
+fn variant(answer: &Trust) -> String {
+    match *answer {
+        Trust::NoAnchorSupplied => "NoAnchorSupplied".to_owned(),
+        Trust::Anchored { .. } => "Anchored".to_owned(),
+        Trust::NoPathToAnyAnchor { .. } => "NoPathToAnyAnchor".to_owned(),
+        Trust::Refused { ref refusal, .. } => format!("Refused: {refusal}"),
+        ref other => format!("(a verdict this census does not name: {other:?})"),
+    }
 }
 
 /// Whether any value in one encoding states X.690 clause 8.1.3.6's indefinite length.
@@ -543,9 +688,26 @@ fn main() {
          §12.8.3.4.2's row prices",
         counts.indefinite_lengths
     );
+    println!(
+        "{} documents carry a §12.8.4.3 document security store, holding {} certificates, {} CRLs \
+         and {} OCSP responses between them; {} of those CRLs and responses read",
+        counts.security_stores,
+        counts.store_certs,
+        counts.store_crls,
+        counts.store_ocsps,
+        counts.material_read,
+    );
     for witness in &counts.witnesses {
         println!("  {witness}");
     }
+    report(
+        "§12.8.4.3 material this reader would not take, by its own words",
+        &counts.material_refused,
+    );
+    report(
+        "RFC 5280 section 6.1.3 (a)(3) over the signatures in a document carrying a store",
+        &counts.revocation,
+    );
     report(
         "§12.8.2.2 certification signatures, by Table 257 /P",
         &counts.certifications,

@@ -241,6 +241,32 @@ pub enum Unsupported {
         /// Which clause, which condition matched, and what it costs the page.
         detail: String,
     },
+    /// Table 57's black generation is stated, and this tree converts where it has no step to act.
+    ///
+    /// ISO 32000-2 §11.7.5.3, and the report is the *whole* of what this tree owes the entry —
+    /// see ADR 1069 for the argument, which is a reading of three clauses rather than a plan.
+    ///
+    /// `/BG`, `/BG2`, `/UCR` and `/UCR2` are parameters of one algorithm and the standard names
+    /// it: §10.4.2.4's, "where BG ( k ) and UCR ( k ) are invocations of the black-generation and
+    /// undercolour-removal functions". §10.4.2.1 ranks that algorithm:
+    ///
+    /// > Although ICC enabled PDF processors should always follow the provisions and
+    /// > recommendations provided in 10.3, "CIE-Based colour to device colour", a less-capable PDF
+    /// > processor may choose to use the algorithms specified in the following subclauses 10.4.2.2
+    /// > through 10.4.2.5.
+    ///
+    /// This tree is on §10.3's branch (ADRs 0009, 0042, 0263, 0796), where a colour goes into a
+    /// press through the profile's own `B2A` table or through the ink cube's inverse — neither of
+    /// which has a black-generation step for a stated function to replace. §11.7.5.3's two bullets
+    /// say *which* functions a conversion that uses them uses; they do not require using them, and
+    /// requiring it would contradict §10.4.2.1's own ranking.
+    ///
+    /// So the file states something this processor's conversion has nowhere to put, and that is a
+    /// departure a reader is told about rather than a page that is drawn differently.
+    BlackGeneration {
+        /// Which clause, which condition matched, and what it costs the page.
+        detail: String,
+    },
     /// The page's ancestry states no usable `/MediaBox`, so its geometry is this program's.
     ///
     /// ISO 32000-2 §7.7.3.3 Table 31 makes the entry "( Required; inheritable )" and §7.7.3.4

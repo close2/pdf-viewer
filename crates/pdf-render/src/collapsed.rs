@@ -432,6 +432,88 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
     })
 }
 
+/// The region a **clipping** path encloses, where some subpath of it encloses no area:
+/// ISO 32000-2 §10.7.4.
+///
+/// §10.7.4 defines a clip by the fill of the same path —
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by
+/// > a fill operation.
+///
+/// — and two paragraphs earlier it says what a fill of a flat rectangle includes:
+///
+/// > A zero-width or zero-height rectangle paints a line 1 pixel wide.
+///
+/// So a clipping path that rules a line admits that line's pixels, and a backend that scan
+/// converts the path alone admits none of them: the two halves of one definition then disagree,
+/// and `5 20.5 30 0 re f` paints a row of pixels that `5 20.5 30 0 re W n` refuses to let
+/// through. [`split_collapsed_fill`] is what a fill asks; this is the same question asked by a
+/// clip, so that the answer cannot differ between the two operations or between backends.
+///
+/// Returns `None` where the path states no collapsed subpath, which is every ordinary clip and
+/// costs one memoised walk; otherwise the path and the rule the region is to be scan-converted
+/// with, in the clipping path's **own** space, which is where `to_device` maps from.
+///
+/// # What the rule becomes, and why it is not always the path's own
+///
+/// Where every subpath collapsed, the region is the marks alone and they are scan-converted
+/// under the **non-zero** rule whatever the operator asked, for [`split_collapsed_fill`]'s own
+/// reason: the marks are separate shapes rather than parts of one winding, and two of them that
+/// cross — a ruled grid clipped rather than filled — would cancel to a hole under the even-odd
+/// rule.
+///
+/// # The mixed path, and the one thing this does not reach
+///
+/// Where the path *also* encloses an area, the region is the union of two fills taken under two
+/// different rules, and no backend's clip vocabulary can state a union: vello and raster
+/// each take one path and one rule, and so does `tiny-skia`'s mask. A mark is therefore appended
+/// to the path only where appending it *is* the union — where its rectangle lies outside the
+/// hull of every subpath that encloses an area, so that the winding and the parity of the rest of
+/// the path are both zero there and the appended rectangle adds exactly itself. Under the
+/// even-odd rule a mark is also dropped where it meets another mark, for the crossing reason
+/// above. A dropped mark leaves the region the rest of the path encloses, which is the union
+/// exactly when the mark lies inside it; §10.7.4's ledger row records the remainder as a
+/// departure, and ADR 1064 argues it.
+#[must_use]
+pub fn clip_region(
+    path: &Path,
+    rule: crate::paint::FillRule,
+    to_device: Transform,
+) -> Option<(Path, crate::paint::FillRule)> {
+    use crate::geom::Rect;
+    use crate::paint::FillRule;
+
+    let CollapsedFill { filled, marks } = split_collapsed_fill(path, to_device)?;
+    if marks.is_empty() {
+        return None;
+    }
+    if filled.is_empty() {
+        return Some((marks, FillRule::NonZero));
+    }
+    // The hull is the control-point bound, so it contains the area-enclosing subpaths exactly as
+    // `subpath_extents` bounds them: outside it the rest of the path has winding zero and
+    // crossing count zero, which is the whole of what makes appending a rectangle a union. A path
+    // whose remaining commands name no point at all encloses nothing, so there the marks are the
+    // whole of the region and take the answer above.
+    let Some(hull) = filled.hull() else {
+        return Some((marks, FillRule::NonZero));
+    };
+    let mut region = filled;
+    let mut kept: Vec<Rect> = Vec::new();
+    for extent in subpath_extents(&marks) {
+        let rect = Rect::from_corners(extent.min, extent.max);
+        if hull.intersection(rect).is_some() {
+            continue;
+        }
+        if rule == FillRule::EvenOdd && kept.iter().any(|k| k.intersection(rect).is_some()) {
+            continue;
+        }
+        kept.push(rect);
+        region.extend(&marks.commands()[extent.range()]);
+    }
+    Some((region, rule))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CollapsedFill, split_collapsed_fill};
@@ -465,6 +547,73 @@ mod tests {
             PathCommand::LineTo(Point::new(min.x, max.y)),
             PathCommand::Close,
         ]
+    }
+
+    /// A clipping path that rules a line encloses that line's pixels, ISO 32000-2 §10.7.4.
+    ///
+    /// "For clipping, the clipping region consists of the set of pixels that would be included
+    /// by a fill operation", so the region of a wholly collapsed path is exactly the marks the
+    /// fill of it paints — and under the **non-zero** rule whatever the operator asked, because
+    /// two marks that cross are two shapes rather than one winding.
+    #[test]
+    fn a_clip_whose_subpaths_all_collapse_is_its_marks_under_the_non_zero_rule() {
+        let (region, rule) = super::clip_region(
+            &zero_height_rectangle(50.3),
+            crate::paint::FillRule::EvenOdd,
+            Transform::IDENTITY,
+        )
+        .expect("a region");
+        assert_eq!(rule, crate::paint::FillRule::NonZero);
+        assert_eq!(
+            region.commands(),
+            rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0))
+        );
+    }
+
+    /// An ordinary clipping path is left exactly as it is, and costs no allocation.
+    #[test]
+    fn a_clip_that_encloses_an_area_is_not_rewritten() {
+        let square = path(&rectangle(Point::new(0.0, 0.0), Point::new(10.0, 10.0)));
+        assert!(
+            super::clip_region(
+                &square,
+                crate::paint::FillRule::NonZero,
+                Transform::IDENTITY
+            )
+            .is_none()
+        );
+    }
+
+    /// A mark beside the area the rest of the path encloses is appended; one *inside* it is not.
+    ///
+    /// The union of two fills taken under two different rules is what §10.7.4 asks a mixed
+    /// clipping path for, and no backend's clip vocabulary states a union — so a mark joins the
+    /// path only where the rest of the path has winding zero and crossing count zero, which is
+    /// outside its hull, and appending it there adds exactly itself. Inside, the union is the
+    /// area and the mark is the departure §10.7.4's row records (ADR 1064).
+    #[test]
+    fn a_mark_inside_the_area_a_mixed_clip_encloses_is_left_out_of_it() {
+        let rule = crate::paint::FillRule::EvenOdd;
+        let mut inside = path(&rectangle(Point::new(0.0, 0.0), Point::new(100.0, 100.0)));
+        inside.extend(zero_height_rectangle(50.3).commands());
+        let (region, kept) =
+            super::clip_region(&inside, rule, Transform::IDENTITY).expect("a region");
+        assert_eq!(
+            kept, rule,
+            "the operator's own rule is kept for a mixed path"
+        );
+        assert_eq!(
+            region.commands(),
+            rectangle(Point::new(0.0, 0.0), Point::new(100.0, 100.0)),
+            "a mark inside the square would punch a hole in it under the even-odd rule"
+        );
+
+        let mut beside = path(&rectangle(Point::new(0.0, 0.0), Point::new(5.0, 5.0)));
+        beside.extend(zero_height_rectangle(50.3).commands());
+        let (region, _) = super::clip_region(&beside, rule, Transform::IDENTITY).expect("a region");
+        let mut expected = rectangle(Point::new(0.0, 0.0), Point::new(5.0, 5.0)).to_vec();
+        expected.extend_from_slice(&rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0)));
+        assert_eq!(region.commands(), expected.as_slice());
     }
 
     /// The rule itself: a rectangle of no height marks the whole pixel row it lies in, at

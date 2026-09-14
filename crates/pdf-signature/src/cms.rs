@@ -47,7 +47,7 @@ use crate::der::{DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, SET, Value};
 /// a file's contents drive. §12.8.3.4.3 lists eleven attributes a `PAdES` signature may carry, so a
 /// signature with more than sixty-four has stopped being one this reader has anything to say
 /// about; the ones past the bound are dropped and [`SignedData::attributes_truncated`] says so.
-const MAX_ATTRIBUTES: usize = 64;
+pub(crate) const MAX_ATTRIBUTES: usize = 64;
 
 /// How many certificates are kept out of a `SignedData`.
 ///

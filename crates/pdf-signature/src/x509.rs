@@ -33,7 +33,7 @@
 //! using the word.
 
 use crate::der::{DerError, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, Reader, SEQUENCE, Value};
-use crate::{dsa, ecdsa, eddsa, pkcs1};
+use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
 
 /// RFC 8017's `rsaEncryption`, `1.2.840.113549.1.1.1`.
 ///
@@ -55,6 +55,9 @@ const SUBJECT_KEY_IDENTIFIER: &[u8] = &[0x55, 0x1D, 0x0E];
 
 /// RFC 5280's `id-ce-keyUsage`, `2.5.29.15`.
 const KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::ID_CE_KEY_USAGE;
+
+/// RFC 5280 section 4.2.1.12's `id-ce-extKeyUsage`, which RFC 6960 section 4.2.2.2 reads.
+const EXTENDED_KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::ID_CE_EXT_KEY_USAGE;
 
 /// RFC 5280's `id-ce-basicConstraints`, `2.5.29.19`.
 const BASIC_CONSTRAINTS: const_oid::ObjectIdentifier =
@@ -83,7 +86,7 @@ const GENERALIZED_TIME: u8 = 0x18;
 /// certificates. A certificate with more than this many extensions still yields its key; what it
 /// loses is a subject key identifier past the bound, which makes the signer *unmatched* rather
 /// than wrongly matched.
-const MAX_EXTENSIONS: usize = 64;
+pub const MAX_EXTENSIONS: usize = 64;
 
 /// What stopped a certificate from being read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -202,8 +205,12 @@ pub struct BasicConstraints {
 /// Only the two a certification path turns on are named: `keyCertSign`, which section 6.1.4 (n)
 /// requires of every certificate that signs another, and `digitalSignature` with
 /// `nonRepudiation` beside it, which are what an end-entity signing certificate asserts. The
-/// rest of the nine are carried in the word and asked about by nothing here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// rest of the nine are carried in the word and asked about by nothing here. `cRLSign` is the
+/// fourth, which RFC 5280 section 6.3.3 (f) asks of a CRL's issuer.
+///
+/// [`Default`] is a `keyUsage` extension asserting no bit at all — legal, meaningless in practice,
+/// and the one value a test can build to watch a check refuse.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct KeyUsage {
     /// The named bits, in the order section 4.2.1.3 lists them, bit 0 first.
     bits: u16,
@@ -263,6 +270,17 @@ pub struct Extensions<'a> {
     pub basic_constraints: Option<BasicConstraints>,
     /// `keyUsage`, where the certificate states it.
     pub key_usage: Option<KeyUsage>,
+    /// `extKeyUsage`'s encoded `ExtKeyUsageSyntax`, where the certificate states it.
+    ///
+    /// Carried as its encoding rather than as a decoded list because there is one consumer and it
+    /// asks one question: RFC 6960 section 4.2.2.2 makes `id-kp-OCSPSigning` here the whole of
+    /// what designates an authorised responder, and [`crate::revocation`] is where that is read.
+    ///
+    /// **Reading it does not make it recognised.** A critical `extKeyUsage` still lands in
+    /// [`Self::unrecognised_critical`] and still refuses a path, because RFC 5280 section 4.2.1.12
+    /// says what a critical one means — "the certificate SHALL only be used for one of the
+    /// purposes indicated" — and this reader does not check a purpose against a use.
+    pub extended_key_usage: Option<&'a [u8]>,
     /// The first critical extension this reader does not recognise, as its encoded identifier.
     pub unrecognised_critical: Option<&'a [u8]>,
     /// Whether the walk stopped at [`MAX_EXTENSIONS`] with extensions left unread.
@@ -318,10 +336,22 @@ pub struct Certificate<'a> {
     pub issuer: &'a [u8],
     /// `tbsCertificate.subject`'s contents, likewise.
     pub subject: &'a [u8],
+    /// `tbsCertificate.subject`'s whole encoding, header included.
+    ///
+    /// [`Self::subject`] is what a path *compares*; this is what a hasher of a `Name` wants, and
+    /// RFC 6960 section 4.1.1 is the one thing that wants it: a `CertID`'s `issuerNameHash` is the
+    /// "Hash of issuer's DN", which is the encoded `Name` and not a `SEQUENCE`'s contents.
+    pub subject_encoding: &'a [u8],
     /// The `subjectKeyIdentifier` extension's octets, where the certificate carries one.
     pub key_identifier: Option<&'a [u8]>,
     /// `subjectPublicKeyInfo`, as far as this program reads it.
     pub public_key: PublicKey<'a>,
+    /// `subjectPublicKeyInfo.subjectPublicKey`'s octets, the unused-bits octet excluded.
+    ///
+    /// RFC 6960 section 4.1.1 says exactly this slice and says why: a `CertID`'s `issuerKeyHash`
+    /// is the "SHA-1 hash of responder's public key (excluding the tag and length fields)".
+    /// Empty where the `BIT STRING` states unused trailing bits, which a key never does.
+    pub public_key_bits: &'a [u8],
     /// `tbsCertificate.version`, as 1, 2 or 3 rather than as the 0, 1 or 2 it encodes.
     ///
     /// RFC 5280 section 6.1.4 (k) is the one step that asks: the basic constraints requirement
@@ -534,6 +564,10 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
         return Err(X509Error::NoPublicKey);
     };
     let public_key = read_public_key(spki)?;
+    // The same `BIT STRING` [`read_public_key`] decoded, kept undecoded: RFC 6960 hashes these
+    // octets, and re-encoding a key to hash it would be this program choosing a producer's
+    // encoding for it.
+    let public_key_bits = spki_key_octets(&spki).unwrap_or(&[]);
     // `extensions [3] EXPLICIT Extensions OPTIONAL`, after two optional unique identifiers.
     let mut extensions = Extensions::default();
     while let Some(member) = members.next_value()? {
@@ -547,8 +581,10 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
         serial_number: serial.contents,
         issuer: issuer.contents,
         subject: subject.contents,
+        subject_encoding: subject.encoding(),
         key_identifier: extensions.key_identifier,
         public_key,
+        public_key_bits,
         version,
         tbs: tbs.encoding(),
         indefinite_lengths,
@@ -592,7 +628,7 @@ fn read_validity(validity: Value<'_>) -> Result<Option<Validity>, X509Error> {
 /// fractional seconds" — so anything else is `None` rather than guessed at. A reader that
 /// accepted a local-time offset would be placing a certificate's expiry at an instant its issuer
 /// did not write.
-fn read_time(value: &Value<'_>) -> Option<Instant> {
+pub(crate) fn read_time(value: &Value<'_>) -> Option<Instant> {
     let (four_digit_year, digits) = match value.identifier {
         UTC_TIME => (false, value.contents),
         GENERALIZED_TIME => (true, value.contents),
@@ -770,6 +806,20 @@ fn key_octets<'a>(bits: &Value<'a>) -> Option<&'a [u8]> {
     (unused == 0).then_some(encapsulated)
 }
 
+/// A `SubjectPublicKeyInfo`'s `subjectPublicKey` octets, the unused-bits octet excluded.
+///
+/// The same `BIT STRING` [`read_public_key`] decodes, kept undecoded: RFC 6960 section 4.1.1
+/// hashes these octets, and re-encoding a key to hash it would be this program choosing a
+/// producer's encoding on its behalf.
+fn spki_key_octets<'a>(spki: &Value<'a>) -> Option<&'a [u8]> {
+    let mut members = spki.children().ok()?;
+    let _algorithm = members.next_value().ok()??;
+    let bits = members.next_value().ok()??;
+    (bits.identifier == BIT_STRING)
+        .then(|| key_octets(&bits))
+        .flatten()
+}
+
 /// `RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }` (RFC 8017 section A.1.1).
 fn read_rsa_key(bits: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
     let encapsulated = key_octets(&bits).ok_or(X509Error::MalformedRsaKey)?;
@@ -878,6 +928,12 @@ fn read_extensions(extensions: Value<'_>) -> Result<Extensions<'_>, X509Error> {
             Some(bytes) => Reader::new(bytes)?.next_value()?,
             None => None,
         };
+        // Read beside the chain rather than inside it, so that a *critical* `extKeyUsage` still
+        // falls through to the refusal below: reading an extension is not recognising it, and the
+        // field's own documentation says why the distinction is load-bearing here.
+        if oid == EXTENDED_KEY_USAGE.as_bytes() {
+            read.extended_key_usage = Some(value.unwrap_or(&[]));
+        }
         if oid == SUBJECT_KEY_IDENTIFIER {
             read.key_identifier = inner
                 .filter(|value| value.identifier == OCTET_STRING)
@@ -1161,5 +1217,95 @@ mod tests {
             parse(&[0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x01]),
             Err(X509Error::MalformedTbs)
         );
+    }
+}
+
+/// Which digest a combined signature algorithm identifier names.
+///
+/// A certificate, a CRL and an OCSP response all differ from a CMS `SignerInfo` here, and the
+/// difference is the whole reason this exists: RFC 5652 puts the digest in its own
+/// `digestAlgorithm` member, which [`crate::cms`] reads, while RFC 5280 section 4.1.1.2 carries
+/// one identifier for the pair — so `sha256WithRSAEncryption` is the only place such a structure
+/// says SHA-256.
+///
+/// The identifiers come from `const_oid`'s database, which is a second party's reading of the
+/// registries that assign them rather than digits typed here; `id-RSASSA-PSS` is deliberately
+/// absent, because its hash is in its parameters and [`crate::pss::parameters`] is what reads it.
+pub(crate) fn signature_digest(oid: &[u8]) -> Option<crate::cms::Digest> {
+    use crate::cms::Digest;
+    use const_oid::db::{rfc5912, rfc9688};
+    let table: [(const_oid::ObjectIdentifier, Digest); 13] = [
+        (rfc5912::MD_5_WITH_RSA_ENCRYPTION, Digest::Md5),
+        (rfc5912::SHA_1_WITH_RSA_ENCRYPTION, Digest::Sha1),
+        (rfc5912::SHA_256_WITH_RSA_ENCRYPTION, Digest::Sha256),
+        (rfc5912::SHA_384_WITH_RSA_ENCRYPTION, Digest::Sha384),
+        (rfc5912::SHA_512_WITH_RSA_ENCRYPTION, Digest::Sha512),
+        (rfc5912::DSA_WITH_SHA_1, Digest::Sha1),
+        (rfc5912::DSA_WITH_SHA_256, Digest::Sha256),
+        (rfc5912::ECDSA_WITH_SHA_256, Digest::Sha256),
+        (rfc5912::ECDSA_WITH_SHA_384, Digest::Sha384),
+        (rfc5912::ECDSA_WITH_SHA_512, Digest::Sha512),
+        (rfc9688::ID_ECDSA_WITH_SHA_3_256, Digest::Sha3_256),
+        (rfc9688::ID_ECDSA_WITH_SHA_3_384, Digest::Sha3_384),
+        (rfc9688::ID_ECDSA_WITH_SHA_3_512, Digest::Sha3_512),
+    ];
+    table
+        .iter()
+        .find(|(identifier, _)| identifier.as_bytes() == oid)
+        .map(|&(_, digest)| digest)
+}
+
+/// One signature over one message under one key, as RFC 5280 section 4.1.1.3 shapes the triple.
+///
+/// Three structures in this crate are signed the same way — a `tbsCertificate` (section 4.1.1.3),
+/// a `tbsCertList` (section 5.1.1.3) and an OCSP `ResponseData` (RFC 6960 section 4.2.1) — so the
+/// arithmetic is written once here and reached from [`crate::trust`] and [`crate::revocation`].
+///
+/// The algorithm and the key are matched as a *pair* rather than either alone, for the reason
+/// [`crate::signature::Authenticity`] states: an identifier naming one family over a key of
+/// another is two contradictory claims by one producer, and choosing between them would be this
+/// program inventing a fact.
+///
+/// # Errors
+///
+/// The algorithm identifier, as the dotted decimal a report can print, where this program does not
+/// compute that pair. `Ok(false)` is the arithmetic saying no.
+pub(crate) fn verify_signature(
+    message: &[u8],
+    algorithm: &[u8],
+    parameters: Option<Value<'_>>,
+    signature: &[u8],
+    key: PublicKey<'_>,
+) -> Result<bool, String> {
+    use crate::cms::SignatureAlgorithm;
+    let named =
+        || dotted(algorithm).unwrap_or_else(|| "an unreadable object identifier".to_owned());
+    match (SignatureAlgorithm::from_oid(algorithm), key) {
+        (SignatureAlgorithm::RsaPkcs1V15, PublicKey::Rsa(key)) => {
+            let digest = signature_digest(algorithm).ok_or_else(named)?;
+            let computed = digest.compute(&[message]);
+            pkcs1::verify(key, signature, digest, &computed).map_err(|_| named())
+        }
+        (SignatureAlgorithm::RsaPss, PublicKey::Rsa(key)) => {
+            let parameters = pss::parameters(parameters).map_err(|_| named())?;
+            let computed = parameters.hash.compute(&[message]);
+            pss::verify(key, signature, parameters, &computed).map_err(|_| named())
+        }
+        (SignatureAlgorithm::Dsa, PublicKey::Dsa(key)) => {
+            let digest = signature_digest(algorithm).ok_or_else(named)?;
+            let computed = digest.compute(&[message]);
+            dsa::verify(key, signature, &computed).map_err(|_| named())
+        }
+        (SignatureAlgorithm::Ecdsa, PublicKey::Ec(key)) => {
+            let digest = signature_digest(algorithm).ok_or_else(named)?;
+            let computed = digest.compute(&[message]);
+            ecdsa::verify(key, signature, &computed).map_err(|_| named())
+        }
+        (SignatureAlgorithm::EdDsa, PublicKey::Ed25519(key)) => {
+            // RFC 8032 signs the message rather than a digest of it, which is why this arm has no
+            // `signature_digest` call and why a structure signed with Ed25519 states no hash.
+            eddsa::verify(key, signature, &[message]).map_err(|_| named())
+        }
+        _ => Err(named()),
     }
 }

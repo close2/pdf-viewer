@@ -3516,6 +3516,58 @@ pub fn annotation_rectangles(
     out
 }
 
+/// Table 166's `/Lang` for each annotation the page lists.
+///
+/// # Why this is in §14.9.2's module and not §12.5's
+///
+/// [`annotation_rectangles`]'s reason, one entry over. §14.7.5.3's object reference makes a
+/// structure element's content an annotation, so the language §14.9.2.3's hierarchy gives that
+/// element is decided by an entry on the *annotation*. ISO 32000-2 §12.5.2, Table 166, states what
+/// the entry does:
+///
+/// > A language identifier overriding the document's language identifier to specify the natural
+/// > language for all text in the annotation except where overridden by other explicit language
+/// > specifications
+///
+/// §14.9.2.3 names three carriers of a language specification — the catalog, a structure element
+/// and a marked-content sequence — and an annotation is none of them, which is why this entry is
+/// read here rather than folded into [`language`]. What it settles is the one case that clause
+/// leaves to Table 166: an element whose content *is* an annotation speaks the annotation's
+/// language, because the annotation is the innermost thing that stated one and "all text in the
+/// annotation" is what such an element carries.
+///
+/// # Empty, absent, and malformed are three answers and this returns two of them
+///
+/// An empty string is §14.9.2.2's "the language is unknown", which this turns into the
+/// same `None` an absent entry gives — the choice `language` already made for a structure element,
+/// made once and for the same reason. A tag that is not well-formed is carried as the file wrote
+/// it: Errata Collection 3's Issue #105 states the "invalid means unknown" recovery for Table 29's
+/// catalog entry alone, and inventing it here would cancel a language a reader could still use.
+///
+/// Only the annotations the page's own `/Annots` array lists, for [`annotation_rectangles`]'s
+/// reason: an entry read off any dictionary that happens to carry a `/Lang` would be answering for
+/// an object the standard never said was an annotation of this page.
+#[must_use]
+pub fn annotation_languages(document: &Document, page: &Dictionary) -> BTreeMap<ObjectId, String> {
+    let mut out = BTreeMap::new();
+    let entry = document.get_key(page, "Annots");
+    let Some(array) = entry.as_array() else {
+        return out;
+    };
+    for item in array {
+        let Some(object) = item.as_reference() else {
+            continue;
+        };
+        let Some(dict) = document.get(object).as_dict().cloned() else {
+            continue;
+        };
+        if let Some(tag) = text_entry(document, &dict, "Lang") {
+            out.insert(object, tag);
+        }
+    }
+    out
+}
+
 /// A four-number array as a rectangle, normalised the way a page's boxes are.
 ///
 /// Shared by Table 363's artifact `/BBox` and Table 379's layout one: both are "the rectangle
@@ -4209,8 +4261,8 @@ mod tests {
     use super::{
         Artifact, ArtifactKind, BlockSpacing, CellFacts, Checked, Child, FieldRole, HeaderScope,
         ListContinuation, ListEntry, MAX_TABLE_COLUMNS, ParentTree, StandardType, TableGrid,
-        TableStack, Tree, WritingMode, actual_text, allocation_rectangle, annotation_rectangles,
-        list_predecessors, well_formed_language_tag,
+        TableStack, Tree, WritingMode, actual_text, allocation_rectangle, annotation_languages,
+        annotation_rectangles, list_predecessors, well_formed_language_tag,
     };
     use pdf_syntax::{Document, Object};
     use std::collections::BTreeSet;
@@ -5978,6 +6030,58 @@ mod tests {
             "an annotation this page does not list is not this page's"
         );
         assert_eq!(places.len(), 2);
+    }
+
+    /// Table 166's `/Lang` on an annotation, and the three answers §14.9.2.2 gives.
+    ///
+    /// A stated tag is carried; an empty string is that clause's "the language is unknown", which
+    /// is the same `None` an absent entry gives; and a tag that is not well-formed BCP 47 is
+    /// carried as the file wrote it, because Errata Collection 3's Issue #105 states the
+    /// invalid-means-unknown recovery for Table 29's catalog entry alone. The fifth object is the
+    /// control [`annotation_rectangles`] has for the same reason: an annotation the page does not
+    /// list is not this page's, whatever it says about its language.
+    #[test]
+    fn a_pages_annotations_state_what_language_they_are_in() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+             /Annots [4 0 R 5 0 R 6 0 R 7 0 R] >>",
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] /Lang (es-MX) >>",
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] /Lang () >>",
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] >>",
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] /Lang (not a tag) >>",
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] /Lang (fr) >>",
+        ]);
+        let page = doc.get(pdf_syntax::ObjectId::new(3, 0));
+        let page = page.as_dict().expect("a page");
+        let languages = annotation_languages(&doc, page);
+
+        assert_eq!(
+            languages
+                .get(&pdf_syntax::ObjectId::new(4, 0))
+                .map(String::as_str),
+            Some("es-MX")
+        );
+        assert_eq!(
+            languages.get(&pdf_syntax::ObjectId::new(5, 0)),
+            None,
+            "§14.9.2.2 makes the empty string \"the language is unknown\""
+        );
+        assert_eq!(languages.get(&pdf_syntax::ObjectId::new(6, 0)), None);
+        assert_eq!(
+            languages
+                .get(&pdf_syntax::ObjectId::new(7, 0))
+                .map(String::as_str),
+            Some("not a tag"),
+            "no clause states a recovery for an annotation's malformed tag"
+        );
+        assert_eq!(
+            languages.get(&pdf_syntax::ObjectId::new(8, 0)),
+            None,
+            "an annotation this page does not list is not this page's"
+        );
+        assert_eq!(languages.len(), 2);
     }
 
     /// §14.8.5.7's four assumptions, and the grid they are asked about.

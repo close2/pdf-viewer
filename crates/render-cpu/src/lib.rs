@@ -3485,9 +3485,18 @@ struct Shape<'a> {
     /// is (ADR 0476). It cannot be asked in the loop that builds this, because the band the mask
     /// covers is not known until every clip in the chain has been measured.
     source: &'a Path,
+    /// The region §10.7.4 asks for where `source` rules a line, which is a *wider* shape than
+    /// the path — [`pdf_render::clip_region`]. `None` for every ordinary clip, which is all but
+    /// a handful: the substitution costs an allocation and is made only where the path states a
+    /// subpath with no extent. It is what [`rectangular_mark`] and the mask fill both read.
+    region: Option<Path>,
     /// The clip's own transform; the target and band transforms are applied later,
     /// because the band is not known until every clip in the chain has been measured.
     transform: Transform,
+    /// The operator's own rule, kept because §10.7.4's region is scan-converted under a rule
+    /// [`pdf_render::clip_region`] may change: marks that cross are separate shapes rather than
+    /// one winding.
+    rule: pdf_render::FillRule,
     fill_rule: tiny_skia::FillRule,
     /// This shape's transform composed with the band's, filled in once the band is known.
     at: Transform,
@@ -4148,6 +4157,7 @@ impl MaskCache {
             if let Some(device) = path.bounds().transform(convert::transform(
                 clip.transform.then(self.surface.page.transform),
             )) {
+                let device = room_for_marks(&clip.path, device);
                 bounds = match bounds {
                     None => Some(device),
                     // An empty intersection is an empty clip, not a failure.
@@ -4160,7 +4170,9 @@ impl MaskCache {
             shapes.push(Shape {
                 path,
                 source: &clip.path,
+                region: None,
                 transform: clip.transform,
+                rule: clip.fill_rule,
                 fill_rule: convert::fill_rule(clip.fill_rule),
                 at: Transform::IDENTITY,
                 mark: scan::Exact::default(),
@@ -4205,21 +4217,7 @@ impl MaskCache {
 
         let to_band = self.surface.to_device(band);
         let extent = (self.surface.width(), band.height);
-        // §10.7.4 says a clipping region "consists of the set of pixels that would be included by
-        // a fill operation", so a region is measured by the rule a mark is: the same
-        // [`rectangular_mark`], for the same reason `clip_intersection.rs` exists — a mark painted
-        // at its exact area under a region measured to a quarter breaks `S ∩ C = S`.
-        //
-        // **And a step whose fill would include every pixel of this band states nothing**, so it
-        // is dropped here rather than scan-converted and then composed with `min`. That is the one
-        // saving in this function that costs no departure at all — see [`scan::admits_every_pixel`]
-        // — and on the corpus's worst page it is three chain steps in four
-        // (`pdf-model/examples/clip_chain_census`). ADR 0656.
-        shapes.retain_mut(|shape| {
-            shape.at = to_band.of(shape.transform);
-            shape.mark = rectangular_mark(shape.source, shape.at);
-            !scan::admits_every_pixel(&shape.mark, extent)
-        });
+        let shapes = state_regions(shapes, to_band, extent)?;
         let mut mask = tiny_skia::Mask::new(self.surface.width(), band.height).ok_or(
             CpuRasterError::Allocation {
                 width: self.surface.width(),
@@ -4329,6 +4327,77 @@ impl MaskCache {
             }
         }
     }
+}
+
+/// A clip's device bound, widened where §10.7.4's marks will reach past its path.
+///
+/// The mark a subpath with no extent contributes is the whole device pixel its collapsed axis
+/// passes through, which lies up to one pixel outside the subpath's own bound; the band the mask
+/// covers is computed from these bounds, so it has to hold what the region will admit. Widening it
+/// only costs rows — the mask decides what is drawn either way, which is the same argument the
+/// caller's own comment makes for leaving an unmeasurable bound out.
+fn room_for_marks(path: &Path, device: tiny_skia::Rect) -> tiny_skia::Rect {
+    if path.collapses() {
+        device.outset(1.0, 1.0).unwrap_or(device)
+    } else {
+        device
+    }
+}
+
+/// Gives every chain step the region ISO 32000-2 §10.7.4 says it states, dropping those that
+/// state nothing.
+///
+/// §10.7.4 defines a clipping region as "the set of pixels that would be included by a fill
+/// operation", and that one sentence decides all four things this does.
+///
+/// **A region is measured by the rule a mark is** — the same [`rectangular_mark`], for the same
+/// reason `clip_intersection.rs` exists: a mark painted at its exact area under a region measured
+/// to a quarter breaks `S ∩ C = S` (ADR 0476).
+///
+/// **A step whose fill would include every pixel of this band states nothing**, so it is dropped
+/// here rather than scan-converted and then composed with `min`. That is the one saving in the
+/// caller that costs no departure at all — see [`scan::admits_every_pixel`] — and on
+/// the corpus's worst page it is three chain steps in four
+/// (`pdf-model/examples/clip_chain_census`). ADR 0656.
+///
+/// **A step whose path rules a line states that line**, because the fill of a subpath with no
+/// extent paints one: "A zero-width or zero-height rectangle paints a line 1 pixel wide".
+/// [`pdf_render::clip_region`] builds that region for every backend — a clip is the one
+/// construction where a region wider than its own path is the right answer, and a backend deciding
+/// it alone is a decision none of them has made (ADR 1064).
+///
+/// **A substituted region is scan-converted rather than measured in closed form**, and that is the
+/// one place §10.7.4's two halves can still part company. A mark is a run of *whole* device pixels,
+/// so the closed form and the converter agree on it arithmetically — but the mark reaches
+/// here through the inverse of the placement and back, and at a scale whose reciprocal is not exact
+/// in binary that round trip lands the row a ten-thousandth of a pixel off. `mask_rectangle` writes
+/// that sliver into the neighbouring row; `tiny-skia`'s four sample rows per pixel cannot see it,
+/// and the fill's own marks go through exactly that converter. Measured at scale 3.5: the closed
+/// form admits 212 pixels where the fill paints 106. The clause defines the region *by* the fill,
+/// so the region takes the fill's converter.
+fn state_regions(
+    shapes: Vec<Shape<'_>>,
+    to_band: ToDevice,
+    extent: (u32, u32),
+) -> Result<Vec<Shape<'_>>, CpuRasterError> {
+    let mut stated = Vec::with_capacity(shapes.len());
+    for mut shape in shapes {
+        shape.at = to_band.of(shape.transform);
+        if let Some((region, rule)) = pdf_render::clip_region(shape.source, shape.rule, shape.at) {
+            shape.path = convert::path(&region).ok_or(CpuRasterError::InvalidPath)?;
+            shape.fill_rule = convert::fill_rule(rule);
+            shape.region = Some(region);
+        }
+        shape.mark = if shape.region.is_some() {
+            scan::Exact::default()
+        } else {
+            rectangular_mark(shape.source, shape.at)
+        };
+        if !scan::admits_every_pixel(&shape.mark, extent) {
+            stated.push(shape);
+        }
+    }
+    Ok(stated)
 }
 
 #[cfg(test)]

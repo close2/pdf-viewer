@@ -207,7 +207,16 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 1;
 /// type (dictionary)* and writes one 1×1 pixel, `mutool` refuses with *invalid page number: -1*,
 /// and `ghostscript` says *Requested `FirstPage` is greater than the number of pages in the file:
 /// 0*. The blank page that used to be counted here was this reader's invention.
-const MAX_PAGELESS: usize = 6;
+///
+/// # 6 to 5 in the thousand-and-fifty-fourth session, and nothing was fixed in it
+///
+/// `poppler-742-0-fuzzed.pdf` left this population when §7.3.7's entries-whole reading gave it a
+/// page (ADR 0784, and the list above says so), and the bound stayed where the arrival before it
+/// had put it — so one document's worth of regression could arrive here and the gate would not
+/// speak. That is [`MAX_INCOMPLETE`]'s slack in the same file, an order of magnitude smaller and
+/// found the same way: the run prints the population and the constant does not, so putting the
+/// two side by side is nobody's job until somebody does it. It is the counted figure now.
+const MAX_PAGELESS: usize = 5;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
@@ -815,7 +824,8 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         | Unsupported::CompositedInParts { .. }
         | Unsupported::TransparencyGroup { .. }
         | Unsupported::SoftMask { .. }
-        | Unsupported::TransferFunction { .. } => (
+        | Unsupported::TransferFunction { .. }
+        | Unsupported::BlackGeneration { .. } => (
             Whose::NeitherOne,
             "a transparency model this tree departs from where the two can differ",
         ),

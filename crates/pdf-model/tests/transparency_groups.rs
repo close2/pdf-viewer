@@ -1347,12 +1347,20 @@ fn a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_on
 /// `page_group` is the page dictionary's `/Group` entry, written whole so a test can leave it
 /// out; `form_group` is the form's; `form` is what the form draws and `page` what the page
 /// draws around it.
+///
+/// Its `/ExtGState` dictionary carries two states about Table 57's black generation, because
+/// §11.7.5.3's condition is what tells them apart: `/GK` states a function of its own, and
+/// `/GD` names the device's — `/BG2 /Default` beside a `/BG` function, which is Table 57's own
+/// precedence ("[i]f both BG and BG2 are present in the same graphics state parameter
+/// dictionary, BG2 shall take precedence") putting the default back.
 fn page_group_fixture(page_group: &str, form_group: &str, form: &str, page: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
-         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GK << /BG2 /Default >> >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
+         /GK << /BG2 << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> \
+         /GD << /BG2 /Default /BG << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> >> \
          /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
@@ -1423,22 +1431,19 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
             "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
         )
     };
-    // The same page with Table 57's `/BG2` set over it, which is the one thing on this fixture
-    // that keeps a `/DeviceCMYK` page group *undrawable* — and therefore named. Since the
-    // four-hundred-and-twenty-seventh session such a page is drawn (ADR 0263), so the report
-    // stopped being an instrument for "which space is in force" on its own. **This lever was
-    // §11.3.5.3's `Hue` until the four-hundred-and-forty-first**, which draws that too
-    // (ADR 0277); §11.7.5.3's black generation is what is left, and it is a whole-page
-    // condition in the same way.
-    let named = |page_group: &str, form_group: &str| {
-        probe(
-            page_group,
-            form_group,
-            "/GS gs /GK gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
-        )
-    };
+    // The one construction on this fixture that keeps a four-component group *undrawable*, and
+    // therefore named: §11.6.6's last remainder, an isolated **knockout** group naming four
+    // components — `Interpreter::group_press` refuses one because §11.4.6's staged rewrites
+    // edit the element list after the runs and editing one half of a pair would leave the
+    // other describing a different construction. **This lever was §11.3.5.3's `Hue` until the
+    // four-hundred-and-forty-first** (drawn since ADR 0277) and Table 57's `/BG2` until session
+    // 1055, where it stopped being a refusal at all: §10.4.2.1 puts §10.4.2.4's parameters on a
+    // branch this tree does not convert on, so falling back to the device evaluated them no
+    // more than compositing in ink did and only cost the page its space (ADR 1069).
     let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
     let group = |entry: &str| format!("/Group << /S /Transparency {entry} >>");
+    let knocked_out =
+        |page_group: &str| reported(page_group, &group("/I true /K true /CS /DeviceCMYK"));
 
     // A non-isolated group naming `/DeviceCMYK` on a page that states no group at all. The
     // clause hands the space to the parent, and the parent is §11.4.7's page group, whose
@@ -1461,49 +1466,62 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
         "an isolated group's /CS is the space its elements composite in, and it composites \
          in it: {isolated}"
     );
-    // With §11.7.5.3's black generation over the page the conversion *into* the space is
-    // one this tree does not read, so the same group keeps the report — which is also what
-    // pins that the report names the space the elements composite in, not the entry.
-    let isolated_named = named("", &group("/I true /CS /DeviceCMYK"));
+    // With §11.4.6's knockout over the same group the pair cannot be built, so the same entry
+    // keeps the report — which is also what pins that the report names the space the elements
+    // composite in, not the entry.
+    let isolated_named = knocked_out("");
     assert!(
         isolated_named.contains("blending colour space /DeviceCMYK"),
-        "black generation keeps the group's departure named: {isolated_named}"
+        "a knockout group's four components keep the departure named: {isolated_named}"
+    );
+    // And it is named once, at the point the file introduces it, rather than again at every
+    // group that inherits it — the `/In` group inside restates `/DeviceCMYK` and is
+    // non-isolated, so it inherits rather than introducing.
+    assert_eq!(
+        isolated_named.matches("blending colour space").count(),
+        1,
+        "one departure named where it is introduced: {isolated_named}"
     );
 
     // §11.4.7's page group, which decides the whole page and which this tree read nothing of
-    // before. The form here is the *same* non-isolated one that reported nothing above.
-    let page_level = named(page_cmyk, &group(""));
+    // before. The instrument here is the display list rather than a report, because a page
+    // whose colours convert into its space is *drawn* in it: `DisplayList::blending` is the
+    // pair of rasters and the conversion out that §11.4.7 puts at the end of the page.
+    let page_blending = |page_group: &str, form_group: &str| {
+        interpret(page_group_fixture(
+            page_group,
+            form_group,
+            "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do",
+            "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
+        ))
+        .display_list
+        .blending()
+        .is_some()
+    };
     assert!(
-        page_level.contains("the page group's blending colour space /DeviceCMYK (§11.4.7)"),
-        "a page group's /CS is the default blending space for the page: {page_level}"
+        page_blending(page_cmyk, &group("")),
+        "a page group's /CS is the default blending space for the page and the page is drawn \
+         in it"
     );
-
-    // And with nothing undrawable on it the same page is *drawn* in that space rather than
-    // named, which is what this round changed: the colours it paints are converted into the
-    // space §11.7.2 requires them to be converted into.
     let page_drawn = reported(page_cmyk, &group(""));
     assert!(
         !page_drawn.contains("blending colour space"),
         "a page whose colours convert into its space is drawn in it: {page_drawn}"
     );
 
-    // And it is reported once, at the point the file introduces it, rather than again at every
-    // group that inherits it — the fixture nests three groups inside that page.
-    assert_eq!(
-        page_level.matches("blending colour space").count(),
-        1,
-        "one departure named where it is introduced: {page_level}"
-    );
-
     // An isolated group *replaces* the inherited space, which the first bullet says outright:
-    // its elements are converted to the group's space, not to the page's. So an RGB group
-    // inside a `/DeviceCMYK` page reports the page and not itself — and the nested
-    // `/DeviceCMYK` group inside *it* is non-isolated, so it inherits the RGB one.
-    let replaced = named(page_cmyk, &group("/I true /CS /DeviceRGB"));
-    assert_eq!(
-        replaced.matches("blending colour space").count(),
-        1,
-        "an isolated RGB group inside a CMYK page departs only above itself: {replaced}"
+    // its elements are converted to the group's space, not to the page's. An RGB group inside
+    // a `/DeviceCMYK` page is drawn in the device's three components and converted into the
+    // page's ink at its `Do` since session 1039 (ADR 1056), so the page keeps its space and
+    // nothing departs.
+    let replaced = reported(page_cmyk, &group("/I true /CS /DeviceRGB"));
+    assert!(
+        !replaced.contains("blending colour space"),
+        "an isolated RGB group inside a CMYK page is converted into it at its Do: {replaced}"
+    );
+    assert!(
+        page_blending(page_cmyk, &group("/I true /CS /DeviceRGB")),
+        "and the page is still drawn in the space its own group states"
     );
 
     // A page group of `/DeviceRGB` is what this tree already composites in, so it is not a
@@ -1530,6 +1548,76 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
     assert!(
         !opaque.contains("blending colour space"),
         "nothing composites, so the space cannot change a pixel: {opaque}"
+    );
+}
+
+/// §11.7.5.3's black generation: reported where it is stated, and the page keeps its space.
+///
+/// The clause applies Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` "only during conversion from
+/// DeviceRGB to DeviceCMYK colour spaces", and names §10.4.2.4 as the conversion they are
+/// parameters of. §10.4.2.1 ranks that conversion below §10.3's, which is the branch this tree
+/// converts into a press on (ADRs 0009, 0042, 0263, 0796) and which has no black-generation step
+/// for a stated function to replace. So the file states something this conversion has nowhere to
+/// put, and what it costs is a *report* — not, as it did until session 1055, the page's own
+/// blending space, which the fallback did not evaluate the functions in either (ADR 1069).
+///
+/// Two halves, and the second is Table 57's rather than §11.7.5.3's: `/BG2`'s second admissible
+/// value is "the name Default, denoting the black-generation function that was in effect at the
+/// start of the page", which is this device's own. A state naming it departs from nothing.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §11.7.5.3 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
+    let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
+    let form_group = "/Group << /S /Transparency >>";
+    let drawn = |state: &str| {
+        let page = format!("/GS gs {state} 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do");
+        interpret(page_group_fixture(
+            page_cmyk,
+            form_group,
+            "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do",
+            &page,
+        ))
+    };
+
+    // Nothing stated: the page composites in its ink and says nothing about §11.7.5.3.
+    let silent = drawn("");
+    assert!(
+        silent.display_list.blending().is_some(),
+        "a page whose colours convert into its space is drawn in it"
+    );
+    assert!(
+        !format!("{:?}", silent.unsupported).contains("BlackGeneration"),
+        "a page stating no function has no departure to report: {:?}",
+        silent.unsupported
+    );
+
+    // `/GK` states a function of its own. The page is still drawn in §11.4.7's space — that is
+    // this round's change — and the departure is named.
+    let stated = drawn("/GK gs");
+    assert!(
+        stated.display_list.blending().is_some(),
+        "a stated black generation no longer costs the page the space §11.4.7 requires"
+    );
+    let reported = format!("{:?}", stated.unsupported);
+    assert!(
+        reported.contains("BlackGeneration") && reported.contains("§10.4.2.1"),
+        "the departure names the clause that ranks the branch: {reported}"
+    );
+
+    // `/GD` names the device's own function, with a `/BG` beside it that Table 57's precedence
+    // overrides. Nothing departs, so nothing is reported.
+    let defaulted = drawn("/GD gs");
+    assert!(
+        defaulted.display_list.blending().is_some(),
+        "naming the device's default cannot cost the page its space either"
+    );
+    assert!(
+        !format!("{:?}", defaulted.unsupported).contains("BlackGeneration"),
+        "/BG2 /Default names the function already in force: {:?}",
+        defaulted.unsupported
     );
 }
 

@@ -99,7 +99,7 @@ const MAX_FIELDS: usize = 65536;
 const MAX_FIELD_DEPTH: usize = 64;
 
 /// Most annotations listed from one FDF file's `/Annots`.
-const MAX_ANNOTATIONS: usize = 4096;
+pub(crate) const MAX_ANNOTATIONS: usize = 4096;
 
 /// Most Table 251 pages read, and most templates read from one of them.
 ///
@@ -145,6 +145,11 @@ pub struct FormsData {
     /// A name for a person, not a path this program will open — the same position `/UF` and
     /// `/F` take in [`crate::attachment`]. A caller deciding whether this FDF belongs with the
     /// document it has open compares it, and [`Self::identifier`] is the stronger comparison.
+    ///
+    /// Read through [`crate::file_spec::FileSpec`], so §7.11.1's two forms both arrive and Table
+    /// 43's `/UF` outranks its `/F` the way that table says. `None` for a specification that
+    /// names no file at all, which Table 240 bit 14's embedded form is: there the file is the
+    /// `/EF` stream, and [`Self::owed`] is where that is said.
     pub source: Option<String>,
     /// Table 246's `/ID`, "an array of two byte strings constituting a file identifier … taken
     /// from the ID entry in the file's trailer dictionary".
@@ -431,6 +436,14 @@ impl FormsData {
             owed.push("/Fields and /Pages are both present, which Table 246 forbids");
         }
 
+        // Table 246 types `/F` as a "file specification", and §7.11.1 gives that two forms:
+        // "either a string or a dictionary". Read through [`crate::file_spec::FileSpec`] so that
+        // both arrive, which matters because this program writes the second one itself — Table
+        // 240 bit 14's `EmbedForm` makes `/F` "a file specification containing an embedded file
+        // stream representing the PDF file from which the FDF is being submitted", and a reader
+        // that saw only the string form would read that file as naming no source at all.
+        let source = crate::file_spec::FileSpec::parse(document, &document.get_key(&fdf, "F"));
+
         let annotations = read_annotations(document, &document.get_key(&fdf, "Annots"));
         for (key, why) in [
             (
@@ -450,6 +463,12 @@ impl FormsData {
         if !annotations.is_empty() {
             owed.push("/Annots: annotations belonging to no document, read and not drawn");
         }
+        // §7.11.4's embedded file, which for an FDF is the whole source document: read as a
+        // statement that it is there rather than extracted, because nothing here opens a second
+        // document out of the first.
+        if source.as_ref().is_some_and(|spec| spec.embedded) {
+            owed.push("/F: a file specification carrying the source document as an embedded file");
+        }
 
         let stated = document.get_key(&catalog, "Version");
         let stated = stated.as_name();
@@ -462,10 +481,9 @@ impl FormsData {
                 (Some(header), Some(entry)) => Some(header.max(entry)),
                 (header, entry) => header.or(entry),
             },
-            source: document
-                .get_key(&fdf, "F")
-                .as_string()
-                .map(pdf_syntax::text_string),
+            source: source
+                .as_ref()
+                .and_then(crate::file_spec::FileSpec::display_name),
             identifier: identifier(document, &fdf),
             fields,
             status: document

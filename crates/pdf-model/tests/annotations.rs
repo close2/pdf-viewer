@@ -925,6 +925,87 @@ fn an_unknown_subtype_with_no_appearance_dictionary_draws_nothing_and_reports_no
     );
 }
 
+/// Every one of Table 171's twenty-eight types is recognised by name (§12.5.1).
+///
+/// > A PDF processor shall provide annotation handlers for all of the conforming annotation types.
+///
+/// The sentence after it is what says what *recognised* means, because it is the case this one
+/// excludes: "An interactive PDF processor shall provide certain expected behaviour for all
+/// annotation types that it does not recognise". So the pair divides the world in two, and the
+/// `shall` above is met for a type when the processor answers **from that type's own clause**
+/// rather than from the fallback for a type it has never heard of.
+///
+/// That is what this asserts, and it asserts it where the division is actually made:
+/// `appearance::construct` has one arm per Table 171 subtype, each carrying that subtype's own
+/// reading — a construction where the clause states a shape, a refusal quoting the clause's reason
+/// where it does not — and one catch-all whose sentence is about Table 166's required `/Subtype`
+/// being absent. A named type that reached the catch-all would be a type with no handler.
+///
+/// **The control is inside the test** (trap 13): the anonymous annotation is the one input the
+/// catch-all is for, so a run in which nothing reaches it would be a run that proved nothing. It
+/// fires, and no named subtype does.
+#[test]
+fn every_annotation_type_table_171_defines_is_answered_by_its_own_clause() {
+    /// ISO 32000-2 Table 171's first column, in the table's own order.
+    const TABLE_171: [&str; 28] = [
+        "Text",
+        "Link",
+        "FreeText",
+        "Line",
+        "Square",
+        "Circle",
+        "Polygon",
+        "PolyLine",
+        "Highlight",
+        "Underline",
+        "Squiggly",
+        "StrikeOut",
+        "Caret",
+        "Stamp",
+        "Ink",
+        "Popup",
+        "FileAttachment",
+        "Sound",
+        "Movie",
+        "Screen",
+        "Widget",
+        "PrinterMark",
+        "TrapNet",
+        "Watermark",
+        "3D",
+        "Redact",
+        "Projection",
+        "RichMedia",
+    ];
+    /// The catch-all's own sentence, which is about an annotation that names no type at all.
+    const NO_TYPE: &str = "Table 166 makes /Subtype required";
+
+    for subtype in TABLE_171 {
+        let interpretation = interpret(pdf_with(
+            &format!("<< /Type /Annot /Subtype /{subtype} /Rect [20 30 60 70] /F 4 >>"),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        let reports = format!("{:?}", interpretation.unsupported);
+        assert!(
+            !reports.contains(NO_TYPE),
+            "/{subtype} is one of Table 171's and reached the answer for a type nobody \
+             recognises: {reports}"
+        );
+    }
+
+    let anonymous = interpret(pdf_with(
+        "<< /Type /Annot /Rect [20 30 60 70] /F 4 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    let reports = format!("{:?}", anonymous.unsupported);
+    assert!(
+        reports.contains(NO_TYPE),
+        "the control must reach the catch-all, or the loop above asserted nothing: {reports}"
+    );
+}
+
 /// A screen annotation with no `/AP` draws nothing and reports nothing, and one with an `/AP`
 /// draws it.
 ///

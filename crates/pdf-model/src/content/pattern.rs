@@ -198,10 +198,7 @@ impl Interpreter<'_> {
         let Some(state) = self.document.get_key(dict, "ExtGState").as_dict().cloned() else {
             return;
         };
-        if ["BG", "BG2", "UCR", "UCR2"]
-            .iter()
-            .any(|key| !matches!(self.document.get_key(&state, key), Object::Null))
-        {
+        if self.states_black_generation(&state) {
             self.black_generation_stated = true;
         }
     }

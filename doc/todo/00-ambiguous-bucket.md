@@ -602,6 +602,35 @@ so while the four references produce four different strings from the same bytes.
 clause, the eleven names, what each reference guesses, and the measurement that says the pages
 would be `ambiguous` whatever we drew.** Read it before re-deriving the head.
 
+**And the class it names is derived from the files now, checked whole in the
+thousand-and-fifty-fourth.** The corpus gate's composition line prints *an Identity CMap over a
+font the file did not embed (§9.7.5.2)* over eighteen documents, and `whose_defect` places a
+document there by matching the refusal's own wording — so membership was a fact about this
+reader's control flow rather than about the document, which is trap 25's shape one directory over.
+Read out of each file instead, with `qpdf --json`: all eighteen state `/Encoding /Identity-H` on a
+Type 0 whose descendant's `/FontDescriptor` holds none of Table 120's three keys, and the two that
+*also* carry embedded `/Identity-H` fonts — `issue6127.pdf` with nineteen, `ThuluthFeatures.pdf`
+with four — report only the unembedded ones. The class explains every member of itself.
+
+**The last member named nowhere in this tree is `issue19550.pdf`**, and it is the class's plainest
+statement of itself: 200 × 50 points, one `Tj` of nineteen CIDs through `/F1`, `/BaseFont /Arial`,
+`/CIDSystemInfo` `(Adobe) (Identity) 0`, no `/ToUnicode`, and a descriptor that states `/Flags 4`,
+a `/FontBBox`, a `/StemV` and no program at all. Ours is blank. The four references draw four
+different strings from the same nineteen codes — `poppler` `⊓Y∧A¢¢e¢ …`, `ghostscript` a run of
+circled numerals, `hayro` `ÉA Á Á`, `mupdf` a single full stop — and two of them say why in a log
+line of their own: `poppler` *non-embedded font using identity encoding: Arial* and `mupdf`
+*non-embedded font using identity encoding: Arial (mapping via TrueType-UCS2)*. Four readings, no
+two alike, which is ADR 0433's evidence arriving again on a file nobody had opened. The file broke
+§9.7.5.2 and the refusal is the clause.
+
+**What the confirmation did change is the premise the refusal stands on.** `collection_gap`'s first
+branch asserts *the file* embedded no program, and what entitled it was the guard at its call site
+— which admitted `FontError::UnsupportedProgram` beside `NotEmbedded`. Nothing in the workspace
+has constructed that variant since §9.9's `/FontFile` was implemented (ADR 0040), so the sentence
+was never wrong; had anything constructed it, the refusal would have blamed a file that *did*
+embed a program for a gap that is this reader's. The variant is gone and both guards name
+`NotEmbedded` alone, so the sentence's premise is now the guard's.
+
 **Re-run before and after in the nine-hundred-and-forty-fourth**, the round sent to the three
 names at or past −1 that sit on documents the gate calls **complete** — `issue16038.pdf` −5.642,
 `issue12295.pdf` −2.362, `issue14297.pdf` −1.135 — with the instruction to look at the page rather

@@ -451,6 +451,7 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
         about_one(signature, document, length, notes);
     }
     permissions(document, notes);
+    security_store(document, notes);
     // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
     // the sentences above it being read as "the signature is good". Two of them are answered and
     // the third is the one that decides whether a signature means anything about a *person*: a
@@ -461,11 +462,59 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
          signature verifies under the public key in the certificate the file itself carries \
          (§12.8.3.3.1). It does not answer the third — it has no certificate store and makes no \
          network request, so it does not know whether that certificate belongs to anyone you have \
-         reason to believe, nor whether it had been revoked. A signature that verifies here was \
+         reason to believe. It can now say whether a certificate was revoked, but only from the \
+         material the file itself carries and only once somebody names a certification authority \
+         to end the chain at, which nothing here does. A signature that verifies here was \
          made by whoever holds the key in a certificate that arrived with the document, which is \
          not the same as a valid signature. Nothing here says valid"
             .to_owned(),
     );
+}
+
+/// §12.8.4's document security store: what the file carries for a validation later on.
+///
+/// **The condition is the clause's and the sentence is a count**, which is what §12.8.4.2 makes
+/// this worth saying at all: "[a] PDF signature may not be successfully verified unless its
+/// collateral validation components are preserved, e.g., certificates, CRLs, timestamp tokens,
+/// revocation lists, and OCSP responses." Whether a document preserved them is a fact about the
+/// document, it decides whether a signature outlives its certificate, and no other sentence in
+/// this report says it.
+///
+/// **What it may not say is that a signature is unrevoked.** The material is read and applied
+/// (ADR 1067), but RFC 5280 section 6.3.3 applies it to a *certification path*, and a path ends at
+/// an anchor nobody in this tree supplies (ADR 1039). So this names what is there and what could
+/// not be read, and the closing paragraph says what is still missing.
+fn security_store(document: &Document, notes: &mut Vec<String>) {
+    let store = pdf_signature::signature::security_store(document);
+    if store.is_empty() {
+        return;
+    }
+    let material = store.material();
+    notes.push(format!(
+        "this document carries a §12.8.4 document security store — the material a validator needs \
+         after the signer's certificate has expired: {} certificate(s), {} certificate revocation \
+         list(s) and {} OCSP response(s), with §12.8.4.4 validation information recorded for {} \
+         signature(s). {} of those lists and responses read as RFC 5280 and RFC 6960 structures",
+        store.certificates.len(),
+        store.revocation_lists.len(),
+        store.ocsp_responses.len(),
+        store.validation_information.len(),
+        material
+            .lists
+            .len()
+            .saturating_add(material.responses.len()),
+    ));
+    // Each refusal by name rather than a count of them, for the reason `pdf_signature::revocation`
+    // states: material this program could only half read is the difference between an answer about
+    // a certificate and no answer at all, and which piece was lost decides which certificate.
+    for refusal in &store.refused {
+        notes.push(format!("{refusal}"));
+    }
+    for refusal in &material.refused {
+        notes.push(format!(
+            "one of this document's security store entries is not usable: {refusal}"
+        ));
+    }
 }
 
 /// Every signature dictionary the document holds, from both places §12.8.1 puts one.
@@ -731,12 +780,22 @@ fn about_one(
             // note fires on the attribute and not on a population — and everything about what a
             // round may conclude from the three names above.
             if cms.has_signed_attribute(pdf_signature::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
-                notes.push(
-                    "that signature carries revocation information with it \
-                     (§12.8.3.3.2's adbe-revocationInfoArchival attribute), which this program \
-                     does not check — it makes no trust decision about any certificate"
-                        .to_owned(),
-                );
+                // **What is inside the attribute is read since the thousand-and-fifty-third
+                // session** (ADR 1067), because §12.8.3.3.2 prints the grammar rather than
+                // pointing at a document this tree does not hold: `RevocationInfoArchival` with
+                // its `crl [0]` and `ocsp [1]` members. So the sentence now says how much material
+                // there is, and still says the one thing that has not changed — no certificate
+                // here is trusted by anybody, because nothing has named an anchor (ADR 1039).
+                let archived = pdf_signature::revocation::archived(&cms);
+                notes.push(format!(
+                    "that signature carries revocation information with it (§12.8.3.3.2's \
+                     adbe-revocationInfoArchival attribute): {} certificate revocation list(s) \
+                     and {} OCSP response(s) this program reads, and {} piece(s) it would not \
+                     take. It makes no trust decision about any certificate",
+                    archived.lists.len(),
+                    archived.responses.len(),
+                    archived.refused.len(),
+                ));
             }
             for departure in signature.pades_departures(&cms, length) {
                 notes.push(format!(
@@ -1160,6 +1219,76 @@ mod tests {
         Document::open(out.into_bytes()).expect("a valid file")
     }
 
+    /// §12.8.4's store, named to a person, and the one thing the sentence may not say.
+    ///
+    /// **A hand-built document because no corpus document carries one.** `pdf-signature`'s census
+    /// is the command that establishes that, and it is why this witness is a fragment: a store
+    /// exists in the world — the wider crawl finds them — and in `doc/pdf.js` there is not one, so
+    /// nothing here could exercise the sentence at all otherwise (trap 8).
+    ///
+    /// The mutation is the same document with its `/DSS` removed, which must say nothing: a report
+    /// that fired on every signed document would be telling a person about a store that is not
+    /// there.
+    #[test]
+    fn a_document_carrying_a_security_store_says_what_is_in_it_and_claims_nothing_from_it() {
+        let with_store = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /SigFlags 1 /Fields [3 0 R] >> /DSS 5 0 R >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Sig /T (a signature) /V 4 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /ByteRange [0 0 0 0] /Contents <> >>",
+            "<< /Type /DSS /Certs [6 0 R] /CRLs [6 0 R] /OCSPs [6 0 R 7 0 R] \
+             /VRI << /ABCDEF << /Cert [6 0 R] >> >> >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+            "<< /Length 0 >>\nstream\n\nendstream",
+        ]);
+        let said = about(&with_store).join("\n");
+        assert!(
+            said.contains(
+                "carries a §12.8.4 document security store — the material a validator needs after \
+                 the signer's certificate has expired: 1 certificate(s), 1 certificate revocation \
+                 list(s) and 2 OCSP response(s)"
+            ),
+            "{said}"
+        );
+        assert!(
+            said.contains("§12.8.4.4 validation information recorded for 1 signature(s)"),
+            "{said}"
+        );
+        // Three empty streams are not a CRL and not an OCSP response, and saying so is the whole
+        // difference between an answer about a certificate and no answer at all.
+        assert!(
+            said.contains("0 of those lists and responses read"),
+            "{said}"
+        );
+        assert!(
+            said.contains("is not usable"),
+            "each piece this reader would not take is named: {said}"
+        );
+        // Nothing about a certificate is claimed from material no path was validated with, and
+        // the closing paragraph is where that is said in words rather than by omission.
+        assert!(
+            said.contains(
+                "only once somebody names a certification authority to end the chain at, which \
+                 nothing here does"
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("is revoked"), "{said}");
+
+        let without = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /SigFlags 1 /Fields [3 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Sig /T (a signature) /V 4 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /ByteRange [0 0 0 0] /Contents <> >>",
+        ]);
+        assert!(
+            !about(&without)
+                .join("\n")
+                .contains("document security store"),
+            "a signed document with no store is told nothing about one"
+        );
+    }
+
     /// The words a person is given about a real document whose signed bytes no longer hash.
     ///
     /// `xfa_filled_imm1344e.pdf` is the corpus's certification signature, and the round that
@@ -1243,8 +1372,16 @@ mod tests {
             "{said}"
         );
         assert!(
-            said.contains("does not check — it makes no trust decision about any certificate"),
+            said.contains("It makes no trust decision about any certificate"),
             "the presence is stated and no verdict is drawn from it: {said}"
+        );
+        // **And the material inside it is counted rather than only named.** The condition this
+        // fires on is the attribute; what it says is how much of §12.8.3.3.2's
+        // `RevocationInfoArchival` this reader took, which is the difference between a sentence
+        // about a document and a sentence about this program (trap 11).
+        assert!(
+            said.contains("OCSP response(s) this program reads"),
+            "{said}"
         );
 
         let plain = Document::open(

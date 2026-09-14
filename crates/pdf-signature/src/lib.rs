@@ -16,8 +16,10 @@
 //! documentation says what each answer proves, which is less than the words usually suggest.
 //!
 //! [`cms`] reads RFC 5652's `SignedData` out of §12.8.3.3's signature value, [`x509`] reads RFC
-//! 5280's certificate out of that, and [`der`] is the X.690 tag-length-value reader both are
-//! built on — the tree's only ASN.1. Then one module per family Table 260 names: [`pkcs1`] and
+//! 5280's certificate out of that, [`trust`] builds and validates a certification path from them
+//! (RFC 5280 section 6.1), [`revocation`] reads §12.8.4's CRLs and OCSP responses and applies them
+//! to that path, and [`der`] is the X.690 tag-length-value reader all of them are built on — the
+//! tree's only ASN.1. Then one module per family Table 260 names: [`pkcs1`] and
 //! [`pss`] for RFC 8017's two RSA paddings, [`dsa`], [`ecdsa`], and [`eddsa`] for the row ISO/TS
 //! 32002 section 5.1.2 adds. `bigint` is the seam over `crypto-bigint` that keeps the budgets
 //! and the refusal names this project's own while the multiplications are reviewed code.
@@ -59,6 +61,7 @@ pub mod ess;
 pub mod pkcs1;
 pub mod pss;
 pub mod revision;
+pub mod revocation;
 pub mod signature;
 pub mod trust;
 pub mod x509;

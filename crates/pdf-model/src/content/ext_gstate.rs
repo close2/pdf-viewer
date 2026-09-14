@@ -390,18 +390,7 @@ impl Interpreter<'_> {
             return;
         };
 
-        // Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`, which this tree does not evaluate.
-        // They matter to exactly one thing it does: §11.7.5.3 makes them the functions
-        // §10.4.2.4 uses "[w]hen painting an elementary object with a DeviceRGB colour
-        // directly into a transparency group whose colour space is DeviceCMYK", which is
-        // every non-subtractive colour on a page §11.4.7 composites in `DeviceCMYK`. A page
-        // that states one is therefore drawn with the wrong black generation and is not drawn
-        // in its blending space at all — the flag is monotone for the page, because the state
-        // they were set in is not the only place they apply.
-        if ["BG", "BG2", "UCR", "UCR2"]
-            .iter()
-            .any(|key| !matches!(self.document.get_key(dict, key), Object::Null))
-        {
+        if self.states_black_generation(dict) {
             self.black_generation_stated = true;
         }
         if let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
@@ -666,6 +655,32 @@ impl Interpreter<'_> {
                 });
             }
         }
+    }
+
+    /// Whether `dict` states a black-generation or undercolour-removal function of its own.
+    ///
+    /// ISO 32000-2 Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`, read for the one question this
+    /// tree asks of them: does the file replace the *device's* functions, or name them? §10.4.2.4
+    /// settles what counts as stating one — "[t]he black-generation and undercolour-removal
+    /// functions shall be defined as PDF function dictionaries (see 7.10, \"Functions\")" — so a
+    /// dictionary or a stream is a function and nothing else is.
+    ///
+    /// **A name is not**, which is the whole of this reader's narrowing: Table 57 gives `/BG2` and
+    /// `/UCR2` a second admissible value, "the name Default, denoting the black-generation function
+    /// that was in effect at the start of the page", and that function is this device's own. A
+    /// state naming it departs from nothing. Any other name names a function the file did not
+    /// supply.
+    ///
+    /// Table 57's own precedence decides which of each pair is in force: "[i]f both BG and BG2 are
+    /// present in the same graphics state parameter dictionary, BG2 shall take precedence" — so a
+    /// `/BG2 /Default` beside a `/BG` function puts the device's function back.
+    pub(super) fn states_black_generation(&self, dict: &Dictionary) -> bool {
+        [["BG2", "BG"], ["UCR2", "UCR"]].into_iter().any(|pair| {
+            pair.into_iter()
+                .map(|key| self.document.get_key(dict, key))
+                .find(|entry| !entry.is_null())
+                .is_some_and(|entry| matches!(entry, Object::Dictionary(_) | Object::Stream(_)))
+        })
     }
 }
 

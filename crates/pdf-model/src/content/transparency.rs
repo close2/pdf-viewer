@@ -2169,9 +2169,6 @@ impl Interpreter<'_> {
     ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
     ///   compositing, and reinterpreting them in ink would convert a colour that was never
     ///   stated here.
-    /// - **No `/ExtGState` has stated Table 57's black generation**, which §11.7.5.3 puts
-    ///   inside the conversion into the space and this conversion does not read. Checked
-    ///   again after the run, since a `gs` inside the group can state one.
     /// - **Not a knockout group.** §11.4.6's staged rewrites edit the element list after
     ///   the runs, and editing one half of a pair would leave the other describing a
     ///   different construction. Such a group keeps the report it has; no corpus document
@@ -2200,7 +2197,7 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         rendering: Rendering,
     ) -> Option<Arc<Press>> {
-        if !group.isolated || group.knockout || self.uncoloured || self.black_generation_stated {
+        if !group.isolated || group.knockout || self.uncoloured {
             return None;
         }
         // The page's own §14.11.5 intent, resolved once when this interpretation began — a
@@ -2319,11 +2316,9 @@ impl Interpreter<'_> {
     ///
     /// Given up, each with the report or record it always had, where nothing composites in
     /// the group (an opaque Normal mark carries its colour through whatever space it is
-    /// carried through), where §11.7.5.3's black generation is in force (the conversion into
-    /// the space does not read it), where a group inside changed the space with something
-    /// compositing in it and could not be drawn there, and where the two runs drew different
-    /// structures, which no valid content stream does and is therefore checked rather than
-    /// assumed.
+    /// carried through), where a group inside changed the space with something compositing in
+    /// it and could not be drawn there, and where the two runs drew different structures,
+    /// which no valid content stream does and is therefore checked rather than assumed.
     fn black_half(
         &mut self,
         press: &Arc<Press>,
@@ -2333,10 +2328,7 @@ impl Interpreter<'_> {
         mark: usize,
         chromatic: &[Command],
     ) -> Option<pdf_render::GroupBlending> {
-        if self.nested_space_departed
-            || self.black_generation_stated
-            || !any_command(chromatic, &command_composites)
-        {
+        if self.nested_space_departed || !any_command(chromatic, &command_composites) {
             return None;
         }
         let rewind = self.readback_mark();
@@ -2481,10 +2473,13 @@ impl Interpreter<'_> {
             interpreter.compositing = saved;
             (redrawn, None)
         };
-        if self.nested_space_departed || self.black_generation_stated {
+        if self.nested_space_departed {
             return on_device(
                 self,
-                "a soft mask's group states a four-component ICCBased /CS, and a group inside                  it names a blending space of its own or its content stated §11.7.5.3's black                  generation — so its luminosity is taken as §11.5.3's device branch on device                  RGB rather than as the Y of the four composited components"
+                "a soft mask's group states a four-component ICCBased /CS, and a group inside \
+                 it names a blending space of its own — so its luminosity is taken as §11.5.3's \
+                 device branch on device RGB rather than as the Y of the four composited \
+                 components"
                     .to_owned(),
             );
         }
@@ -2508,7 +2503,9 @@ impl Interpreter<'_> {
         } else {
             on_device(
                 self,
-                "a soft mask's group states a four-component ICCBased /CS and its two                  interpretations drew different structures, so §11.5.3's Y of the four                  composited components cannot be read off the pair (§11.3.4, §11.4.7)"
+                "a soft mask's group states a four-component ICCBased /CS and its two \
+                 interpretations drew different structures, so §11.5.3's Y of the four \
+                 composited components cannot be read off the pair (§11.3.4, §11.4.7)"
                     .to_owned(),
             )
         }
@@ -3283,10 +3280,9 @@ impl Interpreter<'_> {
 
     /// Why this page cannot be drawn in the blending space it states, or `None` if it can.
     ///
-    /// Three conditions, each of which is a *different* clause asking for something the pair of
-    /// rasters does not carry, and each named rather than folded into the others. All three
-    /// want a **second colour space** — one the document names, one a group introduces, one
-    /// whose black generation the file states.
+    /// Two conditions, each of which is a *different* clause asking for something the pair of
+    /// rasters does not carry, and each named rather than folded into the other. Both want a
+    /// **second colour space** — one the document names, one a group introduces.
     ///
     /// **A fourth was here until the four-hundred-and-forty-first session and it was not a
     /// second colour space at all**: §11.3.5.3's rule for the black component under Table 135's
@@ -3301,8 +3297,16 @@ impl Interpreter<'_> {
     /// supplied, because that one was a fact about the process and reporting it in place of
     /// what the page says about itself made a verdict that moved between runs. Every reason
     /// here is the document's now, so the order is back to the plain one — the space itself
-    /// first, then what a group inside did to it, then what an `/ExtGState` said about the
-    /// conversion — and any of them is the same answer on every run.
+    /// first, then what a group inside did to it — and either of them is the same answer on
+    /// every run.
+    ///
+    /// **A third came off in session 1055, and it was never a second colour space either**
+    /// (ADR 1069): §11.7.5.3's black generation, which this refused for. Table 57's `/BG` and
+    /// `/UCR` are §10.4.2.4's parameters, and §10.4.2.1 puts §10.4.2's whole branch below
+    /// §10.3's, where this tree's conversion into a press is — so the functions have no step
+    /// of it to act on, and falling back to the device did not evaluate them either. It only
+    /// cost the page the space §11.4.7 requires. [`Interpreter::note_black_generation_departure`] is
+    /// the departure that is left.
     pub(super) fn blending_undrawable(&self) -> Option<BeyondPress> {
         if let Some(beyond) = self.blending_beyond {
             return Some(beyond);
@@ -3313,13 +3317,46 @@ impl Interpreter<'_> {
                  conversion between the two at its Do",
             ));
         }
-        if self.black_generation_stated {
-            return Some(BeyondPress::stated(
-                "an /ExtGState states Table 57's black generation or undercolour removal, which \
-                 §11.7.5.3 puts inside the conversion into the space",
-            ));
-        }
         self.blending_beyond
+    }
+
+    /// Says that Table 57's black generation was stated where this tree converts without one.
+    ///
+    /// ISO 32000-2 §11.7.5.3, and the reading is [`Unsupported::BlackGeneration`]'s and ADR
+    /// 1069's: the entry names a parameter of §10.4.2.4, which §10.4.2.1 ranks below the branch
+    /// this tree converts on, so there is no step of the conversion for a stated function to
+    /// replace. Until session 1055 this cost the page §11.4.7's blending space as well, on a
+    /// refusal that did not evaluate the functions either.
+    ///
+    /// **The condition is the clause's own and it over-approximates in one direction only.**
+    /// §11.7.5.3 applies the functions "only during conversion from DeviceRGB to DeviceCMYK
+    /// colour spaces", so both halves have to hold: the file states a function
+    /// ([`Interpreter::states_black_generation`], which is Table 57's precedence and its
+    /// `Default`), and this interpretation actually converted into four components — it is
+    /// compositing in a press, or named one for a group or a soft mask's group along the way.
+    /// It over-reports a page that names a press and paints nothing into it in `DeviceRGB`, and
+    /// it cannot under-report, because a colour converted by §10.4.2.4 has both halves on the
+    /// page. Raised once per interpretation, the statement being monotone for the page: the
+    /// parameters apply wherever a conversion happens rather than only where a `gs` set them.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §11.7.5.3 verbatim, and a quotation is not marked up"
+    )]
+    pub(super) fn note_black_generation_departure(&mut self) {
+        if !self.black_generation_stated {
+            return;
+        }
+        if !matches!(self.compositing, Compositing::Subtractive(..)) && self.presses.named() == 0 {
+            return;
+        }
+        self.note(Unsupported::BlackGeneration {
+            detail: "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
+                     function of its own, and this page converts colours into a four-component \
+                     space (§11.7.5.3): §10.4.2.1 ranks §10.4.2.4's classic conversion, whose \
+                     parameters those are, below §10.3's branch this tree converts on, so the \
+                     stated function acts on no step of it"
+                .to_owned(),
+        });
     }
 
     /// Which transfer function §11.7.5.2 puts on the mark about to be painted, and what it costs.

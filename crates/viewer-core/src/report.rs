@@ -92,6 +92,15 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::TransferFunction { detail } => {
             format!("a transfer function reached the wrong colours on this page: {detail}")
         }
+        // Drawn too, and every mark is the colour this processor's own conversion makes it: the
+        // file states §10.4.2.4's black generation and this conversion is §10.3's, which has no
+        // step it names (§11.7.5.3, ADR 1069).
+        Unsupported::BlackGeneration { detail } => {
+            format!(
+                "this page states a black generation this processor's colour conversion does \
+                 not use: {detail}"
+            )
+        }
         // The second report whose subject is the file, and the first about the page as a whole:
         // everything above says a mark is missing or wrong, and this says the *sheet* the marks
         // were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389). The

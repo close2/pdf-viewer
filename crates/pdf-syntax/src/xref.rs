@@ -292,13 +292,25 @@ pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
 ///
 /// §12.7.8.2.2 gives an FDF file a header of its own — `%FDF-1.n` where a PDF writes `%PDF-n.m`
 /// — and §12.7.8.2.1 makes the rest of the file structure clause 7's, §7.5.2's offset rule
-/// included. So the *second* marker is searched for only where the first is absent: a PDF whose
-/// first kilobyte happens to contain `%FDF-` is still measured from its own header, and an FDF
-/// file stops being measured from byte zero by accident.
+/// included. So both markers are looked for and **the earlier one is the header**, which is the
+/// only rule that is right about both files: a header is the first line of its file, and a marker
+/// standing in front of it is the junk NOTE 1 licenses rather than a second header.
+///
+/// Ranking the two by *kind* instead is wrong in one direction, and this tree writes the file
+/// that proves it: Table 240 bit 14 puts a whole PDF into an FDF as §7.11.4's embedded file
+/// stream, so `%PDF-` appears a few hundred bytes into a file whose own header is `%FDF-` at byte
+/// zero. Measured from the wrong one, every offset in the table is short by that distance and the
+/// document is recovered by scanning — which then finds the *embedded* file's objects. ADR 1066.
 fn header_position(file: &FileBytes) -> Option<usize> {
     let header_window = file.len().min(HEADER_SEARCH_WINDOW);
     let start = file.read(0..header_window);
-    position_of(&start, *b"%PDF-").or_else(|| position_of(&start, *b"%FDF-"))
+    match (
+        position_of(&start, *b"%PDF-"),
+        position_of(&start, *b"%FDF-"),
+    ) {
+        (Some(pdf), Some(fdf)) => Some(pdf.min(fdf)),
+        (found, None) | (None, found) => found,
+    }
 }
 
 /// Where one cross-reference section stands, and what its own trailer says.

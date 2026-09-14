@@ -743,6 +743,29 @@ cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's 
   # documents have. Clean at 1 000 000 in the three-hundred-and-seventy-seventh (ADR 0215) and
   # again in the three-hundred-and-ninety-second, after its `SignerInfo` gained a signature and an
   # identifier
+cd fuzz && cargo +nightly fuzz run revocation   -- -runs=1000000  # §12.8.4's revocation material:
+  # `pdf_signature::revocation`'s two readers, RFC 5280 section 5.1's `CertificateList` and RFC 6960
+  # section 4.2.1's `OCSPResponse`, both of which arrive as streams out of a stranger's file
+  # (§12.8.4.3, Table 261) and neither of which anything in this tree read before the
+  # thousand-and-fifty-third session. ADR 1067 committed to this target with the code.
+  # **Seed its corpus** with `fuzz/seed_revocation.py`, `seed_x509.py`'s sibling, by two routes:
+  #   find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
+  #     | python3 fuzz/seed_revocation.py fuzz/corpus/revocation -
+  # The `-` is the list on standard input rather than `xargs`, and `-L` because a worktree's
+  # corpora are symbolic links; `seed_x509.py`'s block below says why both, and `fuzz/seed_der.py`
+  # is the X.690 walk all three share.
+  # **Point it at the whole disk, and expect `doc/pdf.js` to give nothing.** Not one document in
+  # that submodule carries a `/DSS` at all — `pdf-signature`'s `every_corpus_document_is_asked_
+  # whether_it_carries_a_security_store` is the command that says so — so a run seeded from it
+  # alone seeds zero, which is what this recipe would have looked like working. The population is
+  # in the crawl, and `examples/signature_algorithm_census` prints how many documents hold one.
+  # The two routes, because §12.8.4.2 puts the material in two places and says which comes first:
+  # a document's own `/CRLs` and `/OCSPs` streams, and §12.8.3.3.2's `adbe-revocationInfoArchival`
+  # attribute inside a signature value, which no scan of the file can see because the file states
+  # it in hexadecimal inside a CMS object.
+  # **The recogniser was calibrated against `openssl` rather than against itself** (trap 13):
+  # `openssl crl -inform DER` and `openssl ocsp -respin` classify what it wrote, which is evidence
+  # about the reading and never the definition of it (`CLAUDE.md` principle 5)
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
   # the verifications that run on the key inside it: `pdf_signature::x509` walks RFC 5280's
   # structure and `pdf_signature::pkcs1`, `pdf_signature::pss` and `pdf_signature::dsa` run the tree's only

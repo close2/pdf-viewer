@@ -141,3 +141,26 @@ That is why the decision above is now held by a test rather than by an argument 
 `pdf-model/tests/silent_fonts.rs::an_identity_cmap_over_a_font_the_file_did_not_embed_is_refused_beside_one_it_did`,
 whose drawn half is what stops it passing on a blank page. `doc/todo/00` carries the measurement,
 including the four references' readings written as arithmetic off the file's own CIDs.
+
+## The class is derived from the files, checked whole in the thousand-and-fifty-fourth
+
+The corpus gate counts eighteen documents under this clause and `whose_defect` places each there by
+matching the refusal's own wording, so membership was a statement about this reader's control flow
+rather than about the document — a class that can only confirm itself. Read out of the eighteen
+files instead, every one states `/Encoding /Identity-H` on a Type 0 whose descendant's
+`/FontDescriptor` holds none of Table 120's three keys; the two documents that also carry embedded
+`/Identity-H` fonts (`issue6127.pdf` nineteen, `ThuluthFeatures.pdf` four) report only the
+unembedded ones. Nothing is hiding behind the class.
+
+The one member this tree had never named is `issue19550.pdf` — `/BaseFont /Arial`, one `Tj` of
+nineteen CIDs on 200 × 50 points, no `/ToUnicode`, a descriptor with metrics and no program. Ours
+is blank; `poppler`, `ghostscript`, `hayro` and `mupdf` draw four different strings, and the first
+two log the prohibition in their own words. `doc/todo/00` step 7 carries the reading.
+
+**And the premise the refusal stands on is now the guard's.** `collection_gap`'s first branch
+asserts that the *file* embedded no program; what entitled it was the call site, which admitted
+`FontError::UnsupportedProgram` beside `NotEmbedded`. Nothing has constructed that variant since
+§9.9's `/FontFile` was implemented (ADR 0040), so no message was ever wrong — but a second error
+kind routed to substitution would have carried this clause's `shall not` to a file that did embed a
+program, which is a gap of this reader's wearing the file's name. The variant is deleted and both
+guards name `NotEmbedded` alone.

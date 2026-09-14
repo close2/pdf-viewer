@@ -14,7 +14,7 @@
 //! that change must produce. A sweep that only ever saw green would be a sentence about the test
 //! rather than about the algorithm.
 
-use super::{PathRefusal, Revocation, Trust, TrustAnchor, TrustAnchors, validate};
+use super::{Material, PathRefusal, Revocation, Trust, TrustAnchor, TrustAnchors, validate};
 use crate::x509::{Certificate, Instant, parse};
 
 /// 2026-06-01T00:00:00Z, inside every fixture certificate's validity period.
@@ -355,7 +355,7 @@ fn a_chain_to_a_supplied_anchor_validates() {
     let (root, mid, leaf) = (certificate(&root), certificate(&mid), certificate(&leaf));
     let anchors = TrustAnchors::of(&[root]);
     assert_eq!(
-        validate(&leaf, &[mid], &anchors, WITHIN),
+        validate(&leaf, &[mid], &anchors, &Material::none(), WITHIN),
         Trust::Anchored {
             length: 2,
             revocation: Revocation::NotChecked,
@@ -365,21 +365,25 @@ fn a_chain_to_a_supplied_anchor_validates() {
 }
 
 #[test]
-fn an_anchored_path_still_says_nothing_about_revocation() {
+fn an_anchored_path_asked_with_no_material_says_nothing_about_revocation() {
     let (root, mid, leaf) = (
         hex(fixtures::ROOT),
         hex(fixtures::INTERMEDIATE),
         hex(fixtures::SIGNER),
     );
     let anchors = TrustAnchors::of(&[certificate(&root)]);
-    let Trust::Anchored { revocation, .. } =
-        validate(&certificate(&leaf), &[certificate(&mid)], &anchors, WITHIN)
-    else {
+    let Trust::Anchored { revocation, .. } = validate(
+        &certificate(&leaf),
+        &[certificate(&mid)],
+        &anchors,
+        &Material::none(),
+        WITHIN,
+    ) else {
         panic!("the fixture chain validates");
     };
-    // RFC 5280 section 6.1.3 (a)(3) is a step of path validation and this program does not take
-    // it, so the one thing this assertion is for is that the success value keeps saying so. A
-    // second variant appearing here without this test changing is the defect it exists to catch.
+    // RFC 5280 section 6.1.3 (a)(3) is answered from §12.8.4's material and there is none here, so
+    // the one thing this assertion is for is that the success value says *that* rather than
+    // something reassuring. `Revocation::Good` appearing here is the defect it exists to catch.
     assert_eq!(revocation, Revocation::NotChecked);
 }
 
@@ -391,6 +395,7 @@ fn with_no_anchor_there_is_no_question_to_answer() {
             &certificate(&leaf),
             &[certificate(&mid)],
             &TrustAnchors::none(),
+            &Material::none(),
             WITHIN,
         ),
         Trust::NoAnchorSupplied,
@@ -407,7 +412,13 @@ fn an_anchor_that_issued_nothing_here_yields_no_path() {
     let mut anchors = TrustAnchors::none();
     anchors.push(TrustAnchor::of(&leaf));
     assert_eq!(
-        validate(&leaf, &[certificate(&mid)], &anchors, WITHIN),
+        validate(
+            &leaf,
+            &[certificate(&mid)],
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::NoPathToAnyAnchor { examined: 0 },
         "nothing was validated because no prospective path ever reached an anchor"
     );
@@ -418,7 +429,13 @@ fn the_intermediate_is_needed_and_its_absence_is_not_a_refusal() {
     let (root, leaf) = (hex(fixtures::ROOT), hex(fixtures::SIGNER));
     let anchors = TrustAnchors::of(&[certificate(&root)]);
     assert_eq!(
-        validate(&certificate(&leaf), &[], &anchors, WITHIN),
+        validate(
+            &certificate(&leaf),
+            &[],
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::NoPathToAnyAnchor { examined: 0 },
         "a file that carries too few certificates says so as a missing path, not as a bad one"
     );
@@ -436,7 +453,13 @@ fn one_turned_bit_in_an_intermediates_signature_breaks_the_path() {
     mid[last] ^= 0x01;
     let anchors = TrustAnchors::of(&[certificate(&root)]);
     assert_eq!(
-        validate(&certificate(&leaf), &[certificate(&mid)], &anchors, WITHIN),
+        validate(
+            &certificate(&leaf),
+            &[certificate(&mid)],
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::Refused {
             refusal: PathRefusal::SignatureNotUnderIssuersKey,
             examined: 1,
@@ -467,7 +490,13 @@ fn a_path_outside_the_validity_period_is_refused_at_either_end() {
         (BEFORE_ANY_OF_THEM, 1, "before any of them began"),
     ] {
         assert_eq!(
-            validate(&certificate(&leaf), &[certificate(&mid)], &anchors, at),
+            validate(
+                &certificate(&leaf),
+                &[certificate(&mid)],
+                &anchors,
+                &Material::none(),
+                at
+            ),
             Trust::Refused {
                 refusal: PathRefusal::NotCurrent,
                 examined,
@@ -490,7 +519,13 @@ fn a_critical_extension_this_reader_does_not_know_is_a_refusal() {
     // steps of section 6.1 safe, so the assertion names the identifier rather than only the
     // variant: a refusal that could not say *which* extension would not carry that argument.
     assert_eq!(
-        validate(&certificate(&leaf), &[certificate(&mid)], &anchors, WITHIN),
+        validate(
+            &certificate(&leaf),
+            &[certificate(&mid)],
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::Refused {
             refusal: PathRefusal::UnrecognisedCriticalExtension("1.3.6.1.4.1.99999.1".to_owned()),
             // The intermediate passes and the signer is the second certificate looked at.
@@ -511,7 +546,13 @@ fn a_certificate_that_is_not_a_certification_authority_may_not_sign_one() {
     // to TRUE". Everything else about this chain is in order — the signatures verify, the dates
     // are current — so the `cA FALSE` is the only thing that can produce this answer.
     assert_eq!(
-        validate(&certificate(&leaf), &[certificate(&mid)], &anchors, WITHIN),
+        validate(
+            &certificate(&leaf),
+            &[certificate(&mid)],
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::Refused {
             refusal: PathRefusal::NotACertificationAuthority,
             // Refused while preparing for the certificate below it, so one was looked at.
@@ -532,7 +573,13 @@ fn a_key_usage_that_forbids_signing_certificates_is_obeyed() {
     // set." This certificate asserts `digitalSignature` and `cRLSign` and not that one, which is
     // exactly the case that would pass a reader that looked only at `basicConstraints`.
     assert_eq!(
-        validate(&certificate(&leaf), &[certificate(&mid)], &anchors, WITHIN),
+        validate(
+            &certificate(&leaf),
+            &[certificate(&mid)],
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::Refused {
             refusal: PathRefusal::KeyUsageForbidsCertificateSigning,
             // Refused at the same step as the case above, and for the other of its two reasons.
@@ -558,6 +605,7 @@ fn a_path_longer_than_a_path_length_constraint_permits_is_refused() {
             &certificate(&leaf),
             &[certificate(&mid), certificate(&deep)],
             &anchors,
+            &Material::none(),
             WITHIN,
         ),
         Trust::Refused {
@@ -583,7 +631,13 @@ fn the_same_certificate_cannot_be_walked_twice() {
     // both unchanged by the repetition.
     let repeated: Vec<Certificate<'_>> = std::iter::repeat_n(certificate(&mid), 8).collect();
     assert_eq!(
-        validate(&certificate(&leaf), &repeated, &anchors, WITHIN),
+        validate(
+            &certificate(&leaf),
+            &repeated,
+            &anchors,
+            &Material::none(),
+            WITHIN
+        ),
         Trust::Anchored {
             length: 2,
             revocation: Revocation::NotChecked,
@@ -611,6 +665,7 @@ fn the_search_stops_at_its_own_depth_bound() {
             &leaf,
             &[certificate(&mid), certificate(&root)],
             &anchors,
+            &Material::none(),
             WITHIN,
         ),
         Trust::NoPathToAnyAnchor { examined: 0 },

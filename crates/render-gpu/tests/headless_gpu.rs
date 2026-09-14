@@ -1488,6 +1488,85 @@ fn cpu_and_gpu_agree_on_a_fill_with_no_area() {
     }
 }
 
+/// A *clip* with no area admits the same pixels on both backends: ISO 32000-2 §10.7.4.
+///
+/// The test above is the fill; this is the clause's other half — "For clipping, the clipping
+/// region consists of the set of pixels that would be included by a fill operation" — and the
+/// two were answered differently for the whole of this tree's life: the fill painted its row
+/// and the clip of the same rectangle admitted nothing (ADR 1060, ADR 1064). Each backend
+/// builds the region from `pdf_render::clip_region`, so what this checks is that both of them
+/// *ask*, on geometry neither of them decides.
+///
+/// The grid is the fill test's, clipped instead of filled, so the two pages are the same
+/// picture reached two ways and a backend skipping the rule comes out blank rather than
+/// slightly different. Two scales, for the reason the fill test gives.
+#[test]
+fn cpu_and_gpu_agree_on_a_clip_with_no_area() {
+    use pdf_render::{
+        BlendMode, Clip, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point,
+        Size, Transform,
+    };
+    use std::sync::Arc;
+
+    let page = 200.0_f32;
+    let whole = {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(page, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(page, page)));
+        path.push(PathCommand::LineTo(Point::new(0.0, page)));
+        path.push(PathCommand::Close);
+        Arc::new(path)
+    };
+    let mut list = DisplayList::new(Size::new(page, page));
+    for step in 1..8 {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "test code: the loop counter is under ten"
+        )]
+        let at = step as f32 * 25.0;
+        let mut rules = Path::new();
+        rules.push(PathCommand::MoveTo(Point::new(20.0, at)));
+        rules.push(PathCommand::LineTo(Point::new(180.0, at)));
+        rules.push(PathCommand::Close);
+        rules.push(PathCommand::MoveTo(Point::new(at, 20.0)));
+        rules.push(PathCommand::LineTo(Point::new(at, 180.0)));
+        rules.push(PathCommand::Close);
+        let clip = list
+            .add_clip(Clip {
+                path: rules,
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("a clip");
+        list.push(Command::Fill {
+            path: Arc::clone(&whole),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: Some(clip),
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+    }
+
+    for scale in [1.0, 2.5] {
+        let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+        let cpu = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        let gpu = gpu().rasterize(&list, target).expect("supported");
+        // The same loosening the fill test takes, for the same reason: a page of nothing but
+        // one-pixel marks is a page of nothing but antialiased edge.
+        assert_within(
+            &format!("a grid of flat clips at scale {scale}"),
+            raster_compare::compare(&cpu, &gpu).expect("same size"),
+            MAX_DIFFERING_FRACTION * 3.0,
+        );
+    }
+}
+
 /// A stencil's edges smooth without pulling the painted colour towards black.
 ///
 /// ISO 32000-2 §8.9.6.2's last sentence, which is a `shall` and is about a different noun

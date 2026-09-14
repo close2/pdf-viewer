@@ -4425,7 +4425,7 @@ fn with_a_form() -> Vec<u8> {
     use std::fmt::Write as _;
     let content = "BT /F1 12 Tf 10 10 Td /P <</MCID 0>> BDC (a caption) Tj EMC ET\n";
     let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R \
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R /Lang (en-US) \
           /MarkInfo << /Marked true >> /AcroForm << /Fields [12 0 R 13 0 R] >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
@@ -4439,7 +4439,7 @@ fn with_a_form() -> Vec<u8> {
           /K [<< /Type /OBJR /Obj 12 0 R >>] /Alt (agree to the terms) >>\nendobj\n\
          8 0 obj\n<< /Type /StructElem /S /Form /P 6 0 R /Pg 3 0 R \
           /K [<< /Type /OBJR /Obj 13 0 R >>] /Alt (your surname) >>\nendobj\n\
-         9 0 obj\n<< /Type /StructElem /S /Annot /P 6 0 R /Pg 3 0 R \
+         9 0 obj\n<< /Type /StructElem /S /Annot /P 6 0 R /Pg 3 0 R /Lang (en-GB) \
           /K [<< /Type /OBJR /Obj 14 0 R >>] /Alt (a note in the margin) >>\nendobj\n\
          10 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K [0] >>\nendobj\n\
          11 0 obj\n<< /Nums [0 [10 0 R] 1 7 0 R 2 8 0 R 3 9 0 R] >>\nendobj\n\
@@ -4449,7 +4449,7 @@ fn with_a_form() -> Vec<u8> {
          13 0 obj\n<< /Type /Annot /Subtype /Widget /F 4 /FT /Tx /T (surname) /Ff 4096 \
           /V (Ada) /DA (/F1 0 Tf 0 g) /Rect [40 20 160 40] /StructParent 2 >>\nendobj\n\
          14 0 obj\n<< /Type /Annot /Subtype /Text /F 4 /Name /Note /Contents (a note) \
-          /Rect [170 70 190 90] /StructParent 3 >>\nendobj\n\
+          /Lang (es-MX) /Rect [170 70 190 90] /StructParent 3 >>\nendobj\n\
          15 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\
          \nstream\n\nendstream\nendobj\n",
         content.len(),
@@ -4588,6 +4588,69 @@ fn an_element_reached_through_an_object_reference_is_placed_and_says_what_contro
     assert_ne!(
         check_box.annotation, text.annotation,
         "two elements, two widgets"
+    );
+}
+
+/// Table 166's `/Lang` on an annotation is the language of the element whose content it is.
+///
+/// ISO 32000-2 §12.5.2, Table 166, gives the entry its own reach:
+///
+/// > A language identifier overriding the document's language identifier to specify the natural
+/// > language for all text in the annotation except where overridden by other explicit language
+/// > specifications
+///
+/// §14.9.2.3 orders the specifications *inside* the structure hierarchy — the catalog's default,
+/// then a structure element's, then what is nested in it — and an annotation is none of those
+/// three, which is why this entry decides the question rather than the ordering. The annotation is
+/// the innermost thing that stated a language, and an element whose content item is §14.7.5.3's
+/// object reference to it carries its text and no other's.
+///
+/// The fixture states all three so that nothing passes by accident: `en-US` in the catalog,
+/// `en-GB` on the `Annot` element, `es-MX` on the annotation the element names. A reader that
+/// skipped the annotation would answer `en-GB` here, and a reader with no hierarchy at all would
+/// answer `en-US` — so the two wrong answers are both available and distinct.
+#[test]
+fn an_annotations_own_language_is_what_its_element_speaks() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_form().into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let first = request(&events).clone();
+    serve(&mut viewer, &first);
+
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let nodes = on_one_page(pages);
+    let language = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the page: {nodes:?}"))
+            .language
+            .clone()
+    };
+
+    assert_eq!(
+        language("a note in the margin").as_deref(),
+        Some("es-MX"),
+        "Table 166's /Lang is the language of the text in the annotation"
+    );
+    assert_eq!(
+        language("your surname").as_deref(),
+        Some("en-US"),
+        "a widget stating no /Lang leaves §14.9.2.3's hierarchy alone"
+    );
+    assert_eq!(
+        language("a caption").as_deref(),
+        Some("en-US"),
+        "and the catalog's entry is still \"the default natural language for all text in the \
+         document\""
     );
 }
 
@@ -5504,6 +5567,127 @@ fn a_click_on_a_file_attachment_annotation_extracts_its_file() {
             .iter()
             .any(|event| matches!(event, Event::Extracted { .. })),
         "{events:?}"
+    );
+}
+
+/// A one-page document whose `Square` annotation associates a file through §14.13.9's `/AF`.
+///
+/// Hand-built, and it says so (trap 8): `associated_file_census` counts **0** annotations stating
+/// an `/AF` over the 1479 curated documents, so the world's witness is not this corpus's and a
+/// fixture is the only way to exercise the clause. The annotation is deliberately *not* a
+/// `FileAttachment`, because §14.13.9 puts no condition on the subtype and §12.5.6.15's own `/FS`
+/// is the other route.
+fn with_an_associated_file() -> Vec<u8> {
+    use std::fmt::Write as _;
+    const PAYLOAD: &str = "the formula behind the box";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+          /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [20 20 80 80] /F 4 \
+          /AF [6 0 R] /AP << /N 8 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Type /Filespec /F (formula.mml) /UF (formula.mml) \
+          /AFRelationship /Supplement /EF << /F 7 0 R >> >>\nendobj\n\
+         7 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length {} >>\n\
+         stream\n{PAYLOAD}\nendstream\nendobj\n\
+         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 60 60] /Length 24 >>\n\
+         stream\n0 0 1 rg 0 0 60 60 re f\nendstream\nendobj\n",
+        PAYLOAD.len(),
+    );
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// §14.13.9: activating an annotation produces the files its `/AF` associates with it.
+///
+/// > To associate files with annotations, the annotation dictionary shall contain an AF entry
+/// > which represents the associated files for that annotation.
+///
+/// That sentence is a writer's; what makes it a reader's is §12.5.1, which says what activating an
+/// annotation does with what belongs to it — "it exhibits its associated object" — under a *such
+/// as* that gives examples rather than a closed list. Until the thousand-and-fifty-first session
+/// `attachment::associated` had never been handed an annotation by anything but its own tests, so
+/// a document whose only route to a payload was an annotation's `/AF` carried a file no host could
+/// reach: the shape §14.13.3's catalog array was in before `attachment::attachments` reached it.
+///
+/// A click somewhere else on the page is the control, because a file that crossed because the
+/// document carries it rather than because the annotation was activated would pass the first half
+/// of this on its own.
+#[test]
+fn a_click_on_an_annotation_produces_the_files_it_associates() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_an_associated_file().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let on_square = device_point(&viewer, [20.0, 20.0, 80.0, 80.0], 100.0);
+    viewer
+        .handle(Command::Pointer {
+            at: on_square,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_square,
+            action: PointerAction::Released,
+        })
+        .collect();
+    let extracted: Vec<(String, Vec<u8>)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Extracted { name, bytes, .. } => Some((name.clone(), bytes.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(extracted.len(), 1, "one /AF entry, one file: {events:?}");
+    assert_eq!(extracted[0].0, "formula.mml", "§7.11.3's own name for it");
+    assert_eq!(
+        String::from_utf8_lossy(&extracted[0].1),
+        "the formula behind the box"
+    );
+
+    let elsewhere = (5.0, 5.0);
+    viewer
+        .handle(Command::Pointer {
+            at: elsewhere,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: elsewhere,
+            action: PointerAction::Released,
+        })
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Extracted { .. })),
+        "the file crosses because the annotation was activated: {events:?}"
     );
 }
 

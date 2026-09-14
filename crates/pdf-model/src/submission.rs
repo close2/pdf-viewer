@@ -51,18 +51,26 @@
 //! | 4 | `GetMethod` | applied; owed where set against a clear bit 3, which the table forbids |
 //! | 5 | `SubmitCoordinates` | applied from the click, where there was one |
 //! | 6 | `XFDF` | declined: ISO 19444-1 is not held |
-//! | 7 | `IncludeAppendSaves` | owed: Table 246's `/Differences` is not written |
-//! | 8 | `IncludeAnnotations` | owed: §12.7.8.3.4's annotation dictionaries are not written |
+//! | 7 | `IncludeAppendSaves` | applied: Table 246's `/Differences` holds what the update appended |
+//! | 8 | `IncludeAnnotations` | applied: §12.7.8.3.4's annotation dictionaries, with Table 254's `/Page` |
 //! | 9 | `SubmitPDF` | applied |
 //! | 10 | `CanonicalFormat` | owed: which fields hold dates "is not specified explicitly in the field itself but only in the ECMAScript code that processes it" (its NOTE 1), and ECMAScript is excluded |
-//! | 11 | `ExclNonUserAnnots` | owed, with bit 8 |
-//! | 12 | `ExclFKey` | met: Table 246's `/F` is never written, because the document's own path is the host's and not this crate's |
-//! | 14 | `EmbedForm` | owed: the FDF's `/F` is not written at all |
+//! | 11 | `ExclNonUserAnnots` | owed: the name it narrows by is the *server*'s, so bit 8's annotations are withheld whole rather than sent past the narrowing |
+//! | 12 | `ExclFKey` | applied: it is what bit 14's `/F` is written against |
+//! | 14 | `EmbedForm` | applied: §7.11.4's embedded file stream, minus the path Table 43 asks for and this crate has none of |
+//!
+//! **Three of those were `owed` until the one-thousand-and-fifty-second session, and the reason
+//! they moved is that none of them was ever about a network.** Bit 7's `/Differences` is
+//! §7.5.6's update, which [`crate::view::ViewState::save`] already writes; bit 8's annotations
+//! are the document's own dictionaries; bit 14's embedded file is that same save. Bit 11 is the
+//! one that stayed, and it stayed for the standard's own reason rather than for want of code —
+//! see [`Carried`].
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
 
 use crate::action::{ResetTarget, SubmitForm};
 use crate::appearance::{FLAG_FILE_SELECT, FLAG_NO_EXPORT, Field, FieldKind};
@@ -263,11 +271,11 @@ pub fn compose(
             (action.url.clone(), Method::Post, query.into_bytes())
         }
     } else {
-        fdf_owed(action, &mut owed);
+        let carried = Carried::read(document, view, action, &mut owed);
         (
             action.url.clone(),
             Method::Post,
-            fdf(document, &entries, &mut owed),
+            fdf(document, &entries, &carried, &mut owed),
         )
     };
     Ok(Submission {
@@ -531,56 +539,378 @@ fn text_bytes(document: &Document, value: &Object) -> Option<Vec<u8>> {
     }
 }
 
-/// The flags FDF submission reads and this composition does not carry out, named.
-fn fdf_owed(action: &SubmitForm, owed: &mut Vec<String>) {
-    let flags = action.flags;
-    if flags.get_method() {
-        owed.push(
-            "Table 240 bit 4's GetMethod is set against a clear ExportFormat, which the table \
-             forbids (\"if ExportFormat is clear, this flag shall also be clear\"); the FDF is \
-             sent by POST"
-                .to_owned(),
-        );
+/// Most markup annotations one submission carries, which is what this program's own reader takes.
+///
+/// [`crate::forms_data::MAX_ANNOTATIONS`] is where an FDF this program *reads* stops, so writing
+/// past it would compose a file this program would not read back whole. Trap 38's question has no
+/// other answer here: ISO 32000-2 states no bound on Table 246's `/Annots`.
+const MAX_ANNOTATIONS: usize = crate::forms_data::MAX_ANNOTATIONS;
+
+/// How deep an annotation's own entries are examined for a reference into this document.
+///
+/// Table 172 and Table 166 nest two levels at most — `/BS`, `/BE`, `/ExData`, an `/AP` with its
+/// `/N` subdictionary — so a value deeper than this is a file doing something the tables do not
+/// describe, and it is treated as unportable rather than walked further.
+const MAX_ENTRY_DEPTH: usize = 8;
+
+/// §12.5.6.2's markup annotations, which Table 171's third column names one at a time.
+///
+/// The eighteen types whose `Markup` column says `Yes`, and Table 246's `/Annots` note is
+/// consistent with them: the six subtypes it excludes — "Link, Movie, Widget, `PrinterMark`,
+/// Screen, and `TrapNet`" — say `No` in that column.
+const MARKUP: [&str; 18] = [
+    "Text",
+    "FreeText",
+    "Line",
+    "Square",
+    "Circle",
+    "Polygon",
+    "PolyLine",
+    "Highlight",
+    "Underline",
+    "Squiggly",
+    "StrikeOut",
+    "Caret",
+    "Stamp",
+    "Ink",
+    "FileAttachment",
+    "Sound",
+    "Redact",
+    "Projection",
+];
+
+/// What Table 240's bits 7, 8, 11, 12 and 14 put into an FDF beside its fields.
+///
+/// Every one of the three this carries is a reading of the *document*, which is why none of them
+/// needed the network the whole clause was refused for: bit 7's `/Differences` and bit 14's
+/// embedded file are both [`ViewState::save`]'s §7.5.6 update, and bit 8's annotations are
+/// dictionaries the file already states.
+///
+/// **Bit 11 is the one that is genuinely somebody else's**, and §12.7.6.2's Table 240 says
+/// whose:
+///
+/// > If set, it shall include only those markup annotations whose T entry … matches the name of
+/// > the current user, as determined by the remote server to which the form is being submitted.
+///
+/// The name is *the server's* determination, and this program has none of its own either —
+/// [`ViewState::add_markup`] writes no `/T` for exactly that reason. So the predicate cannot be
+/// evaluated here, and of the two ways to be wrong about it only one breaks a `shall`: sending an
+/// annotation that does not match breaks bit 11's *only*, and sending none breaks nothing the
+/// clause states, since bit 11 is itself the narrowing of bit 8. The narrowing is therefore
+/// applied to the whole set, and the sentence saying so goes to the host that has the server.
+#[derive(Default)]
+struct Carried {
+    /// Table 246's `/Differences`, for bit 7.
+    differences: Option<Vec<u8>>,
+    /// The file itself, for bit 14's embedded file stream.
+    embedded: Option<Vec<u8>>,
+    /// Table 246's `/Annots`, for bit 8.
+    annotations: Vec<Object>,
+}
+
+impl Carried {
+    /// Reads every Table 240 flag an FDF submission answers past its field list.
+    ///
+    /// Bits 4 and 5 are here too and carry nothing: each "shall be used only when the
+    /// `ExportFormat` flag is set", which in this branch it is not, so what they get is a sentence.
+    fn read(
+        document: &Document,
+        view: &ViewState,
+        action: &SubmitForm,
+        owed: &mut Vec<String>,
+    ) -> Self {
+        let flags = action.flags;
+        let mut carried = Self::default();
+        if flags.get_method() {
+            owed.push(
+                "Table 240 bit 4's GetMethod is set against a clear ExportFormat, which the table \
+                 forbids (\"if ExportFormat is clear, this flag shall also be clear\"); the FDF \
+                 is sent by POST"
+                    .to_owned(),
+            );
+        }
+        if flags.submit_coordinates() {
+            owed.push(
+                "Table 240 bit 5's SubmitCoordinates \"shall be used only when the ExportFormat \
+                 flag is set\", and it is clear; no coordinates are written into the FDF"
+                    .to_owned(),
+            );
+        }
+        if flags.canonical_format() {
+            owed.push(
+                "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
+                 stated only by ECMAScript, which CLAUDE.md principle 5 excludes"
+                    .to_owned(),
+            );
+        }
+        carried.save(document, view, action, owed);
+        carried.mark_up(document, view, action, owed);
+        carried
     }
-    if flags.submit_coordinates() {
-        owed.push(
-            "Table 240 bit 5's SubmitCoordinates \"shall be used only when the ExportFormat flag \
-             is set\", and it is clear; no coordinates are written into the FDF"
-                .to_owned(),
-        );
+
+    /// Bits 7 and 14, which are one save between them.
+    ///
+    /// Table 246's `/Differences` row states the save as a requirement rather than as a
+    /// convenience — "[a]n incremental update shall be automatically performed just before the
+    /// submission takes place, in order to capture all changes made to the document" — and bit
+    /// 14's embedded file is "the PDF file from which the FDF is being submitted", which after
+    /// that sentence is the same bytes. So [`ViewState::save`] runs once and both read it.
+    fn save(
+        &mut self,
+        document: &Document,
+        view: &ViewState,
+        action: &SubmitForm,
+        owed: &mut Vec<String>,
+    ) {
+        let flags = action.flags;
+        // Bit 14 against bit 12 asks for an entry the same table forbids, and the forbidding one
+        // wins: an `/F` written past "the submitted FDF shall exclude the F entry" would be the
+        // one flag of the two that this composition chose to disobey.
+        let embed = flags.embed_form() && !flags.exclude_f_key();
+        if flags.embed_form() && flags.exclude_f_key() {
+            owed.push(
+                "Table 240 bit 14's EmbedForm asks that \"the F entry of the submitted FDF shall \
+                 be a file specification containing an embedded file stream\" and bit 12's \
+                 ExclFKey says \"the submitted FDF shall exclude the F entry\"; the exclusion is \
+                 applied and the document is not embedded"
+                    .to_owned(),
+            );
+        }
+        if !flags.include_append_saves() && !embed {
+            return;
+        }
+        let written = match view.save(document) {
+            Ok(written) => written,
+            Err(why) => {
+                owed.push(format!(
+                    "Table 240 bits 7 and 14 need §7.5.6's update, which this document cannot be \
+                     given: {why}"
+                ));
+                return;
+            }
+        };
+        // §12.7.5.3's Table 231 bit 14 keeps a password out of what `save` writes, so an FDF
+        // carrying that file carries less than the form holds — the same sentence
+        // [`whole_document`] owes, for the same bytes.
+        for name in &written.withheld {
+            owed.push(format!(
+                "field {name}: a Table 231 bit 14 password, whose value is not in the document \
+                 bytes this FDF carries"
+            ));
+        }
+        if flags.include_append_saves() {
+            // "A stream containing all the bytes in all incremental updates made to the
+            // underlying PDF document since it was opened" — so the file as it was opened is
+            // where the stream starts, and everything `save` appended to it is the stream.
+            let opened = document.bytes().len();
+            match written.bytes.get(opened..) {
+                Some(appended) if !appended.is_empty() => {
+                    self.differences = Some(appended.to_vec());
+                }
+                _ => owed.push(
+                    "Table 240 bit 7's IncludeAppendSaves: the save appended nothing to the file \
+                     as it was opened, so there is no /Differences stream to write"
+                        .to_owned(),
+                ),
+            }
+        }
+        if embed {
+            // The gap [`embedded_file_spec`] argues, said out loud: the specification carries the
+            // file and cannot name it.
+            owed.push(
+                "Table 240 bit 14's EmbedForm: the /F written carries the document as \
+                 §7.11.4's embedded file stream and states no name for it, because Table 43's \
+                 own /F is \"[a] file specification string of the form described in 7.11.2\" — a \
+                 path on this machine, which this crate has none of"
+                    .to_owned(),
+            );
+            self.embedded = Some(written.bytes);
+        }
     }
-    if flags.include_append_saves() {
-        owed.push(
-            "Table 240 bit 7's IncludeAppendSaves is not applied: Table 246's /Differences \
-             stream is not written"
-                .to_owned(),
-        );
+
+    /// Bits 8 and 11, which decide between them whether any annotation goes.
+    fn mark_up(
+        &mut self,
+        document: &Document,
+        view: &ViewState,
+        action: &SubmitForm,
+        owed: &mut Vec<String>,
+    ) {
+        let flags = action.flags;
+        match (
+            flags.include_annotations(),
+            flags.exclude_non_user_annotations(),
+        ) {
+            // Bit 8: "all markup annotations in the underlying PDF document".
+            (true, false) => self.annotations = annotations(document, view, owed),
+            (true, true) => owed.push(
+                "Table 240 bit 11's ExclNonUserAnnots narrows bit 8's annotations to those whose \
+                 /T \"matches the name of the current user, as determined by the remote server to \
+                 which the form is being submitted\", and no part of this program knows that \
+                 name; the narrowing is applied to all of them, so this FDF carries none"
+                    .to_owned(),
+            ),
+            (false, true) => owed.push(
+                "Table 240 bit 11's ExclNonUserAnnots shall be used only when \"the \
+                 IncludeAnnotations flag is set\", and bit 8 is clear; no annotations are written"
+                    .to_owned(),
+            ),
+            (false, false) => {}
+        }
     }
-    if flags.include_annotations() {
-        owed.push(
-            "Table 240 bit 8's IncludeAnnotations is not applied: §12.7.8.3.4's annotation \
-             dictionaries are not written"
-                .to_owned(),
-        );
+}
+
+/// Table 246's `/Annots` for Table 240 bit 8: every §12.5.6.2 markup annotation this document
+/// holds, as §12.7.8.3.4 asks for them.
+///
+/// > Each annotation dictionary in an FDF file shall have a Page entry … that shall indicate the
+/// > page of the source document to which the annotation is attached.
+///
+/// Table 254 gives that entry its origin — "[t]he ordinal page number on which this annotation
+/// shall appear, where page 0 is the first page" — which is the page *index*, not §7.7.3.3's
+/// label and not the object number.
+///
+/// **The annotations a person added in this session are here too**, and that follows from the
+/// save above rather than from a preference: Table 246 has the update performed "just before the
+/// submission takes place", so by the time this FDF names the document, the document contains
+/// them. Leaving them out would submit a marked-up file beside an FDF that says it is unmarked.
+fn annotations(document: &Document, view: &ViewState, owed: &mut Vec<String>) -> Vec<Object> {
+    let pages = crate::page::Pages::new(document);
+    let mut ordinals: BTreeMap<ObjectId, usize> = BTreeMap::new();
+    let mut out = Vec::new();
+    let mut dropped = BTreeSet::new();
+    let mut truncated = false;
+    for ordinal in 0..pages.len() {
+        let Some(page) = pages.get(ordinal) else {
+            continue;
+        };
+        if let Some(id) = page.id {
+            ordinals.insert(id, ordinal);
+        }
+        let listed = document.get_key(&page.dict, "Annots");
+        let Some(items) = listed.as_array() else {
+            continue;
+        };
+        for item in items {
+            let resolved = document.resolve(item);
+            let Some(dict) = resolved.as_dict() else {
+                continue;
+            };
+            if !is_markup(document, dict) {
+                continue;
+            }
+            if out.len() >= MAX_ANNOTATIONS {
+                truncated = true;
+                break;
+            }
+            out.push(fdf_annotation(document, dict, ordinal, &mut dropped));
+        }
     }
-    if flags.exclude_non_user_annotations() {
-        owed.push(
-            "Table 240 bit 11's ExclNonUserAnnots is not applied, with bit 8 above".to_owned(),
-        );
+    for added in view.additions() {
+        if !is_markup(document, &added.dict) {
+            continue;
+        }
+        let Some(&ordinal) = ordinals.get(&added.page) else {
+            owed.push(
+                "Table 240 bit 8: an annotation this reader added belongs to a page the page tree \
+                 does not reach, so §12.7.8.3.4's required /Page could not be stated for it and \
+                 it is not written"
+                    .to_owned(),
+            );
+            continue;
+        };
+        if out.len() >= MAX_ANNOTATIONS {
+            truncated = true;
+            break;
+        }
+        out.push(fdf_annotation(document, &added.dict, ordinal, &mut dropped));
     }
-    if flags.canonical_format() {
-        owed.push(
-            "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is stated \
-             only by ECMAScript, which CLAUDE.md principle 5 excludes"
-                .to_owned(),
-        );
+    if truncated {
+        owed.push(format!(
+            "Table 240 bit 8: this document holds more than {MAX_ANNOTATIONS} markup \
+             annotations, which is where the reader of an FDF in this program stops, so the rest \
+             are not written"
+        ));
     }
-    if flags.embed_form() {
-        owed.push(
-            "Table 240 bit 14's EmbedForm is not applied: Table 246's /F is not written, so there \
-             is no file specification to embed the document in"
-                .to_owned(),
-        );
+    if !dropped.is_empty() {
+        let keys: Vec<String> = dropped.into_iter().map(|key| format!("/{key}")).collect();
+        owed.push(format!(
+            "Table 240 bit 8: {} left out of the annotations written, because each names an \
+             object of this document and an FDF has no object space of this document's",
+            keys.join(", ")
+        ));
+    }
+    out
+}
+
+/// Whether Table 171's `Markup` column says `Yes` of this dictionary's `/Subtype`.
+fn is_markup(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| MARKUP.iter().any(|markup| subtype == markup))
+}
+
+/// One annotation as §12.7.8.3.4 writes it: its own entries, and Table 254's `/Page`.
+///
+/// Table 166's `/P` is left out rather than carried, and the two entries are why: `/P` is "[a]n
+/// indirect reference to the page object with which this annotation is associated", where
+/// `/Page` is an ordinal. An FDF that kept the reference would name an object of a file it is not
+/// part of.
+fn fdf_annotation(
+    document: &Document,
+    annotation: &Dictionary,
+    ordinal: usize,
+    dropped: &mut BTreeSet<String>,
+) -> Object {
+    let mut out = Dictionary::new();
+    for (key, value) in annotation.iter() {
+        if key.as_bytes() == b"P" {
+            continue;
+        }
+        match portable(document, value) {
+            Some(portable) => {
+                out.insert(key.clone(), portable);
+            }
+            None => {
+                dropped.insert(key.escaped());
+            }
+        }
+    }
+    out.insert(
+        Name::new(&b"Page"[..]),
+        Object::Integer(i64::try_from(ordinal).unwrap_or(i64::MAX)),
+    );
+    Object::Dictionary(out)
+}
+
+/// One entry's value, resolved, or `None` where it is or contains something only this document
+/// can resolve.
+///
+/// One hop and no more. Resolving keeps `/Contents 20 0 R` — a string somebody wrote in an
+/// indirect object — and refuses `/AP`, whose value resolves to a dictionary of streams that
+/// exist nowhere but this file. Following further would mean copying an object graph into a file
+/// that has no room for one, and `/Popup` makes that concrete: its `/Parent` points back at the
+/// annotation being written.
+fn portable(document: &Document, value: &Object) -> Option<Object> {
+    let resolved = document.resolve(value);
+    (!names_an_object(&resolved, 0)).then_some(resolved)
+}
+
+/// Whether this value is, or holds anywhere inside it, something this document alone can resolve.
+fn names_an_object(value: &Object, depth: usize) -> bool {
+    if depth >= MAX_ENTRY_DEPTH {
+        return true;
+    }
+    match value {
+        Object::Reference(_) | Object::Stream(_) => true,
+        Object::Array(items) => items
+            .iter()
+            .any(|item| names_an_object(item, depth.saturating_add(1))),
+        Object::Dictionary(dict) => dict
+            .iter()
+            .any(|(_, value)| names_an_object(value, depth.saturating_add(1))),
+        _ => false,
     }
 }
 
@@ -633,20 +963,28 @@ impl Node {
     }
 }
 
-/// §12.7.8's file, holding these fields.
+/// §12.7.8's file, holding these fields and whatever Table 240 asked be carried with them.
 ///
-/// §12.7.8.2.2's header, §12.7.8.2.3's body of one indirect object — Table 245's catalog with
-/// its Required `/FDF`, holding Table 246's `/Fields` and, where this document's trailer states
-/// one, its `/ID` — and §12.7.8.2.4's trailer, "[t]he only required key is Root". No
-/// cross-reference table, which §12.7.8.1 says an FDF file need not have. The header's version is
-/// `1.2`, and that is the only number available rather than a choice between several: the
-/// `application/fdf` registration, written by ISO TC 171/SC 2, states that "[o]nly a single
-/// version of FDF has ever been defined, which is version 1.2 that was introduced with PDF 1.2".
+/// §12.7.8.2.2's header, §12.7.8.2.3's body — Table 245's catalog with its Required `/FDF`,
+/// holding Table 246's `/Fields` and, where this document's trailer states one, its `/ID`, plus
+/// one indirect object for each stream [`Carried`] holds — §7.5.4's cross-reference table, and
+/// §12.7.8.2.4's trailer, "[t]he only required key is Root". The header's version is `1.2`, and
+/// that is the only number available rather than a choice between several: the `application/fdf`
+/// registration, written by ISO TC 171/SC 2, states that "[o]nly a single version of FDF has ever
+/// been defined, which is version 1.2 that was introduced with PDF 1.2".
 ///
-/// Table 246's `/F` — "[t]he source file or target file" — is not written, because the document's
-/// path on this machine is the host's knowledge and not this crate's, which is also why Table
-/// 240 bit 12 has nothing to exclude.
-fn fdf(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> Vec<u8> {
+/// **The cross-reference table is written even though §12.7.8.2.1 calls it optional**, and Table
+/// 240 bits 7 and 14 are why: both put a stream in the body, bit 14's holds an entire PDF file,
+/// and the bytes of that file contain `obj` and `endobj` of its own. A consumer that has to find
+/// this file's objects by scanning would find those, so the optional table is what makes the body
+/// unambiguous. `startxref` goes with it, since a table nothing points at is a table nobody
+/// finds.
+fn fdf(
+    document: &Document,
+    entries: &[Entry],
+    carried: &Carried,
+    owed: &mut Vec<String>,
+) -> Vec<u8> {
     let mut root = Node::default();
     for entry in entries {
         let mut node = &mut root;
@@ -685,13 +1023,138 @@ fn fdf(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> Vec<u8
             Object::Array(vec![first.clone(), second.clone()]),
         );
     }
-    let mut catalog = Dictionary::new();
-    catalog.insert(Name::new(&b"FDF"[..]), Object::Dictionary(fdf));
+    if !carried.annotations.is_empty() {
+        fdf.insert(
+            Name::new(&b"Annots"[..]),
+            Object::Array(carried.annotations.clone()),
+        );
+    }
 
-    let mut out = b"%FDF-1.2\n1 0 obj\n".to_vec();
-    pdf_syntax::write::object(&Object::Dictionary(catalog), &mut out);
-    out.extend_from_slice(b"\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+    // The body's indirect objects after the catalog, which is object 1.
+    let mut body: Vec<Object> = Vec::new();
+    if let Some(differences) = &carried.differences {
+        let id = ObjectId::new(next_object(body.len()), 0);
+        fdf.insert(Name::new(&b"Differences"[..]), Object::Reference(id));
+        body.push(stream(Dictionary::new(), differences.clone()));
+    }
+    if let Some(file) = &carried.embedded {
+        let id = ObjectId::new(next_object(body.len()), 0);
+        fdf.insert(Name::new(&b"F"[..]), embedded_file_spec(id));
+        body.push(stream(embedded_file_dictionary(file.len()), file.clone()));
+    }
+
+    let mut out = b"%FDF-1.2\n".to_vec();
+    let mut offsets = Vec::with_capacity(body.len().saturating_add(1));
+    for (index, object) in std::iter::once(&Object::Dictionary({
+        let mut catalog = Dictionary::new();
+        catalog.insert(Name::new(&b"FDF"[..]), Object::Dictionary(fdf));
+        catalog
+    }))
+    .chain(body.iter())
+    .enumerate()
+    {
+        offsets.push(out.len());
+        let mut header = String::new();
+        let _ = writeln!(header, "{} 0 obj", index.saturating_add(1));
+        out.extend_from_slice(header.as_bytes());
+        pdf_syntax::write::object(object, &mut out);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let table_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let mut tail = String::new();
+    // §7.5.4: the first entry of the first subsection "shall be the one with object number 0",
+    // "shall always have a generation number of 65,535" and "shall be the head of the linked list
+    // of free objects".
+    let _ = write!(tail, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(tail, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        tail,
+        "trailer\n<< /Root 1 0 R /Size {size} >>\nstartxref\n{table_at}\n%%EOF\n"
+    );
+    out.extend_from_slice(tail.as_bytes());
     out
+}
+
+/// The object number of the next thing written after the catalog, which is object 1.
+fn next_object(written: usize) -> u32 {
+    u32::try_from(written).unwrap_or(u32::MAX).saturating_add(2)
+}
+
+/// One indirect stream object, with the `/Length` §7.3.8.2 makes required of one.
+///
+/// > The number of bytes from the beginning of the line following the keyword stream to the
+/// > last byte just before the keyword endstream .
+///
+/// No `/Filter`: what these two streams carry is a PDF file and part of one, and compressing a
+/// body that a server is about to read is a trade nobody here has measured.
+fn stream(mut dict: Dictionary, data: Vec<u8>) -> Object {
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(Arc::new(Stream {
+        dict,
+        data: Arc::from(data),
+        decryption_failed: false,
+    }))
+}
+
+/// Table 240 bit 14's `/F`: "a file specification containing an embedded file stream representing
+/// the PDF file from which the FDF is being submitted".
+///
+/// §7.11.3's dictionary form, with Table 43's `/Type` — "[r]equired if an EF, EP or RF entry is
+/// present" — and the `/EF` dictionary whose value "shall be an embedded file stream (see 7.11.4,
+/// "Embedded file streams") containing the corresponding file".
+///
+/// **Table 43's own `/F` is not written, and that is a gap rather than a choice.** The entry is
+/// "[r]equired if the DOS, Mac, and Unix entries are all absent", and it is "[a] file
+/// specification string of the form described in 7.11.2" — a *path*, on the machine this program
+/// is running on. This crate has none: `pdf_syntax::FileBytes` keeps the bytes and not the name
+/// it read them under, deliberately, because `viewer_core`'s rule 2 gives the layers above no
+/// filesystem either. What that entry would say is knowledge of this machine, and the caller
+/// carrying it is a host. [`Carried::save`] owes the sentence.
+fn embedded_file_spec(stream: ObjectId) -> Object {
+    let mut embedded = Dictionary::new();
+    embedded.insert(Name::new(&b"F"[..]), Object::Reference(stream));
+    let mut spec = Dictionary::new();
+    spec.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Filespec"[..])),
+    );
+    spec.insert(Name::new(&b"EF"[..]), Object::Dictionary(embedded));
+    Object::Dictionary(spec)
+}
+
+/// Table 44's entries for the stream that `/EF` names.
+///
+/// `/Subtype` is the media type, which the table requires be one: "[t]he value of this entry
+/// shall conform to the MIME media type names defined in Internet RFC 2046, with the provision
+/// that characters not permitted in names shall use the 2-character hexadecimal code format
+/// described in 7.3.5". Table 240 bit 9 states PDF's own — `application/pdf` — and §7.3.5 is what
+/// turns its SOLIDUS into `#2F`, inside `Name::escaped` rather than here.
+///
+/// Table 45's `/Size` is "[t]he size of the uncompressed embedded file, in bytes", which is the
+/// data's own length because nothing here writes a `/Filter`.
+fn embedded_file_dictionary(size: usize) -> Dictionary {
+    let mut params = Dictionary::new();
+    params.insert(
+        Name::new(&b"Size"[..]),
+        Object::Integer(i64::try_from(size).unwrap_or(i64::MAX)),
+    );
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"EmbeddedFile"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"application/pdf"[..])),
+    );
+    dict.insert(Name::new(&b"Params"[..]), Object::Dictionary(params));
+    dict
 }
 
 /// HTML 4.01 section 17.13.4's `application/x-www-form-urlencoded`, over these fields.

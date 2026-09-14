@@ -1393,10 +1393,13 @@ fn complete(
         interpreter.note(Unsupported::Font { detail });
     }
 
+    // §11.7.5.3's black generation, said once for the whole interpretation: the statement is
+    // monotone for the page and the conversion it would act on is this run's. ADR 1069.
+    interpreter.note_black_generation_departure();
+
     // Whether the page may keep the run it was drawn in. A four-component pair answers to
     // every reason `blending_undrawable` names; a grey run answers to one — a group inside
-    // that changed the space with something compositing in it — because §11.7.5.3's black
-    // generation is on no route into grey and there is no press to be beyond.
+    // that changed the space with something compositing in it.
     let drawable = match interpreter.compositing {
         Compositing::Grey | Compositing::Calibrated(_) | Compositing::Additive(_) => {
             !interpreter.nested_space_departed
@@ -2020,8 +2023,14 @@ struct Interpreter<'a> {
     /// [`Interpreter::build_soft_mask`] scopes this flag the way it already scoped
     /// [`Interpreter::blending`]. ADR 0276.
     blending_changed: bool,
-    /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
-    /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
+    /// Whether any `/ExtGState` or pattern on this page states Table 57's black generation or
+    /// undercolour removal as a *function* of its own.
+    ///
+    /// §11.7.5.3 puts those inside §10.4.2.4's conversion into a `DeviceCMYK` group, which is on
+    /// the branch §10.4.2.1 ranks below the one this tree converts on — so what the statement
+    /// decides is a departure named once per interpretation rather than a colour (ADR 1069,
+    /// [`Interpreter::note_black_generation_departure`]). Monotone for the page, because the
+    /// parameters apply wherever a conversion happens and not only where a `gs` set them.
     black_generation_stated: bool,
     /// Whether §11.7.5.2's opacity conditions held wherever the content being run was invoked.
     ///

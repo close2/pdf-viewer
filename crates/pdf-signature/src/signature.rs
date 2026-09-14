@@ -72,6 +72,7 @@
 //! therefore asks before it answers that step's second sentence.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
 use crate::der;
@@ -1168,16 +1169,34 @@ impl Signature {
     /// opens no socket and asks no clock, and [`crate::trust::TrustAnchors::none`] — which is
     /// what every caller in this tree passes today — yields [`Trust::NoAnchorSupplied`]. ADR 1039.
     ///
-    /// **Nothing this returns means *valid*.** Revocation is RFC 5280 section 6.1.3 (a)(3) and is
-    /// not checked, which [`Trust::Anchored`] says in its own field rather than in a comment.
+    /// **`material` is §12.8.4's, and is the one input that does not come from outside.** RFC 5280
+    /// section 6.1.3 (a)(3) — revocation — is answered from the CRLs and OCSP responses the
+    /// *document* carries, which is what a document security store exists for; [`security_store`]
+    /// is what reads them and [`crate::revocation`] what applies them. Nothing here opens a socket.
+    ///
+    /// **Nothing this returns means *valid*.** A [`crate::revocation::Revocation::Good`] says the
+    /// material in this file does not revoke the certificate, and says nothing about whether the
+    /// signer is anybody — which is still [`Trust::NoAnchorSupplied`]'s answer in this tree.
     #[must_use]
-    pub fn trust(&self, anchors: &TrustAnchors<'_>, at: Instant) -> Trust {
+    pub fn trust(
+        &self,
+        anchors: &TrustAnchors<'_>,
+        material: &crate::revocation::Material<'_>,
+        at: Instant,
+    ) -> Trust {
         if anchors.is_empty() {
             return Trust::NoAnchorSupplied;
         }
         let Ok(cms) = self.signed_data() else {
             return Trust::NoPathToAnyAnchor { examined: 0 };
         };
+        // §12.8.4's store and §12.8.3.3.2's signed attribute are one supply, and §12.8.4.2 is
+        // what puts the material in two places rather than one: "Some of this information, i.e.
+        // certificates, CRLs and OCSP responses, when not already present in the signature, shall
+        // be stored in a document security store (DSS)". So a verifier needs whichever the
+        // producer used — the caller supplies the store, and the signature carries its own.
+        let mut material = material.clone();
+        material.absorb(crate::revocation::archived(&cms));
         let Some(signer) = signer_certificate(&cms) else {
             return Trust::NoPathToAnyAnchor { examined: 0 };
         };
@@ -1193,7 +1212,7 @@ impl Signature {
             .filter_map(|entry| x509::read(*entry).ok())
             .filter(|candidate| candidate.tbs != target.tbs)
             .collect();
-        trust::validate(&target, &others, anchors, at)
+        trust::validate(&target, &others, anchors, &material, at)
     }
 
     /// **Has this document changed since it was signed?**, over the bytes of `file`.
@@ -2887,51 +2906,134 @@ fn changes(document: &Document, dict: &Dictionary) -> Option<[i64; 3]> {
     ])
 }
 
-/// §12.8.4.3's document security store: the material a later validation would need. Table 261.
+/// §12.8.4.3's document security store: the material a later validation needs. Table 261.
 ///
-/// The clause's own list of what it holds is a list of *certificates*, and none of it is this
-/// program's to interpret: an array of certificates, "an array of all Certificate Revocation
-/// Lists (CRL) (see Internet RFC 5280 )", an array of OCSP responses (RFC 6960), and a `/VRI`
-/// map keyed by "the base-16-encoded (uppercase) SHA-1 digest of the signature to which it
-/// applies".
+/// §12.8.4.2 says what it is for, and the sentence is the reason this type holds bytes rather than
+/// counts:
 ///
-/// So this counts them and stops. **This paragraph used to say "[p]arsing a certificate is X.509
-/// and a trust decision", and the three-hundred-and-ninety-second session made the first half of
-/// that false**: [`crate::x509`] parses one. What has not changed is the second half and it is the
-/// one that decides this row — a certificate here would be read to *validate a certification path*,
-/// which is question 3, and reading the bytes is the smallest part of that. Counting them says the
-/// one thing a person might want from a program that cannot validate — **whether the document
-/// carries what a validator would need**, which is the whole point of §12.8.4's "long term
-/// validation".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// > A PDF signature may not be successfully verified unless its collateral validation components
+/// > are preserved, e.g., certificates, CRLs, timestamp tokens, revocation lists, and OCSP
+/// > responses.
+///
+/// Table 261's three arrays are "indirect references to streams", each holding one DER encoding —
+/// an X.509 certificate, a CRL, or an OCSP response — and `/VRI` maps a signature to the subset of
+/// them that validated it. What this type does with them is nothing: it decodes each stream and
+/// names what it could not, and [`crate::revocation`] is what reads the material itself.
+///
+/// **This used to be four counts**, on the argument that "a certificate here would be read to
+/// validate a certification path, which is question 3, and reading the bytes is the smallest part
+/// of that". The path validation arrived in the thousand-and-twenty-second session
+/// ([`crate::trust`], ADR 1039) and the revocation step in the thousand-and-fifty-third (ADR 1067),
+/// so the smallest part is now the part that was missing. The counts are still available, as
+/// lengths.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SecurityStore {
-    /// How many certificates `/Certs` holds.
-    pub certificates: usize,
-    /// How many certificate revocation lists `/CRLs` holds.
-    pub revocation_lists: usize,
-    /// How many OCSP responses `/OCSPs` holds.
-    pub ocsp_responses: usize,
-    /// How many signatures `/VRI` carries validation information for.
+    /// `/Certs`, each entry's decoded stream — "one DER-encoded X.509 certificate".
+    pub certificates: Vec<Arc<[u8]>>,
+    /// `/CRLs`, each entry's decoded stream — "a DER-encoded Certificate Revocation List (CRL)".
+    pub revocation_lists: Vec<Arc<[u8]>>,
+    /// `/OCSPs`, each entry's decoded stream — "a DER-encoded Online Certificate Status Protocol
+    /// (OCSP) response".
+    pub ocsp_responses: Vec<Arc<[u8]>>,
+    /// `/VRI`, one entry per signature somebody has already validated.
     ///
-    /// One entry per signature "that a given signature handler or PDF processor has used to
-    /// successfully validate the given signature" — the clause is explicit that a VRI records
-    /// only successes: "[a] signature VRI dictionary shall not be used to record the information
-    /// used in an unsuccessful validation attempt."
-    pub validated_signatures: usize,
+    /// The clause is explicit that a VRI records only successes: "[a] signature VRI dictionary
+    /// shall not be used to record the information used in an unsuccessful validation attempt."
+    pub validation_information: Vec<Vri>,
+    /// What this reader would not take, by name and by where it was.
+    ///
+    /// Kept rather than dropped because a store this program could only half read is a fact about
+    /// the document that a person checking a signature is owed: a missing CRL is the difference
+    /// between an answer and [`crate::revocation::Revocation::Unknown`].
+    pub refused: Vec<StoreRefusal>,
+}
+
+/// How many entries of one Table 261 array are read.
+///
+/// Neither §12.8.4.3 nor Table 262 states a ceiling, so this is a bound on work over a stranger's
+/// file rather than a reading of the standard. A path is at most [`crate::trust::MAX_PATH_LENGTH`]
+/// certificates and each needs one CRL or one response, so a store an order of magnitude past
+/// [`crate::trust::MAX_CANDIDATES`] is past anything a validation can consume.
+pub const MAX_STORE_ENTRIES: usize = 1024;
+
+/// What a document security store held that this reader would not take.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum StoreRefusal {
+    /// An array entry is not a stream. Table 261 says each is "an indirect reference to streams".
+    #[error("{key}[{index}] of this document's security store is not a stream")]
+    NotAStream {
+        /// The Table 261 or Table 262 key whose array it was in.
+        key: &'static str,
+        /// Which entry of that array.
+        index: usize,
+    },
+    /// An array entry is a stream whose filters would not decode.
+    #[error("{key}[{index}] of this document's security store is a stream that will not decode")]
+    StreamNotDecodable {
+        /// The Table 261 or Table 262 key whose array it was in.
+        key: &'static str,
+        /// Which entry of that array.
+        index: usize,
+    },
+    /// An array states more than [`MAX_STORE_ENTRIES`] entries, so some were not read.
+    #[error("{key} of this document's security store states more entries than this reader takes")]
+    MoreEntriesThanRead {
+        /// The Table 261 or Table 262 key whose array it was.
+        key: &'static str,
+    },
+}
+
+/// One signature's validation-related information — Table 262's VRI dictionary.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Vri {
+    /// The key this dictionary sat under, as the file spells it.
+    ///
+    /// Table 261: "the base-16-encoded (uppercase) SHA-1 digest of the signature to which it
+    /// applies". Kept as the file's own characters and never re-cased, so that a producer writing
+    /// it in lower case is visible rather than silently accepted.
+    pub signature_digest: String,
+    /// `/Cert`, "certificates that were used in the validation of this signature".
+    pub certificates: Vec<Arc<[u8]>>,
+    /// `/CRL`, "all CRLs used to determine the validity of the certificates in the chains related
+    /// to this signature".
+    pub revocation_lists: Vec<Arc<[u8]>>,
+    /// `/OCSP`, the same for OCSP responses.
+    pub ocsp_responses: Vec<Arc<[u8]>>,
+    /// `/TU`, "[t]he date/time at which this signature VRI dictionary was created", as the date
+    /// string the file states.
+    pub created: Option<String>,
+    /// `/TS`, a timestamp token over the same moment, as its decoded stream.
+    pub timestamp: Option<Arc<[u8]>>,
 }
 
 impl SecurityStore {
     /// Whether the document carries any validation material at all.
     #[must_use]
-    pub fn is_empty(self) -> bool {
-        self.certificates == 0
-            && self.revocation_lists == 0
-            && self.ocsp_responses == 0
-            && self.validated_signatures == 0
+    pub fn is_empty(&self) -> bool {
+        self.certificates.is_empty()
+            && self.revocation_lists.is_empty()
+            && self.ocsp_responses.is_empty()
+            && self.validation_information.is_empty()
+    }
+
+    /// The revocation material this store holds, read as RFC 5280 and RFC 6960 structures.
+    ///
+    /// Everything in `/CRLs` and `/OCSPs`, and not a `/VRI`'s selection of them: Table 262 says a
+    /// VRI's arrays are a subset — "[e]ach stream shall reference a CRL that is an entry in the
+    /// CRLs array in the DSS dictionary" — and §12.8.4.3 says the selection exists "for
+    /// optimisation or to remove ambiguity" rather than to narrow what is applicable. Applying the
+    /// whole store can only widen what is covered, and every answer is still checked against the
+    /// path's own keys.
+    #[must_use]
+    pub fn material(&self) -> crate::revocation::Material<'_> {
+        let crls: Vec<&[u8]> = self.revocation_lists.iter().map(AsRef::as_ref).collect();
+        let ocsps: Vec<&[u8]> = self.ocsp_responses.iter().map(AsRef::as_ref).collect();
+        crate::revocation::Material::read(&crls, &ocsps)
     }
 }
 
-/// §12.8.4.3's `/DSS`, counted.
+/// §12.8.4.3's `/DSS`, read.
 #[must_use]
 pub fn security_store(document: &Document) -> SecurityStore {
     let Ok(catalog) = document.catalog() else {
@@ -2941,22 +3043,70 @@ pub fn security_store(document: &Document) -> SecurityStore {
     let Some(dss) = dss.as_dict() else {
         return SecurityStore::default();
     };
-    let count = |key: &str| {
-        document
-            .get_key(dss, key)
-            .as_array()
-            .map_or(0, <[Object]>::len)
-    };
-    SecurityStore {
-        certificates: count("Certs"),
-        revocation_lists: count("CRLs"),
-        ocsp_responses: count("OCSPs"),
-        validated_signatures: document.get_key(dss, "VRI").as_dict().map_or(0, |vri| {
-            vri.iter()
-                .filter(|(key, _)| key.as_bytes() != b"Type")
-                .count()
-        }),
+    let mut store = SecurityStore::default();
+    store.certificates = streams(document, dss, "Certs", &mut store.refused);
+    store.revocation_lists = streams(document, dss, "CRLs", &mut store.refused);
+    store.ocsp_responses = streams(document, dss, "OCSPs", &mut store.refused);
+    if let Some(vri) = document.get_key(dss, "VRI").as_dict() {
+        for (key, value) in vri.iter() {
+            if key.as_bytes() == b"Type" {
+                continue;
+            }
+            if store.validation_information.len() >= MAX_STORE_ENTRIES {
+                store
+                    .refused
+                    .push(StoreRefusal::MoreEntriesThanRead { key: "VRI" });
+                break;
+            }
+            let Some(entry) = document.resolve(value).as_dict().cloned() else {
+                continue;
+            };
+            store.validation_information.push(Vri {
+                signature_digest: String::from_utf8_lossy(key.as_bytes()).into_owned(),
+                certificates: streams(document, &entry, "Cert", &mut store.refused),
+                revocation_lists: streams(document, &entry, "CRL", &mut store.refused),
+                ocsp_responses: streams(document, &entry, "OCSP", &mut store.refused),
+                created: document
+                    .get_key(&entry, "TU")
+                    .as_string()
+                    .map(|bytes| String::from_utf8_lossy(bytes).into_owned()),
+                timestamp: document
+                    .get_key(&entry, "TS")
+                    .as_stream()
+                    .and_then(|stream| document.decoded_stream_data(stream)),
+            });
+        }
     }
+    store
+}
+
+/// One Table 261 or Table 262 array of streams, decoded, with what would not decode named.
+fn streams(
+    document: &Document,
+    dict: &Dictionary,
+    key: &'static str,
+    refused: &mut Vec<StoreRefusal>,
+) -> Vec<Arc<[u8]>> {
+    let entries = document.get_key(dict, key);
+    let Some(entries) = entries.as_array() else {
+        return Vec::new();
+    };
+    if entries.len() > MAX_STORE_ENTRIES {
+        refused.push(StoreRefusal::MoreEntriesThanRead { key });
+    }
+    let mut read = Vec::new();
+    for (index, entry) in entries.iter().take(MAX_STORE_ENTRIES).enumerate() {
+        let resolved = document.resolve(entry);
+        let Some(stream) = resolved.as_stream() else {
+            refused.push(StoreRefusal::NotAStream { key, index });
+            continue;
+        };
+        match document.decoded_stream_data(stream) {
+            Some(bytes) => read.push(bytes),
+            None => refused.push(StoreRefusal::StreamNotDecodable { key, index }),
+        }
+    }
+    read
 }
 
 /// §12.8.7's legal attestation dictionary: what the author says is in the document. Table 264.
@@ -3426,10 +3576,10 @@ mod tests {
         ]);
 
         let store = security_store(&doc);
-        assert_eq!(store.certificates, 2);
-        assert_eq!(store.revocation_lists, 0);
-        assert_eq!(store.ocsp_responses, 1);
-        assert_eq!(store.validated_signatures, 1);
+        assert_eq!(store.certificates.len(), 2);
+        assert_eq!(store.revocation_lists.len(), 0);
+        assert_eq!(store.ocsp_responses.len(), 1);
+        assert_eq!(store.validation_information.len(), 1);
         assert!(!store.is_empty());
 
         let legal = legal(&doc).expect("a /Legal dictionary");

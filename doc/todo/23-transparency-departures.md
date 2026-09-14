@@ -110,7 +110,8 @@ told them apart:
 | a profile with no way in — no `B2A` this crate reads, or a curve with no inverse | §11.3.4: "the ICC profile shall be capable of both device to PCS and PCS to device transformations" | **stays reported, for good.** §11.6.5.1 makes the `/CS` "the colour space in which the compositing computation is to be performed" and there is nothing to convert the group's marks into |
 | ~~a four-component profile as a *mask* group's `/CS`~~ | §11.5.3's colorimetric branch, §11.4.7's per-component compositing | **paid in the nine-hundred-and-seventh** (ADRs 0856, 0857). It was the one row of the six that named a construction rather than a condition the file fails, and the construction was buildable: the mask group is the pair of rasters and the `Y` is the press's own over four axes. What is left on the row is the *budget* — a page that has already named `colour::MAX_PRESSES` distinct presses — which is a bound rather than a debt |
 | ~~a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent, or two different spaces nested~~ | §11.6.6 puts a conversion at the `Do` | **paid in session 1039** (ADR 1056): the group's conversion out is composed with the parent's conversion in (`transparency::composed_into_parent`) and the backend resolves the composition as it resolved the group's own; every pairing of the spaces this tree draws is built, a press inside a press and a group inside a mask's group included. What is left is an isolated knockout group naming four components, whose §11.4.6 rewrite would have to reach both halves of its pair |
-| four components no profile backs, and §11.7.5.3's black generation | — | **a debt** and **inapplicable-by-file** respectively; unchanged |
+| four components no profile backs | — | **a debt**; unchanged |
+| ~~§11.7.5.3's black generation~~ | §10.4.2.1's fork | **paid in session 1055** (ADR 1069), and by reading rather than building: the functions parameterise §10.4.2.4, which §10.4.2.1 ranks below the branch this tree converts on, so the refusal bought nothing the fallback did not also fail to buy. The page keeps §11.4.7's space and the departure is named (`Unsupported::BlackGeneration`). The reading was already in this file — see "§11.7.5.3 does not name §10.4.2.4" below, written in the four-hundred-and-twenty-seventh — and the refusal outlived it by six hundred sessions |
 
 **Three of the six are not owed work at all**, a fourth is paid,, and that is worth saying plainly because a
 `reported` row reads like a debt whether or not it is one: each of the first three names a
@@ -176,7 +177,8 @@ list's vocabulary and not the arithmetic. 8 web documents and 0 corpus ones is w
 the other two backends refuse it by name. What the row keeps is the *other* direction — a three-
 or one-component group inside a four-component parent, whose conversion out lands in the parent's
 ink per pixel, which is a conversion between two presses no sampled grid here expresses — plus
-four components no profile backs and §11.7.5.3's stated black generation. **The one-component
+four components no profile backs. §11.7.5.3's stated black generation was a third until session
+1055 (ADR 1069). **The one-component
 group on a page compositing on the device is drawn since the eight-hundred-and-sixty-fifth** (ADR
 0790, `Interpreter::group_grey`): its result is grey in every channel and §10.4.2.2's conversion
 out is the identity on that, so it composites onto its parent as any group does. The one-component

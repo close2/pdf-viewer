@@ -64,6 +64,11 @@ fn form() -> Vec<u8> {
          /T (mapped) /TM (short) /V (m) /DA (/Helv 12 Tf 0 g) >>\nendobj\n"
         .to_owned();
 
+    assembled(&body)
+}
+
+/// §7.5.4's cross-reference table and §7.5.5's trailer over a body of `N 0 obj … endobj` objects.
+fn assembled(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -82,6 +87,29 @@ fn form() -> Vec<u8> {
         "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// Two pages of annotations, of both kinds Table 171's `Markup` column distinguishes.
+///
+/// Object by object: 3 is page one, carrying 5 a `/Highlight` — markup, with an `/AP` naming
+/// object 8 and a `/P` naming its page — and 6 a `/Link`, which the column says is not; 4 is page
+/// two, carrying 7 a `/Text` (markup) and 9 a `/Popup` (not).
+fn marked_up() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R] \
+         >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [7 0 R 9 0 R] \
+         >>\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Highlight /Rect [10 10 90 30] /P 3 0 R \
+         /T (Ada) /Contents (looks wrong) /QuadPoints [10 30 90 30 10 10 90 10] /AP 8 0 R \
+         >>\nendobj\n\
+         6 0 obj\n<< /Type /Annot /Subtype /Link /Rect [10 40 90 60] /P 3 0 R >>\nendobj\n\
+         7 0 obj\n<< /Type /Annot /Subtype /Text /Rect [20 20 40 40] /P 4 0 R /T (Grace) \
+         /Contents (a note) >>\nendobj\n\
+         8 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         9 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [50 50 90 90] /P 4 0 R >>\nendobj\n";
+    assembled(body)
 }
 
 /// The fixture, opened.
@@ -154,6 +182,268 @@ fn holds(submission: &Submission, name: &str, value: Option<&str>) -> bool {
 /// Whether the read-back FDF names this field at all.
 fn names(submission: &Submission, name: &str) -> bool {
     fdf_fields(submission).iter().any(|(held, _)| held == name)
+}
+
+/// The composed FDF, opened, and the Table 246 dictionary inside it.
+///
+/// The document is returned with the dictionary because it owns the bytes every value in it was
+/// read from.
+fn fdf_dictionary(submission: &Submission) -> (Document, pdf_syntax::Dictionary) {
+    let document = Document::open(pdf_syntax::FileBytes::from(submission.body.clone()))
+        .expect("the composed FDF parses as §12.7.8.1's file");
+    let catalog = document.catalog().expect("§12.7.8.2.4's /Root");
+    let fdf = document
+        .get_key(&catalog, "FDF")
+        .as_dict()
+        .cloned()
+        .expect("Table 245's Required /FDF");
+    (document, fdf)
+}
+
+/// The composed FDF read by the reader §12.7.6.4's import uses.
+fn fdf_data(submission: &Submission) -> FormsData {
+    let document = Document::open(pdf_syntax::FileBytes::from(submission.body.clone()))
+        .expect("the composed FDF parses as §12.7.8.1's file");
+    FormsData::read(&document).expect("and identifies itself with §12.7.8.3's /FDF")
+}
+
+/// Table 240 bit 7: "the submitted FDF file shall include the contents of all incremental updates
+/// to the underlying PDF document, as contained in the Differences entry in the FDF dictionary".
+///
+/// Table 246 says what those bytes are — "[a] stream containing all the bytes in all incremental
+/// updates made to the underlying PDF document since it was opened" — and requires the update
+/// that produces them: "[a]n incremental update shall be automatically performed just before the
+/// submission takes place, in order to capture all changes made to the document." The assertion
+/// is therefore an identity and not a search: the file as it was opened, followed by this stream,
+/// is byte for byte what `ViewState::save` writes.
+#[test]
+fn include_append_saves_carries_the_update_and_nothing_that_came_before_it() {
+    let document = document();
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(
+            &document,
+            "name",
+            &pdf_model::view::Entered::Text("typed".to_owned())
+        ),
+        1,
+        "there is something for the update to carry"
+    );
+    let submission =
+        compose(&document, &view, &action(64, ""), None).expect("the composition succeeds");
+
+    let (fdf_document, fdf) = fdf_dictionary(&submission);
+    let differences = fdf_document.get_key(&fdf, "Differences");
+    let differences = differences
+        .as_stream()
+        .expect("Table 246 types /Differences as a stream");
+    let saved = view
+        .save(&document)
+        .expect("§7.5.6's update is writable")
+        .bytes;
+    let opened = form().len();
+    assert_eq!(
+        &differences.data[..],
+        &saved[opened..],
+        "the bytes the update appended, and those only"
+    );
+    assert!(
+        !differences.data.starts_with(b"%PDF"),
+        "an update rather than a file: bit 9 is what sends the whole document"
+    );
+
+    // The calibration (trap 13): the same document, the same view, the bit clear. An entry that
+    // appeared either way would be saying nothing about the flag.
+    let without = compose(&document, &view, &action(0, ""), None).expect("composes");
+    let (without_document, without_fdf) = fdf_dictionary(&without);
+    assert!(
+        without_document
+            .get_key(&without_fdf, "Differences")
+            .is_null(),
+        "\"If clear, the incremental updates shall not be included.\""
+    );
+}
+
+/// Table 240 bit 8, whose FDF carries "all markup annotations in the underlying PDF document
+/// (see 12.5.6.2, "Markup annotations")".
+///
+/// §12.7.8.3.4 makes the page ordinal required of each — Table 254's `/Page`, "[t]he ordinal page
+/// number on which this annotation shall appear, where page 0 is the first page" — so the fixture
+/// puts one markup annotation on each of two pages and one non-markup annotation beside each:
+/// Table 171's `Markup` column says `No` of `/Link` and of `/Popup`, and Table 246's own `/Annots`
+/// note excludes `Link` by name.
+#[test]
+fn include_annotations_writes_the_markup_ones_with_the_page_each_is_on() {
+    let document =
+        Document::open(pdf_syntax::FileBytes::from(marked_up())).expect("the fixture parses");
+    let view = ViewState::of(&document);
+    let with = compose(&document, &view, &action(128, ""), None).expect("the composition succeeds");
+
+    let read = fdf_data(&with);
+    let carried: Vec<(Option<&str>, Option<usize>)> = read
+        .annotations
+        .iter()
+        .map(|annotation| (annotation.subtype.as_deref(), annotation.page))
+        .collect();
+    assert_eq!(
+        carried,
+        vec![(Some("Highlight"), Some(0)), (Some("Text"), Some(1))],
+        "the two markup annotations, each with its own page ordinal"
+    );
+
+    // What could not travel is named rather than dropped: `/AP` resolves to a stream of this
+    // document's and `/P` is "[a]n indirect reference to the page object", which Table 254's
+    // `/Page` replaces.
+    assert!(
+        with.owed
+            .iter()
+            .any(|owed| owed.contains("/AP") && owed.contains("no object space")),
+        "{:?}",
+        with.owed
+    );
+
+    // The calibration (trap 13): clear the bit and the same document yields no `/Annots` at all.
+    let without = compose(&document, &view, &action(0, ""), None).expect("composes");
+    assert!(
+        fdf_data(&without).annotations.is_empty(),
+        "\"If clear, markup annotations shall not be included.\""
+    );
+}
+
+/// §12.7.6.2's Table 240 bit 11, which narrows bit 8 by a name this program cannot learn:
+///
+/// > If set, it shall include only those markup annotations whose T entry … matches the name of
+/// > the current user, as determined by the remote server to which the form is being submitted.
+///
+/// *As determined by the remote server* — so the predicate belongs to the party with the network,
+/// which principle 3 keeps out of this process. Of the two ways to be wrong, sending an annotation
+/// that does not match breaks the bit's own *only* and sending none breaks nothing the table
+/// states, because bit 11 is itself a narrowing of bit 8. The narrowing is applied whole, and the
+/// sentence goes to the host that has the server.
+#[test]
+fn excluding_other_users_annotations_withholds_them_all_and_says_whose_name_is_missing() {
+    let document =
+        Document::open(pdf_syntax::FileBytes::from(marked_up())).expect("the fixture parses");
+    let view = ViewState::of(&document);
+
+    let all = compose(&document, &view, &action(128, ""), None).expect("composes");
+    assert_eq!(
+        fdf_data(&all).annotations.len(),
+        2,
+        "bit 8 alone carries both"
+    );
+
+    let narrowed = compose(&document, &view, &action(128 | 1024, ""), None).expect("composes");
+    assert!(
+        fdf_data(&narrowed).annotations.is_empty(),
+        "and bit 11 beside it carries neither"
+    );
+    assert!(
+        narrowed
+            .owed
+            .iter()
+            .any(|owed| owed.contains("ExclNonUserAnnots") && owed.contains("current user")),
+        "with the reason: {:?}",
+        narrowed.owed
+    );
+}
+
+/// Table 240 bit 14: "the F entry of the submitted FDF shall be a file specification containing an
+/// embedded file stream representing the PDF file from which the FDF is being submitted".
+#[test]
+fn embed_form_puts_the_whole_document_in_the_fdfs_file_specification() {
+    let submission = composed(8192, "");
+    let (fdf_document, fdf) = fdf_dictionary(&submission);
+    // §7.5.2 measures every offset in the table from the header, and this file has a second
+    // thing that looks like one a few hundred bytes in — the embedded PDF's own. A document
+    // recovered by scanning here would have found *that* file's objects (ADR 1066).
+    assert!(
+        !fdf_document.was_recovered(),
+        "the FDF's own cross-reference table is what was read"
+    );
+
+    let specification = fdf_document.get_key(&fdf, "F");
+    let specification = specification
+        .as_dict()
+        .expect("§7.11.3's dictionary form, which is the only one that can hold an /EF");
+    assert!(
+        fdf_document
+            .get_key(specification, "Type")
+            .as_name()
+            .is_some_and(|name| name == &"Filespec"),
+        "Table 43's /Type is \"[r]equired if an EF, EP or RF entry is present\""
+    );
+    let embedded = fdf_document.get_key(specification, "EF");
+    let embedded = embedded.as_dict().expect("Table 43's /EF");
+    let file = fdf_document.get_key(embedded, "F");
+    let file = file.as_stream().expect("§7.11.4's embedded file stream");
+    assert!(
+        file.data.starts_with(b"%PDF-1.7"),
+        "the file it was submitted from"
+    );
+    assert!(
+        file.data.len() > form().len(),
+        "with §7.5.6's update on the end of it: {} against {}",
+        file.data.len(),
+        form().len()
+    );
+    // Table 44's `/Subtype` "shall conform to the MIME media type names defined in Internet RFC
+    // 2046", and §7.3.5 is what spells its SOLIDUS `#2F` on the way out.
+    assert!(
+        fdf_document
+            .get_key(&file.dict, "Subtype")
+            .as_name()
+            .is_some_and(|name| name == &"application/pdf"),
+        "Table 44's media type"
+    );
+
+    // What the specification cannot say is said instead, because Table 43 requires it and this
+    // crate has no path to put in it.
+    assert!(
+        submission
+            .owed
+            .iter()
+            .any(|owed| owed.contains("EmbedForm") && owed.contains("states no name")),
+        "{:?}",
+        submission.owed
+    );
+    // And the reader this program imports with sees the embedded file rather than reading the
+    // specification as naming nothing.
+    assert!(
+        fdf_data(&submission)
+            .owed
+            .contains(&"/F: a file specification carrying the source document as an embedded file"),
+        "{:?}",
+        fdf_data(&submission).owed
+    );
+
+    // The calibration (trap 13): the bit clear, and there is no `/F` for anything to be in.
+    let without = composed(0, "");
+    let (without_document, without_fdf) = fdf_dictionary(&without);
+    assert!(without_document.get_key(&without_fdf, "F").is_null());
+}
+
+/// Table 240 bit 12 against bit 14: "If set, the submitted FDF shall exclude the F entry."
+///
+/// Two flags of one table asking for opposite things about one entry, and the exclusion wins:
+/// writing the `/F` would be choosing which of the two to disobey, where leaving it out obeys the
+/// one that speaks about the entry's presence. What bit 14 then loses is named.
+#[test]
+fn excluding_the_f_key_beats_embedding_the_form() {
+    let submission = composed(2048 | 8192, "");
+    let (fdf_document, fdf) = fdf_dictionary(&submission);
+    assert!(
+        fdf_document.get_key(&fdf, "F").is_null(),
+        "the entry bit 12 excludes"
+    );
+    assert!(
+        submission
+            .owed
+            .iter()
+            .any(|owed| owed.contains("ExclFKey") && owed.contains("EmbedForm")),
+        "{:?}",
+        submission.owed
+    );
 }
 
 /// §12.7.6.2 names what goes and what it is called:
@@ -445,18 +735,16 @@ fn coordinates_asked_for_without_a_click_are_owed_rather_than_invented() {
 /// Trap 5 at the level of a whole table: every flag of Table 240 that this composition does not
 /// carry out arrives as a sentence, because a submission quietly missing one reports nothing.
 ///
-/// Bits 7, 8, 10, 11 and 14, all set at once against an FDF submission.
+/// Two are left, and each is somebody else's knowledge rather than unwritten code. Bit 10's
+/// `CanonicalFormat` converts "any submitted field values representing dates", and its own NOTE 1
+/// says which those are is "not specified explicitly in the field itself but only in the
+/// ECMAScript code that processes it" — which `CLAUDE.md` excludes. Bit 11's `ExclNonUserAnnots`
+/// narrows by a name "determined by the remote server".
 #[test]
 fn every_flag_the_composition_does_not_apply_is_named() {
-    let submission = composed(64 | 128 | 512 | 1024 | 8192, "");
+    let submission = composed(512 | 1024, "");
     let owed = submission.owed.join("\n");
-    for named in [
-        "IncludeAppendSaves",
-        "IncludeAnnotations",
-        "CanonicalFormat",
-        "ExclNonUserAnnots",
-        "EmbedForm",
-    ] {
+    for named in ["CanonicalFormat", "ExclNonUserAnnots"] {
         assert!(
             owed.contains(named),
             "{named} is not silently dropped: {owed}"

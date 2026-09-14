@@ -1433,13 +1433,27 @@ impl<'a> Encoder<'a> {
             // The outermost link of every chain hangs from the page's own boundary.
             None => self.root,
         };
-        let outline = self.transient_outline(&def.path)?;
-        let link = builder.clip(
-            outline,
-            self.placed(def.transform),
-            fill_rule(def.fill_rule),
-            parent,
-        )?;
+        // ISO 32000-2 §10.7.4: "For clipping, the clipping region consists of the set of pixels
+        // that would be included by a fill operation", and the clause's own EXAMPLE says what a
+        // fill of a flat rectangle includes — "[a] zero-width or zero-height rectangle paints a
+        // line 1 pixel wide". `pdf_render::clip_region` builds that region for every backend, so
+        // that a clip and a fill of one path cannot disagree and neither can two rasterisers
+        // (ADR 1064). raster's own encode places a *fill*'s marks per viewport from the collapse
+        // table resident on the outline; a clip's are baked here instead, which is a decision
+        // about this target's pixel grid and so consumes the view (ADR 0702).
+        let region = pdf_render::clip_region(
+            &def.path,
+            def.fill_rule,
+            def.transform.then(self.target.transform),
+        );
+        let (outline, rule) = match &region {
+            Some((region, rule)) => {
+                self.consume_view();
+                (self.transient_outline(region)?, *rule)
+            }
+            None => (self.transient_outline(&def.path)?, def.fill_rule),
+        };
+        let link = builder.clip(outline, self.placed(def.transform), fill_rule(rule), parent)?;
         let resolved = ResolvedClip::Chain(link);
         self.clips.insert(id.index(), resolved);
         Ok(resolved)

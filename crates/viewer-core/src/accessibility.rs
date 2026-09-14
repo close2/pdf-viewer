@@ -1173,6 +1173,11 @@ pub(crate) struct Readback<'a> {
     /// viewport is [`finish`]'s `place` — the same one Table 379's rectangle takes, because both
     /// clauses state their rectangle in the same space.
     pub(crate) places: &'a BTreeMap<ObjectId, [f32; 4]>,
+    /// Table 166's `/Lang` for each annotation of this page that states one.
+    ///
+    /// [`pdf_model::structure::annotation_languages`] is what reads it, and
+    /// [`referenced_language`] is where it wins over §14.9.2.3's hierarchy.
+    pub(crate) languages: &'a BTreeMap<ObjectId, String>,
     /// §12.7's control for each widget annotation of a field with a widget on this page.
     pub(crate) controls: &'a BTreeMap<ObjectId, pdf_model::form::Control>,
 }
@@ -1210,7 +1215,7 @@ pub(crate) fn finish(
         role: gathered.role,
         name,
         substituted,
-        language: gathered.language,
+        language: referenced_language(&gathered.objects, page.languages).or(gathered.language),
         quads: all,
         header_scope: gathered.header_scope,
         summary: gathered.summary,
@@ -1402,6 +1407,40 @@ fn marked_extent(marked: &[MarkedSpan], mcids: &[Sequence]) -> Option<[f32; 4]> 
 /// `None` where the element names no object, and where none of the objects it names is an
 /// annotation of this page: an `XObject` reference is the clause's other case and has no rectangle
 /// of its own, which [`pdf_model::structure::annotation_rectangles`] states.
+/// Table 166's `/Lang` on the annotation an element's own object reference names.
+///
+/// §14.9.2.3 orders the language specifications *within* the structure hierarchy, and an annotation
+/// is not one of the three carriers it orders. ISO 32000-2 §12.5.2, Table 166, states the entry's
+/// own reach instead:
+///
+/// > A language identifier overriding the document's language identifier to specify the natural
+/// > language for all text in the annotation except where overridden by other explicit language
+/// > specifications
+///
+/// An element whose content item is §14.7.5.3's object reference to an annotation carries that
+/// annotation's text and no other, so "all text in the annotation" is all the text this node has —
+/// and the annotation is the innermost thing that stated a language, which is the ordering
+/// §14.9.2.3 gives every specification it *does* name. So this wins over the element's own `/Lang`
+/// and over the ancestor it inherited, and an annotation stating none leaves that hierarchy alone.
+///
+/// **The honest limit, named rather than left to be discovered**: Table 368's `Annot` "[e]ncloses
+/// one or more PDF annotations and associated content, if any", so an element may carry page text
+/// beside the annotation — and a node has one language while the clause states no split. The
+/// annotation's is taken, because the element that names an annotation at all is describing that
+/// annotation.
+///
+/// `None` where the element names no object, and where none of the objects it names is an
+/// annotation of this page that states a `/Lang` — which is nearly every element.
+fn referenced_language(
+    objects: &[ObjectId],
+    languages: &BTreeMap<ObjectId, String>,
+) -> Option<String> {
+    objects
+        .iter()
+        .find_map(|object| languages.get(object))
+        .cloned()
+}
+
 fn referenced_rectangle(
     objects: &[ObjectId],
     places: &BTreeMap<ObjectId, [f32; 4]>,

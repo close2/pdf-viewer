@@ -1192,11 +1192,19 @@ fn reconcile_layers(
 
     for &id in wanted.iter().skip(shared) {
         let clip: &Clip = list.clip(id).ok_or(GpuRasterError::UnknownClip(id))?;
-        scene.push_clip_layer(
-            fill_rule(clip.fill_rule),
-            affine(clip.transform.then(to_device)),
-            &bez_path(&clip.path),
-        );
+        let at = clip.transform.then(to_device);
+        // ISO 32000-2 §10.7.4: "For clipping, the clipping region consists of the set of pixels
+        // that would be included by a fill operation", and a fill of a subpath with no extent
+        // includes the pixel row or column the clause's own EXAMPLE states — so a clipping path
+        // that rules a line admits that line. `pdf_render::clip_region` builds the region for
+        // every backend, exactly as `split_collapsed_fill` builds the fill's marks for all of
+        // them, so that the clip and the fill of one path cannot disagree here (ADR 1064).
+        let region = pdf_render::clip_region(&clip.path, clip.fill_rule, at);
+        let (shape, rule) = match &region {
+            Some((region, rule)) => (bez_path(region), fill_rule(*rule)),
+            None => (bez_path(&clip.path), fill_rule(clip.fill_rule)),
+        };
+        scene.push_clip_layer(rule, affine(at), &shape);
         open.push(id);
     }
 

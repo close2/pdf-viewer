@@ -51,6 +51,13 @@ struct Counts {
     external: usize,
     /// External ones that state a `/AFRelationship`, which is what a reader could still say.
     external_with_relationship: usize,
+    /// §14.13.9's carrier: annotations a page's own `/Annots` lists that state an `/AF`.
+    ///
+    /// Counted from the page tree rather than from the object graph, because §12.5.2's
+    /// membership in `/Annots` is the one available check that a dictionary carrying a `/Rect`
+    /// *is* an annotation of a page — Table 166 makes `/Type` optional, and ADR 0215 is what a
+    /// rectangle read off any dictionary costs.
+    annotations: usize,
 }
 
 impl Counts {
@@ -113,6 +120,10 @@ fn main() {
         "  {} of the external one(s) state an /AFRelationship",
         total(|c| c.external_with_relationship)
     );
+    println!(
+        "  {} annotation(s) on a page's own /Annots state an /AF (§14.13.9)",
+        total(|c| c.annotations)
+    );
     for (label, counts) in witnesses {
         println!(
             "  {label}: {} specification(s), {} embedded, {} external",
@@ -154,6 +165,25 @@ fn measure(path: &Path) -> Counts {
             generation: 0,
         });
         walk(&document, &object, 0, &mut counts);
+    }
+    let pages = pdf_model::Pages::new(&document);
+    for index in 0..pages.len() {
+        let Some(page) = pages.get(index) else {
+            continue;
+        };
+        let annots = document.get_key(&page.dict, "Annots");
+        let Some(array) = annots.as_array() else {
+            continue;
+        };
+        for item in array {
+            let resolved = document.resolve(item);
+            let Some(annotation) = resolved.as_dict() else {
+                continue;
+            };
+            if document.get_key(annotation, "AF").as_array().is_some() {
+                counts.annotations = counts.annotations.saturating_add(1);
+            }
+        }
     }
     counts
 }

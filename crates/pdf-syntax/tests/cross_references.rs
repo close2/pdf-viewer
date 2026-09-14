@@ -1447,3 +1447,63 @@ fn a_cross_reference_stream_section_is_not_reported_as_a_classic_table() {
         "§7.5.8.2 puts the trailer's entries in the stream's own dictionary"
     );
 }
+
+/// §7.5.2's header is the *earliest* of the two markers a file may carry, not the PDF one first.
+///
+/// §12.7.8.2.2 gives an FDF the header `%FDF-1.n` and §12.7.8.2.1 makes everything else about its
+/// structure clause 7's — §7.5.2's rule that "the byte offsets shall be calculated from the
+/// PERCENT SIGN of the header" included. A file can hold both markers, and this tree writes one:
+/// Table 240 bit 14 embeds a whole PDF inside an FDF, so `%PDF-` turns up a few hundred bytes
+/// into a file whose own header is at byte zero.
+///
+/// The pair is the calibration (trap 13): the same two markers, in the two orders. Whichever is
+/// first is the header, and a reader ranking them by kind gets exactly one of these right.
+#[test]
+fn the_header_is_whichever_marker_stands_first_in_the_file() {
+    let file = |header: &str, planted: &str| -> Vec<u8> {
+        let padding = "x".repeat(200);
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Marker ({planted}{padding}) >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+        );
+        let mut out = format!("{header}\n");
+        let mut offsets = Vec::new();
+        for object in body.split_inclusive("endobj\n") {
+            offsets.push(out.len());
+            out.push_str(object);
+        }
+        let table_at = out.len();
+        let size = offsets.len() + 1;
+        let _ = writeln!(out, "xref\n0 {size}");
+        out.push_str("0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n"
+        );
+        out.into_bytes()
+    };
+
+    // An FDF carrying a PDF: `open` is what asserts the table was read rather than scanned, and
+    // the catalog proves the offsets were measured from byte zero.
+    let fdf = open(file("%FDF-1.2", "%PDF-1.7 "));
+    assert!(
+        fdf.catalog()
+            .expect("the FDF's own object 1")
+            .get("Marker")
+            .is_some(),
+        "measured from the %FDF- at byte zero"
+    );
+
+    // And the other order, which is the case that made the ranking-by-kind rule look right.
+    let pdf = open(file("%PDF-1.7", "%FDF-1.2 "));
+    assert!(
+        pdf.catalog()
+            .expect("the PDF's own object 1")
+            .get("Marker")
+            .is_some(),
+        "measured from the %PDF- at byte zero"
+    );
+}

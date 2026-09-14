@@ -2012,17 +2012,18 @@ impl Viewer {
         let referenced = gathered
             .iter()
             .any(|(_, element)| !element.objects.is_empty());
-        let (places, controls) = if referenced {
+        let referenced = if referenced {
             referenced_objects(open, &on_screen.object)
         } else {
-            (BTreeMap::new(), BTreeMap::new())
+            Referenced::default()
         };
         let page = crate::accessibility::Readback {
             text: &interpreted.text,
             marked: &interpreted.marked,
             described: &interpreted.described,
-            places: &places,
-            controls: &controls,
+            places: &referenced.places,
+            languages: &referenced.languages,
+            controls: &referenced.controls,
         };
         gathered
             .into_iter()
@@ -3040,8 +3041,8 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
     union
 }
 
-/// What §14.7.5.3's object references can name on this page: §12.5.2's rectangles and §12.7's
-/// controls.
+/// What §14.7.5.3's object references can name on this page: §12.5.2's rectangles and `/Lang`,
+/// and §12.7's controls.
 ///
 /// Both are keyed by the annotation, which is what an object reference names, and both are the
 /// same readings the rest of this crate uses — `form::fields` with **this view's** state, so a
@@ -3056,14 +3057,9 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
 /// Takes the page the arrangement is already holding rather than an index into the page tree:
 /// under a column this is asked once per page on the screen, and `Pages::get` is the walk ADR
 /// 0124 cached `OnScreen::object` to avoid.
-fn referenced_objects(
-    open: &Open,
-    shown: &pdf_model::Page,
-) -> (
-    BTreeMap<ObjectId, [f32; 4]>,
-    BTreeMap<ObjectId, pdf_model::form::Control>,
-) {
+fn referenced_objects(open: &Open, shown: &pdf_model::Page) -> Referenced {
     let places = pdf_model::structure::annotation_rectangles(&open.document, &shown.dict);
+    let languages = pdf_model::structure::annotation_languages(&open.document, &shown.dict);
     let mut controls = BTreeMap::new();
     for field in pdf_model::form::fields(&open.document, shown, &open.view) {
         for widget in &field.widgets {
@@ -3073,7 +3069,26 @@ fn referenced_objects(
             );
         }
     }
-    (places, controls)
+    Referenced {
+        places,
+        languages,
+        controls,
+    }
+}
+
+/// The three readings [`referenced_objects`] answers with, keyed by the annotation each is about.
+///
+/// A value rather than a tuple because they are three different facts about one page and a caller
+/// reading `.1` would have to remember which; `Default` is the answer for a page whose structure
+/// tree names no object at all, which is nearly every page.
+#[derive(Default)]
+struct Referenced {
+    /// §12.5.2's `/Rect` for each annotation the page lists, in default user space.
+    places: BTreeMap<ObjectId, [f32; 4]>,
+    /// Table 166's `/Lang` for each annotation that states one.
+    languages: BTreeMap<ObjectId, String>,
+    /// §12.7's control for each widget annotation of a field with a widget on this page.
+    controls: BTreeMap<ObjectId, pdf_model::form::Control>,
 }
 
 /// The field's control with §12.7.5.2's on state replaced by **this widget's**.
@@ -3520,27 +3535,60 @@ fn hand_over(
 /// click has already found its page. ADR 0295.
 fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut Vec<Event>) -> bool {
     let toggled = open.toggle_popup(annotation);
-    if let Some(file) = attached_file(open, annotation) {
+    for file in attached_files(open, annotation) {
         hand_over(id, Extraction::Asked, &open.document, &file, None, events);
     }
     toggled
 }
 
-/// The file §12.5.6.15's annotation attaches, where the object under the click is one.
+/// The files the annotation under the click carries: §12.5.6.15's, and §14.13.9's.
 ///
-/// `None` for every other subtype, which is nearly every click: the question is asked of one
-/// annotation the pointer already found, so it costs one dictionary lookup rather than a walk.
-fn attached_file(open: &Open, annotation: ObjectId) -> Option<pdf_model::attachment::Attachment> {
+/// Empty for nearly every click, and the question is asked of one annotation the pointer already
+/// found, so it costs two dictionary lookups rather than a walk.
+///
+/// **§12.5.6.15's `/FS` first**, because its clause is the one that states the extraction outright
+/// — "activating the annotation extracts the embedded file and gives the user an opportunity to
+/// view it or store it in the file system" — and it belongs to that subtype alone.
+///
+/// **Then §14.13.9's `/AF`, for every subtype**, which is that clause read through the one above
+/// it: "[t]o associate files with annotations, the annotation dictionary shall contain an AF entry
+/// which represents the associated files for that annotation", and §12.5.1 says what activating an
+/// annotation does with what belongs to it — "it exhibits its associated object, such as by
+/// opening a popup window displaying a text note … or by playing a sound or a movie". The *such
+/// as* is examples rather than a closed list, and an associated file is an associated object in
+/// the plainest sense the standard has.
+///
+/// The entry had no caller anywhere in this tree until the thousand-and-fifty-first session, which
+/// is the shape §14.13.3's catalog `/AF` was in before `attachment::attachments` reached it: a
+/// reading that exists, a row that calls it implemented, and a payload no host can extract.
+///
+/// One payload named both ways is one file, deduplicated by the stream's identity exactly as
+/// `attachment::attachments` does it — a producer that writes a `/FS` and repeats it in `/AF` has
+/// attached one file.
+fn attached_files(open: &Open, annotation: ObjectId) -> Vec<pdf_model::attachment::Attachment> {
     let object = open.document.get(annotation);
-    let dict = object.as_dict()?;
+    let Some(dict) = object.as_dict() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
     if open
         .document
         .get_key(dict, "Subtype")
         .as_name()
         .map(pdf_syntax::Name::as_bytes)
-        != Some(b"FileAttachment")
+        == Some(b"FileAttachment")
+        && let Some(file) = pdf_model::attachment::of_annotation(&open.document, dict)
     {
-        return None;
+        out.push(file);
     }
-    pdf_model::attachment::of_annotation(&open.document, dict)
+    for file in pdf_model::attachment::associated(&open.document, dict) {
+        if out
+            .iter()
+            .any(|seen| Arc::ptr_eq(&seen.stream, &file.stream))
+        {
+            continue;
+        }
+        out.push(file);
+    }
+    out
 }

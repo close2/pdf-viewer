@@ -12,9 +12,10 @@
 use std::path::{Path, PathBuf};
 
 use pdf_signature::revision::{Comparison, Judgement};
+use pdf_signature::revocation::{Material, Revocation};
 use pdf_signature::signature::{
     Authenticity, Coverage, Excluded, Integrity, Modification, Right, Signature, SignedEnd,
-    UsageRights, permissions, signatures, signing_certificate_bindings,
+    UsageRights, permissions, security_store, signatures, signing_certificate_bindings,
 };
 use pdf_signature::trust::{Trust, TrustAnchors};
 use pdf_signature::x509::Instant;
@@ -1102,7 +1103,7 @@ fn every_corpus_signature_is_asked_the_third_question_both_ways() {
         for signature in signatures(&document) {
             asked = asked.saturating_add(1);
             assert_eq!(
-                signature.trust(&TrustAnchors::none(), at),
+                signature.trust(&TrustAnchors::none(), &Material::none(), at),
                 Trust::NoAnchorSupplied,
                 "{name}: with nobody named there is no question to answer"
             );
@@ -1124,7 +1125,14 @@ fn every_corpus_signature_is_asked_the_third_question_both_ways() {
                 continue;
             }
             let anchors = TrustAnchors::of(&certificates);
-            verdicts.push(format!("{name}: {:?}", signature.trust(&anchors, at)));
+            // §12.8.4.3's own material, which is the only supply there is: no host here has a
+            // network, and the store is what a verifier is meant to reach for instead.
+            let store = security_store(&document);
+            let material = store.material();
+            verdicts.push(format!(
+                "{name}: {:?}",
+                signature.trust(&anchors, &material, at)
+            ));
         }
     }
     for line in &verdicts {
@@ -1144,12 +1152,120 @@ fn every_corpus_signature_is_asked_the_third_question_both_ways() {
         "no corpus chain validated, which a working section 6.1 over these files does not do: \
          {verdicts:?}"
     );
-    // And the other half of the calibration: `Anchored` still says nothing about revocation, on a
-    // real chain exactly as on a fixture.
+    // And the other half of the calibration, which changed in the thousand-and-fifty-third
+    // session and is the point of ADR 1067: an anchored path now carries what §12.8.4's material
+    // said, and what it may never carry is a `Good` this program did not compute. Every corpus
+    // document reaching `Anchored` carries no DSS at all — the census below is what says so — so
+    // the answer here is `NotChecked`, and the assertion is written against the *rule* rather than
+    // against that fact: no `Good` without material, ever.
     assert!(
         verdicts
             .iter()
-            .all(|line| !line.contains("Anchored") || line.contains("revocation: NotChecked")),
-        "an anchored path that stopped saying revocation was unchecked: {verdicts:?}"
+            .all(|line| !line.contains("Anchored") || !line.contains("revocation: Good")),
+        "a path was called unrevoked by material this corpus does not carry: {verdicts:?}"
     );
+}
+
+/// §12.8.4's document security store, counted over the corpus, and what it answers where it is
+/// there.
+///
+/// **This is the denominator ADR 1067 rests on** and it is a fact about the world rather than
+/// about the standard, which is why it is a command and not a sentence in a note (trap 8): the
+/// revocation reader can only ever say as much as the documents supply, so how many supply
+/// anything at all is the size of what it is for. Every store found is printed with its four
+/// counts and with what it refused, so that a store this reader could only half read is visible
+/// rather than absent.
+#[test]
+fn every_corpus_document_is_asked_whether_it_carries_a_security_store() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut opened = 0usize;
+    let mut with_store = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        opened = opened.saturating_add(1);
+        let store = security_store(&document);
+        if store.is_empty() {
+            continue;
+        }
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let material = store.material();
+        with_store.push(format!(
+            "{name}: {} certs, {} CRLs, {} OCSPs, {} VRI; material read {} CRLs and {} responses, \
+             refused {:?} and {:?}",
+            store.certificates.len(),
+            store.revocation_lists.len(),
+            store.ocsp_responses.len(),
+            store.validation_information.len(),
+            material.lists.len(),
+            material.responses.len(),
+            store.refused,
+            material.refused,
+        ));
+    }
+    for line in &with_store {
+        println!("{line}");
+    }
+    println!(
+        "{} of {opened} corpus documents carry a document security store",
+        with_store.len()
+    );
+    assert!(opened > 0, "the corpus opened");
+}
+
+/// The honest default, asserted rather than assumed: no material means no answer.
+///
+/// **Trap 13's calibration for the sentence above.** A sweep that finds no corpus document with a
+/// store reads identically as "the reader is right" and as "the reader is broken", so this plants
+/// the case the reader must never get wrong — nothing supplied — and requires the one answer that
+/// is a statement about this program rather than about the certificate.
+#[test]
+fn a_signature_with_no_revocation_material_is_never_called_unrevoked() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let at = Instant::from_unix_seconds(1_590_969_600);
+    let mut asked = 0usize;
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        for signature in signatures(&document) {
+            let Ok(cms) = signature.signed_data() else {
+                continue;
+            };
+            let certificates: Vec<_> = cms
+                .certificates
+                .iter()
+                .filter_map(|entry| pdf_signature::x509::read(*entry).ok())
+                .filter(|certificate| certificate.subject == certificate.issuer)
+                .collect();
+            if certificates.is_empty() {
+                continue;
+            }
+            asked = asked.saturating_add(1);
+            let anchors = TrustAnchors::of(&certificates);
+            if let Trust::Anchored { revocation, .. } =
+                signature.trust(&anchors, &Material::none(), at)
+            {
+                assert_eq!(
+                    revocation,
+                    Revocation::NotChecked,
+                    "a path validated with no material supplied claimed something about revocation"
+                );
+            }
+        }
+    }
+    assert!(asked > 0, "the corpus carries chains to ask about");
 }

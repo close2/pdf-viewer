@@ -237,18 +237,19 @@ pub enum FontError {
     ///
     /// Substituting a system font would change metrics and therefore layout, so this is
     /// reported rather than guessed at.
+    ///
+    /// **This is the only way into substitution, and a refusal downstream relies on that.**
+    /// `composite::collection_gap`'s first branch says of a `/Encoding /Identity-H` over a
+    /// substituted descendant that the *file* broke §9.7.5.2's "shall not be used with a
+    /// non-embedded font" — a claim about the document rather than about this reader — and what
+    /// entitles it is that `program::embedded_program` answers this variant exactly when Table
+    /// 120's three keys supplied no program. A second error kind routed to substitution would
+    /// carry that sentence to a file that *did* embed one, so either it does not, or
+    /// `collection_gap` reads the descriptor for itself.
     #[error("font /{name} has no embedded font program")]
     NotEmbedded {
         /// The resource name, for diagnosis.
         name: String,
-    },
-    /// The embedded program is in a format this crate does not read.
-    #[error("font /{name} uses unsupported program type {kind}")]
-    UnsupportedProgram {
-        /// The resource name.
-        name: String,
-        /// Which kind of program it was.
-        kind: &'static str,
     },
     /// The font program could not be parsed.
     #[error("font /{name} could not be parsed: {detail}")]
@@ -689,7 +690,7 @@ impl LoadedFont {
             // Nothing usable is embedded. A substitute renders the text in the wrong
             // shapes; refusing renders it not at all, and the document's own `/Widths`
             // keep the layout right either way.
-            Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
+            Err(FontError::NotEmbedded { .. }) => {
                 let request = substitute::Request::derive(document, dict, descriptor);
                 // The encoding is read before the face is chosen, because *which* face is
                 // usable is decided by the characters the encoding names: see
@@ -834,7 +835,7 @@ impl LoadedFont {
         };
 
         let (data, program, substituted) = match embedded {
-            Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
+            Err(FontError::NotEmbedded { .. }) => {
                 let request = substitute::Request::derive(document, &descendant, descriptor);
                 // Characters the collection's own script requires, so that a face is chosen
                 // by what it can *draw* and not only by the family a descriptor implies.

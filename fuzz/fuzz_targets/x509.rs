@@ -7,7 +7,8 @@
 //! committed to this target with the code.
 //!
 //! **Two readers and two arithmetics.** `pdf_signature::der` and `pdf_signature::cms` have their own
-//! target (`cms`); what is here is `pdf_signature::x509`, which walks RFC 5280's structure, and the
+//! target (`cms`), and §12.8.4's revocation material has a third (`revocation`); what is here is
+//! `pdf_signature::x509`, which walks RFC 5280's structure, and the
 //! modules that run a loop whose trip count comes out of a number in the file —
 //! `pdf_signature::pkcs1`, from the four-hundred-and-seventy-ninth session `pdf_signature::dsa` (ADR
 //! 0314), and from the four-hundred-and-eighty-seventh `pdf_signature::pss`, whose salt length is a
@@ -43,6 +44,7 @@ use pdf_signature::cms::Digest;
 use pdf_signature::dsa::{self, MAX_SUBGROUP_BITS};
 use pdf_signature::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
 use pdf_signature::pss;
+use pdf_signature::revocation::Material;
 use pdf_signature::trust::{self, TrustAnchors};
 use pdf_signature::x509::{self, Instant, PublicKey};
 use pdf_signature::{ecdsa, eddsa};
@@ -248,6 +250,7 @@ fuzz_target!(|data: &[u8]| {
         &certificate,
         &[certificate, again],
         &anchors,
+        &Material::none(),
         Instant::from_unix_seconds(1_780_272_000),
     );
     // And with nobody named there is no question, whatever the bytes say — the one answer that
@@ -258,6 +261,7 @@ fuzz_target!(|data: &[u8]| {
                 &certificate,
                 &[again],
                 &TrustAnchors::none(),
+                &Material::none(),
                 Instant::from_unix_seconds(0),
             ),
             trust::Trust::NoAnchorSupplied
