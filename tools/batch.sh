@@ -87,6 +87,16 @@ gates() {
 }
 
 close_batch() {
+    # A shell whose working directory is the worktree loses it when the worktree goes: every
+    # command after the close then fails with "getcwd: cannot access parent directories", which is
+    # what happened to the merge of sessions 1038-1043 half a line after the fast-forward. Refuse.
+    case "$PWD/" in "$wt"/*) echo "close from outside $wt — your shell is inside it"; return 1 ;; esac
+    # And a branch with commits main lacks is not finished: the merge of sessions 1038-1043 ran
+    # `git merge --ff-only` from inside the worktree, which merged the branch into itself and
+    # exited 0, then closed it — deleting the only ref to the batch. The commit was recovered
+    # from the object store, but only because nothing had run `gc` yet. Refuse instead.
+    local ahead; ahead=$(git -C "$root" rev-list --count "main..$1" 2>/dev/null || echo 0)
+    [ "$ahead" = 0 ] || { echo "$1 has $ahead commit(s) main lacks — fast-forward main first (from the main checkout, not from inside the worktree)"; return 1; }
     git -C "$root" worktree remove --force "$wt" 2>/dev/null || true
     git -C "$root" branch -D "$1" 2>/dev/null || true
     git -C "$root" worktree prune
