@@ -59,6 +59,12 @@ const KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::ID_CE_KEY
 /// RFC 5280 section 4.2.1.12's `id-ce-extKeyUsage`, which RFC 6960 section 4.2.2.2 reads.
 const EXTENDED_KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::ID_CE_EXT_KEY_USAGE;
 
+/// The same identifier as octets, for a caller deciding whether it recognised this extension.
+///
+/// [`crate::trust`] is that caller: whether a critical `extKeyUsage` is *unrecognised* depends on
+/// whether the use was stated, which is a question this module cannot answer.
+pub const EXTENDED_KEY_USAGE_OID: &[u8] = EXTENDED_KEY_USAGE.as_bytes();
+
 /// RFC 5280's `id-ce-basicConstraints`, `2.5.29.19`.
 const BASIC_CONSTRAINTS: const_oid::ObjectIdentifier =
     const_oid::db::rfc5280::ID_CE_BASIC_CONSTRAINTS;
@@ -634,6 +640,16 @@ pub(crate) fn read_time(value: &Value<'_>) -> Option<Instant> {
         GENERALIZED_TIME => (true, value.contents),
         _ => return None,
     };
+    read_time_digits(digits, four_digit_year)
+}
+
+/// The digits of one of those two forms, placed on a line.
+///
+/// Separate from [`read_time`] because RFC 3161 section 2.4.2's `genTime` is the same
+/// `GeneralizedTime` with a fraction of a second permitted after the seconds, which RFC 5280
+/// section 4.1.2.5.2 forbids: [`crate::timestamp`] strips the fraction and hands the whole seconds
+/// here rather than keeping a second copy of the calendar.
+pub(crate) fn read_time_digits(digits: &[u8], four_digit_year: bool) -> Option<Instant> {
     // "YYMMDDHHMMSSZ" is thirteen and "YYYYMMDDHHMMSSZ" fifteen; both forms are fixed by the
     // clauses above, so a length that is neither is a `Time` this reader will not place.
     let expected = if four_digit_year { 15 } else { 13 };
@@ -952,6 +968,50 @@ fn read_extensions(extensions: Value<'_>) -> Result<Extensions<'_>, X509Error> {
         }
     }
     Ok(read)
+}
+
+/// `anyExtendedKeyUsage`, RFC 5280 section 4.2.1.12's `{ id-ce-extKeyUsage 0 }`.
+pub const ANY_EXTENDED_KEY_USAGE: &[u8] = &[0x55, 0x1D, 0x25, 0x00];
+
+/// `id-kp-timeStamping`, RFC 3161 section 2.3's `{ id-kp 8 }`.
+///
+/// The clause prints the arc in full — "iso(1) identified-organization(3) dod(6) internet(1)
+/// security(5) mechanisms(5) pkix(7) kp (3) timestamping (8)" — which is why this identifier is a
+/// constant here and not a number out of a registry this tree does not hold.
+pub const ID_KP_TIME_STAMPING: &[u8] = &[0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x08];
+
+/// Whether an `ExtKeyUsageSyntax` indicates `purpose`, or `anyExtendedKeyUsage` beside it.
+///
+/// RFC 5280 section 4.2.1.12 states both halves: "If multiple purposes are indicated the
+/// application need not recognize all purposes indicated, as long as the intended purpose is
+/// present", and `anyExtendedKeyUsage` exists so that a CA can "include extended key usages to
+/// satisfy such applications, but does not wish to restrict usages of the key".
+///
+/// Bounded by [`MAX_EXTENSIONS`] purposes, because the list's length comes out of the file.
+#[must_use]
+pub fn indicates_purpose(encoded: &[u8], purpose: &[u8]) -> bool {
+    let Ok(mut reader) = Reader::new(encoded) else {
+        return false;
+    };
+    let Ok(Some(list)) = reader.next_value() else {
+        return false;
+    };
+    let Ok(mut purposes) = list.children() else {
+        return false;
+    };
+    let mut seen = 0usize;
+    while let Ok(Some(stated)) = purposes.next_value() {
+        seen = seen.saturating_add(1);
+        if seen > MAX_EXTENSIONS {
+            return false;
+        }
+        if stated.identifier == OBJECT_IDENTIFIER
+            && (stated.contents == purpose || stated.contents == ANY_EXTENDED_KEY_USAGE)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// `AuthorityKeyIdentifier ::= SEQUENCE { keyIdentifier [0] OPTIONAL, … }` (section 4.2.1.1).

@@ -469,12 +469,38 @@ impl Document {
         };
         self.encrypt_object = entry.as_reference().map(|id| id.number);
 
-        let Some(dict) = self.resolve(&entry).as_dict().cloned() else {
+        let resolved = self.resolve(&entry);
+        let Some(dict) = resolved.as_dict().cloned() else {
             // A trailer naming an `/Encrypt` that is not a dictionary tells us the file is
             // encrypted and refuses to say how. Treating it as plaintext would draw a page
-            // of noise while reporting nothing.
+            // of noise while reporting nothing, and §7.6.2 is what forbids reading the
+            // absence of a *readable* dictionary as the absence of the entry:
+            //
+            // > Encryptionrelated information shall be stored in a document's encryption
+            // > dictionary, which shall be the value of the Encrypt entry in the do cument's
+            // > trailer dictionary (see "Table 15 -Entries in the file trailer dictionary").
+            // > The absence of this entry from the trailer dictionary means that a PDF
+            // > processor shall consider the document to be not encrypted.
+            //
+            // The entry is present here, so the second sentence does not apply and the file
+            // has said it is encrypted.
+            //
+            // **The sentence names what arrived**, because the three ways to reach this line
+            // are different facts about the file and a refusal that cannot tell them apart is
+            // a measurement of nothing: an entry of the wrong type outright, a reference to an
+            // object the file does not define — §7.3.10's null object, which is what a trailer
+            // pointing at an unparseable `6 0 obj` yields — and a stream where a dictionary
+            // belongs. `PDFBOX-4352-0.pdf` is the corpus's witness of the middle one, and
+            // until this sentence carried the type nothing distinguished it from the first.
+            let named = entry.as_reference().map_or_else(String::new, |id| {
+                format!(" ({} {} R)", id.number, id.generation)
+            });
             return Err(SyntaxError::UnsupportedEncryption {
-                detail: "/Encrypt does not resolve to a dictionary (§7.6.1)".to_owned(),
+                detail: format!(
+                    "the trailer states /Encrypt{named} and it resolves to {}, where \
+                     §7.6.2 puts the encryption dictionary",
+                    resolved.type_name()
+                ),
             });
         };
 

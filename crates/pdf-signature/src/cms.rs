@@ -57,6 +57,24 @@ pub(crate) const MAX_ATTRIBUTES: usize = 64;
 /// ignored, which makes the signer *unmatched* rather than wrongly matched.
 const MAX_CERTIFICATES: usize = 64;
 
+/// `id-aa-timeStampToken`, RFC 3161 Appendix A's signature timestamp attribute — 1.2.840.113549.1.9.16.2.14.
+///
+/// §12.8.3.3.1 is what puts it in a PDF signature: "Timestamp information as an unsigned attribute
+/// ( PDF 1.6 ): The timestamp token shall conform to Internet RFC 3161 as updated by Internet RFC
+/// 5816 , and shall be computed and embedded into the CMS object as described in Appendix A of
+/// Internet RFC 3161 as updated by Internet RFC 5816 ." What that appendix commits the token to is
+/// not the document but the signature: "The value of messageImprint field within TimeStampToken
+/// shall be a hash of the value of signature field within SignerInfo for the signedData being
+/// time-stamped." [`crate::timestamp::signature_timestamp`] is the reader.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the sentences are quoted verbatim and their ASN.1 names are camel case; a quotation \
+              with backticks added to please a lint is no longer a quotation"
+)]
+pub const ID_AA_TIME_STAMP_TOKEN: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x0E,
+];
+
 /// RFC 5652's `id-signedData`, `1.2.840.113549.1.7.2`.
 const ID_SIGNED_DATA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02];
 /// RFC 5652's `id-data`, `1.2.840.113549.1.7.1` — §12.8.3.4.3 (a)'s "id-data".
@@ -687,6 +705,23 @@ pub struct SignedData<'a> {
     /// Two fields rather than one because RFC 5035 section 5.4 says what to do when a file states
     /// both: "[i]f both attributes exist in a single message, they are independently evaluated."
     pub signing_certificate_v2: Option<Value<'a>>,
+    /// The first signer's `signature-time-stamp` unsigned attribute, as its single
+    /// `AttributeValue`.
+    ///
+    /// RFC 3161 Appendix A's `SignatureTimeStampToken ::= TimeStampToken`, which §12.8.3.3.1 names
+    /// as the way a handler puts timestamp information in the CMS object. Kept as the value rather
+    /// than as the identifier because what it holds is a whole `SignedData` of its own, and
+    /// [`crate::timestamp::signature_timestamp`] is what reads it.
+    ///
+    /// **Unsigned, and that is the attribute's whole point**: RFC 3161 Appendix A puts the imprint
+    /// over "the value of signature field within SignerInfo", which cannot exist until the
+    /// signature does, so the attribute is applied after the signing and sits outside it.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "RFC 3161 Appendix A is quoted verbatim and names a field in camel case; a \
+                  quotation with backticks added to please a lint is no longer a quotation"
+    )]
+    pub signature_timestamp: Option<Value<'a>>,
     /// The object identifiers of the first signer's signed attributes, in the file's order.
     pub signed_attribute_types: Vec<&'a [u8]>,
     /// The same for its unsigned attributes.
@@ -763,6 +798,13 @@ impl<'a> SignedData<'a> {
     ///
     /// `None` where the encapsulated content is not a `TSTInfo`, where its algorithm is not one of
     /// the six, or where the encoding does not have that shape.
+    ///
+    /// **Deliberately narrower than [`crate::timestamp::tst_info`], which reads the same structure
+    /// whole.** This one stops at the member Table 255 names, so a token whose `genTime`,
+    /// `accuracy` or `serialNumber` this program would refuse can still answer §12.8.1's *first*
+    /// question — whether the document changed — which is a question about the imprint alone. The
+    /// two may not disagree about the imprint itself, and they do not: both read the third member
+    /// of the same `SEQUENCE`.
     #[must_use]
     pub fn timestamp_imprint(&self) -> Option<(Digest, &'a [u8])> {
         if self.content_type != ID_CT_TST_INFO {
@@ -895,6 +937,7 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
         message_digest: parsed.message_digest,
         signing_certificate: parsed.signing_certificate,
         signing_certificate_v2: parsed.signing_certificate_v2,
+        signature_timestamp: parsed.signature_timestamp,
         signed_attribute_types: parsed.signed_attribute_types,
         unsigned_attribute_types: parsed.unsigned_attribute_types,
         attributes_truncated: parsed.truncated,
@@ -913,6 +956,7 @@ struct Signer<'a> {
     message_digest: Option<&'a [u8]>,
     signing_certificate: Option<Value<'a>>,
     signing_certificate_v2: Option<Value<'a>>,
+    signature_timestamp: Option<Value<'a>>,
     signed_attribute_types: Vec<&'a [u8]>,
     unsigned_attribute_types: Vec<&'a [u8]>,
     truncated: bool,
@@ -958,6 +1002,7 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
         message_digest: None,
         signing_certificate: None,
         signing_certificate_v2: None,
+        signature_timestamp: None,
         signed_attribute_types: Vec::new(),
         unsigned_attribute_types: Vec::new(),
         truncated: false,
@@ -1042,6 +1087,15 @@ fn read_attributes<'a>(
         };
         names.push(kind);
         if !is_signed {
+            // The one *unsigned* attribute this reader takes a value from. RFC 5652 section 11.4's
+            // `SET OF` shape is the same as a signed attribute's, and RFC 3161 Appendix A puts one
+            // token in it.
+            if kind == ID_AA_TIME_STAMP_TOKEN
+                && let Some(values) = parts.next_value()?
+                && let Some(token) = values.children()?.next_value()?
+            {
+                signer.signature_timestamp = Some(token);
+            }
             continue;
         }
         if kind == ID_MESSAGE_DIGEST {
@@ -1647,9 +1701,16 @@ pub(crate) mod fixtures {
 
     /// An `ETSI.RFC3161` timestamp token committing to `digest`.
     ///
-    /// `TSTInfo ::= SEQUENCE { version, policy, messageImprint, … }`, encapsulated as
-    /// `id-ct-TSTInfo`. Table 255: "[t]he value of the messageImprint field within the
-    /// `TimeStampToken` shall be a hash of the bytes of the document indicated by the `ByteRange`".
+    /// RFC 3161 section 2.4.2's `TSTInfo ::= SEQUENCE { version, policy, messageImprint,
+    /// serialNumber, genTime, … }`, encapsulated as `id-ct-TSTInfo`. Table 255: "[t]he value of
+    /// the messageImprint field within the `TimeStampToken` shall be a hash of the bytes of the
+    /// document indicated by the `ByteRange`".
+    ///
+    /// **All five mandatory members, since the thousand-and-fifty-seventh session.** The first
+    /// three were what [`super::SignedData::timestamp_imprint`] reads, and a fixture stopping
+    /// there was not a `TSTInfo` at all — so [`crate::timestamp::tst_info`] would have had nothing
+    /// hand-built to refuse or accept. `genTime` is 2026-01-01T00:00:00Z, inside every fixture
+    /// certificate's validity period.
     pub(crate) fn timestamp_token(digest: &[u8]) -> Vec<u8> {
         let info = tagged(
             0x30,
@@ -1660,6 +1721,8 @@ pub(crate) mod fixtures {
                     0x30,
                     &[sha256_algorithm(), primitive(0x04, digest)], // messageImprint
                 ),
+                primitive(0x02, &[0x2A]),            // serialNumber
+                primitive(0x18, b"20260101000000Z"), // genTime
             ],
         );
         content_info(

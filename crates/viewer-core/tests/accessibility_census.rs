@@ -197,6 +197,25 @@ struct Census {
     ///
     /// **Printed and not ratcheted**, on `doc/todo/05`'s rule.
     reserving: usize,
+    /// §14.8.4.8.3's table cells this page placed in a grid, and how many §14.8.5.4.5 moved.
+    ///
+    /// The clause makes a cell's height its row's and its width its column's, so a cell's
+    /// rectangle is not a fact about that cell alone. The second number is how many cells in the
+    /// world that changed the answer for, measured by asking `viewer_core::places` the same
+    /// question twice — once with [`AccessibilityNode::cell`] as it is, and once with the grid
+    /// withheld. A second copy of the arithmetic here would be pricing a program the hosts do not
+    /// run, which is the rule the three counts above it already follow.
+    ///
+    /// **Printed and not ratcheted**, on `doc/todo/05`'s rule that a count enters a gate once it
+    /// has held across rounds.
+    cells: usize,
+    equalised: usize,
+    /// Cells the row and the column place and that had no place at all without them.
+    ///
+    /// The empty cell of a table: nothing in it marked the page, its producer stated no `/BBox`
+    /// and it encloses nothing placed — and it still has a rectangle, because §14.8.5.4.5 derives
+    /// one from its row's band and its column's. A subset of [`Self::equalised`].
+    cells_placed: usize,
     /// §14.8.4.8.7's `Artifact` elements, and how many state Table 385's `/Type` or `/Subtype`.
     ///
     /// The denominator and the numerator of the same question, for the reason [`Self::refused`]
@@ -303,6 +322,9 @@ impl Census {
         self.derived = self.derived.saturating_add(from.derived);
         self.contained = self.contained.saturating_add(from.contained);
         self.reserving = self.reserving.saturating_add(from.reserving);
+        self.cells = self.cells.saturating_add(from.cells);
+        self.equalised = self.equalised.saturating_add(from.equalised);
+        self.cells_placed = self.cells_placed.saturating_add(from.cells_placed);
         self.artifact_elements = self
             .artifact_elements
             .saturating_add(from.artifact_elements);
@@ -331,6 +353,37 @@ impl Census {
         self.panicked.extend(from.panicked);
     }
 
+    /// Adds one table cell, and what §14.8.5.4.5's row and column adjustment did to its place.
+    ///
+    /// `without` is the answer with the grid withheld and `with` is the answer as a host gets it.
+    /// An element that is not a cell adds nothing, which is most of them.
+    fn cell(
+        &mut self,
+        node: &AccessibilityNode,
+        without: Option<[f32; 4]>,
+        with: Option<[f32; 4]>,
+    ) {
+        if node.cell.is_none() {
+            return;
+        }
+        self.cells = self.cells.saturating_add(1);
+        // A difference rather than an inequality, for the reason the allocation rectangle's own
+        // count gives: the two rectangles are the same numbers plus a derivation.
+        let moved = match (without, with) {
+            (Some(without), Some(with)) => without
+                .iter()
+                .zip(with)
+                .any(|(before, after)| (before - after).abs() > 0.0),
+            (without, with) => without.is_some() != with.is_some(),
+        };
+        if moved {
+            self.equalised = self.equalised.saturating_add(1);
+        }
+        if without.is_none() && with.is_some() {
+            self.cells_placed = self.cells_placed.saturating_add(1);
+        }
+    }
+
     /// Adds what one page's answer carries.
     ///
     /// `reports` is what the same page answered [`Query::Reports`] with, and it is here rather
@@ -343,8 +396,12 @@ impl Census {
         // census exists to say what a screen reader is told, and a second copy of the precedence
         // would be pricing a program the hosts do not run.
         let places = viewer_core::places(nodes);
+        let unequalised = places_without_the_grid(nodes);
         let mut placeless_and_refused = 0usize;
         for (index, node) in nodes.iter().enumerate() {
+            // As a host gets it, and with §14.8.5.4.5's grid withheld.
+            let place = places.get(index).copied().flatten();
+            let ungridded = unequalised.get(index).copied().flatten();
             if node.substituted {
                 self.substituted = self.substituted.saturating_add(1);
             }
@@ -359,7 +416,8 @@ impl Census {
             }
             let placed_by_enclosure =
                 node.bounds.is_none() && node.drawn.is_none() && node.quads.is_empty();
-            if placed_by_enclosure && places.get(index).copied().flatten().is_some() {
+            // The withheld answer: a cell its row and column place is `Self::cells_placed`.
+            if placed_by_enclosure && ungridded.is_some() {
                 self.contained = self.contained.saturating_add(1);
             }
             // A difference rather than an inequality: the two rectangles are the same numbers
@@ -372,6 +430,7 @@ impl Census {
             {
                 self.reserving = self.reserving.saturating_add(1);
             }
+            self.cell(node, ungridded, place);
             if let Some(artifact) = node.artifact.as_ref() {
                 self.artifact_elements = self.artifact_elements.saturating_add(1);
                 if artifact.kind.is_some() || artifact.subtype.is_some() {
@@ -380,7 +439,7 @@ impl Census {
             }
             // A node `viewer_core::places` cannot place implements no `Component` interface on
             // AT-SPI at all, so this is the count of what a magnifier cannot be pointed at.
-            if places.get(index).copied().flatten().is_none() {
+            if place.is_none() {
                 self.placeless = self.placeless.saturating_add(1);
                 if node.enclosed_a_refusal {
                     placeless_and_refused = placeless_and_refused.saturating_add(1);
@@ -445,6 +504,22 @@ impl Census {
             ));
         }
     }
+}
+
+/// What `viewer_core::places` answers when §14.8.5.4.5's grid is withheld from it.
+///
+/// The measure of what the row and column adjustment added, taken from the same function rather
+/// than recomposed here: a second copy of the precedence would price a program the hosts do not
+/// run, which is why `Census::carried` asks `places` for the first answer too.
+fn places_without_the_grid(nodes: &[AccessibilityNode]) -> Vec<Option<[f32; 4]>> {
+    let withheld: Vec<AccessibilityNode> = nodes
+        .iter()
+        .map(|node| AccessibilityNode {
+            cell: None,
+            ..node.clone()
+        })
+        .collect();
+    viewer_core::places(&withheld)
 }
 
 /// Every document this instrument counts: the pdf.js corpus, and the specifications in `doc/`.
@@ -780,10 +855,11 @@ fn report(census: &Census, files: usize, seconds: f64) {
         "  reserving room around themselves with §14.8.5.4.5's allocation rectangle: {}\n  §14.8.4.8.7 Artifact elements: {} ({} saying which kind, by Table 385)",
         census.reserving, census.artifact_elements, census.artifacts_typed
     );
-    println!("  with no place by any of the routes: {}", census.placeless);
     println!(
-        "  enclosing content this program refused to draw: {}",
-        census.refused
+        "  §14.8.4.8.3 cells placed in a grid: {} ({} moved by §14.8.5.4.5's row and column, {} \
+         of them placed by nothing else)\n  with no place by any of the routes: {}\n  enclosing \
+         content this program refused to draw: {}",
+        census.cells, census.equalised, census.cells_placed, census.placeless, census.refused
     );
     print_witnesses(
         "with no place, and enclosing content this program refused to draw",
@@ -966,52 +1042,55 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         .filter(|name| !specifications.iter().any(|present| present == *name))
         .collect();
     if absent.is_empty() {
-        floor(
+        // A capability count may only rise, and each of these is one line of `report` above. Each
+        // prints its floor beside that count, so the distance between them — which is the fall
+        // the ratchet would admit in silence — is on the run rather than in the source (ADR 1075).
+        gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
             107,
         );
-        floor(
+        gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
             2407,
         );
-        floor("elements reached, whole population", census.nodes, 216_289);
-        floor(
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 216_289);
+        gate_ratchet::floor(
             "§14.9.3's /Alt carried, whole population",
             census.substituted,
             665,
         );
-        floor("elements placed, whole population", census.placed, 11_722);
-        floor(
+        gate_ratchet::floor("elements placed, whole population", census.placed, 11_722);
+        gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
             188_198,
         );
-        floor(
+        gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
             23_032,
         );
-        floor(
+        gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
             33_729,
         );
-        floor("§12.7.5's controls, whole population", census.controls, 272);
-        floor(
+        gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
+        gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
             10_905,
         );
-        floor(
+        gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
             110_478,
         );
-        floor("lines, whole population", census.lines, 195_212);
-        floor("characters, whole population", census.characters, 5_196_091);
-        floor(
+        gate_ratchet::floor("lines, whole population", census.lines, 195_212);
+        gate_ratchet::floor("characters, whole population", census.characters, 5_196_091);
+        gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
             885,
@@ -1024,14 +1103,6 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             absent.len()
         );
     }
-}
-
-/// A capability count may only rise. Each call is one line of `report`.
-fn floor(what: &str, is: usize, was: usize) {
-    assert!(
-        is >= was,
-        "{what}: {is}, and it was {was} — a screen reader is being told less than it was"
-    );
 }
 
 /// The bought specifications the whole-population floors in `ratchet` were measured over.
@@ -1203,39 +1274,39 @@ fn ratchet(
         return;
     }
     // A capability may only rise. Each is one line of `report` above.
-    floor(
+    gate_ratchet::floor(
         "documents with structure",
         tracked_census.with_structure,
         90,
     );
-    floor(
+    gate_ratchet::floor(
         "pages that answer at all",
         tracked_census.answered_pages,
         132,
     );
-    floor("elements reached", tracked_census.nodes, 4060);
-    floor("§14.9.3's /Alt carried", tracked_census.substituted, 21);
-    floor("elements placed", tracked_census.placed, 437);
-    floor(
+    gate_ratchet::floor("elements reached", tracked_census.nodes, 4060);
+    gate_ratchet::floor("§14.9.3's /Alt carried", tracked_census.substituted, 21);
+    gate_ratchet::floor("elements placed", tracked_census.placed, 437);
+    gate_ratchet::floor(
         "elements placed by their own marks",
         tracked_census.derived,
         2641,
     );
-    floor("cells with headers", tracked_census.header_cells, 58);
-    floor(
+    gate_ratchet::floor("cells with headers", tracked_census.header_cells, 58);
+    gate_ratchet::floor(
         "header associations",
         tracked_census.header_associations,
         72,
     );
-    floor("§12.7.5's controls", tracked_census.controls, 272);
-    floor(
+    gate_ratchet::floor("§12.7.5's controls", tracked_census.controls, 272);
+    gate_ratchet::floor(
         "elements that are annotations",
         tracked_census.annotations,
         415,
     );
-    floor("elements a caret reaches", tracked_census.with_lines, 1382);
-    floor("lines", tracked_census.lines, 2482);
-    floor("characters", tracked_census.characters, 31_433);
+    gate_ratchet::floor("elements a caret reaches", tracked_census.with_lines, 1382);
+    gate_ratchet::floor("lines", tracked_census.lines, 2482);
+    gate_ratchet::floor("characters", tracked_census.characters, 31_433);
     // 877 until the session that read §7.6.6's `/AuthEvent` against Table 25, whose next sentence
     // is "if authorization fails, the event shall fail". `encrypted-attachment.pdf` states no
     // `/AuthEvent`, so Table 25's default `DocOpen` requires the key before the document opens and
@@ -1243,7 +1314,7 @@ fn ratchet(
     // because the file will not open without a password, which is the file's answer and not a
     // regression in this program — the same change moved `corpus.rs`'s `MAX_LOCKED`,
     // `collections.rs`, `oracle.rs`, `save_round_trip.rs` and `raster_golden.tsv` (ADR 1040).
-    floor(
+    gate_ratchet::floor(
         "untagged pages answering honestly",
         tracked_census.untagged_honest,
         876,
@@ -1252,20 +1323,14 @@ fn ratchet(
     whole_population_floors(census, specifications);
 
     // A defect class may only fall. The first two are already empty and stay so; the other two are
-    // populations with a number, and each has its own entry in `doc/todo/31`.
-    let ceiling = |what: &str, entries: &[(String, String)], was: usize| {
-        assert!(
-            entries.len() <= was,
-            "{what}: {} of them, and there were {was}: {entries:?}",
-            entries.len()
-        );
-    };
-    ceiling(
+    // populations with a number, and each has its own entry in `doc/todo/31`. `report` above names
+    // every page in either list, so the count here is the whole of what a failure needs to add.
+    gate_ratchet::ceiling(
         "pages whose file names elements and whose answer is empty",
-        &census.named_but_silent,
+        census.named_but_silent.len(),
         0,
     );
-    ceiling("answers cut at the node bound", &census.at_bound, 0);
+    gate_ratchet::ceiling("answers cut at the node bound", census.at_bound.len(), 0);
     // **This one is held by name rather than by count, and the count is why.** Its population is
     // `population()`'s `read_dir` of `doc/`, which holds the specifications this project has
     // bought — and those are gitignored, so a neighbouring round that downloads one changes this

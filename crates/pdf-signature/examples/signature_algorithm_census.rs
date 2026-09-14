@@ -63,6 +63,31 @@ use pdf_signature::x509::{self, Instant, PublicKey};
 use pdf_syntax::Document;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
+/// §12.8.3.3.1's signature timestamp attribute, counted and named where a signature states one.
+///
+/// Its own function because RFC 3161 Appendix A gives it a *check* rather than a presence: the
+/// imprint is over "the value of signature field within SignerInfo", so a witness is worth naming
+/// with whether it matched.
+#[expect(
+    clippy::doc_markdown,
+    reason = "RFC 3161 Appendix A is quoted verbatim and names a field in camel case; a quotation \
+              with backticks added to please a lint is no longer a quotation"
+)]
+fn count_signature_timestamp(path: &str, cms: &cms::SignedData<'_>, counts: &mut Counts) {
+    let Some(stamped) = pdf_signature::timestamp::signature_timestamp(cms) else {
+        return;
+    };
+    counts.signature_timestamps = counts.signature_timestamps.saturating_add(1);
+    let covers = stamped.is_ok_and(|stamp| stamp.covers_the_signature);
+    if covers {
+        counts.signature_timestamps_covering =
+            counts.signature_timestamps_covering.saturating_add(1);
+    }
+    counts.witnesses.push(format!(
+        "{path}: §12.8.3.3.1 signature timestamp attribute, covers the signature: {covers}"
+    ));
+}
+
 /// What one document contributes.
 #[derive(Default)]
 struct Counts {
@@ -99,6 +124,15 @@ struct Counts {
     /// gap: the attribute's *presence* is the only thing this program says about revocation, so
     /// how many files say it is the size of what that sentence is about.
     revocation_material: usize,
+    /// Signature values carrying §12.8.3.3.1's signature timestamp attribute.
+    ///
+    /// The clause's other timestamp — "Timestamp information as an unsigned attribute ( PDF 1.6 )"
+    /// — and a population nothing here had counted: §12.8.3.3.1's row owes the attribute and
+    /// §12.8.3.4.8's row owes the clock that could be read out of it, and neither knew how many
+    /// files carry one.
+    signature_timestamps: usize,
+    /// How many of those commit to the signature they sit on, as RFC 3161 Appendix A requires.
+    signature_timestamps_covering: usize,
     /// §12.8.3.4.5 (a)'s answer, by variant name, for every signature stating one of §12.8.3.4.3
     /// (f)'s two attributes.
     ///
@@ -177,6 +211,12 @@ impl Counts {
         self.revocation_material = self
             .revocation_material
             .saturating_add(other.revocation_material);
+        self.signature_timestamps = self
+            .signature_timestamps
+            .saturating_add(other.signature_timestamps);
+        self.signature_timestamps_covering = self
+            .signature_timestamps_covering
+            .saturating_add(other.signature_timestamps_covering);
         self.indefinite_lengths = self
             .indefinite_lengths
             .saturating_add(other.indefinite_lengths);
@@ -444,6 +484,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
         match signature.signed_data() {
             Ok(cms) => {
                 counts.readable = counts.readable.saturating_add(1);
+                count_signature_timestamp(path, &cms, &mut counts);
                 if cms.has_signed_attribute(cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
                     counts.revocation_material = counts.revocation_material.saturating_add(1);
                     counts
@@ -682,6 +723,11 @@ fn main() {
         "{} of those dictionaries are §12.8.5 document timestamps; {} signature values carry \
          §12.8.3.3.2's adbe-revocationInfoArchival",
         counts.timestamps, counts.revocation_material,
+    );
+    println!(
+        "{} signature values carry §12.8.3.3.1's signature timestamp attribute; {} of those \
+         commit to the signature they sit on, as RFC 3161 Appendix A requires",
+        counts.signature_timestamps, counts.signature_timestamps_covering,
     );
     println!(
         "{} signature values state X.690's indefinite length, which DER forbids and \

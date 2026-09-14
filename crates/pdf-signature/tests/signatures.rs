@@ -1269,3 +1269,180 @@ fn a_signature_with_no_revocation_material_is_never_called_unrevoked() {
     }
     assert!(asked > 0, "the corpus carries chains to ask about");
 }
+
+/// **§12.8.5's chain, over the crawl's real document timestamps.**
+///
+/// No document in `doc/pdf.js` carries a `/DocTimeStamp` and the crawl carries many, which is the
+/// two denominators in one sentence: what a corpus finds is what documents contain, and these are
+/// real archival files with two and three tokens stacked on them the way §12.8.5.3 describes.
+///
+/// **What it asserts is the rule, not a verdict** (trap 13's shape, and ADR 1039's): no anchor is
+/// supplied, so not one link of any chain here may establish an instant — and the ordering,
+/// the coverage and the refusals are checked on every one of them. A document whose later token
+/// did not cover its earlier one would be named by path.
+///
+/// The files are in the machine-local crawl (`tools/safedocs`), so this **skips and says so**
+/// where they are not there, exactly as the pdf.js tests above do for their submodule.
+#[test]
+fn the_crawls_stacked_document_timestamps_are_ordered_and_none_of_them_is_a_time() {
+    use pdf_signature::timestamp::{ChainRefusal, Time, chain};
+
+    // Three witnesses the census named, at one, two and three timestamps: the shapes §12.8.5.2 and
+    // §12.8.5.3 describe, and the second and third are what makes "chain" more than a word.
+    let witnesses = [
+        "tika-issue-tracker/batch5/DSS/DSS-2244-0.pdf",
+        "tika-issue-tracker/batch5/DSS/DSS-1794-1.pdf",
+        "tika-issue-tracker/batch5/DSS/DSS-1696-1.pdf",
+        "tika-issue-tracker/batch5/DSS/DSS-1330-1.pdf",
+    ];
+    let mut read = 0usize;
+    let mut links = 0usize;
+    for witness in witnesses {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../corpus-cache")
+            .join(witness);
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("skipped: {witness} is not in this machine's crawl");
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            println!("{witness}: does not open");
+            continue;
+        };
+        read = read.saturating_add(1);
+        let store = security_store(&document);
+        let material = store.material();
+        let at = Instant::from_unix_seconds(1_790_812_800);
+        let chain = chain(&document, &TrustAnchors::none(), &material, at);
+        println!(
+            "{witness}: {} timestamp(s), {} other signature(s), refusals {:?}",
+            chain.links.len(),
+            chain.signatures,
+            chain.refused
+        );
+        links = links.saturating_add(chain.links.len());
+        let mut previous = 0_u64;
+        for (index, link) in chain.links.iter().enumerate() {
+            println!(
+                "  [{index}] to {} ends_a_revision {} claim {:?} integrity {:?} covers {:?} \
+                 material {}/{} time {:?}",
+                link.covers_to,
+                link.ends_a_revision,
+                link.claim
+                    .as_ref()
+                    .map(|claim| claim.gen_time.unix_seconds()),
+                link.integrity,
+                link.covers,
+                link.material_covered.len(),
+                link.material_covered.len() + link.material_uncovered.len(),
+                link.time
+            );
+            assert!(
+                link.covers_to >= previous,
+                "{witness}: the links are not ordered by extent"
+            );
+            previous = link.covers_to;
+            // **The rule, and the whole of what this program may say.** No host in this tree names
+            // a trust anchor, so no token's `genTime` is an instant this program states (ADR 1039,
+            // ADR 1071 section 1).
+            assert!(
+                matches!(link.time, Time::Unknown(_)),
+                "{witness}: a timestamp established a time with no anchor supplied: {:?}",
+                link.time
+            );
+        }
+        // §12.8.5.3's own requirement, held against files that were built to meet it: a later
+        // token protects the earlier one. A file that fails it is named rather than tolerated.
+        assert!(
+            !chain.refused.iter().any(|refusal| matches!(
+                refusal,
+                ChainRefusal::DoesNotCoverTheEarlierTimestamp { .. }
+            )),
+            "{witness}: a later timestamp does not cover an earlier one: {:?}",
+            chain.refused
+        );
+    }
+    if read == 0 {
+        println!("skipped: none of the crawl's timestamp witnesses is on this machine");
+        return;
+    }
+    assert!(
+        links >= read,
+        "every witness the census named carries at least one document timestamp"
+    );
+}
+
+/// **§12.8.3.3.1's signature timestamp attribute, over every corpus signature.**
+///
+/// The clause's other timestamp — "Timestamp information as an unsigned attribute ( PDF 1.6 )" —
+/// and the one a reader can check with no certificate in hand, because RFC 3161 Appendix A says
+/// what its imprint is over: "The value of messageImprint field within TimeStampToken shall be a
+/// hash of the value of signature field within SignerInfo for the signedData being time-stamped."
+/// That is a digest of bytes this program already holds.
+///
+/// **Two of the 974 carry one** — `examples/signature_algorithm_census` is the command that names
+/// them and this walk re-derives the count rather than asserting it — and on each the imprint must
+/// match. **The calibration is one bit of the signature turned over** (trap 13): a comparison
+/// stuck at `true` would pass the first half of this test and say nothing, so the same attribute
+/// over a moved signature value must stop covering it.
+#[expect(
+    clippy::doc_markdown,
+    reason = "RFC 3161 Appendix A is quoted verbatim and its ASN.1 names are camel case; a \
+              quotation with backticks added to please a lint is no longer a quotation"
+)]
+#[test]
+fn every_corpus_signature_timestamp_attribute_is_checked_against_the_signature_it_sits_on() {
+    use pdf_signature::timestamp::signature_timestamp;
+
+    let Some(corpus) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut carried = 0usize;
+    for path in corpus {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in every_signature(&document) {
+            let Ok(cms) = signature.signed_data() else {
+                continue;
+            };
+            let Some(stamped) = signature_timestamp(&cms) else {
+                continue;
+            };
+            carried = carried.saturating_add(1);
+            let stamp = stamped.unwrap_or_else(|refusal| {
+                panic!("{name}: a real signature timestamp did not read: {refusal}")
+            });
+            println!(
+                "{name}: signature timestamp genTime {}, covers the signature {}",
+                stamp.claim.stated, stamp.covers_the_signature
+            );
+            assert!(
+                stamp.covers_the_signature,
+                "{name}: RFC 3161 Appendix A's imprint is not the digest of this signature"
+            );
+            // The planted defect: the same token over a signature one bit different.
+            let moved = flipped(&signature);
+            let Ok(moved) = moved.signed_data() else {
+                panic!("{name}: the flipped signature no longer reads");
+            };
+            let Some(Ok(after)) = signature_timestamp(&moved) else {
+                panic!("{name}: the flipped signature lost its timestamp attribute");
+            };
+            assert!(
+                !after.covers_the_signature,
+                "{name}: the imprint still covers a signature value that moved"
+            );
+        }
+    }
+    println!("{carried} corpus signature(s) carry §12.8.3.3.1's timestamp attribute");
+    assert!(
+        carried > 0,
+        "the census names two witnesses in doc/pdf.js; finding none means this walk did not run"
+    );
+}

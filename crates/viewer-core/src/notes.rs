@@ -452,6 +452,7 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
     }
     permissions(document, notes);
     security_store(document, notes);
+    document_timestamps(document, notes);
     // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
     // the sentences above it being read as "the signature is good". Two of them are answered and
     // the third is the one that decides whether a signature means anything about a *person*: a
@@ -515,6 +516,121 @@ fn security_store(document: &Document, notes: &mut Vec<String>) {
             "one of this document's security store entries is not usable: {refusal}"
         ));
     }
+    // Table 262's `/TS`: "A stream containing the DER-encoded timestamp (see Internet RFC 3161 as
+    // updated by Internet RFC 5816 ) that contains the date/time at which this signature VRI
+    // dictionary was created." What the table says it is *for* is the sentence this reports:
+    // "NOTE 1 The date/time contained in the timestamp token can be used for audit purposes."
+    for vri in &store.validation_information {
+        let Some(token) = &vri.timestamp else {
+            continue;
+        };
+        let inner = pdf_signature::cms::signed_data(token)
+            .ok()
+            .as_ref()
+            .map(pdf_signature::timestamp::token_of);
+        notes.push(match inner {
+            Some(Ok(info)) => format!(
+                "the §12.8.4.4 validation information for signature {} was recorded at {}, by a                  timestamp token (Table 262's TS). When that was is the token's claim, not this                  program's finding",
+                vri.signature_digest,
+                String::from_utf8_lossy(info.gen_time_as_written)
+            ),
+            Some(Err(refusal)) => format!(
+                "the §12.8.4.4 validation information for signature {} carries a Table 262 TS                  timestamp this program will not read: {refusal}",
+                vri.signature_digest
+            ),
+            None => format!(
+                "the §12.8.4.4 validation information for signature {} carries a Table 262 TS                  entry that is not an RFC 5652 SignedData",
+                vri.signature_digest
+            ),
+        });
+    }
+}
+
+/// §12.8.5's document timestamps, in the order their ranges nest, and what each one covers.
+///
+/// **The condition is the clause's**: §12.8.5.2 says how a reader finds them — "[t]he existence of
+/// one or more document timestamps shall be determined by examining signature fields" — and
+/// §12.8.5.3 says why there is more than one, which is the sentence this report exists to make
+/// legible. A later token is applied "before the expiry of the certificate and/or before a
+/// cryptographic attack may succeed", over everything the earlier one left, and what a person
+/// wants to know is whether the stack actually holds: does the newest one cover the older ones,
+/// and does it cover the material §12.8.4's store carries for them.
+///
+/// **What it may not say is a time.** §12.8.5.1 makes a timestamp's whole point the instant — "[a]
+/// document timestamp dictionary establishes the exact contents of the complete PDF file at the
+/// time indicated in the timestamp token" — and *establishing* one needs an authority somebody
+/// trusts, which is §12.8.1's third question and nobody's answer here (ADR 1039, ADR 1071). So the
+/// token's `genTime` is reported as the token's own characters, the way `/M` is, and the sentence
+/// after it says what is missing.
+fn document_timestamps(document: &Document, notes: &mut Vec<String>) {
+    let store = pdf_signature::signature::security_store(document);
+    let material = store.material();
+    // RFC 5280 section 6.1.1's input (b) is the caller's and this caller has no clock to offer, so
+    // the chain is asked at the epoch and every link reports what instant it was asked about. What
+    // that changes here is nothing: with no anchor, step 4 refuses before the instant is used.
+    let chain = pdf_signature::timestamp::chain(
+        document,
+        &pdf_signature::trust::TrustAnchors::none(),
+        &material,
+        pdf_signature::x509::Instant::from_unix_seconds(0),
+    );
+    if chain.is_empty() {
+        return;
+    }
+    notes.push(format!(
+        "this document carries {} §12.8.5 document timestamp(s), which §12.8.5.3 stacks so that \
+         each protects the structure the one before it left",
+        chain.links.len()
+    ));
+    for (index, link) in chain.links.iter().enumerate() {
+        let claim = match &link.claim {
+            Ok(claim) => format!(
+                "states genTime {}{}",
+                claim.stated,
+                claim.accuracy.map_or_else(String::new, |accuracy| format!(
+                    ", accurate to {} microsecond(s)",
+                    accuracy.micros_total()
+                ))
+            ),
+            Err(refusal) => format!("carries a token this reader will not read: {refusal}"),
+        };
+        let material_total = link
+            .material_covered
+            .len()
+            .saturating_add(link.material_uncovered.len());
+        notes.push(format!(
+            "document timestamp {} of {} {claim}; its byte range runs to byte {} of this file, \
+             covers {} of the document's earlier signature dictionaries and {} of the \
+             {material_total} piece(s) of §12.8.4 validation material, and the bytes it names {}",
+            index.saturating_add(1),
+            chain.links.len(),
+            link.covers_to,
+            link.covers.len(),
+            link.material_covered.len(),
+            match link.integrity {
+                pdf_signature::signature::Integrity::Unchanged { .. } =>
+                    "still hash to the imprint inside the token (Table 255)",
+                pdf_signature::signature::Integrity::Changed { .. } =>
+                    "no longer hash to the imprint inside the token, so they moved after it was applied",
+                _ => "could not be hashed against the imprint inside the token",
+            }
+        ));
+    }
+    // Each refusal by name, for the reason the store's refusals are named one function up: which
+    // piece a chain fails to protect decides what a person can conclude about which signature.
+    for refusal in &chain.refused {
+        notes.push(format!("{refusal}"));
+    }
+    notes.push(
+        "none of those timestamps tells this program *when* the document was in that state. A \
+         token's genTime is a statement by a timestamp authority, and believing it means \
+         establishing that the authority is one to believe — §12.8.5.2's \"trusted timestamp \
+         authority\", which is §12.8.1's third question. This program verifies the token's own \
+         signature and builds the authority's certification path, and stops where that path would \
+         end: nobody has named a certification authority to end it at. So the times above are \
+         claims the file makes, and nothing here says otherwise"
+            .to_owned(),
+    );
 }
 
 /// Every signature dictionary the document holds, from both places §12.8.1 puts one.
@@ -796,6 +912,26 @@ fn about_one(
                     archived.responses.len(),
                     archived.refused.len(),
                 ));
+            }
+            // §12.8.3.3.1's *other* timestamp, and the one a reader can check without a
+            // certificate: RFC 3161 Appendix A puts the imprint over "the value of signature
+            // field within SignerInfo", which is a digest this program already has the input to.
+            // Whether the authority is anybody is the same third question as everywhere else.
+            if let Some(stamped) = pdf_signature::timestamp::signature_timestamp(&cms) {
+                notes.push(match stamped {
+                    Ok(stamp) => format!(
+                        "that signature carries a timestamp of its own (§12.8.3.3.1's unsigned                          signature timestamp attribute, RFC 3161 Appendix A), stating genTime {}.                          The imprint inside it {} the digest of this signature's own bytes.                          Whether the authority that issued it is one to believe is the same                          unanswered question as above",
+                        stamp.claim.stated,
+                        if stamp.covers_the_signature {
+                            "is"
+                        } else {
+                            "is not"
+                        }
+                    ),
+                    Err(refusal) => format!(
+                        "that signature states §12.8.3.3.1's signature timestamp attribute and                          this program will not read what is in it: {refusal}"
+                    ),
+                });
             }
             for departure in signature.pades_departures(&cms, length) {
                 notes.push(format!(
@@ -1217,6 +1353,71 @@ mod tests {
             objects.len().saturating_add(1)
         );
         Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// §12.8.5's chain, named to a person, and the two things the sentences may not say.
+    ///
+    /// **A hand-built document, and by the same argument as the store's below**: no document in
+    /// `doc/pdf.js` carries a `/DocTimeStamp`, `pdf-signature`'s census is the command that
+    /// establishes it, and the crawl's real ones are where `pdf_signature::timestamp`'s own tests
+    /// take their witnesses (trap 8).
+    ///
+    /// The two sentences that may not appear are the point of the test: the report must never
+    /// state the `genTime` as a *time*, and must never fire for a document with no timestamp.
+    #[test]
+    fn a_document_carrying_a_timestamp_says_what_it_covers_and_calls_it_no_time() {
+        let stamped = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /SigFlags 3 /Fields [3 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Sig /T (a timestamp) /V 4 0 R >>",
+            "<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 \
+             /ByteRange [0 0 0 0] /Contents <> >>",
+        ]);
+        let said = about(&stamped).join("\n");
+        assert!(
+            said.contains("carries 1 §12.8.5 document timestamp(s)"),
+            "{said}"
+        );
+        assert!(
+            said.contains(
+                "§12.8.5.3 stacks so that each protects the structure the one before it \
+                           left"
+            ),
+            "{said}"
+        );
+        // An empty `/Contents` is not a token, and the sentence says which of the two it could
+        // not do rather than staying silent about both (`CLAUDE.md` principle 1).
+        assert!(
+            said.contains("carries a token this reader will not read"),
+            "{said}"
+        );
+        assert!(
+            said.contains("none of those timestamps tells this program *when*"),
+            "{said}"
+        );
+        // **The word that may not be there.** §12.8.5.2's authority is a *trusted* one and nothing
+        // here establishes trust, so no sentence about a timestamp may call it valid or verified.
+        assert!(
+            !said.contains("the timestamp is valid") && !said.contains("timestamp verifies"),
+            "{said}"
+        );
+
+        // The same document with the `/Type` taken off its signature dictionary: Table 255 makes
+        // the default `Sig`, so this is no longer a timestamp and none of the sentences above may
+        // appear. A report that fired anyway would be describing a chain that is not there.
+        let plain = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /SigFlags 3 /Fields [3 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Sig /T (a timestamp) /V 4 0 R >>",
+            "<< /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 /ByteRange [0 0 0 0] \
+             /Contents <> >>",
+        ]);
+        let quiet = about(&plain).join("\n");
+        assert!(!quiet.contains("§12.8.5 document timestamp(s)"), "{quiet}");
+        assert!(
+            !quiet.contains("none of those timestamps tells this program"),
+            "{quiet}"
+        );
     }
 
     /// §12.8.4's store, named to a person, and the one thing the sentence may not say.

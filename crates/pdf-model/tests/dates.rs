@@ -132,12 +132,14 @@ fn every_date_string_in_the_corpus_is_measured_against_the_clause() {
         refused.len()
     );
 
-    assert!(
-        conforming >= MIN_CONFORMING,
-        "{conforming} date strings parse, down from {MIN_CONFORMING} — the ratchet only rises"
+    gate_ratchet::floor(
+        "date strings that conform to §7.9.4",
+        conforming,
+        MIN_CONFORMING,
     );
-    assert!(
-        non_conforming <= MAX_NON_CONFORMING,
-        "{non_conforming} date strings do not parse, up from {MAX_NON_CONFORMING}"
+    gate_ratchet::ceiling(
+        "date-shaped strings that are not §7.9.4 dates",
+        non_conforming,
+        MAX_NON_CONFORMING,
     );
 }

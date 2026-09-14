@@ -2535,6 +2535,20 @@ impl TableStack {
         self.truncated
     }
 
+    /// Which table this walk is currently inside, counting the tables it has entered from zero.
+    ///
+    /// The identity [`CellPlacement`] deliberately lacks: a row and a column mean nothing without
+    /// the grid they are in, and §14.8.4.8.3 puts no bar on a `Table` inside a `TD`, so two cells
+    /// of one page may both be at row 0 column 0 and be in different tables. A caller grouping
+    /// cells — §14.8.5.4.5's row and column adjustment is the one that needs to — asks this
+    /// immediately after [`Self::enter`] answered with a placement.
+    ///
+    /// `None` outside every table, which is what a `TH` or `TD` a document wrote outside one gets.
+    #[must_use]
+    pub fn innermost_table(&self) -> Option<usize> {
+        self.open.last().map(|(_, table)| *table)
+    }
+
     /// Enters one structure element, and answers with its place in its table where it is a cell.
     ///
     /// `kind` is the element's §14.8.4 type **after §14.7.3's role mapping**, because a document's
@@ -3265,6 +3279,21 @@ pub enum BlockProgression {
     LeftToRight,
 }
 
+impl BlockProgression {
+    /// Whether blocks stack along the page's vertical axis, which is where a *height* is measured.
+    ///
+    /// Table 379 measures `/Height` "in the block-progression direction" and `/Width` "in the
+    /// inline-progression direction", and those two directions are perpendicular in every one of
+    /// Table 378's eight modes — so this one answer names both axes: a height is the page's y
+    /// extent and a width its x extent where this is `true`, and the other way round where it is
+    /// not. A `TbRl` table's rows run down the page and stack across it, so the same two words
+    /// mean the other pair of edges.
+    #[must_use]
+    pub fn stacks_vertically(self) -> bool {
+        matches!(self, Self::TopToBottom | Self::BottomToTop)
+    }
+}
+
 /// Table 379's `/SpaceBefore` and `/SpaceAfter`, in default user space units.
 ///
 /// Two numbers rather than one rectangle adjustment, because the clause keeps them apart: each is
@@ -3316,6 +3345,129 @@ pub fn allocation_rectangle(
         adjusted[0].max(adjusted[2]),
         adjusted[1].max(adjusted[3]),
     ]
+}
+
+/// §14.8.5.4.5's row and column adjustment for the cells of **one** table.
+///
+/// The clause derives a `TH` or `TD`'s content rectangle from its own marks and then makes it its
+/// row's and its column's:
+///
+/// > The cell's height shall be adjusted to equal the maximum height of any cell in its row; its
+/// > width shall be adjusted to the maximum width of any cell in its column.
+///
+/// `cells` is one table's cells, each with the place [`TableStack::enter`] gave it and the
+/// rectangle a caller has already derived for it — `None` for a cell nothing placed. The answer is
+/// in the same order and the same space; only the two *intervals* of each rectangle are read, so
+/// the space may be the page's or a viewport's and its y axis may run either way.
+/// `progression` decides which interval is the height, through
+/// [`BlockProgression::stacks_vertically`].
+///
+/// # A row's band rather than a row's maximum, and the difference is measurable
+///
+/// The clause can say *maximum* because a layout process places a row's cells against one before
+/// edge, so a cell given the largest height fills the row. This program does not lay the table out:
+/// each rectangle is the bounding box of what that cell actually drew, and two cells of one row
+/// rarely start at the same edge. Taking the maximum *extent* from each cell's own edge would push
+/// a short cell's rectangle past the row it is in. So the operand is the row's **band** — the
+/// interval its cells occupy between them — which equals the clause's maximum wherever the
+/// producer's own layout did put the cells' before edges together, and is a bound rather than an
+/// overhang where it did not. It is the direction the rest of this rectangle already errs in
+/// (§14.8.3.3's row, ADR 0486), and ADR 1073 is the argument.
+///
+/// # A spanning cell contributes to no band and takes several
+///
+/// A cell with a `/RowSpan` of 2 is as tall as two rows, and letting it into either row's band
+/// would make every cell beside it that tall. So a band is built from the cells that occupy the
+/// row alone, and a spanning cell is then given the union of the bands of every row it covers —
+/// Table 384's `/ColSpan` the same way across columns. A cell no band reaches keeps the rectangle
+/// it came with, which is a table whose every cell spans.
+///
+/// # An empty cell gets a rectangle it did not have
+///
+/// A `TD` that drew nothing arrives here as `None` and leaves with the intersection of its row's
+/// band and its column's — which is where that cell is on the page, derived entirely from its
+/// neighbours' marks and the grid. That is the clause's own construction rather than an invention:
+/// the cell's height *is* its row's and its width *is* its column's.
+#[must_use]
+pub fn table_cell_rectangles(
+    cells: &[(CellPlacement, Option<[f32; 4]>)],
+    progression: BlockProgression,
+) -> Vec<Option<[f32; 4]>> {
+    let vertical = progression.stacks_vertically();
+    // A rectangle's two intervals, the block-progression one first: Table 379 measures a height
+    // "in the block-progression direction" and a width "in the inline-progression direction".
+    let split = |rect: &[f32; 4]| {
+        let [x0, y0, x1, y1] = *rect;
+        let across = (x0.min(x1), x0.max(x1));
+        let down = (y0.min(y1), y0.max(y1));
+        if vertical {
+            (down, across)
+        } else {
+            (across, down)
+        }
+    };
+    let join = |height: (f32, f32), width: (f32, f32)| {
+        if vertical {
+            [width.0, height.0, width.1, height.1]
+        } else {
+            [height.0, width.0, height.1, width.1]
+        }
+    };
+    let mut rows: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+    let mut columns: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+    for (place, rect) in cells {
+        let Some(rect) = rect else { continue };
+        let (height, width) = split(rect);
+        if place.row_span <= 1 {
+            widen(rows.entry(place.row).or_insert(height), height);
+        }
+        if place.column_span <= 1 {
+            widen(columns.entry(place.column).or_insert(width), width);
+        }
+    }
+    // Every band the cell covers, unioned onto what the cell itself had. `range` rather than a
+    // loop over the span, because Table 384's two entries are a document's own numbers and a
+    // `/RowSpan` of a billion would otherwise be a billion iterations of nothing.
+    let covered = |bands: &BTreeMap<usize, (f32, f32)>, from: usize, span: usize, own| {
+        let last = from.saturating_add(span.max(1).saturating_sub(1));
+        let mut out: Option<(f32, f32)> = own;
+        for band in bands.range(from..=last).map(|(_, band)| *band) {
+            match out.as_mut() {
+                Some(so_far) => widen(so_far, band),
+                None => out = Some(band),
+            }
+        }
+        out
+    };
+    cells
+        .iter()
+        .map(|(place, rect)| {
+            let own = rect.as_ref().map(&split);
+            let height = covered(
+                &rows,
+                place.row,
+                place.row_span,
+                own.map(|(height, _)| height),
+            );
+            let width = covered(
+                &columns,
+                place.column,
+                place.column_span,
+                own.map(|(_, width)| width),
+            );
+            match (height, width) {
+                (Some(height), Some(width)) => Some(join(height, width)),
+                // A cell no band reaches, which is a table every one of whose cells spans.
+                _ => *rect,
+            }
+        })
+        .collect()
+}
+
+/// Unions one interval into another, which is the whole of the arithmetic above.
+fn widen(band: &mut (f32, f32), span: (f32, f32)) {
+    band.0 = band.0.min(span.0);
+    band.1 = band.1.max(span.1);
 }
 
 /// §14.8.2.2's artifact: content that is on the page and is not the document's content.
@@ -4259,10 +4411,11 @@ const GRANDFATHERED: [&str; 26] = [
 #[cfg(test)]
 mod tests {
     use super::{
-        Artifact, ArtifactKind, BlockSpacing, CellFacts, Checked, Child, FieldRole, HeaderScope,
-        ListContinuation, ListEntry, MAX_TABLE_COLUMNS, ParentTree, StandardType, TableGrid,
-        TableStack, Tree, WritingMode, actual_text, allocation_rectangle, annotation_languages,
-        annotation_rectangles, list_predecessors, well_formed_language_tag,
+        Artifact, ArtifactKind, BlockProgression, BlockSpacing, CellFacts, CellPlacement, Checked,
+        Child, FieldRole, HeaderScope, ListContinuation, ListEntry, MAX_TABLE_COLUMNS, ParentTree,
+        StandardType, TableGrid, TableStack, Tree, WritingMode, actual_text, allocation_rectangle,
+        annotation_languages, annotation_rectangles, list_predecessors, table_cell_rectangles,
+        well_formed_language_tag,
     };
     use pdf_syntax::{Document, Object};
     use std::collections::BTreeSet;
@@ -5983,6 +6136,139 @@ mod tests {
             [20.0, 20.0, 70.0, 30.0],
             "the before edge crossed the after one, and the pair was sorted rather than trusted"
         );
+    }
+
+    /// §14.8.5.4.5's row and column adjustment, and the control that says it did something.
+    ///
+    /// A two-by-two grid whose four cells drew four differently sized marks. The clause makes each
+    /// cell's height its row's and its width its column's, so the four answers are the four
+    /// intersections of two row bands with two column bands — and the same four rectangles placed
+    /// one per row and one per column come back untouched, which is what says the grid rather than
+    /// the arithmetic is doing the work (trap 13).
+    #[test]
+    fn a_cell_takes_its_rows_height_and_its_columns_width() {
+        let grid = [
+            (at(0, 0), Some([0.0, 90.0, 40.0, 100.0])),
+            (at(0, 1), Some([50.0, 70.0, 90.0, 100.0])),
+            (at(1, 0), Some([0.0, 40.0, 30.0, 60.0])),
+            (at(1, 1), Some([50.0, 50.0, 90.0, 60.0])),
+        ];
+
+        assert_eq!(
+            table_cell_rectangles(&grid, BlockProgression::TopToBottom),
+            vec![
+                Some([0.0, 70.0, 40.0, 100.0]),
+                Some([50.0, 70.0, 90.0, 100.0]),
+                Some([0.0, 40.0, 40.0, 60.0]),
+                Some([50.0, 40.0, 90.0, 60.0]),
+            ],
+            "each cell is its row's band by its column's"
+        );
+
+        let apart: Vec<_> = grid
+            .iter()
+            .enumerate()
+            .map(|(index, (_, rect))| (at(index, index), *rect))
+            .collect();
+        assert_eq!(
+            table_cell_rectangles(&apart, BlockProgression::TopToBottom),
+            apart.iter().map(|(_, rect)| *rect).collect::<Vec<_>>(),
+            "a cell alone in its row and its column has nothing to be equalised with"
+        );
+    }
+
+    /// A cell that drew nothing is placed by the neighbours that did.
+    ///
+    /// §14.8.5.4.5 makes the cell's height its row's and its width its column's, and both of those
+    /// are stated by other cells — so the empty cell of a grid has a rectangle although nothing in
+    /// it marked the page. Every number in the answer came off a sibling.
+    #[test]
+    fn a_cell_that_drew_nothing_is_placed_by_its_row_and_its_column() {
+        let grid = [
+            (at(0, 0), Some([0.0, 90.0, 40.0, 100.0])),
+            (at(0, 1), Some([50.0, 90.0, 90.0, 100.0])),
+            (at(1, 0), Some([0.0, 40.0, 40.0, 60.0])),
+            (at(1, 1), None),
+        ];
+        assert_eq!(
+            table_cell_rectangles(&grid, BlockProgression::TopToBottom)
+                .get(3)
+                .copied()
+                .flatten(),
+            Some([50.0, 40.0, 90.0, 60.0]),
+            "the second row's band by the second column's, neither of them this cell's own"
+        );
+    }
+
+    /// A cell that spans rows joins no row's band, and takes the bands of every row it covers.
+    ///
+    /// Table 384's `/RowSpan` makes a cell as tall as the rows it occupies, so letting it into
+    /// either row's band would make every cell beside it that tall: the header here is 60 units
+    /// high over two rows, and the cell next to it stays the 10 units it drew.
+    #[test]
+    fn a_spanning_cell_joins_no_band_and_takes_the_ones_it_covers() {
+        let grid = [
+            (
+                CellPlacement {
+                    row: 0,
+                    column: 0,
+                    row_span: 2,
+                    column_span: 1,
+                },
+                Some([0.0, 40.0, 40.0, 100.0]),
+            ),
+            (at(0, 1), Some([50.0, 90.0, 90.0, 100.0])),
+            (at(1, 1), Some([50.0, 40.0, 90.0, 60.0])),
+        ];
+        let answer = table_cell_rectangles(&grid, BlockProgression::TopToBottom);
+
+        assert_eq!(
+            answer.first().copied().flatten(),
+            Some([0.0, 40.0, 40.0, 100.0]),
+            "the spanning cell covers both rows' bands and is unchanged by them"
+        );
+        assert_eq!(
+            answer.get(1).copied().flatten(),
+            Some([50.0, 90.0, 90.0, 100.0]),
+            "its neighbour keeps the first row's band, which the spanning cell is not in"
+        );
+    }
+
+    /// §14.8.3.3 decides which pair of edges a row equalises, and `TbRl` is the other pair.
+    ///
+    /// Table 379 measures a height "in the block-progression direction", so a table whose rows run
+    /// down the page and stack across it has its rows equalised in x. The same four rectangles
+    /// under the default mode answer differently, which is what says the mode is read.
+    #[test]
+    fn a_vertical_writing_mode_equalises_the_other_pair_of_edges() {
+        let grid = [
+            (at(0, 0), Some([80.0, 60.0, 100.0, 100.0])),
+            (at(0, 1), Some([80.0, 0.0, 100.0, 40.0])),
+            (at(1, 0), Some([20.0, 60.0, 60.0, 100.0])),
+            (at(1, 1), Some([40.0, 0.0, 60.0, 40.0])),
+        ];
+        let across = table_cell_rectangles(&grid, BlockProgression::RightToLeft);
+
+        assert_eq!(
+            across.get(3).copied().flatten(),
+            Some([20.0, 0.0, 60.0, 40.0]),
+            "the second row's x band by the second column's y band"
+        );
+        assert_ne!(
+            across,
+            table_cell_rectangles(&grid, BlockProgression::TopToBottom),
+            "the mode decides which axis a row is equalised along"
+        );
+    }
+
+    /// One cell of a table, spanning one row and one column, which is Table 384's default.
+    fn at(row: usize, column: usize) -> CellPlacement {
+        CellPlacement {
+            row,
+            column,
+            row_span: 1,
+            column_span: 1,
+        }
     }
 
     /// §12.5.2's rectangle for the annotations §14.7.5.3's object reference can name.

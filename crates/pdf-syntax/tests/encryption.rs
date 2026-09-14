@@ -1234,3 +1234,55 @@ fn an_undefined_crypt_filter_is_refused_where_the_version_names_no_method() {
         other => panic!("an undefined crypt filter should be refused by name, got {other:?}"),
     }
 }
+
+/// A trailer whose `/Encrypt` names an object the file does not define is refused by name.
+///
+/// `PDFBOX-4352-0.pdf` is the corpus's only document under the corpus gate's
+/// `MAX_UNREADABLE_ENCRYPTION`, and what is beyond this reader in it is not a clause of §7.6
+/// at all: one byte of its `6 0 obj` reads `E<` where §7.3.7 puts `<<`, so the object does not
+/// parse and §7.3.10 makes the reference to it the null object — "[a]n indirect reference to an
+/// undefined object shall not be considered an error by a PDF processor; it shall be treated as
+/// a reference to the null object". The *encryption* the file states is `/V 5 /R 6` over an
+/// `AESV3` crypt filter, which this reader implements.
+///
+/// **The control is what makes that a measurement rather than a guess** (trap 13): restoring the
+/// one byte opens the same document on §7.6.4.1's default user password and its page one
+/// interprets. So the refusal is about the *dictionary being unreadable* and not about the
+/// algorithms, and if some later round made `E<` parse, the second half of this test would keep
+/// telling the truth while the first half failed — which is the direction a calibrated sweep is
+/// supposed to fail in.
+///
+/// §7.6.2 is the clause the refusal cites, because it is where the sentence binding the entry to
+/// the dictionary lives; the entry is *present* here, so the clause's "[t]he absence of this
+/// entry from the trailer dictionary means that a PDF processor shall consider the document to
+/// be not encrypted" does not apply and reading the file as plaintext is not open to us.
+#[test]
+fn an_encrypt_entry_naming_an_unparseable_object_is_refused_by_name() {
+    let Some(bytes) = corpus_bytes("PDFBOX-4352-0.pdf") else {
+        return;
+    };
+    let at = find(&bytes, b"6 0 obj\nE< /CF");
+    match Document::open_with_password(bytes.clone(), Limits::DEFAULT, "") {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => {
+            assert!(
+                detail.contains("/Encrypt (6 0 R)")
+                    && detail.contains("resolves to null")
+                    && detail.contains("§7.6.2"),
+                "the refusal should name the entry, what it resolved to and the clause: \
+                 got {detail:?}"
+            );
+        }
+        other => panic!("expected an unsupported-encryption error, got {other:?}"),
+    }
+
+    // The control. One byte back, and nothing else about the file changes.
+    let mut repaired = bytes;
+    repaired[at + 8] = b'<';
+    let document = Document::open_with_password(repaired, Limits::DEFAULT, "")
+        .expect("the same file with its dictionary opener restored opens on the empty password");
+    assert!(
+        !page_one_content(&document, "PDFBOX-4352-0.pdf").is_empty(),
+        "the repaired document's page one should decrypt to a content stream, which is what \
+         says the refusal above is about the dictionary rather than about AESV3"
+    );
+}

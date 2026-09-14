@@ -124,17 +124,12 @@ fn every_metadata_stream_in_the_corpus_is_read() {
         println!("    {line}");
     }
 
-    assert!(
-        parsed >= MIN_PACKETS,
-        "{parsed} packets read, down from {MIN_PACKETS} — the ratchet only rises"
-    );
-    assert!(
-        refusals <= MAX_REFUSED,
-        "{refusals} streams refused, up from {MAX_REFUSED}"
-    );
-    assert!(
-        properties >= MIN_PROPERTIES,
-        "{properties} properties read, down from {MIN_PROPERTIES}"
+    gate_ratchet::floor("metadata packets that parse", parsed, MIN_PACKETS);
+    gate_ratchet::ceiling("metadata streams refused", refusals, MAX_REFUSED);
+    gate_ratchet::floor(
+        "properties read from those packets",
+        properties,
+        MIN_PROPERTIES,
     );
 }
 

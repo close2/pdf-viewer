@@ -253,7 +253,7 @@ pub fn submission_note(submission: &Submission, refused: Option<&str>) -> String
     let what = format!(
         "{method} {} ({}), {} field(s), {} byte(s)",
         submission.url,
-        submission.format.content_type(),
+        submission.media_type,
         submission.fields,
         submission.body.len(),
     );

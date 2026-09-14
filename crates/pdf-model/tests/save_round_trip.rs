@@ -1171,14 +1171,6 @@ const REFERENCE_EXCLUDED_OFF: &[(&str, &str)] = &[
     ("issue19484_2.pdf", "poppler"),
 ];
 
-/// A capability count may only rise.
-fn floor(what: &str, count: usize, at_least: usize) {
-    assert!(
-        count >= at_least,
-        "{what}: {count}, below the floor of {at_least} this instrument has held since session 499"
-    );
-}
-
 /// A population is held as a set of names, in both directions.
 ///
 /// A name that joins is a document this tree stopped saving, or a reference stopped reading —
@@ -1261,24 +1253,27 @@ fn ratchet(tally: &Tally, population: usize) {
             .map(String::as_str)
             .collect::<Vec<_>>(),
     );
-    floor(
+    // A capability count may only rise, and each is printed beside the floor that holds it: a
+    // floor below its population is that much capability that could be lost without this gate
+    // saying anything (ADR 1075).
+    gate_ratchet::floor(
         "documents with a fillable text field",
         tally.with_text_field,
         80,
     );
-    floor("saved under Restrict(On)", tally.on.saved, 935);
-    floor(
+    gate_ratchet::floor("saved under Restrict(On)", tally.on.saved, 935);
+    gate_ratchet::floor(
         "free texts checked under Restrict(On)",
         tally.on.free_texts_checked,
         933,
     );
-    floor(
+    gate_ratchet::floor(
         "field values checked under Restrict(On)",
         tally.on.fields_checked,
         80,
     );
-    floor("saved under Restrict(Off)", tally.off.saved, 8);
-    floor(
+    gate_ratchet::floor("saved under Restrict(Off)", tally.off.saved, 8);
+    gate_ratchet::floor(
         "field values checked under Restrict(Off)",
         tally.off.fields_checked,
         2,

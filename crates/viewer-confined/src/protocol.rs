@@ -1887,6 +1887,10 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Format::HtmlForm => 1,
                     Format::Pdf => 2,
                 })
+                // §12.7.5.3 makes the media type a function of the submission rather than of the
+                // format, so it crosses as itself: a `multipart/form-data` carries RFC 2046
+                // section 5.1.1's boundary parameter, which no enumerator can stand for.
+                .str(&submission.media_type)
                 .usize(submission.fields)
                 .bytes(&submission.body);
         }
@@ -2090,6 +2094,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                         });
                     }
                 },
+                media_type: reader.string("a submission's media type")?,
                 fields: reader.usize("a submission's field count")?,
                 body: reader.owned_bytes("a submission's body")?,
                 owed: Vec::new(),
@@ -3821,6 +3826,7 @@ mod tests {
                     url: "https://example.invalid/cgi?x=1".to_owned(),
                     method: Method::Post,
                     format: Format::Fdf,
+                    media_type: "application/fdf".to_owned(),
                     body: b"%FDF-1.2\n".to_vec(),
                     fields: 3,
                     owed: Vec::new(),
@@ -3832,6 +3838,7 @@ mod tests {
                     url: "https://example.invalid/cgi".to_owned(),
                     method: Method::Get,
                     format: Format::HtmlForm,
+                    media_type: "multipart/form-data; boundary=quorra-form-data-0".to_owned(),
                     body: Vec::new(),
                     fields: 0,
                     owed: Vec::new(),
@@ -4512,6 +4519,7 @@ mod tests {
                 language: Some("en-GB".to_owned()),
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: None,
@@ -4537,6 +4545,7 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: Some("sales by region and quarter".to_owned()),
                 short: None,
                 bounds: None,
@@ -4561,6 +4570,7 @@ mod tests {
                 language: None,
                 quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: Some([8.0, 9.0, 10.0, 11.0]),
@@ -4589,6 +4599,18 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: Some(pdf_model::structure::HeaderScope::Row),
+                // §14.8.5.4.5's grid place, which is what a host equalises a row's cells by: a
+                // header at row 0 column 1 spanning two columns, in the page's second table.
+                cell: Some(viewer_core::TableCell {
+                    table: 1,
+                    place: pdf_model::structure::CellPlacement {
+                        row: 0,
+                        column: 1,
+                        row_span: 1,
+                        column_span: 2,
+                    },
+                    progression: pdf_model::structure::BlockProgression::RightToLeft,
+                }),
                 summary: None,
                 // And its `/Short`, the author's abbreviation for the repetition a screen
                 // reader makes of it in front of every cell it describes.
@@ -4617,6 +4639,7 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: Some([12.0, 13.0, 14.0, 15.0]),
@@ -4641,6 +4664,7 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: None,
@@ -4684,6 +4708,7 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: None,
@@ -4706,6 +4731,7 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: None,
@@ -4732,6 +4758,7 @@ mod tests {
                 language: None,
                 quads: Vec::new(),
                 header_scope: None,
+                cell: None,
                 summary: None,
                 short: None,
                 bounds: Some([10.0, 5.0, 90.0, 20.0]),

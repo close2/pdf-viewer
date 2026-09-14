@@ -292,6 +292,53 @@ pub fn glyph_classes(document: &Document, descriptor: &Dictionary) -> Vec<(Strin
         .collect()
 }
 
+/// One glyph class's descriptor laid over the main one, which is what §9.8.3.3 asks for.
+///
+/// Table 122 on `/FD`: "Each value shall be a dictionary containing entries that shall override
+/// the corresponding values in the main font descriptor dictionary for that class of glyphs",
+/// and §9.8.3.3 again from the other side: "[t]he entry's value shall be a font descriptor whose
+/// contents shall override the font-wide attributes for that class only."
+///
+/// So the result is the main descriptor with the class's entries written over it, and every
+/// reader of a descriptor in this crate works on it unchanged.
+///
+/// # What the clause keeps out of it
+///
+/// §9.8.3.3 bounds what such a descriptor may hold: it "shall contain entries for metric
+/// information only; it shall not include `FontFile` , `FontFile2` , `FontFile3` , or any of the
+/// entries listed in" — and the 2020 printing names Table 120 here, which is every entry a
+/// descriptor can state, so read literally the sentence forbids a descriptor from stating
+/// anything. Errata Collection 3's Issue #5 repairs it, repointing the prohibition at Table 122's
+/// additional font descriptor entries for `CIDFonts` and making Table 120 the set the keys are
+/// drawn *from*; §9.8.3.3's ledger row carries the three amendments word for word.
+///
+/// Both printings forbid the three font-program streams by name, and the amended one forbids
+/// Table 122's four, so seven keys are dropped rather than carried over. That is not a validator
+/// enforcing a `shall` — a file writing one is read exactly as before — but a reader declining to
+/// let a class's descriptor answer a question the clause says it is not there to answer.
+/// `/FD` itself is among the seven, so nothing here recurses.
+#[must_use]
+pub fn overridden(document: &Document, main: &Dictionary, over: &Dictionary) -> Dictionary {
+    /// The seven keys §9.8.3.3 says a class's descriptor shall not hold.
+    const FORBIDDEN: &[&[u8]] = &[
+        b"FontFile",
+        b"FontFile2",
+        b"FontFile3",
+        b"Style",
+        b"Lang",
+        b"FD",
+        b"CIDSet",
+    ];
+    let mut merged = main.clone();
+    for (key, value) in over.iter() {
+        if FORBIDDEN.contains(&key.as_bytes()) {
+            continue;
+        }
+        merged.insert(key.clone(), document.resolve(value).clone());
+    }
+    merged
+}
+
 /// Table 122's `/Lang`, as far as it can decide a face.
 ///
 /// ISO 32000-2 §9.8.3.1, Table 122, on the entry:

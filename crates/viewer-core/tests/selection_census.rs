@@ -118,6 +118,8 @@ const WORDS_PER_DOCUMENT: usize = 3;
 ///
 /// A word of three characters or fewer is unique on far fewer pages, and a short reference word
 /// that happens to be a substring of a longer selected one would pass without proving anything.
+// not a ratchet: what this census will look at, chosen for the reason above, rather than a bound
+// on anything the run counts.
 const MIN_WORD_CHARS: usize = 4;
 
 /// How much of a point the drag reaches past each end of the reference's box.

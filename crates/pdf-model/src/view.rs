@@ -838,7 +838,7 @@ impl ViewState {
             unmatched,
             ..Imported::default()
         };
-        self.append_templates(document, data, &mut outcome);
+        self.append_templates(document, data, &table, &mut outcome);
         outcome
     }
 
@@ -2167,14 +2167,27 @@ impl ViewState {
     /// document anyone has opened: `CLAUDE.md`'s "nothing eager" applies, and this is the one
     /// caller either tree has.
     ///
-    /// Two refusals, each named rather than dropped. Table 253's `/F` names a template in
+    /// Table 252's `/Fields` are imported with the page, on the flag beside them. The entry is
+    /// "the root fields that shall be imported", which is into *this* document and by §12.7.4.2's
+    /// name — the same act §12.7.8.3.2 defines — so they go through
+    /// [`crate::forms_data::match_fields`] exactly as Table 246's do. What decides whether they
+    /// may is `/Rename`, because a template added by reference to a page this document already
+    /// holds makes every one of its names a conflict with an existing field: `false` says "all
+    /// fields with that name shall be updated", which is what an import already does, and `true`
+    /// asks for new fields under new names, which `CLAUDE.md` rule 1's immutable document has
+    /// nowhere to put. A `true` is therefore refused by name; applying it as though it were a
+    /// `false` would put the template's values on the fields the flag exists to leave alone.
+    ///
+    /// Three refusals, each named rather than dropped. Table 253's `/F` names a template in
     /// *another file*, which this reader has no filesystem to open — `GoToR`'s reason exactly. A
     /// `/TRef` naming no page in either tree is a file asking for something the document does
-    /// not contain, which is the one case §12.7.7's own invariants cannot catch.
+    /// not contain, which is the one case §12.7.7's own invariants cannot catch. And `/Rename`
+    /// is the third, above.
     fn append_templates(
         &mut self,
         document: &Document,
         data: &crate::forms_data::FormsData,
+        widgets: &BTreeMap<String, Vec<ObjectId>>,
         outcome: &mut Imported,
     ) {
         if data.pages.is_empty() {
@@ -2200,6 +2213,27 @@ impl ViewState {
                 };
                 self.appended.push(id);
                 outcome.pages = outcome.pages.saturating_add(1);
+                if template.fields.is_empty() {
+                    continue;
+                }
+                if template.rename {
+                    outcome.refused.push(format!(
+                        "the template {}'s Table 252 /Rename is true, which asks that its fields \
+                         be renamed to names this document has not got; the document is \
+                         immutable here, so its {} field(s) are not imported",
+                        reference.name,
+                        template.fields.len()
+                    ));
+                    continue;
+                }
+                let (matched, unmatched) =
+                    crate::forms_data::match_fields(&template.fields, widgets);
+                for (widget, import) in &matched {
+                    self.reset.remove(widget);
+                    self.imported.insert(*widget, import.clone());
+                }
+                outcome.widgets = outcome.widgets.saturating_add(matched.len());
+                outcome.unmatched.extend(unmatched);
             }
         }
     }

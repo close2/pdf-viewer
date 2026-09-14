@@ -3083,7 +3083,7 @@ fn field_text(
             let value = field
                 .value
                 .as_ref()
-                .and_then(|value| variable_text::value_text(document, value))
+                .and_then(|value| text_field_text(document, &field, value))
                 .unwrap_or_default();
             // An empty field draws nothing — and it still has somewhere the next character
             // goes, which is the one thing an empty field can be asked about. So the layout is
@@ -3423,7 +3423,7 @@ pub(crate) fn field_text_value(
     let text = field
         .value
         .as_ref()
-        .and_then(|value| variable_text::value_text(document, value))
+        .and_then(|value| text_field_text(document, &field, value))
         .unwrap_or_default();
     if field.flags & FLAG_PASSWORD == 0 {
         Some(crate::view::ShownValue {
@@ -3436,6 +3436,33 @@ pub(crate) fn field_text_value(
             obscured: true,
         })
     }
+}
+
+/// A text field's value as the characters §12.7.5.3 says the field's text is.
+///
+/// The clause states where that text lives twice, and the second statement is about one flag
+/// only. In general it is
+///
+/// > held in a text string (or, beginning with PDF 1.5, a stre am) in the V (value) entry of the
+/// > field dictionary
+///
+/// which is [`variable_text::value_text`]. Under Table 231 bit 21 "the field's text represents
+/// the pathname of a file", and the clause says what states that pathname: "a file specification
+/// (7.11, "File specifications") identifying the selected file". §7.11.1 gives a specification a
+/// dictionary form, so a file-select control's `/V` may legitimately *be* a dictionary —
+/// §12.7.8.3.2's import puts one there, since that is the form an FDF carries a selected file in
+/// — and the text it stands for is the name the specification gives, `/UF` before `/F` as Table
+/// 43 requires. Without this a file-select control filled from an FDF laid out no text and
+/// reported nothing, which is trap 5's silence inside a feature otherwise built.
+///
+/// Every other field type still reads a dictionary as no value at all, because for them it is.
+fn text_field_text(document: &Document, field: &Field, value: &Object) -> Option<String> {
+    if field.flags & FLAG_FILE_SELECT != 0
+        && let Object::Dictionary(dict) = document.resolve(value)
+    {
+        return crate::file_spec::FileSpec::from_dictionary(document, &dict).display_name();
+    }
+    variable_text::value_text(document, value)
 }
 
 /// How much of a value one widget will take, where §12.7.5.3's Table 231 bit 24 binds.

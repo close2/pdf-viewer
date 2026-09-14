@@ -1,0 +1,16 @@
+[package]
+name = "gate-ratchet"
+description = "Every hand-written bound a gate holds, printed beside the population it bounds, with the slack between them gated."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No dependencies, and that is the point: this is four functions that print a line and assert two
+# properties, linked into every corpus-scale gate in the tree. A dependency here would be a
+# dependency of all of them.
+[dependencies]
+
+[lints]
+workspace = true

@@ -345,19 +345,30 @@ pub struct FdfPage {
 pub struct FdfTemplate {
     /// Table 252's `/TRef`, "[r]equired", the named page reference specifying its location.
     pub reference: crate::named_page::Reference,
-    /// Table 252's `/Fields`, the root fields imported along with the template.
+    /// Table 252's `/Fields`, "[a]n array of references to FDF field dictionaries … describing
+    /// the root fields that shall be imported (those with no ancestors in the field hierarchy)".
     ///
-    /// Read and not applied. The entry names fields of the *template*, whose widgets are the
-    /// template page's own annotations rather than anything in the target document's
-    /// `/AcroForm` — so applying them means a second field-name table, over one page.
+    /// *Imported*, which is into the target document — the same act §12.7.8.3.2 defines and the
+    /// same §12.7.4.2 names it matches on. Whether they may be applied is Table 252's `/Rename`
+    /// to decide, not this entry.
     pub fields: Vec<FdfField>,
     /// Table 252's `/Rename`, **default `true`**.
     ///
-    /// Read and not acted on, and the clause is unusually explicit about why nobody can: it says
-    /// in as many words that "the `Rename` flag does not define a renaming algorithm", and then
-    /// suggests one a processor "might" use. What renaming decides is which fully qualified name
-    /// a template's field answers to afterwards; this program does not merge field trees, so a
-    /// template page's widgets draw from the template page's own fields and no name collides.
+    /// The flag decides what happens to a template field whose name a field of the target
+    /// document already has, and a template added by reference to a page this document already
+    /// holds makes that every one of them. §12.7.8.3.3's Table 252 states both branches:
+    ///
+    /// > If this flag is true , fields with such conflicting names shall be renamed to guarantee
+    /// > their uniqueness. If false , the fields shall not be renamed; this results in multiple
+    /// > fields with the same name in the target document. Each time the FDF file provides
+    /// > attributes for a given field name, all fields with that name shall be updated.
+    ///
+    /// The `false` branch is exactly what [`crate::view::ViewState::import`] does — one value per
+    /// name, applied to every widget of that name — and is applied. The `true` branch asks for
+    /// *new fields* under names this document does not have, which is a field tree this program
+    /// cannot write: `CLAUDE.md` rule 1 makes the document immutable and an edit a log beside it.
+    /// So a `true` is refused by name rather than applied as though it were a `false`, which
+    /// would put the template's values on fields the clause says to leave alone.
     pub rename: bool,
 }
 
@@ -793,9 +804,22 @@ pub fn match_to_document(
     data: &FormsData,
     widgets: &std::collections::BTreeMap<String, Vec<ObjectId>>,
 ) -> (Vec<(ObjectId, Import)>, Vec<String>) {
+    match_fields(&data.fields, widgets)
+}
+
+/// The same pairing over one list of fields, which §12.7.8 states in two places.
+///
+/// Table 246's `/Fields` is a file's; Table 252's is a template's, "the root fields that shall be
+/// imported". Both are Table 249's dictionaries matched by §12.7.4.2's name, so both go through
+/// this rather than through two readings that could disagree.
+#[must_use]
+pub fn match_fields(
+    fields: &[FdfField],
+    widgets: &std::collections::BTreeMap<String, Vec<ObjectId>>,
+) -> (Vec<(ObjectId, Import)>, Vec<String>) {
     let mut matched = Vec::new();
     let mut unmatched = Vec::new();
-    for field in &data.fields {
+    for field in fields {
         let Some(ids) = widgets.get(&field.name) else {
             unmatched.push(field.name.clone());
             continue;

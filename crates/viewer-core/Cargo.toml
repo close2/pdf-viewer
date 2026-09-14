@@ -16,6 +16,8 @@ pdf-render.workspace = true
 pdf-syntax.workspace = true
 
 [dev-dependencies]
+# The census floors and ceilings, each printed beside the population it bounds (ADR 1075).
+gate-ratchet.workspace = true
 render-cpu.workspace = true
 test-scenes.workspace = true
 # The accessibility census walks every page of every document this project holds; rule 4 forbids

@@ -74,7 +74,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
 use pdf_model::structure::{
-    Artifact, Child, HeaderScope, ListEntry, StandardType, TableStack, Tree, list_predecessors,
+    Artifact, BlockProgression, CellPlacement, Child, HeaderScope, ListEntry, StandardType,
+    TableStack, Tree, list_predecessors, table_cell_rectangles,
 };
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -90,6 +91,38 @@ const MAX_DEPTH: usize = 64;
 /// A bound on the *answer* rather than on the document: a host asks this question when a screen
 /// reader attaches, and a page that produced a million nodes would stall it.
 const MAX_NODES: usize = 8192;
+
+/// Where a `TH` or `TD` sits in its table, which is what §14.8.5.4.5 adjusts its rectangle by.
+///
+/// # A host cannot work any of the three out
+///
+/// `doc/ui-boundary.md`'s test for a field, and this one passes it three times over. The column is
+/// not the cell's position among its row's children — Table 384's `/RowSpan` lets a cell from an
+/// earlier row occupy one — so it is a fact about the whole grid, which
+/// [`pdf_model::structure::TableStack`] fills as the tree is walked on this side. The spans
+/// themselves live in §14.7.6's attribute objects and class map, which only this side reads. And
+/// the writing mode that says which pair of edges a *height* is measured between is inherited down
+/// the structure tree, which only this side walks.
+///
+/// `None` for every element that is not a table cell, and for a cell a document wrote outside any
+/// `TR` — which has no place in a grid, and for which nothing is invented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TableCell {
+    /// Which of the page's tables this cell is in, counting them in the order the walk entered
+    /// them.
+    ///
+    /// §14.8.4.8.3 puts no bar on a `Table` inside a `TD`, so a row and a column mean nothing
+    /// without it: two cells of one page may both be at row 0, column 0.
+    pub table: usize,
+    /// The row, the column and Table 384's two spans.
+    pub place: CellPlacement,
+    /// §14.8.3.3's block progression for this cell, from Table 378's inheritable `/WritingMode`.
+    ///
+    /// Which axis a row is equalised along: Table 379 measures a height "in the
+    /// block-progression direction", so a `TbRl` table's rows run down the page and stack across
+    /// it.
+    pub progression: BlockProgression,
+}
 
 /// One element of §14.7's structure tree, as an accessibility API would take it.
 #[derive(Debug, Clone, PartialEq)]
@@ -161,6 +194,14 @@ pub struct AccessibilityNode {
     /// grid, which is one a document put outside a `TR`. The second of those is not the same as a
     /// column header and is deliberately not reported as one: a host says it does not know.
     pub header_scope: Option<HeaderScope>,
+    /// Where the element sits in its table's grid, for a `TH` or `TD` and nothing else.
+    ///
+    /// [`places`] is what reads it: §14.8.5.4.5 makes a cell's height its row's and its width its
+    /// column's, so a cell's rectangle is not a fact about that cell alone. A host is given the
+    /// grid rather than the finished rectangle for the reason [`Self::bounds`] and [`Self::drawn`]
+    /// are carried apart — this is what the *document* says about the cell, and where the cell
+    /// ends up is a composition of it with everything else.
+    pub cell: Option<TableCell>,
     /// Table 384's `/Summary`, for an element whose mapped type is `Table` and nothing else.
     ///
     /// §14.8.5.7 makes it "[a] summary of the table's purpose and structure", with the entry's
@@ -604,6 +645,8 @@ pub(crate) struct Gathered {
     pub(crate) language: Option<String>,
     /// Table 384's `/Scope` for a `TH`, stated or assumed.
     pub(crate) header_scope: Option<HeaderScope>,
+    /// Where a `TH` or `TD` sits in its table's grid, as [`AccessibilityNode::cell`] states.
+    pub(crate) cell: Option<TableCell>,
     /// Table 384's `/Summary` for a `Table`, where the element states one.
     pub(crate) summary: Option<String>,
     /// Table 384's `/Short` for a `TH`, where the element states one.
@@ -916,7 +959,7 @@ fn walk(
                 // which is exactly why this stood for the whole life of `standard_role` (ADR
                 // 0785).
                 let kind = tree.standard_role(document, &dict);
-                let header_scope =
+                let (cell, header_scope) =
                     header_scope(document, tree, &dict, kind.as_ref(), depth, index, tables);
                 let bounds = tree.bounds(document, &dict);
                 // §14.8.5.4.5's second rectangle, beside the first: the spacing it adds is
@@ -953,6 +996,7 @@ fn walk(
                         phrase,
                         language: language.clone(),
                         header_scope,
+                        cell,
                         summary,
                         short,
                         bounds,
@@ -1089,15 +1133,26 @@ fn header_scope(
     depth: usize,
     index: usize,
     tables: &mut TableStack,
-) -> Option<HeaderScope> {
+) -> (Option<TableCell>, Option<HeaderScope>) {
     let placement = tables.enter(depth, kind, index, || tree.cell_facts(document, dict));
+    // §14.8.5.4.5's operand, for every cell and not only a header's: the table it is in, the place
+    // the grid gave it, and the writing mode that says which pair of its edges a row equalises.
+    let cell = placement
+        .zip(tables.innermost_table())
+        .map(|(place, table)| TableCell {
+            table,
+            place,
+            progression: tree.writing_mode(document, dict).block_progression(),
+        });
     if kind != Some(&StandardType::TableHeader) {
-        return None;
+        return (cell, None);
     }
     // Table 384's own value where the document states one, and §14.8.5.7's assumption where it
     // does not — which needs the cell's place in the grid and answers nothing without it.
-    tree.header_scope(document, dict)
-        .or_else(|| placement.map(|cell| HeaderScope::assumed(cell.row, cell.column)))
+    let scope = tree
+        .header_scope(document, dict)
+        .or_else(|| placement.map(|cell| HeaderScope::assumed(cell.row, cell.column)));
+    (cell, scope)
 }
 
 /// A text-string entry, decoded through §7.9.2.2's rules.
@@ -1218,6 +1273,7 @@ pub(crate) fn finish(
         language: referenced_language(&gathered.objects, page.languages).or(gathered.language),
         quads: all,
         header_scope: gathered.header_scope,
+        cell: gathered.cell,
         summary: gathered.summary,
         short: gathered.short,
         bounds: stated.and_then(&place),
@@ -1321,7 +1377,62 @@ pub fn places(nodes: &[AccessibilityNode]) -> Vec<Option<[f32; 4]>> {
             union_into(above, node.allocation);
         }
     }
+    // §14.8.5.4.5's fourth step, after the three above rather than among them: a cell's rectangle
+    // is its row's and its column's, and neither is knowable until every cell of the table has
+    // one. **It moves nothing above it.** Each adjusted rectangle is built out of intervals the
+    // cells themselves contributed, so it lies inside the bounding rectangle of the cells the
+    // enclosing `TR` and `Table` have already been given, and re-running the pass above would
+    // union the same numbers a second time.
+    equalise_table_cells(nodes, &mut answer);
     answer
+}
+
+/// §14.8.5.4.5's row and column adjustment, applied to each table of one page in turn.
+///
+/// > The cell's height shall be adjusted to equal the maximum height of any cell in its row; its
+/// > width shall be adjusted to the maximum width of any cell in its column.
+///
+/// The arithmetic is [`pdf_model::structure::table_cell_rectangles`], where the clause's
+/// derivation and this program's one departure from its wording are written down; this is the
+/// grouping it needs, which is [`AccessibilityNode::cell`]'s table.
+///
+/// The writing mode is the table's first cell's. Table 378 makes `/WritingMode` inheritable and a
+/// table's cells take it from the table, so the eight names are one answer per table in every
+/// document that states one at all; a file that gave two cells of one table different modes has
+/// said something the layout model has no meaning for, and asking each cell separately would
+/// equalise two rows along two different axes.
+fn equalise_table_cells(nodes: &[AccessibilityNode], answer: &mut [Option<[f32; 4]>]) {
+    let mut tables: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some(cell) = node.cell {
+            tables.entry(cell.table).or_default().push(index);
+        }
+    }
+    for members in tables.into_values() {
+        let cells: Vec<(CellPlacement, Option<[f32; 4]>)> = members
+            .iter()
+            .filter_map(|index| {
+                let place = nodes.get(*index)?.cell?.place;
+                Some((place, answer.get(*index).copied().flatten()))
+            })
+            .collect();
+        let Some(progression) = members
+            .first()
+            .and_then(|first| nodes.get(*first))
+            .and_then(|node| node.cell)
+            .map(|cell| cell.progression)
+        else {
+            continue;
+        };
+        for (index, rect) in members
+            .iter()
+            .zip(table_cell_rectangles(&cells, progression))
+        {
+            if let Some(slot) = answer.get_mut(*index) {
+                *slot = rect;
+            }
+        }
+    }
 }
 
 /// The smallest axis-aligned rectangle covering an element's quadrilaterals.
@@ -1462,7 +1573,7 @@ fn referenced_rectangle(
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessibilityNode, places};
+    use super::{AccessibilityNode, BlockProgression, CellPlacement, TableCell, places};
 
     /// One element with nothing on it, to be given the one fact each case is about.
     fn element(parent: Option<usize>) -> AccessibilityNode {
@@ -1474,6 +1585,7 @@ mod tests {
             language: None,
             quads: Vec::new(),
             header_scope: None,
+            cell: None,
             summary: None,
             short: None,
             bounds: None,
@@ -1583,6 +1695,69 @@ mod tests {
             answered.first().copied().flatten(),
             Some([20.0, 0.0, 80.0, 66.0]),
             "the first child's reserved space above it, and the second's marks below its own"
+        );
+    }
+
+    /// §14.8.5.4.5's row and column adjustment, reaching a cell that marked nothing.
+    ///
+    /// Three cells of one table drew something and the fourth drew nothing at all. The clause
+    /// makes the fourth's height its row's and its width its column's, so it has a place although
+    /// none of its own three routes answered — and the two that did draw grow to the bands their
+    /// neighbours set. **The control is the same page with the grid withheld**: a host given no
+    /// [`AccessibilityNode::cell`] gets each cell's own marks back, which is what says the grid
+    /// and not the arithmetic is doing this (trap 13).
+    #[test]
+    fn a_table_cell_takes_its_rows_height_and_its_columns_width() {
+        let mut nodes = Vec::new();
+        for (row, column, drawn) in [
+            (0, 0, Some([0.0, 0.0, 40.0, 10.0])),
+            (0, 1, Some([50.0, 0.0, 90.0, 30.0])),
+            (1, 0, Some([0.0, 40.0, 30.0, 60.0])),
+            (1, 1, None),
+        ] {
+            let mut cell = element(None);
+            cell.role = "TD".to_owned();
+            cell.drawn = drawn;
+            cell.cell = Some(TableCell {
+                table: 0,
+                place: CellPlacement {
+                    row,
+                    column,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                progression: BlockProgression::TopToBottom,
+            });
+            nodes.push(cell);
+        }
+
+        assert_eq!(
+            places(&nodes),
+            vec![
+                Some([0.0, 0.0, 40.0, 30.0]),
+                Some([50.0, 0.0, 90.0, 30.0]),
+                Some([0.0, 40.0, 40.0, 60.0]),
+                Some([50.0, 40.0, 90.0, 60.0]),
+            ],
+            "each cell is its row's band by its column's, the empty one included"
+        );
+
+        let withheld: Vec<AccessibilityNode> = nodes
+            .iter()
+            .map(|node| AccessibilityNode {
+                cell: None,
+                ..node.clone()
+            })
+            .collect();
+        assert_eq!(
+            places(&withheld),
+            vec![
+                Some([0.0, 0.0, 40.0, 10.0]),
+                Some([50.0, 0.0, 90.0, 30.0]),
+                Some([0.0, 40.0, 30.0, 60.0]),
+                None,
+            ],
+            "with no grid there is nothing to equalise, and the empty cell has no place at all"
         );
     }
 }

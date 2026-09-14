@@ -84,7 +84,7 @@ use crate::pkcs1::{self, Pkcs1Error};
 use crate::pss;
 use crate::trust::{self, Trust, TrustAnchors};
 use crate::x509::{self, Instant, X509Error};
-use pdf_syntax::{Dictionary, Document, FileBytes, Object};
+use pdf_syntax::{Dictionary, Document, FileBytes, Object, ObjectId};
 
 /// Most signatures read from one document.
 ///
@@ -1184,6 +1184,24 @@ impl Signature {
         material: &crate::revocation::Material<'_>,
         at: Instant,
     ) -> Trust {
+        self.trust_for(anchors, material, at, trust::Purpose::Unstated)
+    }
+
+    /// [`Self::trust`] with the use this program has for the signer's key stated.
+    ///
+    /// The fourth input, and the last one RFC 5280 leaves to a caller: section 4.2.1.12's
+    /// `extKeyUsage` is a statement about *use*, so only whoever has a use can process it.
+    /// §12.8.5's document timestamp is the caller with one — RFC 3161 section 2.3 requires
+    /// `id-kp-timeStamping` in a timestamp authority's certificate and requires it critical — and
+    /// [`crate::trust::Purpose`] carries the argument.
+    #[must_use]
+    pub fn trust_for(
+        &self,
+        anchors: &TrustAnchors<'_>,
+        material: &crate::revocation::Material<'_>,
+        at: Instant,
+        purpose: trust::Purpose,
+    ) -> Trust {
         if anchors.is_empty() {
             return Trust::NoAnchorSupplied;
         }
@@ -1212,7 +1230,7 @@ impl Signature {
             .filter_map(|entry| x509::read(*entry).ok())
             .filter(|candidate| candidate.tbs != target.tbs)
             .collect();
-        trust::validate(&target, &others, anchors, &material, at)
+        trust::validate_for(&target, &others, anchors, &material, at, purpose)
     }
 
     /// **Has this document changed since it was signed?**, over the bytes of `file`.
@@ -2195,7 +2213,7 @@ fn collect(
     document: &Document,
     field: &Object,
     out: &mut Vec<Signature>,
-    seen: &mut std::collections::BTreeSet<pdf_syntax::ObjectId>,
+    seen: &mut std::collections::BTreeSet<ObjectId>,
     depth: usize,
 ) {
     if out.len() >= MAX_SIGNATURES || depth > 32 {
@@ -2476,7 +2494,7 @@ fn walk_signed_fields(
     document: &Document,
     field: &Object,
     visit: &mut impl FnMut(&Dictionary, &Dictionary),
-    seen: &mut std::collections::BTreeSet<pdf_syntax::ObjectId>,
+    seen: &mut std::collections::BTreeSet<ObjectId>,
     visited: &mut usize,
     depth: usize,
 ) {
@@ -3080,6 +3098,67 @@ pub fn security_store(document: &Document) -> SecurityStore {
     store
 }
 
+/// Where one of §12.8.4's material streams is, as the object the store names.
+///
+/// §12.8.5.3 is what makes a *location* worth reading beside the bytes: a later timestamp has to
+/// cover the material proving the earlier authority's path, and covering something is a statement
+/// about where in the file it sits. [`crate::timestamp::chain`] is the reader, and
+/// [`security_store_entries`] is how it asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoreEntry {
+    /// The Table 261 key whose array the entry was in.
+    pub key: &'static str,
+    /// Which entry of that array.
+    pub index: usize,
+    /// The object the array names.
+    ///
+    /// Table 261 makes each entry "an indirect reference to streams", so an entry written as a
+    /// direct object names no object at all and is not here.
+    pub object: ObjectId,
+}
+
+impl StoreEntry {
+    /// The object number, which is what a cross-reference table is keyed by.
+    #[must_use]
+    pub const fn number(&self) -> u32 {
+        self.object.number
+    }
+}
+
+/// The objects §12.8.4.3's three material arrays name, in the order they name them.
+///
+/// The counterpart of [`security_store`] for a caller that needs *where* rather than *what*. It
+/// reads no stream and decodes nothing, so a document whose store will not decode still answers
+/// here — which is the point: §12.8.5.3's coverage question is about the file's layout and is
+/// answerable whether or not the material inside reads.
+#[must_use]
+pub fn security_store_entries(document: &Document) -> Vec<StoreEntry> {
+    let Ok(catalog) = document.catalog() else {
+        return Vec::new();
+    };
+    let dss = document.get_key(&catalog, "DSS");
+    let Some(dss) = dss.as_dict() else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for key in ["Certs", "CRLs", "OCSPs"] {
+        let array = document.get_key(dss, key);
+        let Some(array) = array.as_array() else {
+            continue;
+        };
+        for (index, entry) in array.iter().take(MAX_STORE_ENTRIES).enumerate() {
+            if let Object::Reference(object) = entry {
+                entries.push(StoreEntry {
+                    key,
+                    index,
+                    object: *object,
+                });
+            }
+        }
+    }
+    entries
+}
+
 /// One Table 261 or Table 262 array of streams, decoded, with what would not decode named.
 fn streams(
     document: &Document,
@@ -3202,7 +3281,7 @@ fn census(document: &Document) -> Vec<(String, i64)> {
     .map(|key| (key, 0))
     .collect();
     for number in document.xref().object_numbers() {
-        let object = document.get(pdf_syntax::ObjectId {
+        let object = document.get(ObjectId {
             number,
             generation: 0,
         });

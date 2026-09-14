@@ -1242,7 +1242,16 @@ const JUDGED_FLOOR: usize = 503;
 /// here with the argument for it. It is a count of *matched pairs* rather than of documents, so a
 /// document entering or leaving the judged set moves it — that is a fall with a reason, and the
 /// reason is legible in the refusal table on the same run.
-const CROSS_AXIS_FLOOR: usize = 8562;
+///
+/// **8562 to 8563 in the thousand-and-sixty-first session, and nothing was fixed in it.** The
+/// population had risen by one under a floor that stayed where the rise before it had put it, so a
+/// matched pair could have been lost and this measure would not have spoken. [`JUDGED_FLOOR`] is
+/// unchanged at 503 on the same run, so no document entered the judged set: a word that was
+/// matched already gained the Table 120 pair its page states. The rise is what the paragraph above
+/// says this ratchet does; what had not been happening is the writing down, because the run printed
+/// the population and the constant did not. It is the counted figure now, and the two are printed
+/// on one line (ADR 1075).
+const CROSS_AXIS_FLOOR: usize = 8563;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///
@@ -2071,6 +2080,8 @@ fn placed_by_this_processor(
 fn the_band_the_file_states(document: &Document, page: &pdf_model::Page) -> bool {
     /// How far a form `XObject`'s own resources are followed — `font_metric_census`'s depth,
     /// and the interpreter finds a page's fonts down the same path.
+    // not a ratchet: a recursion depth is a parameter of the walk rather than a fact about the
+    // corpus, so there is no population for it to sit beside.
     const MAX_DEPTH: usize = 8;
 
     fn descriptor(document: &Document, font: &pdf_syntax::Dictionary) -> Option<Object> {
@@ -2517,17 +2528,14 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     );
 
     assert!(pairs_total > 0, "no word was matched anywhere");
-    assert!(
-        judged >= JUDGED_FLOOR,
-        "the judged set fell to {judged} from {JUDGED_FLOOR}: {refused} documents are refused \
-         above, and a document off the judged set is a document this instrument stopped judging"
-    );
-    assert!(
-        relative_centres.len() >= CROSS_AXIS_FLOOR,
-        "the cross-axis population fell to {} from {CROSS_AXIS_FLOOR}: a matched word whose page \
-         states no Table 120 pair keeps its reading-axis edges and loses its centre, so this \
-         measure can evaporate while every other figure above stays where it was",
+    // Both floors sit on their populations and print beside them: each constant's comment says a
+    // rise is written down here, and a floor below its population is exactly that much fall it
+    // would admit in silence (ADR 1075).
+    gate_ratchet::floor("documents in the judged set", judged, JUDGED_FLOOR);
+    gate_ratchet::floor(
+        "matched words with a cross-axis centre",
         relative_centres.len(),
+        CROSS_AXIS_FLOOR,
     );
     let mut below: Vec<&str> = ranked
         .iter()

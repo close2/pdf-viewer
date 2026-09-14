@@ -33,6 +33,9 @@ zune-jpeg.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+# The bounds `tests/corpus.rs`, `tests/dates.rs`, `tests/xmp.rs`, `tests/text_extraction.rs` and
+# `tests/save_round_trip.rs` hold, each printed beside the population it bounds (ADR 1075).
+gate-ratchet.workspace = true
 flate2.workspace = true
 iai-callgrind.workspace = true
 pdfref.workspace = true

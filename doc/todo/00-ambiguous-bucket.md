@@ -1835,3 +1835,48 @@ twenty-seven and the bound they fail is a bound a voting reference cannot meet e
 sent to the contradicted list for a defect should now be sent somewhere else** — the crawl's fixed-
 document ranking in `doc/todo/03`, or this file's own three rankings, whose heads are held too.
 
+
+## The undiagnosed head was empty a fifth time, so the two populations the corpus counts were opened instead
+
+**The head is empty and the ink sweep unmoved** — rounds 1030, 1036, 1042, 1054 and now the
+thousand-and-fifty-eighth, which ran the oracle before choosing anything: 1957 pages, the
+`ambiguous, undiagnosed` ranking printing no rows under its own heading. What that round did with
+the slot is the two populations `crates/pdf-model/tests/corpus.rs` counts and nobody had ever
+opened — one document *encrypted beyond us* and five *pageless* — and the arguments live beside
+their bounds, above `MAX_UNREADABLE_ENCRYPTION` and `MAX_PAGELESS`, because that is where a round
+reading the gate will be standing. What belongs here is what the exercise is *about*.
+
+**Neither bound had slack and both were about something other than what they said.**
+`PDFBOX-4352-0.pdf` is not an encryption this reader lacks: it is `/V 5 /R 6` over `AESV3`, which
+has been implemented since ADR 0031, and one byte of its `6 0 obj` reads `E<` where §7.3.7 puts
+`<<`. Restoring that byte opens the file on §7.6.4.1's default user password and page one
+interprets — the control that makes the refusal a measurement rather than a guess (trap 13).
+`mupdf` 1.28 is the file's warning: it repairs the table, *ignores* the unreadable `/Encrypt`, and
+draws a blank page out of ciphertext it could not inflate. §7.6.2 is what forbids that, and it is
+the clause the refusal now cites — the code said §7.6.1, which is one sentence long and says
+nothing about the entry.
+
+**The five pageless documents are four *the file broke it* and one silence, and the silence is the
+one whose evidence had decayed.** `Brotli-Prototype-FileA.pdf`'s entry said `poppler` names the
+unknown filter, which read as agreement; `mupdf` 1.28 and `ghostscript` 10.07 now decode
+`/BrotliDecode` and draw the page in full. Nothing changes, and the reason is principle 5 and not
+effort: ISO 32000-2 defines no such filter, so there is no reading for their agreement to raise
+confidence *in*. **An agreement recorded in a comment is a measurement of the references installed
+the day it was written**, which is trap 9's shape arriving through the calendar rather than through
+shared code, and it is the transferable part of this round.
+
+**The instrument that was missing was a sentence.** The gate printed one word — `unusable` — over
+the pageless documents *and* over the ones that do not open at all, so five different faults read
+as one fact, and a refusal's wording is a measurement (the thousand-and-thirty-sixth session's
+finding, met again). `why_no_page_one` asks the standard's questions in the standard's order —
+§7.5.5's `/Root`, Table 28's `/Pages`, Table 30's `/Kids`, §7.3.10's meaning of a reference into
+nothing, then the walk — and the run prints the clause each document stopped at. It corrected four
+readings, one on its first run over the corpus and three while its six answers were being planted
+(trap 13). The first: ADR 0305 has `poppler-937-0-fuzzed.pdf`'s `/Kids` resolving to a bare
+dictionary, and what it resolves to today is null, because object 3 does not parse either. The
+other three are this reader's own recoveries, each of which had to be *defeated* before its answer
+could be reached — a trailer that loses `/Root` over an object declaring `/Type /Catalog` is
+rebuilt rather than refused; a `/Kids` that is one reference to a page object is recovered by the
+scan; and §7.7.3.3 makes a child declaring no node a page, so a plain dictionary under `/Kids` is
+page one. **A classifier written by reading the code cannot see what the code recovers**, and the
+only thing that showed it was planting each answer and watching three of them not appear.

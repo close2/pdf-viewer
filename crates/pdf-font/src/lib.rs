@@ -32,6 +32,7 @@ mod composite;
 pub mod encoding;
 #[cfg(test)]
 mod fixture;
+mod glyph_class;
 mod glyph_names;
 mod loading;
 mod metrics;

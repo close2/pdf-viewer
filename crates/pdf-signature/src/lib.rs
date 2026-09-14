@@ -63,5 +63,6 @@ pub mod pss;
 pub mod revision;
 pub mod revocation;
 pub mod signature;
+pub mod timestamp;
 pub mod trust;
 pub mod x509;

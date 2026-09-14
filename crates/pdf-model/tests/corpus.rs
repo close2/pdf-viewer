@@ -62,6 +62,9 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// Zero, and it should stay zero: every file here yields *something*, even the fuzzed and
 /// truncated ones, because recovery by scanning for `obj` headers works when no
 /// cross-reference table does.
+///
+/// Held as a ceiling with no slack, which over a population that cannot be negative is the
+/// equality this was written as.
 const MAX_UNOPENABLE: usize = 0;
 
 /// Documents that are encrypted and refuse the default user password.
@@ -114,6 +117,39 @@ const MAX_LOCKED: usize = 10;
 /// does not resolve to a dictionary at all; `poppler` cannot read its cross-reference table
 /// either. Refusing is the only honest answer to a file that says it is encrypted and will
 /// not say how — and it is named at runtime rather than drawn as noise (ADR 0031).
+///
+/// # What is beyond us in it is not §7.6 at all
+///
+/// Read in the thousand-and-fifty-eighth session, because "encrypted beyond us" had never been
+/// opened and the paragraph above describes the *file* rather than the clause. The file is 1481
+/// bytes and every object is visible: `6 0 obj` reads `E< /CF 7 0 R /Filter /Standard …`, where
+/// §7.3.7 puts `<<`, so the object does not parse and §7.3.10 makes `/Encrypt 6 0 R` the null
+/// object — "[a]n indirect reference to an undefined object shall not be considered an error by
+/// a PDF processor; it shall be treated as a reference to the null object". What the dictionary
+/// *says*, once it is read, is `/V 5 /R 6 /StmF /StdCF` over `/CFM /AESV3`, which this reader
+/// has had since ADR 0031 and exercises on `issue7665.pdf`.
+///
+/// **Measured with a control rather than argued** (trap 13): restoring that one byte opens the
+/// document on §7.6.4.1's default user password, and page one interprets to nine commands with
+/// nothing reported. `pdf-syntax`'s
+/// `an_encrypt_entry_naming_an_unparseable_object_is_refused_by_name` is both halves of that,
+/// so a round that made `E<` parse would fail the refusal and keep the control.
+///
+/// So what is beyond us is not a `/V` revision, a crypt filter method, a public-key handler
+/// (§7.6.5) or an AES variant: it is a damaged dictionary, and no clause says how to read one
+/// whose opening token is gone. §7.3.7's entries-whole recovery (ADR 0784) does not reach it
+/// either — that reading keeps the entries readable *before* the damage, and here the damage is
+/// the `<<`, so there are none.
+///
+/// **What the four references do, measured the same session**: `poppler` 26.08 reads the `E` as
+/// a keyword and the `<` as a hex string and refuses the catalogue; `ghostscript` 10.07 refuses
+/// the cross-reference table; `hayro` refuses the file. `mupdf` 1.28 repairs the
+/// cross-reference table, reports "syntax error in object (6 0 R)", **ignores the entry** and
+/// then fails to inflate page one's stream — "zlib error: incorrect header check", which is
+/// what ciphertext read as plaintext looks like — and writes a blank page. That is the failure
+/// mode this refusal exists to avoid, and §7.6.2 is what forbids it: only "[t]he absence of
+/// this entry from the trailer dictionary" lets a processor consider the document unencrypted,
+/// and the entry is present.
 const MAX_UNREADABLE_ENCRYPTION: usize = 1;
 
 /// Documents that open but whose first page cannot be reached.
@@ -216,6 +252,60 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 1;
 /// speak. That is [`MAX_INCOMPLETE`]'s slack in the same file, an order of magnitude smaller and
 /// found the same way: the run prints the population and the constant does not, so putting the
 /// two side by side is nobody's job until somebody does it. It is the counted figure now.
+///
+/// # The five, opened one by one in the thousand-and-fifty-eighth session
+///
+/// Nobody had asked of this population the question it is *for*: is the page tree genuinely
+/// absent, or is it a tree this reader fails to walk that somebody else walks? Each was put to
+/// all four references and looked at, and each answer is placed under `CLAUDE.md` principle 5's
+/// three cases. [`why_no_page_one`] is what the run prints beside each name, so the sentences
+/// below are arguments rather than a table that can drift from the gate.
+///
+/// - **`REDHAT-1531897-0.pdf` — the file broke it, and there is nothing behind the damage.** It
+///   is a linearised file truncated at 871 bytes of the 7945 its own `/L` states; the two
+///   cross-reference streams that survive name `/Root 8 0 R` and `/Info 6 0 R`, and no object
+///   past 13 is in the file at all. All four references refuse: `poppler` "Catalog object is
+///   wrong type (null)", `mupdf` "truncated xref stream" and then nothing, `ghostscript` "No
+///   pages will be processed", `hayro` "not a PDF". There is no page to lose.
+/// - **`bug1020226.pdf` — the file broke it**, and it is 184 bytes of unterminated dictionaries
+///   with no `xref` and no `startxref`. All four refuse. The Mozilla bug it is named after is a
+///   null dereference in Firefox's worker shutdown, so the file was never a document.
+/// - **`poppler-937-0-fuzzed.pdf` — the file broke it twice over**, and the gate's sentence is
+///   what says so rather than ADR 0305's, which named only the first. The `/Kids` `[` was
+///   fuzzed to a NUL, which §7.2.3 makes white space, so the entry is the bare reference
+///   `3 0 R` where §7.7.3.2's Table 30 requires "[a]n array of indirect references" — and
+///   object 3 does not parse either, its `/MediaBox` array closing with a SEMICOLON, so what
+///   the entry resolves to is §7.3.10's null object. Nothing else declares Table 31's
+///   `/Type /Page`: object 3's own `/Type` has its second byte fuzzed to 0xEC. All four
+///   references refuse.
+/// - **`poppler-85140-0.pdf` — the file broke it, and one reference of four draws it anyway.**
+///   The catalogue and the page tree's root read; `/Kids [3 0 R]` names one child, and the only
+///   `3 … obj` header in the file reads `3 18446744073709551616 obj` — a generation number
+///   outside any integer representation §7.3.3 permits a reader to have ("[t]he range and
+///   precision of numbers may be limited by the internal representations used in the computer
+///   on which the PDF processor is running"), and far past the 32 bits Table C.1 advises. So
+///   the file defines no object `3 0`, and §7.3.10 settles what the reference then is: "[a]n
+///   indirect reference to an undefined object shall not be considered an error by a PDF
+///   processor; it shall be treated as a reference to the null object". A null is neither
+///   Table 30's node nor Table 31's page. `poppler`, `mupdf` and `ghostscript` all refuse —
+///   each naming a different one of the file's faults — and `hayro` draws a 595 × 65535 raster
+///   with 1785 black pixels in its bottom three rows, having ignored the generation number and
+///   clamped `/MediaBox [0 0 595 2147483647]`. That is evidence about `hayro`, and principle 5
+///   runs one way: it is not a clause.
+/// - **`Brotli-Prototype-FileA.pdf` — unspecified, and this entry's evidence had decayed.** The
+///   list above says "`poppler` says 'Unknown filter' and names it", which reads as agreement
+///   and is no longer true of the other two: `mupdf` 1.28 and `ghostscript` 10.07 both decode
+///   `/BrotliDecode` and draw the page **in full** — a 1224 × 792 architectural drawing, looked
+///   at rather than counted (trap 1). `poppler` 26.08 still refuses and `hayro` refuses. Every
+///   object in the file is Brotli-compressed including its cross-reference stream, so the
+///   catalogue this reader reads comes from a scan and its `/Pages 30 0 R` lives in the one
+///   `/ObjStm`, which is why the tree ends at the root. **Nothing changes here**, and the
+///   reason is principle 5 rather than effort: `§` in this tree means ISO 32000-2, and ISO
+///   32000-2 defines no `BrotliDecode` — `doc/md/` holds not one occurrence of the name. Two
+///   references agreeing is the evidence that would *raise confidence in a reading*, and there
+///   is no reading to raise confidence in until the filter is published. What is owed meanwhile
+///   is loudness, and the file is not silent: the rebuild note says one of its object streams
+///   could not be read, and the gate now says which clause the page tree stopped at.
 const MAX_PAGELESS: usize = 5;
 
 /// Documents whose first page interprets with something reported as unsupported.
@@ -710,7 +800,15 @@ struct Tally {
     unopenable: Vec<String>,
     locked: Vec<String>,
     unreadable_encryption: Vec<String>,
-    pageless: Vec<String>,
+    /// Every document that opens and yields no page one, with the reason in the standard's
+    /// own terms.
+    ///
+    /// A `String` until the thousand-and-fifty-eighth session, printed under the same word as
+    /// [`Tally::unopenable`] — so one line said `unusable` of a file with no catalogue, a file
+    /// whose page tree names an object the file does not define, and a file whose page tree
+    /// lives inside a filter this reader does not have. [`why_no_page_one`] is what says which,
+    /// and the gate prints it.
+    pageless: Vec<(String, String)>,
     /// Every document whose page one reports something, with the reports themselves.
     ///
     /// **Held as the values rather than as their `Debug` string**, since the
@@ -1303,6 +1401,231 @@ fn corpus() -> Option<Vec<PathBuf>> {
     Some(files)
 }
 
+/// Why a document that opened has no page one, in the standard's own terms.
+///
+/// The gate printed one word — `unusable` — over this population *and* over the documents
+/// that do not open at all, so five files with five different faults read as one fact. A
+/// refusal's wording is a measurement, and a word shared by two populations measures neither.
+///
+/// The questions are asked in the order the standard makes them: the catalogue, then Table
+/// 28's `/Pages`, then Table 30's `/Kids`, then §7.3.10's meaning of a reference into nothing,
+/// and last whether the scan §C.4 licenses found a page the tree did not. Each answer names
+/// the clause it comes from, and none of them consults another renderer.
+///
+/// **It reports and it does not judge.** Nothing here decides whether the document *should*
+/// have had a page — [`MAX_PAGELESS`] is where that is held, and its doc comment is where each
+/// of these files is argued.
+///
+/// Every one of its six answers is planted and named in
+/// [`the_page_tree_diagnosis_names_each_clause_it_can_stop_at`], which is trap 13 and which
+/// corrected three readings of this reader's own recoveries while it was being written: a
+/// trailer that loses `/Root` over an object declaring `/Type /Catalog` is recovered rather
+/// than refused, a `/Kids` that is one reference to a page object is recovered by the scan, and
+/// §7.7.3.3 makes a child declaring no node a *page* — so a plain dictionary under `/Kids` is
+/// page one and never reaches the last answer.
+fn why_no_page_one(document: &Document) -> String {
+    // §7.5.5's Table 15 makes `/Root` "( Required; shall be an indirect reference ) The catalog
+    // dictionary for the PDF file", so a trailer that yields no dictionary has lost the file's
+    // one entrance and nothing below can be asked.
+    let catalog = match document.catalog() {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            return format!("§7.5.5: the trailer yields no catalogue — {error}");
+        }
+    };
+
+    // §7.7.2's Table 28: "( Required; shall be an indirect reference ) The page tree node that
+    // shall be the root of the document's page tree".
+    let root = document.get_key(&catalog, "Pages");
+    let Some(node) = root.as_dict() else {
+        return format!(
+            "§7.7.2: the catalogue's /Pages resolves to {}, where Table 28 puts the root of \
+             the page tree{}",
+            root.type_name(),
+            unreadable_object_streams(document)
+        );
+    };
+
+    // §7.7.3.2's Table 30: "( Required ) An array of indirect references to the immediate
+    // children of this node. The children shall only be page objects or other page tree nodes."
+    let kids = document.get_key(node, "Kids");
+    let Some(children) = kids.as_array() else {
+        return format!(
+            "§7.7.3.2: the page tree's root states a /Kids that resolves to {}, where Table 30 \
+             requires an array{}",
+            kids.type_name(),
+            unreadable_object_streams(document)
+        );
+    };
+    if children.is_empty() {
+        return "§7.7.3.2: the page tree's root states an empty /Kids, which Errata Collection \
+                3's Issue #271 gives a floor of one entry — a file with no pages"
+            .to_owned();
+    }
+
+    // §7.3.10 decides what a child that is in no cross-reference entry means: "An indirect
+    // reference to an undefined object shall not be considered an error by a PDF processor; it
+    // shall be treated as a reference to the null object." A null is neither Table 30's node
+    // nor Table 31's page, so a root whose every child is one has no descendants.
+    let undefined: Vec<String> = children
+        .iter()
+        .filter(|kid| document.resolve(kid).as_dict().is_none())
+        .map(|kid| match kid.as_reference() {
+            Some(id) => format!("{} {} R", id.number, id.generation),
+            None => document.resolve(kid).type_name().to_owned(),
+        })
+        .collect();
+    if undefined.len() == children.len() {
+        return format!(
+            "§7.3.10: the page tree's root names {} child(ren) — {} — and the file defines \
+             none of them, so every one is the null object and the root has no descendants",
+            children.len(),
+            undefined.join(", ")
+        );
+    }
+
+    // The tree yielded something at every step above and still produced no page, which leaves
+    // the walk itself: a child that is a node with no children of its own, a depth or node
+    // budget, or a cycle. Nothing narrower can be said from here without walking the tree a
+    // second time, and this sentence's job is to say *which* of the questions above was the
+    // last one answered — so it names the walk and the scan that did not rescue it. §7.7.3.3
+    // is why a child that merely resolves is not one of these: a kid declaring no node is a
+    // page object, so a plain dictionary under `/Kids` reaches `get(0)` rather than this line.
+    format!(
+        "§7.7.3.2: the page tree's root has {} child(ren) that resolve and the walk from it \
+         reaches no page — a node with no children of its own, a budget, or a cycle; the scan \
+         §C.4 licenses found no object declaring Table 31's /Type /Page either{}",
+        children.len(),
+        unreadable_object_streams(document)
+    )
+}
+
+/// What §7.5.7's storage cost this document, where it cost it anything.
+///
+/// A clause appended to the sentences above rather than a sentence of its own, because it is
+/// never the whole answer: an object stream this reader could not read is *why* the entry above
+/// resolved to nothing, and the two halves belong in one line or a reader has to join them.
+fn unreadable_object_streams(document: &Document) -> String {
+    let recovered = document.compressed_objects_recovered();
+    let lost = recovered
+        .unreadable
+        .saturating_add(recovered.beyond_the_budget);
+    if lost == 0 {
+        return String::new();
+    }
+    format!(
+        " — and {lost} of this file's {} object stream(s) (§7.5.7) could not be read, so what \
+         they hold is not here",
+        recovered.streams
+    )
+}
+
+/// Calibrates [`why_no_page_one`] against every answer it can give.
+///
+/// Trap 13, and the same shape as `the_open_subpath_sweep_names_a_path_that_begins_with_a_segment`
+/// above: the gate prints five sentences over five real documents, and four of the six branches
+/// below are the ones those five reach. A classifier read only over the population it happens to
+/// have is a classifier nobody has seen answer, so each answer is planted here and named. The
+/// documents are fragments, which is trap 8's caution and is why they are *only* the calibration —
+/// what says the classifier is right about a file is the run over the corpus, whose five sentences
+/// were each checked against the file's own bytes in the thousand-and-fifty-eighth session.
+#[test]
+fn the_page_tree_diagnosis_names_each_clause_it_can_stop_at() {
+    /// A document with the objects given and a trailer, and no cross-reference table — which
+    /// `Document::open` rebuilds by scanning, the way `poppler-85140-0.pdf` is read.
+    fn assemble(objects: &[(u32, &str)], trailer: &str) -> Document {
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        for (number, body) in objects {
+            bytes.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+        }
+        bytes.extend_from_slice(format!("trailer\n<< {trailer} >>\n%%EOF\n").as_bytes());
+        Document::open(bytes).expect("the fragment opens")
+    }
+
+    let cases = [
+        // §7.5.5: Table 15 requires `/Root`, and a trailer without one names no catalogue —
+        // nor does anything else here, which the first draft of this case got wrong. A file
+        // whose trailer has lost its `/Root` but still holds an object declaring
+        // `/Type /Catalog` is *recovered* rather than refused (ADR 0305's neighbour in
+        // `Document::open`), so planting this answer means planting a file with no catalogue
+        // object either — which is what `bug1020226.pdf` is.
+        (assemble(&[(1, "<< /Colours 4 >>")], "/Size 2"), "§7.5.5:"),
+        // §7.7.2: Table 28's `/Pages` is "[t]he page tree node that shall be the root of the
+        // document's page tree", and a reference into nothing is not one.
+        (
+            assemble(&[(1, "<< /Type /Catalog /Pages 99 0 R >>")], "/Root 1 0 R"),
+            "§7.7.2:",
+        ),
+        // §7.7.3.2: Table 30 requires `/Kids` to be an array, which one reference is not — and
+        // object 3 may not declare Table 31's `/Type /Page` either, or the scan §C.4 licenses
+        // recovers it and the document has a page after all. That is not a hole in the case;
+        // it is `poppler-937-0-fuzzed.pdf`, whose object 3 has its `/Type` fuzzed as well.
+        (
+            assemble(
+                &[
+                    (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+                    (2, "<< /Type /Pages /Kids 3 0 R /Count 1 >>"),
+                    (3, "<< /Parent 2 0 R /Colours 4 >>"),
+                ],
+                "/Root 1 0 R",
+            ),
+            "Table 30 requires an array",
+        ),
+        // §7.7.3.2 again, through Errata Collection 3's Issue #271: an array of no children.
+        (
+            assemble(
+                &[
+                    (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+                    (2, "<< /Type /Pages /Kids [] /Count 0 >>"),
+                ],
+                "/Root 1 0 R",
+            ),
+            "empty /Kids",
+        ),
+        // §7.3.10: every child names an object the file does not define, so every child is null.
+        (
+            assemble(
+                &[
+                    (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+                    (2, "<< /Type /Pages /Kids [99 0 R] /Count 1 >>"),
+                ],
+                "/Root 1 0 R",
+            ),
+            "§7.3.10:",
+        ),
+        // The children resolve and the walk still reaches no page: here a child that is
+        // itself a node with no children of its own. This is the branch no corpus document
+        // reaches today, and planting it is what says the sentence exists. **A child that
+        // resolves to a plain dictionary does not reach it** — §7.7.3.3 makes a kid that
+        // declares no node a page object, so `<< /Colours 4 >>` under a `/Kids` *is* page one
+        // (ADR 0305), which is the first thing this case was written as and the reason it is
+        // written as this instead.
+        (
+            assemble(
+                &[
+                    (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+                    (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+                    (3, "<< /Type /Pages /Parent 2 0 R /Kids [] /Count 0 >>"),
+                ],
+                "/Root 1 0 R",
+            ),
+            "the walk from it reaches no page",
+        ),
+    ];
+
+    for (document, expected) in &cases {
+        assert!(
+            pdf_model::Pages::new(document).get(0).is_none(),
+            "the fragment for {expected:?} should have no page one"
+        );
+        let said = why_no_page_one(document);
+        assert!(
+            said.contains(expected),
+            "expected {expected:?} in the diagnosis, got {said:?}"
+        );
+    }
+}
+
 /// Opens, interprets and rasterises one document's first page.
 ///
 /// Returns what went wrong, or nothing. Rasterisation is included because it is where a
@@ -1342,7 +1665,8 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         }
     };
     let Some(page) = pdf_model::Pages::new(&document).get(0) else {
-        record(tally, |t| t.pageless.push(name));
+        let reason = why_no_page_one(&document);
+        record(tally, |t| t.pageless.push((name, reason)));
         return;
     };
 
@@ -1478,8 +1802,11 @@ fn the_corpus_opens_interprets_and_rasterises() {
     for name in &tally.unreadable_encryption {
         println!("  encryption we do not implement: {name}");
     }
-    for name in tally.unopenable.iter().chain(&tally.pageless) {
-        println!("  unusable: {name}");
+    for name in &tally.unopenable {
+        println!("  unopenable: {name}");
+    }
+    for (name, reason) in &tally.pageless {
+        println!("  no page one: {name}: {reason}");
     }
     for (name, taken) in &tally.slow {
         println!("  slow: {name}: {taken:?}");
@@ -1495,31 +1822,33 @@ fn the_corpus_opens_interprets_and_rasterises() {
         "a document must not take longer than {PER_DOCUMENT_BUDGET:?} to open and draw: \
          {unexpected:?}"
     );
-    assert!(
-        tally.unopenable.len() == MAX_UNOPENABLE,
-        "{} documents cannot be opened, was {MAX_UNOPENABLE}",
-        tally.unopenable.len()
+    // Each bound printed beside the population it bounds, because this file is where the defect
+    // that rule exists for was found twice: a ceiling thirty above its population admits thirty
+    // documents' worth of regression and reads exactly like one that cannot (ADR 1075).
+    gate_ratchet::ceiling(
+        "documents that cannot be opened",
+        tally.unopenable.len(),
+        MAX_UNOPENABLE,
     );
-    assert!(
-        tally.locked.len() <= MAX_LOCKED,
-        "{} documents need a password, was {MAX_LOCKED}",
-        tally.locked.len()
+    gate_ratchet::ceiling(
+        "documents that need a password",
+        tally.locked.len(),
+        MAX_LOCKED,
     );
-    assert!(
-        tally.unreadable_encryption.len() <= MAX_UNREADABLE_ENCRYPTION,
-        "{} documents are encrypted in a way this reader does not implement, was \
-         {MAX_UNREADABLE_ENCRYPTION}",
-        tally.unreadable_encryption.len()
+    gate_ratchet::ceiling(
+        "documents encrypted in a way this reader does not implement",
+        tally.unreadable_encryption.len(),
+        MAX_UNREADABLE_ENCRYPTION,
     );
-    assert!(
-        tally.pageless.len() <= MAX_PAGELESS,
-        "{} documents have no reachable first page, was {MAX_PAGELESS}",
-        tally.pageless.len()
+    gate_ratchet::ceiling(
+        "documents with no reachable first page",
+        tally.pageless.len(),
+        MAX_PAGELESS,
     );
-    assert!(
-        tally.incomplete.len() <= MAX_INCOMPLETE,
-        "{} documents draw incompletely, was {MAX_INCOMPLETE}",
-        tally.incomplete.len()
+    gate_ratchet::ceiling(
+        "documents that draw incompletely",
+        tally.incomplete.len(),
+        MAX_INCOMPLETE,
     );
     assert!(
         tally.open_subpaths.is_empty(),

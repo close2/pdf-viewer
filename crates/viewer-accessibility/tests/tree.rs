@@ -28,6 +28,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         language: None,
         quads: Vec::new(),
         header_scope: None,
+        cell: None,
         summary: None,
         short: None,
         bounds: None,
@@ -56,6 +57,7 @@ fn form(control: Option<Control>) -> AccessibilityNode {
 fn header(parent: Option<usize>, name: &str, scope: Option<HeaderScope>) -> AccessibilityNode {
     AccessibilityNode {
         header_scope: scope,
+        cell: None,
         ..element(parent, "TH", name)
     }
 }

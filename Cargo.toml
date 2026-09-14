@@ -48,6 +48,13 @@ pdf-vfs = { path = "crates/pdf-vfs", version = "0.1.0" }
 # (ADR 0879). A dev-dependency of both and a dependency of neither.
 corpus-classes = { path = "crates/corpus-classes", version = "0.1.0" }
 
+# Every hand-written bound a gate holds, printed beside the population it bounds and gated on the
+# distance between them. One crate rather than a `floor` helper in each gate file, because the
+# defect it exists for — a ceiling thirty above its population, which cannot fire and looks exactly
+# like one that can — was found by hand in one file and the other gate files went unchecked
+# (ADR 1075). A dev-dependency of every crate with a corpus-scale gate and a dependency of none.
+gate-ratchet = { path = "crates/gate-ratchet", version = "0.1.0" }
+
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
 # developed against that brief in its own repository and wired in here at its final
 # milestone. A git dependency rather than a path so that CI and a fresh checkout

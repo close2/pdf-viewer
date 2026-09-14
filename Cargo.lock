@@ -1631,6 +1631,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gate-ratchet"
+version = "0.1.0"
+
+[[package]]
 name = "gdk-pixbuf"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3191,6 +3195,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "flate2",
+ "gate-ratchet",
  "iai-callgrind",
  "md-5",
  "pdf-font",
@@ -4902,6 +4907,7 @@ dependencies = [
 name = "viewer-core"
 version = "0.1.0"
 dependencies = [
+ "gate-ratchet",
  "pdf-model",
  "pdf-render",
  "pdf-signature",

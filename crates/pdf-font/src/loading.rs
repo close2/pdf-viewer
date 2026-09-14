@@ -32,6 +32,7 @@ use crate::composite::{
     CidToGlyph, cid_to_glyph, collection_gap, collection_table, composite_cmap,
 };
 use crate::encoding;
+use crate::glyph_class::Decision;
 use crate::glyph_names::GlyphNames;
 use crate::metrics;
 use crate::metrics::{
@@ -386,10 +387,148 @@ fn with_readable_font_dicts(
 }
 
 fn outlines(
-    lock: &Mutex<BTreeMap<u16, Option<Arc<Path>>>>,
-) -> std::sync::MutexGuard<'_, BTreeMap<u16, Option<Arc<Path>>>> {
+    lock: &Mutex<BTreeMap<Placed, Option<Arc<Path>>>>,
+) -> std::sync::MutexGuard<'_, BTreeMap<Placed, Option<Arc<Path>>>> {
     lock.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A glyph, and which of a font's faces holds it.
+///
+/// Every font in this crate has exactly one face but a substituted `CIDFont` whose descriptor
+/// states ISO 32000-2 §9.8.3.3's `/FD`, where each glyph class the file names may have chosen a
+/// different one. [`Face::Own`] is the font's own face and is what every other route answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Face {
+    /// The face the font dictionary's own descriptor chose.
+    Own,
+    /// The face one of `/FD`'s classes chose, indexed as the file states them.
+    Class(usize),
+}
+
+/// A glyph index together with the face it indexes.
+///
+/// The pair travels as one value because a glyph index means nothing without its face: two faces
+/// number their glyphs independently, and an outline cache keyed by the index alone would hand
+/// one face's contours back for the other's glyph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Placed {
+    face: Face,
+    glyph: u16,
+}
+
+/// ISO 32000-2 §9.8.3.3's per-class substitute.
+///
+/// > The font descriptor shall define a set of default attributes that apply to all glyphs in
+/// > the CIDFont. The FD entry in the font descriptor shall contain exceptions to these
+/// > defaults.
+///
+/// This tree reads a descriptor for one thing a page can see — which installed face stands in
+/// for a font the document did not embed (ADR 0007) — so an exception to the defaults is a
+/// second face, chosen from the main descriptor with this class's entries laid over it. The
+/// glyphs [`crate::glyph_class::Decision`] shows to be in the class are drawn from it, and every
+/// other glyph from the font's own face, which is what "for that class of glyphs" asks for.
+struct ClassFace {
+    /// The face this class's overriding descriptor chose.
+    data: Arc<[u8]>,
+    /// Its own units per em, which is a property of the face rather than of the font.
+    units_per_em: f32,
+    /// §9.7.5.1's vertical forms, read from *this* face: a second face states its own.
+    downward: Option<Box<Downward>>,
+}
+
+/// ISO 32000-2 §9.8.3.3's `/FD`, resolved to a decision and a face per class.
+///
+/// Answers for a `CIDFont` whose program the document did not embed and for no other font, which
+/// is the whole of where this entry can reach: it overrides "the font-wide attributes for that
+/// class only", and the attribute this tree acts on — which installed face stands in — is a
+/// question an embedded program has already answered. Empty, too, for the
+/// descriptor that states no `/FD`, which is all but 129 of the 617 696 font descriptors on this
+/// disk (`pdf-model/examples/glyph_class_census`).
+///
+/// A class's face is chosen exactly as the font's own is: [`substitute::Request`] derived from a
+/// descriptor — here the main one with this class's entries laid over it
+/// ([`substitute::overridden`]) — and then `installed_covering` against the characters that class
+/// has to be able to draw. Where this machine offers no such face the class is left `None` and
+/// its glyphs keep the font's own face, which is the picture the page had before the entry was
+/// read; a refusal cannot lose a mark.
+///
+/// # What it costs
+///
+/// One `Request` and one catalogue search per class, for a font that states the entry at all.
+/// The corpus's `/FD` dictionaries name exactly one class each, and the search is the same one
+/// the font's own face already paid for and is memoised on the characters asked for
+/// (`substitute::covering_path`).
+fn class_faces(
+    document: &Document,
+    descendant: &Dictionary,
+    substituted: bool,
+    vertical: bool,
+    name: &str,
+) -> (Decision, Vec<Option<ClassFace>>) {
+    // The descendant rather than its descriptor, because both halves of the question are there:
+    // §9.8.3.3's `/FD` is in the descriptor and §9.7.3's character collection, which the clause
+    // makes the class names depend on, is in the `CIDFont` dictionary above it.
+    let descriptor = document.get_key(descendant, "FontDescriptor");
+    let Some(descriptor) = descriptor.as_dict().filter(|_| substituted) else {
+        return (Decision::default(), Vec::new());
+    };
+    let stated = substitute::glyph_classes(document, descriptor);
+    if stated.is_empty() {
+        return (Decision::default(), Vec::new());
+    }
+    let collection = crate::composite::collection_names(document, descendant);
+    let names: Vec<String> = stated.iter().map(|(name, _)| name.clone()).collect();
+    let decision = Decision::read(
+        &names,
+        collection
+            .as_ref()
+            .map(|(registry, ordering)| (registry.as_str(), ordering.as_str())),
+    );
+
+    // The request the font's own descriptor derives, which is what a class has to differ from to
+    // be an exception at all (see below). Derived once: every class is compared with it.
+    let font_wide = substitute::Request::derive(document, descendant, Some(descriptor));
+    let faces = stated
+        .iter()
+        .map(|(class, over)| {
+            // A class no character can be shown to be in never draws, so no face is looked for.
+            if decision
+                .refused()
+                .iter()
+                .any(|(refused, _)| refused == class)
+            {
+                return None;
+            }
+            let merged = substitute::overridden(document, descriptor, over);
+            let request = substitute::Request::derive(document, descendant, Some(&merged));
+            // §9.8.3.3: the `/FD` entry "shall contain exceptions to these defaults", and a
+            // class descriptor that derives the request the main one already derived has stated
+            // no exception this tree can act on. Looking a face up for it anyway would change
+            // the class's glyphs for nothing the file said — the characters asked for below are
+            // the class's rather than the collection's, so the search could land elsewhere — and
+            // that is the case the corpus actually holds: all 129 of its class descriptors
+            // restate `/Flags` and `/ItalicAngle` unchanged and none states a `/FontWeight`
+            // (`pdf-model/examples/glyph_class_census`).
+            if request == font_wide {
+                return None;
+            }
+            let wanted: &[char] = if crate::glyph_class::holds_the_collections_script(class) {
+                script_sample(document, descendant)
+            } else {
+                &[]
+            };
+            let data = substitute::installed_covering(request, wanted)?;
+            let (_, units_per_em) = parsed_program(Program::Sfnt, &data, name).ok()?;
+            let downward = Downward::read(document, descendant, &data, vertical);
+            Some(ClassFace {
+                data,
+                units_per_em,
+                downward,
+            })
+        })
+        .collect();
+    (decision, faces)
 }
 
 /// A font ready to produce glyph outlines.
@@ -422,6 +561,17 @@ pub struct LoadedFont {
     /// one whose parse is expensive; see [`type1::Program`].
     type1: Option<type1::Program>,
     mapping: CodeMapping,
+    /// ISO 32000-2 §9.8.3.3's glyph classes, decided once against Table 123 and the collection.
+    ///
+    /// Empty of assignments and of refusals for every font whose descriptor states no `/FD`,
+    /// which is all but 129 font descriptors of the 617 696 on this disk.
+    class_of: Decision,
+    /// The face each stated class chose, in the file's own order.
+    ///
+    /// `None` at an index where the class was refused ([`Decision::refused`]) or where this
+    /// machine offered no face for the request its descriptor derives — in both cases the glyph
+    /// keeps the font's own face, which is what it had before `/FD` was read.
+    classes: Vec<Option<ClassFace>>,
     /// Glyph advances by character code, in thousandths of an em.
     widths: BTreeMap<u32, f32>,
     /// Advance for a code with no entry.
@@ -491,7 +641,7 @@ pub struct LoadedFont {
     notdef: Option<u16>,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
-    outlines: Mutex<BTreeMap<u16, Option<Arc<Path>>>>,
+    outlines: Mutex<BTreeMap<Placed, Option<Arc<Path>>>>,
     /// The inverse of the code-to-character mapping, built on first use by [`Self::code_for`].
     ///
     /// Lazy rather than built at load time because nothing on a page needs it: only a
@@ -786,6 +936,10 @@ impl LoadedFont {
             glyph_names: names,
             notdef,
             reader_chosen,
+            // §9.8.3.3's `/FD` is Table 122's, an entry of a `CIDFont`'s descriptor, and §9.8.3
+            // says so: a simple font's descriptor has no glyph classes to override anything for.
+            class_of: Decision::default(),
+            classes: Vec::new(),
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
             agl_by_code: OnceLock::new(),
@@ -866,6 +1020,8 @@ impl LoadedFont {
         // and read for its scale the same way: a Type 1 program states it in a `/FontMatrix`
         // rather than in an `sfnt` header, so `FontRef` cannot be asked.
         let (type1, units_per_em) = parsed_program(program, &data, name)?;
+
+        let (class_of, classes) = class_faces(document, &descendant, substituted, vertical, name);
 
         // §9.10.2's first and third methods, read once each: the producer's `/ToUnicode`, keyed
         // by code, and the collection's `registry-ordering-UCS2` table, keyed by CID. Both serve
@@ -968,6 +1124,8 @@ impl LoadedFont {
             // statements about one glyph — which is the comparison `substitute_stretch` is.
             // ADR 0358 states the restriction and what would lift it.
             stretch: NO_STRETCH,
+            class_of,
+            classes,
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
             agl_by_code: OnceLock::new(),
@@ -983,6 +1141,28 @@ impl LoadedFont {
     #[must_use]
     pub fn extent(&self) -> (f32, f32) {
         self.extent
+    }
+
+    /// The glyph classes ISO 32000-2 §9.8.3.3's `/FD` named and this reader declined to apply,
+    /// each with the sentence that says why.
+    ///
+    /// Empty for every font that states no `/FD` and for one whose every class was applied. A
+    /// name here is a *refusal* and not a failure: the class's glyphs keep the main descriptor,
+    /// which is the font the page had before the entry was read, and "never guess a class" is
+    /// what the list records having obeyed. [`crate::glyph_class`] states the five kinds of
+    /// refusal and the clause behind each.
+    ///
+    /// **A list rather than a report.** What it says is about this machine's catalogue and this
+    /// reader's reading of Table 123 rather than about the file, which is ADR 0152's distinction
+    /// and the same one `unsupplied_vertical_form` is a count for: a report here would take a
+    /// page off the oracle's judged set for a statement about a face.
+    #[must_use]
+    pub fn refused_glyph_classes(&self) -> Vec<(&str, &'static str)> {
+        self.class_of
+            .refused()
+            .iter()
+            .map(|(name, reason)| (name.as_str(), *reason))
+            .collect()
     }
 
     /// Whether these glyphs stand in for a font the document did not embed.
@@ -1720,11 +1900,14 @@ impl LoadedFont {
     /// obeyed by blinding the gates that watch it.
     #[must_use]
     pub fn outline(&self, code: Code) -> Option<Arc<Path>> {
-        let glyph = match self.glyph_for(code) {
-            Some(glyph) => glyph,
-            None => self.notdef.filter(|_| self.substitutes_notdef(code))?,
+        let placed = match self.placed_glyph(code) {
+            Some(placed) => placed,
+            None => Placed {
+                face: Face::Own,
+                glyph: self.notdef.filter(|_| self.substitutes_notdef(code))?,
+            },
         };
-        self.cached_outline(glyph)
+        self.cached_outline(placed)
     }
 
     /// One glyph's outline, through the cache both routes into this font share.
@@ -1732,12 +1915,12 @@ impl LoadedFont {
     /// Separated from [`Self::outline`] because [`Self::character_glyph`] arrives at a glyph
     /// without a code and must not build a second cache to do it: a face drawing an interface's
     /// own text reuses the same few dozen glyphs exactly as a page does.
-    fn cached_outline(&self, glyph: u16) -> Option<Arc<Path>> {
-        if let Some(cached) = outlines(&self.outlines).get(&glyph) {
+    fn cached_outline(&self, placed: Placed) -> Option<Arc<Path>> {
+        if let Some(cached) = outlines(&self.outlines).get(&placed) {
             return cached.clone();
         }
-        let built = self.build_outline(glyph);
-        outlines(&self.outlines).insert(glyph, built.clone());
+        let built = self.build_outline(placed);
+        outlines(&self.outlines).insert(placed, built.clone());
         built
     }
 
@@ -1778,9 +1961,12 @@ impl LoadedFont {
             .advance_width(glyph)?
             / self.units_per_em;
         Some(CharacterGlyph {
-            outline: u16::try_from(glyph.to_u32())
-                .ok()
-                .and_then(|glyph| self.cached_outline(glyph)),
+            outline: u16::try_from(glyph.to_u32()).ok().and_then(|glyph| {
+                self.cached_outline(Placed {
+                    face: Face::Own,
+                    glyph,
+                })
+            }),
             advance,
         })
     }
@@ -1850,6 +2036,22 @@ impl LoadedFont {
     /// a zero-copy view over the table directory, not a parse. A cache here would be
     /// unmeasured cleverness, and `CLAUDE.md` forbids that.
     fn glyph_for(&self, code: Code) -> Option<u16> {
+        self.placed_glyph(code).map(|placed| placed.glyph)
+    }
+
+    /// The same glyph, together with the face it is an index into.
+    ///
+    /// Separated from [`Self::glyph_for`] because only the drawing route needs the pair:
+    /// everything that counts codes, compares a glyph with [`NOTDEF_GLYPH`] or asks whether a
+    /// code reached anything is asking about the *font*, and a font answers with one glyph
+    /// however many faces ISO 32000-2 §9.8.3.3's `/FD` gave it.
+    fn placed_glyph(&self, code: Code) -> Option<Placed> {
+        let own = |glyph| {
+            Some(Placed {
+                face: Face::Own,
+                glyph,
+            })
+        };
         match &self.mapping {
             CodeMapping::Composite { cmap, glyphs } => {
                 // §9.7.6.3's two fallbacks, in its order. "If a code maps to a CID for which
@@ -1860,12 +2062,12 @@ impl LoadedFont {
                 // (character) code does not have a corresponding GID in the CIDtoGIDMap
                 // stream, the glyph for CID 0 shall be substituted".
                 if let Some(glyph) = cmap.cid(code).and_then(|cid| glyphs.glyph(cid)) {
-                    return Some(glyph);
+                    return own(glyph);
                 }
                 if let Some(glyph) = cmap.notdef_cid(code).and_then(|cid| glyphs.glyph(cid)) {
-                    return Some(glyph);
+                    return own(glyph);
                 }
-                glyphs.glyph(0)
+                glyphs.glyph(0).and_then(own)
             }
             // The substitute has no notion of this document's CIDs, so the code is taken
             // to the character it stands for and that character is looked up.
@@ -1879,16 +2081,21 @@ impl LoadedFont {
             // [`crate::vertical`] holds the argument and names what neither half is derived
             // from.
             CodeMapping::Substituted { .. } => {
-                let (_, glyph, form) = self.substituted_glyph(code)?;
+                let (_, placed, form) = self.substituted_glyph(code)?;
                 Some(match form {
-                    Form::Rotated(rotated) => rotated,
-                    Form::Upright | Form::Unsupplied => glyph,
+                    // A rotated form is another glyph of the *same* face, so the face the class
+                    // chose travels with it.
+                    Form::Rotated(rotated) => Placed {
+                        glyph: rotated,
+                        ..placed
+                    },
+                    Form::Upright | Form::Unsupplied => placed,
                 })
             }
             // Resolved when the font was loaded. A code with no entry has no glyph, and
             // that is final: falling back to the code as a glyph index here is exactly
             // how a font draws plausible, wrong text.
-            CodeMapping::Named(table) => *table.get(usize::try_from(code.value()).ok()?)?,
+            CodeMapping::Named(table) => own((*table.get(usize::try_from(code.value()).ok()?)?)?),
         }
     }
 
@@ -1901,18 +2108,38 @@ impl LoadedFont {
     /// walk (trap 13). `None` for every font that is not a substituted composite one, and for a
     /// code §9.10.2 gives no character or the face has no glyph for — that second silence is
     /// [`Self::uncovered_character`]'s and is deliberately not this one's.
-    fn substituted_glyph(&self, code: Code) -> Option<(char, u16, Form)> {
+    fn substituted_glyph(&self, code: Code) -> Option<(char, Placed, Form)> {
         let CodeMapping::Substituted { cmap, downward } = &self.mapping else {
             return None;
         };
-        let font = FontRef::new(&self.data).ok()?;
         let character = self.substituted_character(cmap, code)?;
+        // §9.8.3.3: "[t]he entry's value shall be a font descriptor whose contents shall override
+        // the font-wide attributes for that class only", and the attribute this tree acts on is
+        // which face stands in. So where Table 123 shows this character to be in one of the
+        // classes `/FD` names, that class's face draws it; every other character keeps the
+        // font's own. [`crate::glyph_class`] holds what "shows" means and what it refuses.
+        let (face, data, downward) = match self.class_face(character) {
+            Some((index, class)) => (Face::Class(index), &class.data, &class.downward),
+            None => (Face::Own, &self.data, downward),
+        };
+        let font = FontRef::new(data).ok()?;
         let glyph = u16::try_from(font.charmap().map(character)?.to_u32()).ok()?;
         let form = downward.as_ref().map_or(Form::Upright, |downward| {
             cmap.cid(code)
                 .map_or(Form::Upright, |cid| downward.form_of(character, cid, glyph))
         });
-        Some((character, glyph, form))
+        Some((character, Placed { face, glyph }, form))
+    }
+
+    /// §9.8.3.3's class face for a character, where one of `/FD`'s classes holds it.
+    ///
+    /// `None` for every font with no `/FD`, for a character Table 123 puts in none of the classes
+    /// the file names, for a class [`crate::glyph_class::Decision`] refused, and for one this
+    /// machine offered no face for. In all five the font's own face draws the glyph, which is
+    /// what it drew before the entry was read.
+    fn class_face(&self, character: char) -> Option<(usize, &ClassFace)> {
+        let index = self.class_of.class_for(character)?;
+        Some((index, self.classes.get(index)?.as_ref()?))
     }
 
     /// The single character a substituted composite font's code stands for, by ISO 32000-2
@@ -1989,8 +2216,14 @@ impl LoadedFont {
         let CodeMapping::Substituted { cmap, .. } = &self.mapping else {
             return None;
         };
-        let font = FontRef::new(&self.data).ok()?;
         let character = self.substituted_character(cmap, code)?;
+        // The face that would draw it, which for a character in one of §9.8.3.3's classes is
+        // that class's rather than the font's own.
+        let data = match self.class_face(character) {
+            Some((_, class)) => &class.data,
+            None => &self.data,
+        };
+        let font = FontRef::new(data).ok()?;
         font.charmap().map(character).is_none().then_some(character)
     }
 
@@ -2175,19 +2408,34 @@ impl LoadedFont {
     }
 
     /// Extracts and normalises one glyph outline.
-    fn build_outline(&self, glyph: u16) -> Option<Arc<Path>> {
+    fn build_outline(&self, placed: Placed) -> Option<Arc<Path>> {
+        let Placed { face, glyph } = placed;
+        // §9.8.3.3's class face is a second face with its own em square, and it is always an
+        // `sfnt`: `substitute::installed_covering` is the only thing that chose it and this
+        // machine's catalogue admits no other container.
+        let class = match face {
+            Face::Own => None,
+            Face::Class(index) => Some(self.classes.get(index)?.as_ref()?),
+        };
+        let data = class.map_or(&self.data, |class| &class.data);
+        let units_per_em = class.map_or(self.units_per_em, |class| class.units_per_em);
+        let program = if class.is_some() {
+            Program::Sfnt
+        } else {
+            self.program
+        };
         let mut pen = PathPen {
             path: Path::new(),
-            scale: 1.0 / self.units_per_em,
+            scale: 1.0 / units_per_em,
             stretch: self.stretch,
             last: None,
         };
 
-        match self.program {
-            Program::BareCff => cff::draw(&self.data, glyph, &mut pen).ok()?,
+        match program {
+            Program::BareCff => cff::draw(data, glyph, &mut pen).ok()?,
             Program::Type1 => self.type1.as_ref()?.draw(glyph, &mut pen).ok()?,
             Program::Sfnt => {
-                let font = FontRef::new(&self.data).ok()?;
+                let font = FontRef::new(data).ok()?;
                 let glyphs = font.outline_glyphs();
                 let outline = glyphs.get(GlyphId::from(glyph))?;
                 // Unhinted and unscaled by default: hinting is a device-resolution decision,
@@ -2198,7 +2446,11 @@ impl LoadedFont {
                 // the unhinted skeleton, which is the picture every glyph of the family drew
                 // before ADR 0727 rather than no glyph at all.
                 let unhinted = || DrawSettings::unhinted(Size::unscaled(), LocationRef::default());
-                match self.hinting(&glyphs) {
+                // A class face draws unhinted: [`Self::hinting`] is memoised against the *own*
+                // face's em square and glyph set, and handing another face's outline to it would
+                // grid-fit with the wrong instance. No class face is in the hint-reliant family
+                // anyway — that family is a document's own embedded program (ADR 0727).
+                match class.is_none().then(|| self.hinting(&glyphs)).flatten() {
                     Some(instance) => {
                         if outline
                             .draw(DrawSettings::hinted(instance, false), &mut pen)
@@ -3395,6 +3647,163 @@ mod substituted_composite_tests {
         assert!(
             font.uncovered_character(codes[1]).is_none(),
             "a character the face draws is not an uncovered one"
+        );
+    }
+}
+
+/// ISO 32000-2 §9.8.3.3's `/FD`, where its override is consumed: the face a glyph is drawn from.
+///
+/// # Why a fixture rather than a corpus document
+///
+/// `pdf-model/examples/glyph_class_census` counts what 91 800 documents write. 129 font
+/// descriptors of 614 068 state `/FD` at all; every one of the 129 names exactly one class,
+/// `Proportional` 123 times and `Alphabetic` six; 127 belong to a `CIDFont` that embeds its
+/// program, where §9.8.3.3's substitution hint has nothing to hint at.
+///
+/// **And all 129 restate the main descriptor's `/Flags` and `/ItalicAngle` unchanged, and not one
+/// states a `/FontWeight`** — which are the three entries a face is chosen by. What they do
+/// override is `/StemV` (128 of 129), `/StemH` (126), `/XHeight` (108), `/CapHeight` (109) and
+/// the `/Ascent`-`/Descent` pair (108 each), none of which this tree reads as an input to
+/// anything. So no document on this disk states an override that *could* choose a different
+/// face, and a fixture is the only thing that can show the route working. That is trap 8 stated
+/// rather than hidden: the entry is implemented from the clause, and the census is what says no
+/// corpus page moves because of it.
+#[cfg(test)]
+mod glyph_class_tests {
+    use crate::cmap::CMap;
+    use crate::fixture::document_of;
+    use crate::{Code, LoadedFont};
+
+    /// The two-byte code `Identity-H` makes of a CID (Table 116).
+    fn code(cid: u16) -> Code {
+        CMap::identity().next_code(&cid.to_be_bytes())
+    }
+
+    /// A non-embedded `Adobe-Japan1` `CIDFont`, with `/FD` as `classes` states it.
+    ///
+    /// Nothing in the name is a family word, so [`crate::substitute::Request`] falls through to
+    /// Table 121's flags — which is the entry under test, since `/FD`'s descriptor overrides
+    /// them for its class alone.
+    fn japanese(classes: &str) -> (pdf_syntax::Document, pdf_syntax::Dictionary) {
+        let descriptor = format!(
+            "3 0 obj\n<< /Type /FontDescriptor /FontName /KozMinPr6N-Regular /Flags 6 \
+             /StemV 62 /Ascent 752 /Descent -271 {classes} >>\nendobj\n"
+        );
+        document_of(&[
+            b"1 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /KozMinPr6N-Regular \
+              /Encoding /Identity-H /DescendantFonts [ 2 0 R ] >>\nendobj\n",
+            b"2 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /KozMinPr6N-Regular \
+              /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> \
+              /FontDescriptor 3 0 R /DW 1000 >>\nendobj\n",
+            descriptor.as_bytes(),
+            b"4 0 obj\n<< /Type /FontDescriptor /FontName /KozMinPr6N-Proportional /Flags 1 \
+              /StemV 83 >>\nendobj\n",
+        ])
+    }
+
+    /// The first CID of `Adobe-Japan1` the compiled-in table calls `character`.
+    ///
+    /// Searched rather than written down: which CID is which is Adobe's registered data, carried
+    /// in `crate::collection`, and a number typed here would be a second copy of it.
+    fn cid_for(font: &LoadedFont, character: char) -> u16 {
+        for cid in 1..=8000_u16 {
+            let mut out = String::new();
+            if font.text(code(cid), &mut out) && out.chars().eq(std::iter::once(character)) {
+                return cid;
+            }
+        }
+        panic!("Adobe-Japan1 has a CID for {character:?}");
+    }
+
+    /// A class's descriptor decides the face its own glyphs are drawn from, and no others'.
+    ///
+    /// The main descriptor states Table 121's Serif bit and `/FD`'s `/Proportional` states
+    /// `FixedPitch`, so §9.8.3.3's "exceptions to these defaults" ask for a monospaced face for
+    /// the proportional Latin glyphs and leave the kanji on the serif one. Both halves are
+    /// asserted, because an override that moved *every* glyph would satisfy the first alone.
+    ///
+    /// **Calibrated (trap 13) by deleting the `class_face` arm of `substituted_glyph`**: the
+    /// first assertion fails and the second still passes.
+    ///
+    /// The skip is read off `crate::substitute` rather than off the route under test, which is
+    /// the same trap: a machine whose catalogue answers both requests with one face cannot show
+    /// a difference, and a skip taken from "the two outlines are equal" would pass with the
+    /// whole route deleted.
+    #[test]
+    fn a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone() {
+        let (document, dict) = japanese("/FD << /Proportional 4 0 R >>");
+        let Ok(overridden) = LoadedFont::load(&document, &dict, "F1") else {
+            println!("skipped: this machine offers no face for a non-embedded Adobe-Japan1 font");
+            return;
+        };
+        let (plain, plain_dict) = japanese("");
+        let plain = LoadedFont::load(&plain, &plain_dict, "F1")
+            .expect("the same font without /FD loads exactly as it did before");
+
+        let latin = cid_for(&plain, 'A');
+        let kanji = cid_for(&plain, '\u{4e00}');
+
+        let serif = crate::substitute::Request {
+            family: crate::substitute::Family::Serif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        let monospace = crate::substitute::Request {
+            family: crate::substitute::Family::Monospace,
+            ..serif
+        };
+        let one_face = match (
+            crate::substitute::installed_covering(serif, &['\u{3042}']),
+            crate::substitute::installed_covering(monospace, &[]),
+        ) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        };
+        if one_face {
+            println!("skipped: this machine answers both requests with the same face");
+            return;
+        }
+
+        assert_ne!(
+            overridden.outline(code(latin)),
+            plain.outline(code(latin)),
+            "the class states FixedPitch where the main descriptor states Serif, so its own \
+             glyphs are drawn from another face"
+        );
+        assert_eq!(
+            overridden.outline(code(kanji)),
+            plain.outline(code(kanji)),
+            "a kanji is in none of the classes /FD names, so it keeps the main descriptor's face"
+        );
+    }
+
+    /// A class no character can be shown to be in is refused by name, and nothing moves.
+    ///
+    /// `Dingbats` is Table 123's "Special symbols", which no Unicode value states, so the
+    /// override is declined rather than applied to a guess — and the font draws what it drew
+    /// before the entry was read.
+    #[test]
+    fn a_class_no_character_decides_leaves_every_glyph_on_the_main_face() {
+        let (document, dict) = japanese("/FD << /Dingbats 4 0 R >>");
+        let Ok(refused) = LoadedFont::load(&document, &dict, "F1") else {
+            println!("skipped: this machine offers no face for a non-embedded Adobe-Japan1 font");
+            return;
+        };
+        let (plain, plain_dict) = japanese("");
+        let plain = LoadedFont::load(&plain, &plain_dict, "F1").expect("the same font loads");
+        let latin = cid_for(&plain, 'A');
+        assert_eq!(refused.outline(code(latin)), plain.outline(code(latin)));
+        let names: Vec<&str> = refused
+            .refused_glyph_classes()
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(
+            names,
+            ["Dingbats"],
+            "the class is declined by name rather than guessed at: {:?}",
+            refused.refused_glyph_classes()
         );
     }
 }

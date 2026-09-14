@@ -929,3 +929,98 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
     let (after, _) = drawn(&final_document, &view);
     assert!(after.contains("typed"), "{after:?}");
 }
+
+/// §12.7.5.3's file-select control, filled from §12.7.8.3.2's import.
+///
+/// Table 231 bit 21 makes the field's text "the pathname of a file", and the clause says what an
+/// FDF states that pathname as: "a file specification (7.11, "File specifications") identifying
+/// the selected file". §7.11.1's dictionary form is therefore a value this import legitimately
+/// delivers, and §12.7.4.3 has to lay out the name it gives — Table 43's `/UF` before its `/F`.
+/// Until the one-thousand-and-fifty-sixth session it laid out nothing and said nothing, which is
+/// trap 5's silence: a file *was* selected and the page showed an empty box.
+#[test]
+fn a_file_select_control_draws_the_name_of_the_specification_imported_into_it() {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    // Table 231 bit 21 on the text field, which the fixture otherwise leaves clear.
+    let selecting = form.replace("/T (name) /V (stored)", "/Ff 1048576 /T (name) /V (stored)");
+    assert_ne!(selecting, form, "the fixture states the field this edits");
+    let document = Document::open(rebuilt(&selecting)).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+
+    let data = FormsData::read(&fdf(
+        "<< /Fields [ << /T (name) /V << /Type /Filespec /F (r.txt) /UF (report.txt) >> >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    assert_eq!(view.import(&document, &data).widgets, 1);
+
+    let (after, reports) = drawn(&document, &view);
+    assert!(
+        after.contains("report.txt"),
+        "Table 43 prefers /UF: {after:?}"
+    );
+    assert!(!after.contains("stored"), "replaced: {after:?}");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// §12.7.8.3.3, Table 252's `/Fields`: "[a]n array of references to FDF field dictionaries …
+/// describing the root fields that shall be imported (those with no ancestors in the field
+/// hierarchy)."
+///
+/// Imported into the target document, by the same §12.7.4.2 name Table 246's `/Fields` are matched
+/// on — and whether they may be is Table 252's `/Rename`, which decides what happens to a name the
+/// document already has. `false` is the branch this program can carry out: "the fields shall not be
+/// renamed … Each time the FDF file provides attributes for a given field name, all fields with
+/// that name shall be updated."
+#[test]
+fn a_templates_own_fields_are_imported_where_rename_says_not_to_rename() {
+    let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Pages [ << /Templates [ << /TRef << /Name (blank) >> /Rename false \
+         /Fields [ << /T (name) /V (from the template) >> ] >> ] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.pages, 1);
+    assert_eq!(outcome.widgets, 1, "the template's field reached a widget");
+    assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+
+    let (after, reports) = drawn(&document, &view);
+    assert!(after.contains("from the template"), "{after:?}");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// The other branch of the same flag, which is its **default**: "[i]f this flag is true , fields
+/// with such conflicting names shall be renamed to guarantee their uniqueness."
+///
+/// That asks for new fields under names this document has not got, and `CLAUDE.md` rule 1's
+/// immutable document has nowhere to put one — so the template's fields are refused by name rather
+/// than applied as though the flag had been `false`, which would write the values onto the very
+/// fields the flag exists to leave alone.
+#[test]
+fn a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_document() {
+    let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    // No `/Rename` at all, so Table 252's default `true` applies.
+    let data = FormsData::read(&fdf(
+        "<< /Pages [ << /Templates [ << /TRef << /Name (blank) >> \
+         /Fields [ << /T (name) /V (from the template) >> ] >> ] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.pages, 1, "the page is still added");
+    assert_eq!(outcome.widgets, 0);
+    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(
+        outcome.refused[0].contains("/Rename"),
+        "{:?}",
+        outcome.refused
+    );
+
+    let (after, _) = drawn(&document, &view);
+    assert!(
+        after.contains("stored"),
+        "the document's own value: {after:?}"
+    );
+    assert!(!after.contains("from the template"), "{after:?}");
+}

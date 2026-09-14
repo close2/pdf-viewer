@@ -103,7 +103,7 @@ mod viewer;
 pub mod secret;
 pub mod transition;
 
-pub use accessibility::{AccessibilityNode, Character, TextLine, places};
+pub use accessibility::{AccessibilityNode, Character, TableCell, TextLine, places};
 pub use command::{
     AttachHome, Command, Edit, Find, FindDirection, FocusMove, PageTarget, PointerAction,
     PresentationMode, Purpose, Rendered, RestrictionLevel, Selection, Viewing, Zoom,

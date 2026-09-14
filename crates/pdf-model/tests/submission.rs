@@ -555,11 +555,13 @@ fn include_no_value_fields_sends_the_name_alone() {
 /// everything else non-alphanumeric as `%HH`.
 #[test]
 fn the_export_format_flag_writes_html_forms_url_encoding() {
-    let submission = composed(4, "");
+    // Table 240 bit 1 excludes object 10, the fixture's file-select control: §12.7.5.3 makes any
+    // submission holding one `multipart/form-data` instead, which is the test below this.
+    let submission = composed(4 | 1, "/Fields [(upload)]");
     assert_eq!(submission.format, Format::HtmlForm);
     assert_eq!(
-        submission.format.content_type(),
-        "application/x-www-form-urlencoded"
+        submission.media_type, "application/x-www-form-urlencoded",
+        "no file-select control, so the format's own type"
     );
     assert_eq!(submission.method, Method::Post);
     let body = body(&submission);
@@ -653,11 +655,12 @@ fn xfdf_is_refused_by_name_rather_than_submitted_as_something_else() {
 /// > control. In this case, the field's text represents the pathname of a file whose contents
 /// > shall be submitted as the field's value
 ///
-/// The clause then splits by format, and so does this: in FDF "the value of the V entry in the
-/// FDF field dictionary … shall be a file specification (7.11, "File specifications")
-/// identifying the selected file", which is the pathname; in HTML Form format "the submission
-/// shall use the MIME content type multipart / form-data", whose part is the file's *contents* —
-/// bytes on a filesystem this crate has none of, and therefore owed rather than invented.
+/// The clause then splits by format, and this is the fixture's `upload`, whose `/V` is §7.11.1's
+/// string form and so names a file without carrying it. In FDF that string *is* "a file
+/// specification (7.11, "File specifications") identifying the selected file" and is what the
+/// body states; in HTML Form format the part would carry the file's *contents*, which are on a
+/// filesystem this crate has none of, so the field is named rather than sent under a value the
+/// clause did not ask for. The specification that does carry its file is two tests below.
 #[test]
 fn a_file_select_field_carries_its_pathname_to_fdf_and_owes_its_contents_to_html() {
     let fdf = composed(0, "");
@@ -838,4 +841,241 @@ fn a_value_whose_stream_will_not_decode_is_named_rather_than_submitted_empty() {
             submission.owed
         );
     }
+}
+
+/// A form whose one field is §12.7.5.3's file-select control, with §7.11.3's dictionary form in
+/// its `/V` and §7.11.4's embedded file stream inside that.
+///
+/// `stream_dictionary` is the embedded file stream's own dictionary, so that a stream this reader
+/// cannot decode can be planted in the one place that matters.
+fn uploading(stream_dictionary: &str, contents: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> \
+         /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< >>\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (upload) /Ff 1048576 /V 6 0 R >>\nendobj\n\
+         6 0 obj\n<< /Type /Filespec /F (report.txt) /UF (report.txt) \
+         /EF << /F 7 0 R >> >>\nendobj\n\
+         7 0 obj\n{stream_dictionary}\nstream\n{contents}\nendstream\nendobj\n"
+    );
+    assembled(&body)
+}
+
+/// The composition over [`uploading`], under these Table 240 flags.
+fn uploaded(stream_dictionary: &str, contents: &str, flags: u32) -> Submission {
+    let document = Document::open(pdf_syntax::FileBytes::from(uploading(
+        stream_dictionary,
+        contents,
+    )))
+    .expect("the fixture parses");
+    let view = ViewState::of(&document);
+    compose(&document, &view, &action(flags, ""), None).expect("the composition succeeds")
+}
+
+/// §12.7.5.3, the first bullet under Table 231 bit 21:
+///
+/// > For fields submitted in HTML Form format, the submission shall use the MIME content type
+/// > multipart / form-data, as described in Internet RFC 2045.
+///
+/// The condition is the flag being set on a field in the submission, not the file behind it being
+/// readable — the sentence is about the *submission* — so the fixture's `upload`, whose `/V` is a
+/// pathname and nothing more, is enough to decide what the body is written as.
+#[test]
+fn a_file_select_control_makes_the_whole_html_body_multipart_form_data() {
+    let submission = composed(4, "");
+    assert_eq!(submission.format, Format::HtmlForm);
+    assert!(
+        submission
+            .media_type
+            .starts_with("multipart/form-data; boundary="),
+        "RFC 2046 section 5.1.1 requires the parameter: {}",
+        submission.media_type
+    );
+    let body = body(&submission);
+    assert!(
+        body.contains("\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\na value\r\n"),
+        "HTML 4.01 section 17.13.4.2's part, CRLF throughout: {body:?}"
+    );
+    assert!(
+        body.ends_with("--quorra-form-data-0--\r\n"),
+        "RFC 2046 section 5.1.1's closing delimiter: {body:?}"
+    );
+    // The pathname is not submitted under the field's name: the clause asks for the contents.
+    assert!(!body.contains("report.txt"), "{body:?}");
+    assert!(
+        submission
+            .owed
+            .iter()
+            .any(|owed| owed.contains("field upload") && owed.contains("no filesystem")),
+        "and the field is named rather than dropped: {:?}",
+        submission.owed
+    );
+}
+
+/// The same clause, where the specification carries its file: "a file specification (7.11, "File
+/// specifications") identifying the selected file".
+///
+/// §7.11.1 gives a specification two forms and only the dictionary reaches §7.11.4's embedded file
+/// stream, which is the one place a process with no filesystem can read a file from.
+#[test]
+fn a_file_select_controls_embedded_file_is_what_the_multipart_body_carries() {
+    let submission = uploaded(
+        "<< /Type /EmbeddedFile /Subtype /text#2Fplain /Length 11 >>",
+        "hello there",
+        4,
+    );
+    let body = body(&submission);
+    assert!(
+        body.contains(
+            "Content-Disposition: form-data; name=\"upload\"; filename=\"report.txt\"\r\n\
+             Content-Type: text/plain\r\n\r\nhello there\r\n"
+        ),
+        "HTML 4.01 section 17.13.4.2's file part: {body:?}"
+    );
+    assert_eq!(submission.fields, 1);
+    assert!(submission.owed.is_empty(), "{:?}", submission.owed);
+}
+
+/// Trap 5, planted: an embedded file stream that will not decode is a file whose contents this
+/// reader does not know, which is not a file of no bytes.
+#[test]
+fn an_embedded_file_that_will_not_decode_is_named_rather_than_submitted_empty() {
+    let submission = uploaded(
+        "<< /Type /EmbeddedFile /Filter /NoSuchDecode /Length 4 >>",
+        "abcd",
+        4,
+    );
+    assert_eq!(submission.fields, 0, "the field is left out");
+    assert!(
+        !body(&submission).contains("upload"),
+        "{}",
+        body(&submission)
+    );
+    assert!(
+        submission
+            .owed
+            .iter()
+            .any(|owed| owed.contains("field upload") && owed.contains("could not decode")),
+        "{:?}",
+        submission.owed
+    );
+}
+
+/// The second bullet: "For Forms Data Format (FDF) submission, the value of the V entry in the FDF
+/// field dictionary … shall be a file specification (7.11, "File specifications") identifying the
+/// selected file."
+///
+/// The file travels rather than its name, because an FDF has a body to put §7.11.4's stream in and
+/// the server has no copy of the sender's disk.
+#[test]
+fn a_file_select_controls_file_travels_into_the_fdf_as_a_specification() {
+    let submission = uploaded(
+        "<< /Type /EmbeddedFile /Subtype /text#2Fplain /Length 11 >>",
+        "hello there",
+        0,
+    );
+    let (document, fdf) = fdf_dictionary(&submission);
+    let fields = document.get_key(&fdf, "Fields");
+    let fields = fields.as_array().expect("Table 246's /Fields");
+    let field = document.resolve(fields.first().expect("the one field"));
+    let field = field.as_dict().expect("Table 249's dictionary").clone();
+    let specification = document.get_key(&field, "V");
+    let specification = specification.as_dict().expect("§7.11.3's dictionary form");
+    assert_eq!(
+        document
+            .get_key(specification, "UF")
+            .as_string()
+            .map(pdf_syntax::text_string),
+        Some("report.txt".to_owned()),
+        "Table 43's name, carried from the document's own specification"
+    );
+    let attachment = pdf_model::attachment::read(&document, specification, String::new())
+        .expect("Table 43's /EF names §7.11.4's stream");
+    assert_eq!(
+        document
+            .decoded_stream_data_reported(&attachment.stream)
+            .expect("it decodes")
+            .data
+            .as_ref(),
+        b"hello there"
+    );
+    assert_eq!(attachment.media_type.as_deref(), Some("text/plain"));
+}
+
+/// Table 240 bit 4 against §12.7.5.3, which the document may ask for at once and which cannot both
+/// be met: an HTTP GET's data is a URL query and has no entity body for a media type to describe.
+#[test]
+fn a_get_that_would_have_to_carry_a_file_is_composed_as_a_post() {
+    let submission = composed(4 | 8, "");
+    assert_eq!(submission.method, Method::Post);
+    assert!(
+        submission.media_type.starts_with("multipart/form-data"),
+        "{}",
+        submission.media_type
+    );
+    assert!(
+        submission
+            .owed
+            .iter()
+            .any(|owed| owed.contains("GetMethod") && owed.contains("multipart/form-data")),
+        "{:?}",
+        submission.owed
+    );
+}
+
+/// HTML 4.01 section 17.13.4.2: "Part boundaries should not occur in any of the data; how this is
+/// done lies outside the scope of this specification."
+///
+/// Planted, because an uncalibrated search for a free delimiter would return the first candidate
+/// whatever the parts held (trap 13): the embedded file *is* the first candidate's delimiter line,
+/// so a composition that did not look would split its own body in the wrong place.
+#[test]
+fn a_delimiter_the_parts_already_contain_is_not_the_one_the_body_is_written_with() {
+    let contents = "--quorra-form-data-0";
+    let submission = uploaded(
+        &format!(
+            "<< /Type /EmbeddedFile /Subtype /text#2Fplain /Length {} >>",
+            contents.len()
+        ),
+        contents,
+        4,
+    );
+    assert_eq!(
+        submission.media_type, "multipart/form-data; boundary=quorra-form-data-1",
+        "the first candidate is in the data"
+    );
+    let body = body(&submission);
+    assert!(
+        body.ends_with("--quorra-form-data-1--\r\n"),
+        "and it is the one the body uses: {body:?}"
+    );
+}
+
+/// Table 240 bit 5's two pairs, in a body that has no `&` and no `=` to join them with.
+///
+/// The table states the format `name . x = xval & name . y = yval`, which is two name/value pairs;
+/// HTML 4.01 section 17.13.4.1 writes a pair as `name=value` and section 17.13.4.2 writes one as a
+/// part, so the pairs are the same and the punctuation is the format's.
+#[test]
+fn the_coordinates_are_two_parts_in_a_multipart_body() {
+    let document = document();
+    let view = ViewState::of(&document);
+    let click = Click {
+        point: (120.0, 60.0),
+        widget: Some(ObjectId::new(15, 0)),
+    };
+    let submission = compose(&document, &view, &action(4 | 16, ""), Some(&click))
+        .expect("the composition succeeds");
+    let body = body(&submission);
+    assert!(
+        body.contains("Content-Disposition: form-data; name=\"short.x\"\r\n\r\n20\r\n"),
+        "{body:?}"
+    );
+    assert!(
+        body.contains("Content-Disposition: form-data; name=\"short.y\"\r\n\r\n10\r\n"),
+        "{body:?}"
+    );
 }

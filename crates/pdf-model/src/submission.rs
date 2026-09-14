@@ -26,9 +26,13 @@
 //!   thing — a `%FDF-` header, one catalog object, a trailer naming it — with the fields as
 //!   Table 249's dictionaries, nested down `/Kids` exactly as §12.7.4.2's qualified names nest.
 //! - **HTML Form format** is "described in the HTML 4.01 Specification", whose section 17.13.4
-//!   defines `application/x-www-form-urlencoded`; [`urlencoded`] is that definition. That
-//!   specification is not a document this tree holds a copy of; it is a free W3C Recommendation
-//!   at <https://www.w3.org/TR/html401/interact/forms.html>, and the quotations below were taken
+//!   defines both of the content types a form is submitted with: section 17.13.4.1's
+//!   `application/x-www-form-urlencoded`, which [`urlencoded`] is, and section 17.13.4.2's
+//!   `multipart/form-data`, which [`multipart`] is. The second is §12.7.5.3's, required of any
+//!   submission holding a file-select control, and it is why [`Submission::media_type`] is a
+//!   string rather than [`Format::content_type`]'s constant. That specification is not a document
+//!   this tree holds a copy of; it is a free W3C Recommendation at
+//!   <https://www.w3.org/TR/html401/interact/forms.html>, and the quotations below were taken
 //!   from it rather than from any reader's behaviour.
 //! - **PDF** is the document with §7.5.6's update appended, which is what
 //!   [`crate::view::ViewState::save`] already produces.
@@ -47,8 +51,8 @@
 //! |---|---|---|
 //! | 1 | `Include/Exclude` | applied, with Table 239's `/Fields` |
 //! | 2 | `IncludeNoValueFields` | applied |
-//! | 3 | `ExportFormat` | applied: HTML Form format against FDF |
-//! | 4 | `GetMethod` | applied; owed where set against a clear bit 3, which the table forbids |
+//! | 3 | `ExportFormat` | applied: HTML Form format against FDF, and §12.7.5.3 decides which of that format's two content types |
+//! | 4 | `GetMethod` | applied; owed where set against a clear bit 3, which the table forbids, and where §12.7.5.3's body leaves a GET nowhere to put it |
 //! | 5 | `SubmitCoordinates` | applied from the click, where there was one |
 //! | 6 | `XFDF` | declined: ISO 19444-1 is not held |
 //! | 7 | `IncludeAppendSaves` | applied: Table 246's `/Differences` holds what the update appended |
@@ -85,6 +89,14 @@ pub struct Submission {
     pub method: Method,
     /// What the body is.
     pub format: Format,
+    /// The media type a host puts on the request, which is the one to send.
+    ///
+    /// [`Format::content_type`] is the *format's* type and this is the *submission's*, and
+    /// §12.7.5.3 is why the two are not always one string: a form holding a file-select control
+    /// "shall use the MIME content type multipart / form-data", which carries RFC 2046 section
+    /// 5.1.1's required `boundary` parameter and so cannot be a constant. Everywhere else this
+    /// is exactly `format.content_type()`.
+    pub media_type: String,
     /// The body. Empty for a GET, whose data is in [`Self::url`].
     pub body: Vec<u8>,
     /// How many fields the body names.
@@ -119,7 +131,12 @@ pub enum Format {
 }
 
 impl Format {
-    /// The media type a host puts in the request.
+    /// The media type of a body written in this format alone.
+    ///
+    /// [`Submission::media_type`] is what a host actually sends, and the two differ for one
+    /// reason: §12.7.5.3 makes a form holding a file-select control `multipart/form-data`, whose
+    /// RFC 2046 section 5.1.1 `boundary` parameter is a function of the body rather than of the
+    /// format.
     ///
     /// Table 240 bit 9 states the third — "the MIME media type application/pdf as defined by
     /// Internet RFC 8118" — and HTML 4.01 section 17.13.4 states the second. ISO 32000-2 states
@@ -152,6 +169,18 @@ pub enum Refusal {
         "SubmitForm: Table 240 bit 9 asks for the whole document, which cannot be written: {0}"
     )]
     Unsavable(#[from] pdf_syntax::write::UpdateError),
+    /// §12.7.5.3's multipart body has no delimiter its own parts do not contain.
+    ///
+    /// HTML 4.01 section 17.13.4.2 requires that "[p]art boundaries should not occur in any of
+    /// the data" and says outright that "how this is done lies outside the scope of this
+    /// specification". [`MAX_BOUNDARY_TRIES`] is how far this composition looks; a body that
+    /// contains every delimiter it would try is one no server could split back into parts, and
+    /// writing it anyway would hand over a request that silently means something else.
+    #[error(
+        "SubmitForm: §12.7.5.3's multipart/form-data body contains every delimiter this \
+         composition can form, so no part boundary would separate it"
+    )]
+    Undelimitable,
 }
 
 /// The click that invoked the action, for Table 240 bit 5.
@@ -181,6 +210,32 @@ struct Entry {
     name: String,
     /// Table 226's `/V`, resolved, or `None` for a field submitted "by name only".
     value: Option<Object>,
+    /// The file this entry carries, where §12.7.5.3's `FileSelect` makes it a file-select
+    /// control and this document holds the file it names.
+    file: Option<SelectedFile>,
+}
+
+/// §12.7.5.3's file-select control, with the file the field's value names.
+///
+/// Table 231 bit 21 says "the text entered in the field represents the pathname of a file whose
+/// contents shall be submitted as the value of the field", and the clause under it says what
+/// *identifies* that file: "a file specification (7.11, "File specifications") identifying the
+/// selected file". §7.11.1 gives a specification two forms, and only one of them carries the file
+/// along — §7.11.4's embedded file stream, reached through Table 43's `/EF`. That is the one this
+/// crate can read, and it is the only one: a specification in the string form names a path on a
+/// filesystem `CLAUDE.md` principle 3 gives this process none of, and [`Submission::owed`] says
+/// so by field name rather than submitting the pathname as though it were the contents.
+struct SelectedFile {
+    /// The specification's own name, for HTML 4.01 section 17.13.4.2's `filename` parameter —
+    /// "[t]he user agent should attempt to supply a file name for each submitted file".
+    name: Option<String>,
+    /// Table 44's `/Subtype`, the embedded file stream's own media type.
+    ///
+    /// HTML 4.01 section 17.13.4.2 asks for one and names the fallback: "the file input should be
+    /// identified by the appropriate content type (e.g., "application/octet-stream")".
+    media_type: String,
+    /// §7.11.4's contents, decoded.
+    bytes: Vec<u8>,
 }
 
 /// Composes §12.7.6.2's submission for one action over one document as this view shows it.
@@ -241,9 +296,10 @@ pub fn compose(
     let format = if html { Format::HtmlForm } else { Format::Fdf };
 
     let table = widgets_by_field_name(document);
-    let entries = chosen(document, view, action, format, &table, &mut owed);
+    let chosen = chosen(document, view, action, format, &table, &mut owed);
+    let entries = chosen.entries;
     let fields = entries.len();
-    let (url, method, body) = if html {
+    let (url, method, body, media_type) = if html {
         if let Some(charset) = action
             .charset
             .as_deref()
@@ -261,14 +317,66 @@ pub fn compose(
                     .to_owned(),
             );
         }
-        let mut query = urlencoded(document, &entries, &mut owed);
-        if flags.submit_coordinates() {
-            coordinates(document, &table, click, &mut query, &mut owed);
-        }
-        if flags.get_method() {
-            (with_query(&action.url, &query), Method::Get, Vec::new())
+        let placed = flags
+            .submit_coordinates()
+            .then(|| coordinates(document, &table, click, &mut owed))
+            .flatten();
+        // §12.7.5.3: "For fields submitted in HTML Form format, the submission shall use the
+        // MIME content type multipart / form-data, as described in Internet RFC 2045." The
+        // condition is a file-select control being in the submission, not its file being
+        // readable, so this is `Chosen::file_select` rather than a look at the entries.
+        if chosen.file_select {
+            // Two `shall`s the document has asked for at once, and they cannot both be met: an
+            // HTTP GET carries its data in the URL and has no entity body for a media type to
+            // describe. The specific one wins — bit 4 speaks about "field names and values" in
+            // general and §12.7.5.3 about the control whose file is the reason there is a body
+            // — and the general one goes to the host as a sentence.
+            if flags.get_method() {
+                owed.push(
+                    "Table 240 bit 4's GetMethod asks for an HTTP GET, whose data is a URL \
+                     query with no body; §12.7.5.3's file-select control requires a \
+                     multipart/form-data body, so this is composed as a POST"
+                        .to_owned(),
+                );
+            }
+            let (boundary, body) = multipart(document, &entries, placed.as_ref(), &mut owed)?;
+            (
+                action.url.clone(),
+                Method::Post,
+                body,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
         } else {
-            (action.url.clone(), Method::Post, query.into_bytes())
+            let mut query = urlencoded(document, &entries, &mut owed);
+            if let Some(placed) = &placed {
+                if !query.is_empty() {
+                    query.push('&');
+                }
+                // The name is escaped and the full stop the table puts after it is not: the
+                // PERIOD is the format's punctuation rather than a character of the name.
+                let mut prefix = String::new();
+                if let Some(named) = &placed.named {
+                    escape(named.as_bytes(), &mut prefix);
+                    prefix.push('.');
+                }
+                let (across, down) = (placed.across, placed.down);
+                let _ = write!(query, "{prefix}x={across}&{prefix}y={down}");
+            }
+            if flags.get_method() {
+                (
+                    with_query(&action.url, &query),
+                    Method::Get,
+                    Vec::new(),
+                    format.content_type().to_owned(),
+                )
+            } else {
+                (
+                    action.url.clone(),
+                    Method::Post,
+                    query.into_bytes(),
+                    format.content_type().to_owned(),
+                )
+            }
         }
     } else {
         let carried = Carried::read(document, view, action, &mut owed);
@@ -276,12 +384,14 @@ pub fn compose(
             action.url.clone(),
             Method::Post,
             fdf(document, &entries, &carried, &mut owed),
+            format.content_type().to_owned(),
         )
     };
     Ok(Submission {
         url,
         method,
         format,
+        media_type,
         body,
         fields,
         owed,
@@ -321,10 +431,25 @@ fn whole_document(
             Method::Post
         },
         format: Format::Pdf,
+        media_type: Format::Pdf.content_type().to_owned(),
         body: written.bytes,
         fields: 0,
         owed,
     })
+}
+
+/// What [`chosen`] read out of the form: the entries, and whether a file-select control is
+/// among them.
+///
+/// The second is not derivable from the first. §12.7.5.3's media-type sentence is about the
+/// *submission*, so a file-select field whose file this document does not carry still decides
+/// what the body is written as while contributing no entry to it.
+#[derive(Default)]
+struct Chosen {
+    /// The fields that go into the body, in the order [`selected_names`] gives them.
+    entries: Vec<Entry>,
+    /// Whether any selected field sets Table 231 bit 21.
+    file_select: bool,
 }
 
 /// The fields that go into the body, with the values this view shows for them.
@@ -339,10 +464,10 @@ fn chosen(
     format: Format,
     table: &BTreeMap<String, Vec<ObjectId>>,
     owed: &mut Vec<String>,
-) -> Vec<Entry> {
+) -> Chosen {
     let flags = action.flags;
     let selected = selected_names(document, action, table);
-    let mut entries = Vec::new();
+    let mut chosen = Chosen::default();
 
     for name in &selected {
         let Some(widget) = table.get(name).and_then(|widgets| widgets.first()) else {
@@ -373,6 +498,16 @@ fn chosen(
             }
             continue;
         }
+        // §12.7.5.3, under Table 231 bit 21: "If the FileSelect flag (PDF 1.4) is set, the field
+        // shall function as a file-select control. In this case, the field's text represents the
+        // pathname of a file whose contents shall be submitted as the field's value".
+        //
+        // Read here rather than beside the value, because the flag decides the HTML-form body's
+        // media type whether or not there is a value behind it: the sentence that states the
+        // media type is about the *submission*, and its condition is the flag.
+        let file_select =
+            matches!(field.kind, Some(FieldKind::Text)) && field.flags & FLAG_FILE_SELECT != 0;
+        chosen.file_select |= file_select;
         let value = field
             .value
             .as_ref()
@@ -388,59 +523,149 @@ fn chosen(
         // entry".
         let Some(value) = value else {
             if flags.include_no_value_fields() {
-                entries.push(Entry {
+                chosen.entries.push(Entry {
                     name: name.clone(),
                     value: None,
+                    file: None,
                 });
             }
             continue;
         };
-        // §12.7.5.3, under Table 231 bit 21: "If the FileSelect flag (PDF 1.4) is set, the field
-        // shall function as a file-select control. In this case, the field's text represents the
-        // pathname of a file whose contents shall be submitted as the field's value".
-        let file_select =
-            matches!(field.kind, Some(FieldKind::Text)) && field.flags & FLAG_FILE_SELECT != 0;
         if file_select {
+            let selected = selected_file(document, name, &value, owed);
             match format {
                 // "For Forms Data Format (FDF) submission, the value of the V entry in the FDF
                 // field dictionary … shall be a file specification (7.11, "File specifications")
-                // identifying the selected file." §7.11.3 gives a file specification a string
-                // form, and the pathname a person typed is written in it as typed: §7.11.2's
-                // platform-independent spelling of a path is a host's knowledge of its own
-                // filesystem, which this crate has none of. A choice, recorded.
-                Format::Fdf => match text_bytes(document, &value) {
-                    Some(pathname) => entries.push(Entry {
+                // identifying the selected file."
+                Format::Fdf => match selected {
+                    // §7.11.1's dictionary form carrying §7.11.4's stream: an FDF has a body to
+                    // put an indirect stream in, so the contents travel rather than the name of
+                    // a file the server has no copy of.
+                    Selected::Carried(file) => chosen.entries.push(Entry {
+                        name: name.clone(),
+                        value: None,
+                        file: Some(file),
+                    }),
+                    // §7.11.1's string form, "just the name of the target file in a standard
+                    // format". The pathname a person typed is written as typed: §7.11.2's
+                    // platform-independent spelling of a path is a host's knowledge of its own
+                    // filesystem, which this crate has none of. A choice, recorded.
+                    Selected::Elsewhere(pathname) => chosen.entries.push(Entry {
                         name: name.clone(),
                         value: Some(Object::String(pathname.into())),
+                        file: None,
                     }),
-                    // The clause says the field's text *is* the pathname, so a `/V` that holds
-                    // no text holds no pathname; writing an empty file specification would name
-                    // a file rather than say that none was named.
-                    None => owed.push(format!(
-                        "field {name}: a file-select control whose value is {}, which states no \
-                         pathname, so no file specification is written for it",
-                        value.type_name()
-                    )),
+                    Selected::Nothing => {}
                 },
                 // "For fields submitted in HTML Form format, the submission shall use the MIME
-                // content type multipart / form-data, as described in Internet RFC 2045" — with
-                // the file's *contents*, which are on a filesystem this crate cannot open.
-                Format::HtmlForm => owed.push(format!(
-                    "field {name}: a file-select control, whose file's contents the HTML Form \
-                     format submits as multipart/form-data; the contents are the host's to read \
-                     and are not in this body"
-                )),
+                // content type multipart / form-data, as described in Internet RFC 2045" — whose
+                // part carries the file's *contents*, which is what `multipart` writes.
+                Format::HtmlForm => match selected {
+                    Selected::Carried(file) => chosen.entries.push(Entry {
+                        name: name.clone(),
+                        value: None,
+                        file: Some(file),
+                    }),
+                    // A pathname and no file. Submitting the pathname as the value would be the
+                    // wrong value under the right name — the clause asks for the contents — so
+                    // the field is named rather than guessed at.
+                    Selected::Elsewhere(pathname) => owed.push(format!(
+                        "field {name}: a file-select control naming {}, a file outside this \
+                         document, whose contents multipart/form-data would carry and this \
+                         process has no filesystem to read",
+                        pdf_syntax::text_string(&pathname)
+                    )),
+                    Selected::Nothing => {}
+                },
                 Format::Pdf => {}
             }
             continue;
         }
-        entries.push(Entry {
+        chosen.entries.push(Entry {
             name: name.clone(),
             value: Some(value),
+            file: None,
         });
     }
 
-    entries
+    chosen
+}
+
+/// What a file-select control's `/V` turned out to name.
+///
+/// §7.11.1 gives a file specification two forms, and this is the difference between them stated
+/// where it decides what a submission can carry: the dictionary form may hold the file, and the
+/// string form can only name it.
+enum Selected {
+    /// §7.11.4's embedded file stream the specification carries — the contents themselves.
+    Carried(SelectedFile),
+    /// A specification naming a file outside this document, with the bytes that name it.
+    Elsewhere(Vec<u8>),
+    /// No file specification, or one whose stream this reader could not decode. Whoever
+    /// produced this has already put the sentence on [`Submission::owed`].
+    Nothing,
+}
+
+/// Reads a file-select control's value as §7.11's file specification.
+///
+/// > A simple file specification shall give just the name of the target file in a standard format
+/// > … It shall take the form of either a string or a dictionary.
+///
+/// Two forms and no third, which is why a `/V` that is a name or a number is [`Selected::Nothing`]
+/// here although [`text_bytes`] would give characters for it: a name is not a file specification,
+/// and submitting one as though it were would name a file the field never selected.
+fn selected_file(
+    document: &Document,
+    name: &str,
+    value: &Object,
+    owed: &mut Vec<String>,
+) -> Selected {
+    match document.resolve(value) {
+        Object::String(bytes) => Selected::Elsewhere(bytes.to_vec()),
+        Object::Dictionary(dict) => {
+            let specification = crate::file_spec::FileSpec::from_dictionary(document, &dict);
+            let Some(attachment) = crate::attachment::read(document, &dict, String::new()) else {
+                if let Some(bytes) = specification.bytes {
+                    return Selected::Elsewhere(bytes);
+                }
+                // Table 43 makes `/F` "[r]equired if the DOS, Mac, and Unix entries are all
+                // absent", so a dictionary with none of them and no `/EF` identifies nothing.
+                owed.push(format!(
+                    "field {name}: a file-select control whose value is a file specification \
+                     naming no file at all, so nothing is submitted for it"
+                ));
+                return Selected::Nothing;
+            };
+            match document.decoded_stream_data_reported(&attachment.stream) {
+                Ok(decoded) => Selected::Carried(SelectedFile {
+                    name: specification.display_name(),
+                    // Table 44's `/Subtype` is the stream's own media type where it states one.
+                    media_type: attachment
+                        .media_type
+                        .unwrap_or_else(|| "application/octet-stream".to_owned()),
+                    bytes: decoded.data.to_vec(),
+                }),
+                // Trap 5: an embedded file that would not decode is a file whose contents this
+                // reader does not know, which is not the same as a file of no bytes.
+                Err(refusal) => {
+                    owed.push(format!(
+                        "field {name}: a file-select control whose embedded file stream this \
+                         reader could not decode ({refusal:?}), so the field is not submitted at \
+                         all rather than submitted empty"
+                    ));
+                    Selected::Nothing
+                }
+            }
+        }
+        other => {
+            owed.push(format!(
+                "field {name}: a file-select control whose value is {}, which §7.11.1 makes no \
+                 file specification, so no file is submitted for it",
+                other.type_name()
+            ));
+            Selected::Nothing
+        }
+    }
 }
 
 /// The fully qualified names the action selects, before `NoExport` and before values.
@@ -919,6 +1144,10 @@ fn names_an_object(value: &Object, depth: usize) -> bool {
 struct Node {
     /// Table 249's `/V`, where this node is a field with one.
     value: Option<Object>,
+    /// §12.7.5.3's selected file, where this node is a file-select control and the document
+    /// carries the file it names. Written as `/V`, a §7.11.3 specification around §7.11.4's
+    /// embedded file stream, in place of the `value` above.
+    file: Option<SelectedFile>,
     /// Whether this node is a field the submission names, as against an ancestor it passes
     /// through on the way to one.
     named: bool,
@@ -938,14 +1167,30 @@ impl Node {
         &mut self.kids[index].1
     }
 
-    /// Table 249's dictionary for this node.
-    fn dictionary(self, partial: &str) -> Dictionary {
+    /// Table 249's dictionary for this node, allocating an object in `body` for any stream it
+    /// needs.
+    ///
+    /// The body is written to rather than returned from because a file-select control's `/V` is
+    /// "a file specification (7.11, "File specifications") identifying the selected file", and a
+    /// specification that carries its file carries §7.11.4's *stream* — which §7.3.8 makes an
+    /// indirect object, so the tree cannot hold it inline.
+    fn dictionary(self, partial: &str, body: &mut Vec<Object>) -> Dictionary {
         let mut dict = Dictionary::new();
         dict.insert(
             Name::new(&b"T"[..]),
             Object::String(pdf_syntax::text_string::encode_text_string(partial).into()),
         );
-        if let Some(value) = self.value {
+        if let Some(file) = self.file {
+            let id = ObjectId::new(next_object(body.len()), 0);
+            dict.insert(
+                Name::new(&b"V"[..]),
+                embedded_file_spec(id, file.name.as_deref()),
+            );
+            body.push(stream(
+                embedded_file_dictionary(file.bytes.len(), &file.media_type),
+                file.bytes,
+            ));
+        } else if let Some(value) = self.value {
             dict.insert(Name::new(&b"V"[..]), value);
         }
         if !self.kids.is_empty() {
@@ -954,7 +1199,7 @@ impl Node {
                 Object::Array(
                     self.kids
                         .into_iter()
-                        .map(|(name, kid)| Object::Dictionary(kid.dictionary(&name)))
+                        .map(|(name, kid)| Object::Dictionary(kid.dictionary(&name, body)))
                         .collect(),
                 ),
             );
@@ -1000,14 +1245,22 @@ fn fdf(
         }
         node.named = true;
         node.value.clone_from(&entry.value);
+        node.file = entry.file.as_ref().map(|file| SelectedFile {
+            name: file.name.clone(),
+            media_type: file.media_type.clone(),
+            bytes: file.bytes.clone(),
+        });
     }
+    // The body's indirect objects after the catalog, which is object 1. Written to first by the
+    // field tree, whose file-select controls each need §7.11.4's stream.
+    let mut body: Vec<Object> = Vec::new();
     let mut fdf = Dictionary::new();
     fdf.insert(
         Name::new(&b"Fields"[..]),
         Object::Array(
             root.kids
                 .into_iter()
-                .map(|(name, kid)| Object::Dictionary(kid.dictionary(&name)))
+                .map(|(name, kid)| Object::Dictionary(kid.dictionary(&name, &mut body)))
                 .collect(),
         ),
     );
@@ -1030,8 +1283,6 @@ fn fdf(
         );
     }
 
-    // The body's indirect objects after the catalog, which is object 1.
-    let mut body: Vec<Object> = Vec::new();
     if let Some(differences) = &carried.differences {
         let id = ObjectId::new(next_object(body.len()), 0);
         fdf.insert(Name::new(&b"Differences"[..]), Object::Reference(id));
@@ -1039,8 +1290,11 @@ fn fdf(
     }
     if let Some(file) = &carried.embedded {
         let id = ObjectId::new(next_object(body.len()), 0);
-        fdf.insert(Name::new(&b"F"[..]), embedded_file_spec(id));
-        body.push(stream(embedded_file_dictionary(file.len()), file.clone()));
+        fdf.insert(Name::new(&b"F"[..]), embedded_file_spec(id, None));
+        body.push(stream(
+            embedded_file_dictionary(file.len(), "application/pdf"),
+            file.clone(),
+        ));
     }
 
     let mut out = b"%FDF-1.2\n".to_vec();
@@ -1102,21 +1356,28 @@ fn stream(mut dict: Dictionary, data: Vec<u8>) -> Object {
     }))
 }
 
-/// Table 240 bit 14's `/F`: "a file specification containing an embedded file stream representing
-/// the PDF file from which the FDF is being submitted".
+/// A §7.11.3 file specification around §7.11.4's embedded file stream, for the two entries that
+/// ask for one.
+///
+/// Table 240 bit 14's `/F` is "a file specification containing an embedded file stream
+/// representing the PDF file from which the FDF is being submitted", and §12.7.5.3's file-select
+/// control's `/V` is "a file specification (7.11, "File specifications") identifying the selected
+/// file". One shape answers both.
 ///
 /// §7.11.3's dictionary form, with Table 43's `/Type` — "[r]equired if an EF, EP or RF entry is
 /// present" — and the `/EF` dictionary whose value "shall be an embedded file stream (see 7.11.4,
 /// "Embedded file streams") containing the corresponding file".
 ///
-/// **Table 43's own `/F` is not written, and that is a gap rather than a choice.** The entry is
-/// "[r]equired if the DOS, Mac, and Unix entries are all absent", and it is "[a] file
-/// specification string of the form described in 7.11.2" — a *path*, on the machine this program
-/// is running on. This crate has none: `pdf_syntax::FileBytes` keeps the bytes and not the name
-/// it read them under, deliberately, because `viewer_core`'s rule 2 gives the layers above no
-/// filesystem either. What that entry would say is knowledge of this machine, and the caller
-/// carrying it is a host. [`Carried::save`] owes the sentence.
-fn embedded_file_spec(stream: ObjectId) -> Object {
+/// **Table 43's own `/F` is written only where the caller knows a name**, and the two callers
+/// differ for a reason rather than by omission. The entry is "[r]equired if the DOS, Mac, and Unix
+/// entries are all absent", and it is "[a] file specification string of the form described in
+/// 7.11.2" — a *path*. For bit 14 that path is the machine this program is running on and this
+/// crate has none: `pdf_syntax::FileBytes` keeps the bytes and not the name it read them under,
+/// deliberately, because `viewer_core`'s rule 2 gives the layers above no filesystem either, and
+/// [`Carried::save`] owes the sentence. For a file-select control the name is the *document's* —
+/// what its own specification said the selected file is called — so it is carried on rather than
+/// invented. `/UF` goes with it, which Table 43 requires a reader prefer.
+fn embedded_file_spec(stream: ObjectId, name: Option<&str>) -> Object {
     let mut embedded = Dictionary::new();
     embedded.insert(Name::new(&b"F"[..]), Object::Reference(stream));
     let mut spec = Dictionary::new();
@@ -1124,6 +1385,16 @@ fn embedded_file_spec(stream: ObjectId) -> Object {
         Name::new(&b"Type"[..]),
         Object::Name(Name::new(&b"Filespec"[..])),
     );
+    if let Some(name) = name {
+        spec.insert(
+            Name::new(&b"F"[..]),
+            Object::String(pdf_syntax::text_string::encode_text_string(name).into()),
+        );
+        spec.insert(
+            Name::new(&b"UF"[..]),
+            Object::String(pdf_syntax::text_string::encode_text_string(name).into()),
+        );
+    }
     spec.insert(Name::new(&b"EF"[..]), Object::Dictionary(embedded));
     Object::Dictionary(spec)
 }
@@ -1133,12 +1404,13 @@ fn embedded_file_spec(stream: ObjectId) -> Object {
 /// `/Subtype` is the media type, which the table requires be one: "[t]he value of this entry
 /// shall conform to the MIME media type names defined in Internet RFC 2046, with the provision
 /// that characters not permitted in names shall use the 2-character hexadecimal code format
-/// described in 7.3.5". Table 240 bit 9 states PDF's own — `application/pdf` — and §7.3.5 is what
-/// turns its SOLIDUS into `#2F`, inside `Name::escaped` rather than here.
+/// described in 7.3.5". Table 240 bit 9 states PDF's own — `application/pdf` — and a file-select
+/// control's file states whatever its own `/Subtype` said; §7.3.5 is what turns a SOLIDUS into
+/// `#2F`, inside `Name::escaped` rather than here.
 ///
 /// Table 45's `/Size` is "[t]he size of the uncompressed embedded file, in bytes", which is the
 /// data's own length because nothing here writes a `/Filter`.
-fn embedded_file_dictionary(size: usize) -> Dictionary {
+fn embedded_file_dictionary(size: usize, media_type: &str) -> Dictionary {
     let mut params = Dictionary::new();
     params.insert(
         Name::new(&b"Size"[..]),
@@ -1151,7 +1423,7 @@ fn embedded_file_dictionary(size: usize) -> Dictionary {
     );
     dict.insert(
         Name::new(&b"Subtype"[..]),
-        Object::Name(Name::new(&b"application/pdf"[..])),
+        Object::Name(Name::new(media_type.as_bytes())),
     );
     dict.insert(Name::new(&b"Params"[..]), Object::Dictionary(params));
     dict
@@ -1234,6 +1506,186 @@ fn escape(bytes: &[u8], out: &mut String) {
     }
 }
 
+/// How many delimiters this composition tries before it refuses to write a multipart body.
+///
+/// HTML 4.01 section 17.13.4.2 leaves the choice open — "[p]art boundaries should not occur in
+/// any of the data; how this is done lies outside the scope of this specification" — so the bound
+/// is this program's and is written down as one. Each candidate is a distinct string, so a body
+/// that defeats all of them is a body constructed to; the alternative to a bound is scanning the
+/// whole body once per candidate, which a document could make quadratic by embedding a file.
+const MAX_BOUNDARY_TRIES: u32 = 1024;
+
+/// §12.7.5.3's body for a form holding a file-select control, with the delimiter it was written
+/// with.
+///
+/// > For fields submitted in HTML Form format, the submission shall use the MIME content type
+/// > multipart / form-data, as described in Internet RFC 2045.
+///
+/// ISO 32000-2 names RFC 2045 and stops there; what says how a *form* uses that media type is the
+/// specification §12.7.6.2 names for the format itself, "HTML Form format (described in the HTML
+/// 4.01 Specification)". Its section 17.13.4.2 defines the body as a series of parts, "each
+/// representing a successful control", sent "in the same order the corresponding controls appear
+/// in the document stream" — which here is the order [`chosen`] read the fields in.
+///
+/// Each part carries "a "Content-Disposition" header whose value is "form-data"" and "a name
+/// attribute specifying the control name of the corresponding control"; a part carrying a file
+/// adds the section's `filename` parameter — "[t]he user agent should attempt to supply a file
+/// name for each submitted file" — and its content type, since "the file input should be
+/// identified by the appropriate content type". RFC 2046 section 5.1.1 supplies the delimiter
+/// line: "two hyphen characters … followed by the boundary parameter value … and a terminating
+/// CRLF", with the last one followed by two more hyphens. Lines are CRLF throughout, which
+/// section 17.13.4.2 states outright: "As with all MIME transmissions, "CR LF" … is used to
+/// separate lines of data."
+///
+/// **No `Content-Transfer-Encoding` and no `charset`.** The section makes both optional — a part
+/// "may be encoded and the "Content-Transfer-Encoding" header supplied if the value of that part
+/// does not conform to the default (7BIT) encoding" — and this body is handed to a host as bytes
+/// over a transport that carries bytes, so encoding them into a subset and back would lose the
+/// exactness the file's own `/EF` stream has. A text part's bytes are the UTF-8 the rest of this
+/// module writes, which Table 239's `/CharSet` sentence on [`compose`] already reports.
+///
+/// # Errors
+///
+/// [`Refusal::Undelimitable`], for a body that contains every delimiter [`MAX_BOUNDARY_TRIES`]
+/// would try.
+fn multipart(
+    document: &Document,
+    entries: &[Entry],
+    placed: Option<&Placed>,
+    owed: &mut Vec<String>,
+) -> Result<(String, Vec<u8>), Refusal> {
+    let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
+    for entry in entries {
+        let Some(name) = header_quoted(&entry.name) else {
+            owed.push(format!(
+                "field {}: its name holds a line break, which no part header can carry, so the \
+                 field is left out of the multipart body rather than renamed",
+                entry.name
+            ));
+            continue;
+        };
+        if let Some(file) = &entry.file {
+            let filename = match file.name.as_deref().map(header_quoted) {
+                Some(Some(filename)) => format!("; filename=\"{filename}\""),
+                // §7.11.3's specification need not name the file it carries, and HTML 4.01
+                // section 17.13.4.2's file name is a `should` rather than a requirement.
+                Some(None) | None => String::new(),
+            };
+            parts.push((
+                format!(
+                    "Content-Disposition: form-data; name=\"{name}\"{filename}\r\nContent-Type: \
+                     {}\r\n",
+                    file.media_type
+                ),
+                file.bytes.clone(),
+            ));
+            continue;
+        }
+        let values: Vec<Vec<u8>> = match &entry.value {
+            None => vec![Vec::new()],
+            Some(Object::Array(items)) => items
+                .iter()
+                .filter_map(|item| text_bytes(document, item))
+                .collect(),
+            Some(value) => {
+                let Some(bytes) = text_bytes(document, value) else {
+                    owed.push(format!(
+                        "field {}: its value is {}, which no field type gives a text value, so it \
+                         is not written",
+                        entry.name,
+                        value.type_name()
+                    ));
+                    continue;
+                };
+                vec![bytes]
+            }
+        };
+        for value in values {
+            parts.push((
+                format!("Content-Disposition: form-data; name=\"{name}\"\r\n"),
+                value,
+            ));
+        }
+    }
+    if let Some(placed) = placed {
+        for (suffix, coordinate) in [("x", placed.across), ("y", placed.down)] {
+            let name = match &placed.named {
+                Some(named) => format!("{named}.{suffix}"),
+                None => suffix.to_owned(),
+            };
+            match header_quoted(&name) {
+                Some(name) => parts.push((
+                    format!("Content-Disposition: form-data; name=\"{name}\"\r\n"),
+                    coordinate.to_string().into_bytes(),
+                )),
+                None => owed.push(
+                    "Table 240 bit 5's SubmitCoordinates: the name it writes the coordinates \
+                     under holds a line break, which no part header can carry"
+                        .to_owned(),
+                ),
+            }
+        }
+    }
+
+    let boundary = boundary(&parts).ok_or(Refusal::Undelimitable)?;
+    let mut body = Vec::new();
+    for (headers, data) in &parts {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(headers.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(data);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"--\r\n");
+    Ok((boundary, body))
+}
+
+/// A delimiter none of the parts contains, or `None` where every candidate occurs in one.
+///
+/// Deterministic, because a body that differs run to run is a body no test can hold to anything.
+/// The characters are RFC 2046 section 5.1.1's `bcharsnospace`, and the longest candidate is far
+/// inside that section's `0*69<bchars> bcharsnospace`.
+fn boundary(parts: &[(String, Vec<u8>)]) -> Option<String> {
+    (0..MAX_BOUNDARY_TRIES).find_map(|attempt| {
+        let candidate = format!("quorra-form-data-{attempt}");
+        let delimiter = format!("--{candidate}");
+        let occurs = parts.iter().any(|(headers, data)| {
+            headers.contains(&delimiter)
+                || data
+                    .windows(delimiter.len())
+                    .any(|window| window == delimiter.as_bytes())
+        });
+        (!occurs).then_some(candidate)
+    })
+}
+
+/// One name as a quoted string, or `None` for text no header field can hold.
+///
+/// RFC 2045 section 5.1 writes a parameter value as `value := token / quoted-string` and lists
+/// the REVERSE SOLIDUS and the QUOTATION MARK among the `tspecials` that "[m]ust be in
+/// quoted-string, to use within parameter values"; the quoted string itself is RFC 822's, where a
+/// `quoted-pair` is a REVERSE SOLIDUS before the character it protects. So both are escaped that
+/// way. A carriage return, a line feed or a NUL is not escapable at all — a header field ends at
+/// the line break — so a name holding one is reported by its caller rather than silently
+/// shortened into a different name.
+fn header_quoted(text: &str) -> Option<String> {
+    if text.contains(['\r', '\n', '\0']) {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character == '\\' || character == '"' {
+            out.push('\\');
+        }
+        out.push(character);
+    }
+    Some(out)
+}
+
 /// Table 240 bit 5's coordinates, appended to the query. §12.7.6.2 states the whole rule:
 ///
 /// > If set, the coordinates of the mouse click that caused the submit-form action shall be
@@ -1246,20 +1698,25 @@ fn escape(bytes: &[u8], out: &mut String) {
 ///
 /// Rounded to integers the way §12.6.4.8's `/IsMap` coordinates are, and for the same reason: the
 /// table states no precision and a pixel is the unit a click has.
+///
+/// The two pairs come back rather than a piece of query string, because the format the table
+/// states — `name.x=xval&name.y=yval` — is *two name/value pairs* and the `&` and `=` are how
+/// HTML 4.01 section 17.13.4.1's `application/x-www-form-urlencoded` writes a pair down. The same
+/// two pairs are two parts in a multipart body, and neither caller should have to unpick the
+/// other's punctuation to get at them.
 fn coordinates(
     document: &Document,
     table: &BTreeMap<String, Vec<ObjectId>>,
     click: Option<&Click>,
-    query: &mut String,
     owed: &mut Vec<String>,
-) {
+) -> Option<Placed> {
     let Some(click) = click else {
         owed.push(
             "Table 240 bit 5's SubmitCoordinates: the action was not invoked by a click, so there \
              are no coordinates to transmit"
                 .to_owned(),
         );
-        return;
+        return None;
     };
     let (x, y) = click.point;
     // "the field's widget annotation rectangle", read from the annotation the click was over
@@ -1274,7 +1731,7 @@ fn coordinates(
              /Rect, so there is no rectangle to measure the coordinates from"
                 .to_owned(),
         );
-        return;
+        return None;
     };
     let across = (x - llx).round();
     let down = (ury - y).round();
@@ -1282,7 +1739,7 @@ fn coordinates(
         owed.push(
             "Table 240 bit 5's SubmitCoordinates: the click names no finite position".to_owned(),
         );
-        return;
+        return None;
     }
     #[expect(
         clippy::cast_possible_truncation,
@@ -1301,33 +1758,38 @@ fn coordinates(
     let mapping = widget
         .and_then(|widget| document.get(widget).as_dict().cloned())
         .and_then(|dict| mapping_name(document, &dict));
-    let prefix = match (mapping, field_name) {
-        (Some(mapping), _) if mapping == " " => String::new(),
-        (Some(mapping), _) => {
-            let mut prefix = String::new();
-            escape(mapping.as_bytes(), &mut prefix);
-            prefix.push('.');
-            prefix
-        }
-        (None, Some(name)) => {
-            let mut prefix = String::new();
-            escape(name.as_bytes(), &mut prefix);
-            prefix.push('.');
-            prefix
-        }
+    let named = match (mapping, field_name) {
+        // "If the value of the TM entry is a single ASCII SPACE (20h) character, both the name
+        // and the ASCII PERIOD (2Eh) following it shall be suppressed".
+        (Some(mapping), _) if mapping == " " => None,
+        (Some(mapping), _) => Some(mapping),
+        (None, Some(name)) => Some(name),
         (None, None) => {
             owed.push(
                 "Table 240 bit 5's SubmitCoordinates: the widget pressed belongs to no named \
                  field, so the coordinates are written without a name"
                     .to_owned(),
             );
-            String::new()
+            None
         }
     };
-    if !query.is_empty() {
-        query.push('&');
-    }
-    let _ = write!(query, "{prefix}x={across}&{prefix}y={down}");
+    Some(Placed {
+        named,
+        across,
+        down,
+    })
+}
+
+/// Table 240 bit 5's click, as the two name/value pairs the table's format states.
+struct Placed {
+    /// What goes before the full stop, `x` and `y`: the mapping name or the field name, or
+    /// `None` where the table's single-space `/TM` suppresses "both the name and the ASCII
+    /// PERIOD (2Eh) following it". Unescaped, because each body writes a name its own way.
+    named: Option<String>,
+    /// `xval`, across from the widget rectangle's left edge.
+    across: i64,
+    /// `yval`, down from its upper edge.
+    down: i64,
 }
 
 /// Table 226's `/TM`, "[t]he mapping name that shall be used when exporting interactive form

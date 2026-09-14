@@ -69,9 +69,7 @@
 //! the module's first section gives.
 
 use crate::cms::{ADBE_REVOCATION_INFO_ARCHIVAL, Digest, SignedData};
-use crate::der::{
-    self, DerError, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, Reader, SEQUENCE, Value,
-};
+use crate::der::{self, DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, Value};
 use crate::x509::{self, Certificate, Instant, KeyUsage, PublicKey};
 use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
 
@@ -92,9 +90,6 @@ const OCSP_BASIC: &[u8] = &[0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x30, 0x01, 0x01
 
 /// RFC 5280 section 4.2.1.12's `id-kp-OCSPSigning`, `{ id-kp 9 }` — 1.3.6.1.5.5.7.3.9.
 const OCSP_SIGNING: &[u8] = &[0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x09];
-
-/// RFC 5280 section 4.2.1.12's `anyExtendedKeyUsage`, `{ id-ce-extKeyUsage 0 }` — 2.5.29.37.0.
-const ANY_EXTENDED_KEY_USAGE: &[u8] = &[0x55, 0x1D, 0x25, 0x00];
 
 /// How many entries of one CRL's `revokedCertificates` are walked before the search gives up.
 ///
@@ -1046,28 +1041,7 @@ fn bit_string_octets<'a>(bits: &Value<'a>) -> Option<&'a [u8]> {
 /// own terms — the identifier exists so that "a CA … [may] indicate that the certificate may be
 /// used for all key purposes".
 fn asserts_ocsp_signing(encoded: &[u8]) -> bool {
-    let Ok(mut reader) = Reader::new(encoded) else {
-        return false;
-    };
-    let Ok(Some(list)) = reader.next_value() else {
-        return false;
-    };
-    let Ok(mut purposes) = list.children() else {
-        return false;
-    };
-    let mut seen = 0usize;
-    while let Ok(Some(purpose)) = purposes.next_value() {
-        seen = seen.saturating_add(1);
-        if seen > MAX_EXTENSIONS {
-            return false;
-        }
-        if purpose.identifier == OBJECT_IDENTIFIER
-            && (purpose.contents == OCSP_SIGNING || purpose.contents == ANY_EXTENDED_KEY_USAGE)
-        {
-            return true;
-        }
-    }
-    false
+    x509::indicates_purpose(encoded, OCSP_SIGNING)
 }
 
 /// The revocation material one document carries, read once and applied many times.

@@ -47,7 +47,7 @@ use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
-use pdf_model::structure::{Artifact, ArtifactKind, HeaderScope};
+use pdf_model::structure::{Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope};
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
 use pdf_model::viewer_preferences::{
@@ -57,7 +57,7 @@ use pdf_model::xmp::{Name as XmpName, Value as XmpValue, Xmp, XmpError};
 use pdf_render::{Color, Image};
 use pdf_syntax::{Name, Object};
 use viewer_core::{
-    AccessibilityNode, Character, FormField, FormWidget, Layer, PopupWindow, TextLine,
+    AccessibilityNode, Character, FormField, FormWidget, Layer, PopupWindow, TableCell, TextLine,
 };
 
 use super::{ProtocolError, Reader, Uncarried, Writer};
@@ -1563,6 +1563,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             language,
             quads,
             header_scope,
+            cell,
             summary,
             short,
             bounds,
@@ -1584,6 +1585,10 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             .bool(*substituted)
             .option_str(language.as_deref())
             .u8(scope_kind(*header_scope));
+        // §14.8.5.4.5's operand: where the cell sits in its table's grid. A host cannot derive
+        // any of the three — the column is a fact about the whole grid, Table 384's spans are in
+        // §14.7.6's attribute objects, and Table 378's writing mode is inherited down the tree.
+        encode_cell(writer, cell.as_ref());
         // §14.8.5.7's two spoken entries — a `Table`'s `/Summary` and a `TH`'s `/Short` — which
         // a host cannot derive: both are the author's words, held in attribute objects only the
         // confined side reads.
@@ -1694,6 +1699,7 @@ pub(super) fn decode_accessibility(
             substituted: reader.bool("a node's substitution flag")?,
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,
+            cell: decode_cell(reader)?,
             summary: reader.option_string("a table's summary")?,
             short: reader.option_string("a header's short form")?,
             bounds: reader.option_rect("a node's stated bounding box")?,
@@ -1843,6 +1849,62 @@ fn decode_artifact(reader: &mut Reader<'_>) -> Result<Option<Artifact>, Protocol
         subtype,
         bbox,
         attached,
+    }))
+}
+
+/// §14.8.5.4.5's grid place for a cell, or one byte saying the element is not one.
+///
+/// Every number is a `usize` a document decided — Table 384's two spans are read off the file —
+/// so nothing here is range-checked beyond what the reader already does: the arithmetic that
+/// consumes them saturates, and a row index no cell shares is a cell alone in its row.
+fn encode_cell(writer: &mut Writer, cell: Option<&TableCell>) {
+    let Some(cell) = cell else {
+        writer.bool(false);
+        return;
+    };
+    writer
+        .bool(true)
+        .usize(cell.table)
+        .usize(cell.place.row)
+        .usize(cell.place.column)
+        .usize(cell.place.row_span)
+        .usize(cell.place.column_span)
+        .u8(progression_kind(cell.progression));
+}
+
+/// §14.8.3.3's block progression, as one byte.
+fn progression_kind(progression: BlockProgression) -> u8 {
+    match progression {
+        BlockProgression::TopToBottom => 0,
+        BlockProgression::BottomToTop => 1,
+        BlockProgression::RightToLeft => 2,
+        BlockProgression::LeftToRight => 3,
+    }
+}
+
+/// Reads what [`encode_cell`] wrote, refusing a progression this build does not define.
+fn decode_cell(reader: &mut Reader<'_>) -> Result<Option<TableCell>, ProtocolError> {
+    if !reader.bool("a node's table cell")? {
+        return Ok(None);
+    }
+    let table = reader.usize("a cell's table")?;
+    let place = CellPlacement {
+        row: reader.usize("a cell's row")?,
+        column: reader.usize("a cell's column")?,
+        row_span: reader.usize("a cell's row span")?,
+        column_span: reader.usize("a cell's column span")?,
+    };
+    let progression = match reader.u8("a cell's block progression")? {
+        0 => BlockProgression::TopToBottom,
+        1 => BlockProgression::BottomToTop,
+        2 => BlockProgression::RightToLeft,
+        3 => BlockProgression::LeftToRight,
+        value => return Err(unrecognised("a cell's block progression", value)),
+    };
+    Ok(Some(TableCell {
+        table,
+        place,
+        progression,
     }))
 }
 

@@ -205,6 +205,58 @@ impl<'a> TrustAnchors<'a> {
     }
 }
 
+/// What this program intends to use the target certificate's key for.
+///
+/// RFC 5280 section 4.2.1.12 makes an `extKeyUsage` a statement about *use* — "If the extension is
+/// present, then the certificate MUST only be used for one of the purposes indicated" — so the only
+/// party that can check it is the one with a use in mind. That makes the purpose an input to path
+/// validation, the same shape as the anchors and the instant and for the same reason (ADR 1039,
+/// ADR 1071 section 4).
+///
+/// **The check is on the target certificate alone.** Section 4.2.1.12: "In general, this extension
+/// will appear only in end entity certificates." A CA on the path that states a critical
+/// `extKeyUsage` restricts a use this program has no name for, and that stays
+/// [`PathRefusal::UnrecognisedCriticalExtension`] — the conservative branch section 4.2 requires of
+/// a system that cannot process an extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum Purpose {
+    /// The caller has not said, so a certificate restricting its purposes cannot be checked.
+    ///
+    /// A critical `extKeyUsage` is then [`PathRefusal::UnrecognisedCriticalExtension`], which is
+    /// what section 4.2 leaves a system that cannot process one: "A certificate-using system MUST
+    /// reject the certificate if it encounters a critical extension it does not recognize or a
+    /// critical extension that contains information that it cannot process." A *non*-critical one
+    /// is passed over, which is the whole of what non-critical means.
+    #[default]
+    Unstated,
+    /// RFC 3161 section 2.3's `id-kp-timeStamping`, for a document timestamp's authority.
+    ///
+    /// The clause makes it mandatory and makes it critical: "The corresponding certificate MUST
+    /// contain only one instance of the extended key usage field extension as defined in [RFC2459]
+    /// Section 4.2.1.13 with KeyPurposeID having value: id-kp-timeStamping. This extension MUST be
+    /// critical." So a conforming timestamp authority's certificate is refused by every validator
+    /// that treats a critical `extKeyUsage` as unrecognised, which is what this variant exists to
+    /// stop being true here.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "RFC 3161 section 2.3 is quoted verbatim and spells its KeyPurposeID in camel \
+                  case; a quotation with backticks added to please a lint is no longer a quotation"
+    )]
+    TimeStamping,
+}
+
+impl Purpose {
+    /// The `KeyPurposeId` a certificate has to indicate, where this purpose names one.
+    #[must_use]
+    pub const fn key_purpose(self) -> Option<&'static [u8]> {
+        match self {
+            Self::Unstated => None,
+            Self::TimeStamping => Some(x509::ID_KP_TIME_STAMPING),
+        }
+    }
+}
+
 /// Why a prospective path was refused, in RFC 5280 section 6.1's own terms.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -246,6 +298,14 @@ pub enum PathRefusal {
     /// `max_path_length` reached zero with certificates left — section 6.1.4 (l).
     #[error("the path is longer than a pathLenConstraint in it permits")]
     PathLengthExceeded,
+    /// The target certificate's `extKeyUsage` does not indicate the purpose the caller stated.
+    ///
+    /// RFC 5280 section 4.2.1.12: "Certificate using applications MAY require that the extended key
+    /// usage extension be present and that a particular purpose be indicated in order for the
+    /// certificate to be acceptable to that application." [`Purpose`] is where this program states
+    /// one, and RFC 3161 section 2.3 is why it has to for a timestamp.
+    #[error("the certificate does not indicate the key purpose this use requires")]
+    PurposeNotIndicated,
     /// A certificate's issuer is not the name of the certificate above it — section 6.1.3 (a)(4).
     ///
     /// **Reaching this is this program disagreeing with itself rather than a file being wrong.**
@@ -322,6 +382,24 @@ pub fn validate<'p, 'c: 'p>(
     material: &'p Material<'c>,
     at: Instant,
 ) -> Trust {
+    validate_for(target, others, anchors, material, at, Purpose::Unstated)
+}
+
+/// [`validate`] with the use the caller has for the target's key stated.
+///
+/// The one thing the purpose changes is RFC 5280 section 4.2.1.12's `extKeyUsage` on the *target*:
+/// with a purpose stated the extension is processed and a certificate that does not indicate that
+/// purpose is [`PathRefusal::PurposeNotIndicated`]; with none it is unrecognised when critical,
+/// which is section 4.2's refusal. [`Purpose`] carries the argument.
+#[must_use]
+pub fn validate_for<'p, 'c: 'p>(
+    target: &'p Certificate<'c>,
+    others: &'p [Certificate<'c>],
+    anchors: &'p TrustAnchors<'c>,
+    material: &'p Material<'c>,
+    at: Instant,
+    purpose: Purpose,
+) -> Trust {
     if anchors.is_empty() {
         return Trust::NoAnchorSupplied;
     }
@@ -333,6 +411,8 @@ pub fn validate<'p, 'c: 'p>(
         anchors,
         material,
         at,
+        purpose,
+        target: target.tbs,
         steps: 0,
         first_refusal: None,
         revocation: Revocation::NotChecked,
@@ -367,6 +447,13 @@ struct Search<'p, 'c: 'p> {
     anchors: &'p TrustAnchors<'c>,
     material: &'p Material<'c>,
     at: Instant,
+    /// What the caller will use the target's key for — RFC 5280 section 4.2.1.12's question.
+    purpose: Purpose,
+    /// The target certificate's `tbsCertificate`, which is how the walk tells it from the rest.
+    ///
+    /// Compared by the bytes each certificate occupies, the same identity the path's own
+    /// no-duplicates rule uses.
+    target: &'c [u8],
     steps: usize,
     /// The first refusal any prospective path produced.
     ///
@@ -474,6 +561,11 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 working_issuer_name,
                 working_public_key,
                 self.at,
+                if certificate.tbs == self.target {
+                    self.purpose
+                } else {
+                    Purpose::Unstated
+                },
             )?;
             // (a)(3). Asked of every certificate on the path rather than of the target alone,
             // which is what the step's position inside section 6.1.3's per-certificate loop makes
@@ -527,6 +619,7 @@ fn basic_processing(
     working_issuer_name: &[u8],
     working_public_key: PublicKey<'_>,
     at: Instant,
+    purpose: Purpose,
 ) -> Result<(), PathRefusal> {
     if certificate.indefinite_lengths {
         return Err(PathRefusal::NotDerEncoded);
@@ -534,10 +627,30 @@ fn basic_processing(
     if certificate.extensions.truncated {
         return Err(PathRefusal::ExtensionsUnread);
     }
+    // Section 4.2.1.12's extension, processed where the caller stated what the key is for and
+    // unrecognised where it did not. The order matters: a stated purpose *recognises* the
+    // extension, so this has to run before the refusal below can name it.
+    if let Some(wanted) = purpose.key_purpose() {
+        if let Some(stated) = certificate.extensions.extended_key_usage {
+            if !x509::indicates_purpose(stated, wanted) {
+                return Err(PathRefusal::PurposeNotIndicated);
+            }
+        } else {
+            // "Certificate using applications MAY require that the extended key usage extension be
+            // present and that a particular purpose be indicated." RFC 3161 section 2.3 does
+            // require it — "[t]he corresponding certificate MUST contain … id-kp-timeStamping" —
+            // so an absent extension is a refusal rather than a permission.
+            return Err(PathRefusal::PurposeNotIndicated);
+        }
+    }
     if let Some(oid) = certificate.extensions.unrecognised_critical {
-        return Err(PathRefusal::UnrecognisedCriticalExtension(
-            x509::dotted(oid).unwrap_or_else(|| "an unreadable object identifier".to_owned()),
-        ));
+        // A critical `extKeyUsage` this call recognised is not unrecognised, and `x509` records it
+        // in both places precisely so that the decision can be made here.
+        if !(purpose.key_purpose().is_some() && oid == x509::EXTENDED_KEY_USAGE_OID) {
+            return Err(PathRefusal::UnrecognisedCriticalExtension(
+                x509::dotted(oid).unwrap_or_else(|| "an unreadable object identifier".to_owned()),
+            ));
+        }
     }
     // (a)(4), before the arithmetic, and by its own name: see `IssuerNameDoesNotChain` for why
     // this cannot fire on a path this module built and is checked regardless.
