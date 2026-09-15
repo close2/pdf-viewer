@@ -300,14 +300,17 @@ The exclusions, closed, each with its reason:
   position. **It stops where the marks become this program's invention.** The watermark stays on
   the far side, and so do the redaction's overlay and its fill — §12.5.6.23's `/RO`,
   `/OverlayText` and `/IC` — which `doc/questions/A64` puts there for this fence's own reason.
-  **This amendment is the scope decision; the on-page construction is future work.** ADR 1099's
-  appended page stays the mechanism today, and what the relocation will cost is owed as two
-  refusals with sentences rather than a difference on the page: a producer whose content stream
-  pops the graphics state stack further than it pushes, and a moved appearance that a remaining
-  annotation would be drawn over. a future ADR is where the construction and those refusals
-  are built, against the reading ADR 1120 writes down. Ratified on 2026-09-14, when the owner
-  answered `doc/questions/Q65` with "Rule provenance."; `A65` keeps the owner's two words and the
-  round's reading visibly apart, as `A58` does. ADR 1120 is the argument.
+  **This amendment is the scope decision; the on-page construction is ADR 1123, built.** A
+  forbidden annotation's marks now go back onto the producer's own page — a `q` before the
+  producer's operators and a closing stream after them, §8.4.2's balance kept across the
+  `/Contents` array, the appearance placed under §12.5.5's own matrix — and ADR 1099's appended
+  page is the fallback for the two costs, each a refusal with a sentence rather than a difference on
+  the page: a producer whose content stream pops the graphics state stack further than it pushes,
+  and a moved appearance that a remaining, unhidden annotation would be drawn over. The construction
+  and those refusals are ADR 1123, against the reading ADR 1120 writes down. Ratified on 2026-09-14,
+  when the owner answered `doc/questions/Q65` with "Rule provenance."; `A65` keeps the owner's two
+  words and the round's reading visibly apart, as `A58` does. ADR 1120 is the argument, ADR 1123 the
+  build.
 
   **This exclusion read "we do not create files", then "we do not *create* PDFs", and has been
   amended four times — each by argument rather than by attrition** (the second on 2026-09-03,

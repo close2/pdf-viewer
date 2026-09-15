@@ -60,6 +60,7 @@ pub mod optimize;
 pub mod pages;
 pub mod pattern;
 pub mod range;
+pub mod redact;
 pub mod render;
 pub mod split;
 pub(crate) mod structure;
@@ -293,6 +294,8 @@ pub enum Plan {
     Pages(pages::PagesPlan),
     /// One document rewritten smaller — RFC 0002 section 6.5.
     Optimize(optimize::OptimizePlan),
+    /// One document's `/Redact` annotations applied — ISO 32000-2 §12.5.6.23, `doc/questions/A64`.
+    Redact(redact::RedactPlan),
     /// One document converted to a stated part and level of ISO 19005 (PDF/A).
     ///
     /// `doc/questions/A22` names the verb; `doc/rfc/0006` argues the design, and
@@ -326,6 +329,7 @@ impl Plan {
             Self::Split(plan) => plan.source,
             Self::Pages(plan) => plan.source,
             Self::Optimize(plan) => plan.source,
+            Self::Redact(plan) => plan.source,
             Self::Archive(plan) => plan.source,
             Self::Update(plan) => plan.source,
             Self::Merge(plan) => plan.inputs.first().map_or(0, |input| input.source),
@@ -415,6 +419,14 @@ impl Plan {
             | Self::Pages(_)
             | Self::Optimize(_)
             | Self::Archive(_) => Some(Operation::Assemble),
+            // **Redaction is a content modification, and bit 4 is the residual it falls under.**
+            // §12.5.6.23's second phase removes content — none of bits 6 (annotate), 9 (fill) or
+            // 11 (assemble pages) — so it is Table 22's "[m]odify the contents of the document by
+            // operations other than those controlled by bits 6, 9, and 11". Returning `Some`
+            // here is what makes applying a redaction a policy a host is asked, once, rather
+            // than a refusal hard-coded at the point of removal (ADR 1076's shape,
+            // `doc/questions/A64`).
+            Self::Redact(_) => Some(Operation::Modify),
             // The same reading, applied in place: Table 22 bit 11 is "[a]ssemble the document
             // (insert, rotate, or delete pages …)", and two of this verb's three edits are the
             // first and the third of those words. The third edit writes §14.3.3's entries, which
@@ -779,6 +791,16 @@ pub struct Report {
     /// outputs — present whether or not a file was written, because the interesting case is
     /// often the one where none was.
     pub archive: Option<archive::Conversion>,
+    /// Per-page departures from a clause's full semantics: what was done, and what was
+    /// deliberately not.
+    ///
+    /// **The redaction rider's home** (`doc/questions/A64`), parallel to a `Warning` but not
+    /// one: a warning is recoverable trouble met on the way, and a departure is a *choice* the
+    /// output embodies — §12.5.6.23's content was removed and its Table 195 overlay was not
+    /// composed, because composing the overlay is authoring a mark the document did not hold
+    /// (A65's provenance fence). It survives into RFC 0002 section 4.5's JSON so a caller reads
+    /// exactly which of the clause's semantics the file does and does not carry.
+    pub departures: Vec<Departure>,
     /// External programs this plan needs run, which [`apply`] will not run itself.
     ///
     /// **`doc/questions/A54`'s whole shape.** A configured remedy whose answer is an external
@@ -904,6 +926,23 @@ pub enum Origin {
         /// What the edit was, in a sentence.
         edit: String,
     },
+    /// One document with its `/Redact` annotations applied — `redact`'s output.
+    ///
+    /// ISO 32000-2 §12.5.6.23, `doc/questions/A64`. The counts are the summary parallel to
+    /// [`Origin::Optimized`]'s [`optimize::Savings`]: how many annotations were applied and how
+    /// many glyphs the removal deleted. The per-page departure — content removed, overlay not
+    /// composed — is [`Report::departures`], because it exists for a page whose output carries no
+    /// distinct origin of its own.
+    Redacted {
+        /// Which source.
+        source: usize,
+        /// How many pages the output holds, which is how many the source held.
+        pages: usize,
+        /// How many `/Redact` annotations were applied across the document.
+        annotations: usize,
+        /// How many glyphs the removal deleted from the content streams.
+        glyphs: usize,
+    },
     /// One document converted to a part and level of ISO 19005 — `archive`'s output.
     ///
     /// What was *done* to it is [`Report::archive`], which is a report rather than an origin:
@@ -945,6 +984,22 @@ pub struct Warning {
     /// The page it concerns, counted from 1, where it concerns one.
     pub page: Option<usize>,
     /// What it was, in the reporting layer's own words.
+    pub detail: String,
+}
+
+/// A deliberate departure from a clause's full semantics that the output embodies.
+///
+/// Not a [`Warning`] and not a [`Declined`]: the operation succeeded, and this says a part of
+/// the clause it implements was, by a documented choice, not carried into the result — the
+/// redaction whose content was removed but whose Table 195 overlay was not composed
+/// (§12.5.6.23, `doc/questions/A64`, A65's provenance fence).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Departure {
+    /// Which source.
+    pub source: usize,
+    /// The page it concerns, counted from 1, where it concerns one.
+    pub page: Option<usize>,
+    /// What was departed from, and why, in the reporting layer's own words.
     pub detail: String,
 }
 
@@ -1021,6 +1076,21 @@ impl Report {
                                 ("page".to_owned(), Value::optional_count(declined.page)),
                                 ("subject".to_owned(), Value::text(declined.subject.clone())),
                                 ("detail".to_owned(), Value::text(declined.detail.clone())),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+            (
+                "departures".to_owned(),
+                Value::Array(
+                    self.departures
+                        .iter()
+                        .map(|departure| {
+                            Value::Object(vec![
+                                ("source".to_owned(), Value::count(departure.source)),
+                                ("page".to_owned(), Value::optional_count(departure.page)),
+                                ("detail".to_owned(), Value::text(departure.detail.clone())),
                             ])
                         })
                         .collect(),
@@ -1172,6 +1242,18 @@ impl Origin {
                 ("pages".to_owned(), Value::count(*pages)),
                 ("edit".to_owned(), Value::text(edit.clone())),
             ],
+            Self::Redacted {
+                source,
+                pages,
+                annotations,
+                glyphs,
+            } => vec![
+                ("kind".to_owned(), Value::text("redacted")),
+                ("source".to_owned(), Value::count(*source)),
+                ("pages".to_owned(), Value::count(*pages)),
+                ("annotations".to_owned(), Value::count(*annotations)),
+                ("glyphs".to_owned(), Value::count(*glyphs)),
+            ],
             // Every other origin is answered by `to_json`, which is the only caller.
             Self::Page { .. }
             | Self::Image { .. }
@@ -1292,6 +1374,7 @@ pub fn apply_borrowed(
         Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
         Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, &mut report)?,
+        Plan::Redact(plan) => redact::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Archive(plan) => archive::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Update(plan) => update::run(plan, &wanted, &opened, sinks, &mut report)?,
     }

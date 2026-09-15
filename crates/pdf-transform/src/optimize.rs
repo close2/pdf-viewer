@@ -377,7 +377,7 @@ pub(crate) fn refuse_a_document_only_recovery_reads(
 /// `/Size` declares is copied besides. Table 15 makes `/Size` "[t]he total number of entries in
 /// the PDF file's cross-reference table", and §7.5.4 numbers those entries 0 to `/Size` − 1
 /// with 0 the free head, so 1 to `/Size` − 1 is every number the file states anything about.
-fn copy_closure(
+pub(crate) fn copy_closure(
     assembly: &mut Assembly<'_>,
     document: &Document,
     start: ObjectId,

@@ -45,7 +45,9 @@ use std::path::{Path, PathBuf};
 
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
-use pdf_transform::archive::{ArchivePlan, Authorisations, Decision, Loss};
+use pdf_transform::archive::{
+    ArchivePlan, Authorisations, Decision, Loss, PLACEMENT_ON_PAGE, Preservation,
+};
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
 
@@ -334,4 +336,130 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
         converted > 0,
         "the corpus holds documents these rewrites fix, and none was fixed"
     );
+}
+
+/// What the preserve/relocation census found at one target.
+///
+/// **The extension `doc/adr/1123` owes** (trap 8): the appended-page census counted marks kept;
+/// this counts *where* they are kept, now that there are two answers. Its calibration is
+/// `tests/archive.rs`'s three fixtures — the clean relocation, the extra `Q`, the overlap — each of
+/// which plants one of these outcomes and confirms it is named.
+#[derive(Debug, Default)]
+struct Preserved {
+    /// Documents whose forbidden-annotation marks a configured `preserve` had to place somewhere.
+    documents: usize,
+    /// Marks put back on the producer's own page, where §12.5.5 had them (`doc/adr/1123`).
+    relocated: usize,
+    /// Marks a refusal sent to an appended page instead (`doc/adr/1099`'s fallback).
+    appended: usize,
+    /// For each refusal sentence, how many marks it sent to an appended page.
+    declined: BTreeMap<String, usize>,
+}
+
+/// Preserves every forbidden annotation's marks at `target` and tallies where each ended up.
+fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
+    let mut census = Preserved::default();
+    let sites = [
+        "annotations/subtype-defined-in-iso-32000-1",
+        "annotations/subtype-defined-in-iso-32000-2",
+    ];
+    for path in documents(root, part) {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if Document::open_with_limits(bytes.clone(), Limits::DEFAULT).is_err() {
+            continue;
+        }
+        let sinks = MemorySinks::new();
+        let report = apply(
+            &Plan::Archive(ArchivePlan {
+                source: 0,
+                names: "out.pdf".parse().expect("a pattern"),
+                target,
+                authorised: authorise_everything(),
+                profile: None,
+                substitute_fonts: true,
+                departures: Vec::new(),
+                claim_conformance: false,
+                derivations: Vec::new(),
+                supplies: Vec::new(),
+                preservations: sites
+                    .iter()
+                    .map(|site| Preservation {
+                        site: (*site).to_owned(),
+                    })
+                    .collect(),
+                tool_outputs: ToolOutputs::new(),
+            }),
+            &[Source::new(bytes)],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        );
+        let report = report.unwrap_or_else(|refusal| {
+            panic!(
+                "{}: the conversion errored rather than refusing: {refusal}",
+                path.display()
+            )
+        });
+        let Some(conversion) = report.archive.as_ref() else {
+            continue;
+        };
+        let marks: Vec<_> = conversion
+            .preserved
+            .iter()
+            .filter(|row| sites.contains(&row.site))
+            .collect();
+        if marks.is_empty() {
+            continue;
+        }
+        census.documents = census.documents.saturating_add(1);
+        for row in marks {
+            // A relocated row declines nothing and carries the on-page placement; a fallback names
+            // its refusal. The two are exclusive, which the assertion keeps honest.
+            match row.declined {
+                None => {
+                    assert_eq!(
+                        row.placement,
+                        PLACEMENT_ON_PAGE,
+                        "{}: a mark that declined nothing was not relocated",
+                        path.display()
+                    );
+                    census.relocated = census.relocated.saturating_add(1);
+                }
+                Some(reason) => {
+                    census.appended = census.appended.saturating_add(1);
+                    let seen = census.declined.entry(reason.to_owned()).or_default();
+                    *seen = seen.saturating_add(1);
+                }
+            }
+        }
+    }
+    census
+}
+
+#[test]
+#[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
+fn preserving_forbidden_annotations_relocates_where_it_can() {
+    let Some(root) = corpus() else {
+        println!("doc/veraPDF-corpus is not here; nothing to sweep");
+        return;
+    };
+    let mut relocated = 0_usize;
+    for (part, target) in TARGETS {
+        let census = preserve_sweep(&root, part, target);
+        println!(
+            "preserve {target}: {} document(s) drive the relocation remedy; {} mark(s) relocated \
+             onto the producer's page, {} sent to an appended page",
+            census.documents, census.relocated, census.appended
+        );
+        let mut ranked: Vec<_> = census.declined.iter().collect();
+        ranked.sort_by_key(|(reason, count)| (std::cmp::Reverse(**count), (*reason).clone()));
+        for (reason, count) in ranked {
+            let head: String = reason.chars().take(60).collect();
+            println!("    {count:>4} appended, because {head}…");
+        }
+        relocated = relocated.saturating_add(census.relocated);
+    }
+    println!("preserve: {relocated} appearance(s) relocated onto their producer's own page in all");
 }

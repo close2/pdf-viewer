@@ -75,10 +75,10 @@
 //! because a loss nobody can see afterwards is the failure section 3 exists against.
 //!
 //! **And the one of those a `preserve` remedy makes smaller.** An annotation's normal appearance
-//! is a form `XObject` the *producer* wrote, and ISO 19005-2 section 6.2.2's NOTE 2 puts a page
-//! description and an annotation appearance under the same restrictions — so `remedy =
-//! "preserve"` at either section 6.3.1 site keeps those marks on an appended page, invoked under
-//! §12.5.5's own matrix on a page stating the source page's boxes and turn. `doc/adr/1099`.
+//! is a form `XObject` the *producer* wrote, and §12.5.5 fixes where a reader draws it — so `remedy
+//! = "preserve"` at either section 6.3.1 site puts those marks back where they were, on the
+//! producer's own page under §12.5.5's own matrix (`doc/adr/1123`), or on a page this conversion
+//! appends where one of that ADR's two refusals sends them (`doc/adr/1099`, the fallback).
 //!
 //! **Everything else is refused by name**: the fonts section 4.9 cannot answer — a composite font
 //! nothing embedded (section 2.1), a page that draws a glyph its own embedded program has not got
@@ -178,7 +178,9 @@ use prepare::{
     DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
     substituted_fonts_recorded,
 };
-pub use preserve::{PRESERVED_AS_A_PAGE, PRESERVED_MARKS_AS_A_PAGE};
+pub use preserve::{
+    PLACEMENT_OF_MARKS, PLACEMENT_ON_PAGE, PRESERVED_AS_A_PAGE, PRESERVED_MARKS_AS_A_PAGE,
+};
 use remedies::Remedies;
 pub use remedies::{DERIVED_NOT_ORIGINAL, SUPPLIED_BY_THE_OPERATOR};
 use report::describe_decision;
@@ -709,7 +711,11 @@ fn apply_the_decisions(
             ))
         })?,
     };
-    let wanted = rewrites_wanted(conversion, omit_identification);
+    let has_relocations = prepared
+        .preserved
+        .as_ref()
+        .is_ok_and(|composed| !composed.relocations.is_empty());
+    let wanted = rewrites_wanted(conversion, omit_identification, has_relocations);
     // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition
     // and now two rewrites: the output intent names it as its destination profile, and the
     // `/DefaultCMYK` names the same object as its alternate space.
@@ -831,7 +837,11 @@ fn apply_the_decisions(
 
 /// Every rewrite the decisions call for: one per proceeding requirement, and the signature
 /// rewrite where the conversion itself asked for it.
-fn rewrites_wanted(conversion: &Conversion, omit_identification: bool) -> BTreeSet<Rewrite> {
+fn rewrites_wanted(
+    conversion: &Conversion,
+    omit_identification: bool,
+    has_relocations: bool,
+) -> BTreeSet<Rewrite> {
     let mut wanted: BTreeSet<Rewrite> = conversion
         .decided
         .iter()
@@ -871,6 +881,12 @@ fn rewrites_wanted(conversion: &Conversion, omit_identification: bool) -> BTreeS
     // `Prepared` composes nothing it cannot record and removes nothing it cannot cut.
     if !conversion.preserved.is_empty() {
         wanted.insert(Rewrite::PreservedAsPage);
+    }
+    // And where a preservation relocated marks onto the producer's own page rather than appending
+    // one for them, that page's `/Contents` and `/Resources` are edited: `doc/adr/1123`'s
+    // construction, gated the same way as the appended page it is the alternative to.
+    if has_relocations {
+        wanted.insert(Rewrite::RelocatedOnPage);
     }
     wanted
 }

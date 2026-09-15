@@ -580,4 +580,65 @@ mod tests {
         let page = pages.get(0).expect("one page");
         assert!(steps(&doc, &page.dict).is_empty());
     }
+
+    /// §12.4.4.1's two page entries are read, and neither reaches what the page *draws*.
+    ///
+    /// A `/Trans` and a `/Dur` say "how to display that page in presentation mode" — a timing and
+    /// a visual effect a presentation plays *around* the page — so a processor that shows the page
+    /// reads both and marks the page no differently for either. This is the calibration behind
+    /// §12.6.4.15's and §12.4.4's `partial`: what is owed there is the *animation* of styles no
+    /// frame is shaped for and the effect outside presentation mode, never a change to the content
+    /// the page states. The interpreter never looks at either entry, so a page carrying both
+    /// interprets to the display list the same page without them does.
+    ///
+    /// The equality has teeth (trap 13): a third page differing only in the rectangle it fills
+    /// interprets to a *different* list, so this is not two empty lists compared. Were a later
+    /// change to let `/Trans` or `/Dur` leak into a page's marks, the first assertion is what
+    /// fails.
+    #[test]
+    fn a_pages_transition_and_advance_are_read_and_change_nothing_it_draws() {
+        // `0 0 40 40 re f` and `0 0 60 60 re f` are each fourteen bytes, which /Length states.
+        let build = |extra: &str, fill: &str| {
+            let page = format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+                 /Contents 4 0 R /Resources << >>{extra} >>"
+            );
+            let content = format!("<< /Length 14 >>\nstream\n{fill}\nendstream");
+            document(&[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+                page.as_str(),
+                content.as_str(),
+            ])
+        };
+
+        let bare = build("", "0 0 40 40 re f");
+        let timed = build(" /Dur 5 /Trans << /S /Wipe /D 2 >>", "0 0 40 40 re f");
+        let other = build("", "0 0 60 60 re f");
+
+        // The model reads both entries off the timed page.
+        let timed_pages = crate::page::Pages::new(&timed);
+        let dict = &timed_pages.get(0).expect("one page").dict;
+        let trans = transition(&timed, dict).expect("the page states a /Trans");
+        assert_eq!(trans.style, Style::Wipe);
+        assert!((trans.duration - 2.0).abs() < f32::EPSILON, "/D 2");
+        assert_eq!(display_duration(&timed, dict), Some(5.0), "/Dur 5");
+
+        let marks = |doc: &Document| {
+            let pages = crate::page::Pages::new(doc);
+            let page = pages.get(0).expect("one page");
+            crate::content::interpret(doc, &page).display_list
+        };
+        let bare_list = marks(&bare);
+        assert_eq!(
+            bare_list,
+            marks(&timed),
+            "the page is drawn the same either way"
+        );
+        assert_ne!(
+            bare_list,
+            marks(&other),
+            "and the comparison can see a difference"
+        );
+    }
 }

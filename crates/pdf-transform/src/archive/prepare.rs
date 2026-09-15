@@ -26,6 +26,7 @@ use super::decision::{Because, REMEDIES};
 use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
 use super::preserve::{self, Composed};
+use super::report::{Preserved, SetIn};
 use super::rewrite::Rewrite;
 use super::signatures::{self, ForeignHandlers, Signatures};
 use super::sites::{
@@ -1861,11 +1862,12 @@ fn the_preserved_pages(
         .into_iter()
         .find(|site| asked(site))
         .map(|site| {
-            // The removal is what makes the file conform and the page is what keeps its marks, so
-            // a document whose annotations cannot be removed gets neither — the packet site's own
-            // construction, for its reason.
+            // The removal is what makes the file conform and the marks are what a preserve keeps,
+            // so a document whose annotations cannot be removed gets neither — the packet site's
+            // own construction, for its reason.
             let removals = forbidden.map_err(|because| *because)?;
-            marks_of(document, removals).map(|marks| (site, marks))
+            let marks = marks_of(document, removals)?;
+            relocate_marks(document, site, removals, &marks, spare).map(|plan| (site, plan))
         })
         .transpose()?;
     if packets.is_empty() && annotation_site.is_none() {
@@ -1880,26 +1882,271 @@ fn the_preserved_pages(
                 at.number, at.generation
             ),
             content: preserve::Kept::Text(bytes),
+            declined: None,
         })
         .collect();
-    if let Some((site, marks)) = annotation_site {
-        for (removed, marks) in marks {
+    // **The relocations are decided before the appended pages are composed**, because a mark that
+    // could not be relocated onto the producer's own page (`doc/adr/1123`'s two refusals) falls
+    // back to the appended page, which is `doc/adr/1099`'s mechanism kept whole. So the fallback
+    // marks join the keeps `compose` lays out, carrying the sentence that says why.
+    let relocation = annotation_site.map(|(site, plan)| {
+        for (marks, subject, declined) in plan.fallback {
             keeps.push(preserve::Keep {
                 site,
-                subject: format!(
-                    "the normal appearance of the {} annotation object {} {} held on page {}, as \
-                     the producer wrote it",
-                    removed.subtype,
-                    removed.at.number,
-                    removed.at.generation,
-                    removed.page.saturating_add(1)
-                ),
+                subject,
                 content: preserve::Kept::Marks(marks),
+                declined: Some(declined),
             });
         }
+        (plan.relocations, plan.written, plan.rows)
+    });
+    let mut composed = preserve::compose(document, &keeps, has_output_intent, spare)?;
+    if let Some((relocations, written, rows)) = relocation {
+        composed.written.extend(written);
+        composed.carried.extend(rows);
+        composed.relocations = relocations;
     }
-    preserve::compose(document, &keeps, has_output_intent, spare)
+    Ok(composed)
 }
+
+/// What relocating a page's forbidden-annotation marks decided: the on-page edits and the fallbacks.
+///
+/// `doc/adr/1123`. The marks that could be put back where §12.5.5 had them are in [`Self::rows`]
+/// and drive [`Self::relocations`] and [`Self::written`]; the marks a refusal sent to an appended
+/// page instead are in [`Self::fallback`], each with the sentence naming its refusal.
+struct RelocationPlan {
+    /// The producer pages the rewrite edits, keyed by page object.
+    relocations: BTreeMap<ObjectId, preserve::RelocatedPage>,
+    /// The `q`-prepend and closing content streams the walk adds, in the source's numbering.
+    written: Vec<(ObjectId, Object)>,
+    /// The report rows for marks relocated onto the producer's own page.
+    rows: Vec<Preserved>,
+    /// The marks a refusal sent to an appended page: the marks, the report subject, the reason.
+    fallback: Vec<(preserve::Marks, String, &'static str)>,
+}
+
+/// One removed annotation's report subject, named as the report names it.
+fn annotation_subject(removed: &RemovedAnnotation) -> String {
+    format!(
+        "the normal appearance of the {} annotation object {} {} held on page {}, as the producer \
+         wrote it",
+        removed.subtype,
+        removed.at.number,
+        removed.at.generation,
+        removed.page.saturating_add(1)
+    )
+}
+
+/// Decides, per page, which forbidden-annotation marks relocate onto the producer's page.
+///
+/// **The construction `doc/adr/1123` builds.** Marks are grouped by the page they were on, because
+/// the `q`-prepend, the closing stream and the `/Contents` array are one edit per page however many
+/// appearances land on it. A page whose producer content is unbalanced or too deeply nested, or
+/// whose `/Contents` this cannot wrap, sends all of its marks to an appended page; a single
+/// appearance a remaining unhidden annotation would sit over sends only itself.
+fn relocate_marks(
+    document: &Document,
+    site: &'static str,
+    removals: &ForbiddenAnnotations,
+    marks: &[(&RemovedAnnotation, preserve::Marks)],
+    spare: &mut Spare,
+) -> Result<RelocationPlan, Because> {
+    let tree = pdf_model::Pages::new(document);
+    let mut plan = RelocationPlan {
+        relocations: BTreeMap::new(),
+        written: Vec::new(),
+        rows: Vec::new(),
+        fallback: Vec::new(),
+    };
+    // The marks in the order `marks_of` produced them — page order — grouped by page index so that
+    // one page's edit is decided once. `BTreeMap` keeps the groups in page order for the report.
+    let mut by_page: BTreeMap<usize, Vec<&(&RemovedAnnotation, preserve::Marks)>> = BTreeMap::new();
+    for entry in marks {
+        by_page.entry(entry.0.page).or_default().push(entry);
+    }
+    for (page_index, group) in by_page {
+        let fall_back = |plan: &mut RelocationPlan, reason: &'static str| {
+            for (removed, marks) in group.iter().map(|entry| (entry.0, entry.1.clone())) {
+                plan.fallback
+                    .push((marks, annotation_subject(removed), reason));
+            }
+        };
+        // A page the model cannot resolve to an object of its own cannot be the one this edits, so
+        // its marks take the appended page. This is `doc/adr/1099`'s mechanism, unchanged.
+        let Some(page) = tree.get(page_index) else {
+            fall_back(&mut plan, PAGE_NOT_RESOLVED);
+            continue;
+        };
+        let Some(page_id) = page.id else {
+            fall_back(&mut plan, PAGE_NOT_RESOLVED);
+            continue;
+        };
+        // The `q`/`Q` count must be taken over *all* of the producer's content, so a part that
+        // does not decode — an `LZWDecode` stream the reader does not implement, a damaged one —
+        // would leave the count short and the closing stream unbalanced. That page's marks take an
+        // appended page rather than a miscounted relocation (trap 5: an unsupported input stays
+        // loud). §7.8.2 concatenates the parts into the one sequence §8.4.2 is about.
+        let (content, issues) = page.content_with_report(document);
+        if !issues.is_empty() {
+            fall_back(&mut plan, CONTENT_DID_NOT_DECODE);
+            continue;
+        }
+        let depth = match preserve::producer_open_depth(document, &content, &page.resources) {
+            Ok(depth) => depth,
+            Err(Because::NotBuiltYet(reason)) => {
+                fall_back(&mut plan, reason);
+                continue;
+            }
+            Err(other) => return Err(other),
+        };
+        let original = page.dict.get("Contents").cloned().unwrap_or(Object::Null);
+        let remaining = remaining_unhidden_rects(document, &page, &removals.at);
+        let mut on_page: Vec<preserve::OnPage> = Vec::new();
+        let mut relocated_rows: Vec<Preserved> = Vec::new();
+        let mut taken: BTreeSet<Vec<u8>> = BTreeSet::new();
+        for (removed, marks) in group.iter().map(|entry| (entry.0, entry.1.clone())) {
+            let Some(rect) = annotation_rect(document, removed.at) else {
+                // §12.5.5 fits the appearance to the /Rect, so a mark whose landing rectangle
+                // cannot be read is one whose overlap this cannot judge — it takes the appended page.
+                plan.fallback
+                    .push((marks, annotation_subject(removed), NO_RECTANGLE_TO_JUDGE));
+                continue;
+            };
+            let rect = preserve::normalise_rect(rect);
+            if remaining
+                .iter()
+                .any(|other| preserve::overlaps(rect, *other))
+            {
+                plan.fallback.push((
+                    marks,
+                    annotation_subject(removed),
+                    preserve::REMAINING_ANNOTATION_OVER_THE_MARKS,
+                ));
+                continue;
+            }
+            let name = preserve::free_xobject_name(document, &page.resources, &mut taken);
+            on_page.push(preserve::OnPage {
+                appearance: marks.appearance,
+                placement: marks.placement,
+                name,
+            });
+            relocated_rows.push(Preserved {
+                site,
+                subject: annotation_subject(removed),
+                pages: vec![page_index],
+                placement: preserve::PLACEMENT_ON_PAGE,
+                face: SetIn::NoText,
+                declined: None,
+            });
+        }
+        if on_page.is_empty() {
+            continue;
+        }
+        let (relocated, written) = preserve::relocate_a_page(
+            document,
+            depth,
+            &original,
+            &page.resources,
+            &on_page,
+            spare,
+        )?;
+        plan.relocations.insert(page_id, relocated);
+        plan.written.extend(written);
+        plan.rows.extend(relocated_rows);
+    }
+    Ok(plan)
+}
+
+/// The normalised rectangles of the annotations that remain on a page and would draw over marks.
+///
+/// The population `doc/adr/1120` section 4 fixes: every annotation the removal leaves behind
+/// (`removed` is [`ForbiddenAnnotations::at`]), that §12.5.3's flags do not hide — clear of both
+/// `Hidden` (bit 2) and `NoView` (bit 6) — with a rectangle to read. The standard states no
+/// painting order among annotations, so this is the whole of what a converter can know is over the
+/// marks, and it over-refuses rather than guess an order.
+fn remaining_unhidden_rects(
+    document: &Document,
+    page: &pdf_model::Page,
+    removed: &BTreeSet<ObjectId>,
+) -> Vec<[f32; 4]> {
+    let Some(annots) = document
+        .get_key(&page.dict, "Annots")
+        .as_array()
+        .map(<[Object]>::to_vec)
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in &annots {
+        let Some(id) = entry.as_reference() else {
+            continue;
+        };
+        if removed.contains(&id) {
+            continue;
+        }
+        let Some(dict) = document.get(id).as_dict().cloned() else {
+            continue;
+        };
+        // §12.5.3's Table 167: bit 2 is `Hidden` and bit 6 is `NoView`. An annotation set to
+        // either draws nothing a reader sees, so it is not a mark the relocated appearance can go
+        // under. An absent or non-integer `/F` states no flags and is neither.
+        let flags = document.get_key(&dict, "F").as_integer().unwrap_or(0);
+        if flags & HIDDEN != 0 || flags & NO_VIEW != 0 {
+            continue;
+        }
+        if let Some(rect) = annotation_rect(document, id) {
+            out.push(preserve::normalise_rect(rect));
+        }
+    }
+    out
+}
+
+/// One annotation's `/Rect` as four finite numbers, or `None` where it states none this can read.
+fn annotation_rect(document: &Document, id: ObjectId) -> Option<[f32; 4]> {
+    let dict = document.get(id).as_dict().cloned()?;
+    let rect = document.get_key(&dict, "Rect");
+    let values = rect.as_array()?;
+    if values.len() != 4 {
+        return None;
+    }
+    let mut out = [0.0_f32; 4];
+    for (slot, value) in out.iter_mut().zip(values) {
+        let number = document.resolve(value).as_number()?;
+        if !number.is_finite() {
+            return None;
+        }
+        // A `/Rect` is device-independent points; the cast to the geometry the overlap test uses
+        // loses no coordinate any page states at the scale annotations are placed.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a rectangle coordinate in points, compared at a rectangle's own scale"
+        )]
+        let number = number as f32;
+        *slot = number;
+    }
+    Some(out)
+}
+
+/// §12.5.3's Table 167 `Hidden` flag: bit 2, counting from 1.
+const HIDDEN: i64 = 1 << 1;
+
+/// §12.5.3's Table 167 `NoView` flag: bit 6, counting from 1.
+const NO_VIEW: i64 = 1 << 5;
+
+/// Why a page with no object identity of its own takes the appended page for its marks.
+const PAGE_NOT_RESOLVED: &str = "the page the annotation was on could not be resolved to an object \
+     this conversion can add content to, so its marks take an appended page";
+
+/// Why a mark whose landing rectangle cannot be read takes the appended page.
+const NO_RECTANGLE_TO_JUDGE: &str = "the annotation states no rectangle ISO 32000-2 \u{a7}12.5.5 \
+     could fit its appearance to, so whether a remaining annotation would sit over the relocated \
+     marks cannot be judged, and they take an appended page";
+
+/// Why a page whose own content does not fully decode takes the appended page for its marks.
+const CONTENT_DID_NOT_DECODE: &str = "part of the producer's own page content does not decode — a \
+     filter this reader does not implement, or a damaged stream — so the q/Q balance ISO 32000-2 \
+     \u{a7}8.4.2 requires cannot be counted over all of it, and the marks take an appended page \
+     rather than a relocation whose closing stream might be unbalanced";
 
 /// The two requirements whose refusal a page of preserved marks answers.
 const SUBTYPE_REQUIREMENTS: [&str; 2] = [

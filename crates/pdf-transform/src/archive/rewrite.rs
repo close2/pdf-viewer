@@ -562,6 +562,15 @@ pub enum Rewrite {
     /// changed, so the appended pages get a range of their own ([`super::preserve`] says what it
     /// states and why).
     PreservedAsPage,
+    /// A forbidden annotation's normal appearance is put back where §12.5.5 had it, on the
+    /// producer's own page rather than on a page this conversion appends.
+    ///
+    /// `doc/adr/1123`, the construction `doc/adr/1120`'s amendment put in scope. The page's
+    /// `/Contents` gains a `q` before the producer's operators and a closing stream after them —
+    /// §8.4.2's balance kept across the array — and its `/Resources` gains the appearance as a
+    /// form `XObject`. Neither is a mark: what draws is §12.5.5's own placement of the producer's
+    /// own stream. Where the construction is refused, [`Self::PreservedAsPage`] is the fallback.
+    RelocatedOnPage,
 }
 
 impl Rewrite {
@@ -752,6 +761,12 @@ impl Rewrite {
                  document, carrying nothing that did not come from the file, and the page-label \
                  tree gains a range for it"
             }
+            Self::RelocatedOnPage => {
+                "a forbidden annotation's normal appearance is put back where ISO 32000-2 §12.5.5 \
+                 had it, in the content of the producer's own page — a q before the producer's \
+                 operators and a closing stream after them, and the appearance named in the \
+                 page's resources — so no page is appended and no mark is composed"
+            }
         }
     }
 
@@ -805,6 +820,7 @@ impl Rewrite {
             Self::DerivedEmbeddedFile => "derived-embedded-file",
             Self::SuppliedMediaType => "supplied-media-type",
             Self::PreservedAsPage => "preserved-as-page",
+            Self::RelocatedOnPage => "relocated-on-page",
         }
     }
 }
@@ -1673,6 +1689,7 @@ impl Rewriter<'_> {
         if self.sites.pages.contains(&id) && self.wants(Rewrite::ForbiddenAnnotationRemoved) {
             changed |= self.remove_the_forbidden_annotations(&mut out, applied);
         }
+        changed |= self.relocate_onto_page(id, &mut out, applied);
         if self.wants(Rewrite::AnnotationFlags)
             && self.sites.annotations.contains(&id)
             // §12.5.3 makes the entry "an integer interpreted as one-bit flags", so a value that
@@ -2342,6 +2359,32 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed
+    }
+
+    /// Puts a forbidden annotation's marks back onto the producer's own page, where §12.5.5 had them.
+    ///
+    /// `doc/adr/1123`, the construction `doc/adr/1120`'s amendment put in scope. The two edits are
+    /// composed in [`super::preserve::relocate_a_page`]: the page's `/Contents` becomes the array
+    /// with the `q`-prepend and the closing stream around the producer's own streams, and its
+    /// `/Resources` gains the appearance under `/XObject`. Neither is a mark — what draws is
+    /// §12.5.5's own placement of the producer's own stream. The producer's `/Contents` streams are
+    /// referenced, never rewritten, so not a byte of the marks changes.
+    fn relocate_onto_page(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(composed) = self.preserved else {
+            return false;
+        };
+        let Some(relocated) = composed.relocations.get(&id) else {
+            return false;
+        };
+        out.insert(Name::new(&b"Contents"[..]), relocated.contents.clone());
+        out.insert(Name::new(&b"Resources"[..]), relocated.resources.clone());
+        count(applied, Rewrite::RelocatedOnPage);
+        true
     }
 
     /// Takes every annotation the target's part does not admit out of one page's `/Annots`.

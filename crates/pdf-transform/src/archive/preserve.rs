@@ -37,9 +37,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_font::LoadedFont;
 use pdf_font::tounicode::ToUnicode;
 use pdf_model::Pages;
-use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
+use pdf_syntax::{Document, Lexer, Token};
 
 use super::COMPRESSION_LEVEL;
 use super::decision::Because;
@@ -210,6 +210,30 @@ pub(super) struct Composed {
     pub(super) labels: Option<(Option<ObjectId>, Dictionary)>,
     /// What each appended page carries, for the report's sentence.
     pub(super) carried: Vec<Preserved>,
+    /// The producer's own pages an appearance was relocated onto, keyed by the page object.
+    ///
+    /// **The construction `doc/adr/1123` builds, and the amendment `doc/adr/1120` put in scope.**
+    /// Where a forbidden annotation's marks can be put back where §12.5.5 had them — on the
+    /// producer's own page rather than on a page this conversion appends — this holds the two
+    /// edits that page takes: the `/Contents` array with a `q`-prepend and a closing stream around
+    /// the producer's own, and the `/Resources` naming the appearance the closing stream invokes.
+    /// The prepend and closing streams themselves are in [`Self::written`]; a page reached by
+    /// relocation appends no page at all, so it is absent from [`Self::pages`].
+    pub(super) relocations: BTreeMap<ObjectId, RelocatedPage>,
+}
+
+/// The two entries a relocation writes onto the producer's own page.
+///
+/// `doc/adr/1123`: neither is a mark. `/Contents` gains a `q` before the producer's operators and
+/// a closing stream after them — §8.4.2's balance kept across the sequence — and `/Resources`
+/// gains the appearance as a form `XObject`. What draws is §12.5.5's own placement of the
+/// producer's own stream, so the page shows the marks where the producer had them.
+#[derive(Debug, Clone)]
+pub(super) struct RelocatedPage {
+    /// The `/Contents` array: the `q`-prepend stream, the producer's own streams, the closing one.
+    pub(super) contents: Object,
+    /// The `/Resources` dictionary the effective one becomes, with the appearance(s) named.
+    pub(super) resources: Object,
 }
 
 /// One piece of content a `preserve` remedy is to keep, with what the report calls it.
@@ -220,6 +244,11 @@ pub(super) struct Keep<'a> {
     pub(super) subject: String,
     /// What is kept, and therefore what kind of page carries it.
     pub(super) content: Kept<'a>,
+    /// Where marks reach an appended page because relocation was refused, the refusal's sentence.
+    ///
+    /// `None` for a text packet and for marks a caller did not try to relocate; `Some` for marks
+    /// whose relocation onto the producer's own page `doc/adr/1123` declined by name.
+    pub(super) declined: Option<&'static str>,
 }
 
 /// The two kinds of content this composes a page for.
@@ -289,6 +318,7 @@ pub(super) fn compose(
         pages: Vec::new(),
         labels: None,
         carried: Vec::new(),
+        relocations: BTreeMap::new(),
     };
     let first = tree.len();
     let face = sets_text
@@ -324,9 +354,18 @@ pub(super) fn compose(
                 // Nothing is set on a page of marks, so no face was chosen for one.
                 Kept::Marks(_) => SetIn::NoText,
             },
+            // These are the pages this conversion appended; a mark that reached one did so because
+            // relocating it onto the producer's page was refused, and the caller named that reason
+            // on the keep. A text packet was never on a page to relocate onto and declines nothing.
+            declined: keep.declined,
         });
     }
-    composed.labels = labels_extended(document, first)?;
+    // **Only where pages were appended.** A relocation-only preservation appends no page, so a
+    // label range at [`first`] would name a page that does not exist; the producer's numbering is
+    // then untouched because nothing changed the page count.
+    if !composed.pages.is_empty() {
+        composed.labels = labels_extended(document, first)?;
+    }
     Ok(composed)
 }
 
@@ -440,6 +479,254 @@ fn place_the_marks(
     Ok(())
 }
 
+/// One appearance being relocated onto its producer's page, with §12.5.5's matrix and its name.
+///
+/// The name is the one the page's `/Resources` `/XObject` binds the appearance to, chosen not to
+/// collide with anything the effective resources already name.
+pub(super) struct OnPage {
+    /// The form `XObject` the producer wrote, referenced rather than rewritten.
+    pub(super) appearance: ObjectId,
+    /// §12.5.5's matrix `AA`, mapping the appearance's own space onto the annotation's `/Rect`.
+    pub(super) placement: [f32; 6],
+    /// The resource name the closing stream's `Do` invokes.
+    pub(super) name: Vec<u8>,
+}
+
+/// The graphics-state depth a page's own content leaves open, or why it cannot be relocated onto.
+///
+/// **The count §8.4.2 is about**, taken over the sequence of the page's content streams as one.
+/// `q` pushes and `Q` pops; the running balance never going below zero is the balance the clause
+/// requires, and a page that breaks it is [`UNBALANCED_PRODUCER`]. Inline-image data is not
+/// operators, so a `BI` hands the scan to [`pdf_model::inline_image::scan`] and resumes past the
+/// `EI` — otherwise a `q` byte inside a JPEG would be counted as a save (§8.9.7, and trap in
+/// `pdf-model`'s `inline_image`). The depth left open is what the closing stream must close, and a
+/// depth past [`NESTING_LIMIT`] is [`PRODUCER_TOO_DEEP`].
+pub(super) fn producer_open_depth(
+    document: &Document,
+    content: &[u8],
+    resources: &Dictionary,
+) -> Result<usize, Because> {
+    let mut lexer = Lexer::new(content);
+    let mut depth: i64 = 0;
+    while let Some(token) = lexer.next_token() {
+        match token {
+            Token::Keyword(word) if word == b"q" => depth = depth.saturating_add(1),
+            Token::Keyword(word) if word == b"Q" => {
+                depth = depth.saturating_sub(1);
+                if depth < 0 {
+                    return Err(Because::NotBuiltYet(UNBALANCED_PRODUCER));
+                }
+            }
+            Token::Keyword(word) if word == b"BI" => {
+                let scan = pdf_model::inline_image::scan(
+                    document,
+                    content,
+                    lexer.position(),
+                    resources,
+                    true,
+                );
+                lexer.seek(scan.resume);
+            }
+            _ => {}
+        }
+    }
+    let depth = usize::try_from(depth).unwrap_or(0);
+    if depth.saturating_add(1) > NESTING_LIMIT {
+        return Err(Because::NotBuiltYet(PRODUCER_TOO_DEEP));
+    }
+    Ok(depth)
+}
+
+/// A rectangle with its corners ordered `[x_min, y_min, x_max, y_max]`.
+///
+/// §7.9.5: "the ordering of the four coordinate values is not significant", so a normalisation is
+/// what makes two rectangles comparable — one may be stated corner-to-corner in either direction.
+#[must_use]
+pub(super) fn normalise_rect(rect: [f32; 4]) -> [f32; 4] {
+    [
+        rect[0].min(rect[2]),
+        rect[1].min(rect[3]),
+        rect[0].max(rect[2]),
+        rect[1].max(rect[3]),
+    ]
+}
+
+/// Whether two normalised rectangles share any area, edges excluded.
+///
+/// **Half-open**, so rectangles that only touch along an edge do not overlap: an appearance drawn
+/// exactly up to another's edge does not draw over it. `doc/adr/1123`.
+#[must_use]
+pub(super) fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// The two new content streams a relocation adds to a page, and the `/Contents` array naming them.
+///
+/// `depth` is [`producer_open_depth`]'s answer. The prepend is one `q`; the closing stream issues
+/// `depth + 1` `Q` operators — closing every state the producer left open and the prepended one,
+/// which restores the page's default user space — then draws each appearance under §12.5.5's own
+/// matrix. Every `q`/`Q` written is balanced against another, so §8.4.2 holds across the array.
+fn relocation_streams(
+    document: &Document,
+    depth: usize,
+    original: &Object,
+    on_page: &[OnPage],
+    spare: &mut Spare,
+) -> Result<(Vec<(ObjectId, Object)>, Object), Because> {
+    let prepend_at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    let closing_at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    let prepend = content_stream(b"q\n").ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    let mut closing = String::new();
+    for _ in 0..depth.saturating_add(1) {
+        closing.push_str("Q\n");
+    }
+    for appearance in on_page {
+        closing.push_str("q\n");
+        for value in appearance.placement {
+            closing.push_str(&number(value));
+            closing.push(' ');
+        }
+        closing.push_str("cm\n/");
+        closing.push_str(std::str::from_utf8(&appearance.name).map_err(|_| NAME_NOT_UTF8)?);
+        closing.push_str(" Do\nQ\n");
+    }
+    let closing =
+        content_stream(closing.as_bytes()).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    // §7.7.3.3's Table 31 admits a single stream or an array of them; a single one is flattened to
+    // the array by reference so the two new streams sit around it without a producer's byte moving.
+    let mut contents = vec![Object::Reference(prepend_at)];
+    match original {
+        Object::Reference(_) => contents.push(original.clone()),
+        Object::Array(parts) => {
+            for part in parts {
+                if part.as_reference().is_none() {
+                    return Err(Because::NotBuiltYet(CONTENTS_NOT_REFERENCED));
+                }
+                contents.push(part.clone());
+            }
+        }
+        // A page stating no `/Contents` drew nothing of its own, so the prepend and closing streams
+        // are the whole of it — the marks are the only content the relocated page carries.
+        Object::Null => {}
+        _ => return Err(Because::NotBuiltYet(CONTENTS_NOT_REFERENCED)),
+    }
+    contents.push(Object::Reference(closing_at));
+    Ok((
+        vec![(prepend_at, prepend), (closing_at, closing)],
+        Object::Array(contents),
+    ))
+}
+
+/// Why a chosen resource name is not valid UTF-8, which cannot happen for a name this program picks.
+const NAME_NOT_UTF8: Because = Because::NotBuiltYet(
+    "a resource name for a relocated appearance was not valid UTF-8, which a name this program \
+     composes from ASCII cannot be",
+);
+
+/// A flate-encoded content stream holding exactly `data`.
+fn content_stream(data: &[u8]) -> Option<Object> {
+    let encoded = flate_encode(data, COMPRESSION_LEVEL)?;
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(encoded.len()).ok()?),
+    );
+    Some(Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: encoded.into(),
+        decryption_failed: false,
+    })))
+}
+
+/// The page's effective resources with each relocated appearance named under `/XObject`.
+///
+/// The effective (post-inheritance) resources are cloned and only `/XObject` is replaced, with a
+/// fresh inline dictionary copying the effective one's entries and adding the appearances — so no
+/// object a producer shares between pages is mutated, and §7.7.3.4's inheritance is written down
+/// identically for this page. `doc/adr/1123`.
+fn relocation_resources(document: &Document, effective: &Dictionary, on_page: &[OnPage]) -> Object {
+    let mut xobjects = document
+        .get_key(effective, "XObject")
+        .as_dict()
+        .cloned()
+        .unwrap_or_default();
+    for appearance in on_page {
+        xobjects.insert(
+            Name::new(appearance.name.as_slice()),
+            Object::Reference(appearance.appearance),
+        );
+    }
+    let mut resources = effective.clone();
+    resources.insert(Name::new(&b"XObject"[..]), Object::Dictionary(xobjects));
+    Object::Dictionary(resources)
+}
+
+/// A resource name binding the appearance that no name in the effective `/XObject` collides with.
+///
+/// [`PRESERVED_MARKS`] first, then `PreservedMarks1`, `PreservedMarks2` and so on — so two
+/// appearances relocated onto one page get names of their own. `taken` grows as each is chosen.
+pub(super) fn free_xobject_name(
+    document: &Document,
+    effective: &Dictionary,
+    taken: &mut BTreeSet<Vec<u8>>,
+) -> Vec<u8> {
+    let existing = document.get_key(effective, "XObject");
+    let existing = existing.as_dict();
+    let is_free = |name: &[u8], taken: &BTreeSet<Vec<u8>>| {
+        !taken.contains(name)
+            && existing
+                .is_none_or(|dict| dict.get(std::str::from_utf8(name).unwrap_or("")).is_none())
+    };
+    if is_free(PRESERVED_MARKS, taken) {
+        taken.insert(PRESERVED_MARKS.to_vec());
+        return PRESERVED_MARKS.to_vec();
+    }
+    for suffix in 1..=u32::MAX {
+        let candidate = format!("PreservedMarks{suffix}").into_bytes();
+        if is_free(&candidate, taken) {
+            taken.insert(candidate.clone());
+            return candidate;
+        }
+    }
+    // Unreachable in practice: a page cannot name four billion XObjects. Fall back to the base name
+    // rather than panicking, and a duplicate key the serializer would resolve to the last written.
+    PRESERVED_MARKS.to_vec()
+}
+
+/// Builds one page's relocation from the appearances that land on it and its own resources.
+///
+/// The page's `/Contents` and its effective `/Resources` are read by the caller off the model's
+/// [`pdf_model::Page`]; this assembles the two streams, the `/Contents` array and the new
+/// `/Resources`, and hands back the [`RelocatedPage`] the rewrite applies plus the streams the walk
+/// adds. `doc/adr/1123`.
+pub(super) fn relocate_a_page(
+    document: &Document,
+    depth: usize,
+    original_contents: &Object,
+    effective_resources: &Dictionary,
+    on_page: &[OnPage],
+    spare: &mut Spare,
+) -> Result<(RelocatedPage, Vec<(ObjectId, Object)>), Because> {
+    let (written, contents) =
+        relocation_streams(document, depth, original_contents, on_page, spare)?;
+    let resources = relocation_resources(document, effective_resources, on_page);
+    Ok((
+        RelocatedPage {
+            contents,
+            resources,
+        },
+        written,
+    ))
+}
+
 /// How the appended pages are laid out, in the one sentence the report carries.
 ///
 /// `doc/adr/1014` section 5's fourth bullet: *a page was appended, carrying this, from there,
@@ -456,7 +743,7 @@ pub(super) const PLACEMENT: &str = "set verbatim at 9 units on 12, inside a marg
 /// The other half of `doc/adr/1014` section 5's fourth bullet, for the content that already had a
 /// place. Every number on such a page is the producer's or ISO 32000-2 §12.5.5's, which is what
 /// makes this remedy the smallest one that keeps the marks.
-pub(super) const PLACEMENT_OF_MARKS: &str = "invoked as the form XObject it is, under the matrix \
+pub const PLACEMENT_OF_MARKS: &str = "invoked as the form XObject it is, under the matrix \
      ISO 32000-2 §12.5.5 computes from the annotation's own Rect, BBox and Matrix, on a page \
      stating the MediaBox, CropBox and Rotate of the page the annotation was on — so the \
      marks are the producer's bytes at the producer's coordinates, and nothing about the page is \
@@ -466,13 +753,81 @@ pub(super) const PLACEMENT_OF_MARKS: &str = "invoked as the form XObject it is, 
 ///
 /// **A second sentence and not a variant of the first**, because this site's `preserve` does not
 /// keep everything: the annotation itself has to go, ISO 19005 having no place for its subtype,
-/// and the sound, movie, rendition or 3D artwork it named goes with it. What the appended page
-/// keeps is the *marks*, which is the part of it a reader was looking at. An operator told only
-/// the sentence below would think nothing had been lost. `doc/adr/1099`.
+/// and the sound, movie, rendition or 3D artwork it named goes with it. What is kept is the
+/// *marks*, which is the part of it a reader was looking at. An operator told only the sentence
+/// below would think nothing had been lost. `doc/adr/1099`, and `doc/adr/1123` for the two places
+/// the marks may end up.
 pub const PRESERVED_MARKS_AS_A_PAGE: &str = "the annotation itself is gone — ISO 19005 admits no \
      annotation of its subtype — and so is the sound, movie, rendition or 3D artwork it named. \
-     What is kept is what it drew: the producer's own appearance stream, on a page this \
-     conversion composed, at the coordinates and the size the producer gave it";
+     What is kept is what it drew: the producer's own appearance stream, put back where \
+     ISO 32000-2 §12.5.5 had it — onto the producer's own page where nothing forbids it and onto \
+     a page this conversion appended otherwise — at the coordinates and the size the producer \
+     gave it";
+
+/// How a page of the producer's own marks is placed, in the one sentence the report carries.
+///
+/// The relocation construction `doc/adr/1123` builds: no page is composed and no layout choice is
+/// made. The producer's own operators keep their place; a `q` before them and a closing stream
+/// after, §12.5.5's own matrix, and the appearance the closing stream invokes, are all that is
+/// added — none of it a mark.
+pub const PLACEMENT_ON_PAGE: &str = "invoked as the form XObject it is, under the matrix \
+     ISO 32000-2 §12.5.5 computes from the annotation's own Rect, BBox and Matrix, on the \
+     producer's own page — the producer's operators kept where they were, a q before them and a \
+     closing stream after, so ISO 32000-2 §8.4.2's balance holds across the page's Contents and \
+     the marks draw where they drew before";
+
+/// Why a producer's content cannot take a `q` before it and a closing stream after.
+///
+/// **§8.4.2's balance, read as a refusal.** "Occurrences of the q and Q operators shall be
+/// balanced within a given content stream (or within the sequence of streams specified in a page
+/// dictionary's Contents array)." A producer that pops further than it pushes has a `Q` with no
+/// matching `q`, and the prepended `q` would be what that `Q` restores — so every mark after it
+/// would draw under a state this conversion introduced. The marks go onto an appended page instead.
+pub(super) const UNBALANCED_PRODUCER: &str = "the producer's own content pops the graphics state \
+     further than it pushes it (a Q with no matching q, which ISO 32000-2 §8.4.2 forbids), so a q \
+     prepended to it would be what that Q restores and the marks after it would draw under a \
+     state this conversion introduced";
+
+/// Why a producer's content is left too deeply nested to close.
+///
+/// The closing stream issues one `Q` for every state the producer left open and one for the
+/// prepended `q`. ISO 32000-1:2008 Annex C Table C.1 gives an implementation limit of 28 on `q`/`Q`
+/// nesting (ISO 32000-2 prints no such table); a producer leaving more than that open is past the
+/// limit already, and the marks go onto an appended page rather than into a stream this bound would
+/// refuse.
+pub(super) const PRODUCER_TOO_DEEP: &str = "the producer's own content leaves the graphics state \
+     stack nested past ISO 32000-1:2008 Annex C Table C.1's implementation limit of 28, so the \
+     stream that would close it back to the page's default state is not written";
+
+/// Why a page whose `/Contents` is not referenced indirectly cannot be relocated onto.
+///
+/// §7.7.3.3's Table 31 requires `/Contents` to be an indirect reference or an array of them, so a
+/// relocation flattens the one shape into the other and adds its two streams by reference without
+/// touching a producer's byte. A `/Contents` written as a direct stream is one this construction
+/// cannot wrap, so the marks go onto an appended page.
+pub(super) const CONTENTS_NOT_REFERENCED: &str = "the producer's page states its own /Contents as \
+     a direct stream rather than the indirect reference or array of references ISO 32000-2 \
+     §7.7.3.3's Table 31 requires, so this construction cannot wrap it without rewriting a \
+     producer's bytes";
+
+/// Why a page a remaining annotation covers cannot take the marks in its content.
+///
+/// §12.5.5 composites an appearance "with a backdrop consisting of the page content along with any
+/// previously painted annotations", so marks moved into the content go under every annotation that
+/// stays. The standard states no painting order among annotations, so which of two would be on top
+/// is not a fact this converter can read; where a remaining, unhidden annotation's rectangle meets
+/// where the marks would land, the marks go onto an appended page rather than under it.
+pub(super) const REMAINING_ANNOTATION_OVER_THE_MARKS: &str = "a remaining, unhidden annotation's \
+     rectangle overlaps where these marks would land, and ISO 32000-2 states no painting order \
+     among annotations — so relocating them into the page content might put them under a mark the \
+     producer drew on top, which this conversion cannot rule out";
+
+/// ISO 32000-1:2008 Annex C Table C.1's implementation limit on `q`/`Q` nesting.
+///
+/// ISO 32000-2 prints no such table, so the bound is the 2008 edition's and is cited as its. The
+/// closing stream issues `depth + 1` `Q` operators, and a `depth` past this is
+/// [`PRODUCER_TOO_DEEP`].
+const NESTING_LIMIT: usize = 28;
 
 /// What an operator agrees to when a `preserve` remedy appends a page.
 ///

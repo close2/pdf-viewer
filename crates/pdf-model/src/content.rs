@@ -1758,7 +1758,15 @@ fn content_clip(page: &Page, base: Transform) -> Rect {
     )
 }
 
-fn base_transform(page: &Page) -> Transform {
+/// The transform the interpreter starts a page under: default user space to the display
+/// list's own coordinates, §8.3.2.3 and §7.7.3.3 Table 31's `/UserUnit` and `/Rotate`.
+///
+/// The initial value of the current transformation matrix for [`interpret`], so a point read
+/// from the file in default user space and a quadrilateral in [`crate::content::Placed::quad`]
+/// are in one space once this has been applied — which is what a caller comparing a region
+/// stated in user space against where glyphs landed needs (redaction, §12.5.6.23).
+#[must_use]
+pub fn base_transform(page: &Page) -> Transform {
     let shift = Transform::translate(-page.display_box[0], -page.display_box[1]);
     let (width, height) = (page.width(), page.height());
 

@@ -62,6 +62,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::action::{self, Action};
+use pdf_model::navigation::{Style, transition};
 use pdf_syntax::{Document, Object, ObjectId};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
@@ -158,6 +159,15 @@ struct Counts {
     /// partial reference is resolved against `/Base` where the catalog has one and against the
     /// location of the document itself where it does not.
     uris: BTreeMap<&'static str, BTreeSet<String>>,
+    /// §12.6.4.15 Table 219's `/Trans` style, by Table 164's `/S` name, with the documents that
+    /// state a transition *action* asking for it.
+    ///
+    /// A transition action's `/Trans` is the same Table 164 dictionary a page's own `/Trans`
+    /// holds, so the verdict above (`performed`) is one fact and *which effect* the action names
+    /// is another — and the latter is what §12.6.4.15's row rests a witness on. `presentation_census`
+    /// asks the same of a *page's* `/Trans`; this asks it of the action, so a name Table 164 does
+    /// not define — the crawl's `/Blend` — is counted where a producer wrote one.
+    styles: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Counts {
@@ -185,6 +195,12 @@ impl Counts {
         }
         for (name, files) in &other.uris {
             self.uris.entry(name).or_default().extend(files.clone());
+        }
+        for (name, files) in &other.styles {
+            self.styles
+                .entry(name.clone())
+                .or_default()
+                .extend(files.clone());
         }
     }
 }
@@ -257,6 +273,23 @@ fn main() {
 
     println!("\n§12.6.4.8 Table 211's /Base, and the references that need one:");
     say(&total.uris);
+
+    println!("\n§12.6.4.15 Table 164's /S, where a /S /Trans action names a transition:");
+    if total.styles.is_empty() {
+        println!("  none");
+    } else {
+        for (style, files) in &total.styles {
+            let mut names: Vec<&str> = files.iter().map(String::as_str).collect();
+            names.sort_unstable();
+            let shown = names.len().min(12);
+            println!(
+                "  /S {style}: {} document(s) — {}{}",
+                names.len(),
+                names[..shown].join(", "),
+                if names.len() > shown { ", …" } else { "" }
+            );
+        }
+    }
 
     println!("\nWhich documents state a refused action:");
     for (name, files) in &total.witnesses {
@@ -360,6 +393,9 @@ fn document_counts(path: &str) -> Counts {
                     if let Some(what) = partial_uri_in(&document, &dict, base.is_some()) {
                         counts.uris.entry(what).or_default().insert(name.clone());
                     }
+                    if let Some(style) = trans_style_in(&document, &dict) {
+                        counts.styles.entry(style).or_default().insert(name.clone());
+                    }
                     if let Some(verdict) = action_in(&document, &dict) {
                         bump(&mut counts.dictionaries, verdict, 1);
                         if seen.insert(verdict) {
@@ -419,6 +455,44 @@ fn action_in(
         None => Verdict::NotAnAction,
     };
     Some((name, verdict))
+}
+
+/// Table 164's `/S`, where this dictionary is a `/S /Trans` action that names a `/Trans`.
+///
+/// The action's `/Trans` is Table 164's dictionary — the same one a page's own `/Trans` holds —
+/// so `navigation::transition` reads it here exactly as it reads a page's, and an absent `/S`
+/// reads as the table's default `R`. A name Table 164 does not define comes back under its own
+/// spelling, which is how the crawl's `/Blend` earns a line rather than hiding inside `performed`.
+fn trans_style_in(document: &Document, dict: &pdf_syntax::Dictionary) -> Option<String> {
+    if let Some(kind) = document.get_key(dict, "Type").as_name()
+        && kind.as_bytes() != b"Action"
+    {
+        return None;
+    }
+    if document.get_key(dict, "S").as_name()?.as_bytes() != b"Trans" {
+        return None;
+    }
+    Some(style_name(&transition(document, dict)?.style))
+}
+
+/// Table 164's own spelling of a style, and the file's spelling of a name the table does not hold.
+fn style_name(style: &Style) -> String {
+    match style {
+        Style::Split => "Split".to_owned(),
+        Style::Blinds => "Blinds".to_owned(),
+        Style::Box => "Box".to_owned(),
+        Style::Wipe => "Wipe".to_owned(),
+        Style::Dissolve => "Dissolve".to_owned(),
+        Style::Glitter => "Glitter".to_owned(),
+        Style::Replace => "R".to_owned(),
+        Style::Fly => "Fly".to_owned(),
+        Style::Push => "Push".to_owned(),
+        Style::Cover => "Cover".to_owned(),
+        Style::Uncover => "Uncover".to_owned(),
+        Style::Fade => "Fade".to_owned(),
+        Style::Unrecognised(name) if name.as_bytes().is_empty() => "(empty /S)".to_owned(),
+        Style::Unrecognised(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
+    }
 }
 
 /// Table 211's `/Base`, from the catalog's `/URI` dictionary — §12.6.4.8's own sentence.

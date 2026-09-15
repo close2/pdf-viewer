@@ -4,8 +4,9 @@ Status: accepted. Session 1107.
 Amends: `CLAUDE.md`'s authoring exclusion, under "What *done* means" — its **fourth** amendment,
 on the owner's answer `doc/questions/A65` (2026-09-14).
 Scope, not construction: this ADR ratifies that clause-driven relocation is *in scope* and names
-the class. The on-page construction and its two refusals (a future ADR 1123) are owed — a future ADR is where
-they will be built — and ADR 1099's appended page stays the mechanism in the meantime.
+the class. The on-page construction and its two refusals are ADR 1123, built in session 1113;
+ADR 1099's appended page stays the fallback for both refusals and the whole mechanism for content
+that was never on a page.
 Context: `doc/questions/Q65` and `A65`; ADR 1014 (the third amendment, whose form this one
 follows) and ADR 0816 (the second); ADR 1099 §4, which asked the question and built the fallback;
 ADR 1025 (the appended page's mechanism); `doc/questions/A64`, which put the redaction's overlay
@@ -77,7 +78,8 @@ drawing, and the clause's own wording makes the removal a redaction without it.
 
 `Q65` put them in the question because they are what a yes costs, and `A65` answered that each is
 to become a refusal with a sentence rather than a difference a reader would find on the page. They
-are stated here so a future ADR (1123, reserved) builds them against a written reading; neither exists in code yet.
+are stated here so ADR 1123 builds them against a written reading; ADR 1123 is where each became a
+refusal with a sentence.
 
 **A producer that pops further than it pushes.** §8.4.2 states the rule in one sentence and states
 it for exactly the population an on-page construction writes into: "Occurrences of the q and Q
@@ -99,10 +101,10 @@ word on the subject and it names no order — so which of two annotations is ove
 fact this converter can read out of the file, and §12.5.3's Hidden flag is the one exclusion that
 is derivable.
 
-**ADR 1099's appended page is the fallback for both, and today it is the whole mechanism.** Until
-a future ADR (1123, reserved) builds the on-page construction, every preserved appearance goes onto an appended page,
-which is inside the permission as it stood. When the construction lands, the appended page keeps
-its own permission whole: it is still the only answer for content that was never on a page at all,
+**ADR 1099's appended page is the fallback for both.** ADR 1123 built the on-page construction, so
+a preserved appearance goes onto an appended page only where one of the two refusals above sends
+it. The appended page keeps its own permission whole: it is still the only answer for content that
+was never on a page at all,
 an XMP packet being the standing case. The report will say which of the two constructions each
 preserved thing got, which is ADR 1014 §5's fourth bullet — *a page was appended, carrying this,
 from there, placed so* — asked of a placement that appended nothing.

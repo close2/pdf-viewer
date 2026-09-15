@@ -64,6 +64,7 @@ use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
+use pdf_transform::redact::RedactPlan;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
 use pdf_transform::split::{Pieces, SplitPlan};
 
@@ -591,6 +592,10 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
             arguments,
             names("optimize")?,
         )?)),
+        "redact" => Ok(Plan::Redact(RedactPlan {
+            source: 0,
+            names: names("redact")?,
+        })),
         "archive" => Ok(Plan::Archive(archive_plan(arguments, names("archive")?)?)),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
@@ -1428,6 +1433,9 @@ verbs:
   merge        several documents into one    a.pdf b.pdf [--collate] -o out.pdf
   pages        one document's pages edited   --delete | --rotate | --move | --insert
   optimize     one document rewritten smaller, losslessly   -o out.pdf
+  redact       one document's /Redact annotations applied (ISO 32000-2 §12.5.6.23):
+               the marked content removed from the content stream and the annotations
+               taken away, written as a new file   -o out.pdf
   archive      one document converted to ISO 19005 (PDF/A)   --to <target> -o out.pdf
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations

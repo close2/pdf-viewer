@@ -5308,18 +5308,13 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
     );
 }
 
-#[expect(
-    clippy::float_cmp,
-    reason = "the appended page states the source page's /MediaBox copied whole, so exact \
-equality with the numbers the source wrote is the claim, not a tolerance"
-)]
 #[test]
-fn a_forbidden_annotations_marks_are_kept_where_its_producer_put_them() {
-    // `doc/adr/1099`, on `doc/adr/1014`'s permission: the annotation cannot stay, and what it
-    // *drew* is a form XObject the producer wrote. ISO 19005-2 section 6.2.2's NOTE 2 puts a page
-    // description and an annotation appearance under the same restrictions, so a page may carry
-    // those marks directly — and ISO 32000-2 §12.5.5 fixes the matrix, so the page this composes
-    // makes no placement choice of its own.
+fn a_forbidden_annotations_marks_are_relocated_onto_the_producer_s_own_page() {
+    // `doc/adr/1123`, on `doc/adr/1120`'s amendment: the annotation cannot stay, and what it
+    // *drew* is a form XObject the producer wrote. ISO 32000-2 §12.5.5 fixes where it was drawn, so
+    // the marks go back onto the producer's own page under that matrix — no page appended, no mark
+    // composed. The producer's own content here is empty and its one other annotation is none, so
+    // neither of `doc/adr/1123`'s two refusals bites and the clean construction is taken.
     let source = a_sound_annotation("Sound", Some("/AP << /N 7 0 R >>"));
     let target = Target::Four(Flavour::Plain);
     let row = "annotations/subtype-defined-in-iso-32000-2";
@@ -5340,28 +5335,44 @@ fn a_forbidden_annotations_marks_are_kept_where_its_producer_put_them() {
     let output = output.expect("the preservation converts");
     assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
 
-    let pages = page_contents(&output);
-    assert_eq!(pages.len(), 2, "one page was appended");
-    let appended = String::from_utf8_lossy(pages.last().expect("the appended page"));
-    // §12.5.5's own algorithm over this fixture: a /BBox of [0 0 40 40] under the identity
-    // /Matrix is its own transformed appearance box, and A maps that box's corners onto a /Rect
-    // of [20 30 60 70] — a scale of 1 on each axis and a translation to the rectangle's corner.
-    assert!(
-        appended.contains("1 0 0 1 20 30 cm"),
-        "the matrix is §12.5.5's, computed from the producer's own entries: {appended}"
-    );
-    assert!(
-        appended.contains("/PreservedMarks Do"),
-        "and what it places is the producer's stream, invoked: {appended}"
-    );
-
-    // Proved on the copy: the stream the page names is the producer's bytes, and the page it
-    // sits on states the boxes of the page the annotation was on.
     let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
     let tree = pdf_model::Pages::new(&held);
-    let appended = tree.get(1).expect("the appended page");
-    assert_eq!(appended.media_box, [0.0, 0.0, 200.0, 200.0]);
-    let marks = held.get_key(&appended.resources, "XObject");
+    assert_eq!(
+        tree.len(),
+        1,
+        "no page was appended: the marks went back on the producer's own"
+    );
+    let page = tree.get(0).expect("the producer's own page");
+    // §7.7.3.3's Table 31: the producer's single-stream /Contents is flattened to the array the
+    // prepend and closing streams sit in, and the producer's own stream is referenced unchanged.
+    let contents = held.get_key(&page.dict, "Contents");
+    let contents = contents.as_array().expect("the /Contents is now an array");
+    assert_eq!(
+        contents.len(),
+        3,
+        "q-prepend, the producer's own, closing: {contents:?}"
+    );
+    let content = String::from_utf8_lossy(&page.content(&held)).into_owned();
+    // §12.5.5's own algorithm over this fixture: a /BBox of [0 0 40 40] under the identity /Matrix
+    // is its own transformed appearance box, and A maps that box's corners onto a /Rect of
+    // [20 30 60 70] — a scale of 1 on each axis and a translation to the rectangle's corner.
+    assert!(
+        content.contains("1 0 0 1 20 30 cm"),
+        "the matrix is §12.5.5's, computed from the producer's own entries: {content}"
+    );
+    assert!(
+        content.contains("/PreservedMarks Do"),
+        "and what it places is the producer's stream, invoked: {content}"
+    );
+    // §8.4.2: q and Q balance across the sequence of the page's content streams.
+    assert_eq!(
+        content.matches('q').count(),
+        content.matches('Q').count(),
+        "the graphics-state stack is balanced across the Contents array: {content}"
+    );
+
+    // Proved on the copy: the appearance the page's resources name is the producer's bytes.
+    let marks = held.get_key(&page.resources, "XObject");
     let marks = marks.as_dict().expect("the page names one XObject");
     let marks = held.get_key(marks, "PreservedMarks");
     let marks = marks.as_stream().expect("which is a form XObject");
@@ -5377,11 +5388,153 @@ fn a_forbidden_annotations_marks_are_kept_where_its_producer_put_them() {
     assert_eq!(preserved.len(), 1, "one thing preserved: {preserved:?}");
     let kept = preserved.first().expect("the preserved row");
     assert_eq!(kept.site, row);
-    assert_eq!(kept.pages, vec![1]);
     assert_eq!(
-        kept.face,
-        pdf_transform::archive::SetIn::NoText,
-        "no text is set on a page of marks, so no face was chosen for one"
+        kept.pages,
+        vec![0],
+        "it is on the producer's own page, not an appended one"
+    );
+    assert_eq!(
+        kept.declined, None,
+        "the clean construction was taken, so nothing was declined"
+    );
+    assert_eq!(
+        kept.placement,
+        pdf_transform::archive::PLACEMENT_ON_PAGE,
+        "and the report says it was relocated onto the producer's page"
+    );
+}
+
+#[test]
+fn an_unbalanced_producer_sends_the_marks_to_an_appended_page() {
+    // `doc/adr/1123`'s first refusal, by name. §8.4.2: "Occurrences of the q and Q operators shall
+    // be balanced within a given content stream (or within the sequence of streams specified in a
+    // page dictionary's Contents array)." This page's own content is a lone `Q` — it pops the
+    // graphics state further than it pushes it — so a `q` prepended to it would be what that `Q`
+    // restores. The marks cannot go into this page's content and take the appended page instead,
+    // which is `doc/adr/1099`'s mechanism kept whole for exactly this.
+    let marks = b"0 0 40 40 re f\n";
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        contents: Some((String::new(), b"Q\n".to_vec())),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Sound /Rect [20 30 60 70] /F 4 /AP << /N 7 0 R >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                marks.len()
+            ),
+            marks,
+        )],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the preservation converts by appending a page");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let tree = pdf_model::Pages::new(&held);
+    assert_eq!(
+        tree.len(),
+        2,
+        "the marks went onto an appended page, the producer's own untouched"
+    );
+
+    let preserved = &conversion(&report).preserved;
+    let kept = preserved.first().expect("the preserved row");
+    assert_eq!(kept.pages, vec![1], "on the appended page");
+    assert_eq!(
+        kept.placement,
+        pdf_transform::archive::PLACEMENT_OF_MARKS,
+        "placed as marks on a composed page"
+    );
+    let declined = kept.declined.expect("the row says relocation was declined");
+    assert!(
+        declined.contains("pops the graphics state") && declined.contains("\u{a7}8.4.2"),
+        "and names §8.4.2's balance as the reason: {declined}"
+    );
+}
+
+#[test]
+fn a_remaining_annotation_over_the_marks_sends_them_to_an_appended_page() {
+    // `doc/adr/1123`'s second refusal, by name. §12.5.5 composites an appearance "with a backdrop
+    // consisting of the page content along with any previously painted annotations", and the
+    // standard states no painting order among annotations — so marks moved into a page's content
+    // might end up under a mark the producer drew on top. Here a `Square` the part admits (a
+    // remaining, unhidden annotation) overlaps the `Sound`'s rectangle, so the `Sound`'s marks
+    // cannot be relocated and take the appended page. The population is `doc/adr/1120` section 4's:
+    // remaining, not hidden, rectangle overlapping.
+    let marks = b"0 0 40 40 re f\n";
+    let square = b"0 0 40 40 re S\n";
+    let source = Conforming {
+        page: "/Annots [6 0 R 7 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Sound /Rect [20 30 60 70] /F 4 /AP << /N 8 0 R >> >>"
+                .to_owned(),
+            "<< /Type /Annot /Subtype /Square /Rect [40 40 80 80] /F 4 /AP << /N 9 0 R >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                    marks.len()
+                ),
+                marks,
+            ),
+            stream(
+                &format!(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                    square.len()
+                ),
+                square,
+            ),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the preservation converts by appending a page");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let tree = pdf_model::Pages::new(&held);
+    assert_eq!(tree.len(), 2, "the marks went onto an appended page");
+    // The Square the part admits is still on the producer's own page, untouched by any relocation.
+    let page = tree.get(0).expect("the producer's own page");
+    assert!(
+        !held.get_key(&page.dict, "Annots").is_null(),
+        "the remaining Square is still on the page"
+    );
+    assert!(
+        held.get_key(&page.dict, "Contents").as_array().is_none(),
+        "and the producer's own /Contents was not wrapped"
+    );
+
+    let kept = conversion(&report)
+        .preserved
+        .first()
+        .cloned()
+        .expect("the preserved row");
+    assert_eq!(kept.pages, vec![1], "on the appended page");
+    let declined = kept.declined.expect("the row says relocation was declined");
+    assert!(
+        declined.contains("remaining, unhidden annotation"),
+        "and names the overlap as the reason: {declined}"
     );
 }
 

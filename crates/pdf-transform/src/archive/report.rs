@@ -198,6 +198,14 @@ pub struct Preserved {
     /// reader can see that the letters on the page are this program's shapes and the words are the
     /// document's.
     pub face: SetIn,
+    /// Why an appearance went onto an appended page rather than back onto the producer's own.
+    ///
+    /// **`doc/adr/1123`, the two honest costs made legible.** `None` for content relocated onto
+    /// the producer's page and for a text packet, which was never on a page to relocate onto.
+    /// `Some(sentence)` names the refusal that made the appended page the answer — a producer whose
+    /// `q`/`Q` do not balance, or a remaining annotation over where the marks would land — so the
+    /// report says which of the two constructions each preserved thing got.
+    pub declined: Option<&'static str>,
 }
 
 /// What an appended page's content is set in.
@@ -251,6 +259,10 @@ impl Preserved {
             ),
             ("placement".to_owned(), Value::text(self.placement)),
             ("face".to_owned(), self.face.to_json()),
+            (
+                "declined_relocation".to_owned(),
+                self.declined.map_or(Value::Null, Value::text),
+            ),
             (
                 "warns".to_owned(),
                 Value::text(crate::archive::PRESERVED_AS_A_PAGE),
@@ -766,7 +778,7 @@ impl Conversion {
         if !self.preserved.is_empty() {
             let _ = writeln!(
                 out,
-                "  {} thing(s) this conversion preserved on appended page(s) — {}:",
+                "  {} thing(s) this conversion preserved rather than lost — {}:",
                 self.preserved.len(),
                 crate::archive::PRESERVED_AS_A_PAGE
             );
@@ -784,6 +796,13 @@ impl Conversion {
                     row.placement,
                     row.face.sentence()
                 );
+                if let Some(declined) = row.declined {
+                    let _ = writeln!(
+                        out,
+                        "          onto an appended page rather than the producer's own, because \
+                         {declined}"
+                    );
+                }
             }
         }
         if !self.supplied.is_empty() {
