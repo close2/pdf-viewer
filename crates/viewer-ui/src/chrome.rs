@@ -2124,6 +2124,16 @@ fn draw_popup(
             line += size * 1.25;
         }
     }
+    let line = draw_thread(
+        chrome,
+        list,
+        window,
+        (x + padding, line, room, bottom),
+        size,
+    );
+    if line > bottom {
+        return;
+    }
     // What the face could not set. Counted over the whole value rather than per line, because
     // the sentence is about the note and not about a row of it — and it is still worth saying
     // beside the boxes `Chrome::text` now draws, because a count is what a person needs to know
@@ -2141,6 +2151,67 @@ fn draw_popup(
             DIMMED,
         );
     }
+}
+
+/// §12.5.6.2's thread, under the text it replies to, and where the next line would go.
+///
+/// ISO 32000-2 §12.5.6.2, Table 172, the `/RT` value `R`:
+///
+/// > Interactive PDF processors shall not display replies to an annotation individually but
+/// > together in the form of threaded comments.
+///
+/// `pdf_model::popup` has folded each reply's own window into this one (ADR 1090) and *threaded*
+/// is the indent here. A reply's author heads its block, because the one thing a thread has that
+/// a longer note does not is more than one person in it.
+///
+/// `box_` is `(left, line, room, bottom)` in the window's own pixels. The indent stops at four
+/// levels: past that the text would be narrower than the depth is informative, and ISO 32000-2's
+/// own PDF — the deepest thread anything here has measured — is four hops.
+fn draw_thread(
+    chrome: &Chrome,
+    list: &mut DisplayList,
+    window: &viewer_host::Window<'_>,
+    box_: (f32, f32, f32, f32),
+    size: f32,
+) -> f32 {
+    let (left, mut line, room, bottom) = box_;
+    for reply in window.replies {
+        let indent = f32::from(u8::try_from(reply.depth.min(4)).unwrap_or(4)) * size;
+        let room = room - indent;
+        if room <= 0.0 {
+            continue;
+        }
+        let at = left + indent;
+        if let Some(who) = reply.title.as_deref().filter(|who| !who.is_empty()) {
+            if line > bottom {
+                return line;
+            }
+            chrome.text(
+                list,
+                &elide(chrome, who, size * 0.85, Style::default(), room),
+                (at, line),
+                size * 0.85,
+                Style::default(),
+                DIMMED,
+            );
+            line += size * 1.25;
+        }
+        for paragraph in reply
+            .text
+            .as_deref()
+            .unwrap_or_default()
+            .split(['\r', '\n'])
+        {
+            for run in wrap(chrome, paragraph, size, room) {
+                if line > bottom {
+                    return line;
+                }
+                chrome.text(list, &run, (at, line), size, Style::default(), Color::BLACK);
+                line += size * 1.25;
+            }
+        }
+    }
+    line
 }
 
 /// Breaks a paragraph into lines that fit `room`, at word boundaries where it can.

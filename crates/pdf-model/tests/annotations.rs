@@ -3302,28 +3302,125 @@ fn table_192s_beside_codes_are_named_rather_than_invented() {
     );
 }
 
-/// Table 192's `/RI` and `/IX` are states a still frame has no way to be in, and are reported.
+/// A one-page fixture whose widget states the `/MK` entries given, with three icons to pick from.
 ///
-/// Both are defined by what the pointer is doing — the rollover icon "when the user rolls the
-/// cursor into its active area", the alternate one "when the mouse button is pressed" — and a
-/// constructed appearance is one stream where §12.5.5 gives a stored one three. No corpus
-/// document states either, which is why they are named rather than built.
-#[test]
-fn table_192s_rollover_icon_is_named_rather_than_drawn() {
-    let interpretation = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
-         /T (go) /MK << /I 6 0 R /RI 6 0 R /TP 1 >> >>",
-        "/BBox [0 0 10 10]",
-        "1 0 0 rg 0 0 10 10 re f",
-    ));
-    let reported = format!("{:?}", interpretation.unsupported);
-    assert!(
-        reported.contains("/RI"),
-        "the rollover icon must be named: {reported}"
+/// Objects 6, 7 and 8 are form `XObject`s filling their whole `/BBox` in red, green and blue, so
+/// which of Table 192's three icon entries reached the stream is a colour rather than a count.
+fn widget_with_three_icons(characteristics: &str) -> Vec<u8> {
+    let mut body = String::from(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
     );
+    // `/H /N` is "[n]o highlighting", so the down state shows the down *icon* rather than
+    // Table 191's default `I`, which would invert every colour asserted below.
+    let _ = write!(
+        body,
+        "5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /H /N \
+         /FT /Btn /Ff 65536 /T (go) /MK << {characteristics} /TP 1 >> >>\nendobj\n"
+    );
+    for (number, colour) in [(6, "1 0 0"), (7, "0 1 0"), (8, "0 0 1")] {
+        let content = format!("{colour} rg 0 0 10 10 re f");
+        let _ = write!(
+            body,
+            "{number} 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length {} >>\n\
+             stream\n{content}\nendstream\nendobj\n",
+            content.len().saturating_add(1)
+        );
+    }
+    assemble(&body)
+}
+
+/// Table 192's three icons are chosen by what the pointer is doing, as the table's own rows say.
+///
+/// `/I` is "the widget annotation's normal icon , which shall be displayed when it is not
+/// interacting with the user", `/RI` the rollover icon shown "when the user rolls the cursor into
+/// its active area without pressing the mouse button", and `/IX` the alternate one shown "when
+/// the mouse button is pressed within its active area" — the same three conditions §12.5.5 states
+/// for `/N`, `/R` and `/D`, which is why the state that selects among those selects among these.
+///
+/// The assertion is a pixel for [`the_pointer_chooses_between_an_annotations_appearances`]'s
+/// reason: nothing in the display list distinguishes *we picked `/I`* from *we picked `/RI` and
+/// it happens to look the same*.
+///
+/// **The second half is the fallback, which is a decision** (ADR 1090): Table 192 makes all three
+/// optional and states no fallback, so a rollover with no `/RI` is read the way Table 170 reads a
+/// rollover with no `/R` — the normal one. **No corpus document states `/RI` or `/IX` at all**, so
+/// this fixture is hand-built and is the only thing defending either rule (trap 8).
+#[test]
+fn table_192s_three_icons_are_chosen_by_what_the_pointer_is_doing() {
+    let colour_under = |characteristics: &str, pointer: Option<pdf_model::view::Pointer>| {
+        let document =
+            Document::open(widget_with_three_icons(characteristics)).expect("a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_pointer(pointer.map(|pointer| {
+            (
+                pdf_syntax::ObjectId {
+                    number: 5,
+                    generation: 0,
+                },
+                pointer,
+            )
+        }));
+        let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+        let reported = format!("{:?}", interpretation.unsupported);
+        let list = interpretation.display_list;
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let raster = CpuRasterizer::new()
+            .with_medium(pdf_render::Medium::NONE)
+            .rasterize(&list, target)
+            .expect("supported");
+        let index = at(&raster, 50, 50);
+        (
+            (
+                raster.data[index],
+                raster.data[index.saturating_add(1)],
+                raster.data[index.saturating_add(2)],
+            ),
+            reported,
+        )
+    };
+
+    let all_three = "/I 6 0 R /RI 7 0 R /IX 8 0 R";
+    assert_eq!(
+        colour_under(all_three, None).0,
+        (255, 0, 0),
+        "nothing is interacting: /I"
+    );
+    assert_eq!(
+        colour_under(all_three, Some(pdf_model::view::Pointer::Over)).0,
+        (0, 255, 0),
+        "the cursor rolled in without a button pressed: /RI"
+    );
+    assert_eq!(
+        colour_under(all_three, Some(pdf_model::view::Pointer::Down)).0,
+        (0, 0, 255),
+        "the mouse button pressed within its active area: /IX"
+    );
+
+    // The entry the file does not state, in both directions: an absent `/RI` falls back to `/I`,
+    // and an absent `/IX` does the same, rather than erasing the button as the pointer crosses it.
+    let normal_only = "/I 6 0 R";
+    for pointer in [
+        pdf_model::view::Pointer::Over,
+        pdf_model::view::Pointer::Down,
+    ] {
+        let (colour, reported) = colour_under(normal_only, Some(pointer));
+        assert_eq!(colour, (255, 0, 0), "with no entry for {pointer:?}: /I");
+        assert!(
+            !reported.contains("/RI") && !reported.contains("/IX"),
+            "and nothing is owed for an entry the file never stated: {reported}"
+        );
+    }
+
+    // And the four entries this clause's row called owed are no longer reported at all.
+    let (_, reported) = colour_under(all_three, Some(pdf_model::view::Pointer::Over));
     assert!(
-        painted(&render_incomplete(&interpretation), 50, 50),
-        "and the normal icon is still drawn"
+        reported.contains("[]"),
+        "a widget stating /RI and /IX draws them and owes nothing: {reported}"
     );
 }
 

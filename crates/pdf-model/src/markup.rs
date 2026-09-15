@@ -36,10 +36,11 @@
 //! **`/RT`'s other value is `R` and this is not about it.** "Default value: R ", so an annotation
 //! with an `/IRT` and no `/RT` is a *reply* rather than a group member, and the clause's `shall`
 //! for those is a different one — "[i]nteractive PDF processors shall not display replies to an
-//! annotation individually but together in the form of threaded comments" — which asks for a
-//! threading this program has no panel for. §12.5.6.2's ledger row carries that half; nothing
-//! here treats a reply as a group, and [`group_source`] returns the annotation's own dictionary
-//! for one.
+//! annotation individually but together in the form of threaded comments". That sentence is
+//! [`crate::popup::thread_window`]'s, which climbs the same two entries the other way (ADR 1090):
+//! a reply's window is the thread's rather than its own, where a group member's is the primary's.
+//! Nothing here treats a reply as a group, and [`group_source`] returns the annotation's own
+//! dictionary for one.
 //!
 //! # One hop, which is the clause's own shape
 //!

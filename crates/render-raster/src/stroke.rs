@@ -53,26 +53,9 @@ pub(crate) fn encode(
     if path.is_empty() || pdf_render::paint_space(transform).is_none() {
         return Ok(());
     }
-    let crate::scene::Admitted::Chain(clip) = enc.clip_chain(builder, clip)? else {
-        return Ok(()); // the clip admits nothing
-    };
     let mask = enc.mask_id(builder, mask)?;
-    let raster_paint = match paint {
-        Paint::Solid(c) => raster_scene::Paint::Solid(colour(*c)),
-        Paint::Shading(shading) => match enc.shading_paint(shading)? {
-            crate::scene::ShadedPaint::Ready(paint) => paint,
-            crate::scene::ShadedPaint::Sampled => {
-                return Err(QuorraRasterError::Unsupported(
-                    "a sampled shading painting a stroke".into(),
-                ));
-            }
-            // Nothing visible to paint with — the stroke marks nothing, as on
-            // the sibling backends.
-            crate::scene::ShadedPaint::Nothing => return Ok(()),
-        },
-        other => {
-            return Err(QuorraRasterError::Unsupported(format!("paint {other:?}")));
-        }
+    let Some(raster_paint) = raster_paint(enc, paint)? else {
+        return Ok(()); // nothing visible to paint with
     };
 
     // §8.4.3.2 with §10.7.5, resolved by the shared method — which answers in
@@ -117,6 +100,12 @@ pub(crate) fn encode(
         &mut dots,
         &mut coverage,
     );
+    // Asked after the splits and not before: what decides whether the clip can be left off this
+    // mark is how far the mark reaches, and `reach` is where that is settled.
+    let reach = reach(path, transform, s, (&dots, coverage));
+    let crate::scene::Admitted::Chain(clip) = enc.clip_chain(builder, clip, reach)? else {
+        return Ok(()); // the clip admits nothing
+    };
     if !dots.is_empty() || coverage < 1.0 {
         // §8.5.3.2's dots and zero-length dash marks are sized — and §10.7.4's
         // substitution for them decided — on this view's pixel grid, so a scene
@@ -202,6 +191,56 @@ pub(crate) fn encode(
         faint(raster_paint, coverage),
         (clip, mask, blend),
     )
+}
+
+/// The raster paint this stroke draws with, or `None` where what it names paints nothing.
+///
+/// `None` is a shading whose raster is empty, which marks nothing on the sibling backends either
+/// — see `crate::scene::ShadedPaint`. A sampled shading and every other paint are refused by
+/// name, so the frame goes to the CPU backend rather than being drawn with the wrong colour.
+fn raster_paint(
+    enc: &mut Encoder<'_>,
+    paint: &Paint,
+) -> Result<Option<raster_scene::Paint>, QuorraRasterError> {
+    Ok(Some(match paint {
+        Paint::Solid(c) => raster_scene::Paint::Solid(colour(*c)),
+        Paint::Shading(shading) => match enc.shading_paint(shading)? {
+            crate::scene::ShadedPaint::Ready(paint) => paint,
+            crate::scene::ShadedPaint::Sampled => {
+                return Err(QuorraRasterError::Unsupported(
+                    "a sampled shading painting a stroke".into(),
+                ));
+            }
+            crate::scene::ShadedPaint::Nothing => return Ok(None),
+        },
+        other => {
+            return Err(QuorraRasterError::Unsupported(format!("paint {other:?}")));
+        }
+    }))
+}
+
+/// How far this stroke's marks reach, in the path's own page space, or `None` where they can
+/// reach past the outline §8.4.3 gives them.
+///
+/// What `crate::scene::Encoder::cuts_nothing` needs is a bound the *document* states rather than
+/// one this view does, and §10.7.4's substitutions are what break that: a stroke that made
+/// §8.5.3.2's dot or gave up width to the clause's enlargement marks one device pixel across,
+/// which is a size the magnification decides. So is a width the device will resolve to a whole
+/// pixel — §8.4.3.2's zero and §10.7.5's adjustment, `raster::resolve_width` — and each of those
+/// answers `None`, which keeps the clip.
+///
+/// What is left is a stroke whose outline is the one `pdf_render::stroked_bounds` bounds, in the
+/// path's own space where the width is stated, mapped from there.
+fn reach(
+    path: &Path,
+    transform: Transform,
+    s: &Stroke,
+    (dots, coverage): (&Path, f32),
+) -> Option<pdf_render::Rect> {
+    if s.width <= 0.0 || s.adjust || !dots.is_empty() || coverage < 1.0 {
+        return None;
+    }
+    pdf_render::stroked_bounds(path, s, transform)
 }
 
 /// Fills §8.5.3.2's dots — the marks the degenerate and zero-length-dash splits made —

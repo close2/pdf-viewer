@@ -571,6 +571,21 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent
     note->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
     note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     column->addWidget(note, 1);
+
+    // ISO 32000-2 §12.5.6.2's thread, under the note it answers. Table 172: "[i]nteractive PDF
+    // processors shall not display replies to an annotation individually but together in the form
+    // of threaded comments" — so a reply has no window of its own and this is where its words are.
+    // `viewer_host::popup::thread` composed the indentation, in the one place all three hosts
+    // share, and it is empty for a window nobody replied to.
+    if (!window.thread.empty()) {
+        auto* thread = new QLabel(text(window.thread), this);
+        thread->setTextFormat(Qt::PlainText);
+        thread->setWordWrap(true);
+        thread->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        thread->setContentsMargins(kPopupPadding, 0, kPopupPadding, kPopupPadding);
+        thread->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        column->addWidget(thread, 1);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

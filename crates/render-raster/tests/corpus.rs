@@ -861,6 +861,31 @@ const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr1
 /// route outlines a stroke in path space at the width the document stated (`stroke::expanded`),
 /// so the two backends agreeing here is the processor arriving where raster already was rather
 /// than either moving toward the other.
+/// **`issue16473.pdf` and `bug1844583.pdf` left in the thousand-and-seventy-fourth, and
+/// `bug1844576.pdf` and `bug1978317.pdf` arrived on the same change** (ADR 1088). §10.7.4 makes
+/// a clip a *set of pixels* and the painted region "the intersection of the set of pixels
+/// defined by the clipping region with the set of pixels for the region to be painted", so a
+/// region that contains a mark takes nothing from it; raster multiplies the two coverages inside
+/// the graphics library, which squares a mark's coverage where its own edge and its clip's share
+/// a pixel. `render_raster::scene`'s `cuts_nothing` answers the clause on this side by not
+/// stating a clip that cuts nothing, and every clipped command on the two that left lies inside
+/// its own `/BBox`: `examples/ink_ladder` puts them at 416.00 → **501.87** and 429.13 →
+/// **500.93** against the 501.78 the geometry states at 8×.
+///
+/// **The two that arrived are the *oracle* short of ink at page scale, and that is measured
+/// rather than inferred.** `examples/clip_cost` (new) draws a page twice on each backend, once
+/// as stated and once with every clip taken off, so what it prints for a clip that cuts nothing
+/// is the composition rather than the document. At 1×, `bug1844576.pdf` reads cpu 849.31 of
+/// 933.38 against raster 933.09 of 933.09, and `bug1978317.pdf` cpu 13 387.41 of 15 165.68
+/// against raster 15 118.43 of 15 118.43 — so those clips cost the device nothing and cost the
+/// oracle 9.0% and 11.7% of the page. At 8× they cost the oracle nothing either, which is the
+/// signature of §10.7.4's substitutions: what `render-cpu` composes by `min` there is a mark ADR
+/// 0268 already *widened* to a device pixel with the given-up width in its alpha, and a widened
+/// mark reaches past a box the document's own geometry sits inside. §10.7.4's third sentence
+/// ranks the two answers — "The area covered by painted pixels shall always be at least as large
+/// as the area of the original shape" — and it is the oracle that is under it here. Fixing it is
+/// `render-cpu`'s round; **re-stating the clip on this side would not be one.**
+///
 /// **`issue15150.pdf` stays, and the backend it convicts has changed sides** (ADR 1082). Its whole
 /// content stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s`, whose stroked region is the device
 /// rectangle `[0, 0.5] × [0, 0.5]` — a quarter of pixel (0, 0). The oracle drew 0.1875 of that
@@ -871,11 +896,11 @@ const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr1
 /// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` is where an ask would go.
 const DIFFERS_IN_SHAPE: [&str; 13] = [
     "22060_A1_01_Plans.pdf",
-    "bug1844583.pdf",
+    "bug1844576.pdf",
+    "bug1978317.pdf",
     "issue12295.pdf",
     "issue15150.pdf",
     "issue16038.pdf",
-    "issue16473.pdf",
     "issue18030.pdf",
     "issue19083.pdf",
     "issue20232.pdf",
@@ -915,15 +940,29 @@ const DIFFERS_IN_SHAPE: [&str; 13] = [
 /// that converter changes rather than because either backend drew the wrong picture.
 ///
 /// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
-/// says what it is. A gap that halves at every rung is a cost paid per boundary pixel:
-/// `issue16473.pdf`, `issue19083.pdf`, `bug1844583.pdf` and `bug1978317.pdf` are raster short of
-/// the oracle at 1× and level with it by 4×, which is ADR 0355's clip-against-the-mark product
+/// says what it is. A gap that halves at every rung is a cost paid per boundary pixel, and one
+/// page here is still made of that: `issue19083.pdf` reads raster 396.96 at 1× against the
+/// oracle's 448.40 and is level with it by 4×, which is ADR 0355's clip-against-the-mark product
 /// measured in ink instead of in pixels — §10.7.4 asks for "the intersection of the set of pixels
 /// defined by the clipping region with the set of pixels for the region to be painted", and a
-/// product at a coincident boundary takes ink an intersection does not.
-/// `doc/QUORRA_FEEDBACK.md` section 24 is the standing ask. `issue20232.pdf` and `issue21068.pdf`
-/// are the same shape with the sign the other way — raster long at 1×, halving its excess at each
-/// rung — and
+/// product at a coincident boundary takes ink an intersection does not. It is the page that is
+/// left because its stroke's outer edge sits 0.0002 *outside* the `/BBox` §8.10.1 step c) clips
+/// it by, so the clip genuinely cuts and ADR 1088's rule declines it by name;
+/// `doc/QUORRA_FEEDBACK.md` section 24c is the standing ask, and it is where this measurement
+/// is written down.
+///
+/// **Raster long at 1× and halving its excess is the other sign, and it is one defect**:
+/// `issue15150.pdf` (twice the area), `issue20232.pdf` (+31.3%) and `issue21068.pdf` (+3.1%) are
+/// paths whose own portions overlap — a stroke's expanded quads meeting at a join, or the
+/// out-and-back outline `s` makes of a two-point subpath. §8.5.3.3 defines the painted region as
+/// the points whose winding number is non-zero and §10.7.4 makes a pixel's coverage the area of
+/// that region inside it, so a region wound twice covers what it covers once. raster integrates
+/// the winding number over the pixel and clamps the *integral*, which is the same defect ADR 1082
+/// found on the oracle and §11.6.2 names — "[p]ortions of an object shall not be composited with
+/// one another". Reproduced away from any document: a 0.75-wide band on an 8 × 4 page reads 2.9961
+/// on both backends stated once and 2.9961 against raster's **4.0000** stated twice, at 1× and at
+/// 2× alike. `doc/QUORRA_FEEDBACK.md` section 45 is the ask.
+///
 /// `22060_A1_01_Plans.pdf` is the one gap on this list that does *not* close, which makes it a
 /// difference of geometry rather than of boundary and the page here worth opening next.
 ///

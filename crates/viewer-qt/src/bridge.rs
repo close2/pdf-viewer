@@ -231,6 +231,13 @@ pub mod ffi {
         modified: String,
         /// Table 166's `/Contents`: the text in the window.
         text: String,
+        /// §12.5.6.2's thread, under [`QtPopup::text`], as `viewer_host::popup::thread` flattens it.
+        ///
+        /// Table 172 makes showing it there a `shall` — replies are not displayed "individually
+        /// but together in the form of threaded comments" — and one string rather than a nested
+        /// list because this bridge carries one label per block of text. Empty for a window
+        /// nobody replied to, which is almost every window.
+        thread: String,
         /// Whether Table 166's `/C` gave the title bar a colour of its own.
         ///
         /// A flag beside the three components rather than an absent value, because `cxx` carries

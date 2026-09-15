@@ -1746,6 +1746,7 @@ impl Viewer {
                             text: popup.text,
                             modified: popup.modified,
                             colour: popup.colour,
+                            replies: popup.replies,
                         })
                     })
                     .collect::<Vec<PopupWindow>>()

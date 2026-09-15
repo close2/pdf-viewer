@@ -3155,6 +3155,12 @@ static READINGS: &[Reading] = &[
                      twice",
                 ),
             },
+            Sentence {
+                says: "and uses that extension schema as it defines the property, which for a \
+                       property the schema gives one of its own value types is the fields that \
+                       value type describes",
+                carried: Carried::By(&["metadata/extension-schema-structure-fields-are-described"]),
+            },
         ],
     },
     Reading {

@@ -672,19 +672,28 @@ pub enum Authenticity {
     /// "SignedAttributes MUST be DER encoded, even if the rest of the structure is BER encoded."
     /// Section 5.4 is what makes that a verifier's problem rather than a producer's tidiness -
     /// the signature is over "the message digest of the complete DER encoding of the SignedAttrs
-    /// value", so where an attribute inside the set states X.690 clause 8.1.3.6's indefinite
-    /// length the octets the file holds are not the octets the signer digested.
+    /// value", so where an attribute inside the set departs from any of the distinguished encoding
+    /// rules the octets the file holds are not the octets the signer digested.
     ///
     /// **A refusal rather than a verdict, and that is the whole point of the variant.** Digesting
     /// the file's bytes anyway would answer [`Self::NotUnderThatKey`] - *this signature does not
     /// verify* - where the truth is that this program could not construct what the signature was
-    /// made over. [`crate::der::every_length_is_definite`] is the question, and it is asked of the
+    /// made over. [`crate::der::is_canonical`] is the question, and it is asked of the
     /// set's *contents*: the `signedAttrs [0] IMPLICIT` header's own length octets are the one
     /// thing section 5.4 replaces - "[t]he IMPLICIT [0] tag in the signedAttrs is not used for the
     /// DER encoding, rather an EXPLICIT SET OF tag is used" - so a producer that wrote the wrapper
     /// in the indefinite form has departed from section 5.3 without changing a byte any verifier
     /// digests, and this program can still complete the check.
-    SignedAttributesNotDer,
+    ///
+    /// **The rule is carried rather than the word "not DER".** ITU-T X.690 clause 10 is nine rules
+    /// and they are not equally grave: a length octet spent where none was needed changes every
+    /// octet after it, and a `SET OF` out of order changes none of the bytes but changes where they
+    /// are. A reader told only that an encoding is not canonical cannot tell those apart, and the
+    /// person who has to decide what to do about the file is the one who needs to.
+    SignedAttributesNotDer {
+        /// Which of ITU-T X.690's distinguished encoding rules the region departs from.
+        rule: der::NotCanonical,
+    },
     /// The signature value could not be read as §12.8.3.3's CMS object.
     Unreadable(CmsError),
 }
@@ -744,6 +753,18 @@ impl Family {
 /// [`signing_certificate_bindings`] because comparing it means hashing a certificate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PadesDeparture {
+    /// §12.8.3.4.2: "the value of Contents shall be a DER-encoded CMS `SignedData` binary data
+    /// object containing the signature".
+    ///
+    /// **A report and not a refusal, and the difference is RFC 5652 section 2's.** That section
+    /// permits BER throughout a CMS object — "each content type permits single pass processing
+    /// using indefinite-length Basic Encoding Rules (BER) encoding" — and real producers write it,
+    /// so [`crate::der`] reads BER and this tree goes on reading these files (ADR 0215). What this
+    /// subclause adds for one `/SubFilter` is stricter than the RFC, and a `shall` a file breaks is
+    /// said out loud rather than acted on: the object was read, the signature was checked, and the
+    /// producer did not write what the clause asks. The rule is carried because nine of them exist
+    /// and they are not equally grave.
+    ValueNotDerEncoded(der::NotCanonical),
     /// §12.8.3.4.2: "The `ByteRange` shall cover the entire PDF file, including the signature
     /// dictionary but excluding the Contents entry."
     RangeDoesNotCoverTheFile,
@@ -1736,6 +1757,13 @@ impl Signature {
         }
         let file_length = file.len() as u64;
         let mut out = Vec::new();
+        // The subclause's first sentence, and the only one of its rules that is about the value's
+        // *encoding* rather than about the dictionary around it. An unreadable value produces no
+        // departure: `Signature::signed_data` has already refused it by name, and a second sentence
+        // about the same bytes would be this list reporting a shape rather than a `shall`.
+        if let Ok(Some(rule)) = der::is_canonical(&self.contents) {
+            out.push(PadesDeparture::ValueNotDerEncoded(rule));
+        }
         if self.coverage(file_length) != Coverage::WholeFile {
             out.push(PadesDeparture::RangeDoesNotCoverTheFile);
         }
@@ -2307,13 +2335,14 @@ pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> A
     // is parameterised by the hash its `RSASSA-PSS-params` state — so what is signed is
     // settled here and each arm below digests it with the algorithm its scheme names.
     // RFC 5652 section 5.3's one DER region inside a BER structure, checked before it is
-    // digested: an indefinite length among the attributes means the bytes the signer signed
-    // are not the bytes this file holds, and the honest answer is a refusal by name rather
-    // than a digest over the wrong octets. See [`Authenticity::SignedAttributesNotDer`].
+    // digested: a departure from any of ITU-T X.690 clause 10's rules among the attributes
+    // means the bytes the signer signed are not the bytes this file holds, and the honest
+    // answer is a refusal naming the rule rather than a digest over the wrong octets. See
+    // [`Authenticity::SignedAttributesNotDer`].
     if let Some(contents) = cms.signed_attributes {
-        match der::every_length_is_definite(contents) {
-            Ok(true) => {}
-            Ok(false) => return Authenticity::SignedAttributesNotDer,
+        match der::is_canonical(contents) {
+            Ok(None) => {}
+            Ok(Some(rule)) => return Authenticity::SignedAttributesNotDer { rule },
             Err(error) => return Authenticity::Unreadable(CmsError::from(error)),
         }
     }
@@ -5281,49 +5310,94 @@ mod tests {
         );
     }
 
-    /// RFC 5652's one DER region, planted and controlled.
+    /// RFC 5652's one DER region, planted and controlled, one rule at a time.
     ///
-    /// Two CMS values differing by exactly one thing: whether a signed attribute's SEQUENCE states
-    /// X.690 clause 8.1.3.6's indefinite length. RFC 5652 section 5.3 requires signed attributes
-    /// in DER "even if the rest of the structure is BER encoded", and section 5.4 digests "the
-    /// complete DER encoding of the SignedAttrs value" - so the planted one cannot be digested
-    /// into what the signer signed, and is refused by name.
+    /// Seven pairs of CMS values, each differing by exactly one thing: whether the signer's one
+    /// signed attribute obeys the ITU-T X.690 rule the case names. RFC 5652 section 5.3 requires
+    /// signed attributes in DER "even if the rest of the structure is BER encoded", and section
+    /// 5.4 digests "the complete DER encoding of the SignedAttrs value" - so the planted one
+    /// cannot be digested into what the signer signed, and is refused *naming the rule*.
     ///
-    /// **The control is what makes this a test rather than an assertion.** The same value written
-    /// in DER reaches the arithmetic and answers [`Authenticity::NotUnderThatKey`]: this DSA
-    /// signature was made over the byte range, and adding any signed attribute makes RFC 5652
-    /// sign the attributes instead, so a failure to verify is what a correct reader answers there.
-    /// If the refusal fired on both, it would be firing on the attributes rather than on their
-    /// encoding.
+    /// **The control is what makes this a test rather than an assertion** (trap 13). The same
+    /// attribute written in DER reaches the arithmetic and answers
+    /// [`Authenticity::NotUnderThatKey`]: this DSA signature was made over the byte range, and
+    /// adding any signed attribute makes RFC 5652 sign the attributes instead, so a failure to
+    /// verify is what a correct reader answers there. If the refusal fired on both, it would be
+    /// firing on the attributes rather than on their encoding.
+    ///
+    /// Two of the nine rules are calibrated one level down, in `crate::der`, and
+    /// [`fixtures::NotDer`] says why: no attribute RFC 5652, RFC 5035 or ETSI EN 319 122-1 defines
+    /// is a `BOOLEAN` or a `BIT STRING`, so a CMS fixture carrying one would have to invent the
+    /// attribute it lived in.
     #[test]
     fn signed_attributes_that_are_not_der_are_refused_rather_than_digested() {
+        use fixtures::NotDer;
         let file = b"the signed bytes";
         let certificate = hex(crate::dsa::fixtures::CERTIFICATE);
         let parsed = crate::x509::parse(&certificate).expect("a certificate");
-        let value = |indefinite| {
-            fixtures::detached_dsa_stating_signing_time(
+        let value = |case, planted| {
+            fixtures::detached_dsa_whose_attribute_is(
                 &certificate,
                 parsed.issuer,
                 parsed.serial_number,
                 &hex(crate::dsa::fixtures::SIGNATURE),
-                indefinite,
+                case,
+                planted,
             )
         };
-        assert_eq!(
-            curve_signature(value(true)).authenticity(&FileBytes::from(file)),
-            Authenticity::SignedAttributesNotDer,
-            "RFC 5652 section 5.3 requires the set in DER, and this one is not"
-        );
-        assert_eq!(
-            curve_signature(value(false)).authenticity(&FileBytes::from(file)),
-            Authenticity::NotUnderThatKey {
-                digest: Digest::Sha256,
-                family: Family::Dsa,
-                key_bits: 2048,
-                over: Signed::SignedAttributes,
-            },
-            "the control: the same attribute in DER is digested, and the answer is arithmetic's"
-        );
+        let cases = [
+            (
+                NotDer::IndefiniteLength,
+                crate::der::NotCanonical::IndefiniteLength,
+            ),
+            (
+                NotDer::LengthNotMinimal,
+                crate::der::NotCanonical::LengthNotMinimal {
+                    length: 28,
+                    stated: 2,
+                    needed: 1,
+                },
+            ),
+            (
+                NotDer::ConstructedString,
+                crate::der::NotCanonical::ConstructedString { tag: 4 },
+            ),
+            (
+                NotDer::SetOutOfOrder,
+                crate::der::NotCanonical::SetOutOfOrder,
+            ),
+            (
+                NotDer::IntegerNotMinimal,
+                crate::der::NotCanonical::IntegerNotMinimal,
+            ),
+            (
+                NotDer::ObjectIdentifierNotMinimal,
+                crate::der::NotCanonical::ObjectIdentifierNotMinimal,
+            ),
+            (
+                NotDer::TimeNotCanonical,
+                crate::der::NotCanonical::TimeNotCanonical {
+                    because: "it is shorter than a terminated encoding with its seconds element",
+                },
+            ),
+        ];
+        for (case, rule) in cases {
+            assert_eq!(
+                curve_signature(value(case, true)).authenticity(&FileBytes::from(file)),
+                Authenticity::SignedAttributesNotDer { rule },
+                "RFC 5652 section 5.3 requires the set in DER, and {case:?} is not"
+            );
+            assert_eq!(
+                curve_signature(value(case, false)).authenticity(&FileBytes::from(file)),
+                Authenticity::NotUnderThatKey {
+                    digest: Digest::Sha256,
+                    family: Family::Dsa,
+                    key_bits: 2048,
+                    over: Signed::SignedAttributes,
+                },
+                "the control for {case:?} is DER and is digested; the answer is arithmetic's"
+            );
+        }
     }
 
     /// The curve ISO/TS 32002 Table 3 names and no package on this tree's line computes.
@@ -5969,6 +6043,33 @@ mod tests {
                 PadesDeparture::BothSigningTimesStated,
                 PadesDeparture::NoSigningCertificateAttribute,
             ]
+        );
+
+        // §12.8.3.4.2's first sentence, planted and controlled: the same value with one length
+        // octet more than ITU-T X.690 clause 10.1 admits, which BER permits (clause 8.1.3.5's
+        // NOTE 2) and this subclause does not. The control is the assertion above, whose value
+        // differs by that octet and by nothing else and which reports no such departure.
+        let mut padded = signed_document(
+            "ETSI.CAdES.detached",
+            "/M (D:20260807000000Z) /Cert <00>",
+            Digest::Sha256,
+            fixtures::detached_with_a_padded_length,
+        );
+        padded.push(b'\n');
+        let (padded_document, padded_signature) = only_signature(&padded);
+        let padded_cms = padded_signature.signed_data().expect("a SignedData");
+        assert_eq!(
+            padded_signature
+                .pades_departures(&padded_cms, padded_document.bytes())
+                .first(),
+            Some(&PadesDeparture::ValueNotDerEncoded(
+                crate::der::NotCanonical::LengthNotMinimal {
+                    length: 207,
+                    stated: 3,
+                    needed: 2,
+                }
+            )),
+            "the clause's first sentence is about the value's encoding, and this value is BER"
         );
 
         // And an `adbe.pkcs7.detached` signature with the same three faults has none of these

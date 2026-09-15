@@ -168,8 +168,14 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // level until something can answer its question (ADR 0814). Three event kinds came with them,
     // so `QUORRA_EVENT_KIND_COUNT` moved 16 → 19; `QUORRA_ABI_VERSION` did not, for the standing
     // reason that a caller compiled before an entry point existed calls nothing of that shape.
-    assert_eq!(no_mangle, 179, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 165, "163 `unsafe` entry points and two helpers");
+    // **And three in the thousand-and-seventy-sixth**, which are one clause and its consequence:
+    // §12.5.6.2 makes a reply a comment inside the window it answers rather than a window of its
+    // own, so `quorra_popup_reply_count`, `quorra_popup_reply_object` and `quorra_popup_reply_text`
+    // are where a C caller reaches text that used to arrive as a second window (ADR 1090). No
+    // event kind came with them, so `QUORRA_EVENT_KIND_COUNT` stayed 19, and `QUORRA_ABI_VERSION`
+    // did not move for the standing reason.
+    assert_eq!(no_mangle, 182, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 168, "166 `unsafe` entry points and two helpers");
 }
 
 #[test]

@@ -1519,6 +1519,7 @@ impl Host {
                     title: window.title.to_owned(),
                     modified: viewer_host::popup::modified(window).unwrap_or_default(),
                     text: window.text.to_owned(),
+                    thread: viewer_host::popup::thread(window),
                     coloured: colour.is_some(),
                     red: colour.map_or(0, |rgb| rgb.0),
                     green: colour.map_or(0, |rgb| rgb.1),

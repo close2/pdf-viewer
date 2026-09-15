@@ -193,6 +193,9 @@ impl<'a> Value<'a> {
             return Err(DerError::TooDeep);
         }
         Ok(Reader {
+            set: self.class() == Class::Universal
+                && self.is_constructed()
+                && self.tag_number() == SET & 0x1F,
             rest: if self.is_constructed() {
                 self.contents
             } else {
@@ -248,6 +251,16 @@ impl<'a> Value<'a> {
 pub struct Reader<'a> {
     rest: &'a [u8],
     depth: u8,
+    /// Whether these values are the members of a `SET` or `SET OF`.
+    ///
+    /// X.690 clause 11.6 orders the members of a set-of value and clause 10.3 orders the components
+    /// of a set value, and both are statements about a *sequence* of encodings rather than about
+    /// any one of them — so the reader that hands them out is what can see the order, and this is
+    /// how it knows it is looking at a set. The two clauses are checked as one: a set value's
+    /// components have distinct tags, the identifier octet is the first octet of each encoding, and
+    /// for the low-tag-number form RFC 5652 uses throughout, X.680's canonical tag order and
+    /// clause 11.6's octet-string order put the same encoding first.
+    set: bool,
 }
 
 impl<'a> Reader<'a> {
@@ -264,6 +277,7 @@ impl<'a> Reader<'a> {
         Ok(Self {
             rest: bytes,
             depth: 0,
+            set: false,
         })
     }
 
@@ -352,9 +366,75 @@ fn consumed<'a>(whole: &'a [u8], rest: &[u8]) -> &'a [u8] {
     whole.get(..taken).unwrap_or(whole)
 }
 
-/// Whether every value in a region states a definite length, at every depth.
+/// Which of the distinguished encoding rules a region departs from.
 ///
-/// # The one question this reader's tolerance makes a caller ask
+/// One variant per rule, because a caller that refuses a region owes a reader the rule rather than
+/// the word *malformed*: RFC 5652 section 5.4 makes the signature over "the message digest of the
+/// complete DER encoding of the SignedAttrs value", and *which* restriction the producer broke is
+/// the difference between a file a signer could still have signed and one it could not.
+///
+/// The clause numbers are ITU-T X.690's, and they are not all in clause 10. Clause 10's own
+/// opening sentence pulls the rest in: DER is clause 8's basic encoding together with clause 10's
+/// restrictions and those listed in clause 11. So a non-minimal `INTEGER` is a departure from
+/// clause 8.3.2, which binds DER by that sentence, and a `SET OF` out of order is a departure from
+/// clause 11.6 — neither is a clause 10 subclause and both are DER's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum NotCanonical {
+    /// A value states X.690 clause 8.1.3.6's indefinite length, which clause 10.1 forbids.
+    #[error(
+        "a value states an indefinite length, and X.690 clause 10.1 requires the definite form"
+    )]
+    IndefiniteLength,
+    /// A definite length is not written in the fewest octets — X.690 clause 10.1.
+    #[error(
+        "a length of {length} is written in {stated} octets where X.690 clause 10.1 needs {needed}"
+    )]
+    LengthNotMinimal {
+        /// The number of contents octets the length states.
+        length: usize,
+        /// How many length octets the file spent on it.
+        stated: usize,
+        /// How many the minimum form needs.
+        needed: usize,
+    },
+    /// A bit string, octet string or restricted character string is constructed — clause 10.2.
+    #[error("a string value with tag {tag} is constructed, which X.690 clause 10.2 forbids")]
+    ConstructedString {
+        /// The universal tag number of the string type.
+        tag: u8,
+    },
+    /// A `SET`'s or `SET OF`'s members are not in ascending order — clause 11.6, and clause 10.3.
+    #[error("a SET's members are not in the ascending order X.690 clause 11.6 requires")]
+    SetOutOfOrder,
+    /// A `BOOLEAN` states a contents octet that is neither zero nor all ones — clause 11.1.
+    #[error("a BOOLEAN states {octet:#04X}, and X.690 clause 11.1 admits only 0x00 and 0xFF")]
+    BooleanNotZeroOrAllOnes {
+        /// The contents octet the file states.
+        octet: u8,
+    },
+    /// A bit string leaves a bit set in the unused tail of its final octet — clause 11.2.1.
+    #[error("a BIT STRING leaves a bit set that X.690 clause 11.2.1 requires to be zero")]
+    BitStringUnusedBitSet,
+    /// An `INTEGER` is written in more octets than its value needs — clause 8.3.2.
+    #[error("an INTEGER is not written in the fewest octets X.690 clause 8.3.2 allows")]
+    IntegerNotMinimal,
+    /// An `OBJECT IDENTIFIER` writes a subidentifier with a leading `80` octet — clause 8.19.2.
+    #[error(
+        "an OBJECT IDENTIFIER subidentifier is not in the fewest octets X.690 clause 8.19.2 allows"
+    )]
+    ObjectIdentifierNotMinimal,
+    /// A `UTCTime` or `GeneralizedTime` is not in the form clause 11.7 or 11.8 requires.
+    #[error("a time value departs from X.690 clause 11.7 or 11.8: {because}")]
+    TimeNotCanonical {
+        /// Which of the clause's requirements the value misses.
+        because: &'static str,
+    },
+}
+
+/// Whether a region is written in the distinguished encoding rules, throughout and at every depth.
+///
+/// # The question this reader's tolerance makes a caller ask
 ///
 /// RFC 5652 encodes a CMS object in BER and says so in its section 2: "each content type permits
 /// single pass processing using indefinite-length Basic Encoding Rules (BER) encoding". So the
@@ -366,25 +446,48 @@ fn consumed<'a>(whole: &'a [u8], rest: &[u8]) -> &'a [u8] {
 /// why it is load-bearing rather than tidy: what a signature over signed attributes is verified
 /// against is "the message digest of the complete DER encoding of the SignedAttrs value".
 ///
-/// A caller holding a region the RFC requires in DER asks this before digesting it. An answer of
-/// `false` means the octets the producer wrote are not the octets the signer signed, and the
-/// caller owes a refusal by name rather than a digest over the wrong bytes — which would come
-/// back as *this signature does not verify*, a sentence about the signature where the truth is a
-/// sentence about the encoding.
+/// A caller holding a region the RFC requires in DER asks this before digesting it. A
+/// [`NotCanonical`] means the octets the producer wrote are not the octets a conforming signer
+/// signed, and the caller owes a refusal *naming the rule* rather than a digest over the wrong
+/// bytes — which would come back as *this signature does not verify*, a sentence about the
+/// signature where the truth is a sentence about the encoding.
 ///
-/// # What this does **not** answer
+/// # What is checked, and what a walk over octets cannot reach
 ///
-/// It is not "is this DER". X.690 clause 10 restricts more than the length form — length octets
-/// must be the fewest possible, a `SET OF`'s members must be sorted, a string must be primitive —
-/// and none of those is checked here. The length form is checked because it is the one DER
-/// restriction *this reader* relaxes, and the only one that changes which octets a digest is
-/// computed over: a value re-tagged out of an indefinite-length encoding carries an
-/// end-of-contents marker where a definite-length one carries nothing.
+/// Every restriction below is decidable from the encoding alone. Three of clause 11's are not, and
+/// they are absent for that reason rather than by oversight:
+///
+/// - **Clause 11.5**, which forbids encoding a component equal to its `DEFAULT`, needs the ASN.1
+///   module: nothing in the octets says a component had a default.
+/// - **Clause 11.2.2**, which removes a named bit list's trailing zero bits, needs X.680's 22.7 to
+///   have been applied, which is again the module's.
+/// - **Clause 11.3** and **11.4**, for `REAL` and `GeneralString`, describe types no structure
+///   under RFC 5652 that this crate reads carries at all.
+///
+/// One structural limit is worth stating rather than discovering: the universal-type rules are
+/// applied to universal-class values only. RFC 5652 spells its optional members `[0] IMPLICIT`, so
+/// an octet string carried under a context tag states no universal tag and this walk cannot know
+/// what type it is. That is a gap in coverage, not a tolerance — such a value is still checked for
+/// everything the class does not hide, which is clause 10.1's two rules and clause 11.6's.
 ///
 /// # Errors
 ///
-/// Any [`DerError`] the region's encoding produces. An unreadable region is not a `false`: the
+/// Any [`DerError`] the region's encoding produces. An unreadable region is not a departure: the
 /// question was never answered, and the two are different things for a caller to say.
+pub fn is_canonical(bytes: &[u8]) -> Result<Option<NotCanonical>, DerError> {
+    canonical_throughout(&mut Reader::new(bytes)?)
+}
+
+/// Whether every value in a region states a definite length, at every depth.
+///
+/// [`is_canonical`] answers this and eight more rules; what keeps this one its own function is
+/// that it is the only DER restriction *this reader* relaxes, and so the only one whose answer
+/// changes which octets exist to be digested. [`Value::had_indefinite_length`] is the same
+/// question about a single value.
+///
+/// # Errors
+///
+/// Any [`DerError`] the region's encoding produces, on [`is_canonical`]'s reasoning.
 pub fn every_length_is_definite(bytes: &[u8]) -> Result<bool, DerError> {
     definite_throughout(&mut Reader::new(bytes)?)
 }
@@ -403,6 +506,258 @@ fn definite_throughout(reader: &mut Reader<'_>) -> Result<bool, DerError> {
         }
     }
     Ok(true)
+}
+
+/// [`is_canonical`], once the region is a reader: the first departure, or `None`.
+///
+/// Recursion is bounded by [`MAX_DEPTH`], which [`Value::children`] enforces by returning
+/// [`DerError::TooDeep`] rather than by descending.
+fn canonical_throughout(reader: &mut Reader<'_>) -> Result<Option<NotCanonical>, DerError> {
+    let mut previous: Option<&[u8]> = None;
+    let sorted = reader.set;
+    while let Some(value) = reader.next_value()? {
+        if let Some(departure) = value.departure() {
+            return Ok(Some(departure));
+        }
+        // Clause 11.6 compares whole encodings, so the ordering is decided by the enclosing
+        // reader rather than inside any child: what is compared is what the file wrote for each
+        // member, header included.
+        if sorted {
+            if previous.is_some_and(|before| precedes(value.encoding, before)) {
+                return Ok(Some(NotCanonical::SetOutOfOrder));
+            }
+            previous = Some(value.encoding);
+        }
+        if value.is_constructed()
+            && let Some(departure) = canonical_throughout(&mut value.children()?)?
+        {
+            return Ok(Some(departure));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether `later` sorts before `earlier` under X.690 clause 11.6's comparison.
+///
+/// The clause compares the encodings as octet strings "with the shorter components being padded at
+/// their trailing end with 0-octets", and the NOTE beside it says those octets are for the
+/// comparison only. So a common prefix decides nothing, and what settles a pair of different
+/// lengths is whether the longer one's tail is all zeros — equal under the padding — or not.
+fn precedes(later: &[u8], earlier: &[u8]) -> bool {
+    for index in 0..later.len().max(earlier.len()) {
+        let left = later.get(index).copied().unwrap_or(0);
+        let right = earlier.get(index).copied().unwrap_or(0);
+        if left != right {
+            return left < right;
+        }
+    }
+    false
+}
+
+/// The universal tag numbers X.690 clause 10.2 forbids the constructed form to.
+///
+/// Clause 10.2 names "bitstring, octetstring and restricted character string types". The restricted
+/// ones are X.680's, and the eleven numbers below are their universal tags; `CHARACTER STRING`
+/// (tag 29) is the unrestricted type and is deliberately absent, the clause not naming it.
+const STRING_TAGS: [u8; 13] = [
+    3,  // BIT STRING
+    4,  // OCTET STRING
+    12, // UTF8String
+    18, // NumericString
+    19, // PrintableString
+    20, // T61String
+    21, // VideotexString
+    22, // IA5String
+    25, // GraphicString
+    26, // VisibleString
+    27, // GeneralString
+    28, // UniversalString
+    30, // BMPString
+];
+
+/// `UTCTime`, primitive and universal — the type X.690 clause 11.8 restricts.
+const UTC_TIME: u8 = 23;
+/// `GeneralizedTime`, likewise, for clause 11.7.
+const GENERALIZED_TIME: u8 = 24;
+/// `BOOLEAN`, for clause 11.1.
+const BOOLEAN: u8 = 1;
+/// `BIT STRING`, for clause 11.2.1.
+const BIT_STRING: u8 = 3;
+
+impl Value<'_> {
+    /// The first distinguished-encoding rule this one value departs from, if any.
+    ///
+    /// Only this value: a constructed one's children are walked by [`canonical_throughout`], and
+    /// clause 11.6's ordering belongs to the enclosing reader rather than to any member of it.
+    fn departure(&self) -> Option<NotCanonical> {
+        if self.indefinite {
+            return Some(NotCanonical::IndefiniteLength);
+        }
+        // The identifier is one octet for every tag this reader reads (see `tag_number`), so what
+        // the header spent beyond it is the length octets, and the minimum form is arithmetic on
+        // the contents length.
+        let header = self.encoding.len().saturating_sub(self.contents.len());
+        let stated = header.saturating_sub(1);
+        let needed = minimum_length_octets(self.contents.len());
+        if stated != needed {
+            return Some(NotCanonical::LengthNotMinimal {
+                length: self.contents.len(),
+                stated,
+                needed,
+            });
+        }
+        if self.class() != Class::Universal {
+            return None;
+        }
+        let tag = self.tag_number();
+        if self.is_constructed() {
+            return STRING_TAGS
+                .contains(&tag)
+                .then_some(NotCanonical::ConstructedString { tag });
+        }
+        match tag {
+            BOOLEAN => match self.contents {
+                [octet] if *octet != 0x00 && *octet != 0xFF => {
+                    Some(NotCanonical::BooleanNotZeroOrAllOnes { octet: *octet })
+                }
+                _ => None,
+            },
+            BIT_STRING => bit_string_departure(self.contents),
+            // `INTEGER` and `ENUMERATED`, clause 8.4 making the second the encoding of the first.
+            INTEGER | 10 => integer_departure(self.contents),
+            OBJECT_IDENTIFIER | 13 => object_identifier_departure(self.contents),
+            UTC_TIME => time_departure(self.contents, 13),
+            GENERALIZED_TIME => time_departure(self.contents, 15),
+            _ => None,
+        }
+    }
+}
+
+/// How many length octets X.690 clause 10.1's minimum form spends on a given contents length.
+///
+/// Clause 8.1.3.4's short form is one octet for 127 or fewer; clause 8.1.3.5's long form is a
+/// count octet followed by the length as an unsigned binary integer, which the minimum form writes
+/// in the fewest octets that hold it.
+fn minimum_length_octets(length: usize) -> usize {
+    if length < 0x80 {
+        return 1;
+    }
+    let mut octets = 0usize;
+    let mut remaining = length;
+    while remaining > 0 {
+        octets = octets.saturating_add(1);
+        remaining >>= 8;
+    }
+    octets.saturating_add(1)
+}
+
+/// X.690 clause 11.2.1 for one bit string's contents, plus clause 8.6.2.2's range on the count.
+///
+/// The initial octet counts the unused bits in the final octet and clause 8.6.2.2 puts it in the
+/// range zero to seven; clause 8.6.2.3 makes an empty bit string a lone zero octet. A count
+/// outside the range is a departure from BER, which DER inherits whole.
+fn bit_string_departure(contents: &[u8]) -> Option<NotCanonical> {
+    let (&unused, rest) = contents.split_first()?;
+    if unused > 7 || (unused != 0 && rest.is_empty()) {
+        return Some(NotCanonical::BitStringUnusedBitSet);
+    }
+    if unused == 0 {
+        return None;
+    }
+    // The unused bits are the low `unused` bits of the final octet; clause 11.2.1 requires each of
+    // them to be zero. `unused` is now between one and seven — clause 8.6.2.2's range, with zero
+    // returned above — so the shift stays inside a `u8`.
+    let mask = 0xFFu8 >> (8u8.saturating_sub(unused));
+    (rest.last().copied().unwrap_or(0) & mask != 0).then_some(NotCanonical::BitStringUnusedBitSet)
+}
+
+/// X.690 clause 8.3.2 for one integer's contents.
+///
+/// Where the contents are more than one octet, the first octet and bit 8 of the second may be
+/// neither all ones nor all zero — which is the clause's way of saying a redundant leading `00` or
+/// `FF` is not written, and its NOTE says as much: "[t]hese rules ensure that an integer value is
+/// always encoded in the smallest possible number of octets". Clause 8.3.1 requires at least one
+/// octet, so an empty `INTEGER` is a departure too.
+fn integer_departure(contents: &[u8]) -> Option<NotCanonical> {
+    match contents {
+        [] => Some(NotCanonical::IntegerNotMinimal),
+        [first, second, ..]
+            if (*first == 0x00 && *second & 0x80 == 0)
+                || (*first == 0xFF && *second & 0x80 != 0) =>
+        {
+            Some(NotCanonical::IntegerNotMinimal)
+        }
+        _ => None,
+    }
+}
+
+/// X.690 clause 8.19.2 for one object identifier's contents.
+///
+/// Each subidentifier is a base-128 number whose octets carry bit 8 set except the last, and the
+/// clause requires the fewest: "the leading octet of the subidentifier shall not have the value
+/// 8016". A series that never ends is a truncated encoding rather than a non-minimal one, and is
+/// reported under the same rule because the contents are not an object identifier either way.
+fn object_identifier_departure(contents: &[u8]) -> Option<NotCanonical> {
+    let mut leading = true;
+    for &octet in contents {
+        if leading && octet == 0x80 {
+            return Some(NotCanonical::ObjectIdentifierNotMinimal);
+        }
+        leading = octet & 0x80 == 0;
+    }
+    // `leading` is true exactly when the last octet ended a subidentifier.
+    (!leading).then_some(NotCanonical::ObjectIdentifierNotMinimal)
+}
+
+/// X.690 clauses 11.7 and 11.8 for one time value's contents.
+///
+/// `digits` is how many the type's fixed part has — ten for `UTCTime`'s two-digit year through its
+/// seconds, twelve for `GeneralizedTime`'s four-digit year — so `digits + 1` is the whole encoding
+/// with its terminating "Z" and nothing optional. Both clauses require that terminator and require
+/// the seconds element to be present; clause 11.7.3 and 11.7.4 restrict `GeneralizedTime`'s
+/// fraction, which `UTCTime` does not have at all. The midnight rule (clause 11.7.5, clause 11.8.3)
+/// is what rejects an hours element of 24.
+fn time_departure(contents: &[u8], length: usize) -> Option<NotCanonical> {
+    let fixed = length.saturating_sub(1);
+    if contents.len() < length {
+        return Some(NotCanonical::TimeNotCanonical {
+            because: "it is shorter than a terminated encoding with its seconds element",
+        });
+    }
+    if contents.last() != Some(&b'Z') {
+        return Some(NotCanonical::TimeNotCanonical {
+            because: "it does not terminate with Z",
+        });
+    }
+    if !contents.get(..fixed)?.iter().all(u8::is_ascii_digit) {
+        return Some(NotCanonical::TimeNotCanonical {
+            because: "its date and time elements are not all digits",
+        });
+    }
+    // The hours element is the two digits before the minutes and seconds, so it starts four
+    // octets from the end of the fixed part.
+    if contents.get(fixed.saturating_sub(6)..fixed.saturating_sub(4)) == Some(b"24") {
+        return Some(NotCanonical::TimeNotCanonical {
+            because: "midnight is written as hour 24 rather than as the following day",
+        });
+    }
+    let fraction = contents.get(fixed..contents.len().saturating_sub(1))?;
+    if fraction.is_empty() {
+        return None;
+    }
+    match fraction.split_first() {
+        Some((b'.', digits))
+            if !digits.is_empty()
+                && digits.iter().all(u8::is_ascii_digit)
+                && digits.last() != Some(&b'0') => {}
+        _ => {
+            return Some(NotCanonical::TimeNotCanonical {
+                because: "its fractional-seconds element is not a point followed by digits \
+                          without trailing zeros",
+            });
+        }
+    }
+    None
 }
 
 /// Where an indefinite-length value's contents stop: the offset of its end-of-contents marker.
@@ -464,43 +819,194 @@ fn end_of_contents(bytes: &[u8], depth: u8) -> Result<usize, DerError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Class, DerError, MAX_VALUE, OBJECT_IDENTIFIER, Reader, SEQUENCE};
+    use super::{
+        Class, DerError, INTEGER, MAX_VALUE, NotCanonical, OBJECT_IDENTIFIER, Reader, SEQUENCE, SET,
+    };
 
-    /// The question a caller holding one of RFC 5652's DER-only regions asks, at every depth.
+    /// One value, with the given identifier and contents, in the shortest length form.
+    fn value(identifier: u8, contents: &[u8]) -> Vec<u8> {
+        let mut out = vec![identifier];
+        assert!(contents.len() < 128, "the fixtures here are all short");
+        out.push(u8::try_from(contents.len()).unwrap_or(0));
+        out.extend_from_slice(contents);
+        out
+    }
+
+    /// A `SEQUENCE` around already-encoded children — a region for [`super::is_canonical`] to walk.
+    fn region(children: &[Vec<u8>]) -> Vec<u8> {
+        value(SEQUENCE, &children.concat())
+    }
+
+    /// Every rule [`super::is_canonical`] states, planted one at a time beside a conforming twin.
     ///
-    /// Three inputs and the middle one is the calibration: the indefinite length is moved one
-    /// level down, where a check that looked only at the region's top-level values would miss it.
-    /// RFC 5652 section 5.4 digests "the complete DER encoding of the SignedAttrs value", which is
-    /// every octet of it and not just the outermost headers.
+    /// **Each row is a pair that differs by exactly one thing** (trap 13): a value violating one
+    /// rule and the same value written as DER requires. A checker that only ever refused would be
+    /// trivially correct and would say nothing about whether any rule is load-bearing; a checker
+    /// whose conforming twin also failed would be firing on the shape rather than on the defect.
+    /// Both halves of every pair are asserted, and the walk is one level down inside a `SEQUENCE`
+    /// so that a check reading only a region's top-level values would miss every one of them.
     #[test]
-    fn a_region_says_whether_every_length_in_it_is_definite() {
-        // `SEQUENCE { OBJECT IDENTIFIER 1.2 }`, wholly definite.
-        let definite = vec![SEQUENCE, 0x04, OBJECT_IDENTIFIER, 0x02, 0x2A, 0x03];
-        assert_eq!(super::every_length_is_definite(&definite), Ok(true));
-        // The same SEQUENCE, written in X.690 clause 8.1.3.6's indefinite form.
-        let shallow = vec![
-            SEQUENCE,
-            0x80,
-            OBJECT_IDENTIFIER,
-            0x02,
-            0x2A,
-            0x03,
-            0x00,
-            0x00,
+    fn every_rule_is_planted_beside_the_encoding_that_obeys_it() {
+        // X.690 clause 10.1: the definite form, in the minimum number of octets.
+        let indefinite = {
+            let mut out = vec![SEQUENCE, 0x80];
+            out.extend_from_slice(&value(INTEGER, &[0x07]));
+            out.extend_from_slice(&[0x00, 0x00]);
+            out
+        };
+        // The same `SEQUENCE { INTEGER 7 }`, with the length written in two octets.
+        let padded = vec![SEQUENCE, 0x81, 0x03, INTEGER, 0x01, 0x07];
+        let rows: [(Vec<u8>, NotCanonical, Vec<u8>); 9] = [
+            (
+                indefinite,
+                NotCanonical::IndefiniteLength,
+                value(SEQUENCE, &value(INTEGER, &[0x07])),
+            ),
+            (
+                padded,
+                NotCanonical::LengthNotMinimal {
+                    length: 3,
+                    stated: 2,
+                    needed: 1,
+                },
+                value(SEQUENCE, &value(INTEGER, &[0x07])),
+            ),
+            // Clause 10.2: a constructed `OCTET STRING`, against the primitive one.
+            (
+                value(0x24, &value(0x04, b"abc")),
+                NotCanonical::ConstructedString { tag: 4 },
+                value(0x04, b"abc"),
+            ),
+            // Clause 11.6: two members of a `SET` in descending order.
+            (
+                value(
+                    SET,
+                    &[value(INTEGER, &[0x02]), value(INTEGER, &[0x01])].concat(),
+                ),
+                NotCanonical::SetOutOfOrder,
+                value(
+                    SET,
+                    &[value(INTEGER, &[0x01]), value(INTEGER, &[0x02])].concat(),
+                ),
+            ),
+            // Clause 11.1: a `BOOLEAN` TRUE written as 1 rather than with all eight bits set.
+            (
+                value(0x01, &[0x01]),
+                NotCanonical::BooleanNotZeroOrAllOnes { octet: 0x01 },
+                value(0x01, &[0xFF]),
+            ),
+            // Clause 11.2.1: three unused bits, one of which is set.
+            (
+                value(0x03, &[0x03, 0xF8 | 0x04]),
+                NotCanonical::BitStringUnusedBitSet,
+                value(0x03, &[0x03, 0xF8]),
+            ),
+            // Clause 8.3.2: a redundant leading zero octet, which DER inherits from BER.
+            (
+                value(INTEGER, &[0x00, 0x07]),
+                NotCanonical::IntegerNotMinimal,
+                value(INTEGER, &[0x07]),
+            ),
+            // Clause 8.19.2: `1.2.840.113549` with its third subidentifier padded by a `80` octet.
+            (
+                value(OBJECT_IDENTIFIER, &[0x2A, 0x80, 0x86, 0x48]),
+                NotCanonical::ObjectIdentifierNotMinimal,
+                value(OBJECT_IDENTIFIER, &[0x2A, 0x86, 0x48]),
+            ),
+            // Clause 11.8.2: a `UTCTime` with its seconds element omitted.
+            (
+                value(0x17, b"2608070000Z"),
+                NotCanonical::TimeNotCanonical {
+                    because: "it is shorter than a terminated encoding with its seconds element",
+                },
+                value(0x17, b"260807000000Z"),
+            ),
         ];
-        assert_eq!(super::every_length_is_definite(&shallow), Ok(false));
-        // And one level further down: a definite SEQUENCE whose only child is `shallow`.
-        let mut deep = vec![SEQUENCE, 0x08];
-        deep.extend_from_slice(&shallow);
+        for (planted, rule, conforming) in rows {
+            assert_eq!(
+                super::is_canonical(&region(std::slice::from_ref(&planted))),
+                Ok(Some(rule)),
+                "the planted {rule:?} was not named"
+            );
+            assert_eq!(
+                super::is_canonical(&region(&[conforming])),
+                Ok(None),
+                "the control for {rule:?} is DER and must not be refused"
+            );
+        }
+    }
+
+    /// The three comparisons that a reversed pair of members would not reach.
+    ///
+    /// Clause 11.6 compares the members of a set as octet strings, which means the *length* octets
+    /// are compared before any contents are — so what decides an ordering is usually the shorter
+    /// encoding rather than the smaller value, and a test that only reversed two equal-length
+    /// members would never see the difference. Clause 11.7.3 forbids a fractional-seconds
+    /// element's trailing zeros and clause 11.8.3 writes midnight as the following day's
+    /// `000000`; both clauses print the invalid forms as examples, and both are asserted below
+    /// against the valid ones printed beside them.
+    #[test]
+    fn the_comparisons_are_the_clauses_own() {
+        // `SET { OCTET STRING "a", OCTET STRING "ab" }`: the length octet decides, and the
+        // shorter member comes first however the contents compare.
         assert_eq!(
-            super::every_length_is_definite(&deep),
-            Ok(false),
-            "a check reading only the region's top-level values would answer true here"
+            super::is_canonical(&region(&[value(
+                SET,
+                &[value(0x04, b"a"), value(0x04, b"ab")].concat()
+            )])),
+            Ok(None)
         );
-        // An unreadable region is neither answer: the question was not put.
         assert_eq!(
-            super::every_length_is_definite(&[SEQUENCE, 0x09, 0x02]),
-            Err(DerError::Truncated)
+            super::is_canonical(&region(&[value(
+                SET,
+                &[value(0x04, b"ab"), value(0x04, b"a")].concat()
+            )])),
+            Ok(Some(NotCanonical::SetOutOfOrder))
+        );
+        // The padding the clause states is for the comparison only, and between two well-formed
+        // members it decides nothing: encodings of different lengths differ in their length octets
+        // before the shorter one runs out. It is implemented because the clause states it, and
+        // asserted here directly because no pair of members can reach it.
+        assert!(!super::precedes(
+            &[0x04, 0x01, 0x61, 0x00],
+            &[0x04, 0x01, 0x61]
+        ));
+        assert!(!super::precedes(
+            &[0x04, 0x01, 0x61],
+            &[0x04, 0x01, 0x61, 0x00]
+        ));
+        assert!(super::precedes(
+            &[0x04, 0x01, 0x61],
+            &[0x04, 0x01, 0x61, 0x01]
+        ));
+        // Clause 8.6.2.2 admits a count of zero and clause 8.6.2.3 makes an empty bit string a
+        // lone zero octet, so both are DER and neither may be read as a bit left set. Every real
+        // certificate's signature is the first of the two, which is how this was found.
+        assert_eq!(
+            super::is_canonical(&region(&[value(0x03, &[0x00, 0xFF, 0xFF])])),
+            Ok(None)
+        );
+        assert_eq!(
+            super::is_canonical(&region(&[value(0x03, &[0x00])])),
+            Ok(None)
+        );
+        // Clause 11.7.3's spurious trailing zeros, which the clause's own example names.
+        assert!(matches!(
+            super::is_canonical(&region(&[value(0x18, b"19920622123421.0Z")])),
+            Ok(Some(NotCanonical::TimeNotCanonical { .. }))
+        ));
+        assert_eq!(
+            super::is_canonical(&region(&[value(0x18, b"19920722132100.3Z")])),
+            Ok(None)
+        );
+        // Clause 11.8.3's midnight, which the clause's own example names as invalid.
+        assert!(matches!(
+            super::is_canonical(&region(&[value(0x17, b"920520240000Z")])),
+            Ok(Some(NotCanonical::TimeNotCanonical { .. }))
+        ));
+        assert_eq!(
+            super::is_canonical(&region(&[value(0x17, b"920521000000Z")])),
+            Ok(None)
         );
     }
 

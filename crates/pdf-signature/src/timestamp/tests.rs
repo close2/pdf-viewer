@@ -171,21 +171,49 @@ fn four_things_that_stop_a_tst_info_from_reading_are_each_named() {
     );
 
     // `genTime` spelled with a local-time offset instead of RFC 3161's "Z", which the clause
-    // forbids outright: "The encoding MUST terminate with a \"Z\"".
+    // forbids outright: "The encoding MUST terminate with a \"Z\"". ITU-T X.690 clause 11.7.1
+    // forbids it as well, and the DER check runs first because RFC 3161 section 2.4.2 makes the
+    // whole structure's encoding a precondition for reading any of it — so this is refused as an
+    // encoding rather than as a time, and the sentence a reader gets says which clause it broke.
     let mut local = content.to_vec();
     let at = local
         .windows(4)
         .position(|window| window == b"2026")
         .expect("genTime's year");
     local[at.saturating_add(14)] = b'+';
-    assert_eq!(tst_info(&local), Err(TokenRefusal::GenTimeUnreadable));
+    assert_eq!(
+        tst_info(&local),
+        Err(TokenRefusal::NotDerEncoded(
+            crate::der::NotCanonical::TimeNotCanonical {
+                because: "it does not terminate with Z"
+            }
+        ))
+    );
+
+    // And `GenTimeUnreadable` is still what a time this reader cannot place on a line gives:
+    // clause 11.7 restricts the *form* and says nothing about a month, so a thirteenth one is
+    // canonical DER and is still not a date. Without this the variant above would have taken the
+    // whole of this refusal's population.
+    let mut thirteenth = content.to_vec();
+    let at = thirteenth
+        .windows(4)
+        .position(|window| window == b"2026")
+        .expect("genTime's year");
+    thirteenth[at.saturating_add(4)] = b'1';
+    thirteenth[at.saturating_add(5)] = b'3';
+    assert_eq!(tst_info(&thirteenth), Err(TokenRefusal::GenTimeUnreadable));
 
     // An indefinite length where RFC 3161 section 2.4.2 requires DER: "The eContent SHALL be the
     // DER-encoded value of TSTInfo."
     let mut indefinite = vec![0x30, 0x80];
     indefinite.extend_from_slice(content.get(2..).unwrap_or_default());
     indefinite.extend_from_slice(&[0x00, 0x00]);
-    assert_eq!(tst_info(&indefinite), Err(TokenRefusal::NotDerEncoded));
+    assert_eq!(
+        tst_info(&indefinite),
+        Err(TokenRefusal::NotDerEncoded(
+            crate::der::NotCanonical::IndefiniteLength
+        ))
+    );
 }
 
 /// `genTime` with RFC 3161's fraction of a second, which RFC 5280's reader refuses by design.

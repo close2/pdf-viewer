@@ -698,10 +698,11 @@ fn authenticity_sentence(authenticity: &Authenticity, integrity: Integrity) -> S
         Authenticity::RangeNotReadable => {
             "the source's bytes could not be read for the verification".to_owned()
         }
-        Authenticity::SignedAttributesNotDer => "its signed attributes are not DER encoded, \
-             which RFC 5652 section 5.3 requires of them, so what the signer digested is not in \
-             the source and it was not checked against a key"
-            .to_owned(),
+        Authenticity::SignedAttributesNotDer { rule } => format!(
+            "its signed attributes are not DER encoded — {rule} — which RFC 5652 section 5.3 \
+             requires of them, so what the signer digested is not in the source and it was not \
+             checked against a key"
+        ),
         Authenticity::Unreadable(error) => {
             format!("its value could not be read as a CMS object: {error}")
         }

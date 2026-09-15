@@ -1773,6 +1773,43 @@ pub(crate) mod fixtures {
         )
     }
 
+    /// [`detached`] with the outer `ContentInfo`'s length written in one octet more than it needs.
+    ///
+    /// §12.8.3.4.2's first sentence is the only rule of that subclause about the *encoding* of the
+    /// value, and the only thing that can exercise it is a value that reads and is not DER. One
+    /// octet is the smallest such deformation there is: ITU-T X.690 clause 8.1.3.5's NOTE 2 makes
+    /// spending it a sender's option in BER — "it is a sender's option whether to use more length
+    /// octets than the minimum necessary" — and clause 10.1 takes the option away in DER, so the
+    /// same bytes are a conforming CMS object and a departing `PAdES` one.
+    pub(crate) fn detached_with_a_padded_length(digest: &[u8]) -> Vec<u8> {
+        let der = detached(digest);
+        // The outer value's header, read rather than assumed: `primitive` picks its length form
+        // from the contents length, so which octet the contents start at depends on how long the
+        // fixture happens to be.
+        let first_length = der.get(1).copied().unwrap_or(0);
+        let length_octets = if first_length & 0x80 == 0 {
+            1
+        } else {
+            usize::from(first_length & 0x7F).saturating_add(1)
+        };
+        let header = length_octets.saturating_add(1);
+        let contents = der.get(header..).unwrap_or_default();
+        // The same length in one octet more than the minimum: a leading zero ahead of whatever
+        // octets `primitive` wrote, with the count raised to match.
+        let mut out = vec![
+            der.first().copied().unwrap_or(0x30),
+            0x80 | u8::try_from(length_octets).unwrap_or(1),
+            0x00,
+        ];
+        if first_length & 0x80 == 0 {
+            out.push(first_length);
+        } else {
+            out.extend_from_slice(der.get(2..header).unwrap_or_default());
+        }
+        out.extend_from_slice(contents);
+        out
+    }
+
     /// The same with no signed attributes at all, which RFC 5652 permits.
     ///
     /// `bug854315.pdf` is this shape. There is then no `message-digest` recording the document's
@@ -1858,42 +1895,178 @@ pub(crate) mod fixtures {
         )
     }
 
-    /// [`detached_dsa`] with one signed attribute, written in DER or in X.690's indefinite form.
+    /// One departure from the distinguished encoding rules, as a signed attribute can carry it.
+    ///
+    /// RFC 5652 section 5.4 makes the signature over "the message digest of the complete DER
+    /// encoding of the SignedAttrs value", so every rule ITU-T X.690 clause 10 states about that
+    /// region is one a verifier has to be able to name. Each case below is a *construction a real
+    /// signed attribute has* — an attribute's own object identifier, a `message-digest`'s octet
+    /// string, a `signing-time`, an RFC 5035 `IssuerSerial`'s serial number — deformed in exactly
+    /// one way, and [`detached_dsa_whose_attribute_is`] builds it both ways.
+    ///
+    /// **Clause 11.1's `BOOLEAN` and clause 11.2.1's `BIT STRING` have no case here, and the
+    /// absence is a statement rather than an omission**: nothing RFC 5652, RFC 5035 or ETSI
+    /// EN 319 122-1 defines inside `SignedAttrs` is either type. `AttributeValue ::= ANY` would
+    /// admit one, so the rules are checked and are reachable from a file; what does not exist is a
+    /// *defined* attribute to plant one in, and inventing an object identifier to carry it would be
+    /// a fixture about nothing. Their calibration is `crate::der`'s pair, one level down.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum NotDer {
+        /// X.690 clause 10.1: the attribute's `SEQUENCE` states the indefinite length.
+        IndefiniteLength,
+        /// X.690 clause 10.1: the same `SEQUENCE`'s definite length in one octet more than it needs.
+        LengthNotMinimal,
+        /// X.690 clause 10.2: `message-digest`'s `OCTET STRING` written in the constructed form.
+        ConstructedString,
+        /// X.690 clause 11.6: two `signing-time` values in descending order.
+        SetOutOfOrder,
+        /// X.690 clause 8.3.2: an RFC 5035 `IssuerSerial`'s serial number with a leading zero octet.
+        IntegerNotMinimal,
+        /// X.690 clause 8.19.2: the attribute type's own identifier with a padded subidentifier.
+        ObjectIdentifierNotMinimal,
+        /// X.690 clause 11.8.2: a `signing-time` whose seconds element is omitted.
+        TimeNotCanonical,
+    }
+
+    /// The one signed attribute of a [`NotDer`] case, planted or written as DER.
+    ///
+    /// `certificate` is the signer's, and only one case needs it: §12.8.3.4.5 (a) puts the
+    /// signing-certificate comparison *before* the signature arithmetic, so a fixture that carries
+    /// an `ESSCertIDv2` has to carry the real hash of the real certificate or it would be refused
+    /// for the mismatch and never reach the encoding rule the case is about.
+    fn signed_attribute_for(case: NotDer, planted: bool, certificate: &[u8]) -> Vec<u8> {
+        let signing_time = |octets: &[u8]| primitive(0x17, octets);
+        let conforming_time = signing_time(b"260807000000Z");
+        match case {
+            NotDer::IndefiniteLength if planted => {
+                // X.690 clause 8.1.3.6: a constructed value may state `80` and close with the
+                // end-of-contents marker instead of counting its bytes. The same members as
+                // `attribute` writes, with only the outer SEQUENCE's length octets changed.
+                let mut out = vec![0x30, 0x80];
+                out.extend_from_slice(&primitive(0x06, ID_SIGNING_TIME));
+                out.extend_from_slice(&tagged(0x31, &[conforming_time]));
+                out.extend_from_slice(&[0x00, 0x00]);
+                out
+            }
+            NotDer::LengthNotMinimal if planted => {
+                // The long form of clause 8.1.3.5 where the short form of 8.1.3.4 would do: one
+                // count octet and one length octet for a length clause 10.1 writes in one.
+                let members = [
+                    primitive(0x06, ID_SIGNING_TIME),
+                    tagged(0x31, &[conforming_time]),
+                ]
+                .concat();
+                let mut out = vec![0x30, 0x81, u8::try_from(members.len()).unwrap_or(0)];
+                out.extend_from_slice(&members);
+                out
+            }
+            NotDer::ConstructedString => attribute(
+                ID_MESSAGE_DIGEST,
+                if planted {
+                    tagged(
+                        0x24,
+                        &[primitive(0x04, &[0x11; 16]), primitive(0x04, &[0x22; 16])],
+                    )
+                } else {
+                    primitive(0x04, &[[0x11; 16], [0x22; 16]].concat())
+                },
+            ),
+            NotDer::SetOutOfOrder => {
+                let earlier = signing_time(b"260807000000Z");
+                let later = signing_time(b"260807000001Z");
+                let values = if planted {
+                    [later, earlier]
+                } else {
+                    [earlier, later]
+                };
+                tagged(
+                    0x30,
+                    &[primitive(0x06, ID_SIGNING_TIME), tagged(0x31, &values)],
+                )
+            }
+            NotDer::IntegerNotMinimal => {
+                // RFC 5035 section 4's `ESSCertIDv2 ::= SEQUENCE { hashAlgorithm DEFAULT sha256,
+                // certHash OCTET STRING, issuerSerial IssuerSerial OPTIONAL }`, whose
+                // `IssuerSerial ::= SEQUENCE { issuer GeneralNames, serialNumber
+                // CertificateSerialNumber }` ends in the one `INTEGER` a signed attribute defines.
+                let serial = if planted {
+                    primitive(0x02, &[0x00, 0x2A])
+                } else {
+                    primitive(0x02, &[0x2A])
+                };
+                let issuer_serial = tagged(
+                    0x30,
+                    &[
+                        // `GeneralNames`, holding one `directoryName [4] EXPLICIT Name`.
+                        tagged(0x30, &[tagged(0xA4, &[tagged(0x30, &[])])]),
+                        serial,
+                    ],
+                );
+                attribute(
+                    ID_AA_SIGNING_CERTIFICATE_V2,
+                    tagged(
+                        0x30,
+                        &[tagged(
+                            0x30,
+                            &[tagged(
+                                0x30,
+                                &[
+                                    primitive(0x04, &Digest::Sha256.compute(&[certificate])),
+                                    issuer_serial,
+                                ],
+                            )],
+                        )],
+                    ),
+                )
+            }
+            NotDer::ObjectIdentifierNotMinimal => {
+                // `signing-time`'s own identifier, with a `80` octet padding the subidentifier
+                // that follows the first — the leading octet clause 8.19.2 forbids.
+                let mut padded = vec![ID_SIGNING_TIME[0], 0x80];
+                padded.extend_from_slice(ID_SIGNING_TIME.get(1..).unwrap_or(&[]));
+                tagged(
+                    0x30,
+                    &[
+                        primitive(0x06, if planted { &padded } else { ID_SIGNING_TIME }),
+                        tagged(0x31, &[conforming_time]),
+                    ],
+                )
+            }
+            _ => attribute(
+                ID_SIGNING_TIME,
+                if planted && case == NotDer::TimeNotCanonical {
+                    signing_time(b"2608070000Z")
+                } else {
+                    conforming_time
+                },
+            ),
+        }
+    }
+
+    /// [`detached_dsa`] whose one signed attribute carries a [`NotDer`] case, or obeys it.
     ///
     /// The pair is a calibration and nothing else: RFC 5652 section 5.3 requires signed attributes
     /// in DER "even if the rest of the structure is BER encoded", so the two values differ by
-    /// exactly the defect the rule is about and by nothing else. `indefinite` being false is the
+    /// exactly the rule the case is about and by nothing else. `planted` being false is the
     /// control that must *not* be refused for its encoding.
     ///
-    /// The attribute is `signing-time`, chosen because it carries no meaning this program acts on:
-    /// what the test is reading is the encoding, and an attribute the verifier consults would put
-    /// a second reason in the way of the first.
-    pub(crate) fn detached_dsa_stating_signing_time(
+    /// Every case but one is built around `signing-time`, chosen because it carries no meaning
+    /// this program acts on: what the test is reading is the encoding, and an attribute the
+    /// verifier consults would put a second reason in the way of the first.
+    pub(crate) fn detached_dsa_whose_attribute_is(
         certificate: &[u8],
         issuer: &[u8],
         serial: &[u8],
         signature: &[u8],
-        indefinite: bool,
+        case: NotDer,
+        planted: bool,
     ) -> Vec<u8> {
-        let value = tagged(0x31, &[primitive(0x17, b"260807000000Z")]);
-        let attribute = if indefinite {
-            // X.690 clause 8.1.3.6: a constructed value may state `80` and close with the
-            // end-of-contents marker instead of counting its bytes. The same members as
-            // `attribute` writes, with only the outer SEQUENCE's length octets changed.
-            let mut out = vec![0x30, 0x80];
-            out.extend_from_slice(&primitive(0x06, ID_SIGNING_TIME));
-            out.extend_from_slice(&value);
-            out.extend_from_slice(&[0x00, 0x00]);
-            out
-        } else {
-            tagged(0x30, &[primitive(0x06, ID_SIGNING_TIME), value])
-        };
         detached_dsa_with(
             certificate,
             issuer,
             serial,
             signature,
-            Some(vec![attribute]),
+            Some(vec![signed_attribute_for(case, planted, certificate)]),
         )
     }
 

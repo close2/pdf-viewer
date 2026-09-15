@@ -1662,6 +1662,11 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/extension-schemas-embedded",
         Because::NotBuiltYet(EXTENSION_CONTAINER_NOT_EMITTED),
     ),
+    // ISO 19005-2 section 6.6.2.3.1, the half of it that reaches inside a structure.
+    (
+        "metadata/extension-schema-structure-fields-are-described",
+        Because::NotBuiltYet(UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED),
+    ),
     (
         "metadata/identification-amendment-form",
         Because::NotBuiltYet(AMENDMENT_IDENTIFIER_NOT_REMOVED),
@@ -2132,6 +2137,19 @@ const XMP_STRAY_CHARACTER_DATA_NOT_REMOVED: &str = "this packet writes non-white
      Whether taking it out is mechanical or an authorised loss is a question this row does not \
      settle: it expresses nothing a reader of the packet can use, and it is still bytes somebody \
      wrote, which is section 3.9's shape exactly";
+
+/// Why a structure field no value type describes is left where it is.
+///
+/// The requirement arrived in session 1079, and the census ratchet caught it the same day —
+/// `XMP_STRAY_CHARACTER_DATA_NOT_REMOVED`'s shape exactly, and for the same reason.
+const UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED: &str = "this packet states a structure field for a \
+     property of an extension schema value type that describes no such field, so the packet \
+     contradicts its own description. There are two repairs and this converter can make neither \
+     without deciding something the file does not say: describing the field means writing a \
+     pdfaField:name, a pdfaField:valueType and a pdfaField:description that only the producer \
+     holds, which is doc/pdf-a-conversion-limits.md section 4.2's Ask; removing the field means \
+     cutting a value somebody wrote, which is section 3.9's authorised loss and needs the span \
+     remover in pdf_model::xmp to take a field of a structure rather than a property";
 
 /// Why an extension schema container is not emitted for an undescribed schema.
 const EXTENSION_CONTAINER_NOT_EMITTED: &str = "this packet uses a schema outside the predefined \

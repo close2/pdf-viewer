@@ -1193,11 +1193,34 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// extractor's ascent/descent convention on **both** axes, and the 90-degree transposition in
 /// [`PairDelta::in_reading_frame`] cannot name a diagonal reading axis.
 ///
-/// **One is undiagnosed and the question is ours** — `issue6127.pdf`, *past the horizontal
-/// bound alone*: the last two words of one line, `(réf.` and `S3182).`, sit 3.02 pt — one
-/// space advance at the line's 12 pt — from where **both** references put them (`pdftotext`'s
-/// xMin 165.12, `mutool`'s 165.117), so the two independent readers agree against this tree
-/// and no convention explains it. The line mixes four fonts with `Tc` kerning between them.
+/// **A glyph in a font this tree refuses does not advance the pen** — `issue6127.pdf`, *past the
+/// horizontal bound alone*: the last two words of one line, `(réf.` and `S3182).`, sit 3.02 pt
+/// *before* where **both** references put them (`pdftotext`'s xMin 165.117 and `mutool`'s `(`
+/// at 165.11672 against this tree's 162.101). Page one states, inside one text object,
+/// `/C2_14 1 Tf  5.737 0 Td  <0003>Tj  /C2_2 1 Tf  [<0003>187<000b>-32<0055>…]TJ`, and `/C2_14`
+/// is `/TimesNewRoman`, `/Type0`, `/Encoding /Identity-H` over a `/CIDFontType2` with no embedded
+/// program — a combination §9.7.5.2 forbids outright:
+///
+/// > The Identity-H and Identity-V CMaps shall not be used with a non-embedded font.
+///
+/// The file broke that, and `pdf_font`'s refusal is the honest answer to it; what is this tree's is
+/// that the refusal does not stay inside the font it is about. `Reader::show_text` returns before
+/// §9.4.4's `t x` is computed for a show string whose font failed to load, so the `TJ` after it —
+/// drawn by `/C2_2`, a font this tree does load — begins where the `Td` left the pen instead of
+/// 3.0158 pt along it, and both words carry that whole error.
+///
+/// The displacement the refusal drops is the *file's*, not the program's. §9.7.4.3 states it:
+///
+/// > Widths for a CIDFont are defined using the DW and W entries in the CIDFont dictionary.
+///
+/// That descendant's `/W` states 250 for CID 3, so `t x` is (0.25 + `Tc` 0.0013) × the text
+/// matrix's 12.0008 = 3.0158 pt whatever the program does — `Tw` staying out of it because §9.3.3
+/// applies word spacing "only to the ASCII SPACE character (20h)" and an `Identity-H` code is two
+/// bytes. Both references advance it and place every later glyph on the line accordingly. The two
+/// earlier `/C2_14` spaces on the same line are each followed by a `Td` that re-establishes the
+/// position from the line matrix, which is why only the two words after the third one move.
+/// Closing it wants a font that carries the dictionary's metrics with no program behind them,
+/// which is `pdf-font`'s to build.
 const SELECTION_BELOW_FLOOR: [&str; 10] = [
     "TrueType_without_cmap.pdf",
     "bug1771477.pdf",
@@ -1243,15 +1266,19 @@ const JUDGED_FLOOR: usize = 503;
 /// document entering or leaving the judged set moves it — that is a fall with a reason, and the
 /// reason is legible in the refusal table on the same run.
 ///
-/// **8562 to 8563 in the thousand-and-sixty-first session, and nothing was fixed in it.** The
-/// population had risen by one under a floor that stayed where the rise before it had put it, so a
-/// matched pair could have been lost and this measure would not have spoken. [`JUDGED_FLOOR`] is
-/// unchanged at 503 on the same run, so no document entered the judged set: a word that was
-/// matched already gained the Table 120 pair its page states. The rise is what the paragraph above
-/// says this ratchet does; what had not been happening is the writing down, because the run printed
-/// the population and the constant did not. It is the counted figure now, and the two are printed
-/// on one line (ADR 1075).
-const CROSS_AXIS_FLOOR: usize = 8563;
+/// **The fall from 8563 to 8266 is 297 pairs the clause states no band for**, on four documents
+/// whose every matched word §12.5.5's appearance streams placed: `prefilled_f1040.pdf` (258),
+/// `issue12706.pdf` (34), `js-buttons.pdf` (3) and `resetform.pdf` (2). [`JUDGED_FLOOR`] is
+/// unchanged at 503 on the same run, so no document left the judged set and no word stopped being
+/// matched — what left is a *measure*, from pairs that never had the quantity it is built from.
+/// `resetform.pdf` is the whole mechanism in one file: its page states `/Resources << >>`, every
+/// word this instrument matches is drawn by a widget's `/AP` `/N` whose own `/Resources` names
+/// `/HeBo`, and that font is the standard-14 `/Helvetica-Bold` with no `/FontDescriptor` at all —
+/// so Table 120's pair is stated nowhere, while a walk of the page's resources found no `/Font`
+/// key and answered *yes* to a question it had not asked anything. The verdict is 11094/11131
+/// either way, which is what says this took a claim off the instrument rather than a failure off
+/// the tree.
+const CROSS_AXIS_FLOOR: usize = 8266;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///
@@ -2071,12 +2098,19 @@ fn placed_by_this_processor(
 /// same argument [`placed_by_this_processor`] makes: it can only take a measurement out of the
 /// verdict, never put agreement into it.
 ///
-/// **The population is the page's own resources and its form `XObject`s', and that is one place
-/// narrower than the readback** — §12.5.5's appearance streams carry resources of their own, so a
-/// word drawn by an annotation whose font states no pair is judged on a page whose own fonts all
-/// state one. That is the *narrow* direction rather than the wide one, so it is written down
-/// rather than assumed away; what says it is not costing anything is the gate's own split, where
-/// the stated-band population agrees at p90 0.0000 of a word's height.
+/// **The population is every resource dictionary the readback's glyphs could have come from**: the
+/// page's own, its form `XObject`s', and §12.5.5's appearance streams'. The last of those matters
+/// most where it is easiest to miss — a page whose `/Resources` states no `/Font` at all has a
+/// walk of it finding nothing to refuse, which reads as *yes* and is an answer about the walk
+/// rather than about the file. `resetform.pdf` is that page exactly, and every word matched on it
+/// is drawn by a widget appearance naming a standard-14 font with no `/FontDescriptor`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one question asked of every place a font can be declared — the page's resources, a \
+              form XObject's, an appearance stream's and an appearance state's — by four nested \
+              helpers that all end at `states_a_band`; splitting them would move the condition \
+              away from the clause its doc comment cites"
+)]
 fn the_band_the_file_states(document: &Document, page: &pdf_model::Page) -> bool {
     /// How far a form `XObject`'s own resources are followed — `font_metric_census`'s depth,
     /// and the interpreter finds a page's fonts down the same path.
@@ -2164,7 +2198,63 @@ fn the_band_the_file_states(document: &Document, page: &pdf_model::Page) -> bool
         true
     }
 
-    walk(document, &page.resources, 0, &mut BTreeSet::new())
+    /// Every `/Resources` §12.5.5's appearance streams bring to this page.
+    ///
+    /// `/N` alone is followed, because §12.5.5 says a processor "shall render the annotation
+    /// with its normal ( N ) appearance" — and through the subdictionary the same clause allows,
+    /// which "shall define multiple appearance streams corresponding to different appearance
+    /// states of the annotation", because a state's stream carries resources of its own just as
+    /// the single-stream form does. Which state `/AS` selects does not matter here: the question
+    /// is whether *any* font behind this page's words states Table 120's pair, and the wider
+    /// answer is the safe one for a set-aside.
+    fn appearance_resources(
+        document: &Document,
+        page: &pdf_model::Page,
+    ) -> Vec<pdf_syntax::Dictionary> {
+        let annotations = document.get_key(&page.dict, "Annots");
+        let Some(entries) = annotations.as_array() else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        let mut keep = |object: &Object| {
+            if let Object::Stream(stream) = object
+                && let Some(resources) = document.get_key(&stream.dict, "Resources").as_dict()
+            {
+                found.push(resources.clone());
+            }
+        };
+        for entry in entries {
+            let object = document.resolve(entry);
+            let Some(annotation) = object.as_dict() else {
+                continue;
+            };
+            let appearance = document.get_key(annotation, "AP");
+            let Some(appearance) = appearance.as_dict() else {
+                continue;
+            };
+            let normal = document.get_key(appearance, "N");
+            match normal.as_dict() {
+                Some(states) => {
+                    for (_, state) in states.iter() {
+                        keep(&document.resolve(state));
+                    }
+                }
+                None => keep(&normal),
+            }
+        }
+        found
+    }
+
+    let mut seen = BTreeSet::new();
+    // The page's own resources and §12.5.5's appearance streams' alike. The question is about
+    // the fonts that placed the words this instrument matched, and an appearance stream placed
+    // some of them; judging one of those against a band no font behind it states is counting a
+    // pair where the clause states none. ADR 0759's argument, reaching the population this
+    // function's own doc comment had named as the narrow one.
+    walk(document, &page.resources, 0, &mut seen)
+        && appearance_resources(document, page)
+            .iter()
+            .all(|resources| walk(document, resources, 0, &mut seen))
 }
 
 /// Runs one extractor over one page through the cache, folding failure kinds into refusals.

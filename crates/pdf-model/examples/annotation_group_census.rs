@@ -96,7 +96,20 @@ struct Counts {
     /// Replies — an `/IRT` with no `/RT`, or `/RT /R`.
     reply: usize,
     /// Of those, the ones naming a popup window of their own through Table 172's `/Popup`.
+    ///
+    /// Every one of these is a window the clause's other `shall` forbids opening on its own:
+    /// "[i]nteractive PDF processors shall not display replies to an annotation individually but
+    /// together in the form of threaded comments."
     reply_with_popup: usize,
+    /// Of those, the ones whose thread **head** names a `/Popup` of its own.
+    ///
+    /// The head is the annotation reached by following `/IRT` until one states none, which is
+    /// where a thread has to be displayed if it is to be displayed once. A reply whose head has
+    /// no window of its own would have nowhere to be shown — this is the count that says whether
+    /// that case is real.
+    reply_head_with_popup: usize,
+    /// The deepest `/IRT` chain seen, in hops from a reply to its head.
+    deepest_thread: usize,
 }
 
 impl Counts {
@@ -123,6 +136,10 @@ impl Counts {
             .saturating_add(other.popup_of_subordinate);
         self.reply = self.reply.saturating_add(other.reply);
         self.reply_with_popup = self.reply_with_popup.saturating_add(other.reply_with_popup);
+        self.reply_head_with_popup = self
+            .reply_head_with_popup
+            .saturating_add(other.reply_head_with_popup);
+        self.deepest_thread = self.deepest_thread.max(other.deepest_thread);
     }
 }
 
@@ -181,13 +198,47 @@ fn main() {
         total.subordinate_synthesised, total.popup_of_subordinate
     );
     println!(
-        "  {} repl(ies) — /RT /R or absent — {} of which name a /Popup of their own",
-        total.reply, total.reply_with_popup
+        "  {} repl(ies) — /RT /R or absent — {} of which name a /Popup of their own, {} whose \
+         thread head names one; deepest chain {} hop(s)",
+        total.reply, total.reply_with_popup, total.reply_head_with_popup, total.deepest_thread
     );
     for line in &lines {
         println!("{line}");
     }
 }
+
+/// The annotation a chain of `/IRT`s ends at, and how many hops away it is.
+///
+/// Table 172 bounds the relationship to one page — "[b]oth annotations shall be on the same page
+/// of the document" — but says nothing that stops a file writing a cycle, so the walk is bounded
+/// and returns whatever it is standing on when the bound runs out.
+fn thread_head<'a>(
+    document: &'a Document,
+    annotation: &'a pdf_syntax::Dictionary,
+) -> (std::borrow::Cow<'a, pdf_syntax::Dictionary>, usize) {
+    let mut node = std::borrow::Cow::Borrowed(annotation);
+    for depth in 0..MAX_THREAD {
+        let grouped = document
+            .get_key(&node, "RT")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Group");
+        // Only a *reply* is climbed: a `/RT /Group` subordinate already shares the primary's
+        // `/Popup` as a group attribute, so the head of a thread is the first annotation that is
+        // not a reply, and its window is whichever one §12.5.6.2 says its entries come from.
+        let next = document.get_key(&node, "IRT");
+        let Some(next) = next.as_dict() else {
+            return (node, depth);
+        };
+        if grouped {
+            return (std::borrow::Cow::Owned(next.clone()), depth);
+        }
+        node = std::borrow::Cow::Owned(next.clone());
+    }
+    (node, MAX_THREAD)
+}
+
+/// How far a reply chain is followed before the file is treated as having written a cycle.
+const MAX_THREAD: usize = 64;
 
 /// Walks every annotation on every page of one document.
 fn document_counts(document: &Document) -> Counts {
@@ -222,6 +273,11 @@ fn document_counts(document: &Document) -> Counts {
                 counts.reply = counts.reply.saturating_add(1);
                 if annotation.get("Popup").is_some() {
                     counts.reply_with_popup = counts.reply_with_popup.saturating_add(1);
+                }
+                let (head, depth) = thread_head(document, annotation);
+                counts.deepest_thread = counts.deepest_thread.max(depth);
+                if head.get("Popup").is_some() {
+                    counts.reply_head_with_popup = counts.reply_head_with_popup.saturating_add(1);
                 }
                 continue;
             }

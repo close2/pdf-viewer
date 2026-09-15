@@ -61,7 +61,9 @@ use std::collections::BTreeMap;
 use pdf_syntax::{Document, FileBytes, xref::Location};
 
 use crate::cms::{Digest, ID_CT_TST_INFO, SignedData};
-use crate::der::{self, DerError, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, Reader, SEQUENCE};
+use crate::der::{
+    self, DerError, INTEGER, NotCanonical, OBJECT_IDENTIFIER, OCTET_STRING, Reader, SEQUENCE,
+};
 use crate::revocation::{Material, Revocation};
 use crate::signature::{self, Authenticity, Integrity, Signature, SignedEnd};
 use crate::trust::{Purpose, Trust, TrustAnchors};
@@ -100,14 +102,16 @@ pub enum TokenRefusal {
     /// RFC 3161 section 2.4.2 names it: "For a time-stamp token it is defined as: id-ct-TSTInfo".
     #[error("the encapsulated content is not an RFC 3161 TSTInfo")]
     ContentTypeIsNotTstInfo,
-    /// The content states X.690's indefinite length, which DER forbids.
+    /// The content departs from one of ITU-T X.690's distinguished encoding rules.
     ///
     /// RFC 3161 section 2.4.2 requires DER of this one structure by name — "[t]he eContent SHALL be
     /// the DER-encoded value of TSTInfo" — so an extent found by scanning for an end-of-contents
-    /// marker is not the extent the authority signed. Deliberately narrower than [`crate::der`]'s
-    /// tolerance, which exists because the *enclosing* CMS object is BER in real files.
-    #[error("the TSTInfo is written with indefinite lengths, which DER forbids")]
-    NotDerEncoded,
+    /// marker is not the extent the authority signed, and neither is one whose octets a conforming
+    /// authority would not have written. Deliberately narrower than [`crate::der`]'s tolerance,
+    /// which exists because the *enclosing* CMS object is BER in real files. The rule is carried
+    /// rather than the word "not DER", for [`crate::signature::Authenticity`]'s reason.
+    #[error("the TSTInfo departs from DER: {0}")]
+    NotDerEncoded(NotCanonical),
     /// The ASN.1 would not read.
     #[error("the TSTInfo is not readable ASN.1: {0}")]
     Unreadable(#[from] DerError),
@@ -250,8 +254,8 @@ pub struct TstInfo<'a> {
 ///
 /// [`TokenRefusal`], naming what the bytes are instead.
 pub fn tst_info(bytes: &[u8]) -> Result<TstInfo<'_>, TokenRefusal> {
-    if !der::every_length_is_definite(bytes)? {
-        return Err(TokenRefusal::NotDerEncoded);
+    if let Some(rule) = der::is_canonical(bytes)? {
+        return Err(TokenRefusal::NotDerEncoded(rule));
     }
     let mut reader = Reader::new(bytes)?;
     let Some(outer) = reader.next_value()? else {

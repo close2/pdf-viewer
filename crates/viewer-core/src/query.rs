@@ -769,6 +769,13 @@ pub struct PopupWindow {
     pub modified: Option<String>,
     /// Table 166's `/C`: "[t]he title bar of the annotation's popup window".
     pub colour: Option<pdf_render::Color>,
+    /// §12.5.6.2's thread: the replies this window shows rather than opening windows of their own.
+    ///
+    /// Table 172 makes that a `shall` on a processor — "[i]nteractive PDF processors shall not
+    /// display replies to an annotation individually but together in the form of threaded
+    /// comments" — so a host that draws [`Self::text`] and ignores this has left a fifth of a
+    /// reviewed document's comments off the screen. Empty for a window nobody replied to.
+    pub replies: Vec<pdf_model::popup::Comment>,
 }
 
 /// One of §12.7's form fields, with its widgets placed on the screen.

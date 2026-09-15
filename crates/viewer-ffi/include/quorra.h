@@ -1006,6 +1006,16 @@ int32_t quorra_popup_text(const quorra_popups *popups, size_t index, uint32_t wh
 /* Table 166's /C, "[t]he title bar of the annotation's popup window", as three DeviceRGB
  * components. QUORRA_NO_ANSWER where none is stated, which is not the same as black. */
 int32_t quorra_popup_colour(const quorra_popups *popups, size_t index, float *into);
+/* §12.5.6.2's threaded replies. Table 172 makes it a `shall` that replies are not displayed
+ * "individually but together in the form of threaded comments", so a reply has no window of its
+ * own: it is a comment under the note it answers, and these three are where it is. `depth` is 1
+ * for a reply to the window's own note, 2 for a reply to that reply. `which` takes the same
+ * QUORRA_NOTE_* codes as quorra_popup_text. */
+int32_t quorra_popup_reply_count(const quorra_popups *popups, size_t index, size_t *into);
+int32_t quorra_popup_reply_object(const quorra_popups *popups, size_t index, size_t reply,
+                                  uint32_t *number, uint16_t *generation, size_t *depth);
+int32_t quorra_popup_reply_text(const quorra_popups *popups, size_t index, size_t reply,
+                                uint32_t which, char *out, size_t cap, size_t *needed);
 
 /* §14.7's logical structure for every page the arrangement is showing. Zero nodes for an untagged
  * page is an ANSWER rather than a silence: §14.7 leaves a producer free to state no structure, and

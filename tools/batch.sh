@@ -95,6 +95,12 @@ close_batch() {
     # `git merge --ff-only` from inside the worktree, which merged the branch into itself and
     # exited 0, then closed it — deleting the only ref to the batch. The commit was recovered
     # from the object store, but only because nothing had run `gc` yet. Refuse instead.
+    # A specification fetched for reading is a corpus document (the oracle and the accessibility
+    # census walk page one of every doc/*.pdf). One written into THIS checkout's doc/ rather than
+    # the main checkout's dies with the worktree, and the next merge sees the corpus shrink and its
+    # floors fail for a cause nobody made — sessions 1071 and 1079. Refuse, and say where it goes.
+    local stray; stray=$(find "$wt/doc" -maxdepth 1 -name "*.pdf" -type f 2>/dev/null || true)
+    [ -z "$stray" ] || { echo "regular PDF(s) under the worktree's doc/ — move each to $root/doc/ and symlink it here, then close:"; echo "$stray"; return 1; }
     local ahead; ahead=$(git -C "$root" rev-list --count "main..$1" 2>/dev/null || echo 0)
     [ "$ahead" = 0 ] || { echo "$1 has $ahead commit(s) main lacks — fast-forward main first (from the main checkout, not from inside the worktree)"; return 1; }
     git -C "$root" worktree remove --force "$wt" 2>/dev/null || true

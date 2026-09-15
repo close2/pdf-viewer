@@ -527,7 +527,7 @@ pub(crate) fn construct(
         b"Polygon" | b"PolyLine" => polygon(document, annotation, &mut stream, subtype),
         b"Ink" => ink(document, annotation, &mut stream),
         b"Line" => line(document, annotation, &mut stream),
-        b"Widget" => widget(document, annotation, &mut stream, view.value),
+        b"Widget" => widget(document, annotation, &mut stream, view),
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             text_markup(document, annotation, &mut stream, subtype)
         }
@@ -753,6 +753,9 @@ pub(crate) fn regenerate(
         source,
         inset(bbox, width),
         value,
+        // §12.7.4.3's regeneration rewrites the stream the file stores, and Table 170 makes that
+        // the normal appearance: what a pointer is doing now is not written into a document.
+        crate::view::Appearance::Normal,
         Asked::default(),
     ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
@@ -2395,8 +2398,9 @@ fn widget(
     document: &Document,
     annotation: &Dictionary,
     stream: &mut Stream,
-    value: FieldValue<'_>,
+    view: crate::view::AnnotationView<'_>,
 ) -> Outcome {
+    let value = view.value;
     let rect = rectangle(document, annotation)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
@@ -2439,7 +2443,7 @@ fn widget(
     // Table 192's push-button half: the icon, its fit and where the caption goes. Reached only
     // where the `/MK` states one of the entries, so the 807 corpus widgets that are not
     // push-buttons pay two dictionary lookups rather than a second walk of §12.7.4.1's chain.
-    let button = match push_button_icon(document, annotation, source, value, rect, inner, stream) {
+    let button = match push_button_icon(document, annotation, source, view, rect, inner, stream) {
         Ok(button) => button,
         Err(refusal) => {
             rotation.end(stream);
@@ -2458,7 +2462,15 @@ fn widget(
         });
     }
 
-    let laid_out = match field_text(document, annotation, source, inner, value, Asked::default()) {
+    let laid_out = match field_text(
+        document,
+        annotation,
+        source,
+        inner,
+        value,
+        view.appearance,
+        Asked::default(),
+    ) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
             rotation.end(stream);
@@ -2512,6 +2524,63 @@ impl ButtonIcon {
     };
 }
 
+/// Table 192's three icons, in the order the pointer state `appearance` asks for them.
+///
+/// The table conditions each of the six icon and caption entries on what the pointer is doing,
+/// in the same three conditions §12.5.5 states for `/N`, `/R` and `/D`.
+///
+/// §12.5.6.19, Table 192, `/I`:
+///
+/// > the widget annotation's normal icon , which shall be displayed when it is not interacting
+/// > with the user
+///
+/// `/RI` is displayed "when the user rolls the cursor into its active area without pressing the
+/// mouse button", and `/IX` "when the mouse button is pressed within its active area". So the
+/// state the caller is in selects the entry, and [`crate::view::Appearance`] is that state — one
+/// constructed stream per state, which is what Table 191 asks `/MK` to build.
+///
+/// **The normal entry is the fallback, and that is a decision rather than a sentence.** Table 192
+/// makes all six optional and states no fallback for a state whose own entry is absent; §12.5.5
+/// does state one for the same three appearances in `/AP` — Table 170 requires only `/N` — and
+/// [`crate::annotation::stored_appearance`] already reads it that way. Taking the entries
+/// literally instead would erase a push-button's picture the moment a pointer crossed it, which
+/// is a worse answer than showing the picture the file does state. ADR 1090.
+const fn icon_entries(appearance: crate::view::Appearance) -> [&'static str; 2] {
+    match appearance {
+        crate::view::Appearance::Normal => ["I", "I"],
+        crate::view::Appearance::Rollover => ["RI", "I"],
+        crate::view::Appearance::Down => ["IX", "I"],
+    }
+}
+
+/// Table 192's three captions, in the order the pointer state `appearance` asks for them.
+///
+/// [`icon_entries`]'s sentence, for the entries that are text. §12.5.6.19, Table 192: `/CA` is "the
+/// widget annotation's normal caption , which shall be displayed when it is not interacting with
+/// the user", `/RC` "shall be displayed when the user rolls the cursor into its active area
+/// without pressing the mouse button", and `/AC` "when the mouse button is pressed within its
+/// active area". [`icon_entries`] has the argument for the fallback, which is the same one.
+///
+/// **`push_button` is the table's own scoping and not a convenience.** `/RC` and `/AC` are marked
+/// "push-button fields only", while `/CA` is the one entry of the eleven the table exempts:
+/// "[u]nlike the remaining entries listed in this Table, which apply only to widget annotations
+/// associated with push-button fields …, the CA entry may be used with any type of button field,
+/// including check boxes … and radio buttons". So a check box in any pointer state has exactly
+/// one caption to draw.
+const fn caption_entries(
+    appearance: crate::view::Appearance,
+    push_button: bool,
+) -> [&'static str; 2] {
+    if !push_button {
+        return ["CA", "CA"];
+    }
+    match appearance {
+        crate::view::Appearance::Normal => ["CA", "CA"],
+        crate::view::Appearance::Rollover => ["RC", "CA"],
+        crate::view::Appearance::Down => ["AC", "CA"],
+    }
+}
+
 /// Draws Table 192's `/I` where a push-button states one, and says what `/TP` did with it.
 ///
 /// §12.5.6.19's Table 191 is what makes these entries reachable at all. Its `/MK` is an
@@ -2530,16 +2599,16 @@ impl ButtonIcon {
 ///   and Table 250 gives every rule for fitting it, with a default for every entry.
 /// - `/TP` decides which of the icon and the caption is drawn, for the three codes that say so
 ///   without stating a proportion; the other four are reported by [`CaptionPosition::Beside`].
-/// - `/RI`, `/IX`, `/RC` and `/AC` are the rollover and down states. Each is defined by what the
-///   *pointer* is doing — "when the user rolls the cursor into its active area", "when the mouse
-///   button is pressed" — and a constructed appearance is one stream rather than the three
-///   §12.5.5's `/N`, `/R` and `/D` subdictionaries hold, so a file stating them is told so. **No
-///   corpus document states any of the four**, over all 974.
+/// - `/RI` and `/IX` are the rollover and down icons, selected by [`icon_entries`] from the
+///   pointer state the caller is in — the same state that selects among §12.5.5's `/N`, `/R` and
+///   `/D`. `/RC` and `/AC` are their captions and are [`caption_entries`]'s, one layer up.
+///   **No corpus document states any of the four**, over all 974, so the fixtures are hand-built
+///   (trap 8).
 fn push_button_icon(
     document: &Document,
     annotation: &Dictionary,
     characteristics: &Dictionary,
-    value: FieldValue<'_>,
+    view: crate::view::AnnotationView<'_>,
     rect: [f32; 4],
     inner: [f32; 4],
     stream: &mut Stream,
@@ -2554,7 +2623,7 @@ fn push_button_icon(
     // Table 192 marks all seven "push-button fields only", and §12.7.5.2.2's push-button is
     // Table 229 bit 17 on a `/Btn` — read up §12.7.4.1's `/Parent` chain, because the flags are
     // inheritable and a widget in a field hierarchy states none of its own.
-    let field = Field::read(document, annotation, value);
+    let field = Field::read(document, annotation, view.value);
     if !matches!(field.kind, Some(FieldKind::Button { toggling: false })) {
         return Ok(ButtonIcon::NONE);
     }
@@ -2565,33 +2634,9 @@ fn push_button_icon(
         ));
     };
 
-    // The rollover and down states, named where the file states one. They are a report rather
-    // than a refusal: the normal icon and caption below are what a still frame shows, and
-    // dropping those to say the other two were not built would lose the mark the clause states.
-    let interactive = ["RI", "IX", "RC", "AC"]
-        .into_iter()
-        .find(|key| !matches!(characteristics.get(key), None | Some(Object::Null)));
-    let report = interactive.map(|key| match key {
-        "RI" => Refusal::NotDerivable(
-            "Table 192's /RI is the icon for a cursor rolled into the widget, and a constructed \
-             appearance is one stream rather than §12.5.5's three",
-        ),
-        "IX" => Refusal::NotDerivable(
-            "Table 192's /IX is the icon for a pressed mouse button, and a constructed \
-             appearance is one stream rather than §12.5.5's three",
-        ),
-        "RC" => Refusal::NotDerivable(
-            "Table 192's /RC is the caption for a cursor rolled into the widget, and a \
-             constructed appearance is one stream rather than §12.5.5's three",
-        ),
-        _ => Refusal::NotDerivable(
-            "Table 192's /AC is the caption for a pressed mouse button, and a constructed \
-             appearance is one stream rather than §12.5.5's three",
-        ),
-    });
     let report = match position {
-        CaptionPosition::Beside(code) => Some(Refusal::CaptionBeside(code)).or(report),
-        _ => report,
+        CaptionPosition::Beside(code) => Some(Refusal::CaptionBeside(code)),
+        _ => None,
     };
 
     if !position.draws_icon() {
@@ -2602,17 +2647,18 @@ fn push_button_icon(
         });
     }
 
-    let Some(icon) = Icon::read(document, characteristics) else {
+    let entries = icon_entries(view.appearance);
+    let Some(icon) = Icon::read(document, characteristics, entries) else {
         return Ok(ButtonIcon {
             drawn: false,
             draws_caption: position.draws_caption(),
-            report: report.or(
-                matches!(characteristics.get("I"), None | Some(Object::Null))
-                    .then_some(Refusal::Missing("/I"))
-                    .or(Some(Refusal::NotDerivable(
-                        "Table 192's /I names no form XObject with a §8.10.2 /BBox",
-                    ))),
-            ),
+            report: report.or(entries
+                .iter()
+                .all(|key| matches!(characteristics.get(key), None | Some(Object::Null)))
+                .then_some(Refusal::Missing("/I"))
+                .or(Some(Refusal::NotDerivable(
+                    "Table 192's icon entry names no form XObject with a §8.10.2 /BBox",
+                )))),
         });
     };
 
@@ -2850,18 +2896,29 @@ struct Icon {
 }
 
 impl Icon {
-    /// Table 192's `/I`, or `None` where the entry is absent or names no usable form `XObject`.
-    fn read(document: &Document, characteristics: &Dictionary) -> Option<Self> {
-        let reference = characteristics.get("I")?.clone();
-        if matches!(reference, Object::Null) {
-            return None;
+    /// The first of `entries` the dictionary states as a usable form `XObject`, or `None`.
+    ///
+    /// `entries` is [`icon_entries`]'s pair — the pointer state's own entry and `/I` behind it —
+    /// so a rollover with no `/RI` draws the normal icon and a rollover with an `/RI` that names
+    /// no form `XObject` is *not* silently replaced by one: the entry the file stated is the one
+    /// tried, and only an absent entry falls through.
+    fn read(document: &Document, characteristics: &Dictionary, entries: [&str; 2]) -> Option<Self> {
+        for key in entries {
+            let Some(reference) = characteristics.get(key) else {
+                continue;
+            };
+            if matches!(reference, Object::Null) {
+                continue;
+            }
+            let reference = reference.clone();
+            let stream = document.resolve(&reference);
+            let stream = stream.as_dict()?;
+            let bbox = crate::annotation::rectangle(document, stream, "BBox")?;
+            let extent =
+                crate::annotation::transformed(bbox, crate::annotation::matrix(document, stream));
+            return Some(Self { reference, extent });
         }
-        let stream = document.resolve(&reference);
-        let stream = stream.as_dict()?;
-        let bbox = crate::annotation::rectangle(document, stream, "BBox")?;
-        let extent =
-            crate::annotation::transformed(bbox, crate::annotation::matrix(document, stream));
-        Some(Self { reference, extent })
+        None
     }
 }
 
@@ -3034,6 +3091,7 @@ fn field_text(
     characteristics: &Dictionary,
     box_: [f32; 4],
     value: FieldValue<'_>,
+    appearance: crate::view::Appearance,
     asked: Asked,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
@@ -3064,7 +3122,13 @@ fn field_text(
             if toggling && !field.is_on(document, annotation) {
                 return Ok(None);
             }
-            match variable_text::string(document, &[characteristics], "CA") {
+            // Table 192's caption for the state the pointer is in, then `/CA` behind it;
+            // [`caption_entries`] has the table's three conditions and the fallback's argument.
+            let entries = caption_entries(appearance, !toggling);
+            match entries
+                .iter()
+                .find_map(|key| variable_text::string(document, &[characteristics], key))
+            {
                 Some(caption) => (caption, Shape::SingleLine),
                 // A check box or radio button the document says is *on*, with neither an
                 // appearance dictionary to select a state from nor a caption to draw, states
@@ -3384,9 +3448,17 @@ fn laid_out_in(
     }
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
-    field_text(document, annotation, source, box_, view.value, asked)
-        .ok()
-        .flatten()
+    field_text(
+        document,
+        annotation,
+        source,
+        box_,
+        view.value,
+        view.appearance,
+        asked,
+    )
+    .ok()
+    .flatten()
 }
 
 /// The text a text or combo-box field would be laid out with, as §12.7.4.3 sees it.

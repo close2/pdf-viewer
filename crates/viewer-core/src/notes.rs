@@ -1161,6 +1161,13 @@ fn about_one(
                          against, admits at most one {} attribute, and this signature states more",
                         attribute.name()
                     ),
+                    // The other departure that names something rather than a rule: which of ITU-T
+                    // X.690's distinguished encoding rules the value breaks, worded here for the
+                    // same reason.
+                    PadesDeparture::ValueNotDerEncoded(rule) => format!(
+                        "§12.8.3.4.2 requires the value of /Contents to be a DER-encoded CMS \
+                         SignedData object, and this one is not — {rule}"
+                    ),
                     _ => String::new(),
                 };
                 notes.push(format!(
@@ -1269,7 +1276,8 @@ fn about_one(
                             "ETSI EN 319 122-2 Table 1's requirement (a) reserves SHA-1 for the \
                              signing-certificate attribute, and this signature's \
                              signing-certificate-v2 states it",
-                        PadesDeparture::AttributeStatedMoreThanOnce(_) => repeated.as_str(),
+                        PadesDeparture::AttributeStatedMoreThanOnce(_)
+                        | PadesDeparture::ValueNotDerEncoded(_) => repeated.as_str(),
                     }
                 ));
             }
@@ -1649,11 +1657,12 @@ fn verifies(
         Authenticity::RefusedDsa(error) => not_checked(error),
         Authenticity::RefusedEcdsa(error) => not_checked(error),
         Authenticity::RefusedEdDsa(error) => not_checked(error),
-        Authenticity::SignedAttributesNotDer => "and its signed attributes are not DER encoded, \
-             which RFC 5652 section 5.3 requires of them even where the rest of a CMS object is \
-             BER, so the bytes the signer digested are not the bytes this file holds and the \
-             signature was not checked against any key"
-            .to_owned(),
+        Authenticity::SignedAttributesNotDer { rule } => format!(
+            "and its signed attributes are not DER encoded — {rule} — which RFC 5652 section 5.3 \
+             requires of them even where the rest of a CMS object is BER, so the bytes the signer \
+             digested are not the bytes this file holds and the signature was not checked against \
+             any key"
+        ),
         Authenticity::UnknownDigest { algorithm } => format!(
             "and it names digest algorithm {algorithm}, which this program does not compute, so \
              it was not checked against the signer's key either"

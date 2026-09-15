@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, Image, ImageSource, Paint, Path,
-    PathCommand, Point, ProgramOperator, ProgramRange, ProgramStep, Shading, ShadingKind,
+    PathCommand, Point, ProgramOperator, ProgramRange, ProgramStep, Rect, Shading, ShadingKind,
     SoftMaskId, SoftMaskKind, TargetSpec, Transform,
 };
 use raster_scene::{ResourceId, SceneBuilder};
@@ -57,6 +57,10 @@ pub(crate) struct Encoder<'a> {
     transient: &'a mut Vec<ResourceId>,
     functions: &'a mut FunctionPaints,
     clips: HashMap<usize, ResolvedClip>,
+    /// The page-space rectangle each chain **admits**, where it is one — see
+    /// [`Encoder::admitted_rect`], which is what decides whether a chain can be left off a
+    /// mark it does not cut.
+    admits: HashMap<usize, Option<Rect>>,
     masks: HashMap<usize, raster_scene::MaskId>,
     /// How many enclosing groups are ISO 32000-2 §11.4.6's knockout groups.
     ///
@@ -70,6 +74,10 @@ pub(crate) struct Encoder<'a> {
     /// See [`Encoder::crop_to_page`], which is the only thing that sets it and says why this
     /// backend states the clause in the scene where the other two state it in the pixels.
     root: Option<raster_scene::ClipId>,
+    /// §14.11.2.1's boundary as a page-space rectangle, set with [`Encoder::root`] and read
+    /// by [`Encoder::admitted_rect`]: the outermost link of every chain, and the only link of
+    /// a command that states none.
+    root_rect: Option<Rect>,
 }
 
 /// What this frame's §8.7.4.5.2 type 1 shadings did: how many the device evaluated, and the
@@ -125,6 +133,88 @@ pub(crate) enum ShadedPaint {
     /// the zero-extent bounds) and both sibling backends draw nothing, so nothing
     /// is what this draws too.
     Nothing,
+}
+
+/// The page-space box of the unit square an image is drawn on, under `transform`.
+///
+/// ISO 32000-2 §8.9.5.2 states the placement that way — the samples fill the unit square in
+/// the space `transform` maps from — so the four mapped corners bound the mark whatever the
+/// matrix does to them.
+fn unit_square(transform: Transform) -> Rect {
+    let corners = [
+        transform.apply(Point::new(0.0, 0.0)),
+        transform.apply(Point::new(1.0, 0.0)),
+        transform.apply(Point::new(1.0, 1.0)),
+        transform.apply(Point::new(0.0, 1.0)),
+    ];
+    let mut bounds = Rect::from_corners(corners[0], corners[0]);
+    for corner in corners {
+        bounds = bounds.union(Rect::from_corners(corner, corner));
+    }
+    bounds
+}
+
+/// The page-space rectangle `path` states under `transform`, or `None` where it states
+/// something else.
+///
+/// One subpath of four corners whose sides each run along an axis — which is what a `/BBox`,
+/// a `re W n` and §14.11.2.1's crop are, and it is the population [`Encoder::cuts_nothing`]
+/// exists for. The interior of such a path is the same region under either of §8.5.3.3's
+/// rules, so the fill rule is not read here: four corners have no second subpath to wind
+/// against.
+///
+/// Axis-alignment is tested **after** `transform` rather than before, so a form whose matrix
+/// turns by a quarter still states a rectangle here. A bowtie is excluded by the corner test:
+/// its two crossing sides run along neither axis.
+fn rectangle(path: &Path, transform: Transform) -> Option<Rect> {
+    let mut corners: [Point; 4] = [Point::new(0.0, 0.0); 4];
+    let mut seen = 0_usize;
+    for command in path.commands() {
+        let point = match command {
+            PathCommand::MoveTo(point) if seen == 0 => *point,
+            PathCommand::LineTo(point) => *point,
+            // `Close` states no point of its own; a curve, or a second `MoveTo`, is a path
+            // this cannot read as one rectangle.
+            PathCommand::Close => continue,
+            _ => return None,
+        };
+        let point = transform.apply(point);
+        // A fifth point is admitted only where it repeats the first, which is how a rectangle
+        // written `m l l l l h` closes: anything else is not four corners.
+        if seen == 4 {
+            #[expect(
+                clippy::float_cmp,
+                reason = "exactly the first corner again, which is what a closing point is; a \
+                          near miss is a pentagon and keeps its clip"
+            )]
+            let closes = point.x == corners[0].x && point.y == corners[0].y;
+            return closes.then(|| Rect::from_corners(corners[0], corners[2]));
+        }
+        corners[seen] = point;
+        seen = seen.saturating_add(1);
+    }
+    if seen != 4 {
+        return None;
+    }
+    // The four sides, the closing one included: each must run along an axis.
+    let sides = [
+        (corners[0], corners[1]),
+        (corners[1], corners[2]),
+        (corners[2], corners[3]),
+        (corners[3], corners[0]),
+    ];
+    for (a, b) in sides {
+        #[expect(
+            clippy::float_cmp,
+            reason = "a side runs along an axis or it does not, and a side that is a hair off \
+                      one states a shape this must not read as a rectangle"
+        )]
+        let turned = a.x != b.x && a.y != b.y;
+        if turned {
+            return None;
+        }
+    }
+    Some(Rect::from_corners(corners[0], corners[2]))
 }
 
 /// A display-list clip chain, resolved once: either it admits nothing anywhere —
@@ -270,9 +360,11 @@ impl<'a> Encoder<'a> {
             transient,
             functions,
             clips: HashMap::new(),
+            admits: HashMap::new(),
             masks: HashMap::new(),
             knockouts: 0,
             root: None,
+            root_rect: None,
         }
     }
 
@@ -330,6 +422,7 @@ impl<'a> Encoder<'a> {
             fill_rule(FillRule::NonZero),
             None,
         )?);
+        self.root_rect = Some(region);
         Ok(())
     }
 
@@ -486,7 +579,11 @@ impl<'a> Encoder<'a> {
         parts: GroupParts<'_>,
         compose: raster_scene::Compose,
     ) -> Result<(), QuorraRasterError> {
-        let Admitted::Chain(clip) = self.clip_chain(builder, parts.clip)? else {
+        // §8.5.4's third sentence gives a group's *result* a shape of its own — "the shape of
+        // a transparency group (defined as the union of the shapes of its constituent objects)"
+        // — and nothing here bounds that union without walking the elements, so a group keeps
+        // its clip whatever it contains. `doc/QUORRA_FEEDBACK.md` section 36 is that seam.
+        let Admitted::Chain(clip) = self.clip_chain(builder, parts.clip, None)? else {
             return Ok(()); // the clip admits nothing: the group draws nothing
         };
         let mask = self.mask_id(builder, parts.mask)?;
@@ -649,7 +746,14 @@ impl<'a> Encoder<'a> {
         if pdf_render::paint_space(transform).is_none() {
             return Ok(());
         }
-        let Admitted::Chain(clip) = self.clip_chain(builder, clip)? else {
+        // A fill marks exactly its own path, so its page-space box is a bound on the pixels it
+        // reaches — **unless** a subpath of it collapsed, in which case §10.7.4 gives that
+        // subpath a mark one device pixel thick, which is wider than the path and a width this
+        // view decides. [`Encoder::cuts_nothing`] takes `None` for that case and keeps the clip.
+        let marks = (!path.collapses())
+            .then(|| path.bounds(transform))
+            .flatten();
+        let Admitted::Chain(clip) = self.clip_chain(builder, clip, marks)? else {
             return Ok(());
         };
         let mask = self.mask_id(builder, mask)?;
@@ -1086,7 +1190,10 @@ impl<'a> Encoder<'a> {
         if pdf_render::paint_space(transform).is_none() {
             return Ok(());
         }
-        let Admitted::Chain(clip) = self.clip_chain(builder, clip)? else {
+        // §8.9.5.2 puts an image in the unit square and the transform carries the rest, so the
+        // four mapped corners bound every sample it can reach.
+        let marks = Some(unit_square(transform));
+        let Admitted::Chain(clip) = self.clip_chain(builder, clip, marks)? else {
             return Ok(());
         };
         let mask = self.mask_id(builder, mask)?;
@@ -1391,7 +1498,11 @@ impl<'a> Encoder<'a> {
         &mut self,
         builder: &mut SceneBuilder,
         clip: Option<ClipId>,
+        marks: Option<Rect>,
     ) -> Result<Admitted, QuorraRasterError> {
+        if self.cuts_nothing(clip, marks) {
+            return Ok(Admitted::Chain(None));
+        }
         let Some(id) = clip else {
             // An unclipped command still meets §14.11.2.1's boundary, which is what `root` is.
             return Ok(Admitted::Chain(self.root));
@@ -1400,6 +1511,96 @@ impl<'a> Encoder<'a> {
             ResolvedClip::AdmitsNothing => Ok(Admitted::Nothing),
             ResolvedClip::Chain(chain) => Ok(Admitted::Chain(Some(chain))),
         }
+    }
+
+    /// Whether this chain takes nothing from a mark bounded by `marks`, so that the mark may be
+    /// drawn with no clip at all.
+    ///
+    /// # The clause states a set, and a set that contains a mark takes nothing from it
+    ///
+    /// ISO 32000-2 §10.7.4:
+    ///
+    /// > For clipping, the clipping region consists of the set of pixels that would be included
+    /// > by a fill operation. Subsequent painting operations shall affect a region that is the
+    /// > intersection of the set of pixels defined by the clipping region with the set of pixels
+    /// > for the region to be painted.
+    ///
+    /// and §8.5.4 says the same of the shape: "[t]he effective shape is the intersection of the
+    /// object's intrinsic shape with the clipping path". An intersection with a set that
+    /// contains the mark is the mark — `S n C = S` where `S` is inside `C` — at every pixel,
+    /// the mark's own anti-aliased boundary included.
+    ///
+    /// **raster composes a clip with a mark by multiplying their coverages** (its
+    /// `coverage.wgsl`: `cov * extent.x * extent.y`), and a product does not have that
+    /// property: where a mark's own edge and its clip's fall in one pixel, the mark keeps the
+    /// *square* of its coverage there. So the ink a containing clip costs is recoverable on
+    /// this side without the device changing anything — by not stating the clip.
+    /// `doc/QUORRA_FEEDBACK.md` section 24 is the ask for the case that remains, which is a
+    /// clip that genuinely cuts.
+    ///
+    /// # Why the question is asked in page space
+    ///
+    /// Both rectangles here are page-space, before the target transform, so the answer is a
+    /// property of the document and not of this view: every affine carries a containment to a
+    /// containment, and §10.7.4's pixel region is a *superset* of the geometric one it is built
+    /// from — "painting any pixel whose half-open square region intersects the shape" — so a
+    /// containment that holds geometrically holds against the pixels the device clips with.
+    /// That is what keeps this out of [`Encoder::consume_view`] and leaves a page-space scene
+    /// true at every magnification (ADR 0702).
+    ///
+    /// `marks` is `None` for a command whose extent this cannot bound, and for one whose marks
+    /// can be *enlarged* past their own geometry by §10.7.4's substitutions — a collapsed fill
+    /// subpath or §8.5.3.2's dot, each one device pixel across and so a bound the view decides.
+    /// Both answer `false`, which keeps the clip.
+    fn cuts_nothing(&mut self, clip: Option<ClipId>, marks: Option<Rect>) -> bool {
+        let Some(marks) = marks else { return false };
+        self.admitted_rect(clip)
+            .is_some_and(|admits| admits.contains(marks))
+    }
+
+    /// The page-space rectangle a whole chain admits, or `None` where any link of it is not a
+    /// rectangle [`rectangle`] can read.
+    ///
+    /// **An *inner* bound, which is the opposite of `DisplayList::clip_bounds`**: that one is a
+    /// rectangle the region lies inside, and a containment test needs one that lies inside the
+    /// region. A curved or many-sided clip has an inner rectangle too, and this does not look
+    /// for it — the population is rectangles, and the answer for everything else is to keep the
+    /// clip.
+    ///
+    /// Memoised per chain, because a page states one chain per clipping path and asks this
+    /// question once per command under it.
+    fn admitted_rect(&mut self, clip: Option<ClipId>) -> Option<Rect> {
+        let Some(id) = clip else {
+            return self.root_rect;
+        };
+        if let Some(cached) = self.admits.get(&id.index()) {
+            return *cached;
+        }
+        let rect = self.walk_admitted(id, 0);
+        self.admits.insert(id.index(), rect);
+        rect
+    }
+
+    /// [`Encoder::admitted_rect`]'s walk: this link's rectangle met with its parents'.
+    ///
+    /// Bounded by [`MAX_CLIP_DEPTH`] for the reason that constant states, and answering `None`
+    /// there rather than erroring: a chain that deep keeps its clip, which is the conservative
+    /// answer and not a refusal.
+    fn walk_admitted(&mut self, id: ClipId, depth: usize) -> Option<Rect> {
+        if depth > MAX_CLIP_DEPTH {
+            return None;
+        }
+        let def = self.list.clip(id)?;
+        let here = rectangle(&def.path, def.transform)?;
+        let outer = match def.parent {
+            Some(parent) => self.walk_admitted(parent, depth.saturating_add(1))?,
+            None => match self.root_rect {
+                Some(root) => root,
+                // No §14.11.2.1 boundary in this scene: the chain ends at this link.
+                None => return Some(here),
+            },
+        };
+        here.intersection(outer)
     }
 
     fn resolve_clip(

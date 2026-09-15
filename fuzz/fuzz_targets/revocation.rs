@@ -24,6 +24,13 @@
 //! distinction is the whole of ADR 1067 section 2: a walk that stopped early may not report a
 //! clean answer.
 //!
+//! **The canonical check refines the length check, and never disagrees with it.** ITU-T X.690
+//! clause 10.1's first half — a definite length — is one of the nine rules
+//! `pdf_signature::der::is_canonical` states, so a region it calls canonical is one
+//! `every_length_is_definite` must call definite. The two walk the same encoding by different
+//! routes and a fuzzer is what puts a stranger's bytes through both; a disagreement is a defect in
+//! one of them, and nothing shorter than an input that reaches it would say which.
+//!
 //! **A status is never `Good` for material this input did not make verifiable.** The target asks
 //! about a certificate of its own choosing under a key of its own choosing, and no CRL or response
 //! a fuzzer produces is signed by that key — so `Revocation::Good` here would be a defect in the
@@ -109,6 +116,23 @@ fuzz_target!(|data: &[u8]| {
             inside(single.issuer_key_hash);
             inside(single.serial_number);
         }
+    }
+
+    // Table 261 and RFC 6960 section 4.2.1 both require DER of the material above, and
+    // `is_canonical` is what those two readers ask before they read a byte. Asked here directly
+    // as well, because the property is about the *check* rather than about either reader: it is
+    // total over a stranger's bytes, it is a function of them alone, and what it calls canonical
+    // is a subset of what `every_length_is_definite` calls definite (ITU-T X.690 clause 10.1).
+    let canonical = pdf_signature::der::is_canonical(data);
+    assert!(
+        canonical == pdf_signature::der::is_canonical(data),
+        "the same region gave two different answers about its encoding"
+    );
+    if canonical == Ok(None) {
+        assert!(
+            pdf_signature::der::every_length_is_definite(data) == Ok(true),
+            "a region called DER holds a length the narrower check calls indefinite"
+        );
     }
 
     // §12.8.3.3.2's attribute reaches the same two readers through a third door, and this one

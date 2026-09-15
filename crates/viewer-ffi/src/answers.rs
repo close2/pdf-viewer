@@ -192,6 +192,30 @@ struct Note {
     text: [Option<String>; 3],
     /// Table 166's `/C` as `DeviceRGB`, where the annotation states one.
     colour: Option<[f32; 3]>,
+    /// §12.5.6.2's thread, flattened: one entry per reply this window shows rather than opening.
+    replies: Vec<Threaded>,
+}
+
+/// One of §12.5.6.2's threaded replies, flattened.
+///
+/// ISO 32000-2 §12.5.6.2, Table 172, the `/RT` value `R`:
+///
+/// > Interactive PDF processors shall not display replies to an annotation individually but
+/// > together in the form of threaded comments.
+///
+/// `pdf_model::popup` folds each reply's own window into the one it replies to (ADR 1090), so a
+/// caller that read [`Popups`] and drew only the windows would show a reviewed document with its
+/// replies missing. **A C caller cannot fail to compile**, which is why these are reachable by
+/// asking rather than by a field a compiler would have pointed at.
+#[derive(Debug, Clone, PartialEq)]
+struct Threaded {
+    /// The popup annotation the reply would otherwise have opened.
+    annotation: ObjectRef,
+    /// How many `/IRT` hops from the window: 1 for a reply to its note, 2 for a reply to that.
+    depth: usize,
+    /// §12.5.6.2's `/T`, Table 166's `/Contents`, and Table 166's `/M`, in that order — the same
+    /// three [`Note`] carries, so `QUORRA_NOTE_*` selects among them in both.
+    text: [Option<String>; 3],
 }
 
 impl Popups {
@@ -213,6 +237,19 @@ impl Popups {
                         window.modified.clone(),
                     ],
                     colour: window.colour.map(|colour| [colour.r, colour.g, colour.b]),
+                    replies: window
+                        .replies
+                        .iter()
+                        .map(|reply| Threaded {
+                            annotation: (reply.annotation.number, reply.annotation.generation),
+                            depth: reply.depth,
+                            text: [
+                                reply.title.clone(),
+                                reply.text.clone(),
+                                reply.modified.clone(),
+                            ],
+                        })
+                        .collect(),
                 })
                 .collect(),
         }
@@ -296,6 +333,61 @@ impl Popups {
             .ok_or(Status::OutOfRange)?
             .colour
             .ok_or(Status::NoAnswer)
+    }
+
+    /// How many of §12.5.6.2's replies this window shows under its own text.
+    ///
+    /// Zero for a window nobody replied to, which is almost every window in almost every file.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such window.
+    pub fn reply_count(&self, index: usize) -> Result<usize, Status> {
+        self.windows
+            .get(index)
+            .map(|note| note.replies.len())
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One reply's annotation and how deep in the thread it sits.
+    ///
+    /// Both together, because neither is useful alone: the object is what `quorra_activate` names
+    /// and the depth is what *threaded* means when a caller lays the comments out.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such window or no such reply in it.
+    pub fn reply(&self, index: usize, reply: usize) -> Result<(ObjectRef, usize), Status> {
+        self.windows
+            .get(index)
+            .and_then(|note| note.replies.get(reply))
+            .map(|reply| (reply.annotation, reply.depth))
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One of a reply's three strings, and `""` for one it does not state.
+    ///
+    /// [`Self::text`]'s rule and the same three entries, for the same reason.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such window or no such reply in it.
+    pub fn reply_text(&self, index: usize, reply: usize, which: NoteKind) -> Result<&str, Status> {
+        let reply = self
+            .windows
+            .get(index)
+            .and_then(|note| note.replies.get(reply))
+            .ok_or(Status::OutOfRange)?;
+        let text = match which {
+            NoteKind::Title => reply.text.first(),
+            NoteKind::Contents => reply.text.get(1),
+            NoteKind::Modified => reply.text.get(2),
+        };
+        // Unreachable for the reason `text` gives: three entries, three variants.
+        Ok(text
+            .ok_or(Status::OutOfRange)?
+            .as_deref()
+            .unwrap_or_default())
     }
 }
 

@@ -2839,3 +2839,105 @@ fn a_free_texts_cloudy_border_is_scalloped_rather_than_refused() {
         "the note is drawn under its cloud"
     );
 }
+
+/// Table 192's three captions are chosen by what the pointer is doing.
+///
+/// `/CA` is "the widget annotation's normal caption , which shall be displayed when it is not
+/// interacting with the user", `/RC` "shall be displayed when the user rolls the cursor into its
+/// active area without pressing the mouse button", and `/AC` "when the mouse button is pressed
+/// within its active area" — §12.5.5's three conditions again, so the state that picks among
+/// `/N`, `/R` and `/D` picks among these.
+///
+/// The assertion is an *extent* rather than a glyph, for this file's standing reason: the three
+/// captions are one, ten and twenty characters of the same letter, so which one was laid out is
+/// the width of the ink. `/H /N` is Table 191's "[n]o highlighting", without which the down state
+/// would paint §11.3.5.2's inversion over the whole rectangle and ink every column.
+///
+/// **No corpus document states `/RC` or `/AC`**, over all 974 — `examples/push_button_census` —
+/// so this fixture is the only thing defending the rule (trap 8).
+#[test]
+fn table_192s_three_captions_are_chosen_by_what_the_pointer_is_doing() {
+    let bytes = pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 80] /F 4 /H /N /FT /Btn /Ff 65536 \
+         /T (go) /DA (/Helv 10 Tf 0 g) \
+         /MK << /CA (I) /RC (IIIIIIIIII) /AC (IIIIIIIIIIIIIIIIIIII) >> >>",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let widget = pdf_syntax::ObjectId {
+        number: 5,
+        generation: 0,
+    };
+    let width = |pointer: Option<pdf_model::view::Pointer>| {
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_pointer(pointer.map(|pointer| (widget, pointer)));
+        span(&inked_columns(&draw_with(&document, &page, &state)))
+    };
+
+    let normal = width(None);
+    let rollover = width(Some(pdf_model::view::Pointer::Over));
+    let down = width(Some(pdf_model::view::Pointer::Down));
+    assert!(
+        normal < rollover && rollover < down,
+        "one letter, then ten, then twenty: {normal} < {rollover} < {down}"
+    );
+
+    // The entry the file does not state: a push-button with only `/CA` keeps drawing it in every
+    // state rather than losing its caption the moment a pointer crosses it (ADR 1090).
+    let bytes = pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 80] /F 4 /H /N /FT /Btn /Ff 65536 \
+         /T (go) /DA (/Helv 10 Tf 0 g) /MK << /CA (IIIIIIIIII) >> >>",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let width = |pointer: Option<pdf_model::view::Pointer>| {
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_pointer(pointer.map(|pointer| (widget, pointer)));
+        span(&inked_columns(&draw_with(&document, &page, &state)))
+    };
+    assert_eq!(
+        width(Some(pdf_model::view::Pointer::Over)),
+        width(None),
+        "no /RC: the normal caption"
+    );
+    assert_eq!(
+        width(Some(pdf_model::view::Pointer::Down)),
+        width(None),
+        "no /AC: the normal caption"
+    );
+}
+
+/// Table 192's `/RC` and `/AC` are "push-button fields only", and a check box keeps its `/CA`.
+///
+/// The table exempts exactly one of its eleven entries from that scope: "[u]nlike the remaining
+/// entries listed in this Table, which apply only to widget annotations associated with
+/// push-button fields …, the CA entry may be used with any type of button field, including check
+/// boxes … and radio buttons". So a check box under a pressed pointer draws `/CA`, and an `/AC`
+/// written on one is an entry its field type does not have.
+#[test]
+fn a_check_box_keeps_its_own_caption_under_every_pointer_state() {
+    let bytes = pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 80] /F 4 /H /N /FT /Btn \
+         /T (tick) /V /Yes /AS /Yes /DA (/Helv 10 Tf 0 g) \
+         /MK << /CA (I) /AC (IIIIIIIIIIIIIIIIIIII) >> >>",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let widget = pdf_syntax::ObjectId {
+        number: 5,
+        generation: 0,
+    };
+    let width = |pointer: Option<pdf_model::view::Pointer>| {
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_pointer(pointer.map(|pointer| (widget, pointer)));
+        span(&inked_columns(&draw_with(&document, &page, &state)))
+    };
+    assert_eq!(
+        width(Some(pdf_model::view::Pointer::Down)),
+        width(None),
+        "a check box has one caption, and the twenty-letter /AC is not it"
+    );
+}

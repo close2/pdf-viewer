@@ -2554,6 +2554,56 @@ count is identical.
 where a clip meets a mark, it should take it for a stroke as well; if it does not, this is simply
 where the two of us now part on both operators rather than on one.
 
+### 24c. This side stopped **stating** a clip that cuts nothing, and §24's population is now one page
+
+Added in the thousand-and-seventy-fourth round of this tree (its ADR 1088). §24 is unchanged as an
+ask; what has changed is how much of it is left, and the arithmetic is worth passing on because it
+needs nothing from your side.
+
+**The closed form §24 stated is a licence as well as a requirement.** `S ∩ C = S` where `S ⊆ C`
+means a clip that contains a mark may simply not be stated — the intersection is the mark, so an
+encoder that leaves the clip off has computed it exactly. This tree now asks that question per
+mark, in **page** space, before the target transform: a chain each of whose links is an
+axis-aligned rectangle admits a rectangle, and a mark whose own box lies inside it is drawn
+unclipped. Page space is what makes it free of the view — every affine carries a containment to a
+containment, and §10.7.4's pixel region is a superset of the geometric one it is built from — so a
+page-space scene stays true at every magnification.
+
+Two cases are held back deliberately, and both are about a mark that can reach past its own
+geometry: a fill with a collapsed subpath, and a stroke that produced §8.5.3.2's dot or gave up
+width to §10.7.4's substitution. Each is one device pixel across, which is a bound the *view*
+decides rather than the document.
+
+**What it moved, measured with a new instrument rather than argued.** `examples/clip_cost` draws a
+page twice on each backend — as stated, and with every command's clip taken off — so for a clip
+that cuts nothing the difference is the composition and nothing else. Scale-normalised ink, page
+one:
+
+```text
+                      1x cpu   of unclipped      1x raster   of unclipped
+  bug1844576.pdf      849.31         933.38         933.09         933.09
+  bug1978317.pdf   13 387.41      15 165.68      15 118.43      15 118.43
+  issue16473.pdf      498.45         501.93         501.87         501.87
+  bug1844583.pdf      486.46         501.76         500.93         500.93
+  issue19083.pdf      448.40         448.40         396.96         447.87
+```
+
+The first four are §24's own population — a widget appearance whose border rule sits on the `/BBox`
+§8.10.1 step c) clips it by — and their clips now cost your side **nothing**. `issue16473.pdf` and
+`bug1844583.pdf` left the cross-backend differing list on that; `bug1844576.pdf` and
+`bug1978317.pdf` arrived on it, because with the device on the geometry the backend short of ink at
+page scale is **ours** (its own §10.7.4 substitution meets a clip by `min`, and a widened mark is
+not the mark). That is this project's item, not yours, and it is recorded here so the movement is
+not read as one of yours.
+
+**`issue19083.pdf` is what is left of §24, and it is the whole of it.** Its border is
+`0.5 0.5 124.2502 19 re s` at `1 w` inside a `/BBox` of `[0 0 125.25 20]`, so the stroke's outer
+edge lies **0.0002 outside** the box: the clip genuinely cuts, the rule above declines it by name,
+and your product then costs the page **11.4%** of its ink at page scale (396.96 against the 447.87
+it draws unclipped, and 447.93 at 8× where the boundary is a sixty-fourth of the mark). Two ten-
+thousandths of a device pixel of real cutting, and an eighth of the page's ink paid for it. That is
+§24's ask in one number.
+
 ## 25. `a64a9084` taken, the border cut confirmed on this corpus, two of your four counters adopted — and the function paint answered
 
 Written in the five-hundred-and-thirty-second session, against your `a64a9084` and your
@@ -5073,3 +5123,56 @@ One thing did move on your side while this was invisible: `issue1905.pdf`, §40'
 prints that ceiling at 4×. It prints *frame needs 365144861 scene-derived bytes* there and
 *272158852* at 1×, so the byte budget now preempts the sheet on that page at both scales. §40
 stands as written; the sentence about the 4× ceiling in it is now a reading rather than a run.
+
+## 45. A path's own portions are composited with one another: the winding **integral** is clamped per pixel where §8.5.3.3 states a **set**
+
+An ask, with a reproduction that is one fill and no document, and with the note that this project
+had exactly the same defect on its own correctness oracle until its thousand-and-sixty-eighth
+round (its ADR 1082) — so this is offered as a thing we got wrong first.
+
+**The clause.** §8.5.3.3 decides what a path encloses by a winding number, and §10.7.4 makes a
+pixel `[i, i+1) × [j, j+1)` and its coverage the area of the enclosed region inside it. The region
+is a *set*: a point is in it or it is not, and a point wound twice is in it exactly as much as a
+point wound once. §11.6.2 says the same from the compositing side:
+
+> Portions of an object shall not be composited with one another.
+
+So the coverage of a pixel is `area({ p in pixel : winding(p) ≠ 0 })`, and **not** the integral of
+the winding number over the pixel clamped to one. The two agree wherever a pixel meets at most one
+winding of the path, which is every pixel of every path that does not overlap itself — and they
+part at exactly the pixels where it does.
+
+**The reproduction.** An 8 × 4 page; one `Fill`, non-zero rule, whose path states the rectangle
+`0,0 → 0.75,0 → 0.75,4 → 0,4` **twice**, both contours in the same direction. The enclosed region
+is the same 0.75-wide band either way, so the page's ink is 3 whole device pixels. Ink counted as
+`765 − r − g − b` over the raster, scale-normalised:
+
+```text
+                          1x cpu    1x raster     2x cpu    2x raster
+  stated once             2.9961     2.9961       3.0039     3.0039
+  stated twice, same      2.9961     4.0000       3.0039     4.0000
+  stated twice, opposed   0.0000     0.0000       0.0000     0.0000
+```
+
+The third row is the control and it passes on both sides: two coincident contours of *opposite*
+orientation wind to zero and paint nothing. The second row is the defect — the boundary column's
+0.75 becomes `min(2 × 0.75, 1) = 1` — and it does not shrink with scale, because the doubling is
+geometric rather than a boundary quantum.
+
+**Where it reaches a real page is a stroke**, since `stroke_polylines` expands a path into one quad
+per segment plus a join, and those overlap wherever the path turns: the comment there says
+"overlaps between pieces double the winding, which non-zero coverage clamps away", and clamping the
+*pixel-integrated* winding is what this is about. Three pages of this project's corpus part from its
+oracle on it, each with raster long at page scale and the excess halving at every rung of an ink
+ladder: `issue20232.pdf` +31.3%, `issue21068.pdf` +3.1%, and `issue15150.pdf`, whose whole content
+stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s` — `s` closes a two-point subpath, so the stroked
+region is the device rectangle `[0, 0.5] × [0, 0.5]` traversed twice, and your side draws 0.5 of
+pixel (0, 0) where its area is 0.25. At 2× and above that region is a whole pixel and the two agree.
+
+**What it cost us to fix on the other side, since that is the part worth knowing before you price
+it.** The oracle's converter accumulates each edge's contribution per cell and sends a path to the
+library's converter as soon as one cell passes a whole winding — a per-cell test rather than one on
+the accumulated sum, which declined 514 of 854 marks on a text page and cost it +28.6% where the
+per-cell form costs +1.2%. Whether an analytic scene compositor can ask the same question cheaply is
+your measurement; §10.7.4's third sentence means the current answer errs on the permitted side, so
+this is a correctness item rather than a page drawn wrong.

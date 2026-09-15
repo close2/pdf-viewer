@@ -4107,6 +4107,100 @@ pub unsafe extern "C" fn quorra_popup_colour(
     }
 }
 
+/// How many of §12.5.6.2's replies a window shows under its own text.
+///
+/// Table 172 makes showing them there a `shall`: replies are not displayed "individually but
+/// together in the form of threaded comments". A caller that draws `quorra_popup_text` and stops
+/// has left a reviewed document's replies off the screen — they are no longer windows of their
+/// own, so this is where they are.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for one `size_t`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_reply_count(
+    popups: *const Popups,
+    index: usize,
+    into: *mut usize,
+) -> c_int {
+    let (Some(popups), Some(into)) = (popups.as_ref(), into.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match popups.reply_count(index) {
+        Ok(count) => {
+            *into = count;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One reply's annotation and how deep in the thread it sits.
+///
+/// The object is what `quorra_activate` names; the depth is 1 for a reply to the window's own
+/// note, 2 for a reply to that reply, and is what *threaded* means when a caller indents them.
+///
+/// # Safety
+///
+/// See the module documentation. Each out-parameter is writable or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_reply_object(
+    popups: *const Popups,
+    index: usize,
+    reply: usize,
+    number: *mut u32,
+    generation: *mut u16,
+    depth: *mut usize,
+) -> c_int {
+    let Some(popups) = popups.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (annotation, at) = match popups.reply(index, reply) {
+        Ok(answer) => answer,
+        Err(status) => return status.code(),
+    };
+    if let Some(number) = number.as_mut() {
+        *number = annotation.0;
+    }
+    if let Some(generation) = generation.as_mut() {
+        *generation = annotation.1;
+    }
+    if let Some(depth) = depth.as_mut() {
+        *depth = at;
+    }
+    Status::Ok.code()
+}
+
+/// One of a reply's three strings: `QUORRA_NOTE_TITLE`, `QUORRA_NOTE_CONTENTS`, `QUORRA_NOTE_MODIFIED`.
+///
+/// `quorra_popup_text`'s rule, on the same three entries: an empty string for one the annotation
+/// does not state.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_popup_reply_text(
+    popups: *const Popups,
+    index: usize,
+    reply: usize,
+    which: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(popups) = popups.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = NoteKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    match popups.reply_text(index, reply, which) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
 /// §14.7's logical structure for every page the arrangement is showing, as a handle the caller
 /// frees.
 ///

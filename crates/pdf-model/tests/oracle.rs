@@ -385,7 +385,51 @@ const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 0] = [];
 /// set that decided this page contradicts a voting reference, in the same numbers, while the
 /// other set accepts them both. Nothing in the clause reading changes, including the part this
 /// project cares about most: the specification answers this page, and it answers for us.
-const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 0] = [];
+/// # A second page, and it is the same clause with a second witness
+///
+/// **`T-REC-X.690-202102.pdf` page 1** arrived in the pool the way `ICC.1-2022-05.pdf page 1`
+/// did and for the same reason: `doc/*.pdf` is gitignored, the gate walks page one of every
+/// specification this project holds, and the one-thousand-and-seventy-fifth session fetched
+/// ITU-T X.690 to read clause 10 against `pdf_signature::der`. No pixel moved anywhere; the
+/// judged population grew by one page and that page is contradicted.
+///
+/// **What it fails is the differing fraction and nothing else** — 8.90% against a bound of
+/// 5.30%, with mean 4.06 of 5.00, worst tile 26.29 of 54.36 and ssim 0.9392 of 0.9000 all
+/// inside. The gate's own counterfactual takes it off the list at the references' 99th
+/// percentile, which `doc/todo/12` item 1 is about.
+///
+/// **The page's left quarter is a 122x843 indexed image drawn through `123.6 0 0 848.15 -15.9
+/// -0.35`** — 848.15 device rows for 843 samples, a magnification of 1.006, so each device
+/// pixel's centre falls inside exactly one sample and the clause quoted above has nothing to
+/// average even if it allowed it. Over that quarter the four renderers split **two and two**:
+///
+/// ```text
+///   ours        vs ghostscript   mean 0.43 of 255   99.0% of pixels byte-identical
+///   poppler     vs mupdf         mean 0.33          63.7%
+///   ours        vs poppler       mean 10.08         38.6%
+///   ghostscript vs mupdf         mean 10.03         38.7%
+/// ```
+///
+/// A stripe boundary is one device row in ours and in `ghostscript`'s and two in `poppler`'s
+/// and `mupdf`'s, and the ink over the bar agrees to **0.3 of 255** (ours 100.95, the pair
+/// 100.66, in levels of grey) — so nothing is displaced and nothing is lost; what differs is
+/// whether the boundary row is a sample or a blend. That is the sentence above, and it is a
+/// `shall`.
+///
+/// **The same split holds over the whole page**, which is what says the reading is not about
+/// the image alone: ours against `ghostscript` differs on 3.92% of pixels, *inside* the bound,
+/// while `ghostscript` against `poppler` differs on 9.71% and against `mupdf` on 8.61% — the
+/// voting reference the consensus excludes fails the bound against both of its members by more
+/// than we fail it against the nearer one. Trap 9's tell, taken over a page rather than a
+/// population.
+///
+/// **What the page's remaining difference is** is glyph coverage, and it is named rather than
+/// folded in: every font carrying body text here is non-embedded — `TimesNewRomanPSMT`,
+/// `ArialMT`, `Arial-BoldMT` — so the text carries [`CONTRADICTED_SUBSTITUTED_FONT`]'s
+/// mechanism as well. It is the smaller half: at a threshold of 16 levels the striped image
+/// holds 58% of the differing pixels and the text 42%. The page sits here rather than there
+/// because the larger half is answered by a clause and the smaller one is not.
+const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["T-REC-X.690-202102.pdf page 1"];
 
 /// Contradicted, where the difference was said to be a *spectrum of edge softness*.
 ///

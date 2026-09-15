@@ -66,6 +66,13 @@ pub struct Window<'a> {
     /// [`crate::bounds`] of [`viewer_core::PopupWindow::quad`], because a window is upright in
     /// every toolkit and §7.7.3.3's `/Rotate` can turn the rectangle the file states.
     pub place: (f32, f32, f32, f32),
+    /// §12.5.6.2's thread, under [`Self::text`]: the replies this window shows instead of their
+    /// own.
+    ///
+    /// Table 172 makes it a `shall` that they are not displayed "individually but together in the
+    /// form of threaded comments", so a host drawing only [`Self::text`] has dropped them.
+    /// `pdf_model::popup::Comment::depth` is how far each is indented.
+    pub replies: &'a [pdf_model::popup::Comment],
 }
 
 /// Every window in an answer that has somewhere to go, in the order the page listed them.
@@ -91,9 +98,51 @@ pub fn windows(popups: &[PopupWindow]) -> Vec<Window<'_>> {
                 text: popup.text.as_deref().unwrap_or_default(),
                 colour: popup.colour,
                 place,
+                replies: &popup.replies,
             })
         })
         .collect()
+}
+
+/// §12.5.6.2's thread as one block of plain text, for a host that places a single label.
+///
+/// ISO 32000-2 §12.5.6.2, Table 172, the `/RT` value `R`:
+///
+/// > Interactive PDF processors shall not display replies to an annotation individually but
+/// > together in the form of threaded comments.
+///
+/// [`Window::replies`] is the structured answer and is what a host laying out its own widgets uses
+/// — `viewer-gtk` gives each reply a box and `viewer-ui` indents it as it draws. A host that
+/// crosses a bridge carrying strings has one label to fill, and this is the same thread flattened
+/// in one place rather than in each of them: each reply's author on its own line, its text under
+/// that, and two spaces of indent per `/IRT` hop.
+///
+/// Empty for a window nobody replied to, which is almost every window, so a caller can append it
+/// unconditionally and add no label where there is nothing to say.
+#[must_use]
+pub fn thread(window: &Window<'_>) -> String {
+    let mut out = String::new();
+    for reply in window.replies {
+        // Four levels, which is the deepest chain measured over ISO 32000-2's own PDF; past that
+        // the indent would cost more width than the depth is worth.
+        let indent = "  ".repeat(reply.depth.min(4));
+        if let Some(who) = reply.title.as_deref().filter(|who| !who.is_empty()) {
+            out.push_str(&indent);
+            out.push_str(who);
+            out.push('\n');
+        }
+        for line in reply
+            .text
+            .as_deref()
+            .unwrap_or_default()
+            .split(['\r', '\n'])
+        {
+            out.push_str(&indent);
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Table 166's `/M` as [`Window::modified`] should be shown, or `None` where there is none.
@@ -121,6 +170,7 @@ mod tests {
             text: Some("a note".to_owned()),
             modified: Some("D:20240102030405Z".to_owned()),
             colour: None,
+            replies: Vec::new(),
         }
     }
 

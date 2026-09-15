@@ -1138,6 +1138,7 @@ fn window(text: &str, title: Option<&str>) -> viewer_core::PopupWindow {
         text: Some(text.to_owned()),
         modified: Some("D:20260805120000Z".to_owned()),
         colour: None,
+        replies: Vec::new(),
     }
 }
 
@@ -1161,6 +1162,64 @@ fn a_popup_window_puts_its_note_on_the_page() {
         viewer_ui::chrome::popup_windows(&chrome, &[], WIDTH, HEIGHT, 1.0).is_none(),
         "no open window is no display list at all"
     );
+}
+
+/// §12.5.6.2's thread is drawn under the note it replies to, rather than in a window of its own.
+///
+/// Table 172: "[i]nteractive PDF processors shall not display replies to an annotation
+/// individually but together in the form of threaded comments." `pdf_model::popup` folds each
+/// reply's own window into one `PopupWindow` (ADR 1090), and this is the other half of the
+/// sentence — a host that received the thread and drew only `text` would obey the letter by
+/// losing the words, which is the failure trap 5 is about.
+///
+/// The assertion is ink, because nothing about the display list's *length* distinguishes a
+/// thread that was drawn from one whose glyph fill was deleted.
+#[test]
+fn a_threads_replies_are_drawn_under_the_note_they_answer() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let mut threaded = window("A note.", Some("author"));
+    threaded.replies = vec![
+        pdf_model::popup::Comment {
+            annotation: ObjectId::new(8, 0),
+            parent: Some(ObjectId::new(9, 0)),
+            depth: 1,
+            title: Some("a reviewer".to_owned()),
+            text: Some("A reply whose words this face can set.".to_owned()),
+            modified: None,
+        },
+        pdf_model::popup::Comment {
+            annotation: ObjectId::new(10, 0),
+            parent: Some(ObjectId::new(11, 0)),
+            depth: 2,
+            title: Some("author".to_owned()),
+            text: Some("And an answer to it.".to_owned()),
+            modified: None,
+        },
+    ];
+    let plain = window("A note.", Some("author"));
+
+    let drawn = |window: &viewer_core::PopupWindow| {
+        let list = viewer_ui::chrome::popup_windows(
+            &chrome,
+            std::slice::from_ref(window),
+            WIDTH,
+            HEIGHT,
+            1.0,
+        )
+        .expect("one window is drawn");
+        ink(&list, 55..145)
+    };
+    assert!(
+        drawn(&threaded) > drawn(&plain),
+        "the thread puts more on the page than the note alone: {} vs {}",
+        drawn(&threaded),
+        drawn(&plain)
+    );
+    // And it stays inside the window the file sized, which is the document's rectangle and not
+    // this host's to grow.
+    let list =
+        viewer_ui::chrome::popup_windows(&chrome, &[threaded], WIDTH, HEIGHT, 1.0).expect("drawn");
+    assert_eq!(ink(&list, 160..HEIGHT), 0, "and nothing below the window");
 }
 
 #[test]

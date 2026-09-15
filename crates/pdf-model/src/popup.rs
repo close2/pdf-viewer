@@ -98,6 +98,44 @@ pub struct Popup {
     ///
     /// `None` for the value the table gives an empty array: "0 No colour; transparent".
     pub colour: Option<pdf_render::Color>,
+    /// §12.5.6.2's thread: every reply whose own window this one has absorbed, deepest last.
+    ///
+    /// Empty for the overwhelming majority of windows, which nobody has replied to. See
+    /// [`popups`] for the sentence that makes this a list rather than a second window.
+    pub replies: Vec<Comment>,
+}
+
+/// One reply in a [`Popup`]'s thread — Table 172's `/RT` `R`, displayed where it belongs.
+///
+/// ISO 32000-2 §12.5.6.2, Table 172, `/RT`:
+///
+/// > R The annotation is considered a reply to the annotation specified by IRT . Interactive PDF
+/// > processors shall not display replies to an annotation individually but together in the form
+/// > of threaded comments.
+///
+/// So a reply's own popup window is not a window: it is a comment inside the window of what it
+/// replies to, and this is that comment. The three text entries are the same three a [`Popup`]
+/// carries and are read through the same group rule.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Comment {
+    /// The popup annotation whose window this reply would otherwise have opened.
+    ///
+    /// Kept so that a host can name what it is showing and so that §12.5.1's activation of the
+    /// reply itself has something to match; nothing places it, because a comment has no rectangle.
+    pub annotation: ObjectId,
+    /// The markup annotation whose text this is — Table 186's `/Parent` of [`Self::annotation`].
+    pub parent: Option<ObjectId>,
+    /// How many `/IRT` hops separate this reply from the window hosting the thread.
+    ///
+    /// 1 for a reply to the hosting annotation, 2 for a reply to that reply, and so on. The
+    /// clause calls the result *threaded*, and a thread with no depth is a list.
+    pub depth: usize,
+    /// §12.5.6.2's `/T`: who wrote the reply.
+    pub title: Option<String>,
+    /// Table 166's `/Contents`, or Table 172's `/RC` behind it: what the reply says.
+    pub text: Option<String>,
+    /// Table 166's `/M`, as the file spells it — [`Popup::modified`]'s rule, for the same reason.
+    pub modified: Option<String>,
 }
 
 impl Popup {
@@ -140,7 +178,9 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };
-    let mut out = Vec::new();
+    // Two passes, because the second needs to know which windows the page actually shows: the
+    // first reads every window the file states and the second threads them.
+    let mut read_windows: Vec<(Popup, Option<ObjectId>, usize)> = Vec::new();
     for entry in annotations {
         let Some(id) = entry.as_reference() else {
             continue;
@@ -160,11 +200,127 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         if !crate::annotation::displayed(document, dict, view.annotation(id)) {
             continue;
         }
-        if let Some(popup) = read(document, id, dict) {
-            out.push(popup);
+        let Some(popup) = read(document, id, dict) else {
+            continue;
+        };
+        // The annotation whose text the window shows — Table 186's `/Parent`, or the window
+        // itself for the parentless case this clause's NOTE 3 describes.
+        let owner = document.get_key(dict, "Parent");
+        let owner = owner.as_dict().unwrap_or(dict);
+        let (host, depth) = thread_window(document, owner);
+        read_windows.push((popup, host, depth));
+    }
+
+    let shown: Vec<ObjectId> = read_windows
+        .iter()
+        .map(|(popup, _, _)| popup.annotation)
+        .collect();
+    let mut out: Vec<Popup> = Vec::new();
+    let mut folded: Vec<(ObjectId, Comment, bool)> = Vec::new();
+    for (popup, host, depth) in read_windows {
+        // A reply whose host is not one of this page's shown windows has nothing to be displayed
+        // *together with*, so it keeps its own: the clause forbids showing replies separately
+        // from what they reply to, not showing them at all. A window is never its own host
+        // either, which is what a file whose `/IRT` chain loops back produces — every annotation
+        // in a cycle is its own ancestor, and folding one into itself would lose it.
+        match host.filter(|host| depth > 0 && *host != popup.annotation && shown.contains(host)) {
+            Some(host) => folded.push((
+                host,
+                Comment {
+                    annotation: popup.annotation,
+                    parent: popup.parent,
+                    depth,
+                    title: popup.title,
+                    text: popup.text,
+                    modified: popup.modified,
+                },
+                popup.open,
+            )),
+            None => out.push(popup),
         }
     }
+    // Deepest last, `/Annots` order within a depth — which `sort_by_key` keeps, being stable.
+    folded.sort_by_key(|(_, comment, _)| comment.depth);
+    for (host, comment, open) in folded {
+        let Some(window) = out.iter_mut().find(|window| window.annotation == host) else {
+            continue;
+        };
+        // Table 186's `/Open` of a folded reply opens the thread's window, by
+        // `opens_with_the_page`'s reading: each entry states a condition under which a window is
+        // open and none states one under which it is closed.
+        window.open = window.open || open;
+        window.replies.push(comment);
+    }
     out
+}
+
+/// How far a chain of Table 172 `/IRT` replies is followed before a file is read as cyclic.
+///
+/// The clause bounds a thread to one page — "[b]oth annotations shall be on the same page of the
+/// document" — and states no depth. ISO 32000-2's own PDF is the deepest population measured,
+/// at four hops (`examples/annotation_group_census`); this is far above it and exists so that a
+/// file writing a cycle terminates rather than to express a limit the standard has.
+const MAX_THREAD: usize = 64;
+
+/// The window §12.5.6.2 displays this annotation's text in, and how deep in the thread it sits.
+///
+/// ISO 32000-2 §12.5.6.2, Table 172, the `/RT` value `R`:
+///
+/// > Interactive PDF processors shall not display replies to an annotation individually but
+/// > together in the form of threaded comments.
+///
+/// `R` is also `/RT`'s default, so an annotation with an `/IRT` and no `/RT` is a reply. This
+/// climbs that chain and answers the window of the **highest** ancestor that states one, with the
+/// number of hops to it: 0 for an annotation displayed in its own window, which is every
+/// annotation in almost every file.
+///
+/// **The highest ancestor that states a window, rather than the head of the chain**, and the
+/// count is why: of ISO 32000-2's own 1752 replies, every one names a `/Popup` of its own and
+/// only 1401 have a chain head that names one. Hanging a thread on the head alone would drop the
+/// text of the other 351 — and a reply whose ancestors state no window has nothing to be shown
+/// *together with*, which is the case this rule leaves alone rather than the rule it breaks.
+///
+/// `/Popup` is one of the clause's group attributes, so each step reads it through
+/// [`crate::markup::group_source`]: a `/RT /Group` subordinate's window is the primary's, and the
+/// climb stops there because a group member is not a reply.
+fn thread_window(document: &Document, annotation: &Dictionary) -> (Option<ObjectId>, usize) {
+    let window_of = |dict: &Dictionary| {
+        crate::markup::group_source(document, dict)
+            .get("Popup")
+            .and_then(pdf_syntax::Object::as_reference)
+    };
+    let mut node = annotation.clone();
+    let mut window = window_of(&node);
+    let mut found_at = 0;
+    for hop in 1..=MAX_THREAD {
+        if !is_reply(document, &node) {
+            break;
+        }
+        let Some(next) = document.get_key(&node, "IRT").as_dict().cloned() else {
+            break;
+        };
+        node = next;
+        if let Some(above) = window_of(&node) {
+            window = Some(above);
+            found_at = hop;
+        }
+    }
+    (window, found_at)
+}
+
+/// Whether this annotation is Table 172's *reply* rather than a group's subordinate.
+///
+/// The entry that says which is `/RT`, "meaningful only if IRT is present", whose two values are
+/// `R` — "[t]he annotation is considered a reply to the annotation specified by IRT" — and
+/// `Group`, with "Default value: R ". So an `/IRT` with no `/RT` is a reply, which is what makes
+/// the default load-bearing rather than cosmetic.
+fn is_reply(document: &Document, annotation: &Dictionary) -> bool {
+    annotation.get("IRT").is_some()
+        && document
+            .get_key(annotation, "RT")
+            .as_name()
+            .map(pdf_syntax::Name::as_bytes)
+            != Some(b"Group")
 }
 
 /// Table 172's `/Popup`: the window this markup annotation opens, where it states one.
@@ -184,13 +340,18 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
 /// shall have no popup window nor other interactive elements" is a sentence about the subtype,
 /// and Table 171 makes it no markup annotation either, so a `/Popup` written on one names a
 /// window this clause forbids. `None`, as for an annotation that states no entry (ADR 1057).
+///
+/// **And a reply's window is the thread's**, since §12.5.6.2's other `shall` was implemented:
+/// "[i]nteractive PDF processors shall not display replies to an annotation individually but
+/// together in the form of threaded comments", so activating a reply exhibits the one window that
+/// thread is shown in rather than a second window beside it. [`thread_window`] is that climb and
+/// is what [`popups`] folds by, so the two answers cannot disagree.
 #[must_use]
 pub fn popup_of(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
     if crate::annotation::is_watermark(document, annotation) {
         return None;
     }
-    let source = crate::markup::group_source(document, annotation);
-    source.get("Popup")?.as_reference()
+    thread_window(document, annotation).0
 }
 
 /// Reads one popup dictionary, or `None` where its `/Rect` states no rectangle — or where its
@@ -230,6 +391,7 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         text: text(document, &source, "Contents").or_else(|| rich_text(document, &source)),
         modified: text(document, &source, "M"),
         colour: colour(document, &source),
+        replies: Vec::new(),
     })
 }
 
@@ -864,5 +1026,180 @@ mod tests {
         let popups = popups(&document, &page(&document), &view);
         assert_eq!(popups[0].modified.as_deref(), Some("last Tuesday"));
         assert!(popups[0].modified_date().is_none());
+    }
+
+    /// §12.5.6.2's reply `shall`, in one window rather than three.
+    ///
+    /// Table 172's `/RT` `R`: "[i]nteractive PDF processors shall not display replies to an
+    /// annotation individually but together in the form of threaded comments." The fixture is a
+    /// square with a window, a reply to it with a window of its own, and a reply to *that* with a
+    /// third — which this program opened as three separate windows until the rule was read.
+    ///
+    /// `/RT` is absent from both replies on purpose: `R` is the default, so an annotation with an
+    /// `/IRT` and nothing else is already a reply, and a rule that only fired on an explicit
+    /// `/RT /R` would miss the common case.
+    #[test]
+    fn replies_are_threaded_into_one_window_rather_than_opened_beside_it() {
+        let document = document(
+            "4 0 R 5 0 R 6 0 R 7 0 R 8 0 R 9 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /Popup 5 0 R \
+             /T (the author) /Contents (the original) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [100 10 300 90] /Parent 4 0 R >> \
+             endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R \
+             /Popup 7 0 R /T (a reviewer) /Contents (the reply) >> endobj\n\
+             7 0 obj << /Type /Annot /Subtype /Popup /Rect [100 110 300 190] /Parent 6 0 R \
+             /Open true >> endobj\n\
+             8 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 6 0 R \
+             /Popup 9 0 R /T (the author) /Contents (the answer) >> endobj\n\
+             9 0 obj << /Type /Annot /Subtype /Popup /Rect [100 210 300 290] /Parent 8 0 R >> \
+             endobj\n",
+        );
+        let page = page(&document);
+        let view = crate::view::ViewState::of(&document);
+        let windows = popups(&document, &page, &view);
+        assert_eq!(windows.len(), 1, "one window for the thread: {windows:?}");
+        let window = &windows[0];
+        assert_eq!(window.annotation, pdf_syntax::ObjectId::new(5, 0));
+        assert_eq!(window.text.as_deref(), Some("the original"));
+        let said: Vec<(usize, &str)> = window
+            .replies
+            .iter()
+            .map(|reply| (reply.depth, reply.text.as_deref().unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            said,
+            vec![(1, "the reply"), (2, "the answer")],
+            "both replies, deepest last, each at its own distance from the window"
+        );
+        assert_eq!(
+            window.replies[0].title.as_deref(),
+            Some("a reviewer"),
+            "and who wrote it, which is the one thing a thread has that a long note does not"
+        );
+        // Table 186's `/Open` on the reply's own window opens the thread's, by
+        // `opens_with_the_page`'s reading: each entry states a condition under which a window is
+        // open and none states one under which it is closed.
+        assert!(
+            window.open,
+            "the reply's /Open opens the window it is shown in"
+        );
+
+        // §12.5.1's activation of the reply reaches the same window, so a click on it is not a
+        // click on nothing.
+        let reply = document.get(pdf_syntax::ObjectId::new(8, 0));
+        let reply = reply.as_dict().expect("the reply is a dictionary");
+        assert_eq!(
+            popup_of(&document, reply),
+            Some(pdf_syntax::ObjectId::new(5, 0))
+        );
+    }
+
+    /// The thread hangs on the **highest ancestor that states a window**, not on the chain's head.
+    ///
+    /// The head is where a thread most obviously belongs, and the count says it is not enough: of
+    /// ISO 32000-2's own 1752 replies every one names a `/Popup` and only 1401 have a head that
+    /// names one (`examples/annotation_group_census`). This fixture is that shape — a head with
+    /// no window, a reply to it with one, and a reply to *that* — so a head-only rule would leave
+    /// the last two in windows of their own, which is the display the clause forbids.
+    ///
+    /// The second half is the case with nothing above it at all: a reply whose whole chain opens
+    /// no window has nothing to be shown *together with*, and it keeps its own rather than being
+    /// dropped. Obeying the sentence by losing the text is trap 5's failure.
+    #[test]
+    fn a_thread_hangs_on_the_highest_window_its_chain_states() {
+        let deep = document(
+            "4 0 R 6 0 R 7 0 R 8 0 R 9 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] \
+             /Contents (the head, with no window) >> endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R /RT /R \
+             /Popup 7 0 R /Contents (the reply) >> endobj\n\
+             7 0 obj << /Type /Annot /Subtype /Popup /Rect [100 110 300 190] /Parent 6 0 R >> \
+             endobj\n\
+             8 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 6 0 R /RT /R \
+             /Popup 9 0 R /Contents (the answer) >> endobj\n\
+             9 0 obj << /Type /Annot /Subtype /Popup /Rect [100 210 300 290] /Parent 8 0 R >> \
+             endobj\n",
+        );
+        let windows = popups(&deep, &page(&deep), &crate::view::ViewState::of(&deep));
+        assert_eq!(windows.len(), 1, "{windows:?}");
+        assert_eq!(windows[0].annotation, pdf_syntax::ObjectId::new(7, 0));
+        assert_eq!(windows[0].text.as_deref(), Some("the reply"));
+        let said: Vec<(usize, &str)> = windows[0]
+            .replies
+            .iter()
+            .map(|reply| (reply.depth, reply.text.as_deref().unwrap_or_default()))
+            .collect();
+        assert_eq!(said, vec![(1, "the answer")]);
+
+        let alone = document(
+            "4 0 R 6 0 R 7 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] \
+             /Contents (no window) >> endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R /RT /R \
+             /Popup 7 0 R /Contents (the reply) >> endobj\n\
+             7 0 obj << /Type /Annot /Subtype /Popup /Rect [100 110 300 190] /Parent 6 0 R >> \
+             endobj\n",
+        );
+        let windows = popups(&alone, &page(&alone), &crate::view::ViewState::of(&alone));
+        assert_eq!(windows.len(), 1, "{windows:?}");
+        assert_eq!(windows[0].text.as_deref(), Some("the reply"));
+        assert!(
+            windows[0].replies.is_empty(),
+            "it hosts a thread of one, which is itself"
+        );
+    }
+
+    /// A `/RT /Group` subordinate is not a reply, and its window is not folded.
+    ///
+    /// §12.5.6.2 gives the two values of `/RT` different consequences: `Group` shares the
+    /// primary's entries, which `crate::markup` already applies, and `R` is the one the threading
+    /// `shall` is about. The pair differs only in that name (trap 8).
+    #[test]
+    fn only_a_reply_is_threaded_and_a_group_member_is_not() {
+        let with = |reply_type: &str| {
+            let document = document(
+                "4 0 R 5 0 R 6 0 R 7 0 R",
+                &format!(
+                    "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /Popup 5 0 R \
+                     /Contents (the primary) >> endobj\n\
+                     5 0 obj << /Type /Annot /Subtype /Popup /Rect [100 10 300 90] \
+                     /Parent 4 0 R >> endobj\n\
+                     6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R \
+                     {reply_type}/Popup 7 0 R /Contents (the other) >> endobj\n\
+                     7 0 obj << /Type /Annot /Subtype /Popup /Rect [100 110 300 190] \
+                     /Parent 6 0 R >> endobj\n"
+                ),
+            );
+            let page = page(&document);
+            let view = crate::view::ViewState::of(&document);
+            popups(&document, &page, &view).len()
+        };
+        assert_eq!(with("/RT /R "), 1, "a reply is threaded into the primary's");
+        assert_eq!(
+            with("/RT /Group "),
+            2,
+            "a group member keeps its window, which §12.5.6.2 fills from the primary"
+        );
+    }
+
+    /// A file whose `/IRT` chain loops terminates rather than climbing for ever.
+    ///
+    /// The clause states no depth and nothing stops a producer writing a cycle; §12.6.2 gives the
+    /// same answer for the one other structure a file can make self-referential.
+    #[test]
+    fn a_reply_chain_that_loops_still_answers() {
+        let document = document(
+            "4 0 R 5 0 R 6 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 6 0 R \
+             /Popup 5 0 R /Contents (one) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [100 10 300 90] /Parent 4 0 R >> \
+             endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R \
+             /Contents (two) >> endobj\n",
+        );
+        let page = page(&document);
+        let view = crate::view::ViewState::of(&document);
+        assert_eq!(popups(&document, &page, &view).len(), 1);
     }
 }

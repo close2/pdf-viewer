@@ -210,6 +210,23 @@ other policy it has, and `doc/todo/38`'s user interface is still not to be built
 supplies nothing gets exactly the answers it got before, which is ADR 1039's decision unchanged.
 ADR 1076.
 
+**The thousand-and-seventy-sixth added one field and no message**, and it is the shape `RenderRequest::ink`
+set: `PopupWindow::replies` carries §12.5.6.2's threaded comments, because Table 172 makes *not*
+displaying replies "individually but together in the form of threaded comments" a `shall` on the
+processor, and `pdf_model::popup` now folds each reply's own window into the one it answers. **No
+host could derive it**, which is this section's test: what makes an annotation a reply is `/IRT` and
+`/RT`, entries no host reads, and the fold changes which windows `Query::Popups` answers with at all
+— so a host that was given only the surviving windows would show a reviewed document with a fifth of
+its comments gone. **Two consumers failed to compile**, `viewer-confined`'s wire (the field is
+encoded and decoded with the window it belongs to) and `viewer-ui`'s test fixture; `viewer-gtk`
+places a box per reply and `viewer-qt` takes the same thread flattened by
+`viewer_host::popup::thread`, which is one place deciding the indent for all three.
+`QUORRA_EVENT_KIND_COUNT` stayed 19 because nothing here is an event, and **the C ABI gained three
+entry points** — `quorra_popup_reply_count`, `quorra_popup_reply_object` and
+`quorra_popup_reply_text` — for the standing reason a C caller cannot fail to compile and so has to
+be able to *ask*. `QUORRA_ABI_VERSION` did not move: an entry point added is one an old caller never
+calls, and none of the three takes a struct by value. ADR 1090.
+
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

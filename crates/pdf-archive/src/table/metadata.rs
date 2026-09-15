@@ -253,6 +253,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(extension_schema_container_fields),
     },
     Requirement {
+        id: "metadata/extension-schema-structure-fields-are-described",
+        asks: "A property an extension schema types with one of its own custom value types shall \
+               state, in any structure it carries, only the fields that value type describes.",
+        clauses: Clauses::only_two("6.6.2.3.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(extension_schema_structure_fields),
+    },
+    Requirement {
         id: "metadata/extension-property-value-types-are-defined",
         asks: "A property an extension schema describes shall name, as its value type, one the \
                XMP Specification defines or one the same extension schema defines.",
@@ -269,7 +277,9 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              countable from documents this tree holds, so what is owed is a predicate and the \
              converter's census row that comes with one. Table 6's explanation of \
              pdfaField:valueType states the same constraint of a structure's fields in a cell \
-             rather than in a sentence, and would come with it",
+             rather than in a sentence, and would come with it. The row above asks a \
+             different question of the same tables and is checked: which fields a \
+             structure carries, rather than what type each of them is",
         ),
     },
     Requirement {
@@ -2238,6 +2248,267 @@ pub fn extension_container_fields(packet: &[u8]) -> Vec<ContainerField> {
     container_faults(&properties)
 }
 
+/// One custom value type an extension schema describes: where its fields live and what they are.
+///
+/// Built from ISO 19005-2 section 6.6.2.3.3's Table 5 — `pdfaType:type` names it,
+/// `pdfaType:namespaceURI` is the namespace its fields are named in, and each item of
+/// `pdfaType:field` is a Table 6 structure carrying one field's `pdfaField:name` and
+/// `pdfaField:valueType`. A type stating no `pdfaType:field` describes no field at all, which is
+/// `TechNote 0010`'s A029: the working group resolved that the absence is allowed and read as an
+/// empty array.
+#[derive(Clone)]
+struct CustomType {
+    /// `pdfaType:type`, the name a property's `pdfaProperty:valueType` selects it by.
+    name: String,
+    /// `pdfaType:namespaceURI`, the namespace a field of this type is named in.
+    namespace: String,
+    /// Each described field's `pdfaField:name` and `pdfaField:valueType`.
+    fields: Vec<(String, String)>,
+    /// Whether the description is complete enough to say what a field of this type *is*.
+    ///
+    /// **This is what keeps one fault from being reported twice.** A type stating no
+    /// `pdfaType:namespaceURI`, or a `pdfaType:field` item stating no `pdfaField:name`, has left a
+    /// field of section 6.6.2.3.3's own tables out — which is section 6.6.2.3.2's sentence and
+    /// [`extension_schema_container_fields`]'s finding, and is a different fault from a packet
+    /// contradicting a description it did write. Three of the four documents in the seven read
+    /// corpora that reach this rule are of the first kind and the container row already fails each;
+    /// only `6-6-2-3-3-t03-fail-b` is of the second, and it is the one this rule exists for.
+    ///
+    /// A type whose `pdfaType:field` is *absent altogether* is complete, and that is `TechNote
+    /// 0010`'s A029 rather than an exception to this: the working group allowed the absence and
+    /// read it as an empty array, so the type describes no field and says so.
+    complete: bool,
+}
+
+/// Every extension schema description one packet can see, as this rule reads them.
+///
+/// Two lists rather than one map: the property lookup is by the *schema's* namespace, and the
+/// type lookup is across every description the packet and the catalog's between them carry.
+/// Resolving a type name across all of them is deliberately wider than Table 4's sentence, which
+/// confines a property's value type to the schema describing the property — a narrower resolution
+/// would turn a schema this reading has not understood into a finding, and this rule under-reports
+/// wherever the two differ.
+#[derive(Clone, Default)]
+struct Described {
+    /// `(schema namespace URI, property local name, the property's stated value type)`.
+    properties: Vec<(String, String, String)>,
+    /// Every `pdfaType:type` the packet describes, wherever it describes it.
+    types: Vec<CustomType>,
+}
+
+impl Described {
+    /// The value type one schema gives one of its properties, where it describes the property.
+    fn value_type_of(&self, namespace: &str, local: &str) -> Option<&str> {
+        self.properties
+            .iter()
+            .find(|(uri, name, _)| uri == namespace && name == local)
+            .map(|(_, _, value_type)| value_type.as_str())
+    }
+
+    /// The custom type that name selects, where a description carries one.
+    fn custom(&self, name: &str) -> Option<&CustomType> {
+        self.types.iter().find(|kind| kind.name == name)
+    }
+}
+
+/// Reads one packet's `pdfaExtension:schemas` into [`Described`], adding to what is there.
+fn describe(properties: &[XmpProperty], into: &mut Described) {
+    for property in properties {
+        if property.name.namespace != EXTENSION_URI || property.name.local != "schemas" {
+            continue;
+        }
+        for schema in property.value.array().unwrap_or_default() {
+            let namespace = text_field(schema, SCHEMA_URI, "namespaceURI").unwrap_or_default();
+            for described in sequence(schema, SCHEMA_URI, "property") {
+                if let Some(name) = text_field(described, PROPERTY_URI, "name")
+                    && let Some(value_type) = text_field(described, PROPERTY_URI, "valueType")
+                {
+                    into.properties.push((namespace.clone(), name, value_type));
+                }
+            }
+            for described in sequence(schema, SCHEMA_URI, "valueType") {
+                let Some(name) = text_field(described, TYPE_URI, "type") else {
+                    continue;
+                };
+                let stated = sequence(described, TYPE_URI, "field");
+                let fields: Vec<(String, String)> = stated
+                    .iter()
+                    .filter_map(|field| {
+                        Some((
+                            text_field(field, FIELD_URI, "name")?,
+                            text_field(field, FIELD_URI, "valueType").unwrap_or_default(),
+                        ))
+                    })
+                    .collect();
+                let namespace = text_field(described, TYPE_URI, "namespaceURI").unwrap_or_default();
+                into.types.push(CustomType {
+                    complete: !namespace.is_empty() && fields.len() == stated.len(),
+                    name,
+                    namespace,
+                    fields,
+                });
+            }
+        }
+    }
+}
+
+/// One field of a structure, as trimmed text, where that field is a simple value.
+fn text_field(structure: &Detail, uri: &str, local: &str) -> Option<String> {
+    structure
+        .field(uri, local)
+        .and_then(|field| field.value.text())
+        .map(|text| text.trim().to_owned())
+}
+
+/// The type name a stated value type selects, with a container token taken off the front.
+///
+/// The XMP Specification writes a container-valued property's type as the container's name and
+/// then the item's — `Bag Schema` is how ISO 19005-2's own Table 2 states one — so a property
+/// whose items are a custom structure states two words and the second is the type.
+fn item_type(value_type: &str) -> &str {
+    for container in ["Bag", "Seq", "Alt"] {
+        if let Some(rest) = value_type.strip_prefix(container)
+            && rest.starts_with(char::is_whitespace)
+        {
+            return rest.trim();
+        }
+    }
+    value_type
+}
+
+/// How deep a structure is followed before this rule stops asking.
+///
+/// A field of a custom type may itself be of a custom type (Table 6's `pdfaField:valueType`), so
+/// the walk recurses — and a description whose types name one another in a circle would recurse
+/// for ever. Eight is past anything a schema description plausibly nests, and the walk stops
+/// there rather than reporting, which under-reports in the direction this rule under-reports
+/// everywhere else.
+const DESCRIPTION_DEPTH: usize = 8;
+
+/// ISO 19005-2 section 6.6.2.3.1, the half of it that reaches inside a structure.
+///
+/// The subclause requires every property specified in XMP form to use a predefined schema or an
+/// extension schema complying with section 6.6.2.3.2, and [`properties_use_known_schemas`] states
+/// what *using* one means: more than borrowing a namespace — a property the schema gives a value
+/// type has to carry a value of that type. That row judges the predefined half, and
+/// [`extension_schemas_embedded`] judges whether a namespace is described at all; between them
+/// they never look inside a structure, and an extension schema's value type is precisely a
+/// statement about what is inside one.
+///
+/// **What it asks, in the narrowest form it can be asked.** Where a packet describes a property,
+/// gives it a value type its own description defines, and then states a structure for that
+/// property, every field of the structure has to be one the value type lists: named in the
+/// namespace `pdfaType:namespaceURI` gives it, with a local name some `pdfaField:name` states. A
+/// field outside that list is a property in a namespace nothing has described — a value type's
+/// field namespace is legitimised by the description and by nothing else, and Table 6 is the whole
+/// of what a description says about it.
+///
+/// **Every other shape is passed over, each for a reason rather than for convenience.** A property
+/// whose namespace no description owns is [`extension_schemas_embedded`]'s finding; a property no
+/// schema describes is a question this row does not ask; a value type no description defines is
+/// `metadata/extension-property-value-types-are-defined`, which is `Check::Unchecked` and says
+/// why; a value type whose own description is short of a field of Table 5 or Table 6 is
+/// [`extension_schema_container_fields`]'s finding ([`CustomType::complete`]); a value that is not
+/// a structure states no fields. So a packet reaches this finding only by describing a type whole
+/// and then contradicting its own description.
+///
+/// **The witness is `6-6-2-3-3-t03-fail-b`**, whose value type states no `pdfaType:field` and
+/// whose one property then carries `cvt:field1`. A029 is why the absent entry is not itself the
+/// fault — the working group allowed it and read it as an empty array — and the empty array is
+/// what this row then holds the packet to. Until this row existed that document was the corpus
+/// comparison's one `missed`.
+fn extension_schema_structure_fields(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let mut inherited = Described::default();
+    if let Some(properties) = catalog_detail(document) {
+        describe(&properties, &mut inherited);
+    }
+    for_each_packet(exam, |id, properties| {
+        let mut described = inherited.clone();
+        describe(properties, &mut described);
+        for property in properties {
+            let Some(value_type) =
+                described.value_type_of(&property.name.namespace, &property.name.local)
+            else {
+                continue;
+            };
+            let Some(kind) = described.custom(item_type(value_type)) else {
+                continue;
+            };
+            let place = spelled(property);
+            judge_structures(&property.value, kind, &described, 0, &mut |complaint| {
+                findings.record(Where::object(id).named(place.clone()), complaint);
+            });
+        }
+    });
+}
+
+/// Holds every structure one value reaches to the value type that value is declared to be.
+///
+/// A container's items are of the property's item type, so an array is walked through; a
+/// structure is judged; anything else is a value that states no field. An `rdf:Alt` is not walked
+/// — `Detail::array` is `Seq` and `Bag` — which under-reports a shape the XMP Specification
+/// defines for language alternatives of text rather than for structures.
+fn judge_structures(
+    value: &Detail,
+    kind: &CustomType,
+    described: &Described,
+    depth: usize,
+    report: &mut impl FnMut(String),
+) {
+    if depth >= DESCRIPTION_DEPTH || !kind.complete {
+        return;
+    }
+    if let Some(items) = value.array() {
+        for item in items {
+            judge_structures(item, kind, described, depth.saturating_add(1), report);
+        }
+        return;
+    }
+    let Some(fields) = value.fields() else {
+        return;
+    };
+    for field in fields {
+        let stated = (field.name.namespace == kind.namespace)
+            .then(|| {
+                kind.fields
+                    .iter()
+                    .find(|(name, _)| *name == field.name.local)
+            })
+            .flatten();
+        let Some((_, field_type)) = stated else {
+            report(format!(
+                "the packet states a {} field for a property of the extension schema value type \
+                 {}, which describes {}",
+                spelled(field),
+                kind.name,
+                describes(kind)
+            ));
+            continue;
+        };
+        // Table 6: a field's own value type may be another custom type of the same description,
+        // and a structure stated for such a field is that type's rather than this one's.
+        if let Some(inner) = described.custom(item_type(field_type)) {
+            judge_structures(
+                &field.value,
+                inner,
+                described,
+                depth.saturating_add(1),
+                report,
+            );
+        }
+    }
+}
+
+/// What a value type describes, for a finding that has to say what the alternative was.
+fn describes(kind: &CustomType) -> String {
+    if kind.fields.is_empty() {
+        return "no field at all".to_owned();
+    }
+    let names: Vec<&str> = kind.fields.iter().map(|(name, _)| name.as_str()).collect();
+    format!("{} in {}", names.join(", "), kind.namespace)
+}
+
 /// The namespace and required prefix of each of section 6.6.2.3.3's four value types.
 ///
 /// The tables' own, stated once: [`SCHEMA_TYPE`] and the three beside it are what a finding is
@@ -2503,14 +2774,14 @@ mod tests {
 
     use super::{
         Findings, Lexical, PREDEFINED, REQUIREMENTS, catalog_metadata_stream,
-        extension_schema_container_fields, extension_schemas_embedded,
-        identification_amendment_form, identification_conformance_level,
-        identification_declares_flavour_f, identification_declares_level_a,
-        identification_part_four, identification_part_two, identification_revision_year,
-        identification_states_no_flavour, packet_header, properties_use_known_schemas,
-        provenance_recorded_action_fields_four, states_attribute, xmp_packet_header_attributes,
-        xmp_packets_meet_the_xmp_data_model, xmp_packets_state_one_rdf_element,
-        xmp_packets_well_formed,
+        extension_schema_container_fields, extension_schema_structure_fields,
+        extension_schemas_embedded, identification_amendment_form,
+        identification_conformance_level, identification_declares_flavour_f,
+        identification_declares_level_a, identification_part_four, identification_part_two,
+        identification_revision_year, identification_states_no_flavour, packet_header,
+        properties_use_known_schemas, provenance_recorded_action_fields_four, states_attribute,
+        xmp_packet_header_attributes, xmp_packets_meet_the_xmp_data_model,
+        xmp_packets_state_one_rdf_element, xmp_packets_well_formed,
     };
     use super::{declared_target, identification_schema_prefix};
     use crate::target::{Flavour, Level, Target};
@@ -2927,6 +3198,143 @@ mod tests {
             5,
             "all five of Table 3's fields are spelled with a prefix the table does not name"
         );
+    }
+
+    /// ISO 19005-2 section 6.6.2.3.1: a structure carries the fields its value type describes.
+    ///
+    /// The description is [`DESCRIPTION`] with `Serial` retyped from `Text` to its own `Machine`,
+    /// so the packet describes the type, uses it, and the row has something to hold the value to.
+    #[test]
+    fn a_structure_carries_only_the_fields_its_extension_value_type_describes() {
+        let machine = DESCRIPTION.replace(
+            "<pdfaProperty:valueType>Text</pdfaProperty:valueType>",
+            "<pdfaProperty:valueType>Machine</pdfaProperty:valueType>",
+        );
+        let stated = |field: &str, description: &str| {
+            document(&schema_packet(
+                "ex",
+                "http://example.test/ns/",
+                &format!(
+                    "<ex:Serial rdf:parseType=\"Resource\" \
+                     xmlns:mc=\"http://example.test/ns/machine#\">{field}</ex:Serial>\n\
+                     {description}"
+                ),
+            ))
+        };
+
+        let described = stated("<mc:model>A17</mc:model>", &machine);
+        assert_eq!(found(extension_schema_structure_fields, &described), 0);
+
+        let undescribed = stated("<mc:colour>red</mc:colour>", &machine);
+        assert_eq!(found(extension_schema_structure_fields, &undescribed), 1);
+
+        // A field in the right namespace by name only: `pdfaType:namespaceURI` is what says
+        // where a field of this type is named, so the same local name elsewhere is not it.
+        let elsewhere = stated(
+            "<other:model xmlns:other=\"http://example.test/other#\">A17</other:model>",
+            &machine,
+        );
+        assert_eq!(found(extension_schema_structure_fields, &elsewhere), 1);
+    }
+
+    /// `TechNote 0010`'s A029 read as an empty array, which is the corpus witness's shape.
+    ///
+    /// `6-6-2-3-3-t03-fail-b` omits `pdfaType:field` and then states a field of that type. A029
+    /// allows the omission, so the container row says nothing; the empty array it is read as is
+    /// what this row holds the packet to, and that is why the document is a failure rather than a
+    /// conforming file.
+    #[test]
+    fn a_value_type_describing_no_field_admits_none() {
+        let fieldless = DESCRIPTION
+            .replace(
+                "<pdfaProperty:valueType>Text</pdfaProperty:valueType>",
+                "<pdfaProperty:valueType>Machine</pdfaProperty:valueType>",
+            )
+            .replace(
+                "<pdfaType:field><rdf:Seq><rdf:li rdf:parseType=\"Resource\">
+          <pdfaField:name>model</pdfaField:name>
+          <pdfaField:valueType>Text</pdfaField:valueType>
+          <pdfaField:description>The model</pdfaField:description>
+        </rdf:li></rdf:Seq></pdfaType:field>",
+                "",
+            );
+        let file = document(&schema_packet(
+            "ex",
+            "http://example.test/ns/",
+            &format!(
+                "<ex:Serial rdf:parseType=\"Resource\" \
+                 xmlns:mc=\"http://example.test/ns/machine#\">\
+                 <mc:model>A17</mc:model></ex:Serial>\n{fieldless}"
+            ),
+        ));
+        assert_eq!(
+            found(extension_schema_container_fields, &file),
+            0,
+            "A029 allows the absent pdfaType:field"
+        );
+        assert_eq!(found(extension_schema_structure_fields, &file), 1);
+    }
+
+    /// A description too short to say what a field *is* is the container row's finding, not this
+    /// one's.
+    ///
+    /// Three of the four documents in the seven read corpora that reach this rule are of this
+    /// shape — a type with no `pdfaType:namespaceURI`, or a field description with no
+    /// `pdfaField:name` — and the container row already fails each. Both halves are asserted here
+    /// because both are ways a description stops being one.
+    #[test]
+    fn an_incomplete_value_type_is_the_container_rows_finding() {
+        let machine = DESCRIPTION.replace(
+            "<pdfaProperty:valueType>Text</pdfaProperty:valueType>",
+            "<pdfaProperty:valueType>Machine</pdfaProperty:valueType>",
+        );
+        let stated = |description: &str| {
+            document(&schema_packet(
+                "ex",
+                "http://example.test/ns/",
+                &format!(
+                    "<ex:Serial rdf:parseType=\"Resource\" \
+                     xmlns:mc=\"http://example.test/ns/machine#\">\
+                     <mc:colour>red</mc:colour></ex:Serial>\n{description}"
+                ),
+            ))
+        };
+
+        for gone in [
+            "<pdfaType:namespaceURI>http://example.test/ns/machine#</pdfaType:namespaceURI>",
+            "<pdfaField:name>model</pdfaField:name>",
+        ] {
+            let file = stated(&machine.replace(gone, ""));
+            assert_eq!(
+                found(extension_schema_container_fields, &file),
+                1,
+                "removing {gone}"
+            );
+            assert_eq!(
+                found(extension_schema_structure_fields, &file),
+                0,
+                "removing {gone}"
+            );
+        }
+    }
+
+    /// A property whose value type is not one the packet describes is not this row's question.
+    ///
+    /// `DESCRIPTION` types `Serial` as `Text`, so a structure stated for it is judged by nothing
+    /// here: whether `Text` is a type the XMP Specification defines is
+    /// `metadata/extension-property-value-types-are-defined`, which is `Check::Unchecked`.
+    #[test]
+    fn a_property_typed_outside_the_description_is_passed_over() {
+        let file = document(&schema_packet(
+            "ex",
+            "http://example.test/ns/",
+            &format!(
+                "<ex:Serial rdf:parseType=\"Resource\" \
+                 xmlns:mc=\"http://example.test/ns/machine#\">\
+                 <mc:colour>red</mc:colour></ex:Serial>\n{DESCRIPTION}"
+            ),
+        ));
+        assert_eq!(found(extension_schema_structure_fields, &file), 0);
     }
 
     /// The table is sorted and free of repeats, which is what makes a lookup in it answerable.

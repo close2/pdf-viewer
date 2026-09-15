@@ -21,7 +21,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_archive::{Flavour, Level, Outcome, Target, check};
+use pdf_archive::{Check, Examination, Findings, Flavour, Level, Outcome, Target, check, table};
 use pdf_syntax::Document;
 
 // -----------------------------------------------------------------------------------------
@@ -438,15 +438,12 @@ fn a_devicen_space_of_thirty_three_colourants_fails() {
     );
 }
 
-/// The same clause's limit on indirect objects, from the only side a test can reach.
+/// The same clause's limit on indirect objects, on an ordinary file.
 ///
-/// The smallest document that must fail this row states 8 388 608 indirect objects, which is two
-/// hundred times the largest file in any corpus on this disk and more than a unit test may build:
-/// the count is taken from the cross-reference table, and every number in it is fetched. So what
-/// is pinned here is the other half — that an ordinary document is counted and met — and the
-/// finding this round owes beside it is that the corpus has no witness either. ADR 1026 section
-/// 5.1 attributed this row's silence to the one document `examples/withdrawn.rs` skips by name;
-/// that document states 40 015 indirect objects, so it never exercised the row at all.
+/// The failing half is [`a_cross_reference_stream_naming_more_objects_than_the_limit_fails`],
+/// which this comment used to say a test could not build. ADR 1026 section 5.1 attributed this
+/// row's silence to the one document `examples/withdrawn.rs` skips by name; that document states
+/// 40 015 indirect objects, so it never exercised the row at all.
 #[test]
 fn a_file_of_a_handful_of_indirect_objects_passes() {
     passes(
@@ -454,6 +451,142 @@ fn a_file_of_a_handful_of_indirect_objects_passes() {
         PART_TWO,
         "implementation-limits/indirect-object-count",
     );
+}
+
+// -----------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.1.13's indirect-object limit, and the one fixture here too large to
+// judge through `check`.
+// -----------------------------------------------------------------------------------------
+
+/// A file whose cross-reference *stream* names `in_use` object numbers as in use.
+///
+/// §7.5.8 lets a cross-reference section be a stream of fixed-width records, so a file can state
+/// its whole table in `in_use + 1` records — object 0 free, as §7.5.4 requires, and the rest of
+/// type 1. The records here are written undeflated, which makes the fixture six bytes an object
+/// and no compressor a dependency.
+///
+/// **Records 5 and above name the offset of object 3**, and the row does not read what is there:
+/// ISO 19005-2 section 6.1.13 counts the indirect objects a file contains, and ISO 19005-2
+/// section 6.1.4 is what makes the cross-reference table the statement of that — an indirect
+/// object no cross-reference section names is exempt, so the numbers a section *does* name are
+/// the file's own account of what it holds. A `/Size` is not that account and the predicate does
+/// not read one.
+fn cross_reference_stream_naming(in_use: u32) -> Document {
+    use std::fmt::Write as _;
+
+    let mut out: Vec<u8> = b"%PDF-1.5\n".to_vec();
+    let mut offsets = Vec::new();
+    for (number, body) in [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+    ]
+    .iter()
+    .enumerate()
+    {
+        offsets.push(out.len());
+        out.extend_from_slice(object(number.saturating_add(1), body).as_slice());
+    }
+    let table_at = out.len();
+
+    // §7.5.8.2's `/W`: one byte of type, four of offset, two of generation.
+    let record = |kind: u8, field: u32, generation: u16| {
+        let mut row = vec![kind];
+        row.extend_from_slice(&field.to_be_bytes());
+        row.extend_from_slice(&generation.to_be_bytes());
+        row
+    };
+    let mut records: Vec<u8> = Vec::with_capacity(
+        usize::try_from(in_use)
+            .unwrap_or(0)
+            .saturating_add(1)
+            .saturating_mul(7),
+    );
+    records.extend_from_slice(&record(0, 0, 65535));
+    for offset in &offsets {
+        records.extend_from_slice(&record(1, u32::try_from(*offset).unwrap_or(0), 0));
+    }
+    records.extend_from_slice(&record(1, u32::try_from(table_at).unwrap_or(0), 0));
+    let filler = record(1, u32::try_from(offsets[2]).unwrap_or(0), 0);
+    for _ in 5..=in_use {
+        records.extend_from_slice(&filler);
+    }
+
+    let mut head = String::new();
+    let _ = write!(
+        head,
+        "4 0 obj\n<< /Type /XRef /Size {} /W [1 4 2] /Root 1 0 R /Length {} >>\nstream\n",
+        in_use.saturating_add(1),
+        records.len()
+    );
+    out.extend_from_slice(head.as_bytes());
+    out.extend_from_slice(&records);
+    out.extend_from_slice(b"\nendstream\nendobj\n");
+    let mut tail = String::new();
+    let _ = write!(tail, "startxref\n{table_at}\n%%EOF\n");
+    out.extend_from_slice(tail.as_bytes());
+    Document::open(out).expect("the fixture is a valid PDF")
+}
+
+/// The one requirement of this file judged by its own predicate rather than through `check`.
+///
+/// **A whole report on this fixture costs 6.9 s and about a gibibyte**, and none of it is this
+/// row's: `Examination::objects` fetches every number the table names, and a dozen rows ask for
+/// that population (`examples/cost.rs` on the failing fixture — opening 345 ms, the population
+/// 6.6 s, the predicates 9.4 s in release). So the assertion is made against the predicate
+/// itself, which is also what makes it calibrated in the sense trap 13 asks for without a scratch
+/// build: no other row can produce this finding, because no other row is run.
+///
+/// What the fixture then costs is 0.58 s and 640 MiB of `VmHWM` for the two documents together,
+/// nearly all of it the 58 MB of records each file carries and the cross-reference table each
+/// builds from them.
+#[track_caller]
+fn judged_alone(document: &Document, target: Target, id: &str) -> bool {
+    let requirement = table::binding(target)
+        .find(|requirement| requirement.id == id)
+        .expect("the requirement is one this target binds");
+    // `expect` rather than an `else` arm that panics, which this file's lint level refuses.
+    let predicate = match requirement.check {
+        Check::Implemented(predicate) => Some(predicate),
+        _ => None,
+    }
+    .expect("the requirement is a predicate a document can fail");
+    let mut findings = Findings::default();
+    predicate(&Examination::new(document, target), &mut findings);
+    !findings.met()
+}
+
+/// ISO 19005-2 section 6.1.13: no more than 8 388 607 indirect objects.
+///
+/// The smallest document that must fail it names 8 388 608, and the boundary is asserted from
+/// both sides because an off-by-one here would be invisible in every other test: the corpus holds
+/// no witness at all, and the first fixture built for this row named exactly 8 388 607 objects
+/// and was met.
+#[test]
+fn a_cross_reference_stream_naming_more_objects_than_the_limit_fails() {
+    let id = "implementation-limits/indirect-object-count";
+    assert!(
+        judged_alone(&cross_reference_stream_naming(8_388_608), PART_TWO, id),
+        "a file naming 8 388 608 indirect objects is one more than the clause admits"
+    );
+    assert!(
+        !judged_alone(&cross_reference_stream_naming(8_388_607), PART_TWO, id),
+        "the limit itself conforms"
+    );
+}
+
+/// The count the row reads and the population every other row reads are one number.
+///
+/// `indirect_object_count` takes `XrefTable::len` where it used to take `Examination::objects`,
+/// which is what lets the fixture above exist at all. The two are the same by construction —
+/// `objects` maps `XrefTable::object_numbers` one for one — and this is what stops them drifting
+/// apart in silence, on a document small enough for both.
+#[test]
+fn the_two_ways_of_counting_the_objects_agree() {
+    let document = page("", "", "", vec![object(5, "<< /Length 0 >>")]);
+    let examination = Examination::new(&document, PART_TWO);
+    assert_eq!(document.xref().len(), examination.objects().len());
+    assert_eq!(document.xref().len(), 5);
 }
 
 #[test]

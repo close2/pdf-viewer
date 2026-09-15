@@ -4562,6 +4562,25 @@ mod tests {
                     b: 0.3,
                     a: 0.4,
                 }),
+                // §12.5.6.2's thread, which Table 172 makes part of what this window shows.
+                replies: vec![
+                    pdf_model::popup::Comment {
+                        annotation: ObjectId::new(33, 0),
+                        parent: Some(ObjectId::new(34, 0)),
+                        depth: 1,
+                        title: Some("a reviewer".to_owned()),
+                        text: Some("a reply".to_owned()),
+                        modified: Some("D:20240102000000Z".to_owned()),
+                    },
+                    pdf_model::popup::Comment {
+                        annotation: ObjectId::new(35, 0),
+                        parent: None,
+                        depth: 2,
+                        title: None,
+                        text: None,
+                        modified: None,
+                    },
+                ],
             },
             PopupWindow {
                 annotation: ObjectId::new(32, 0),
@@ -4571,6 +4590,7 @@ mod tests {
                 text: None,
                 modified: None,
                 colour: None,
+                replies: Vec::new(),
             },
         ];
         let Reply::Popups(read) = round_trip(&Answer::Popups(popups.clone())) else {

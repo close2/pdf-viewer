@@ -2570,6 +2570,36 @@ fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Frame {
     note.set_margin_top(POPUP_PADDING);
     column.append(&note);
 
+    // §12.5.6.2's thread, under the note it answers. Table 172: "[i]nteractive PDF processors
+    // shall not display replies to an annotation individually but together in the form of
+    // threaded comments", so `pdf_model::popup` has folded each reply's own window into this one
+    // (ADR 1090) and a host that placed only the label above would show the note and lose the
+    // conversation. The indent is what *threaded* means and stops at four levels, which is the
+    // deepest chain anything in this tree has measured.
+    for reply in window.replies {
+        let comment = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        comment.set_margin_start(
+            POPUP_PADDING.saturating_mul(
+                1i32.saturating_add(i32::try_from(reply.depth.min(4)).unwrap_or(4)),
+            ),
+        );
+        comment.set_margin_end(POPUP_PADDING);
+        if let Some(who) = reply.title.as_deref().filter(|who| !who.is_empty()) {
+            let author = gtk4::Label::new(Some(who));
+            author.set_xalign(0.0);
+            author.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            author.add_css_class("dim-label");
+            comment.append(&author);
+        }
+        let said = gtk4::Label::new(Some(reply.text.as_deref().unwrap_or_default()));
+        said.set_xalign(0.0);
+        said.set_yalign(0.0);
+        said.set_wrap(true);
+        said.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        comment.append(&said);
+        column.append(&comment);
+    }
+
     frame.set_child(Some(&column));
     frame
 }

@@ -523,66 +523,148 @@ impl CMap {
     /// Reads a `begincidchar` or `beginnotdefchar` section: a code and a CID each.
     ///
     /// `bf` marks a `beginbfchar` section, whose destination is a hex string rather than an
-    /// integer. §9.7.5.4 c) says those "shall not appear in a `CMap` that is used as the
-    /// `Encoding` entry of a Type 0 font" — and one corpus document writes an `Encoding`
-    /// `CMap` whose only mappings are `bfchar` lines. §9.7.6.2 settles what to do with it,
-    /// because its own account of the decoding algorithm names them:
+    /// integer. §9.7.5.4 c) is a constraint on the *file* — the clause opens "[e]mbedded `CMap`
+    /// files shall conform to the format documented in Adobe Technical Note #5014, subject to
+    /// these additional constraints" — and one corpus document breaks it, writing an `Encoding`
+    /// `CMap` whose only mappings are `bfchar` lines. What a processor does with the file in
+    /// front of it is §9.7.6.2's, and that clause's algorithm names them:
     ///
     /// > The code extracted from the string shall be looked up in the character code mappings
     /// > for codes of that length. (These are the mappings defined by `beginbfchar` … and
     /// > corresponding operators for ranges.)
     ///
-    /// So the two subclauses disagree, and this one describes what a processor *does*: the
-    /// destination is a character selector, which in PDF is a CID (§9.7.5.1), read from the
-    /// hex string most significant byte first. Reading it as [`crate::tounicode`] would —
-    /// UTF-16BE text — is the other clause's question about the same bytes.
+    /// So the destination is a character selector, which in PDF is a CID (§9.7.5.1), read from
+    /// the hex string most significant byte first. Reading it as [`crate::tounicode`] would —
+    /// UTF-16BE text — is §9.10.3's question about the same bytes.
+    ///
+    /// **The entries are stepped rather than chunked**, here and in [`CMap::take_ranges`]: a
+    /// section holding an entry of the wrong length puts every entry after it at an odd offset,
+    /// and a stride that cannot resynchronise turns the rest of the producer's mappings into
+    /// mappings it never wrote.
     fn take_chars(&mut self, operands: &[Token<'_>], notdef: bool, bf: bool) {
-        for pair in operands.chunks(2) {
-            let [Token::String(source), target] = pair else {
+        let mut index = 0usize;
+        while index.saturating_add(1) < operands.len() {
+            let Some(Token::String(source)) = operands.get(index) else {
+                index = index.saturating_add(1);
                 continue;
             };
+            let target = operands.get(index.saturating_add(1));
+            index = index.saturating_add(2);
             let (Some(code), Some(length)) = (code_of(source), code_length(source)) else {
                 continue;
             };
-            let Some(cid) = selector_of(target, bf) else {
+            let Some(cid) = target.and_then(|token| selector_of(token, bf)) else {
                 continue;
             };
-            let Some(mapping) = self.mapping_mut(notdef, length) else {
-                continue;
-            };
-            if mapping.singles.len() < MAX_SINGLES {
-                mapping.singles.insert(code, cid);
-            } else {
-                self.cut_by(CUT_BY_SINGLES);
-            }
+            self.insert_single(notdef, length, code, cid);
         }
     }
 
     /// Reads a `begincidrange` or `beginnotdefrange` section: two bounds and a CID.
+    ///
+    /// Stepped for [`CMap::take_chars`]'s reason and for one this section has of its own: a
+    /// `bfrange` may state its destinations as an array, `<lo> <hi> [<d0> <d1> …]`, and a
+    /// three-token stride lands inside it and reads the destinations themselves as the bounds
+    /// of the next entry. §9.10.3 is where ISO 32000-2 writes that syntax down —
+    ///
+    /// > Consecutive codes starting with srcCode1 and ending with srcCode2 shall be mapped to
+    /// > the destination strings in the array starting with dstString1 and ending with
+    /// > dstStringm .
+    ///
+    /// — and it grants the form to "the `CMaps` used for the `ToUnicode` entry", so an `Encoding`
+    /// `CMap` writing one is outside what the standard sanctions. **Reading it rather than
+    /// dropping it is a deliberate choice** (ADR 1092): the standard states what the syntax
+    /// means for this operator in the one place it describes it, an `Encoding` `CMap`'s
+    /// destination is a CID rather than a Unicode string (§9.7.6.2), and one selector per
+    /// consecutive code is the only reading those two sentences leave. What is *not* a choice
+    /// is the alignment — whatever the array holds, the reader leaves it at the matching `]`,
+    /// so no entry after it is assembled out of somebody else's operands.
     fn take_ranges(&mut self, operands: &[Token<'_>], notdef: bool, bf: bool) {
-        for triple in operands.chunks(3) {
-            let [Token::String(low), Token::String(high), target] = triple else {
-                continue;
-            };
-            let (Some(low_code), Some(high_code), Some(length)) =
-                (code_of(low), code_of(high), code_length(low))
+        let mut index = 0usize;
+        while index.saturating_add(2) < operands.len() {
+            let (Some(Token::String(low)), Some(Token::String(high))) =
+                (operands.get(index), operands.get(index.saturating_add(1)))
             else {
+                index = index.saturating_add(1);
                 continue;
             };
-            if low.len() != high.len() || low_code > high_code {
-                continue;
+            let (low_code, high_code, length) =
+                match (code_of(low), code_of(high), code_length(low)) {
+                    (Some(low_code), Some(high_code), Some(length))
+                        if low.len() == high.len() && low_code <= high_code =>
+                    {
+                        (low_code, high_code, length)
+                    }
+                    _ => {
+                        index = index.saturating_add(2);
+                        continue;
+                    }
+                };
+            match operands.get(index.saturating_add(2)) {
+                // `<lo> <hi> [<d0> <d1> …]`: one selector per consecutive code.
+                Some(Token::ArrayOpen) => {
+                    let mut at = index.saturating_add(3);
+                    let mut code = low_code;
+                    let mut depth = 1usize;
+                    while let Some(token) = operands.get(at) {
+                        at = at.saturating_add(1);
+                        match token {
+                            Token::ArrayOpen => depth = depth.saturating_add(1),
+                            Token::ArrayClose => {
+                                depth = depth.saturating_sub(1);
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            // An array longer than the span it belongs to has said nothing
+                            // about the codes past `<hi>`; the rest of it is consumed all the
+                            // same, because reaching the `]` is what this arm is for.
+                            token if depth == 1 => {
+                                if code <= high_code
+                                    && let Some(cid) = selector_of(token, bf)
+                                {
+                                    self.insert_single(notdef, length, code, cid);
+                                }
+                                code = code.saturating_add(1);
+                            }
+                            _ => {}
+                        }
+                    }
+                    index = at;
+                }
+                // `<lo> <hi> dst`: codes numbered upward from the selector it names.
+                Some(target) => {
+                    if let Some(cid) = selector_of(target, bf) {
+                        self.insert_range(notdef, length, (low_code, high_code, cid));
+                    }
+                    index = index.saturating_add(3);
+                }
+                None => break,
             }
-            let Some(cid) = selector_of(target, bf) else {
-                continue;
-            };
-            let Some(mapping) = self.mapping_mut(notdef, length) else {
-                continue;
-            };
-            if mapping.ranges.len() < MAX_RANGES {
-                mapping.ranges.push((low_code, high_code, cid));
-            } else {
-                self.cut_by(CUT_BY_RANGES);
-            }
+        }
+    }
+
+    /// Puts one code's selector in the table for its length, or records the bound that refused.
+    fn insert_single(&mut self, notdef: bool, length: usize, code: u32, cid: u32) {
+        let Some(mapping) = self.mapping_mut(notdef, length) else {
+            return;
+        };
+        if mapping.singles.len() < MAX_SINGLES {
+            mapping.singles.insert(code, cid);
+        } else {
+            self.cut_by(CUT_BY_SINGLES);
+        }
+    }
+
+    /// Puts a span of codes in the table for its length, or records the bound that refused.
+    fn insert_range(&mut self, notdef: bool, length: usize, range: (u32, u32, u32)) {
+        let Some(mapping) = self.mapping_mut(notdef, length) else {
+            return;
+        };
+        if mapping.ranges.len() < MAX_RANGES {
+            mapping.ranges.push(range);
+        } else {
+            self.cut_by(CUT_BY_RANGES);
         }
     }
 
@@ -1237,5 +1319,65 @@ mod tests {
         // The same map inside a limit that admits it: Table 116's own 65 536 codes.
         assert!(map.each_addressable_code(1 << 16, |_| seen = seen.saturating_add(1)));
         assert_eq!(seen, 1 << 16);
+    }
+
+    /// An `Encoding` `CMap` writing §9.10.3's array destinations, a form that clause grants to
+    /// "the `CMaps` used for the `ToUnicode` entry" and this one is not — and whose three-element
+    /// array is exactly what a stride of three tokens walks into. A plain `bfrange` follows it,
+    /// so the section says both what the array means and where the next entry starts.
+    const ARRAY_BFRANGE: &[u8] = b"
+        /CIDInit /ProcSet findresource begin
+        12 dict begin begincmap
+        1 begincodespacerange
+        <0000> <FFFF>
+        endcodespacerange
+        2 beginbfrange
+        <0010> <0012> [<0041> <0042> <0043>]
+        <0020> <0021> <0050>
+        endbfrange
+        endcmap
+    ";
+
+    /// §9.10.3's array read as §9.7.6.2's character selectors: one CID per consecutive code,
+    /// and nothing said about a code past the range's own end.
+    #[test]
+    fn an_array_of_destinations_gives_one_selector_to_each_code() {
+        let map = CMap::parse(ARRAY_BFRANGE, None);
+        let cid = |bytes: &[u8]| map.cid(map.next_code(bytes));
+        assert_eq!(cid(&[0x00, 0x10]), Some(0x41));
+        assert_eq!(cid(&[0x00, 0x11]), Some(0x42));
+        assert_eq!(cid(&[0x00, 0x12]), Some(0x43));
+        assert_eq!(cid(&[0x00, 0x13]), None);
+    }
+
+    /// The control for the same change, and it is the half that must fail under the reading it
+    /// replaced (trap 13). Three tokens at a time lands on `<0041> <0042> <0043>`, takes the
+    /// array's own destinations for the next entry's bounds — codes the file never mentions —
+    /// and loses the entry that really follows. Both halves are asserted, because each alone
+    /// passes under one of the two readings.
+    #[test]
+    fn an_array_leaves_the_entry_after_it_where_the_file_put_it() {
+        let map = CMap::parse(ARRAY_BFRANGE, None);
+        let cid = |bytes: &[u8]| map.cid(map.next_code(bytes));
+        assert_eq!(cid(&[0x00, 0x20]), Some(0x50));
+        assert_eq!(cid(&[0x00, 0x21]), Some(0x51));
+        assert_eq!(cid(&[0x00, 0x41]), None);
+        assert_eq!(cid(&[0x00, 0x42]), None);
+    }
+
+    /// §9.7.6.2 makes the lookup a `shall`, so an entry the file stated is one this reader owes
+    /// even when the entry before it was the wrong length. A stray operand ahead of the first
+    /// pair puts every `cidchar` in the section at an odd offset, and a stride of two keeps it
+    /// there; stepping recovers both entries without inventing either.
+    #[test]
+    fn a_stray_operand_does_not_cost_the_entries_after_it() {
+        let map = CMap::parse(
+            b"1 begincodespacerange <00> <FF> endcodespacerange
+              2 begincidchar 9 <20> 5 <21> 7 endcidchar",
+            None,
+        );
+        let cid = |bytes: &[u8]| map.cid(map.next_code(bytes));
+        assert_eq!(cid(&[0x20]), Some(5));
+        assert_eq!(cid(&[0x21]), Some(7));
     }
 }

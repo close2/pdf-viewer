@@ -69,7 +69,7 @@
 //! the module's first section gives.
 
 use crate::cms::{ADBE_REVOCATION_INFO_ARCHIVAL, Digest, SignedData};
-use crate::der::{self, DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, Value};
+use crate::der::{self, DerError, INTEGER, NotCanonical, OCTET_STRING, Reader, SEQUENCE, Value};
 use crate::x509::{self, Certificate, Instant, KeyUsage, PublicKey};
 use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
 
@@ -133,7 +133,7 @@ pub const MAX_EXTENSIONS: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum MaterialRefusal {
-    /// The encoding is not DER: some length is X.690 clause 8.1.3.6's indefinite form.
+    /// The encoding departs from one of ITU-T X.690's distinguished encoding rules.
     ///
     /// Table 261 says each stream holds "a DER-encoded Certificate Revocation List (CRL)" or "a
     /// DER-encoded Online Certificate Status Protocol (OCSP) response", and RFC 6960 section 4.2.1
@@ -141,12 +141,12 @@ pub enum MaterialRefusal {
     /// signature covers is an extent, and an extent found by scanning for an end-of-contents
     /// marker is not one its issuer pinned — the argument [`crate::trust`] already makes for a
     /// certificate.
-    #[error("the material is written with indefinite lengths, which DER forbids")]
+    #[error("the material departs from DER: {0}")]
     #[expect(
         clippy::doc_markdown,
         reason = "the sentence quotes RFC 6960 section 4.2.1 verbatim, and a quotation is not marked up"
     )]
-    NotDerEncoded,
+    NotDerEncoded(NotCanonical),
     /// The ASN.1 would not read at all.
     #[error("the material is not readable ASN.1: {0}")]
     Unreadable(#[from] DerError),
@@ -416,8 +416,8 @@ pub struct RevokedCertificate<'a> {
 ///
 /// [`MaterialRefusal`], naming what the bytes are instead.
 pub fn certificate_list(bytes: &[u8]) -> Result<CertificateList<'_>, MaterialRefusal> {
-    if !der::every_length_is_definite(bytes)? {
-        return Err(MaterialRefusal::NotDerEncoded);
+    if let Some(rule) = der::is_canonical(bytes)? {
+        return Err(MaterialRefusal::NotDerEncoded(rule));
     }
     let mut reader = Reader::new(bytes)?;
     let Some(outer) = reader.next_value()? else {
@@ -637,8 +637,8 @@ pub enum CertStatus {
 /// response is well-formed and holds no status: a `responseStatus` that is not `successful`, and
 /// a `responseType` this reader does not process.
 pub fn ocsp_response(bytes: &[u8]) -> Result<BasicResponse<'_>, MaterialRefusal> {
-    if !der::every_length_is_definite(bytes)? {
-        return Err(MaterialRefusal::NotDerEncoded);
+    if let Some(rule) = der::is_canonical(bytes)? {
+        return Err(MaterialRefusal::NotDerEncoded(rule));
     }
     let mut reader = Reader::new(bytes)?;
     let Some(outer) = reader.next_value()? else {

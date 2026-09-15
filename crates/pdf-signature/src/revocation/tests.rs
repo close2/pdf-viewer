@@ -511,19 +511,23 @@ fn material_that_is_not_der_is_refused_by_name() {
     let indefinite = [0x30, 0x80, 0x00, 0x00];
     assert_eq!(
         certificate_list(&indefinite),
-        Err(MaterialRefusal::NotDerEncoded)
+        Err(MaterialRefusal::NotDerEncoded(
+            crate::der::NotCanonical::IndefiniteLength
+        ))
     );
     assert_eq!(
         ocsp_response(&indefinite),
-        Err(MaterialRefusal::NotDerEncoded)
+        Err(MaterialRefusal::NotDerEncoded(
+            crate::der::NotCanonical::IndefiniteLength
+        ))
     );
     let material = Material::read(&[&indefinite[..]], &[&indefinite[..]]);
     assert!(material.is_empty(), "nothing readable came out of it");
     assert_eq!(
         material.refused,
         vec![
-            MaterialRefusal::NotDerEncoded,
-            MaterialRefusal::NotDerEncoded
+            MaterialRefusal::NotDerEncoded(crate::der::NotCanonical::IndefiniteLength),
+            MaterialRefusal::NotDerEncoded(crate::der::NotCanonical::IndefiniteLength)
         ],
         "and both refusals are named rather than dropped"
     );

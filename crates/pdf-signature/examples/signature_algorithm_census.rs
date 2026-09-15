@@ -89,6 +89,35 @@ fn count_signature_timestamp(path: &str, cms: &cms::SignedData<'_>, counts: &mut
     ));
 }
 
+/// ITU-T X.690 clause 10 over one signer's `SignedAttrs`, counted and named.
+///
+/// The region asked about is the set's *contents*, which is what RFC 5652 section 5.4 digests
+/// after replacing the `[0] IMPLICIT` header with an EXPLICIT `SET OF` tag — so this is the same
+/// question `Signature::authenticity` asks before it digests anything, put to every readable
+/// signature rather than only to the ones that get that far.
+fn count_signed_attribute_der(path: &str, cms: &cms::SignedData<'_>, counts: &mut Counts) {
+    let Some(contents) = cms.signed_attributes else {
+        let slot = counts
+            .signed_attribute_der
+            .entry("(the signer states no signed attributes)".into())
+            .or_default();
+        *slot = slot.saturating_add(1);
+        return;
+    };
+    let answer = match pdf_signature::der::is_canonical(contents) {
+        Ok(None) => "DER throughout, so the digest is over the octets the file holds".to_owned(),
+        Ok(Some(rule)) => {
+            counts
+                .signed_attribute_witnesses
+                .push(format!("{path}: {rule}"));
+            rule.to_string()
+        }
+        Err(error) => format!("the region would not read: {error}"),
+    };
+    let slot = counts.signed_attribute_der.entry(answer).or_default();
+    *slot = slot.saturating_add(1);
+}
+
 /// What one document contributes.
 #[derive(Default)]
 struct Counts {
@@ -173,6 +202,18 @@ struct Counts {
     /// signature values" in one and "four corpus documents" in the other, which are not even the
     /// same denominator. This is the command that settles which is which.
     indefinite_lengths: usize,
+    /// What ITU-T X.690 clause 10 answered about each signer's `SignedAttrs` region, by rule.
+    ///
+    /// **RFC 5652 section 5.4 is why this is a population worth having**: the signature is over
+    /// "the message digest of the complete DER encoding of the SignedAttrs value", so a region
+    /// that departs from any of the rules holds octets no conforming signer digested, and this
+    /// program refuses it by name rather than reporting a signature that does not verify. Whether
+    /// that refusal is about real files or about nothing is a question about the world, and only a
+    /// walk over the world answers it (trap 8). The conforming answer is counted in the same map,
+    /// because a table of departures alone cannot say whether anything reached the check.
+    signed_attribute_der: BTreeMap<String, usize>,
+    /// The documents whose signed attributes departed, named one by one with the rule.
+    signed_attribute_witnesses: Vec<String>,
     /// Table 255's `/V`, as the file states it — the format version, keyed by its own integer.
     ///
     /// The entry's 1 means "the Reference dictionary shall be considered critical to the
@@ -273,6 +314,7 @@ impl Counts {
             (&mut self.digest_algorithms, other.digest_algorithms),
             (&mut self.key_algorithms, other.key_algorithms),
             (&mut self.authenticity, other.authenticity),
+            (&mut self.signed_attribute_der, other.signed_attribute_der),
             (&mut self.material_refused, other.material_refused),
             (&mut self.revocation, other.revocation),
             (&mut self.verdicts, other.verdicts),
@@ -285,6 +327,8 @@ impl Counts {
         }
         self.unverifiable_documents
             .append(&mut other.unverifiable_documents);
+        self.signed_attribute_witnesses
+            .append(&mut other.signed_attribute_witnesses);
     }
 }
 
@@ -391,7 +435,9 @@ fn verdict(answer: &Authenticity) -> String {
         // A row of its own rather than a share of `Unreadable`: RFC 5652 section 5.3's one DER
         // region is the whole reason the reader's BER tolerance has a boundary, and how many real
         // signatures cross it is the count that prices it.
-        Authenticity::SignedAttributesNotDer => "SignedAttributesNotDer".into(),
+        Authenticity::SignedAttributesNotDer { rule } => {
+            format!("SignedAttributesNotDer ({rule})")
+        }
         Authenticity::SigningCertificateMismatch { version, digest } => format!(
             "SigningCertificateMismatch ({}, {})",
             version.attribute_name(),
@@ -583,6 +629,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
         match signature.signed_data() {
             Ok(cms) => {
                 counts.readable = counts.readable.saturating_add(1);
+                count_signed_attribute_der(path, &cms, &mut counts);
                 count_signature_timestamp(path, &cms, &mut counts);
                 if cms.has_signed_attribute(cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
                     counts.revocation_material = counts.revocation_material.saturating_add(1);
@@ -959,6 +1006,18 @@ fn main() {
     report("SignerInfo digestAlgorithm", &counts.digest_algorithms);
     report("the signer's certificate's key", &counts.key_algorithms);
     report("Signature::authenticity answered", &counts.authenticity);
+    report(
+        "ITU-T X.690 clause 10 over each signer's SignedAttrs, the region RFC 5652 section 5.4 \
+         digests",
+        &counts.signed_attribute_der,
+    );
+    println!("signed-attribute regions that depart from a rule, by document:");
+    if counts.signed_attribute_witnesses.is_empty() {
+        println!("  (none)");
+    }
+    for witness in &counts.signed_attribute_witnesses {
+        println!("  {witness}");
+    }
     report(
         "§12.8.3.4.5 (a), the signer's certificate against the hash the signer signed over it",
         &counts.signing_certificate,

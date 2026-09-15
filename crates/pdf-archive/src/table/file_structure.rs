@@ -1336,8 +1336,23 @@ fn name_lengths(exam: &Examination<'_>, findings: &mut Findings) {
 const MOST_INDIRECT_OBJECTS: usize = 8_388_607;
 
 /// ISO 19005-2 section 6.1.13.
+///
+/// **The count comes from the cross-reference table rather than through
+/// [`Examination::objects`], and that is what makes the clause's own witness testable.** The row
+/// asks *how many* indirect objects a file contains, never which, and the shared population is
+/// built by fetching every number the table names — so on the smallest document that can fail
+/// this rule the fetch costs 6.6 s and about a gibibyte where the count costs nothing
+/// (`examples/cost.rs` on an 8 388 608-entry file: opening 345 ms, the population 6.6 s). The two
+/// are the same number by construction — `objects()` maps `XrefTable::object_numbers` one for one
+/// — and `the_two_ways_of_counting_the_objects_agree` holds them to each other.
+///
+/// The population is the table's and not a traversal's for [`Examination::objects`]'s reason:
+/// ISO 19005-2 section 6.1.4 exempts an indirect object no cross-reference section names. A
+/// `/Size` is not that number and is not read here — ISO 32000-2 §7.5.8.2 makes it one greater
+/// than the highest object number a file uses, which says nothing about how many entries are in
+/// use, so a validator reading it would fail conforming files.
 fn indirect_object_count(exam: &Examination<'_>, findings: &mut Findings) {
-    let counted = exam.objects().len();
+    let counted = exam.document.xref().len();
     if counted > MOST_INDIRECT_OBJECTS {
         findings.record(
             Where::file().named(counted.to_string()),

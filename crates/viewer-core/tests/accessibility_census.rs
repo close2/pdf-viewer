@@ -1045,55 +1045,105 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // A capability count may only rise, and each of these is one line of `report` above. Each
         // prints its floor beside that count, so the distance between them — which is the fall
         // the ratchet would admit in silence — is on the run rather than in the source (ADR 1075).
+        // 107 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
-            107,
+            108,
         );
+        // 2407 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
-            2407,
+            2444,
         );
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 216_289);
+        // 216_289 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 219_440);
+        // 665 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "§14.9.3's /Alt carried, whole population",
             census.substituted,
-            665,
+            670,
         );
-        gate_ratchet::floor("elements placed, whole population", census.placed, 11_722);
+        // 11_722 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
+        gate_ratchet::floor("elements placed, whole population", census.placed, 11_815);
+        // 188_198 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            188_198,
+            190_540,
         );
+        // 23_032 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
-            23_032,
+            23_183,
         );
+        // 33_729 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
-            33_729,
+            33_931,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
+        // 10_905 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
-            10_905,
+            10_998,
         );
+        // 110_478 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            110_478,
+            112_295,
         );
-        // 885 until the merge of sessions 1068-1073, where two more untagged pages answered the honest
-        // empty tree. The rise is the direction this floor exists to admit; which of that batch's
-        // open-path changes freed the two pages (1069's one-pass header search, 1072's collection
-        // reading) was not isolated, and the floor records the population, not the cause.
-        gate_ratchet::floor("lines, whole population", census.lines, 195_212);
-        gate_ratchet::floor("characters, whole population", census.characters, 5_196_091);
+        // 885 until the merge of sessions 1068-1073, when round 1071 fetched ETSI EN 319 122-1 and -2 into
+        // `doc/`: two untagged specification PDFs, two page-ones answering the honest empty tree. The
+        // comment that stood here first blamed open-path changes; the merge of 1074-1079 found the
+        // population two short because those PDFs had been written into the worktree's `doc/` and
+        // died with it — a fetched specification lives in the main checkout's `doc/`, and
+        // `tools/batch.sh close` now refuses a worktree holding one.
+        // 195_212 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
+        gate_ratchet::floor("lines, whole population", census.lines, 198_244);
+        // 5_196_091 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
+        // specification fetched for reading by round 1075, joined the population the way
+        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
+        // direction this floor exists to admit.
+        gate_ratchet::floor("characters, whole population", census.characters, 5_291_277);
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
@@ -1149,6 +1199,10 @@ const RATCHETED_SPECIFICATIONS: &[&str] = &[
 /// absent from a run is not a failure — the specifications under `doc/` are gitignored and a fresh
 /// clone has none of them. A page *not* in this list is, and has to be argued for.
 const NO_PARENT_KEY_SILENT: &[&str] = &[
+    // `T-REC-X.690-202102.pdf` page 8 (round 1075's fetched specification, a corpus document since
+    // the merge of sessions 1074-1079): a tagged document whose page 8 states no /StructParents
+    // and none of whose 3115 elements is on that page — the honest empty answer, the ICC.1 shape.
+    "T-REC-X.690-202102.pdf p8",
     "bug1365930.pdf p1",
     "bug1755507.pdf p1",
     "bug1978317.pdf p1",

@@ -47,6 +47,7 @@ use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
+use pdf_model::popup::Comment;
 use pdf_model::structure::{Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope};
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
@@ -1507,6 +1508,7 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
             text,
             modified,
             colour,
+            replies,
         } = popup;
         writer
             .object(*annotation)
@@ -1523,6 +1525,27 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
             None => {
                 writer.u8(0);
             }
+        }
+        // §12.5.6.2's thread. It crosses the boundary with the window because Table 172 makes
+        // showing it there a `shall` — replies are not displayed "individually but together in
+        // the form of threaded comments" — so a panel that received the window without them
+        // would be the one place in this program that still breaks the sentence.
+        writer.usize(replies.len());
+        for reply in replies {
+            let Comment {
+                annotation,
+                parent,
+                depth,
+                title,
+                text,
+                modified,
+            } = reply;
+            writer.object(*annotation).option_object(*parent);
+            writer.usize(*depth);
+            writer
+                .option_str(title.as_deref())
+                .option_str(text.as_deref())
+                .option_str(modified.as_deref());
         }
     }
 }
@@ -1547,6 +1570,16 @@ pub(super) fn decode_popups(reader: &mut Reader<'_>) -> Result<Vec<PopupWindow>,
             } else {
                 None
             },
+            replies: reader.list("a popup's thread", |reader| {
+                Ok(Comment {
+                    annotation: reader.object("a reply")?,
+                    parent: reader.option_object("a reply's parent")?,
+                    depth: reader.usize("a reply's depth")?,
+                    title: reader.option_string("a reply's author")?,
+                    text: reader.option_string("a reply's text")?,
+                    modified: reader.option_string("a reply's modification date")?,
+                })
+            })?,
         })
     })
 }
