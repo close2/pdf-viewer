@@ -5173,7 +5173,7 @@ per segment plus a join, and those overlap wherever the path turns: the comment 
 "overlaps between pieces double the winding, which non-zero coverage clamps away", and clamping the
 *pixel-integrated* winding is what this is about. Three pages of this project's corpus part from its
 oracle on it, each with raster long at page scale and the excess halving at every rung of an ink
-ladder: `issue20232.pdf` +31.3%, `issue21068.pdf` +3.1%, and `issue15150.pdf`, whose whole content
+ladder: `issue20232.pdf` +22.7%, `issue21068.pdf` +3.1%, and `issue15150.pdf`, whose whole content
 stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s` — `s` closes a two-point subpath, so the stroked
 region is the device rectangle `[0, 0.5] × [0, 0.5]` traversed twice, and your side draws 0.5 of
 pixel (0, 0) where its area is 0.25. At 2× and above that region is a whole pixel and the two agree.
@@ -5219,8 +5219,8 @@ and 17% heavy at 1×, 2× and 4×. A filter that resamples cannot add ink to a p
 white: at a reduction of about 1.18 a two-tap support steps past some source samples entirely, which
 loses ink, and nothing in the construction gains it.
 
-**What the whole page comes to.** `render-raster/examples/ink_ladder` reads cpu 40 681.01 against
-raster 43 526.89 at 1×, 40 802.56 against 44 986.29 at 2× and 40 826.62 against 44 263.17 at 4×; the
+**What the whole page comes to.** `render-raster/examples/ink_ladder` reads cpu 40 501.30 against
+raster 43 526.89 at 1×, 40 794.45 against 44 986.29 at 2× and 40 826.55 against 44 263.17 at 4×; the
 oracle is at 40 915.45 at 8×, where the frame's scene-byte budget refuses your side. Three sessions
 of this project read that gap as a §10.7.4 stroke substitution before anyone counted the page's
 strokes: `pdf-model/examples/sub_pixel_width_census` says it states **four** strokes under a device
@@ -5281,3 +5281,51 @@ placement before it reads `/Interpolate`, so `render-cpu` and `render-gpu` follo
 encode holds a copy of that rule (your ADR 0089, this project's ADR 0702) and the copy is what the
 ask is about: an ordinary image reaches you as its samples plus the flag, and `ImageFilter::Auto`
 decides. The deferred path, which asks `is_smoothed` directly, already moved.
+
+## 48. §47 one reduction earlier — the native test belongs to the grid you are about to draw, not the grid the file states
+
+**The ask, in one line.** Where the reduction factor is an exact integer, the grid your encode
+reduces to is itself one device pixel per sample — so §47's rule has to be asked *after* your
+reduce, of the grid being drawn, or it will keep filtering a page that has nothing left to
+interpolate between.
+
+**The page.** `issue269_2.pdf` is one 200 × 200 `DCTDecode` image drawn **32 times** at 100 × 100
+device pixels — the ratio is exactly two, so `pdf_render::Image::reduction`'s floor leaves no
+residual and §46's subject is absent here. After the reduction the grid is 100 × 100 samples on
+100 × 100 device pixels, which is §47's placement exactly.
+
+**What the two backends do with it.** `render-cpu` reduces first and then asks
+`pdf_render::Image::is_smoothed` of *the grid it is about to draw*, so the answer is `false` and
+§10.7.4's point sample is what the oracle lays down. `render_raster::scene` hands an ordinary image
+across as the **stated** samples plus §8.9.5.3's flag (`ImageFilter::Auto`, ADR 0702), and your
+encode's copy of the rule decides after its own reduce — which is why this page and `pr12564.pdf`
+are one item and not two.
+
+**The measurement on the page**, `render-raster/examples/ink_ladder`, scale-normalised:
+
+```text
+              1x cpu     1x raster     2x, 4x, 8x cpu    2x, 4x, 8x raster
+  issue269_2  142089.03  142078.17     141996.09         141996.09
+```
+
+0.008% apart at 1× and equal to the hundredth at every rung above it: **the same ink in different
+pixels**, which is that instrument's signature for a rule rather than a shape. Our corpus gate
+reads mean 1.3865, worst tile 7.45, ssim 0.97558 against the oracle.
+
+**The reproduction away from any document** is a third rung in the same example §47 already cites,
+`cargo run --release -p render-raster --example image_phase`: sixteen rows in black and white
+*pairs* — like rows, so the two-to-one average is the pair itself and the reduced grid is the first
+rung's image — drawn onto eight device rows at ten sub-pixel phases.
+
+```text
+2:1 reduction onto the same 8 rows — 8 device rows, both backends asked to filter
+  offset   cpu levels  cpu ink     raster levels  raster ink
+   0.00            2     32.000               2      32.000
+   0.20            2     28.000               2      26.600
+   0.50            2     21.000               1      24.404
+   0.90            2     21.000               2      21.714
+```
+
+Those are §47's own first-rung figures **to the thousandth at all ten phases**, on both sides: the
+oracle's staircase, your straight ramp, and the one uniform grey at the half-phase where the
+`levels` column reads 1. Two placements, one rule.

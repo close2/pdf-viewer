@@ -545,7 +545,7 @@ pub fn decode_parts(
     // §8.9.6.3 and §8.9.6.4: `/Mask` is either a second image naming the areas of this one
     // that are painted, or a range of colours that are not. Read before the samples, because
     // the colour-key form is a test *on* the samples and has to travel into the unpacker.
-    let mask = mask_entry(document, dict, resources);
+    let mask = mask_entry(document, stream, resources);
     let colour_key = match &mask {
         MaskEntry::ColourKey(ranges) => Some(ranges.as_slice()),
         _ => None,
@@ -746,7 +746,9 @@ fn samples_of(
                 shortfall,
             })
         }
-        Some(b"JPXDecode") => decode_jpx(at, source, width, height, is_mask, fill, into),
+        Some(b"JPXDecode") => {
+            decode_jpx(at, source, (width, height), is_mask, fill, colour_key, into)
+        }
         Some(b"CCITTFaxDecode" | b"CCF") => {
             let (rgba, shortfall) =
                 decode_ccitt(at, source, (width, height), is_mask, fill, colour_key, into)?;
@@ -1916,10 +1918,10 @@ fn leave_unpainted(rgba: &mut [u8], delivered: u32, width: u32) {
 fn decode_jpx(
     at: Dictionaries,
     source: &ImageStream,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     is_mask: bool,
     fill: pdf_render::Color,
+    colour_key: Option<&[(u32, u32)]>,
     into: &Conversion,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
@@ -2046,7 +2048,17 @@ fn decode_jpx(
 
     let decode = jpx_decode(document, dict, &space, stated_by_the_dictionary);
     Ok(SamplesOnGrid {
-        rgba: jpx_samples_to_rgba(&raster, &space, &decode, use_opacity, premultiplied, into),
+        rgba: jpx_samples_to_rgba(
+            &raster,
+            &space,
+            &decode,
+            JpxOpacity {
+                use_opacity,
+                premultiplied,
+            },
+            colour_key,
+            into,
+        ),
         grid: (raster.width, raster.height),
         opacity_included: use_opacity,
         shortfall: None,
@@ -2132,32 +2144,63 @@ fn jpx_decode(
     space: &crate::colour::ColourSpace,
     stated: bool,
 ) -> Decode {
-    /// Bits per sample in a raster `pdf_sandbox` returns; see this function's own comment.
-    const BITS: u32 = 8;
-
     let mapped = ColourSpace::Resolved(space.clone());
     if stated {
-        Decode::read(document, dict, &mapped, BITS)
+        Decode::read(document, dict, &mapped, JPX_SAMPLE_BITS)
     } else {
-        Decode::from_pairs(&[], &mapped, BITS)
+        Decode::from_pairs(&[], &mapped, JPX_SAMPLE_BITS)
     }
 }
 
+/// What `/SMaskInData` said about the opacity channel that came with the samples.
+///
+/// Two booleans that are read together and mean nothing apart: Table 87 gives code 1 and code 2
+/// the same answer to the first question and different answers to the second.
+#[derive(Clone, Copy)]
+struct JpxOpacity {
+    /// Whether the channel after the colour components is opacity (`/SMaskInData` 1 or 2).
+    use_opacity: bool,
+    /// Whether the colour components were multiplied by it (`/SMaskInData` 2).
+    premultiplied: bool,
+}
+
 /// Converts decoded JPEG 2000 samples into straight-alpha RGBA8.
+///
+/// `colour_key` is §8.9.6.4's ranges, one per colour component, applied here for the reason
+/// [`jpeg_colour_key`] gives on the other lossy filter: the test is on the components "before
+/// decoding", which are the samples this loop reads, and the conversion below replaces them.
 fn jpx_samples_to_rgba(
     raster: &pdf_sandbox::Raster,
     space: &crate::colour::ColourSpace,
     decode: &Decode,
-    use_opacity: bool,
-    premultiplied: bool,
+    opacity_channel: JpxOpacity,
+    colour_key: Option<&[(u32, u32)]>,
     into: &Conversion,
 ) -> Vec<u8> {
+    let JpxOpacity {
+        use_opacity,
+        premultiplied,
+    } = opacity_channel;
     let channels = raster.channels();
     let components = usize::from(raster.components);
     let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
     let mut out = Vec::with_capacity(pixels.saturating_mul(4));
     let mut values = vec![0f32; components];
     for pixel in raster.data.chunks(channels) {
+        // §8.9.6.4: "[s]amples in the image that fall within this range shall not be painted".
+        // The same answer `unpack` gives a masked sample — its position, and no opacity at all —
+        // taken before the map below, because that is what turns a sample into a colour.
+        if colour_key.is_some_and(|ranges| {
+            ranges.iter().enumerate().all(|(component, (low, high))| {
+                pixel.get(component).is_some_and(|sample| {
+                    let raw = u32::from(*sample);
+                    raw >= *low && raw <= *high
+                })
+            })
+        }) {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
         let alpha = if use_opacity {
             pixel.get(components).copied().unwrap_or(255)
         } else {
@@ -2926,7 +2969,12 @@ enum MaskEntry {
 }
 
 /// Reads `/Mask`, deciding which of §8.9.6's two mechanisms it names and whether it applies.
-fn mask_entry(document: &Document, dict: &Dictionary, resources: &Dictionary) -> MaskEntry {
+///
+/// Takes the whole stream rather than its dictionary because §8.9.6.4's range array is bounded
+/// by a bit depth that, for one filter, is stated in the image data instead of the dictionary
+/// (see [`colour_key_entry`]).
+fn mask_entry(document: &Document, stream: &Stream, resources: &Dictionary) -> MaskEntry {
+    let dict = &stream.dict;
     let mask = document.get_key(dict, "Mask");
     if matches!(mask, Object::Null) {
         return MaskEntry::Absent;
@@ -2944,7 +2992,7 @@ fn mask_entry(document: &Document, dict: &Dictionary, resources: &Dictionary) ->
     }
     match &mask {
         Object::Null => MaskEntry::Absent,
-        Object::Array(items) => colour_key_entry(document, dict, resources, items),
+        Object::Array(items) => colour_key_entry(document, stream, resources, items),
         _ => mask.as_stream().map_or_else(
             || MaskEntry::Unusable("/Mask is neither an image mask nor a range array".to_owned()),
             |stream| explicit_entry(document, dict, stream),
@@ -2962,23 +3010,45 @@ fn mask_entry(document: &Document, dict: &Dictionary, resources: &Dictionary) ->
 /// Both "shall"s are checked rather than assumed, because an array of the wrong length would
 /// otherwise mask by whichever components happened to line up.
 ///
-/// # The one filter this refuses, and why the lossy ones are not it
+/// # `JPXDecode`, whose domain is stated in the image data rather than in the dictionary
 ///
-/// **`JPXDecode` is refused, on §8.9.5.1's Table 87 and its own sentence about the entry
-/// these ranges are stated in**:
+/// §8.9.5.1's Table 87 withdraws the entry the blockquote above bounds these integers by, for
+/// this one filter:
 ///
 /// > If the image stream uses the JPXDecode filter, this entry is optional and shall be
 /// > ignored if present. The bit depth is determined by the PDF processor in the process of
 /// > decoding the JPEG 2000 image.
 ///
-/// and §8.9.5.2 adds that for such an image the depth "can have different values per colour
-/// component". The blockquote above states one domain for every range, bounded by that same
-/// entry, so for a JPEG 2000 image the bound those integers live in is the one the standard
-/// has just taken away — and may differ between the components they are paired with. That is
-/// a gap in what the file states rather than a gap in this reader, so it is reported instead
-/// of guessed at. Not one of the 89 322 documents that opened, of the 90 535 the
-/// eight-hundred-and-ninety-fourth session walked over `doc/pdf.js`, `doc/corpora` and
-/// `corpus-cache`, states the pair — nor a `JBIG2Decode` one.
+/// **That sentence says the depth is determined, not that there is none**, and §7.4.9 says
+/// where it is determined from:
+///
+/// > These packagings contain all the information needed to properly interpret the image data,
+/// > including the colour space, bits per component, and image dimensions.
+///
+/// [`crate::jpeg2000`] reads exactly that, from the `ihdr` and `bpcc` boxes and the codestream's
+/// `SIZ` marker, without decoding a sample. So the question this function has to answer is not
+/// whether a domain exists but whether the samples the comparison will see are still in it, and
+/// that has two answers:
+///
+/// - **An `Indexed` dictionary space is exact at any depth.** §7.4.9 gives `/ColorSpace`
+///   precedence over the codestream's own colour specifications, so the confined decoder is
+///   asked for the codestream's sample values unscaled — an index stretched to eight bits is a
+///   different index — and §8.6.6.3 caps `hival` at 255. Those raw indices are the integers the
+///   ranges are stated over.
+/// - **Otherwise the decoder stretches every sample to eight bits**, which is the identity where
+///   the codestream declares eight unsigned bits per component and a remapping otherwise. Where
+///   it is a remapping, the integers the file wrote are in a domain its samples have left, and
+///   §8.9.5.2's "can have different values per colour component" means there may be no single
+///   domain to map them from. That case is reported, naming the depth found, rather than
+///   guessed at.
+///
+/// **This function refused every `JPXDecode` image until the eleven-hundred-and-eighth session,
+/// on the reading that Table 87 had taken the domain away.** It had not; §7.4.9 hands it to the
+/// data, and this crate has read the data since the module above existed (trap 40: the
+/// capability a refusal says is absent may be forty lines above it). No document in any corpus
+/// this tree holds states the pair — `examples/colour_key_mask_census` over 90 535 finds 660
+/// colour keys and not one `JPXDecode` or `JBIG2Decode` among them — so both arms are pinned by
+/// generated fixtures in `tests/image_masks.rs` and by nothing else. ADR 1121.
 ///
 /// **The lossy filters are not refused, and this function refused all four codecs by name
 /// until the eight-hundred-and-ninety-fourth session.** §8.9.6.4 opens with a `shall`
@@ -3009,20 +3079,14 @@ fn mask_entry(document: &Document, dict: &Dictionary, resources: &Dictionary) ->
 /// [`convert_channels`] turns them into device RGB.
 fn colour_key_entry(
     document: &Document,
-    dict: &Dictionary,
+    stream: &Stream,
     resources: &Dictionary,
     items: &[Object],
 ) -> MaskEntry {
+    let dict = &stream.dict;
     if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true)) {
         return MaskEntry::Unusable(
             "colour-key /Mask on an image mask, which has no colour components".to_owned(),
-        );
-    }
-    if image_codec(document, dict).as_deref() == Some("JPXDecode") {
-        return MaskEntry::Unusable(
-            "colour-key /Mask on a JPXDecode image, whose /BitsPerComponent Table 87 says \
-             shall be ignored"
-                .to_owned(),
         );
     }
     // Asked for its component count and nothing else, so what the samples are composited
@@ -3032,6 +3096,13 @@ fn colour_key_entry(
             "colour-key /Mask on an image whose colour space this cannot read".to_owned(),
         );
     };
+    let jpeg_2000 = image_codec(document, dict).as_deref() == Some("JPXDecode");
+    if let Some(refusal) = jpeg_2000
+        .then(|| jpx_sample_domain(document, stream, &space))
+        .flatten()
+    {
+        return MaskEntry::Unusable(refusal);
+    }
 
     let values: Vec<i64> = items
         .iter()
@@ -3046,13 +3117,20 @@ fn colour_key_entry(
         ));
     }
 
-    let bits = u32::try_from(
-        document
-            .get_key(dict, "BitsPerComponent")
-            .as_integer()
-            .unwrap_or(8),
-    )
-    .unwrap_or(8);
+    // Table 87: for a JPEG 2000 image this entry "shall be ignored if present", so the domain
+    // the ranges are bounded by is the one the samples arrive in — eight bits, which is what
+    // [`jpx_sample_domain`] has just established for every arm it admits.
+    let bits = if jpeg_2000 {
+        JPX_SAMPLE_BITS
+    } else {
+        u32::try_from(
+            document
+                .get_key(dict, "BitsPerComponent")
+                .as_integer()
+                .unwrap_or(8),
+        )
+        .unwrap_or(8)
+    };
     let highest = i64::from(1u32.checked_shl(bits).unwrap_or(u32::MAX).saturating_sub(1));
     let mut ranges = Vec::with_capacity(components);
     for pair in values.chunks_exact(2) {
@@ -3073,6 +3151,64 @@ fn colour_key_entry(
         ));
     }
     MaskEntry::ColourKey(ranges)
+}
+
+/// The bits a JPEG 2000 sample reaches this crate as, whatever the codestream declared.
+///
+/// `pdf_sandbox::Raster::data` is always eight bits whatever the codestream's precision was, and
+/// Table 87 leaves that choice to the processor: "The bit depth is determined by the PDF
+/// processor in the process of decoding the JPEG 2000 image."
+const JPX_SAMPLE_BITS: u32 = 8;
+
+/// Whether a JPEG 2000 image's samples still carry the domain §8.9.6.4's integers were written
+/// in, or a sentence saying why they do not.
+///
+/// The reading is in [`colour_key_entry`]'s comment; this is the two cases it names. Reads the
+/// codestream's headers and no samples at all, which is what [`crate::jpeg2000`] exists for —
+/// the confined decoder is not started to answer a question about the mask.
+fn jpx_sample_domain(document: &Document, stream: &Stream, space: &ColourSpace) -> Option<String> {
+    // §7.4.9 gives the dictionary's space precedence over the codestream's own, which is why
+    // `decode_jpx` asks the worker for unscaled indices here; the domain is then the table's,
+    // which §8.6.6.3 caps at 255 whatever precision the codestream declares.
+    if matches!(
+        space,
+        ColourSpace::Resolved(crate::colour::ColourSpace::Indexed { .. })
+    ) {
+        return None;
+    }
+    let Some(source) = document.image_stream(stream) else {
+        return Some(
+            "colour-key /Mask on a JPXDecode image whose data this could not read".to_owned(),
+        );
+    };
+    let depths = crate::jpeg2000::Headers::parse(&source.data)
+        .map(|headers| headers.component_depths())
+        .unwrap_or_default();
+    if depths.is_empty() {
+        return Some(
+            "colour-key /Mask on a JPXDecode image whose data states no bit depth, which \
+             §8.9.6.4's ranges are bounded by"
+                .to_owned(),
+        );
+    }
+    if depths
+        .iter()
+        .all(|depth| u32::from(depth.bits) == JPX_SAMPLE_BITS && !depth.signed)
+    {
+        return None;
+    }
+    let found = depths
+        .iter()
+        .map(|depth| {
+            let sign = if depth.signed { "signed" } else { "unsigned" };
+            format!("{} {sign}", depth.bits)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "colour-key /Mask on a JPXDecode image whose components are {found} bits, so the \
+         ranges are not in the domain of the eight-bit samples this decodes to"
+    ))
 }
 
 /// Reads §8.9.6.3's explicit mask against the image it masks.
@@ -3183,10 +3319,10 @@ fn image_codec(document: &Document, dict: &Dictionary) -> Option<String> {
 #[must_use]
 pub fn unapplied_mask(
     document: &Document,
-    dict: &Dictionary,
+    stream: &Stream,
     resources: &Dictionary,
 ) -> Option<String> {
-    match mask_entry(document, dict, resources) {
+    match mask_entry(document, stream, resources) {
         MaskEntry::Unusable(reason) => Some(reason),
         MaskEntry::Absent
         | MaskEntry::Overridden

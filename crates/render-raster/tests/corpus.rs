@@ -806,9 +806,8 @@ const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
 /// three-hundred-and-eighty-ninth**, ssim 0.90046 to 0.97723, when that one 0.53-pixel stroke
 /// stopped being a hairline on the processor and became the fill of its own outline: it is the
 /// largest single movement this list has recorded, and it is the two backends agreeing rather
-/// than either moving toward the other, ADR 0226), 8-px text
-/// (`issue16316`, `standard_fonts`), halftone photographs under the stated linear-sampler
-/// variance (`issue269_2`) — where the two rasterisers put the same ink on different sides
+/// than either moving toward the other, ADR 0226) and 8-px text
+/// (`issue16316`, `standard_fonts`) — where the two rasterisers put the same ink on different sides
 /// of a pixel boundary. **`22060_A1_01_Plans.pdf` belongs with none of them**: it is four sampled
 /// images, its whole gap is in their reduction, and the paragraph near the end of this note is what
 /// measures that. Matching `tiny-skia`'s sub-pixel distribution
@@ -910,7 +909,25 @@ const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
 /// contours of one rectangle, which `pdf_render::sub_pixel_bands` declined; it now draws
 /// **0.251**, the area itself. raster draws 0.5, twice the area, at this scale only — the two
 /// agree at 2× and above. Erring heavy is the side §10.7.4's third sentence permits, so this is a
-/// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` is where an ask would go.
+/// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` section 45 is the ask: the
+/// stroked region is that rectangle traversed *twice*, and clamping the pixel-integrated winding
+/// is what makes a doubled contour heavier than the set §8.5.3.3 defines.
+///
+/// **`issue269_2.pdf` is `pr12564.pdf`'s rule one reduction earlier, and it is not a variance.**
+/// The page is one 200 × 200 `DCTDecode` image drawn 32 times at 100 × 100 device pixels
+/// (`pdf-model/examples/image_region_census`), so the ratio is exactly two and
+/// `pdf_render::Image::reduction`'s floor leaves **no residual** — which is what separates it from
+/// `22060_A1_01_Plans.pdf`, whose whole subject is the residual at about 1.18. `examples/ink_ladder`
+/// reads 142 089.03 against 142 078.17 at 1×, 0.008% apart, and 141 996.09 on both at 2×, 4× and 8×:
+/// the same ink, in different pixels. After the reduction the grid is 100 × 100 on 100 × 100 device
+/// pixels — a native placement — and `render_cpu` asks `pdf_render::Image::is_smoothed` of the grid
+/// it is about to draw rather than of the one the file states, so §10.7.4's point sample is what the
+/// oracle lays down. `render_raster::scene` hands an ordinary image across as the *stated* samples
+/// plus §8.9.5.3's flag (ADR 0702), and quorra's own copy of the rule decides after its own reduce.
+/// `examples/image_phase`'s third rung is that page away from any document — sixteen rows in like
+/// pairs onto eight device pixels — and it reproduces the first rung's two columns to the thousandth
+/// at all ten phases, which is the measurement that the two placements are one rule.
+/// `doc/QUORRA_FEEDBACK.md` section 48 is the ask, and it is section 47's with the grid named.
 const DIFFERS_IN_SHAPE: [&str; 6] = [
     "22060_A1_01_Plans.pdf",
     "issue15150.pdf",
@@ -992,7 +1009,7 @@ const DIFFERS_IN_SHAPE: [&str; 6] = [
 /// is written down.
 ///
 /// **Raster long at 1× and halving its excess is the other sign, and it is one defect**:
-/// `issue15150.pdf` (twice the area), `issue20232.pdf` (+31.3%) and `issue21068.pdf` (+3.1%) are
+/// `issue15150.pdf` (twice the area), `issue20232.pdf` (+22.7%) and `issue21068.pdf` (+3.1%) are
 /// paths whose own portions overlap — a stroke's expanded quads meeting at a join, or the
 /// out-and-back outline `s` makes of a two-point subpath. §8.5.3.3 defines the painted region as
 /// the points whose winding number is non-zero and §10.7.4 makes a pixel's coverage the area of

@@ -20,6 +20,10 @@
 //! image that carries both.
 
 #![expect(
+    clippy::panic,
+    reason = "a test helper that cannot start the sandbox must fail loudly"
+)]
+#![expect(
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
@@ -152,14 +156,21 @@ fn assemble(objects: &[Vec<u8>]) -> Vec<u8> {
 
 /// Renders a fixture at one pixel per unit onto a transparent background.
 fn render(bytes: Vec<u8>) -> pdf_render::Raster {
-    let document = Document::open(bytes).expect("the fixture is a valid PDF");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
+    let interpretation = interpret(bytes);
     assert!(
         interpretation.is_complete(),
         "the fixture should draw completely: {:?}",
         interpretation.unsupported
     );
+    rasterise(interpretation)
+}
+
+/// Rasterises what an interpretation drew, at one pixel per unit.
+///
+/// Split out of [`render`] because a fixture whose whole subject is a refusal draws *and*
+/// reports, so the two halves of its answer have to be read together — [`render`]'s assertion
+/// that nothing was reported is exactly what such a test is checking the opposite of.
+fn rasterise(interpretation: pdf_model::Interpretation) -> pdf_render::Raster {
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     CpuRasterizer::new()
@@ -328,6 +339,53 @@ fn about(raster: &pdf_render::Raster, x: u32, y: u32, expected: [u8; 3]) -> bool
         && blue.abs_diff(expected[2]) < 24
 }
 
+/// The one sample value [`JPX_ONE_COMPONENT`] carries, in every pixel.
+const JPX_SAMPLE: u8 = 200;
+
+/// An 8×8 one-component JPEG 2000 codestream, every pixel [`JPX_SAMPLE`].
+///
+/// A bare codestream — SOC, SIZ, COD, QCD, SOT, SOD, EOC — with no JP2 boxes, so the dictionary
+/// is the only thing that can say what a sample means. Its SIZ states one component of eight
+/// unsigned bits and its COD the reversible 5/3 wavelet, so it is lossless and the value above
+/// comes back exactly. The same bytes `tests/jpx_decode_array.rs` carries, generated rather than
+/// written because a JPEG 2000 codestream cannot be written by hand legibly:
+///
+/// ```sh
+/// python3 -c "import numpy as np; np.full(64, 200, np.uint8).tofile('gray.raw')"
+/// opj_compress -i gray.raw -o gray.j2k -F 8,8,1,8,u -n 1 -r 1
+/// ```
+const JPX_ONE_COMPONENT: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x01, 0xff, 0x52, 0x00,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
+    0x40, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x23, 0x00, 0x01, 0xff, 0x93, 0xcf,
+    0xb4, 0x48, 0x14, 0x00, 0x5c, 0xa3, 0x65, 0x5d, 0xb0, 0x00, 0x03, 0x09, 0x08, 0xd5, 0x0a, 0x18,
+    0x48, 0x4b, 0xff, 0x7f, 0xff, 0xd9,
+];
+
+/// An 8×8 one-component JPEG 2000 codestream whose `SIZ` states **twelve** unsigned bits.
+///
+/// The depth is the whole point of it and its samples are not read by any test here, so no value
+/// is documented: what this fixture is for is a codestream whose declared precision is not the
+/// eight bits `pdf_sandbox` delivers. Generated the same way as [`JPX_ONE_COMPONENT`], with its
+/// `COM` comment marker removed so that no encoder version is baked in:
+///
+/// ```sh
+/// python3 -c "import struct; open('g.raw','wb').write(struct.pack('<64H', *([3000]*64)))"
+/// opj_compress -i g.raw -o g.j2k -F 8,8,1,12,u -n 1 -r 1
+/// ```
+const JPX_TWELVE_BIT: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0b, 0x01, 0x01, 0xff, 0x52, 0x00,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
+    0x60, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x01, 0xff, 0x93, 0xff,
+    0x78, 0x91, 0x08, 0x14, 0x00, 0x5c, 0xa2, 0x83, 0x56, 0x28, 0x00, 0x00, 0x00, 0x30, 0x90, 0x97,
+    0xfc, 0x34, 0xec, 0x00, 0x00, 0x00, 0x01, 0x84, 0x84, 0x59, 0x84, 0x0c, 0x24, 0x24, 0x20, 0x34,
+    0x03, 0x09, 0x09, 0x7f, 0xff, 0xd9,
+];
+
 const RED: [u8; 3] = [255, 0, 0];
 const GREEN: [u8; 3] = [0, 255, 0];
 const BLUE: [u8; 3] = [0, 0, 255];
@@ -392,6 +450,201 @@ fn the_colour_key_bounds_are_inclusive() {
     assert!(cut_out(&raster, 15, 30), "200 is the lower bound");
     assert!(cut_out(&raster, 25, 30), "255 is the upper bound");
     assert!(about(&raster, 35, 30, BLUE), "a blue sample is untouched");
+}
+
+/// §8.9.6.4 over an `Indexed` space ranges over the *index*, not over the colour it selects.
+///
+/// The clause states one range per component of "the image's colour space", and §8.6.6.3 makes
+/// an Indexed space's one component an index into its table: "a PDF reader shall treat each
+/// sample value as an index into the colour table and shall use the colour value it finds
+/// there", and "the PDF file can now specify colours as single-component values in the range 0
+/// to 255". So a four-entry palette takes a two-integer `/Mask`, and `[2 2]` names table entry
+/// 2 whatever colour stands there.
+///
+/// **The fixture discriminates between the two readings rather than merely exercising one.**
+/// Entry 0 is `(2, 200, 200)`, whose *red* component is 2: a reader that tested the base space's
+/// components instead of the index would mask the first cell and paint the third, which is the
+/// exact opposite of what this asserts. `issue15629.pdf` is the corpus witness for the
+/// construction — `[/Indexed /DeviceRGB 255 …]` under `/Mask [251 251]` — and it could not
+/// distinguish the two readings, because a three-integer range over a one-component space is
+/// refused for its length before either reading is reached.
+#[test]
+fn a_colour_key_over_an_indexed_space_ranges_over_the_index() {
+    // `02C8C8` `00FF00` `0000FF` `FFFFFF`: entry 0's red is 2, which is inside the range below
+    // if the range is misread as naming base-space components.
+    let raster = render(page_with_image(
+        "/Width 4 /Height 2 /BitsPerComponent 8 \
+         /ColorSpace [/Indexed /DeviceRGB 3 <02C8C800FF000000FFFFFFFF>] /Mask [2 2]",
+        &[0, 1, 2, 3, 3, 2, 1, 0],
+        &[],
+    ));
+
+    assert!(cut_out(&raster, 25, 30), "top row, third cell, index 2");
+    assert!(cut_out(&raster, 15, 5), "bottom row, second cell, index 2");
+
+    assert!(
+        about(&raster, 5, 30, [2, 200, 200]),
+        "index 0 is outside the range and is painted, red component of 2 notwithstanding"
+    );
+    assert!(
+        about(&raster, 15, 30, GREEN),
+        "top row, second cell, index 1"
+    );
+    assert!(
+        about(&raster, 35, 30, [255, 255, 255]),
+        "top row, fourth cell, index 3"
+    );
+}
+
+/// §8.9.6.4 over an eight-bit JPEG 2000 image, whose domain its own data states.
+///
+/// Table 87 withdraws `/BitsPerComponent` for this filter — "this entry is optional and shall be
+/// ignored if present. The bit depth is determined by the PDF processor in the process of
+/// decoding the JPEG 2000 image" — and §7.4.9 says where it is determined from: "These
+/// packagings contain all the information needed to properly interpret the image data, including
+/// the colour space, bits per component, and image dimensions." [`JPX_ONE_COMPONENT`]'s `SIZ`
+/// states eight unsigned bits, which is the domain its samples reach this crate in, so the
+/// clause's test is exact and the range is applied.
+///
+/// **The dictionary states `/BitsPerComponent 4`, which is the half of Table 87 this asserts.**
+/// A reader that believed the entry would bound these integers by 15 and refuse `[190 210]` as
+/// out of range; ignoring it, as the sentence requires, leaves the sample of 200 inside the
+/// range and the picture gone. The control underneath is the same image under a range its
+/// sample misses, without which "the mask was applied" and "the image never drew" are the
+/// same observation.
+#[test]
+fn a_colour_key_over_an_eight_bit_jpeg_2000_image_is_applied() {
+    sandbox_or_panic();
+
+    let masked = interpret(page_with_image(
+        "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /BitsPerComponent 4 \
+         /Mask [190 210]",
+        JPX_ONE_COMPONENT,
+        &[],
+    ));
+    assert!(
+        masked.is_complete(),
+        "an eight-bit codestream states the domain the ranges are in: {:?}",
+        masked.unsupported
+    );
+    assert!(
+        cut_out(&rasterise(masked), 20, 20),
+        "the sample of 200 is inside 190 to 210 and shall not be painted"
+    );
+
+    let painted = interpret(page_with_image(
+        "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /Mask [0 100]",
+        JPX_ONE_COMPONENT,
+        &[],
+    ));
+    assert!(painted.is_complete(), "{:?}", painted.unsupported);
+    assert!(
+        about(
+            &rasterise(painted),
+            20,
+            20,
+            [JPX_SAMPLE, JPX_SAMPLE, JPX_SAMPLE]
+        ),
+        "a sample of 200 is outside 0 to 100 and is painted"
+    );
+}
+
+/// §8.9.6.4 over a JPEG 2000 image the dictionary makes `Indexed`: the ranges name table entries.
+///
+/// §7.4.9 gives `/ColorSpace` precedence — "the colour space specifications in the JPEG 2000
+/// data shall be ignored" — so the codestream's samples are indices into this dictionary's
+/// table, and the confined decoder hands them back unscaled because an index stretched to eight
+/// bits is a different index. §8.6.6.3 caps `hival` at 255, so the domain is the table's whatever
+/// precision the codestream declares, and the range is applied with no depth to check.
+///
+/// The palette makes entry *i* the colour `(i, 255 − i, 128)`, so the control below is painted in
+/// a colour only the lookup can produce: a reader that skipped the table would draw grey.
+#[test]
+fn a_colour_key_over_an_indexed_jpeg_2000_image_names_table_entries() {
+    sandbox_or_panic();
+
+    let palette = (0..=255).fold(String::new(), |mut palette, entry: u16| {
+        let entry = u8::try_from(entry).unwrap_or(0);
+        let _ = write!(palette, "{entry:02x}{:02x}80", u8::MAX - entry);
+        palette
+    });
+    let space = format!("/ColorSpace [/Indexed /DeviceRGB 255 <{palette}>]");
+
+    let masked = interpret(page_with_image(
+        &format!("/Width 8 /Height 8 /Filter /JPXDecode {space} /Mask [190 210]"),
+        JPX_ONE_COMPONENT,
+        &[],
+    ));
+    assert!(masked.is_complete(), "{:?}", masked.unsupported);
+    assert!(
+        cut_out(&rasterise(masked), 20, 20),
+        "index 200 is inside 190 to 210 and shall not be painted"
+    );
+
+    let painted = interpret(page_with_image(
+        &format!("/Width 8 /Height 8 /Filter /JPXDecode {space} /Mask [0 100]"),
+        JPX_ONE_COMPONENT,
+        &[],
+    ));
+    assert!(painted.is_complete(), "{:?}", painted.unsupported);
+    assert!(
+        about(&rasterise(painted), 20, 20, [200, 55, 128]),
+        "index 200 is outside 0 to 100 and is painted through the table"
+    );
+}
+
+/// A depth the samples do not arrive in is refused, and the refusal says which depth it found.
+///
+/// §8.9.6.4 bounds each integer by "0 to 2 `BitsPerComponent` - 1", and for this filter that
+/// number is the codestream's. [`JPX_TWELVE_BIT`]'s `SIZ` states twelve unsigned bits, and
+/// `pdf_sandbox::Raster::data` is eight bits whatever the codestream's precision was — so the
+/// integers this file wrote are in a domain its samples have left, and §8.9.5.2 adds that the
+/// depth "can have different values per colour component", which is to say there may be no one
+/// domain to map them from. Reported rather than approximated, and the image is painted whole.
+///
+/// **The control is the same range over the eight-bit codestream**, which is what makes the
+/// first half a statement about the depth rather than about a range this reader ignores anyway:
+/// `[0 255]` covers every eight-bit sample, so an applied range leaves nothing at all.
+#[test]
+fn a_colour_key_over_a_jpeg_2000_image_of_another_depth_is_refused_and_named() {
+    sandbox_or_panic();
+
+    let refused = interpret(page_with_image(
+        "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /Mask [0 255]",
+        JPX_TWELVE_BIT,
+        &[],
+    ));
+    let reported = format!("{:?}", refused.unsupported);
+    assert!(
+        reported.contains("whose components are 12 unsigned bits"),
+        "the refusal names the depth it read out of the codestream: {reported}"
+    );
+    assert!(
+        !cut_out(&rasterise(refused), 20, 20),
+        "a refused colour key leaves the image painted, not removed"
+    );
+
+    let applied = interpret(page_with_image(
+        "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /Mask [0 255]",
+        JPX_ONE_COMPONENT,
+        &[],
+    ));
+    assert!(
+        applied.is_complete(),
+        "eight unsigned bits is the domain the samples arrive in: {:?}",
+        applied.unsupported
+    );
+    assert!(
+        cut_out(&rasterise(applied), 20, 20),
+        "0 to 255 covers every eight-bit sample, so an applied range leaves nothing painted"
+    );
+}
+
+/// Skips nothing and fails loudly where the confined image decoder cannot start.
+fn sandbox_or_panic() {
+    if let Err(error) = pdf_sandbox::Sandbox::shared().confinement() {
+        panic!("the sandboxed image decoder is not available: {error}");
+    }
 }
 
 /// §8.9.6.3: the base image is painted where the mask marks and nowhere else.

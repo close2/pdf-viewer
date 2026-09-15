@@ -36,12 +36,15 @@ GENERATED — the set of rows is. Their statuses are not: a status is a claim a 
 after reading the clause against this code, and `cargo run -p conformance --bin ledger`
 preserves every one of them. It only ever adds rows the standard has and this file lacks.
 
-Statuses, and what each is for. The vocabulary exists to keep five situations from wearing
-one word: the project choosing, the project not knowing, the project owing out loud, the
+Statuses, and what each is for. The vocabulary exists to keep six situations from wearing
+one word: the project choosing for a whole clause, the project choosing for one sentence
+inside a clause otherwise executed, the project not knowing, the project owing out loud, the
 project owing in silence, and the requirement having no meaning for a screen.
 
   implemented   every normative requirement in the clause is executed; names code and test
   partial       some are; the note says which, which are not, and what is reported
+  departed      every requirement of the clause is executed except the one the note names,
+                which was decided against with its cost recorded. Nothing is owed
   reported      not implemented yet, but detected and reported at runtime. Still owed
   silent        not implemented, and nothing says so. A page is drawn wrong without a word
   inapplicable  the requirement has no meaning for this device. Nothing is owed
@@ -50,6 +53,9 @@ project owing in silence, and the requirement having no meaning for a screen.
   unreviewed    nobody has read this clause against this code
 
 `unreviewed` is debt, not absence: it says only that the question has not been asked.
+`departed` is the owner's word, given 2026-09-14 in answer to doc/questions/Q63, and its row
+names the ADR that decided the departure; the count is printed beside `implemented` and
+`partial` and is never folded into either, so a decision stays visible as a decision.
 `silent` is the status worth hunting. Every missing subsystem here reports, because whoever
 decided not to build it wrote the report; what ships is the gap inside a feature that is
 already there, and only reading the clause finds one.

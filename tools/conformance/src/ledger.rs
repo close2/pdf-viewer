@@ -93,12 +93,13 @@ pub const INFORMATIVE_ANNEXES: [char; 9] = ['A', 'B', 'C', 'G', 'H', 'J', 'M', '
 
 /// What is known about one subclause.
 ///
-/// The vocabulary exists to keep five different situations from wearing one word: the
-/// project *choosing* ([`Status::OutOfScope`]), the project *not knowing*
-/// ([`Status::Unreviewed`]), the project *owing out loud* ([`Status::Reported`], and
-/// [`Status::Partial`] for part of a clause), the project *owing in silence*
-/// ([`Status::Silent`]), and the requirement having no meaning for a screen
-/// ([`Status::Inapplicable`]).
+/// The vocabulary exists to keep six different situations from wearing one word: the
+/// project *choosing* for a whole clause ([`Status::OutOfScope`]), the project *choosing*
+/// for one sentence inside a clause every other requirement of which is executed
+/// ([`Status::Departed`]), the project *not knowing* ([`Status::Unreviewed`]), the project
+/// *owing out loud* ([`Status::Reported`], and [`Status::Partial`] for part of a clause),
+/// the project *owing in silence* ([`Status::Silent`]), and the requirement having no
+/// meaning for a screen ([`Status::Inapplicable`]).
 ///
 /// The distinction between the last two kinds of debt is the one this project cares about
 /// most: a gap that reports is a gap you can schedule, and a gap that does not is a gap that
@@ -110,6 +111,24 @@ pub enum Status {
     /// Some requirements are implemented; the note says which, and what is reported for the
     /// rest.
     Partial,
+    /// Every requirement of the clause is executed except the one the note names, which was
+    /// decided against with its cost recorded.
+    ///
+    /// The project owner's word, given 2026-09-14 in answer to `doc/questions/Q63`: "Add
+    /// `departed`." Before it, the ledger could say *decided* for a whole clause
+    /// ([`Status::OutOfScope`], [`Status::Inapplicable`]) and had no way to say it about one
+    /// sentence inside a clause otherwise implemented — so a departure wore [`Status::Partial`],
+    /// the same word as a row nobody has finished, and every figure for how much is left counted
+    /// it. ADR 1035 section 3 found twenty such rows and forbade re-statusing them to
+    /// [`Status::Implemented`] meanwhile, because that would hide the sentence.
+    ///
+    /// It settles, so [`Status::owes`] is false for it and [`Ledger::is_aggregate`] lets a parent
+    /// above one settle too (ADR 1035 section 5). What keeps it from being the hiding that ADR refused
+    /// is that the departure stays visible as a figure of its own — `tools/state.sh` prints a
+    /// `departed` count beside `implemented` and `partial`, never folded into either — and that
+    /// [`check`] refuses a row whose note names no ADR, since "with its cost recorded" is a claim
+    /// about a document somebody can open. ADR 1119.
+    Departed,
     /// Deliberately not implemented yet, and detected and reported at runtime rather than
     /// skipped silently. Still owed.
     Reported,
@@ -170,6 +189,7 @@ impl Status {
         match self {
             Self::Implemented => "implemented",
             Self::Partial => "partial",
+            Self::Departed => "departed",
             Self::Reported => "reported",
             Self::Silent => "silent",
             Self::Inapplicable => "inapplicable",
@@ -181,25 +201,35 @@ impl Status {
 
     /// Whether a row wearing this status still owes the standard something.
     ///
-    /// The four settled statuses are the four ways a row stops being work: the requirement is
-    /// executed, it has no meaning for this device, it addresses a generator, or principle 5's
-    /// closed list covers it. The other four are debt — `partial` and `reported` know what they
-    /// owe, `silent` does not say it, `unreviewed` has not been asked. [`Ledger::owing`] is what
-    /// reads this, and ADR 1035 is why it is a function rather than a `match` copied per sweep.
+    /// The five settled statuses are the five ways a row stops being work: the requirement is
+    /// executed, it was decided against with its cost recorded, it has no meaning for this
+    /// device, it addresses a generator, or principle 5's closed list covers it. The other four
+    /// are debt — `partial` and `reported` know what they owe, `silent` does not say it,
+    /// `unreviewed` has not been asked. [`Ledger::owing`] is what reads this, and ADR 1035 is why
+    /// it is a function rather than a `match` copied per sweep.
+    ///
+    /// `departed` joined the settled side on the owner's answer to `doc/questions/Q63`, which is
+    /// what ADR 1035 section 5's aggregate rule then inherits: a `departed` row owes nothing, so
+    /// a parent above it owes nothing on its account. ADR 1119.
     #[must_use]
     pub fn owes(self) -> bool {
         match self {
             Self::Partial | Self::Reported | Self::Silent | Self::Unreviewed => true,
-            Self::Implemented | Self::Inapplicable | Self::WriterSide | Self::OutOfScope => false,
+            Self::Implemented
+            | Self::Departed
+            | Self::Inapplicable
+            | Self::WriterSide
+            | Self::OutOfScope => false,
         }
     }
 
     /// Every status, in the order the summary prints them.
     #[must_use]
-    pub fn all() -> [Self; 8] {
+    pub fn all() -> [Self; 9] {
         [
             Self::Implemented,
             Self::Partial,
+            Self::Departed,
             Self::Reported,
             Self::Silent,
             Self::Inapplicable,
@@ -1027,6 +1057,25 @@ fn check_evidence(row: &Row) -> Vec<Problem> {
                  are not, and what is reported for the rest",
             );
         }
+        Status::Departed => {
+            require(!row.code.is_empty(), "`departed` names its `code`");
+            require(!row.test.is_empty(), "`departed` names its `test`");
+            require(
+                row.note.is_some(),
+                "`departed` needs a `note` whose first sentence says what was departed from",
+            );
+            // "Decided against with its cost recorded" is a claim about a document somebody can
+            // open, so the row has to name one. An ADR number is the only form that claim takes
+            // here — `CLAUDE.md` principle 1 requires a deliberate departure to carry its cost in
+            // writing, and principle 4 puts the reasoning in `doc/adr/`. Without this the new word
+            // is exactly the hiding ADR 1035 section 3 refused: a settled status nobody comes back
+            // to, resting on prose that names no argument. ADR 1119.
+            require(
+                row.note.as_deref().is_some_and(names_an_adr),
+                "`departed` needs a `note` naming the ADR that decided the departure and \
+                 priced it",
+            );
+        }
         Status::Reported => require(
             row.note.is_some(),
             "`reported` needs a `note` saying what is reported and where",
@@ -1059,6 +1108,22 @@ fn check_evidence(row: &Row) -> Vec<Problem> {
         });
     }
     problems
+}
+
+/// Whether a note names an ADR — `ADR` followed by a number.
+///
+/// Deliberately the shallowest test that can be wrong in only one direction: it cannot tell
+/// whether the ADR it finds is *about* the departure, and does not claim to, for the reason
+/// [`Ledger::is_aggregate`] reads no prose (ADR 1035 section 4). What it can do is refuse a
+/// `departed` row that names no argument at all, which is the failure the status would otherwise
+/// make cheap.
+fn names_an_adr(note: &str) -> bool {
+    note.match_indices("ADR ").any(|(at, marker)| {
+        note[at.saturating_add(marker.len())..]
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+    })
 }
 
 /// Why a named site cannot be found, or `None` if it can.
@@ -1231,6 +1296,69 @@ mod tests {
             problems.first(),
             Some(Problem::CitedButUnreviewed { .. })
         ));
+    }
+
+    /// Trap 13, for the status the owner added in answer to `doc/questions/Q63`: a `departed`
+    /// row whose note names no ADR is planted, and the check has to name it. Without this the
+    /// requirement would be a sentence in a doc comment and the word would settle a row on prose
+    /// alone, which is the hiding ADR 1035 section 3 refused. ADR 1119.
+    #[test]
+    fn a_departed_row_naming_no_adr_is_a_finding() {
+        let problems = check(
+            &ledger(
+                "[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"departed\"\n\
+                 code = [\"a.rs\"]\ntest = [\"t.rs\"]\nnote = \"one sentence declined.\"\n",
+            ),
+            &index(),
+            &[],
+            Path::new("."),
+        );
+        assert!(
+            problems.iter().any(|problem| matches!(
+                problem,
+                Problem::MissingEvidence { clause, missing }
+                    if clause == &number("8.1") && missing.contains("ADR")
+            )),
+            "{problems:?}"
+        );
+    }
+
+    /// The other half of the plant: the same row, naming an ADR, is not a finding — otherwise the
+    /// check above would pass for every `departed` row and mean nothing.
+    #[test]
+    fn a_departed_row_naming_an_adr_is_not_a_finding() {
+        let problems = check(
+            &ledger(
+                "[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"departed\"\n\
+                 code = [\"a.rs\"]\ntest = [\"t.rs\"]\n\
+                 note = \"one sentence declined, priced in ADR 0036.\"\n",
+            ),
+            &index(),
+            &[],
+            Path::new("."),
+        );
+        assert!(
+            !problems
+                .iter()
+                .any(|problem| matches!(problem, Problem::MissingEvidence { .. })),
+            "{problems:?}"
+        );
+    }
+
+    /// A `departed` row settles, so a heading above one stops being an aggregate on its account
+    /// (ADR 1035 section 5, inherited by ADR 1119) — and that is the direction
+    /// [`Problem::AggregateWithoutDebt`] watches.
+    #[test]
+    fn a_departed_row_owes_nothing_and_a_heading_above_it_owes_nothing_on_its_account() {
+        let read = ledger(
+            "[[clause]]\nclause = \"8\"\ntitle = \"Graphics\"\nstatus = \"implemented\"\n\
+             code = [\"a.rs\"]\ntest = [\"t.rs\"]\n\
+             \n[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"departed\"\n\
+             code = [\"a.rs\"]\ntest = [\"t.rs\"]\nnote = \"declined, ADR 0036.\"\n",
+        );
+        assert!(!read.rows[1].status.owes());
+        assert!(!read.is_aggregate(&read.rows[0]));
+        assert!(read.owing().is_empty());
     }
 
     /// Trap 13: the sweep is run against the defect it looks for before it is believed. The

@@ -149,6 +149,11 @@ const FLAGS: &[Flag] = &[
 /// How far §12.7.4.1's `/Parent` chain is followed, matching `appearance.rs`'s own bound.
 const MAX_ANCESTRY: usize = 32;
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "a census main is one straight sweep — open, walk the field tree, tally the three \
+bit-26 populations, print — and splitting it would scatter the tally the report reads back"
+)]
 fn main() {
     let mut documents = 0_usize;
     let mut with_form = 0_usize;
@@ -162,6 +167,16 @@ fn main() {
     // decision this reader has to make.
     let mut sharing_with_the_flag: Vec<String> = Vec::new();
     let mut sharing_without_the_flag: Vec<String> = Vec::new();
+    // §12.7.5.3 bit 26's own population, which the flag count above cannot answer either. The
+    // bit says "the value of this field shall be a rich text string" and points at Table 228's
+    // `/RV` for it; §12.7.4.3 then writes what a *processor* does — "[f]or these fields, the
+    // following conventions are not used, and the entire annotation appearance shall be
+    // regenerated each time the value is changed". So what costs a page is not the flag but the
+    // three together: the flag, an `/RV` there is formatting in, and a document whose
+    // `/NeedAppearances` or whose reader's edit reaches the regeneration at all.
+    let mut rich_text = 0_usize;
+    let mut rich_text_with_rv = 0_usize;
+    let mut rich_text_regenerated: Vec<String> = Vec::new();
 
     for path in std::env::args().skip(1) {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -177,6 +192,7 @@ fn main() {
         }
         with_form = with_form.saturating_add(1);
         let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+        let need_appearances = need_appearances(&document);
         for (field, identifiers) in &table {
             let mut states: Vec<String> = Vec::new();
             let mut radio = false;
@@ -200,6 +216,15 @@ fn main() {
                     let names = documents_setting.entry(flag.name).or_default();
                     if names.last() != Some(&name) {
                         names.push(name.clone());
+                    }
+                }
+                if field_type.as_deref() == Some("Tx") && flags & (1 << 25) != 0 {
+                    rich_text = rich_text.saturating_add(1);
+                    if inherited(&document, widget, "RV").is_some() {
+                        rich_text_with_rv = rich_text_with_rv.saturating_add(1);
+                        if need_appearances {
+                            rich_text_regenerated.push(format!("{name} {field}"));
+                        }
                     }
                 }
                 if field_type.as_deref() == Some("Btn") && flags & (1 << 15) != 0 {
@@ -245,6 +270,16 @@ fn main() {
     }
 
     println!(
+        "\n§12.7.5.3 bit 26's own population — a /Tx field whose value the clause makes rich \
+         text:\n  \
+         RichText set:              {rich_text:>3} widget(s)\n  \
+         …and stating Table 228's /RV: {rich_text_with_rv:>3} widget(s)\n  \
+         …in a /NeedAppearances document: {:>3} widget(s){}",
+        rich_text_regenerated.len(),
+        witnesses(&rich_text_regenerated),
+    );
+
+    println!(
         "\n§12.7.5.2.4's own population — a radio field whose widgets share an /AP /N on state:\n  \
          with RadiosInUnison set:   {:>3} field(s){}\n  \
          with it clear:             {:>3} field(s){}",
@@ -282,6 +317,38 @@ fn witnesses(found: &[String]) -> String {
         return String::new();
     }
     format!(": {}", found.join(", "))
+}
+
+/// Table 224's `/NeedAppearances`, "a flag specifying whether to construct appearance streams
+/// and appearance dictionaries for all widget annotations in the document".
+fn need_appearances(document: &Document) -> bool {
+    let Ok(catalog) = document.catalog() else {
+        return false;
+    };
+    let form = document.get_key(&catalog, "AcroForm");
+    let Some(form) = form.as_dict() else {
+        return false;
+    };
+    matches!(
+        document.get_key(form, "NeedAppearances"),
+        pdf_syntax::Object::Boolean(true)
+    )
+}
+
+/// One entry taken from the nearest ancestor that states it (§12.7.4.1), for the entries this
+/// census reads that are neither `/FT` nor `/Ff`.
+fn inherited(document: &Document, widget: &Dictionary, key: &str) -> Option<pdf_syntax::Object> {
+    let mut current = widget.clone();
+    for _ in 0..MAX_ANCESTRY {
+        let value = document.get_key(&current, key);
+        if !matches!(value, pdf_syntax::Object::Null) {
+            return Some(value);
+        }
+        let parent = document.get_key(&current, "Parent");
+        let parent = parent.as_dict()?;
+        current = parent.clone();
+    }
+    None
 }
 
 /// Table 226's `/FT`, taken from the nearest ancestor that states one (§12.7.4.1).

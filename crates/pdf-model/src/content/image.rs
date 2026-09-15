@@ -231,7 +231,7 @@ impl Interpreter<'_> {
         //
         // Not to be confused with §8.9.6.2, *stencil* masking, which is this image's own
         // `/ImageMask` and is implemented — see `tests/image_masks.rs`.
-        if let Some(detail) = crate::image::unapplied_mask(self.document, &stream.dict, resources) {
+        if let Some(detail) = crate::image::unapplied_mask(self.document, stream, resources) {
             self.note(Unsupported::Image {
                 name: format!("{name}: {detail}"),
             });

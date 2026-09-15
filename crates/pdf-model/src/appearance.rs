@@ -3279,13 +3279,49 @@ fn field_text(
             // Behind whatever the layout itself owed, and the order is an argument rather than a
             // habit: `Owed` carries one statement, and a shortfall in the glyphs that *were*
             // drawn — a font `/DR` does not define, a character it states no code for — explains
-            // the picture, where an unmarked selection only adds to it.
+            // the picture, where an unmarked selection or missing formatting only adds to it.
             if selection_unmarked {
                 laid_out.owed = laid_out.owed.or(Some(Owed::ListBoxSelection));
+            }
+            if rich_text_unformatted(document, &field) {
+                laid_out.owed = laid_out.owed.or(Some(Owed::RichTextFormatting));
             }
             Some(laid_out)
         })
         .map_err(Refusal::Text)
+}
+
+/// Whether this layout is about to draw §12.7.5.3's rich text as plain characters.
+///
+/// Table 231 bit 26 makes a text field's value "a rich text string", and §12.7.4.3 says what a
+/// processor owes such a field:
+///
+/// > For these fields, the following conventions are not used, and the entire annotation
+/// > appearance shall be regenerated each time the value is changed.
+///
+/// The conventions that sentence sets aside are this module's whole construction, and what
+/// replaces them is XFA 3.3's — which `CLAUDE.md`'s closed exclusion list names, so the
+/// formatting cannot be laid out here and the plain characters of Table 226's `/V` are what is
+/// drawn. That is a departure and it is said out loud rather than drawn in silence (ADR 1122).
+///
+/// **The condition is Table 228's `/RV` and not the flag alone**, which is trap 11's rule about
+/// what a report fires on. Bit 26's second sentence — "[i]f the field has a value, the RV entry
+/// of the field dictionary … shall specify the rich text string" — is what puts formatting in
+/// the file; a field setting the flag and stating no `/RV` has none to lose, so the plain `/V`
+/// is everything its producer wrote and drawing it owes nothing. The two populations differ by
+/// an order of magnitude and `examples/field_flag_census` counts both.
+///
+/// The entry is looked up over the field's own `/Parent` chain and not past it: Table 228 marks
+/// `/DA` and `/Q` inheritable and `/RV` not, so the walk is for a merged widget whose entries
+/// sit on the field dictionary above it rather than for §12.7.4.1's inheritance.
+fn rich_text_unformatted(document: &Document, field: &Field) -> bool {
+    if field.kind != Some(FieldKind::Text) || field.flags & FLAG_RICH_TEXT == 0 {
+        return false;
+    }
+    field
+        .ancestry
+        .iter()
+        .any(|source| !matches!(document.get_key(source, "RV"), Object::Null))
 }
 
 /// Where the caret sits inside the text of an annotation, in **default user space**.

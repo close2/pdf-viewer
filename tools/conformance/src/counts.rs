@@ -124,8 +124,13 @@ pub const ADJACENT: &str = "below";
 pub const BREAKS: [char; 3] = [';', ':', '—'];
 
 /// The statuses that owe nothing further.
-pub const SETTLED: [Status; 4] = [
+///
+/// `departed` is one of them since the owner answered `doc/questions/Q63`: every requirement of
+/// such a clause is executed except the one its note names, which was decided against with its
+/// cost recorded (ADR 1119).
+pub const SETTLED: [Status; 5] = [
     Status::Implemented,
+    Status::Departed,
     Status::Inapplicable,
     Status::OutOfScope,
     Status::WriterSide,

@@ -1436,12 +1436,14 @@ fn tree(entries: &[Entry], owed: &mut Vec<String>) -> Node {
 /// between them, which are the two written here. Section 5.6.2 is the rest of the shape: `<f
 /// href>`, `<ids>`, `<fields>`, and a `<field name>` per field carrying a `<value>`.
 ///
-/// **`<f>` is not written and [`Submission::owed`] says so.** Section 5.6.2 explains its `href` as
-/// pointing at the PDF document holding the form fields, which is a file name this crate has none
-/// of — `CLAUDE.md` principle 3 gives it no filesystem, and Table 240 bit 14's route for carrying
-/// the document itself is one the table restricts to FDF. Section 5.6.3 lays out a form with
-/// `<fields>` and no `<f>` before it, so a file without one is a shape that standard sets out
-/// rather than one invented here.
+/// **`<f>` is not written and nothing is owed for it.** Section 5.6.2 explains its `href` as
+/// pointing at the PDF document holding the form fields; it states no requirement to write one,
+/// and section 5.6.3's own worked example of a form exported from a PDF has no `<f>` at all — so
+/// a file without one is a shape that standard sets out rather than one invented here. What
+/// identifies the document in this format is the `<ids>` pair section 5.4.1 maps onto the FDF
+/// `/ID`, which is written above. The name itself is one this process has not got either:
+/// `CLAUDE.md` principle 3 gives it no filesystem, and Table 240 bit 14's route for carrying the
+/// document is one the table restricts to FDF.
 ///
 /// **A file-select control's file cannot travel in this format**, and that is section 5.4.1's
 /// sentence rather than a limit of this writer: XFDF has equivalents for four FDF keys and a
@@ -1469,11 +1471,6 @@ fn xfdf(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> Vec<u
             hexadecimal(modified)
         );
     }
-    owed.push(
-        "ISO 19444-1 section 5.6.2's <f href> names the PDF the fields came from, which this \
-         process has no file name for; the XFDF states its fields and not its source"
-            .to_owned(),
-    );
     out.push_str("  <fields>\n");
     for (name, kid) in root.kids {
         element(&name, kid, 2, owed, &mut out);

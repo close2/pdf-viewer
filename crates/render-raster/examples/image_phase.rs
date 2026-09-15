@@ -28,6 +28,21 @@
 //! The control is the same image and the same offsets under a scale of 1.5, which is not a
 //! native placement, so both backends filter (ADR 0025) and agree.
 //!
+//! # The third rung: a placement that becomes native after the reduction
+//!
+//! A page need not *state* a native placement to be drawn at one. `pdf_render::Image::reduction`
+//! takes the floor of the ratio, so an image reduced by exactly an integer is replaced by a grid
+//! that is itself one device pixel per sample — and `render_cpu` asks `is_smoothed` of the grid it
+//! is about to draw rather than of the grid the file states, so the clause reaches that case too.
+//! The rung states sixteen rows in like *pairs* over eight device pixels, which reduces onto the
+//! first rung's image exactly, and its two columns should therefore read the first rung's.
+//!
+//! `issue269_2.pdf` is where that lands on a real page: one 200 × 200 image drawn 32 times at
+//! 100 × 100 device pixels, so every tile reduces by exactly two onto a native grid. Its two
+//! backends' ink agrees to 0.008% at 1× and to the hundredth at every rung above it — the same
+//! ink in different pixels, which is `examples/ink_ladder`'s signature for a rule rather than a
+//! shape, and the same rule `doc/QUORRA_FEEDBACK.md` section 47 asks about.
+//!
 //! ```sh
 //! cargo run --release -p render-raster --example image_phase
 //! ```
@@ -61,18 +76,45 @@ const PAGE: f32 = 32.0;
 /// Where the placement starts before the sub-pixel offset is added.
 const ORIGIN: f32 = 8.0;
 
+/// One row of the table: a label, the image it draws, and the device side it covers.
+type Rung = (&'static str, fn() -> Image, f32);
+
+/// The side the reduced rung's image states, twice [`SIDE`] so that it reduces onto it exactly.
+const DOUBLE: u32 = SIDE * 2;
+
 /// Eight rows alternating between black and white, opaque throughout.
 fn stripes() -> Image {
-    let mut data = Vec::with_capacity((SIDE * SIDE * 4) as usize);
-    for row in 0..SIDE {
-        let level = if row % 2 == 0 { 0 } else { 255 };
-        for _ in 0..SIDE {
+    striped(SIDE, 1)
+}
+
+/// Sixteen rows in black and white *pairs*, which a two-to-one reduction turns into [`stripes`].
+///
+/// The pairing is what makes the third rung a measurement rather than a tautology.
+/// `pdf_render::Image::area_averaged` replaces each block of source samples that would share one
+/// device pixel with their mean, so a pair of one black row and one white row would average to a
+/// single grey and the reduced grid would hold nothing to point-sample *or* to interpolate
+/// between. Two like rows average to themselves, so the reduced grid is exactly the 8 × 8 image
+/// [`stripes`] states and the two rungs' columns are comparable line for line.
+fn paired_stripes() -> Image {
+    striped(DOUBLE, 2)
+}
+
+/// A square image of `side` rows, opaque, flipping between black and white every `run` rows.
+fn striped(side: u32, run: u32) -> Image {
+    let mut data = Vec::with_capacity((side * side * 4) as usize);
+    for row in 0..side {
+        let level = if (row / run).is_multiple_of(2) {
+            0
+        } else {
+            255
+        };
+        for _ in 0..side {
             data.extend_from_slice(&[level, level, level, 255]);
         }
     }
     Image {
-        width: SIDE,
-        height: SIDE,
+        width: side,
+        height: side,
         data: data.into(),
         // ISO 32000-2 §8.9.5.3's entry. It is "only a hint" there, and `smoothed` takes it as one
         // that turns filtering on; stating it here keeps both cases on the same side of that rule
@@ -83,12 +125,11 @@ fn stripes() -> Image {
     }
 }
 
-/// One page holding the striped image at `scale` device pixels per sample, offset by `offset`.
-fn page(scale: f32, offset: f32) -> DisplayList {
+/// One page holding `image` over `side` device pixels each way, offset by `offset`.
+fn page(image: Image, side: f32, offset: f32) -> DisplayList {
     let mut list = DisplayList::new(Size::new(PAGE, PAGE));
-    let side = SIDE as f32 * scale;
     list.push(Command::Image {
-        image: stripes().into(),
+        image: image.into(),
         transform: Transform::scale(side, side)
             .then(Transform::translate(ORIGIN + offset, ORIGIN + offset)),
         alpha: 1.0,
@@ -105,8 +146,7 @@ fn page(scale: f32, offset: f32) -> DisplayList {
 /// image only partly covers is paper as well as image, and what is being measured is the filter
 /// rather than the edge. `TargetSpec::for_page` flips about the page's height (trap 12a), so the
 /// device rows run from the other end of the page.
-fn levels(raster: &Raster, scale: f32, offset: f32) -> (usize, f64) {
-    let side = SIDE as f32 * scale;
+fn levels(raster: &Raster, side: f32, offset: f32) -> (usize, f64) {
     let left = (ORIGIN + offset).ceil() as u32;
     let right = (ORIGIN + offset + side).floor() as u32;
     let bottom = (PAGE - (ORIGIN + offset)).floor() as u32;
@@ -128,20 +168,30 @@ fn main() {
     let mut quorra =
         render_raster::QuorraRasterizer::new_headless().expect("a headless raster device");
 
-    for (what, scale) in [("1:1", 1.0_f32), ("control, 1.5:1", 1.5_f32)] {
+    let rungs: [Rung; 3] = [
+        ("1:1", stripes, SIDE as f32),
+        ("control, 1.5:1", stripes, SIDE as f32 * 1.5),
+        (
+            "2:1 reduction onto the same 8 rows",
+            paired_stripes,
+            SIDE as f32,
+        ),
+    ];
+
+    for (what, image, side) in rungs {
         println!(
-            "{what} — eight alternating rows on {} device rows, both backends asked to filter",
-            (SIDE as f32 * scale).ceil()
+            "{what} — {} device rows, both backends asked to filter",
+            side.ceil()
         );
         println!("  offset   cpu levels  cpu ink     raster levels  raster ink");
         for step in 0..10_i16 {
             let offset = f32::from(step) / 10.0;
-            let list = page(scale, offset);
+            let list = page(image(), side, offset);
             let target = TargetSpec::for_page(&list, 1.0, 1 << 24).expect("a 32x32 target");
             let ours = cpu.rasterize(&list, target).expect("the oracle draws it");
             let theirs = quorra.rasterize(&list, target).expect("raster draws it");
-            let (cl, ci) = levels(&ours, scale, offset);
-            let (rl, ri) = levels(&theirs, scale, offset);
+            let (cl, ci) = levels(&ours, side, offset);
+            let (rl, ri) = levels(&theirs, side, offset);
             println!("   {offset:>4.2}   {cl:>10}  {ci:>9.3}   {rl:>13}  {ri:>10.3}");
         }
     }

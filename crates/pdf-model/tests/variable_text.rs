@@ -3024,8 +3024,96 @@ fn a_da_whose_text_matrix_rotates_or_mirrors_is_still_reported() {
         assert!(
             reported
                 .iter()
-                .any(|note| note.contains("scales or rotates")),
+                .any(|note| note.contains("a rotation, a skew or a mirror")),
             "{tm} is not a pair of lengths and says so, got {reported:?}"
         );
     }
+}
+
+/// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws it plain.
+///
+/// The `shall` the picture departs from is §12.7.4.3's, addressed to a processor rather than to
+/// the file:
+///
+/// > For these fields, the following conventions are not used, and the entire annotation
+/// > appearance shall be regenerated each time the value is changed.
+///
+/// The appearance it asks for is XFA 3.3's and `CLAUDE.md` excludes XFA, so the plain characters
+/// of Table 226's `/V` are what can be laid out — and saying so is the whole of what this tree
+/// can do about it (ADR 1122). Three fixtures differing in one entry each, because the condition
+/// is what a report is worth (trap 11): the flag *and* Table 228's `/RV`, since bit 26's second
+/// sentence is what puts formatting in the file and a field with no `/RV` has none to lose.
+/// Reporting on the flag alone would fire on 252 crawled widgets instead of 33
+/// (`examples/field_flag_census`).
+#[test]
+fn a_rich_text_fields_formatting_is_reported_and_its_plain_value_is_drawn() {
+    // Bit 26 is 1 << 25 = 33554432.
+    let (reports, raster) = draw(pdf_with_appearance(
+        "/NeedAppearances true",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 33554432 \
+         /T (field) /V (Hi) /RV (<body><p><b>Hi</b></p></body>) /AP << /N 6 0 R >> \
+         /DA (/Helv 12 Tf 0 g) >>",
+        "/Tx BMC EMC",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("RichText") && reports[0].contains("XFA"),
+        "the report must name the flag and what is not read: {reports:?}"
+    );
+    assert!(
+        !inked_columns(&raster).is_empty(),
+        "the plain characters of /V are still drawn, which is what makes this a report \
+         beside a drawing rather than a refusal"
+    );
+}
+
+/// The flag with no `/RV` owes nothing: the file states no formatting to lose.
+///
+/// Bit 26's second sentence is the one that puts it there — "[i]f the field has a value, the RV
+/// entry of the field dictionary … shall specify the rich text string" — so a field setting the
+/// flag and stating no `/RV` has its whole value in `/V`, and drawing that is drawing everything
+/// its producer wrote. A report here would be trap 11's: a condition no clause states.
+#[test]
+fn a_rich_text_field_stating_no_rv_owes_nothing() {
+    let (reports, _) = draw(pdf_with_appearance(
+        "/NeedAppearances true",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 33554432 \
+         /T (field) /V (Hi) /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>",
+        "/Tx BMC EMC",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// The control the other two need: an `/RV` on a field whose bit 26 is clear owes nothing.
+///
+/// Table 228's `/RV` is common to every field containing variable text, so a producer may state
+/// one without setting the flag — and it is bit 26, not the entry, that makes the *value* rich
+/// text. A sweep keyed on the entry alone would name this field, which is why it is here.
+#[test]
+fn an_rv_without_the_rich_text_flag_owes_nothing() {
+    let (reports, _) = draw(pdf_with_appearance(
+        "/NeedAppearances true",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (field) /V (Hi) /RV (<body><p><b>Hi</b></p></body>) /AP << /N 6 0 R >> \
+         /DA (/Helv 12 Tf 0 g) >>",
+        "/Tx BMC EMC",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// The flag reaches a field whose `/Ff` and `/RV` are two links up its `/Parent` chain.
+///
+/// Table 226 makes `/Ff` inheritable and Table 228 does not mark `/RV` so — but a widget merged
+/// with its field is the common shape, and a widget that is a `/Kids` entry of the field
+/// dictionary is the other one, where both entries sit above it. The walk is the field's own
+/// chain either way, which is what this fixture holds: neither entry is on the annotation.
+#[test]
+fn a_rich_text_fields_flag_and_rv_are_found_up_the_parent_chain() {
+    let (reports, _) = draw(pdf_with_objects(
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent 8 0 R >>",
+        "8 0 obj\n<< /FT /Tx /Ff 33554432 /T (field) /V (Hi) \
+         /RV (<body><p><b>Hi</b></p></body>) /DA (/Helv 12 Tf 0 g) >>\nendobj\n",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("RichText"), "{reports:?}");
 }

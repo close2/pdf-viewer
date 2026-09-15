@@ -667,11 +667,13 @@ fn xfdf_writes_the_document_the_specification_states() {
         body.contains("<field name=\"group\">") && body.contains("<field name=\"inner\">"),
         "section 5.6.3's nesting: {body}"
     );
-    // Section 5.6.2 explains `<f href>` as pointing at the PDF document holding the form fields,
-    // which this process has no file name for — said rather than guessed at.
+    // Section 5.6.2 explains `<f href>` as pointing at the PDF document holding the form fields
+    // and requires nothing; section 5.6.3's own exported form states none. So the element is
+    // absent and **nothing is owed for it** — a sentence on every XFDF submission whatever the
+    // document said is trap 39's shape, a caution wearing a signal's clothes.
     assert!(
-        submission.owed.iter().any(|owed| owed.contains("<f href>")),
-        "the element that is not written is named: {:?}",
+        !submission.owed.iter().any(|owed| owed.contains("<f href>")),
+        "an element that standard's own example omits is not a shortfall: {:?}",
         submission.owed
     );
 }

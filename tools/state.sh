@@ -64,12 +64,16 @@ run() {
 }
 
 section_ledger() {
+    # Every status the ledger has, `departed` among them and counted as itself: the word the owner
+    # added in answer to doc/questions/Q63 says a requirement was decided against with its cost
+    # recorded, and folding it into `implemented` would hide the sentence while folding it into
+    # `partial` would go on counting a decision as debt. ADR 1119.
     run "ledger" '.' cargo run -q -p conformance --bin ledger
 }
 
 section_conformance() {
     run "conformance (citations, quotations, tables, ledger rows)" \
-        '^[0-9]+ (citations|quotations)|naming a section of one of this|instruction documents, every one|owe a review|^conformance ledger|^  (implemented|partial|reported|silent|inapplicable|writer-side|out-of-scope) |name .* distinct tables|name a test file' \
+        '^[0-9]+ (citations|quotations)|naming a section of one of this|instruction documents, every one|owe a review|^conformance ledger|^  (implemented|partial|departed|reported|silent|inapplicable|writer-side|out-of-scope) |unsettled rows owe a debt|name .* distinct tables|name a test file' \
         cargo test -p conformance -- --nocapture
 }
 

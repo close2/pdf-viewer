@@ -393,6 +393,7 @@ an argued exclusion, so the next clause left out is a build failure instead of a
 |---|---|
 | `implemented` | Every normative requirement in the clause is executed. Names the code site and the test. |
 | `partial` | Names which requirements are implemented, which are not, and what is *reported* for the remainder. |
+| `departed` | Every requirement of the clause is executed except the one the note names, which was decided against with its cost recorded. Nothing is owed. The note's first sentence says what was departed from and names the ADR that decided it and priced it; `tools/state.sh` counts it as its own figure, never folded into `implemented` or `partial`. The owner's word, added in answer to `doc/questions/Q63` (ADR 1119). |
 | `reported` | Deliberately not implemented *yet*; detected and reported at runtime rather than skipped silently. Still owed. |
 | `silent` | Not implemented, and **nothing says so**: a document exercising the clause is drawn wrong without a word. |
 | `inapplicable` | The requirement cannot reach this program: it describes a press rather than a screen (§10.6's halftones, on the standard's own condition — ADR 0204), or it is a permission this program declines and has no code to point at (§14.11.2.2's page-boundary guidelines). **Two situations under one word**, which ADR 0205 had to separate by hand; every such note says which it means. **Not** the same as excluded, and not the same as a permission *exercised*, which is `implemented` where there is code to name — §10.7.2's flatness is the standing example. |
@@ -422,13 +423,15 @@ once it turns out to be difficult, which is precisely the escape hatch principle
 A clause that is merely unimplemented is `unreviewed`, `partial` or `reported` — never
 `out-of-scope`.
 
-The rest of the vocabulary exists to keep five different situations from wearing one word:
-the project *choosing* (`out-of-scope`), the project *not knowing* (`unreviewed`), the
-project *owing out loud* (`reported`, and `partial` for part of a clause), the project *owing
-in silence* (`silent`), and the requirement having no meaning for a screen (`inapplicable`).
-`out-of-scope` and `inapplicable` are permanent; **`writer-side` is not** — a clause that
+The rest of the vocabulary exists to keep six different situations from wearing one word:
+the project *choosing* for a whole clause (`out-of-scope`), the project *choosing* for one
+sentence inside a clause every other requirement of which is executed (`departed`), the
+project *not knowing* (`unreviewed`), the project *owing out loud* (`reported`, and `partial`
+for part of a clause), the project *owing in silence* (`silent`), and the requirement having
+no meaning for a screen (`inapplicable`). `out-of-scope`, `departed` and `inapplicable` are
+permanent; **`writer-side` is not** — a clause that
 addressed only a generator becomes this tree's the moment it grows one, and this tree has grown
-two. The rest are four different
+two. The remaining four are different
 kinds of debt, and the ledger's headline number is how much of each is left. The distinction
 between the last two kinds is the one this project cares about most: a gap that reports is a
 gap you can schedule, and a gap that does not is a gap that ships.
@@ -463,6 +466,9 @@ missing standard costs every citation in the tree its only check. It:
   naming a code site and a test that exist;
 - fails on an `out-of-scope` row whose `exclusion` is not one of principle 5's closed
   entries — the constraint that keeps the status from becoming a graveyard;
+- fails on a `departed` row whose note names no ADR — "decided against with its cost recorded"
+  is a claim about a document somebody can open, so the row has to name the one that argued and
+  priced the departure, calibrated by a plant (trap 13);
 - prints the coverage summary and **ratchets it**: `unreviewed` may only fall, and a clause
   cited by code may never be `unreviewed`.
 

@@ -108,7 +108,8 @@ pub struct ViewerPreferences {
     /// "although `PrintPageRange` uses 1-based page numbering, other features of PDF use
     /// zero-based page numbering" — a converted value would be indistinguishable from the
     /// other kind at the point of use. Empty where the document states none, and a malformed
-    /// array — an odd number of integers, or a non-integer — states no range at all.
+    /// array — an odd number of integers, a non-integer, or a number below the 1 the clause
+    /// makes the first page — states no range at all.
     pub print_page_range: Vec<(i64, i64)>,
     /// `/NumCopies`: how many copies a print dialogue opens with.
     pub num_copies: Option<i64>,
@@ -406,6 +407,20 @@ fn named<T>(
 /// pair specifying the first and last pages in a sub-range" — so an odd-length array, or one
 /// holding anything but integers, has not stated a range and produces none rather than half of
 /// one.
+///
+/// **And a number below 1 names no page**, which is the entry's third sentence rather than an
+/// inference from the first two: "[t]he first page of the PDF file shall be denoted by 1". An
+/// array holding one is in the same position as an odd-length one — it has not stated a
+/// sub-range of this file's pages — and falls to the entry's own "implementation dependent"
+/// default, which for a reader that hands the value onward is stating none.
+///
+/// The three witnesses are why this is not hypothetical and why the answer is *not* to read
+/// them zero-based: `examples/print_preference_census --crawl` finds exactly three documents
+/// in `CC-MAIN-2021-31` stating the entry, and all three begin a pair at 0 (one of them ending
+/// it at -1). The clause's own NOTE names the confusion — "[a]lthough `PrintPageRange` uses
+/// 1-based page numbering, other features of PDF use zero-based page numbering" — so a
+/// producer writing 0 is a producer that read the NOTE the wrong way round, and shifting its
+/// numbers here would be this reader guessing at an intent the file does not state.
 fn page_range(document: &Document, preferences: &Dictionary) -> Vec<(i64, i64)> {
     let array = document.get_key(preferences, "PrintPageRange");
     let Some(items) = array.as_array() else {
@@ -419,6 +434,9 @@ fn page_range(document: &Document, preferences: &Dictionary) -> Vec<(i64, i64)> 
         let Some(number) = document.resolve(item).as_integer() else {
             return Vec::new();
         };
+        if number < 1 {
+            return Vec::new();
+        }
         numbers.push(number);
     }
     numbers
@@ -545,6 +563,36 @@ mod tests {
             "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintPageRange [1 4 9] >> >>",
         );
         assert!(ViewerPreferences::read(&doc).print_page_range.is_empty());
+    }
+
+    /// "The first page of the PDF file shall be denoted by 1", so a pair beginning at 0 names
+    /// no page of the file and the array states no sub-range of it.
+    ///
+    /// The three shapes the crawl actually holds, and a control that must survive: a producer
+    /// numbering from zero, one writing a negative last page, and one whose pairs are a valid
+    /// range beside a zero-based one. The last is the case for discarding the array rather than
+    /// the pair — half of a producer's intent is a worse answer than the entry's own
+    /// "implementation dependent" default.
+    #[test]
+    fn a_page_range_below_the_first_page_states_nothing() {
+        for stated in ["[0 8]", "[0 -1]", "[0 0 1 2]"] {
+            let doc = document(&format!(
+                "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences \
+                 << /PrintPageRange {stated} >> >>"
+            ));
+            assert!(
+                ViewerPreferences::read(&doc).print_page_range.is_empty(),
+                "{stated} names a page the clause does not define"
+            );
+        }
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintPageRange [1 1] >> >>",
+        );
+        assert_eq!(
+            ViewerPreferences::read(&doc).print_page_range,
+            vec![(1, 1)],
+            "the control: a one-page sub-range of a file whose first page is 1"
+        );
     }
 
     /// Table 29's two display entries, including the one name §12.2 does not share.

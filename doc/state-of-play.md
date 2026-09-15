@@ -347,6 +347,8 @@ ambiguity by itself. The approved PDF Association errata are an input beside the
 which *withdraws* a rule from part 4. `tools/state.sh archive` prints where the comparison
 stands, and `doc/todo/02` §2 runs it every whole-sequence round (ADR 1015).
 
+**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a sixth word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one sentence decided against with its cost recorded, so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119).
+
 **And it can *make* one.** `pdf-transform`'s `archive` verb brings a document to a stated target in
 three stages — validate with `pdf-archive`, decide each failed requirement as a refusal, an
 authorised loss or a default, then rewrite through the same structure-preserving serializer `split`

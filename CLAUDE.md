@@ -287,10 +287,33 @@ The exclusions, closed, each with its reason:
   what an appended page then owes — page labels, the outline, the structure tree, and the report's
   sentence saying a page was appended.
 
+  **Writing a producer's own marks onto a page the producer wrote is on the near side of that
+  line too, and the fourth amendment says so.** The sentence that draws the line — *it composes
+  new content over pages* — is about the **provenance of the marks**, not about the operation of
+  writing. Where a clause requires the content to move and fixes where it goes, the operators
+  that place it decide nothing a reader sees: §12.5.5 computes an appearance's matrix from the
+  annotation's own `/Rect`, `/BBox` and `/Matrix`, so an appearance whose annotation a target will
+  not admit belongs onto its own page at coordinates the standard states and the producer chose.
+  The class this opens is named and bounded — **clause-driven relocation of producer-written
+  appearance streams** — and it will take in later sites of the same shape, a flattened form field
+  among them, on the same two-part test: a clause requires the move, and that clause fixes the
+  position. **It stops where the marks become this program's invention.** The watermark stays on
+  the far side, and so do the redaction's overlay and its fill — §12.5.6.23's `/RO`,
+  `/OverlayText` and `/IC` — which `doc/questions/A64` puts there for this fence's own reason.
+  **This amendment is the scope decision; the on-page construction is future work.** ADR 1099's
+  appended page stays the mechanism today, and what the relocation will cost is owed as two
+  refusals with sentences rather than a difference on the page: a producer whose content stream
+  pops the graphics state stack further than it pushes, and a moved appearance that a remaining
+  annotation would be drawn over. a future ADR is where the construction and those refusals
+  are built, against the reading ADR 1120 writes down. Ratified on 2026-09-14, when the owner
+  answered `doc/questions/Q65` with "Rule provenance."; `A65` keeps the owner's two words and the
+  round's reading visibly apart, as `A58` does. ADR 1120 is the argument.
+
   **This exclusion read "we do not create files", then "we do not *create* PDFs", and has been
-  amended three times — each by argument rather than by attrition** (the second on 2026-09-03,
+  amended four times — each by argument rather than by attrition** (the second on 2026-09-03,
   when the owner ratified RFC 0002 §11.1 with "RFC 002 and 003 are approved"; the third on
-  2026-09-12, by `doc/questions/A58` and ADR 1014, as the paragraph above records). What a *user*
+  2026-09-12, by `doc/questions/A58` and ADR 1014, and the fourth on 2026-09-14, by
+  `doc/questions/A65` and ADR 1120, as the two paragraphs above record). What a *user*
   does to a document already open — an annotation added, a field filled — is not authoring, and it is
   written back by §7.5.6's incremental update: the new objects and a new cross-reference section
   appended, never a rewrite of what was there. The
