@@ -2441,6 +2441,34 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
             },
             Ok(_) => Decision::Refused(Because::NotBuiltYet(WRONG_FAMILY)),
         },
+        // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 ask an appearance dictionary of
+        // every annotation a *conforming file* holds, and section 6.3.1 forbids some subtypes
+        // outright — so where every place this row failed at is an annotation the removal takes
+        // off the page, what answers the row is the removal and not a construction. The decision
+        // is therefore the removal's, with the removal's loss and the removal's authorisation:
+        // nothing is constructed, nothing is `Stated`, and a caller who authorised nothing is
+        // refused here exactly as they are at the section 6.3.1 row itself (ADR 1105).
+        Answer::Stated(_, Rewrite::AppearanceDictionary, reinterprets) => {
+            match &prepared.appearances {
+                Ok(appearances) if appearances.at.is_empty() && appearances.removed > 0 => {
+                    answer_of(
+                        Answer::Loses(
+                            Loss::ForbiddenAnnotation,
+                            Rewrite::ForbiddenAnnotationRemoved,
+                        ),
+                        authorised,
+                        prepared,
+                    )
+                }
+                _ => prepared.obstacle(Rewrite::AppearanceDictionary).map_or(
+                    Decision::Stated {
+                        rewrite: Rewrite::AppearanceDictionary,
+                        reinterprets,
+                    },
+                    Decision::Refused,
+                ),
+            }
+        }
         // Every other `Stated` row is decided by the requirement and the standard, and then by
         // whether *this* document can take the rewrite — an appearance whose subtype clause
         // states no artwork is the standing case, and the reason is the preparation's own.

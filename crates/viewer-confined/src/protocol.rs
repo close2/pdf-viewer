@@ -1006,6 +1006,12 @@ mod command_kind {
     // 6.1.1's inputs (d) and (b) have to cross to reach the party that validates a path. The
     // certificates cross as DER, which is what they are on a host's disk (ADR 1076).
     pub(super) const TRUST: u8 = 28;
+    // §8.10.4's target documents, since the one-thousand-and-eighty-seventh: which files a
+    // reference XObject may import a page from. The bytes cross for the reason the certificates
+    // above do, turned round — the party that reads a file off a disk is outside the confinement
+    // and the party that *parses* a PDF is inside it, which is where every other document is
+    // parsed (ADR 1101).
+    pub(super) const REFERENCE_FILES: u8 = 29;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1193,6 +1199,17 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 .u32(u32::try_from(policy.anchors.len()).unwrap_or(u32::MAX));
             for (name, der) in policy.anchors.certificates() {
                 writer.str(name).bytes(der);
+            }
+        }
+        // §8.10.4's target documents. Named as well as carried, because a refusal the worker
+        // raises has to say *which* file it was about in the words the host used for it.
+        Command::References(files) => {
+            writer
+                .u8(k::REFERENCE_FILES)
+                .str(&files.source)
+                .u32(u32::try_from(files.files.len()).unwrap_or(u32::MAX));
+            for (name, bytes) in &files.files {
+                writer.str(name).bytes(bytes);
             }
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
@@ -1411,6 +1428,16 @@ pub(crate) fn decode_command_holding(
                 anchors: pdf_signature::trust::Supply::of(certificates, source, at),
                 acceptance,
             })
+        }
+        k::REFERENCE_FILES => {
+            let source = reader.string("the reference files' source")?;
+            let count = reader.u32("a reference file count")?;
+            let mut files = Vec::new();
+            for _ in 0..count {
+                let name = reader.string("a reference file's name")?;
+                files.push((name, reader.bytes("a reference file")?.to_vec()));
+            }
+            Command::References(viewer_core::ReferenceFiles { files, source })
         }
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,

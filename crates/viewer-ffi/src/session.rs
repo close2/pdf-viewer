@@ -748,6 +748,16 @@ impl Session {
         self.handle(Command::Trust(policy))
     }
 
+    /// ISO 32000-2 §8.10.4's target documents: which files a reference `XObject` may import from.
+    ///
+    /// The clause's second processor class, made reachable. Empty is the default and is what a
+    /// caller that never calls this gets: every reference `XObject` draws §8.10.4.1's proxy, which
+    /// is what that clause asks of a reader with no target file.
+    #[must_use]
+    pub fn reference_files(&mut self, files: viewer_core::ReferenceFiles) -> Events {
+        self.handle(Command::References(files))
+    }
+
     /// How many pages on the screen this viewer has anything to say about.
     ///
     /// **The entry point a C caller could not have deduced**, and it exists for

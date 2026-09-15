@@ -127,6 +127,15 @@ pub(crate) struct Arguments {
     /// ADR 1067's rule that an absence of §12.8.4 material is never a `Good` is not what this
     /// touches, and what it decides is whether a reader acts on a verdict resting on one.
     pub(crate) accept_unknown_revocation: bool,
+    /// The directory `--reference-files` named, or nothing, which is the default and means that
+    /// every reference `XObject` draws ISO 32000-2 §8.10.4.1's proxy.
+    ///
+    /// **§8.10.4's target documents, as a host's input.** The clause writes a `shall` for a
+    /// processor that imports and a `shall` for one that cannot, and nothing in a *document*
+    /// decides which this is: `CLAUDE.md` principle 3 gives the renderer no filesystem, so the
+    /// files arrive only where a person names a directory of them. `viewer_host::reference_files`
+    /// reads it, on the document's thread, for `trust_anchors`' reason.
+    pub(crate) reference_files: Option<PathBuf>,
     /// How many whole pages the window retains a low-resolution picture of, from
     /// `--proxy-pages`, defaulting to [`crate::stale::PROXY_PAGES`].
     ///
@@ -177,6 +186,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut opens_at = None;
     let mut restrictions = RestrictionLevel::On;
     let mut trust_anchors = None;
+    let mut reference_files = None;
     let mut accept_unknown_revocation = false;
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
@@ -257,6 +267,27 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                 std::process::exit(2);
             }
             trust_anchors = Some(directory);
+        } else if argument == viewer_host::REFERENCE_FILES {
+            // Refused rather than ignored, on `--trust-anchors`' rule: a person who names a
+            // directory that is not one has mistyped it, and a launch that ignored the word would
+            // draw every proxy while that person believed they had supplied the pages.
+            let Some(directory) = arguments.next() else {
+                eprintln!(
+                    "{} wants a directory of PDF files",
+                    viewer_host::REFERENCE_FILES
+                );
+                std::process::exit(2);
+            };
+            let directory = PathBuf::from(directory);
+            if !directory.is_dir() {
+                eprintln!(
+                    "{} {}: not a directory",
+                    viewer_host::REFERENCE_FILES,
+                    directory.display()
+                );
+                std::process::exit(2);
+            }
+            reference_files = Some(directory);
         } else if argument == viewer_host::ACCEPT_UNKNOWN_REVOCATION {
             accept_unknown_revocation = true;
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
@@ -313,6 +344,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         restrictions,
         trust_anchors,
         accept_unknown_revocation,
+        reference_files,
         proxy_pages,
         coverage,
         supersample,
@@ -542,6 +574,15 @@ fn usage() {
     eprintln!("                act on a signature whose revocation status the document's own");
     eprintln!("                §12.8.4 material does not settle. Nothing computes a clean answer");
     eprintln!("                from an absent one either way; this decides what to do with one.");
+    eprintln!("  {} D", viewer_host::REFERENCE_FILES);
+    eprintln!("                let a reference XObject import its page from the PDF files in");
+    eprintln!("                directory D (§8.10.4). Which file a reference names is decided by");
+    eprintln!("                §14.4's identifier and never by the path the document states, so");
+    eprintln!("                nothing in D is opened on a document's say-so and a file whose");
+    eprintln!("                identifier does not match is refused by name. Without this word");
+    eprintln!("                such a form draws the proxy its producer put there for exactly");
+    eprintln!("                that case, which is what §8.10.4.1 asks of a reader with no");
+    eprintln!("                target file.");
     eprintln!("  --licences    print the third-party notices this binary carries, and exit.");
 }
 

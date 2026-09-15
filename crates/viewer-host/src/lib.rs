@@ -137,9 +137,9 @@ pub use panel::{
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
     ACCEPT_UNKNOWN_REVOCATION, AnchorRefusal, IGNORE_RESTRICTIONS, ImportRefusal, MACHINE_FONTS,
-    MACHINE_FONTS_VARIABLE, TRUST_ANCHORS, may_open_extracted, may_write_extracted,
-    offers_machine_fonts, read_import, refused, resolve_import, trust_anchors, unanswerable,
-    warned,
+    MACHINE_FONTS_VARIABLE, REFERENCE_FILES, ReferenceRefusal, TRUST_ANCHORS, may_open_extracted,
+    may_write_extracted, offers_machine_fonts, read_import, reference_files, refused,
+    resolve_import, trust_anchors, unanswerable, warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};

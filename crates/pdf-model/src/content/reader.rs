@@ -227,11 +227,13 @@ impl NestedContent {
         Ok(Self { detail, source })
     }
 
-    /// Bytes that are already this program's own, with no stream behind them.
+    /// Bytes held whole, with no single stream object behind them to decode or to be damaged.
     ///
-    /// §12.7.4.3's regenerated widget appearance is the case: what reaches the drawing is a
-    /// spliced copy rather than anything the file states, so there is nothing to decode and
-    /// nothing that can be damaged.
+    /// Two callers, and neither has one stream to point at. §12.7.4.3's regenerated widget
+    /// appearance is bytes this program spliced rather than anything the file states. §8.10.4's
+    /// imported page is another document's `/Contents`, which Table 31 lets be "an array of
+    /// streams" — so what is run is the assembly [`crate::page::Page::content_with_report`]
+    /// makes, and the damage it met is reported by that reader rather than carried here.
     #[must_use]
     pub fn constructed(data: Arc<[u8]>, detail: String) -> Self {
         Self {

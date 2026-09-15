@@ -53,7 +53,7 @@
 use std::collections::BTreeMap;
 
 use pdf_signature::cms::{self, SignatureAlgorithm};
-use pdf_signature::revision::{Comparison, FieldJudgement};
+use pdf_signature::revision::{Comparison, FieldJudgement, RIGHTS_NOT_RECOGNISED, RightsJudgement};
 use pdf_signature::revocation::Revocation;
 use pdf_signature::signature::{
     Authenticity, PadesDeparture, Signature, SigningCertificateBinding, permissions,
@@ -250,6 +250,27 @@ struct Counts {
     /// Table 259's `/Action` and `/Fields` select, and a selection that never excluded anything
     /// would be a selection in name only. The population is what says otherwise.
     field_mdp_judgements: BTreeMap<String, usize>,
+    /// Which of Table 258's twenty-three rights a `/UR3` actually grants, over real documents.
+    ///
+    /// `revision::Comparison::against_usage_rights` recognises eight of them in a changed object
+    /// and `revision::RIGHTS_NOT_RECOGNISED` refuses the other fifteen by name; which of the two
+    /// groups the world's `/UR3` dictionaries name is the question that says whether the refusal
+    /// is a branch nothing reaches or a sentence readers are owed. Counted per name rather than
+    /// per document, because a dictionary grants several.
+    usage_rights_granted: BTreeMap<String, usize>,
+    /// What §12.8.2.3's second step then answers about each document that states a `/UR3`.
+    ///
+    /// The clause's own words for what this is: "examine the current version of the document to
+    /// see whether there have been modifications to any objects that are not permitted by the
+    /// transform parameters". Whether that examination has members on both sides in the world is
+    /// what no fixture can say (trap 8).
+    usage_rights_judgements: BTreeMap<String, usize>,
+    /// Table 258's two rules about the parameters, which decide before its arrays are read.
+    ///
+    /// `/P` defaults to false and false means "any possible restriction may be ignored", so a
+    /// population where nobody sets it is one where every recognised operation is granted whatever
+    /// the arrays say. Without this the judgements above cannot be read.
+    usage_rights_stance: BTreeMap<String, usize>,
     /// Documents carrying at least one §12.8.5 document timestamp.
     ///
     /// [`Counts::timestamps`] counts *dictionaries* and a document may stack several, so the two
@@ -354,6 +375,12 @@ impl Counts {
             (&mut self.transform_methods, other.transform_methods),
             (&mut self.field_mdp_data, other.field_mdp_data),
             (&mut self.field_mdp_judgements, other.field_mdp_judgements),
+            (&mut self.usage_rights_granted, other.usage_rights_granted),
+            (&mut self.usage_rights_stance, other.usage_rights_stance),
+            (
+                &mut self.usage_rights_judgements,
+                other.usage_rights_judgements,
+            ),
             (&mut self.format_versions, other.format_versions),
             (&mut self.unreadable, other.unreadable),
             (&mut self.sub_filters, other.sub_filters),
@@ -726,6 +753,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
 fn count_certification(path: &str, document: &Document, counts: &mut Counts) {
     count_transforms(path, document, counts);
     count_field_mdp(document, counts);
+    count_usage_rights(document, counts);
     if let Some(level) = permissions(document).doc_mdp {
         let named = format!("{level:?}");
         let slot = counts.certifications.entry(named).or_default();
@@ -839,6 +867,124 @@ fn count_field_mdp(document: &Document, counts: &mut Counts) {
             *slot = slot.saturating_add(1);
         }
     }
+}
+
+/// §12.8.2.3's rights, and what ranking a document's own changes against them answers.
+///
+/// The `/UR3` signature is reached from §12.8.6's permissions dictionary and from nowhere else —
+/// §12.8.1: its "signature dictionary shall be referenced from the UR3 ( PDF 1.6 ) entry in the
+/// permissions dictionary … (not from a signature field)" — so this asks `permissions` rather than
+/// walking the form, and it ranks that signature's own comparison and no other's.
+/// Table 258's own value lists, so that a name outside them is seen as one.
+const TABLE_258: &[(&str, &[&str])] = &[
+    ("Document", &["FullSave"]),
+    (
+        "Annots",
+        &[
+            "Create",
+            "Delete",
+            "Modify",
+            "Copy",
+            "Import",
+            "Export",
+            "Online",
+            "SummaryView",
+        ],
+    ),
+    (
+        "Form",
+        &[
+            "Add",
+            "Delete",
+            "FillIn",
+            "Import",
+            "Export",
+            "SubmitStandalone",
+            "SpawnTemplate",
+            "BarcodePlaintext",
+            "Online",
+        ],
+    ),
+    ("Signature", &["Modify"]),
+    ("EF", &["Create", "Delete", "Modify", "Import"]),
+];
+
+fn count_usage_rights(document: &Document, counts: &mut Counts) {
+    let stated = permissions(document);
+    let (Some(rights), Some(signature)) = (
+        stated.usage_rights.as_ref(),
+        stated.usage_rights_signature.as_ref(),
+    ) else {
+        return;
+    };
+    for (array, names) in [
+        ("Document", &rights.document),
+        ("Annots", &rights.annots),
+        ("Form", &rights.form),
+        ("Signature", &rights.signature),
+        ("EF", &rights.embedded_files),
+    ] {
+        for name in names {
+            // Three classes and not two. A name Table 258 does not admit at all is neither
+            // recognised nor refused by name — it is the file departing from the table's value
+            // list, and reading "not in the refused list" as "recognised" would file it under a
+            // right this program can rank when no such right exists.
+            let key = if TABLE_258
+                .iter()
+                .any(|(this, names)| *this == array && names.contains(&name.as_str()))
+            {
+                format!(
+                    "/{array} {name} ({})",
+                    if RIGHTS_NOT_RECOGNISED.contains(&(array, name.as_str())) {
+                        "refused by name"
+                    } else {
+                        "recognised in a changed object"
+                    }
+                )
+            } else {
+                format!("/{array} {name} (no name Table 258 admits)")
+            };
+            let slot = counts.usage_rights_granted.entry(key).or_default();
+            *slot = slot.saturating_add(1);
+        }
+    }
+    // Table 258's `/P` is what decides whether the arrays above are read at all — "If false , any
+    // possible restriction may be ignored. Default value: false ." — so a population's answer to
+    // §12.8.2.3's second step is not readable without knowing how many of it asked to be
+    // restricted. Counted beside the judgements for that reason and no other.
+    let stance = format!(
+        "/P {} and /V {}",
+        if rights.restrictive {
+            "true, so the arrays below were read"
+        } else {
+            "false or absent, which Table 258 makes the default and means any restriction may be \
+             ignored"
+        },
+        if rights.version_understood {
+            "2.2, which is the one version Table 258 admits"
+        } else {
+            "something else, which Table 258 says enables no right at all"
+        }
+    );
+    let slot = counts.usage_rights_stance.entry(stance).or_default();
+    *slot = slot.saturating_add(1);
+    let answer = match Comparison::of(signature, document) {
+        Err(refusal) => format!("no comparison: {refusal}"),
+        Ok(comparison) => match comparison.against_usage_rights(rights).judgement() {
+            RightsJudgement::NoChangeToRank => "nothing changed".to_owned(),
+            RightsJudgement::WithinTheRightsGranted { .. } => {
+                "within the rights granted".to_owned()
+            }
+            RightsJudgement::OutsideTheRightsGranted { .. } => {
+                "outside the rights granted".to_owned()
+            }
+            RightsJudgement::NotClassified { .. } => {
+                "refused: a change no right of Table 258 names".to_owned()
+            }
+        },
+    };
+    let slot = counts.usage_rights_judgements.entry(answer).or_default();
+    *slot = slot.saturating_add(1);
 }
 
 /// §12.8.4.3's store, counted whether or not the document is signed.
@@ -1148,6 +1294,18 @@ fn main() {
     report(
         "§12.8.2.4's transform against each signature of the documents that state one",
         &counts.field_mdp_judgements,
+    );
+    report(
+        "Table 258 rights a /UR3 grants, and whether a changed object can be ranked against it:",
+        &counts.usage_rights_granted,
+    );
+    report(
+        "Table 258's two rules about the parameters, per document stating a /UR3:",
+        &counts.usage_rights_stance,
+    );
+    report(
+        "§12.8.2.3's second step, per document stating a /UR3:",
+        &counts.usage_rights_judgements,
     );
     println!(
         "{} documents carry a §12.8.5 document timestamp; {} of those also name a FieldMDP          transform and {} a UR transform",

@@ -79,8 +79,13 @@ enum Held {
     Owned(Arc<Vec<u8>>),
     /// A slice that was already reference-counted when it arrived.
     Shared(Arc<[u8]>),
-    /// A file open on disk, read where the document's offsets point.
-    OnDisk(Arc<OnDisk>),
+    /// A file open on disk, read where the document's offsets point, and **how much of it this
+    /// handle is**.
+    ///
+    /// The second field is what makes [`FileBytes::prefix`] cost nothing on disk: an earlier
+    /// revision of a document is a prefix of the same open file (§7.5.6), so a handle on it is
+    /// this same descriptor under a shorter length. It is never greater than [`OnDisk::length`].
+    OnDisk(Arc<OnDisk>, usize),
 }
 
 /// A file open on disk, and what has been read of it.
@@ -159,14 +164,17 @@ impl FileBytes {
     pub fn from_handle(file: File, length: u64) -> io::Result<Self> {
         let length = usize::try_from(length)
             .map_err(|_| io::Error::new(io::ErrorKind::OutOfMemory, NoRoom { length }))?;
-        Ok(Self(Held::OnDisk(Arc::new(OnDisk {
-            file,
+        Ok(Self(Held::OnDisk(
+            Arc::new(OnDisk {
+                file,
+                length,
+                whole: OnceLock::new(),
+                failure: Mutex::new(None),
+                #[cfg(not(unix))]
+                cursor: Mutex::new(()),
+            }),
             length,
-            whole: OnceLock::new(),
-            failure: Mutex::new(None),
-            #[cfg(not(unix))]
-            cursor: Mutex::new(()),
-        }))))
+        )))
     }
 
     /// The first `length` bytes of this file, held as a file of their own.
@@ -183,24 +191,32 @@ impl FileBytes {
     /// neither document mutating; §12.8.2.2.2's comparison of "the signed and current versions
     /// of the document" is the caller this exists for.
     ///
-    /// **On disk this costs a descriptor and not a byte.** The handle is duplicated and the
-    /// shorter length is the one the copy reports, so the prefix is read where its own offsets
-    /// point exactly as the whole file is. In memory it costs one allocation of `length` bytes,
-    /// asked for with `try_reserve_exact` as [`read_file`] asks, because neither `Arc<Vec<u8>>`
-    /// nor `Arc<[u8]>` can be sub-sliced without a copy — a deliberate cost, paid only by a
-    /// caller that asked for a second view of a file already resident.
+    /// **On disk this costs neither a descriptor nor a byte.** The prefix is the same open file
+    /// under a shorter length — one reference count and one number — and it is read where its own
+    /// offsets point exactly as the whole file is. In memory it costs one allocation of `length`
+    /// bytes, asked for with `try_reserve_exact` as [`read_file`] asks, because neither
+    /// `Arc<Vec<u8>>` nor `Arc<[u8]>` can be sub-sliced without a copy — a deliberate cost, paid
+    /// only by a caller that asked for a second view of a file already resident.
+    ///
+    /// **Sharing the descriptor is a requirement rather than an economy**, and the confined viewer
+    /// is what makes it one. Duplicating a handle is `fcntl(fd, F_DUPFD_CLOEXEC)`, and
+    /// `pdf_sandbox`'s filter admits `fcntl(fd, F_GETFD)` and nothing else that call can do — a
+    /// worker that asked is killed with `SIGSYS` rather than given an error, so the careful
+    /// `Err` branch below could never have run there (`doc/traps/instruments-and-reports.md`'s
+    /// trap 31). The worker's `DESCRIPTOR_LIMIT` of 8 is the second reason: a prefix per signed
+    /// document would have spent the budget a reader's open documents need.
     ///
     /// A `length` past the end of the file gives the file. The result is a different file from
     /// this one and [`Self::same`] says so, which is what a cache keyed on a document needs.
     ///
     /// # Errors
     ///
-    /// The file system's, where the descriptor cannot be duplicated; and [`NoRoom`] under
-    /// [`io::ErrorKind::OutOfMemory`] where the prefix cannot be held in memory.
+    /// [`NoRoom`] under [`io::ErrorKind::OutOfMemory`] where a prefix of a file held *in memory*
+    /// cannot be held. The file on disk cannot fail.
     pub fn prefix(&self, length: usize) -> io::Result<Self> {
         let length = length.min(self.len());
         match &self.0 {
-            Held::OnDisk(disk) => Self::from_handle(disk.file.try_clone()?, as_u64(length)),
+            Held::OnDisk(disk, _) => Ok(Self(Held::OnDisk(Arc::clone(disk), length))),
             Held::Owned(_) | Held::Shared(_) => {
                 let mut held = Vec::new();
                 held.try_reserve_exact(length).map_err(|_| {
@@ -228,7 +244,7 @@ impl FileBytes {
     pub fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
         use std::os::fd::AsFd as _;
         match &self.0 {
-            Held::OnDisk(disk) => Some(disk.file.as_fd()),
+            Held::OnDisk(disk, _) => Some(disk.file.as_fd()),
             Held::Owned(_) | Held::Shared(_) => None,
         }
     }
@@ -239,7 +255,7 @@ impl FileBytes {
         match &self.0 {
             Held::Owned(bytes) => bytes.len(),
             Held::Shared(bytes) => bytes.len(),
-            Held::OnDisk(disk) => disk.length,
+            Held::OnDisk(_, length) => *length,
         }
     }
 
@@ -252,7 +268,7 @@ impl FileBytes {
     /// Whether the file is open on disk rather than held in memory.
     #[must_use]
     pub fn is_on_disk(&self) -> bool {
-        matches!(self.0, Held::OnDisk(_))
+        matches!(self.0, Held::OnDisk(..))
     }
 
     /// Whether the two handles name the same bytes.
@@ -265,7 +281,11 @@ impl FileBytes {
         match (&self.0, &other.0) {
             (Held::Owned(this), Held::Owned(that)) => Arc::ptr_eq(this, that),
             (Held::Shared(this), Held::Shared(that)) => Arc::ptr_eq(this, that),
-            (Held::OnDisk(this), Held::OnDisk(that)) => Arc::ptr_eq(this, that),
+            // The same open file **and** the same length: a prefix shares the descriptor with
+            // the file it is a prefix of, and it is a different document.
+            (Held::OnDisk(this, here), Held::OnDisk(that, there)) => {
+                Arc::ptr_eq(this, that) && here == there
+            }
             _ => false,
         }
     }
@@ -281,8 +301,8 @@ impl FileBytes {
         match &self.0 {
             Held::Owned(bytes) => Cow::Borrowed(clipped(bytes, range)),
             Held::Shared(bytes) => Cow::Borrowed(clipped(bytes, range)),
-            Held::OnDisk(disk) => {
-                Cow::Owned(disk.window(range.start, range.end.saturating_sub(range.start)))
+            Held::OnDisk(disk, length) => {
+                Cow::Owned(disk.window(range.start, range.end.saturating_sub(range.start), *length))
             }
         }
     }
@@ -302,7 +322,12 @@ impl FileBytes {
         match &self.0 {
             Held::Owned(bytes) => Ok(bytes),
             Held::Shared(bytes) => Ok(bytes),
-            Held::OnDisk(disk) => disk.whole(),
+            // The cache is the *underlying* file's, so a prefix of a file something already read
+            // whole costs nothing, and a prefix read whole on its own reads the file it is a
+            // prefix of. Slicing is what makes the answer this handle's.
+            Held::OnDisk(disk, length) => disk
+                .whole()
+                .map(|bytes| bytes.get(..(*length).min(bytes.len())).unwrap_or(bytes)),
         }
     }
 
@@ -315,7 +340,7 @@ impl FileBytes {
     #[must_use]
     pub fn read_failure(&self) -> Option<ReadFailure> {
         match &self.0 {
-            Held::OnDisk(disk) => disk.failure.lock().ok().and_then(|held| held.clone()),
+            Held::OnDisk(disk, _) => disk.failure.lock().ok().and_then(|held| held.clone()),
             Held::Owned(_) | Held::Shared(_) => None,
         }
     }
@@ -341,17 +366,17 @@ impl FileBytes {
         first: usize,
         mut read: impl FnMut(&[u8], bool) -> (T, usize),
     ) -> T {
-        let disk = match &self.0 {
+        let (disk, held) = match &self.0 {
             Held::Owned(bytes) => return read(bytes.get(offset..).unwrap_or_default(), false).0,
             Held::Shared(bytes) => return read(bytes.get(offset..).unwrap_or_default(), false).0,
-            Held::OnDisk(disk) => disk,
+            Held::OnDisk(disk, length) => (disk, *length),
         };
-        let Some(remaining) = disk.length.checked_sub(offset).filter(|rest| *rest > 0) else {
+        let Some(remaining) = held.checked_sub(offset).filter(|rest| *rest > 0) else {
             return read(&[], false).0;
         };
         let mut want = first.clamp(1, remaining);
         loop {
-            let window = disk.window(offset, want);
+            let window = disk.window(offset, want, held);
             // A window that stops short of what was asked for is the file's end as far as this
             // reader can see it — a read that failed is recorded, and the bytes that arrived are
             // read as the prefix they are.
@@ -385,9 +410,12 @@ fn clipped(bytes: &[u8], range: Range<usize>) -> &[u8] {
 }
 
 impl OnDisk {
-    /// Up to `want` bytes from `offset`, fewer at the file's end or where a read failed.
-    fn window(&self, offset: usize, want: usize) -> Vec<u8> {
-        let want = want.min(self.length.saturating_sub(offset));
+    /// Up to `want` bytes from `offset`, fewer at `held`'s end or where a read failed.
+    ///
+    /// `held` is the asking handle's length rather than the file's, which is what stops a prefix
+    /// reading past the revision it is (`Held::OnDisk`'s second field).
+    fn window(&self, offset: usize, want: usize, held: usize) -> Vec<u8> {
+        let want = want.min(held.min(self.length).saturating_sub(offset));
         let mut bytes = Vec::new();
         if bytes.try_reserve_exact(want).is_err() {
             self.record(
@@ -480,7 +508,7 @@ impl fmt::Debug for FileBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let held = match &self.0 {
             Held::Owned(_) | Held::Shared(_) => "in memory",
-            Held::OnDisk(_) => "on disk",
+            Held::OnDisk(..) => "on disk",
         };
         write!(f, "FileBytes({} bytes, {held})", self.len())
     }
@@ -830,6 +858,12 @@ mod tests {
     /// *ends* where it was asked to — a read past its end comes back short, exactly as a file's
     /// does — and that it is a different file from the one it came from, which is what keeps a
     /// cache keyed on [`FileBytes::same`] from handing a revision's answers to the whole file.
+    ///
+    /// **And a third, which is a security property rather than a reading one**: on disk it is the
+    /// *same descriptor*. A duplicate would be `fcntl(fd, F_DUPFD_CLOEXEC)`, which `pdf_sandbox`'s
+    /// filter kills the process for, and it would spend one of the confined worker's eight
+    /// descriptors per prefix. The assertion is the raw number, because that is the thing the
+    /// kernel would have changed.
     #[cfg_attr(
         miri,
         ignore = "reads a real file: Miri runs under isolation and has no file system"
@@ -863,6 +897,15 @@ mod tests {
                 whole.is_on_disk(),
                 "a prefix is held the way the file it came from is held"
             );
+            #[cfg(unix)]
+            {
+                use std::os::fd::AsRawFd as _;
+                assert_eq!(
+                    head.descriptor().map(|held| held.as_raw_fd()),
+                    whole.descriptor().map(|held| held.as_raw_fd()),
+                    "a prefix on disk shares the descriptor rather than duplicating one"
+                );
+            }
         }
         std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
     }

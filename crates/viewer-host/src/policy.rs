@@ -64,7 +64,7 @@ use pdf_model::submission::{Method, Submission};
 use pdf_signature::trust::Supply;
 use pdf_signature::verdict::Acceptance;
 use pdf_signature::x509::Instant;
-use viewer_core::{Extraction, TrustPolicy};
+use viewer_core::{Extraction, ReferenceFiles, TrustPolicy};
 
 /// The word a person types to turn a document's restrictions off, in every host that has a
 /// command line.
@@ -486,6 +486,20 @@ pub const TRUST_ANCHORS: &str = "--trust-anchors";
 /// program no network for.
 pub const ACCEPT_UNKNOWN_REVOCATION: &str = "--accept-unknown-revocation";
 
+/// The word a person types to name the files a reference `XObject` may import a page from.
+///
+/// **ISO 32000-2 §8.10.4 addresses a `shall` to each of two classes of processor**, and which one
+/// this program is depends on whether the target file is in front of it. `CLAUDE.md` principle 3
+/// gives the renderer no filesystem, so it never is unless a person puts it there — and a
+/// *document* whose `/F` could name a path this machine then opened would be a document choosing
+/// what is read off this disk, which is the thing that principle exists to prevent. So the value
+/// after the word is a directory, nothing in it is opened on a document's say-so, and §14.4's
+/// identifier is what decides which file a reference names.
+///
+/// **Not a user interface for it**, on [`TRUST_ANCHORS`]'s rule: it is one policy value
+/// [`viewer_core::Command::References`] carries, supplied the way this host supplies every other.
+pub const REFERENCE_FILES: &str = "--reference-files";
+
 /// Why one file in the anchor directory did not become an anchor.
 ///
 /// Typed rather than a string, and every one of them is said out loud: trap 5 on a path where this
@@ -630,6 +644,89 @@ pub fn trust_anchors(
                 at,
             ),
             acceptance,
+        },
+        refused,
+    )
+}
+
+/// A file in the reference directory this host will not offer the core.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ReferenceRefusal {
+    /// The directory could not be listed.
+    #[error("cannot read the reference file directory {directory}: {error}")]
+    DirectoryUnreadable {
+        /// The directory as the person named it.
+        directory: String,
+        /// What the filesystem said.
+        error: String,
+    },
+    /// One file in it could not be read.
+    #[error("cannot read {name} in the reference file directory: {error}")]
+    FileUnreadable {
+        /// The file's name within the directory.
+        name: String,
+        /// What the filesystem said.
+        error: String,
+    },
+}
+
+/// **The one place a host answers "which target documents, if any", and the answer is *none* by
+/// default.**
+///
+/// `directory` is what [`REFERENCE_FILES`] named, or `None` where nobody typed it — and `None`
+/// produces an empty [`viewer_core::ReferenceFiles`], under which every reference `XObject` in
+/// every document draws §8.10.4.1's proxy and reports nothing. That is the clause's own provision
+/// for a processor with no target file, and it is what this program did before this function
+/// existed.
+///
+/// Every file in the directory is offered, sorted by name so that two runs over one directory
+/// supply the same files in the same order. **Nothing here decides whether a file is a PDF**, and
+/// nothing here compares a name against anything a document said: the core opens each file and
+/// matches §14.4's identifier, which is the match ISO 32000-2 §14.4 itself states, and a file that
+/// is not a PDF is refused by name there (`pdf_model::reference::Refusal`). What this reads is a
+/// directory a *person* named, which is the whole of the decision.
+///
+/// The refusals are returned rather than printed: what a host does with them is the host's, and
+/// `viewer_core::Viewer::reference_refusals` has the other half — the files that were read here
+/// and would not open there.
+#[must_use]
+pub fn reference_files(directory: Option<&Path>) -> (ReferenceFiles, Vec<ReferenceRefusal>) {
+    let Some(directory) = directory else {
+        return (ReferenceFiles::default(), Vec::new());
+    };
+    let mut refused = Vec::new();
+    let mut names: Vec<PathBuf> = match std::fs::read_dir(directory) {
+        Ok(entries) => entries.flatten().map(|entry| entry.path()).collect(),
+        Err(error) => {
+            refused.push(ReferenceRefusal::DirectoryUnreadable {
+                directory: directory.display().to_string(),
+                error: error.to_string(),
+            });
+            return (ReferenceFiles::default(), refused);
+        }
+    };
+    names.sort();
+    let mut files = Vec::new();
+    for path in names {
+        if path.is_dir() {
+            continue;
+        }
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        match std::fs::read(&path) {
+            Ok(bytes) => files.push((name, bytes)),
+            Err(error) => refused.push(ReferenceRefusal::FileUnreadable {
+                name,
+                error: error.to_string(),
+            }),
+        }
+    }
+    (
+        ReferenceFiles {
+            files,
+            source: format!("{} ({REFERENCE_FILES})", directory.display()),
         },
         refused,
     )

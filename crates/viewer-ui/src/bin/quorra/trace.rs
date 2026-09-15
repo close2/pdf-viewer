@@ -279,6 +279,11 @@ pub(crate) fn describe_command(command: &Command) -> String {
             policy.anchors.source(),
             policy.acceptance
         ),
+        // The files' count and where they came from, never their bytes, for the line above's
+        // reason: what a reader needs beside an imported page is whose files it came out of.
+        Command::References(files) => {
+            format!("{} reference file(s) from {:?}", files.len(), files.source)
+        }
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),

@@ -66,6 +66,7 @@ pub mod outline;
 pub mod page;
 pub mod page_label;
 pub mod popup;
+pub mod reference;
 pub mod requirements;
 pub mod restriction;
 pub mod retrieval;

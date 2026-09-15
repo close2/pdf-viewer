@@ -1724,6 +1724,22 @@ impl Tree {
         })
     }
 
+    /// Whether §14.7.5.3's object-reference route reaches this object.
+    ///
+    /// §14.7.5.1.1 makes "[c]omplete PDF objects such as annotations and `XObjects`" one of the two
+    /// kinds of content item, and §14.7.5.4 Table 359 gives such an object its own `/StructParent`
+    /// — "[f]or an object identified as a content item by means of an object reference …, the value
+    /// shall be an indirect reference to the parent structure element". So this is the whole of
+    /// what the *object* side of §14.8.2.2.2's "all page content as well as annotations" asks: is
+    /// this annotation in the tree.
+    ///
+    /// One number-tree lookup and no resolution of the element, which is what lets
+    /// [`crate::content::interpret`] ask it per annotation on a tagged page.
+    #[must_use]
+    pub fn claims_object(&self, document: &Document, object: &Dictionary) -> bool {
+        self.object_owner(document, object).is_some()
+    }
+
     /// The element an object content item belongs to, from its own `/StructParent`.
     fn object_owner(&self, document: &Document, object: &Dictionary) -> Option<ObjectId> {
         let key = document.get_key(object, "StructParent").as_integer()?;
@@ -3500,6 +3516,77 @@ pub fn table_cell_rectangles(
 fn widen(band: &mut (f32, f32), span: (f32, f32)) {
     band.0 = band.0.min(span.0);
     band.1 = band.1.max(span.1);
+}
+
+/// ISO 32000-2 §14.8.2.2.2's artifact **by absence**: the runs of a page's readback that nothing
+/// in the structure tree claims.
+///
+/// > Any content that is not included in the structure tree is an artifact
+///
+/// — and the sentence goes on to say it even of content no marked-content sequence tagged
+/// `/Artifact` encloses. NOTE 2 widens the subject: "[t]he phrase 'any content' above refers
+/// to all page content as well as annotations."
+///
+/// `included` is every range of `text` some route into the structure tree covers — a sequence the
+/// producer identified with an `/MCID` (§14.7.5.2), an annotation whose own `/StructParent` makes
+/// it a content item (§14.7.5.3), and the artifacts the producer already declared. This is the
+/// complement of their union, as the ranges a consumer may subtract.
+///
+/// # What decides inclusion, and what deliberately does not
+///
+/// §14.7.5.2 makes the `/MCID` the mechanism — a sequence "may be specified as a content item …
+/// [t]he marked-content sequence shall contain a property list … containing an MCID entry" — so a
+/// sequence carrying one is a producer saying *this run is in the tree*. §14.7.5.4's parent tree is
+/// the **index** back from the mark to the element, and a file may write one without the other:
+/// two corpus documents state `/MCID`s their page's parent tree entry does not resolve while some
+/// element's `/K` names them outright, 98 characters of body text between them. Deciding artifact
+/// by absence on the index's silence would call a producer's broken index this reader's artifact,
+/// so the caller's `included` is built from the `/MCID` and not from the resolution of it —
+/// which also means this costs a tagged page no tree lookups at all. ADR 1100.
+///
+/// Empty runs are not returned: a gap of no characters between two included ranges is not content.
+#[must_use]
+pub fn artifacts_by_absence(
+    text: &str,
+    included: &[std::ops::Range<usize>],
+) -> Vec<std::ops::Range<usize>> {
+    let mut covered: Vec<std::ops::Range<usize>> = included
+        .iter()
+        .filter(|range| range.start < range.end && range.start < text.len())
+        .map(|range| range.start..range.end.min(text.len()))
+        .collect();
+    covered.sort_unstable_by_key(|range| (range.start, range.end));
+
+    let mut out = Vec::new();
+    let mut at = 0_usize;
+    for range in covered {
+        if range.start > at {
+            keep(text, at..range.start, &mut out);
+        }
+        at = at.max(range.end);
+    }
+    if at < text.len() {
+        keep(text, at..text.len(), &mut out);
+    }
+    out
+}
+
+/// Keeps one run of [`artifacts_by_absence`]'s complement, unless it is white space alone.
+///
+/// A run that reads back as nothing but white space carries no content for the clause to
+/// reclassify, and some of that white space is not the page's: §14.8.2.6.2 NOTE 1 is about a
+/// document stating its word breaks, and `content.rs`'s `separate_text` reconstructs the ones a
+/// document leaves to be inferred from where §9.4.4's text rendering matrix put the next glyph.
+/// So a gap between two tagged paragraphs can be this reader's own inference, and naming it an
+/// artifact would be this reader reporting on itself.
+fn keep(text: &str, range: std::ops::Range<usize>, out: &mut Vec<std::ops::Range<usize>>) {
+    if text
+        .get(range.clone())
+        .is_some_and(|run| run.chars().all(char::is_whitespace))
+    {
+        return;
+    }
+    out.push(range);
 }
 
 /// §14.8.2.2's artifact: content that is on the page and is not the document's content.

@@ -1102,14 +1102,20 @@ pub enum ColourSpace {
         /// The largest valid index.
         high: usize,
     },
-    /// One or more tint components, converted by a function into an alternate space.
+    /// One or more tint components, converted into the alternate colour space of ISO 32000-2
+    /// §8.6.6.4 and §8.6.6.5.
     Separation {
         /// How many tint components the space takes.
         inputs: usize,
-        /// The space the tint transform produces.
+        /// The space the tints are converted into.
+        ///
+        /// §8.6.6.5 calls it "the alternate colour space of that component", and which space
+        /// that is depends on which component: the `alternateSpace` parameter where the whole
+        /// space reverts through its tint transform, and Table 71's process `/ColorSpace`
+        /// where every component is a process one — see [`Tints`].
         alternate: Box<ColourSpace>,
-        /// The tint transform.
-        transform: Box<Function>,
+        /// What turns the tints into the alternate space's components.
+        tints: Tints,
     },
     /// The `/All` colourant of ISO 32000-2 §8.6.6.4, which marks every colourant at once.
     ///
@@ -1161,6 +1167,77 @@ pub enum ColourSpace {
         /// The space an uncoloured pattern's colour is given in, if one was named.
         base: Option<Box<ColourSpace>>,
     },
+}
+
+/// What turns a `Separation` or `DeviceN` space's tints into its alternate space's components
+/// (ISO 32000-2 §8.6.6.4, §8.6.6.5).
+///
+/// Two routes, and the standard ranks them by which components the space has. The tint
+/// transform is what §8.6.6.4 and §8.6.6.5 require of a processor that has none of the named
+/// colourants — "PDF processors shall be able to approximate the colourants if they are not
+/// available on the current output device, such as a display" — and it is the whole answer for
+/// every space but one. The exception is §8.6.6.5's `NChannel` subtype, which asks for the
+/// components to be taken apart:
+///
+/// > For NChannel colour spaces, the components shall be evaluated individually; that is, only
+/// > the ones not present on the output device shall use the alternate colour space of that
+/// > component.
+///
+/// On a display no component is present, so every one of them takes "the alternate colour
+/// space of that component" — a spot colourant its own `/Colorants` `Separation`, and a
+/// process component the process dictionary's `/ColorSpace`. **Combining the two is what the
+/// clause does not state**, and NOTE 3 hands that to the processor: "PDF processors can use
+/// their own blending algorithms for on-screen viewing and composite printing, rather than
+/// being required to use a specified tint transformation function." Table 72's `/Solidities`,
+/// `/PrintingOrder` and `/DotGain` parameterise such an algorithm — how far one ink covers the
+/// ones beneath it, the order they are laid down in, and how each spreads — but they describe
+/// inks on paper and the clause says outright that "PDF processors need not use this
+/// information". So a space with a spot colourant keeps [`Self::Transform`], which is the
+/// route both paragraphs agree on.
+///
+/// Where an `NChannel` space has **no** spot colourant the combination does not arise, the
+/// clause is complete on its own terms, and [`Self::Process`] is that reading. ADR 1103.
+#[derive(Debug, Clone)]
+pub enum Tints {
+    /// §8.6.6.4's and §8.6.6.5's `tintTransform`: `n` tints in, the alternate space's `m`
+    /// components out.
+    Transform(Box<Function>),
+    /// §8.6.6.5's process dictionary, for an `NChannel` space whose every component is a
+    /// process one: no function is evaluated, because the tints *are* the process space's
+    /// components.
+    ///
+    /// One entry per component of the process `/ColorSpace`, in Table 71's own order —
+    /// "[a]n array of component names that correspond, in order, to the components of the
+    /// process colour space specified in ColorSpace" — saying which tint supplies it, or
+    /// `None` where the `names` array omits that colourant. An omitted one is `0.0`, which
+    /// is a value §8.6.4.4 defines rather than one chosen here: "0.0 shall denote the
+    /// complete absence of a process colourant". [`ColourSpace::nchannel_process`] admits an
+    /// omission only where the process space is the `DeviceCMYK` that sentence is about, and
+    /// which §8.6.6.5 gives the permission to: "[f]or a CMYK colour space, a subset of the
+    /// components may be present, and they may appear in any order in the names array."
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §8.6.6.5, Table 71 and §8.6.4.4 verbatim, and a \
+                  quotation is not marked up"
+    )]
+    Process(Vec<Option<usize>>),
+}
+
+impl Tints {
+    /// The alternate space's components for one colour in the space these tints belong to.
+    #[must_use]
+    pub fn eval(&self, values: &[f32]) -> Vec<f32> {
+        match self {
+            Self::Transform(transform) => transform.eval(values),
+            Self::Process(from) => from
+                .iter()
+                .map(|tint| {
+                    tint.and_then(|index| values.get(index).copied())
+                        .unwrap_or(0.0)
+                })
+                .collect(),
+        }
+    }
 }
 
 impl ColourSpace {
@@ -1299,6 +1376,32 @@ impl ColourSpace {
                     // empty or missing one leaves the space undefined rather than degenerate.
                     return None;
                 }
+                // §8.6.6.5's per-component evaluation, asked before the `alternateSpace` and
+                // `tintTransform` parameters are even read. That order is the clause's:
+                // "PDF processors need not use the alternateSpace and tintTransform
+                // parameters, and may instead use custom blending algorithms, along with
+                // other information provided in the attributes dictionary if present. (If
+                // the value of the Subtype entry in the attributes dictionary is NChannel ,
+                // such information shall be present.)" So an `NChannel` space whose process
+                // dictionary answers for every one of its components is complete without
+                // them — including where the tint transform is one this tree cannot read,
+                // which used to take the whole space with it.
+                if !is_separation
+                    && let Some((alternate, from)) = Self::nchannel_process(
+                        document,
+                        items.get(4),
+                        &names,
+                        resources,
+                        intent,
+                        depth,
+                    )
+                {
+                    return Some(Self::Separation {
+                        inputs,
+                        alternate: Box::new(alternate),
+                        tints: Tints::Process(from),
+                    });
+                }
                 let alternate = Self::parse_at(
                     document,
                     items.get(2)?,
@@ -1310,11 +1413,113 @@ impl ColourSpace {
                 Some(Self::Separation {
                     inputs,
                     alternate: Box::new(alternate),
-                    transform: Box::new(transform),
+                    tints: Tints::Transform(Box::new(transform)),
                 })
             }
             _ => None,
         }
+    }
+
+    /// §8.6.6.5's process dictionary, where it answers for **every** component of the space:
+    /// the process `/ColorSpace` and which tint supplies each of its components.
+    ///
+    /// `None` — meaning the space reverts through its tint transform like any other `DeviceN`
+    /// — wherever the clause leaves anything to decide. Each condition is one sentence of it:
+    ///
+    /// - **`/Subtype` is `NChannel`.** Table 70 defaults it to `DeviceN`, and "[a] value of
+    ///   DeviceN for the Subtype entry, or no value, shall mean that only the previous
+    ///   features shall be supported" — the previous features being the tint transform.
+    /// - **A `/Process` dictionary with both of Table 71's required entries**, its
+    ///   `/ColorSpace` a space this tree reads and its `/Components` naming exactly that
+    ///   space's components. Table 71 requires the correspondence — "[a]n array of component
+    ///   names that correspond, in order, to the components of the process colour space
+    ///   specified in ColorSpace" — so a count that disagrees is a dictionary this reader
+    ///   cannot index by, whatever else it says.
+    /// - **Every name in the space's `names` array is one of `/Components`**, which is the
+    ///   clause's own test for a spot colourant: "[a]ny component not specified in the process
+    ///   dictionary shall be considered to be a spot colourant." A spot colourant would need
+    ///   its own `/Colorants` `Separation` *and* a rule for combining the result with the
+    ///   process components, and the clause states no such rule — see [`Tints`].
+    /// - **Every component of `/ColorSpace` is supplied by a name, unless the process space is
+    ///   a CMYK one.** §8.6.6.5 gives the permission to that one family — "[f]or a CMYK
+    ///   colour space, a subset of the components may be present, and they may appear in any
+    ///   order in the names array" — and §8.6.4.4 supplies the value a subtractive component
+    ///   of zero has: "0.0 shall denote the complete absence of a process colourant". For any
+    ///   other process space the standard states neither, so an omission is refused rather
+    ///   than filled in. The test is the *space* and not the entry, because `/DeviceCMYK` and
+    ///   a four-channel `ICCBased` space can be one another — §8.6.5.6's `/DefaultCMYK` and
+    ///   §14.11.5's output intent substitute a profile for the name, and a process dictionary
+    ///   may name that profile outright.
+    ///
+    /// **The reserved four are not read here**, and that is a case declined rather than one
+    /// missed. §8.6.6.5 says "[t]he reserved names Cyan , Magenta , Yellow , and Black shall
+    /// always be considered to be process colours … they need not have entries in the process
+    /// dictionary", so a CMYK `NChannel` space may name a component the `/Components` array
+    /// omits; such a space keeps its tint transform, which is conforming, rather than gaining
+    /// a second way of deciding which component a name is. `examples/nchannel_census` counts
+    /// how many exist.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §8.6.6.5 and Table 71 verbatim, and a quotation is not \
+                  marked up"
+    )]
+    fn nchannel_process(
+        document: &Document,
+        attributes: Option<&Object>,
+        names: &[Vec<u8>],
+        resources: &Dictionary,
+        intent: Option<&Self>,
+        depth: usize,
+    ) -> Option<(Self, Vec<Option<usize>>)> {
+        let attributes = document.resolve(attributes?);
+        let attributes = attributes.as_dict()?;
+        if document
+            .get_key(attributes, "Subtype")
+            .as_name()?
+            .as_bytes()
+            != b"NChannel"
+        {
+            return None;
+        }
+        let process = document.get_key(attributes, "Process");
+        let process = process.as_dict()?;
+
+        let stated = document.get_key(process, "ColorSpace");
+        let space = Self::parse_at(
+            document,
+            &stated,
+            resources,
+            intent,
+            depth.saturating_add(1),
+        )?;
+        let components = document.get_key(process, "Components");
+        let components: Vec<Vec<u8>> = components
+            .as_array()?
+            .iter()
+            .map(|entry| document.resolve(entry))
+            .map(|entry| Some(entry.as_name()?.as_bytes().to_vec()))
+            .collect::<Option<_>>()?;
+        if components.len() != space.components() {
+            return None;
+        }
+
+        let mut from = vec![None; components.len()];
+        for (tint, name) in names.iter().enumerate() {
+            let component = components.iter().position(|component| component == name)?;
+            from[component] = Some(tint);
+        }
+        // Which spaces are "a CMYK colour space" in the clause's sense, and it is the space
+        // rather than the entry that answers: §8.6.5.6's `/DefaultCMYK` and §14.11.5's intent
+        // can make `/DeviceCMYK` a four-channel profile, and a process dictionary may name
+        // that same profile outright. §8.6.5.5's Table 67 admits four ICC data colour spaces
+        // and `CMYK` is the only one with four components, so the channel count tells them
+        // apart here.
+        let cmyk = matches!(space, Self::Cmyk)
+            || matches!(&space, Self::Icc { profile } if profile.channels() == 4);
+        if from.iter().any(Option::is_none) && !cmyk {
+            return None;
+        }
+        Some((space, from))
     }
 
     /// Reads an `ICCBased` space: ISO 32000-2 §8.6.5.5, Table 65.
@@ -1804,10 +2009,8 @@ impl ColourSpace {
             // space that uses spot colour components, the alternate colour space shall be
             // substituted", which is what evaluating the tint transform does.
             Self::Separation {
-                alternate,
-                transform,
-                ..
-            } => alternate.ink_at(&transform.eval(values), depth.saturating_add(1)),
+                alternate, tints, ..
+            } => alternate.ink_at(&tints.eval(values), depth.saturating_add(1)),
             Self::Indexed { base, .. } => {
                 base.ink_at(&self.entry_of(values), depth.saturating_add(1))
             }
@@ -2029,11 +2232,9 @@ impl ColourSpace {
                 press,
             ),
             Self::Separation {
-                alternate,
-                transform,
-                ..
+                alternate, tints, ..
             } => alternate.to_cmyk_at(
-                &transform.eval(values),
+                &tints.eval(values),
                 depth.saturating_add(1),
                 rendering,
                 press,
@@ -2083,11 +2284,9 @@ impl ColourSpace {
                 route,
             ),
             Self::Separation {
-                alternate,
-                transform,
-                ..
+                alternate, tints, ..
             } => alternate.rgb_components_at(
-                &transform.eval(values),
+                &tints.eval(values),
                 depth.saturating_add(1),
                 rendering,
                 route,
@@ -2162,10 +2361,8 @@ impl ColourSpace {
                 base.cie_xyz_at(&self.entry_of(values), depth.saturating_add(1), rendering)
             }
             Self::Separation {
-                alternate,
-                transform,
-                ..
-            } => alternate.cie_xyz_at(&transform.eval(values), depth.saturating_add(1), rendering),
+                alternate, tints, ..
+            } => alternate.cie_xyz_at(&tints.eval(values), depth.saturating_add(1), rendering),
             _ => None,
         }
     }
@@ -2219,11 +2416,9 @@ impl ColourSpace {
                 base.to_rgb_at(&self.entry_of(values), depth.saturating_add(1), rendering)
             }
             Self::Separation {
-                alternate,
-                transform,
-                ..
+                alternate, tints, ..
             } => {
-                let converted = transform.eval(values);
+                let converted = tints.eval(values);
                 alternate.to_rgb_at(&converted, depth.saturating_add(1), rendering)
             }
             // §8.6.6.4's `/All`, complemented for an additive device: a tint of 1.0 is every

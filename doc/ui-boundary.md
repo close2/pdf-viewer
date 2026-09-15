@@ -210,6 +210,25 @@ other policy it has, and `doc/todo/38`'s user interface is still not to be built
 supplies nothing gets exactly the answers it got before, which is ADR 1039's decision unchanged.
 ADR 1076.
 
+**And the one-thousand-and-eighty-seventh added one `Command` and one entry point, on exactly that
+pattern, for §8.10.4's reference `XObject`s.** The clause writes a `shall` for a processor that
+imports the referenced page and a `shall` for one that draws the proxy instead, and which of the two
+this program is depends on whether the target file is in front of it — which, with rule 2 in force,
+it never is unless a host puts it there. Worse than "never": Table 95's `/F` is a path the
+*document* writes, so a reader that opened what it named would let a file choose what this machine
+reads. So `Command::References(ReferenceFiles)` carries the bytes, on `Command::Trust`'s rules, and
+the match is §14.4's identifier rather than any path — the clause states that match itself. **Two
+consumers failed to compile**, `viewer-confined`'s wire (command kind 29, whole PDF files crossing
+*into* the confinement, because the party that reads a disk is outside and the party that parses a
+PDF is inside) and `quorra`'s trace line; `QUORRA_EVENT_KIND_COUNT` stayed where it is because
+nothing here is an event, and the C ABI gained one entry point and no constants —
+`quorra_reference_files`. `QUORRA_ABI_VERSION` did not move, for the standing reason.
+`Viewer::reference_refusals` is a query rather than an event, because a file a host offered and this
+reader will not open is a fact about the *host's input* and about no document. **No host gained a
+gesture**: `quorra` gained `--reference-files <dir>`, which is how this host supplies every other
+policy it has. A host that supplies nothing draws every proxy and is told nothing, which is what
+§8.10.4.1 asks of a reader with no target file. ADR 1101.
+
 **The thousand-and-seventy-sixth added one field and no message**, and it is the shape `RenderRequest::ink`
 set: `PopupWindow::replies` carries §12.5.6.2's threaded comments, because Table 172 makes *not*
 displaying replies "individually but together in the form of threaded comments" a `shall` on the

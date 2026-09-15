@@ -413,6 +413,23 @@ pub enum Unsupported {
         /// How many its table states.
         takes: usize,
     },
+    /// ISO 32000-2 §8.10.4's reference `XObject` drew something other than the page it names.
+    ///
+    /// **Never raised for a reader that was given no target documents**, which is every reader
+    /// until a host supplies some: §8.10.4.1 states drawing the proxy as the answer for content
+    /// that "is unavailable", so a processor in that position has no gap to name and a report
+    /// there would take every page holding a proxy out of the oracle's comparison for a
+    /// requirement the standard says is met (trap 11).
+    ///
+    /// What it *is* raised for is a reference a supply could not honour and the reader can only
+    /// learn about here: a `/Ref` with no `/ID` for §14.4's match to run on, an `/ID` no supplied
+    /// file carries, a `/Page` the named file does not have — and the one case where the page
+    /// **is** drawn, Table 95's own warning that the file "has changed since the reference was
+    /// created".
+    ReferenceXObject {
+        /// Which reference, which file, and which of those four this is.
+        detail: String,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.
@@ -676,6 +693,34 @@ pub struct ArtifactSpan {
     pub range: std::ops::Range<usize>,
     /// What Table 363 said about it.
     pub artifact: crate::structure::Artifact,
+    /// Which of §14.8.2.2.2's two sentences made this an artifact.
+    pub found: ArtifactSource,
+}
+
+/// How a span came to be an artifact: the producer said so, or nothing claimed it.
+///
+/// §14.8.2.2.2 states both. The first is a *method* a producer uses — "an artifact should be
+/// explicitly distinguished from real content through either of the following methods" — and the
+/// second is a rule about everything else: "[a]ny content that is not included in the structure
+/// tree is an artifact", whether or not a marked-content sequence tagged `/Artifact` encloses it.
+///
+/// A consumer subtracting artifacts wants both and needs no distinction. One reporting on a
+/// document's tagging wants the difference, because a page whose running head is
+/// [`Self::Declared`] was tagged by a producer that knew the clause and one whose is
+/// [`Self::Absence`] was not — and this reader must not present its own inference as the file's
+/// statement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ArtifactSource {
+    /// One of §14.8.2.2.2's two explicit methods: an `/Artifact` marked-content sequence, or
+    /// §14.8.4.8.7's `Artifact` structure element.
+    #[default]
+    Declared,
+    /// The clause's other sentence: content no structure element reaches.
+    ///
+    /// Only ever produced for a document whose `/MarkInfo` states `/Marked true` — §14.8.1 makes
+    /// that the claim to follow §14.8's rules, and a document that never made it has not put its
+    /// content outside a tree it never promised.
+    Absence,
 }
 
 /// Codes a page showed that ISO 32000-2 §9.10.2 could not name, by which method could have.

@@ -174,6 +174,17 @@ impl Interpreter<'_> {
                 let base = adjust.transform.then(base);
                 self.draw_appearance(&appearance, base, &page.resources);
                 self.describe_annotation(dict, before);
+                // §14.7.5.3: an annotation is one of the two kinds of content item, and Table 359
+                // gives it a `/StructParent` of its own. An appearance stream states no `/MCID`,
+                // so this is the only thing that can say its text is in the structure tree — and
+                // §14.8.2.2.2's rule about content that is not would otherwise reclassify every
+                // filled-in field on a tagged form as an artifact.
+                if let Some(tree) = &self.tagged
+                    && self.text.len() > before
+                    && tree.claims_object(self.document, dict)
+                {
+                    self.structural_annotations.push(before..self.text.len());
+                }
                 // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
                 // clause calls it a *highlighting* mode, and what it highlights is whatever
                 // the annotation looks like.
@@ -360,7 +371,10 @@ impl Interpreter<'_> {
                 let Ok(clip) = self.list.add_clip(Clip {
                     path,
                     transform,
-                    parent: None,
+                    // `None` for a page of this document; §8.10.4's imported page is drawn
+                    // inside the proxy's bounding box and so are its appearances. See
+                    // [`Interpreter::annotations_clipped_to`].
+                    parent: self.annotations_clipped_to,
                     fill_rule: FillRule::NonZero,
                 }) else {
                     self.note(Unsupported::LimitReached { limit: "max_clips" });
@@ -368,7 +382,7 @@ impl Interpreter<'_> {
                 };
                 Some(clip)
             }
-            None => None,
+            None => self.annotations_clipped_to,
         };
         state.clip = clip;
 
@@ -462,7 +476,12 @@ impl Interpreter<'_> {
                 transform.apply(Point::new(bbox[0], bbox[1])),
                 transform.apply(Point::new(bbox[2], bbox[3])),
             );
-            self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, None);
+            self.unclip_redundant(
+                mark,
+                box_in_page,
+                Transform::IDENTITY,
+                self.annotations_clipped_to,
+            );
         }
         // §12.5.5's other transparency sentence, which this path answers by *construction* for
         // the case it names first and not at all for the case it names second: an appearance

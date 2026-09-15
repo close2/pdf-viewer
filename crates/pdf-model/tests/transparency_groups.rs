@@ -622,6 +622,125 @@ fn a_knockout_group_paints_only_its_topmost_element() {
     assert_eq!(pixel(&ordinary, 15, 85), [255, 0, 0, 255]);
 }
 
+/// §11.4.6's knockout is drawn in the group's own four-component space.
+///
+/// > In a knockout group, each individual element shall be composited with the group's
+/// > initial backdrop rather than with the stack of preceding elements in the group. …
+/// > At any given point, only the topmost object enclosing the point shall contribute to
+/// > the result colour and opacity of the group as a whole.
+///
+/// §11.6.6 and §11.7.2 ask for the elements to composite in the group's own `/CS`, and this
+/// tree draws a four-component group as a *pair* of element lists — the chromatic half and the
+/// black half, `pdf_render::GroupBlending::FourComponents` — resolved against one another per
+/// pixel. §11.4.6's construction rewrites the element list, and a knockout group was refused
+/// the pair outright rather than having the rewrite applied to both halves (ADR 1103).
+///
+/// The backdrop needs no conversion of its own, which is what makes the two constructions
+/// independent: this group is isolated, and §11.4.6 says what such a group composites against —
+/// "[a]n isolated knockout group composites the element with a transparent backdrop."
+///
+/// The measurement is the clause's own sentence rather than a number. At the overlap the
+/// knockout group must show what the topmost element alone shows, so the assertion is an
+/// equality with a second fixture holding that element by itself, in the same space, at the
+/// same alpha; the third fixture is the ordinary group, which is where the red channel of the
+/// cyan below shows through. No corpus document states the combination — a `/K true` group
+/// naming a four-component `/CS` — so the fixture is hand-built (trap 8).
+#[test]
+fn a_knockout_group_in_a_press_paints_only_its_topmost_element() {
+    let press = "/Group << /S /Transparency /I true /K true /CS /DeviceCMYK >>";
+    let ordinary = "/Group << /S /Transparency /I true /CS /DeviceCMYK >>";
+    // A black square, then a half-opaque cyan one over it. The `k` operators put the colours
+    // in the group's own space, and `/GS` is what makes something composite inside the group —
+    // §11.3.4's per-component question cannot change a pixel where nothing does. The two
+    // colours differ in the black component as well as in the chromatic ones, so a rewrite
+    // that reached one half of the pair and not the other would show here.
+    let top = "/GS gs 1 0 0 0 k 30 30 50 50 re f";
+    let both = format!("0 0 0 1 k 10 10 50 50 re f {top}");
+
+    let knocked = interpret(fixture(press, "[0 0 100 100]", &both, "/Fm Do"));
+    assert!(knocked.is_complete(), "{:?}", knocked.unsupported);
+    let [
+        Command::Group {
+            knockout: is_knockout,
+            blending: Some(blending),
+            ..
+        },
+    ] = knocked.display_list.commands()
+    else {
+        panic!(
+            "expected one group, got {:?}",
+            knocked.display_list.commands()
+        );
+    };
+    assert!(*is_knockout, "the fixture states /K true");
+    assert!(
+        matches!(
+            blending.as_ref(),
+            pdf_render::GroupBlending::FourComponents { .. }
+        ),
+        "the group composites in the four components its /CS names"
+    );
+
+    let topmost = interpret(fixture(ordinary, "[0 0 100 100]", top, "/Fm Do"));
+    let stacked = interpret(fixture(ordinary, "[0 0 100 100]", &both, "/Fm Do"));
+    // Device (40, 50) is page (40, 50): inside both squares.
+    assert_eq!(
+        pixel(&knocked, 40, 50),
+        pixel(&topmost, 40, 50),
+        "at the overlap only the topmost element contributes"
+    );
+    assert_ne!(
+        pixel(&knocked, 40, 50),
+        pixel(&stacked, 40, 50),
+        "which is not what the same two elements composite to"
+    );
+    // Where only the lower element is, every model paints it.
+    assert_eq!(pixel(&knocked, 15, 85), pixel(&stacked, 15, 85));
+
+    // And the rewrite reaches both halves. §11.6.4.4 separates shape from opacity for an
+    // element painted through a soft mask of its own, so its shape is no longer the coverage a
+    // rasteriser draws it with and §11.4.6's weighting factor has to be stated beside it —
+    // `Command::Shaped`. The two halves of a press pair are resolved against one another per
+    // pixel, so a rewrite that reached one and not the other would leave the backend converting
+    // a colour against a shape that never drew it; the assertion is that the same construction
+    // is in both lists.
+    let masked = "0 0 0 1 k 10 10 50 50 re f /GS gs /GM gs 1 0 0 0 k 30 30 50 50 re f";
+    let shaped = interpret(fixture(press, "[0 0 100 100]", masked, "/Fm Do"));
+    assert!(shaped.is_complete(), "{:?}", shaped.unsupported);
+    let [
+        Command::Group {
+            commands,
+            blending: Some(blending),
+            ..
+        },
+    ] = shaped.display_list.commands()
+    else {
+        panic!(
+            "expected one group, got {:?}",
+            shaped.display_list.commands()
+        );
+    };
+    let pdf_render::GroupBlending::FourComponents { black, .. } = blending.as_ref() else {
+        panic!("expected the four-component pair, got {blending:?}");
+    };
+    let stated = |elements: &[Command]| {
+        elements
+            .iter()
+            .map(|element| matches!(element, Command::Shaped { .. }))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        stated(commands),
+        vec![false, true],
+        "the masked element states its shape and the bare one does not"
+    );
+    assert_eq!(
+        stated(black),
+        stated(commands),
+        "and the black half of the pair is the same construction"
+    );
+}
+
 /// §11.6.2: a path filled *and* stroked by one operator composites once.
 ///
 /// > Single graphics objects … shall be treated as elementary objects for transparency
@@ -1353,7 +1472,13 @@ fn a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_on
 /// `/GD` names the device's — `/BG2 /Default` beside a `/BG` function, which is Table 57's own
 /// precedence ("[i]f both BG and BG2 are present in the same graphics state parameter
 /// dictionary, BG2 shall take precedence") putting the default back.
-fn page_group_fixture(page_group: &str, form_group: &str, form: &str, page: &str) -> Vec<u8> {
+fn page_group_fixture(
+    page_group: &str,
+    form_group: &str,
+    form_resources: &str,
+    form: &str,
+    page: &str,
+) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -1365,7 +1490,7 @@ fn page_group_fixture(page_group: &str, form_group: &str, form: &str, page: &str
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
-         /XObject << /In 6 0 R >> >> /Length {} >>\n\
+         {form_resources} /XObject << /In 6 0 R >> >> /Length {} >>\n\
          stream\n{form}\nendstream\nendobj\n\
          6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
          /Group << /S /Transparency /CS /DeviceCMYK >> \
@@ -1417,33 +1542,38 @@ const NESTED: &str = "/GS gs 0 0 0 1 k 0 0 60 60 re f 1 1 0 0 k 40 40 60 60 re f
 /// page group of `/DeviceCMYK` — which decides every mark on the page — was not named at all.
 #[test]
 fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
-    let probe = |page_group: &str, form_group: &str, page: &str| {
+    let probe = |page_group: &str, form_group: &str, resources: &str, page: &str| {
         let form = "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do";
-        format!(
-            "{:?}",
-            interpret(page_group_fixture(page_group, form_group, form, page)).unsupported
-        )
+        let bytes = page_group_fixture(page_group, form_group, resources, form, page);
+        format!("{:?}", interpret(bytes).unsupported)
     };
     let reported = |page_group: &str, form_group: &str| {
         probe(
             page_group,
             form_group,
+            "",
             "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
         )
     };
-    // The one construction on this fixture that keeps a four-component group *undrawable*, and
-    // therefore named: §11.6.6's last remainder, an isolated **knockout** group naming four
-    // components — `Interpreter::group_press` refuses one because §11.4.6's staged rewrites
-    // edit the element list after the runs and editing one half of a pair would leave the
-    // other describing a different construction. **This lever was §11.3.5.3's `Hue` until the
-    // four-hundred-and-forty-first** (drawn since ADR 0277) and Table 57's `/BG2` until session
-    // 1055, where it stopped being a refusal at all: §10.4.2.1 puts §10.4.2.4's parameters on a
-    // branch this tree does not convert on, so falling back to the device evaluated them no
-    // more than compositing in ink did and only cost the page its space (ADR 1069).
+    // The construction on this fixture that keeps a four-component group *undrawable*, and
+    // therefore named, is the clause's own subject: the group declares `/DeviceCMYK` and what
+    // is in force is §8.6.5.6's `/DefaultCMYK`, whose value "shall be used as the colour space
+    // for the operation currently being performed" — here a four-component `DeviceN` this tree
+    // has no conversion out of (§11.7.2), so there is no press to composite the elements in.
+    // Table 145 and Errata Collection 3's Issue #134 are why the entry sits in the *group*
+    // `XObject`'s resources rather than the page's.
     let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
     let group = |entry: &str| format!("/Group << /S /Transparency {entry} >>");
-    let knocked_out =
-        |page_group: &str| reported(page_group, &group("/I true /K true /CS /DeviceCMYK"));
+    let unsampled = "/ColorSpace << /DefaultCMYK [/DeviceN [/C /M /Y /K] /DeviceCMYK \
+                     << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 1 1 1] /N 1 >>] >>";
+    let unsampled_press = |page_group: &str| {
+        probe(
+            page_group,
+            &group("/I true /CS /DeviceCMYK"),
+            unsampled,
+            "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
+        )
+    };
 
     // A non-isolated group naming `/DeviceCMYK` on a page that states no group at all. The
     // clause hands the space to the parent, and the parent is §11.4.7's page group, whose
@@ -1466,10 +1596,10 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
         "an isolated group's /CS is the space its elements composite in, and it composites \
          in it: {isolated}"
     );
-    // With §11.4.6's knockout over the same group the pair cannot be built, so the same entry
-    // keeps the report — which is also what pins that the report names the space the elements
-    // composite in, not the entry.
-    let isolated_named = knocked_out("");
+    // With the same entry over a `/DefaultCMYK` this tree cannot sample, no press exists to
+    // build the pair in, so the entry keeps the report — which is also what pins that the
+    // report names the space the elements composite in, not the entry.
+    let isolated_named = unsampled_press("");
     assert!(
         isolated_named.contains("blending colour space /DeviceCMYK"),
         "a knockout group's four components keep the departure named: {isolated_named}"
@@ -1491,6 +1621,7 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
         interpret(page_group_fixture(
             page_group,
             form_group,
+            "",
             "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do",
             "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
         ))
@@ -1540,6 +1671,7 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
         interpret(page_group_fixture(
             page_cmyk,
             &group(""),
+            "",
             "0 1 0 rg 20 20 50 50 re f",
             "0 0 1 rg 10 10 50 50 re f",
         ))
@@ -1577,6 +1709,7 @@ fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
         interpret(page_group_fixture(
             page_cmyk,
             form_group,
+            "",
             "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do",
             &page,
         ))
@@ -1727,6 +1860,7 @@ fn a_page_group_in_ink_composites_in_ink() {
         "/Group << /S /Transparency /CS /DeviceCMYK >>",
         "",
         "",
+        "",
         INK_OVER_PAPER,
     ));
     assert!(
@@ -1746,7 +1880,7 @@ fn a_page_group_in_ink_composites_in_ink() {
 
     // The old route, stated by a page that names no blending space: the two colours are
     // converted first and averaged on the device's components, which is 127.5.
-    let device = interpret(page_group_fixture("", "", "", INK_OVER_PAPER));
+    let device = interpret(page_group_fixture("", "", "", "", INK_OVER_PAPER));
     let plain = pixel(&device, 50, 50);
     assert!(
         (127..=128).contains(&plain[0]),
@@ -1776,6 +1910,7 @@ fn a_page_group_in_ink_composites_in_ink() {
 fn a_colour_from_outside_the_blending_space_is_converted_into_it_and_comes_back() {
     let mixed = interpret(page_group_fixture(
         "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "",
         "",
         "",
         "0 0 0 0 k 0 0 100 100 re f\n\
@@ -1827,6 +1962,7 @@ fn the_route_this_round_replaced_moves_a_colour_that_composites_with_nothing() {
     };
     let panel = classic(0.298, 0.686, 0.314);
     let drawn = interpret(page_group_fixture(
+        "",
         "",
         "",
         "",
@@ -2069,6 +2205,7 @@ fn the_three_routes_to_a_press_all_composite_in_it() {
     let assumed = pixel(
         &interpret(page_group_fixture(
             "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "",
             "",
             "",
             HALF_REGISTRATION,

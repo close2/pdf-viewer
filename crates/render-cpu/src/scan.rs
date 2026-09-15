@@ -939,22 +939,14 @@ pub(crate) fn intersect_group(band: &mut [u8], clip: Clip<'_>) -> bool {
 /// here costs a path within a hair of the bound its anti-aliasing and nothing else.
 ///
 /// **A [`Clip::Region`] still meets this mark by a product, and what is left here is the residue
-/// rather than the case.** Since ADR 0535 a stroke above the coverage quantum is drawn as the fill
-/// of its own outline (`render_cpu::draw_stroked_outline`) and composes through [`fill`], and
-/// §10.7.4's substitutions on a sub-pixel rule were fills already. What still arrives here is a
-/// stroke at or under the quantum for which every one of those substitutions declined:
-/// `crate::carries_coverage_as_alpha` answering `false`, which is [`intersected`]'s own first
-/// decline as well and so loses no composition; a transform with no thinnest line; or a path the
-/// stroker or the dasher refused, which draws nothing here either. `doc/todo/11` item 4 carries
-/// what is left of the item.
-///
-/// **That list was short by one for eleven sessions**, and the missing entry is why ADR 1095
-/// exists: a stroke *at* the quantum satisfied `draw_sub_pixel_rule`'s entry test against
-/// `pdf_render::thinnest_line` and failed the widening's own against
-/// `pdf_render::band_substitute_width`, the two having parted by a unit in the last place, and
-/// `render_cpu::draw_stroked_outline` declines the same width from the other side. A `1 w`
-/// annotation border therefore arrived here and lost 9.0% of `bug1844576.pdf` to the product.
-/// The floor in `band_substitute_width` closes it.
+/// rather than the case.** Since ADR 0535 a stroke is drawn as the fill of its own outline
+/// (`render_cpu::draw_stroked_outline`) and composes through [`fill`], and §10.7.4's substitutions
+/// on a rule too thin for the raster to state are fills already. That outline is now taken for
+/// every width down to `pdf_render::unmeasurable_width` (ADR 1102), so what still arrives here is
+/// a stroke for which every one of those declined: `crate::carries_coverage_as_alpha` answering
+/// `false`, which is [`intersected`]'s own first decline as well and so loses no composition; a
+/// transform with no thinnest line; or a path the stroker or the dasher refused, which draws
+/// nothing here either. `doc/todo/11` item 4 carries what is left of the item.
 pub(crate) fn stroke(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     path: &tiny_skia::Path,

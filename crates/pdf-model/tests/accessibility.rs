@@ -548,6 +548,107 @@ fn the_same_strings_outside_the_tag_are_not_reversed() {
     );
 }
 
+/// §14.8.2.2.2's artifact **by absence**, calibrated against the two classes beside it.
+///
+/// > Any content that is not included in the structure tree is an artifact
+///
+/// — and the sentence goes on to say it even of content no marked-content sequence tagged
+/// `/Artifact` encloses. NOTE 2 widens the subject: "[t]he phrase 'any content' above refers
+/// to all page content as well as annotations."
+///
+/// One page, three runs, one of each class: a sequence carrying an `/MCID` (§14.7.5.2's way of
+/// specifying a content item), a declared `/Artifact` sequence, and a bare run that states
+/// neither. The document claims to be tagged — §14.8.1's `/MarkInfo` with "a value of true for the
+/// Marked entry" — which is the condition the whole computation is under.
+///
+/// `doc/traps/instruments-and-reports.md` trap 13 is why the first run is here at all: a test that
+/// only showed the bare run being classified would pass just as well if *everything* were, and the
+/// two classes that must **not** move are what says the instrument discriminates.
+#[test]
+fn content_no_element_reaches_is_an_artifact_by_absence() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 80 Td /P << /MCID 0 >> BDC (Real content.) Tj EMC \
+         0 -20 Td /Artifact << /Type /Pagination >> BDC (Chapter One) Tj EMC \
+         0 -20 Td (Loose text.) Tj ET",
+        "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R",
+        "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /P >>\nendobj\n",
+        "/StructParents 3",
+    );
+
+    let text = drawn.text.clone();
+    let named = |span: &pdf_model::content::ArtifactSpan| {
+        (
+            text.get(span.range.clone()).map_or("", str::trim),
+            span.found,
+        )
+    };
+    let found: Vec<(&str, pdf_model::content::ArtifactSource)> =
+        drawn.artifacts.iter().map(named).collect();
+    assert_eq!(
+        found,
+        vec![
+            ("Chapter One", pdf_model::content::ArtifactSource::Declared),
+            ("Loose text.", pdf_model::content::ArtifactSource::Absence),
+        ],
+        "the tagged run is not an artifact and the other two are, each by its own sentence: {:?}",
+        drawn.text
+    );
+    assert!(
+        drawn.text.contains("Real content."),
+        "nothing is removed from the readback: {:?}",
+        drawn.text
+    );
+}
+
+/// The same page in a document that never claimed §14.8 applies to it, which classifies nothing.
+///
+/// §14.8.1 makes the claim a requirement on the file: "[a] tagged PDF document shall contain a
+/// mark information dictionary … with a value of true for the Marked entry", and §14.8.2.2.2's
+/// sentence is addressed to "tagged PDF files". Over the corpus the difference is 831 599
+/// characters — 98.6% of every character no element reaches — which is why this is a test and not
+/// a remark (`examples/unreached_content_census`, ADR 1100).
+#[test]
+fn a_document_that_does_not_claim_to_be_tagged_has_no_artifact_by_absence() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 80 Td /P << /MCID 0 >> BDC (Real content.) Tj EMC \
+         0 -20 Td (Loose text.) Tj ET",
+        "/StructTreeRoot 6 0 R",
+        "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /P >>\nendobj\n",
+        "/StructParents 3",
+    );
+    assert_eq!(drawn.artifacts, Vec::new(), "{:?}", drawn.artifacts);
+}
+
+/// §14.7.5.2's identifier decides inclusion, and not §14.7.5.4's index of it.
+///
+/// The same page as above with the parent tree's entry gone: the `/MCID` still says the producer
+/// specified the run as a content item, so it stays real content. Two corpus documents are exactly
+/// this shape — `issue15340.pdf` and `issue20516.pdf`, 98 characters of body text between them,
+/// named by some element's `/K` while the page's parent tree entry resolves to nothing — and
+/// deciding by the index would call a producer's broken index this reader's artifact. ADR 1100.
+#[test]
+fn a_sequence_with_an_identifier_is_included_though_the_parent_tree_misses_it() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 80 Td /P << /MCID 0 >> BDC (Real content.) Tj EMC \
+         0 -20 Td (Loose text.) Tj ET",
+        "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R",
+        "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [] >>\nendobj\n",
+        "/StructParents 3",
+    );
+    let text = drawn.text.clone();
+    let found: Vec<&str> = drawn
+        .artifacts
+        .iter()
+        .map(|span| text.get(span.range.clone()).map_or("", str::trim))
+        .collect();
+    assert_eq!(found, vec!["Loose text."], "{:?}", drawn.text);
+}
+
 /// §14.8.2.2's artifacts, in both of the forms §14.8.2.2.2 states.
 ///
 /// > For artifacts defined using the marked-content sequence method, the form indicated in

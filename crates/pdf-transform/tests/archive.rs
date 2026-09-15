@@ -5274,3 +5274,153 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         "and the report says it drew nothing of its own"
     );
 }
+
+/// Everything this conversion may lose, for a test whose subject is not which loss.
+fn every_loss() -> Authorisations {
+    Authorisations {
+        image_smoothing: true,
+        metadata_property: true,
+        annotation_printing: true,
+        jpeg2000_colour_fallback: true,
+        signature_assertion: true,
+        forbidden_annotation: true,
+    }
+}
+
+#[test]
+fn an_annotation_the_removal_takes_away_is_not_owed_an_appearance() {
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 ask an appearance dictionary of the
+    // annotations a *conforming file* holds, and section 6.3.1 strikes `Screen` by name in both —
+    // so the annotation this document fails the appearance row at is one the conversion takes off
+    // the page, and the output has no place for the row to fail at. Until `doc/adr/1105` the
+    // preparation asked §12.5.6.18 for artwork it does not state and refused the whole document
+    // over an annotation it was about to delete.
+    //
+    // §12.5.6.18 is why no appearance could be constructed for it either way: "If AP is not
+    // present, the screen annotation shall not have a default visual appearance and shall not be
+    // printed."
+    let source = a_sound_annotation("Screen", None);
+    let target = Target::Four(Flavour::Plain);
+    let subtype_row = "annotations/subtype-defined-in-iso-32000-2";
+    let appearance_row = "annotations/appearance-dictionary-present-from-base-standard";
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == appearance_row),
+        "the fixture fails the appearance row, or this test asserts nothing about it"
+    );
+
+    // Authorising nothing is unchanged, which is what an *Ask* means: both rows are the removal's
+    // question, and neither is answered until it is.
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, appearance_row),
+        Decision::Unauthorised {
+            loss: Loss::ForbiddenAnnotation,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+        },
+        "the appearance row's places are the removal's, so its question is the removal's too"
+    );
+
+    let (report, output) = convert(&source, target, every_loss());
+    assert_eq!(
+        decision(&report, appearance_row),
+        Decision::Authorised {
+            loss: Loss::ForbiddenAnnotation,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+        }
+    );
+    assert_eq!(
+        decision(&report, subtype_row),
+        Decision::Authorised {
+            loss: Loss::ForbiddenAnnotation,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+        },
+        "and it is the same answer the section 6.3.1 row gives, because it is the same act"
+    );
+    let output = output.expect("the authorised removal converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        conversion(&report).appearances.is_empty(),
+        "nothing was constructed: {:?}",
+        conversion(&report).appearances
+    );
+}
+
+#[test]
+fn an_annotation_the_removal_leaves_behind_still_owes_the_appearance_it_cannot_have() {
+    // **Trap 13's control, and it must stop.** The test above says a document whose every
+    // appearance place goes with the removal converts; without this one, a preparation that
+    // simply stopped asking for appearances at all would pass it. Here a `Stamp` — a subtype
+    // ISO 19005-4 section 6.3.1 admits — stands beside the `Screen`, with no appearance and none
+    // derivable, so the row still fails at a place the output will hold and the document is
+    // refused with every loss authorised.
+    let source = Conforming {
+        page: "/Annots [6 0 R 7 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Screen /Rect [20 30 60 70] /F 4 >>".to_owned(),
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /Name /Approved >>"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let appearance_row = "annotations/appearance-dictionary-present-from-base-standard";
+
+    let (report, output) = convert(&source, target, every_loss());
+    assert!(
+        output.is_none(),
+        "one annotation stays and cannot be given the appearance the clause asks for"
+    );
+    let Decision::Refused(Because::TheFence(because)) = decision(&report, appearance_row) else {
+        panic!(
+            "the appearance row is refused: {:?}",
+            decision(&report, appearance_row)
+        );
+    };
+    // §12.5.6.12 states no artwork for a stamp's legend, so nothing was drawn at all — which is a
+    // different refusal from a construction that put marks down and owed an entry beside them,
+    // and the sentence a person reads is the difference.
+    assert!(
+        because.contains("states no artwork"),
+        "the refusal names the clause's silence rather than a partial rendering: {because}"
+    );
+}
+
+#[test]
+fn an_appearance_drawn_as_far_as_its_entries_reach_is_refused_as_partial() {
+    // **The other half of that calibration.** `doc/adr/1105` split one refusal into two, and a
+    // split whose second arm nothing reaches is a split that says nothing. §12.5.6.9's polygon
+    // states its shape in Table 181's `/Vertices`, so the construction draws it; the same table
+    // gives the subtype a `/LE`, and a polygon has no end to put a line ending on — a polyline is
+    // what the clause calls a polygon "except that the first and last vertex are not implicitly
+    // connected". So the endings are owed beside marks that were drawn, which is the shape this
+    // arm is for.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Polygon /Rect [10 10 90 90] /F 4 \
+             /Vertices [20 20 80 20 80 80] /IC [0 0 1] /LE [/OpenArrow /None] >>"
+                .to_owned(),
+        ],
+        contents: Some(paints_in_device_rgb()),
+        ..Conforming::default()
+    }
+    .build();
+    let appearance_row = "annotations/appearance-dictionary-present-from-base-standard";
+
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), every_loss());
+    assert!(output.is_none(), "a partial rendering is not frozen in");
+    let Decision::Refused(Because::TheFence(because)) = decision(&report, appearance_row) else {
+        panic!(
+            "the appearance row is refused: {:?}",
+            decision(&report, appearance_row)
+        );
+    };
+    assert!(
+        because.contains("construct only in part"),
+        "and this one is the partial rendering, not the clause's silence: {because}"
+    );
+}

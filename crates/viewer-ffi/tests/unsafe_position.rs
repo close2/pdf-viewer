@@ -174,8 +174,13 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // are where a C caller reaches text that used to arrive as a second window (ADR 1090). No
     // event kind came with them, so `QUORRA_EVENT_KIND_COUNT` stayed 19, and `QUORRA_ABI_VERSION`
     // did not move for the standing reason.
-    assert_eq!(no_mangle, 182, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 168, "166 `unsafe` entry points and two helpers");
+    // **And one in the thousand-and-eighty-seventh**: `quorra_reference_files` hands over
+    // §8.10.4's target documents, which is the input that decides which of the clause's two
+    // processor classes this library is (ADR 1101). No event kind came with it, so
+    // `QUORRA_EVENT_KIND_COUNT` stayed 19, and `QUORRA_ABI_VERSION` did not move for the standing
+    // reason.
+    assert_eq!(no_mangle, 183, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 169, "167 `unsafe` entry points and two helpers");
 }
 
 #[test]

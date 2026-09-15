@@ -449,7 +449,12 @@ pub(crate) fn restricted(
 /// sentence: a reader told that a signature is valid is owed *valid according to whom*, and only
 /// the host that read the certificates can say.
 fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<String>) {
-    let signatures = every_signature(document);
+    // Read once and lent on: §12.8.6's dictionary says which signature carries §12.8.2.2's
+    // `/DocMDP` and which carries §12.8.2.3's `/UR3`, which is what decides whether a comparison of
+    // two revisions has a transform to be ranked against — and which two of the signatures below
+    // are reachable from nowhere else.
+    let permissions = pdf_signature::signature::permissions(document);
+    let signatures = every_signature(&permissions, document);
     if signatures.is_empty() {
         return;
     }
@@ -496,8 +501,9 @@ fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<S
             timestamps,
         };
         about_one(signature, document, length, &asked, notes);
+        modifications(signature, document, &permissions, notes);
     }
-    permissions(document, notes);
+    permissions_stated(&permissions, notes);
     security_store(&store, &material, notes);
     document_timestamps(&chain, notes);
     anchors_note(trust, &reading, notes);
@@ -856,12 +862,14 @@ fn document_timestamps(chain: &pdf_signature::timestamp::Chain, notes: &mut Vec<
 /// §12.8.1 puts a usage rights signature's dictionary in the permissions dictionary "(not from a
 /// signature field)", so the field walk cannot reach one and three corpus documents carry nothing
 /// else. A certification signature is normally in both and is said once.
-fn every_signature(document: &Document) -> Vec<pdf_signature::signature::Signature> {
-    let permissions = pdf_signature::signature::permissions(document);
+fn every_signature(
+    permissions: &pdf_signature::signature::Permissions,
+    document: &Document,
+) -> Vec<pdf_signature::signature::Signature> {
     let mut signatures = pdf_signature::signature::signatures(document);
     for extra in [
-        permissions.usage_rights_signature,
-        permissions.doc_mdp_signature,
+        permissions.usage_rights_signature.clone(),
+        permissions.doc_mdp_signature.clone(),
     ]
     .into_iter()
     .flatten()
@@ -1338,7 +1346,10 @@ fn about_one(
 }
 
 /// §12.8.6's permissions dictionary, said before a person starts typing rather than after.
-fn permissions(document: &Document, notes: &mut Vec<String>) {
+fn permissions_stated(
+    permissions: &pdf_signature::signature::Permissions,
+    notes: &mut Vec<String>,
+) {
     // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies: "(These
     // changes to the document shall also be prevented if the signature dictionary is referred
     // from the DocMDP entry in the permissions dictionary.)" This program modifies since the
@@ -1346,7 +1357,7 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
     // permit is refused with `Event::Refused` and its reason — and says so here as well, because
     // a field that will not take a value is otherwise a person typing into a document that
     // ignores them, and this is said before they start rather than after.
-    match pdf_signature::signature::permissions(document).doc_mdp {
+    match permissions.doc_mdp {
         Some(pdf_signature::signature::Modification::None) => notes.push(
             "this document's author certified it as final (§12.8.2.2's /P 1), so no change to \
              it is permitted and none will be accepted"
@@ -1373,7 +1384,7 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
     // remove that signature prior to writing the newly modified PDF." The note is said when the
     // document opens rather than when it is saved, because that is when a person can still
     // decide not to.
-    if let Some(rights) = pdf_signature::signature::permissions(document).usage_rights {
+    if let Some(rights) = permissions.usage_rights.as_ref() {
         let fills = rights.grants(pdf_signature::signature::Right::FillInForm);
         let saves = rights.grants(pdf_signature::signature::Right::FullSave);
         if fills && saves {
@@ -1390,6 +1401,286 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
             );
         }
     }
+}
+
+/// §12.8.2.2.2's and §12.8.2.3's *second* step, said to the person reading the document.
+///
+/// # Why this is a report and not a verdict
+///
+/// Both clauses state two steps in the same shape, and the first of each is the byte range digest
+/// that [`verdicts`] has recomputed since the three-hundred-and-seventy-seventh session. This is
+/// the second — §12.8.2.2.2's
+///
+/// > Next, it shall verify that any modifications that have been made to the document are
+/// > permitted by the transform parameters.
+///
+/// — and `pdf_signature::revision` has computed it since ADR 1043 with no program asking. What
+/// that left is the shape ADR 1076 built the anchor supply against: a reading the tree performs
+/// and nobody is told. So the sentences below say what the update *did* and what the transform's
+/// own parameters say about it, and no sentence of them says a signature is valid — the word is
+/// `pdf_signature::verdict::Valid`'s, it needs an anchor nobody supplies by default, and neither
+/// `revision::Judgement` nor `revision::RightsJudgement` has a variant for it.
+///
+/// # What decides that a sentence is said at all
+///
+/// Trap 11's rule, and each condition is the clause's own. The comparison runs where §12.8.1's
+/// signed range stops short of the file's end — which is where an incremental update was appended
+/// after signing and there is a second state to compare — or where §12.8.6's permissions
+/// dictionary names this signature in `/DocMDP` or `/UR3`, because a transform that states what
+/// may change is owed an answer whether or not anything did. The rankings are two and they fire
+/// separately: Table 257's levels are asked of the `/DocMDP` signature and Table 258's rights of
+/// the `/UR3` one, which is where §12.8.6's table puts each.
+fn modifications(
+    signature: &pdf_signature::signature::Signature,
+    document: &Document,
+    permissions: &pdf_signature::signature::Permissions,
+    notes: &mut Vec<String>,
+) {
+    use pdf_signature::revision::Comparison;
+
+    let level = if permissions.doc_mdp_signature.as_ref() == Some(signature) {
+        permissions.doc_mdp
+    } else {
+        None
+    };
+    let rights = if permissions.usage_rights_signature.as_ref() == Some(signature) {
+        permissions.usage_rights.as_ref()
+    } else {
+        None
+    };
+    // §12.8.1 puts the end of a signed range at "the end of the \"%%EOF\" comment, possibly
+    // followed by an optional EOL marker, terminating the incremental update that adds the digital
+    // signature dictionary", so a signature covering the whole file has nothing appended after it
+    // and no second state to be put beside the first.
+    let covers_everything = signature.coverage(document.bytes().len() as u64)
+        == pdf_signature::signature::Coverage::WholeFile;
+    if covers_everything && level.is_none() && rights.is_none() {
+        return;
+    }
+    // **Two clauses state the same second step and a sentence names the one that applies to
+    // *this* signature**: §12.8.2.3 states it for a usage rights signature and §12.8.2.2.2 for
+    // every other, and citing the wrong one would point a reader at a table saying nothing about
+    // what they are holding.
+    let clause = if rights.is_some() {
+        "§12.8.2.3"
+    } else {
+        "§12.8.2.2.2"
+    };
+    let comparison = match Comparison::of(signature, document) {
+        Ok(comparison) => comparison,
+        Err(refusal) => {
+            notes.push(format!(
+                "what happened to this document after that signature was not compared with the \
+                 revision it signed: {refusal}. So the second of the two steps {clause} states was \
+                 not taken, and nothing below is a statement about it"
+            ));
+            return;
+        }
+    };
+    let counted = comparison.kinds();
+    let changed: u64 = counted
+        .iter()
+        .map(|(_, objects)| objects.count())
+        .fold(0_u64, u64::saturating_add);
+    if changed == 0 {
+        notes.push(format!(
+            "nothing in this document changed after that signature: the current file states the \
+             same objects in the same places, under the same catalog, as the revision it signed \
+             ({clause}'s comparison, object by object)"
+        ));
+    } else {
+        let said: Vec<String> = counted
+            .iter()
+            .map(|(kind, objects)| format!("{} {}", objects.count(), what_changed(*kind)))
+            .collect();
+        notes.push(format!(
+            "{changed} object(s) changed after that signature, in {} incremental update(s) \
+             appended after the bytes it signed: {}",
+            comparison.updates_after(),
+            said.join("; ")
+        ));
+    }
+    if let Some(level) = level {
+        ranked_by_level(&comparison, level, notes);
+    }
+    if let Some(rights) = rights {
+        ranked_by_rights(&comparison, rights, notes);
+    }
+}
+
+/// Table 257's sentences: how the changes after a certification signature rank against the
+/// `/DocMDP` level it states (§12.8.2.2).
+fn ranked_by_level(
+    comparison: &pdf_signature::revision::Comparison,
+    level: pdf_signature::signature::Modification,
+    notes: &mut Vec<String>,
+) {
+    use pdf_signature::revision::Judgement;
+
+    let ranking = comparison.rank(level);
+    notes.push(match ranking.judgement() {
+        // Table 257 ranks changes and there are none, which is a different sentence from
+        // "every change is permitted" and is said as one.
+        Judgement::NoChangeToRank => format!(
+            "that signature is this document's certification signature and it states \
+             §12.8.2.2's {}, and there is no modification for Table 257 to rank",
+            stated_level(level)
+        ),
+        Judgement::WithinWhatIsPermitted {
+            objects,
+            disregarded,
+            ..
+        } => format!(
+            "every one of those changes is one §12.8.2.2's {} permits: {objects} object(s) \
+             ranked against Table 257's own operations{}. That is a statement about objects \
+             and not a verdict on the signature",
+            stated_level(level),
+            if disregarded == 0 {
+                String::new()
+            } else {
+                format!(
+                    ", and {disregarded} more in update(s) Table 257 does not count as \
+                     changes to the document at all"
+                )
+            }
+        ),
+        Judgement::NotPermitted { objects, .. } => format!(
+            "{objects} of those changes are ones §12.8.2.2's {} does not permit, and Table \
+             257 says other changes shall invalidate the signature — object(s) {}",
+            stated_level(level),
+            numbers(ranking.not_permitted.named())
+        ),
+        Judgement::NotClassified { objects, .. } => format!(
+            "Table 257's {} forbids none of those changes and this program will not say they \
+             are permitted either: {objects} of them are none of the operations the table \
+             names, so they are refused rather than ranked — object(s) {}",
+            stated_level(level),
+            numbers(ranking.unrankable.named())
+        ),
+    });
+}
+
+/// Table 258's sentences: how the changes after a usage rights signature rank against the rights
+/// its `/UR3` grants (§12.8.2.3), and which granted rights the ranking could not have been about.
+fn ranked_by_rights(
+    comparison: &pdf_signature::revision::Comparison,
+    rights: &pdf_signature::signature::UsageRights,
+    notes: &mut Vec<String>,
+) {
+    use pdf_signature::revision::RightsJudgement;
+
+    let ranking = comparison.against_usage_rights(rights);
+    notes.push(match ranking.judgement() {
+        RightsJudgement::NoChangeToRank => {
+            "that signature is this document's usage rights signature and there is no \
+             modification for Table 258's rights to rank (§12.8.2.3)"
+                .to_owned()
+        }
+        RightsJudgement::WithinTheRightsGranted { objects } => format!(
+            "every one of those changes is an operation this document's /UR3 grants: \
+             {objects} object(s) ranked against Table 258's own rights (§12.8.2.3){}. That is \
+             a statement about objects and not a verdict on the signature",
+            match ranking.not_a_modification.count() {
+                0 => String::new(),
+                counted => format!(
+                    ", and {counted} more that modify nothing in the document — an object \
+                     restated as it stood, or an update's own cross-reference stream"
+                ),
+            }
+        ),
+        RightsJudgement::OutsideTheRightsGranted { objects } => format!(
+            "{objects} of those changes are modifications Table 258's rights do not permit, \
+             which §12.8.2.3 says is what invalidates a usage rights signature — object(s) {}",
+            numbers(ranking.not_granted.named())
+        ),
+        RightsJudgement::NotClassified { objects } => format!(
+            "this document's /UR3 permits none of those changes any less, and this program \
+             will not say it permits them either: {objects} of them are none of the rights \
+             Table 258 names, so they are refused rather than ranked — object(s) {}",
+            numbers(ranking.unrecognised.named())
+        ),
+    });
+    // **The rights this file grants that the ranking above could not have been about.** Trap
+    // 5's rule at the one place it bites here: a reader told a change is inside a `/UR3`'s
+    // rights would otherwise have no way to know which of the rights that `/UR3` names were
+    // never a candidate. The condition is what the *file* states, so a document granting only
+    // rights this comparison recognises says nothing.
+    let unreadable: Vec<String> = pdf_signature::revision::RIGHTS_NOT_RECOGNISED
+        .iter()
+        .filter(|(array, name)| granted_name(rights, array, name))
+        .map(|(array, name)| format!("/{array} {name}"))
+        .collect();
+    if !unreadable.is_empty() {
+        notes.push(format!(
+            "that /UR3 also grants {}, and this program cannot recognise {} in a changed \
+             object — Table 258 names {} rights and a comparison of two revisions can see \
+             eight of them, so the ranking above is silent about the rest rather than \
+             having ranked them",
+            unreadable.join(", "),
+            if unreadable.len() == 1 {
+                "that right"
+            } else {
+                "those rights"
+            },
+            23
+        ));
+    }
+}
+
+/// Table 258's array entry, asked of what the file actually granted.
+fn granted_name(rights: &pdf_signature::signature::UsageRights, array: &str, name: &str) -> bool {
+    let list = match array {
+        "Document" => &rights.document,
+        "Annots" => &rights.annots,
+        "Form" => &rights.form,
+        "Signature" => &rights.signature,
+        _ => &rights.embedded_files,
+    };
+    list.iter().any(|entry| entry == name)
+}
+
+/// §12.8.2.2's `/P`, named as the table numbers it.
+fn stated_level(level: pdf_signature::signature::Modification) -> String {
+    use pdf_signature::signature::Modification;
+    match level {
+        Modification::None => "/P 1".to_owned(),
+        Modification::FormFilling => "/P 2".to_owned(),
+        Modification::FormFillingAndAnnotation => "/P 3".to_owned(),
+        Modification::Unknown(level) => format!("/P {level}, which Table 257 does not define,"),
+    }
+}
+
+/// What one changed object was taken to be, in words rather than as an enumeration.
+///
+/// The vocabulary is Table 257's, because that is the vocabulary the operations are stated in;
+/// `pdf_signature::revision::Kind` carries the clause each of them rests on.
+fn what_changed(kind: pdf_signature::revision::Kind) -> &'static str {
+    use pdf_signature::revision::Kind;
+    match kind {
+        Kind::RestatedUnchanged => "written again saying exactly what they said",
+        Kind::CrossReferenceStream => "an update's own cross-reference stream (§7.5.8)",
+        Kind::FieldFilledIn => "a form field filled in",
+        Kind::Signing => "a signature applied",
+        Kind::TemplateInstantiated => "a page instantiated from a template (§12.7.7)",
+        Kind::FieldAppearance => "the appearance stream of a field filled in",
+        Kind::Annotation => "an annotation created, deleted or modified",
+        Kind::AnnotationAppearance => "an annotation's appearance stream",
+        Kind::ValidationMaterial => {
+            "validation material or a document timestamp (§12.8.4, §12.8.5)"
+        }
+        Kind::CatalogReplaced => "the document's catalog, replaced by another",
+        Kind::Unplaceable => "an object neither state's cross-reference table places",
+        Kind::Unclassified => "a change this program will not put a name to",
+    }
+}
+
+/// Object numbers for a person, bounded the way the set that holds them is.
+fn numbers(named: &[u32]) -> String {
+    named
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<String>>()
+        .join(", ")
 }
 
 /// What this program can say about one signature: §12.8.1's first two questions, in that order.
@@ -1728,6 +2019,209 @@ mod tests {
             objects.len().saturating_add(1)
         );
         Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// A one-revision signed document whose `/ByteRange` names its own bytes, ending at `%%EOF`.
+    ///
+    /// The same construction `pdf_signature::revision`'s own fixtures use and for the same reason:
+    /// §12.8.2.2.2's comparison opens the *prefix* the range names, so a range that does not stop
+    /// at a revision boundary is refused and the report under test never runs. Object 1 is the
+    /// catalog, 2 the page tree, 3 a page, 4 the signature and 5 its field.
+    fn signed_document(catalog: &str, signature: &str) -> Vec<u8> {
+        use std::fmt::Write as _;
+        let objects = [
+            catalog,
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            signature,
+            "<< /FT /Sig /T (Signature1) /V 4 0 R /Subtype /Widget >>",
+        ];
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        let mut bytes = out.into_bytes();
+        let text = String::from_utf8(bytes.clone()).expect("the fixture is ASCII");
+        let value = text.find("/Contents <").expect("a signature value");
+        let start = value.saturating_add("/Contents ".len());
+        let end = text[start..]
+            .find('>')
+            .map(|at| start.saturating_add(at).saturating_add(1))
+            .expect("a closing delimiter");
+        let range = text.find("/ByteRange [").expect("a placeholder range");
+        let at = range.saturating_add("/ByteRange [".len());
+        let filled = format!(
+            "{:010} {:010} {:010} {:010}",
+            0,
+            start,
+            end,
+            text.len().saturating_sub(end)
+        );
+        bytes.splice(at..at.saturating_add(filled.len()), filled.into_bytes());
+        bytes
+    }
+
+    /// §7.5.6's incremental update appended to one of those: the objects, a section, a trailer.
+    fn append(bytes: &mut Vec<u8>, objects: &[(u32, &str)]) {
+        use std::fmt::Write as _;
+        let text = String::from_utf8(bytes.clone()).expect("ascii");
+        let at = text.rfind("startxref\n").expect("a previous section");
+        let previous: usize = text[at..]
+            .lines()
+            .nth(1)
+            .and_then(|line| line.trim().parse().ok())
+            .expect("the previous section's offset");
+        let mut out = String::new();
+        let mut placed = Vec::new();
+        let mut highest = 0;
+        for (number, body) in objects {
+            placed.push((*number, bytes.len().saturating_add(out.len())));
+            highest = highest.max(*number);
+            let _ = write!(out, "{number} 0 obj\n{body}\nendobj\n");
+        }
+        let xref_at = bytes.len().saturating_add(out.len());
+        out.push_str("xref\n");
+        for (number, offset) in &placed {
+            let _ = write!(out, "{number} 1\n{offset:010} 00000 n \n");
+        }
+        let size = usize::try_from(highest).unwrap_or(0).saturating_add(1);
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R /Prev {previous} >>\n\
+             startxref\n{xref_at}\n%%EOF\n"
+        );
+        bytes.extend_from_slice(out.as_bytes());
+    }
+
+    /// §12.8.2.2.2's second step reaches a person, and Table 257's level is what decides it.
+    ///
+    /// **The calibration is the same file twice** (trap 13): one update, one annotation created,
+    /// and the only difference between the two runs is the `/P` the certification states. A report
+    /// that said the same thing at both levels would be reporting that a comparison happened
+    /// rather than what it found — and until this round nothing in the program said either, which
+    /// is the debt ADR 1043 named and ADR 1104 closes.
+    #[test]
+    fn what_an_update_did_after_a_certification_is_ranked_against_the_level_it_states() {
+        let certification = |level: u8| {
+            format!(
+                "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+                 /Reference [ << /Type /SigRef /TransformMethod /DocMDP /TransformParams \
+                 << /Type /TransformParams /P {level} >> >> ] \
+                 /ByteRange [0000000000 0000000000 0000000000 0000000000] \
+                 /Contents <00112233445566778899aabbccddeeff> >>"
+            )
+        };
+        let catalog = "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> \
+                       /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>";
+
+        let mut bytes = signed_document(catalog, &certification(2));
+        append(
+            &mut bytes,
+            &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        assert!(
+            said.contains("1 object(s) changed after that signature, in 1 incremental update(s)"),
+            "{said}"
+        );
+        assert!(
+            said.contains("1 an annotation created, deleted or modified"),
+            "{said}"
+        );
+        // Table 257's level 2 permits "filling in forms, instantiating page templates, and
+        // signing" and this is none of the three, so the sentence has to be the table's own
+        // consequence and has to name the object.
+        assert!(
+            said.contains("1 of those changes are ones §12.8.2.2's /P 2 does not permit"),
+            "{said}"
+        );
+        assert!(said.contains("object(s) 6"), "{said}");
+
+        // The same file at level 3, which adds "annotation creation, deletion, and modification".
+        let mut bytes = signed_document(catalog, &certification(3));
+        append(
+            &mut bytes,
+            &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        assert!(
+            said.contains("every one of those changes is one §12.8.2.2's /P 3 permits"),
+            "{said}"
+        );
+        assert!(!said.contains("does not permit"), "{said}");
+        // **The word no sentence of this report may reach**, at either level: the ranking is a
+        // statement about objects and §12.8.1's third question has no trust store behind it.
+        assert!(
+            !said.contains("the signature is valid") && !said.contains("signature is valid"),
+            "{said}"
+        );
+    }
+
+    /// §12.8.2.3's rights reach a person too, and the rights the ranking could not be about.
+    ///
+    /// A `/UR3` granting `/Annots [/Create]` and `/EF [/Delete]`: the annotation created is inside
+    /// what was granted, and the `/EF` right is one `revision::RIGHTS_NOT_RECOGNISED` refuses by
+    /// name — so a reader is told both, which is trap 5's rule at the place a partial answer would
+    /// otherwise read as a whole one.
+    #[test]
+    fn what_an_update_did_after_a_usage_rights_signature_is_ranked_against_table_258() {
+        let signature = "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+                         /Reference [ << /Type /SigRef /TransformMethod /UR3 /TransformParams \
+                         << /Type /TransformParams /V /2.2 /P true /Annots [/Create] \
+                         /EF [/Delete] >> >> ] \
+                         /ByteRange [0000000000 0000000000 0000000000 0000000000] \
+                         /Contents <00112233445566778899aabbccddeeff> >>";
+        let catalog = "<< /Type /Catalog /Pages 2 0 R /Perms << /UR3 4 0 R >> \
+                       /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>";
+        let mut bytes = signed_document(catalog, signature);
+        append(
+            &mut bytes,
+            &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+
+        assert!(
+            said.contains("every one of those changes is an operation this document's /UR3 grants"),
+            "{said}"
+        );
+        assert!(
+            said.contains("that /UR3 also grants /EF Delete, and this program cannot recognise"),
+            "{said}"
+        );
+        assert!(
+            !said.contains("/Annots Create, and this program cannot"),
+            "{said}"
+        );
+
+        // The control, and it moves exactly one answer (trap 13): the same update under a `/UR3`
+        // that names `Delete` alone is outside the rights rather than inside them.
+        let refusing = signature.replace("/Annots [/Create]", "/Annots [/Delete]");
+        let mut bytes = signed_document(catalog, &refusing);
+        append(
+            &mut bytes,
+            &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        assert!(
+            said.contains("1 of those changes are modifications Table 258's rights do not permit"),
+            "{said}"
+        );
     }
 
     /// §12.8.5's chain, named to a person, and the two things the sentences may not say.

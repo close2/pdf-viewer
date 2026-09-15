@@ -2960,6 +2960,85 @@ pub unsafe extern "C" fn quorra_trust_anchors(
     Status::Ok.code()
 }
 
+/// ISO 32000-2 §8.10.4's target documents: which files a reference `XObject` may import a page from.
+///
+/// **A library with no filesystem, so the files arrive from the caller or not at all.** §8.10.4.1
+/// writes a `shall` for a processor that imports the referenced page and a `shall` for one that
+/// draws the proxy instead, and which of the two this library is depends entirely on whether the
+/// target file has been handed to it. A caller that never calls this gets what it got before this
+/// entry point existed: every reference `XObject` draws its proxy, and nothing is reported.
+///
+/// **Which file a reference names is decided by §14.4's identifier and never by a path.** That
+/// clause states the match itself — the permanent identifier decides which file, and a difference
+/// in the changing one means "a different version of the correct PDF file has been found", which
+/// is said and drawn rather than refused. Nothing a *document* writes selects a member of this
+/// list, which is what keeps a file from choosing what this process reads.
+///
+/// `files` is `count` pointers to whole PDF files and `lengths` their lengths. `names` may be null,
+/// or `count` NUL-terminated strings naming each one — whatever the caller knows them by, which is
+/// what a refusal to open one is reported against. `source` is the sentence saying where they came
+/// from; a reader shown a page out of another file is owed *which file, on whose say-so*.
+///
+/// A `count` of zero withdraws the files. The bytes are copied before this returns, so the caller
+/// may free them immediately.
+///
+/// **This takes no struct by value**, so [`crate::abi::QUORRA_ABI_VERSION`] does not move: an entry
+/// point *added* is one an old caller never calls.
+///
+/// # Safety
+///
+/// See the module documentation. `files` and `lengths` are readable for `count` elements, each
+/// `files[i]` readable for `lengths[i]` bytes; `names`, where not null, is readable for `count`
+/// pointers to NUL-terminated strings; `source` is a NUL-terminated string or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_reference_files(
+    viewer: *mut Session,
+    files: *const *const u8,
+    lengths: *const usize,
+    names: *const *const c_char,
+    count: usize,
+    source: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    if count > 0 && (files.is_null() || lengths.is_null()) {
+        return Status::NullArgument.code();
+    }
+    let mut held = Vec::with_capacity(count);
+    for index in 0..count {
+        let pointer = *files.add(index);
+        let length = *lengths.add(index);
+        if pointer.is_null() {
+            return Status::NullArgument.code();
+        }
+        let name = if names.is_null() {
+            format!("file {}", index.saturating_add(1))
+        } else {
+            let given = *names.add(index);
+            if given.is_null() {
+                format!("file {}", index.saturating_add(1))
+            } else {
+                CStr::from_ptr(given).to_string_lossy().into_owned()
+            }
+        };
+        held.push((name, core::slice::from_raw_parts(pointer, length).to_vec()));
+    }
+    let source = if source.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(source).to_string_lossy().into_owned()
+    };
+    *events = Box::into_raw(Box::new(viewer.reference_files(
+        viewer_core::ReferenceFiles {
+            files: held,
+            source,
+        },
+    )));
+    Status::Ok.code()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]

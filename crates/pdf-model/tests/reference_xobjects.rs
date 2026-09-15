@@ -1,38 +1,38 @@
-//! Reference `XObject`s: ISO 32000-2 §8.10.4, and the permission this reader exercises.
+//! Reference `XObject`s: ISO 32000-2 §8.10.4, and the two processors the clause addresses.
 //!
 //! # Why this file exists
 //!
-//! §8.10.4.1 gives a reader two ways to be right about a form `XObject` carrying `/Ref`, and
-//! this one takes the first:
+//! §8.10.4.1 writes a `shall` to each of two classes, and which one this program is depends on
+//! what a **host** supplied rather than on anything in the code or in the file:
 //!
-//! > PDF processors that do not recognise the Ref entry shall simply display or print the
-//! > proxy as an ordinary form XObject.
+//! > PDF processors that do not recognise the Ref entry shall simply display or print the proxy
+//! > as an ordinary form XObject. Those PDF processors that do implement reference XObjects shall
+//! > use the proxy in place of the imported content if the latter is unavailable.
 //!
-//! Nothing in `crates/`, `tools/` or `fuzz/` names `Ref` or a reference `XObject`, so "do not
-//! recognise" is literally true of this tree rather than a decision taken at the entry — and
-//! *that is the claim these tests hold*. It is a claim about an absence, which is the shape
-//! that rots quietly: a later round adding a report, a refusal, or half an import would break
-//! §8.10.4.1's sentence while every corpus gate stayed green, because **no document of the
-//! curated 1251 nor of the 65 944-document `CC-MAIN-2021-31` crawl states a reference
-//! `XObject`** — 67 195 of the 67 460 on this disk — (§8.10.4's row has the census, and *Why the fixtures are hand-built* below has
-//! how it was calibrated).
+//! `CLAUDE.md` principle 3 gives the renderer no filesystem, so with no target document in hand
+//! this reader draws the proxy — which is the second sentence, "if the latter is unavailable", and
+//! was the whole of what this tree did until the one-thousand-and-eighty-seventh session. What
+//! changed is that a host can now put the file in front of it (`pdf_model::reference`, ADR 1101),
+//! and then the *first* half of that sentence binds: the referenced page is drawn.
 //!
-//! The three rows this file is evidence for named `tests/corpus.rs` — a *gate*'s file, which
-//! passes for every document in the corpus and asserts nothing about `/Ref` at all. A file
-//! passes whatever it contains; a test fails when the thing it is about stops being true.
+//! So this file holds both halves, against one pair of documents, differing in what is supplied
+//! and in nothing else. The half that draws the proxy is the older claim and is a claim about an
+//! *absence*, which is the shape that rots quietly; the half that imports is new and every one of
+//! its assertions is written so that the answer it excludes is the other document's own colour.
 //!
 //! # Why the fixtures are hand-built
 //!
-//! `doc/traps/parsers-and-streams.md`'s trap 4 prefers real documents, and there are none.
+//! `doc/traps/parsers-and-streams.md`'s trap 8 prefers real documents, and there are none.
 //! `examples/absence_audit` asks §8.10.4.1's own condition — a form `XObject` whose form
 //! dictionary holds a `/Ref` dictionary, the subtype included, which is what tells Table 93's
-//! entry from Table 355's array on a `/TOCI` structure element — and finds **no witness in the
-//! curated 1251 nor in the `SafeDocs` `CC-MAIN-2021-31` crawl's 65 944**: 67 195 of the 67 460
-//! PDFs on this disk, the remainder being `corpus-cache/openpreserve`'s 267, which that example
-//! has no scope for. The corpora are named because a claim of absence is refuted by one witness
-//! and a widening is where witnesses arrive; the block was calibrated by pointing it at
-//! `/Group`, which names 75 of `doc/pdf.js`'s documents, so the zero is a measurement rather
-//! than a blind spot.
+//! entry from Table 355's array on a `/TOCI` structure element — and finds **no witness anywhere
+//! on this disk**: none in the curated population, none in the `SafeDocs` `CC-MAIN-2021-31`
+//! crawl, and none in `corpus-cache/openpreserve` and `corpus-cache/tika-issue-tracker`, which
+//! that example had no scope for until this session and now has (§8.10.4's ledger row carries the
+//! counts). The second half of the census is empty by construction rather than by measurement:
+//! no document states a `/Ref`, so no `/Ref` states an `/ID`, so no target file named by one can
+//! be on this disk to be matched. The block was calibrated by pointing it at `/Group`, which
+//! names documents in the same corpora, so the zero is a measurement and not a blind spot.
 //!
 //! The same reasoning §8.10.3's row records for `/Group << /S /Softness >>` applies — a
 //! requirement no file exercises is held by a fixture or by nothing.
@@ -40,63 +40,123 @@
 #![expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
-    reason = "test code: a malformed fixture should fail loudly, and this page is 100 units \
+    reason = "test code: a malformed fixture should fail loudly, and these pages are 100 units \
               square where no arithmetic can overflow"
 )]
 
 use std::fmt::Write as _;
 
+use pdf_model::reference::Supply;
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 
-/// A two-page fixture: a containing page drawing a proxy, and a target page it names.
+/// The four colours the pair states, one per thing an assertion has to tell apart.
 ///
-/// `reference` is the proxy form's `/Ref` entry, written whole so a test can leave it out —
-/// which is what makes the pair of interpretations below differ in that entry and nothing
-/// else. The proxy fills a 100-unit square while its `/BBox` is half that, so a reader that
-/// stopped clipping it draws a different page; the target page fills itself blue and carries a
-/// `Square` annotation whose appearance is green, which are §8.10.4.3's two subjects made
-/// visible.
-fn fixture(reference: &str) -> Vec<u8> {
+/// Read off the fixtures below rather than off a render: every assertion here is an exact
+/// equality against one of these, so a page drawn out of the wrong document fails by naming the
+/// document it came from.
+const PROXY_RED: [u8; 4] = [255, 0, 0, 255];
+const TARGET_BLUE: [u8; 4] = [0, 0, 255, 255];
+const ANNOTATION_YELLOW: [u8; 4] = [255, 255, 0, 255];
+const CONTAINING_MAGENTA: [u8; 4] = [255, 0, 255, 255];
+const DECOY_GREEN: [u8; 4] = [0, 255, 0, 255];
+const BLANK: [u8; 4] = [255, 255, 255, 255];
+
+/// §14.4's identifier the target document states in its own trailer.
+const TARGET_ID: (&str, &str) = ("0102", "0304");
+
+/// The containing document: one page that draws a shading of its own and then a proxy.
+///
+/// `reference` is the proxy form's `/Ref` entry, written whole so that a test can state a
+/// different one — or none — and change nothing else. The proxy fills 100 units square while its
+/// `/BBox` is half that, so §8.10.4.1's "clipped to the boundaries of its bounding box" is
+/// visible whichever of the two things is drawn.
+///
+/// **Object 6 is a `/Shading` resource table here and a `/Shading` resource table in the target
+/// document too, and they name different shadings.** That is not decoration, and it is what the
+/// [`DECOY_GREEN`] object in the target is for: `Interpreter::resource_tables` memoises §7.8.3's
+/// category tables by the [`pdf_syntax::ObjectId`] the resource dictionary states, and every other
+/// memo the interpreter holds is keyed by an object of *one* file in the same way. Two files hand
+/// out the same object numbers, so a reader that imported a page without swapping those memos
+/// would look the target page's `/Sh0` up in this document's table and find the wrong object.
+fn containing(reference: &str) -> Vec<u8> {
+    // The page's own shading, in the top-right corner and clear of the proxy's `/BBox`, so that
+    // what it draws is a fact about this document whichever answer the `Do` gives.
+    let page = "q 60 0 30 30 re W n /Sh0 sh Q /Fm Do";
     let proxy = "1 0 0 rg 0 0 100 100 re f";
-    let target = "0 0 1 rg 0 0 100 100 re f";
-    let appearance = "0 1 0 rg 0 0 30 30 re f";
-    let page = "/Fm Do";
 
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-         2 0 obj\n<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         /Resources << /XObject << /Fm 5 0 R >> /Shading 6 0 R >> \
+         /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 50 50] {reference} \
          /Length {} >>\nstream\n{proxy}\nendstream\nendobj\n\
-         6 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << >> /Contents 7 0 R /Annots [8 0 R] >>\nendobj\n\
-         7 0 obj\n<< /Length {} >>\nstream\n{target}\nendstream\nendobj\n\
-         8 0 obj\n<< /Type /Annot /Subtype /Square /Rect [60 60 90 90] /F 4 \
-         /AP << /N 9 0 R >> >>\nendobj\n\
-         9 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 30 30] /Length {} >>\n\
-         stream\n{appearance}\nendstream\nendobj\n",
+         6 0 obj\n<< /Sh0 7 0 R >>\nendobj\n\
+         7 0 obj\n{}\nendobj\n",
         page.len() + 1,
         proxy.len() + 1,
-        target.len() + 1,
-        appearance.len() + 1
+        shading("1 0 1")
     );
-
-    assemble(&body)
+    assemble(&body, Some(("1111", "2222")))
 }
 
-/// Table 95's reference dictionary, filled in: the target document's file, and its page.
+/// The target document: one page filled by a shading, carrying one annotation.
 ///
-/// `/F` and `/Page` are the two the table makes *required*; `/ID` is optional and is here
-/// because a reader that started following `/Ref` would use it, so a test of not following it
-/// should state everything a follower needs.
-const REF: &str = "/Ref << /F << /Type /Filespec /F (target.pdf) /UF (target.pdf) >> \
-                   /Page 1 /ID [<0102> <0304>] >>";
+/// Its `/ID` is [`TARGET_ID`], which is the only thing a `/Ref` can name it by.
+///
+/// **Object 7 is a shading this page never paints**, and it is [`DECOY_GREEN`] for the reason
+/// [`containing`] gives: it is what object 7 would be if the containing document's `/Shading`
+/// table — its own object 6 — were still the one in force when this page's `/Sh0` is looked up.
+fn target() -> Vec<u8> {
+    let page = "q 0 0 100 100 re W n /Sh0 sh Q";
+    let appearance = "1 1 0 rg 0 0 40 40 re f";
+
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /Shading 6 0 R >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [30 30 70 70] /F 4 \
+         /AP << /N 9 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /Sh0 8 0 R >>\nendobj\n\
+         7 0 obj\n{}\nendobj\n\
+         8 0 obj\n{}\nendobj\n\
+         9 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n",
+        page.len() + 1,
+        shading("0 1 0"),
+        shading("0 0 1"),
+        appearance.len() + 1
+    );
+    assemble(&body, Some(TARGET_ID))
+}
+
+/// One flat §8.7.4.4 axial shading, as a direct dictionary, in the colour given.
+fn shading(colour: &str) -> String {
+    format!(
+        "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Extend [true true] \
+         /Function << /FunctionType 2 /Domain [0 1] /C0 [{colour}] /C1 [{colour}] /N 1 >> >>"
+    )
+}
+
+/// Table 95's reference dictionary, filled in: the target document's file, its page and its `/ID`.
+///
+/// `/F` and `/Page` are the two the table makes required; `/ID` is optional and is what this
+/// reader matches on, because §14.4 states the match and a path states somebody else's
+/// filesystem. `/Page 0` is the first page: §12.4.2 counts page indices from zero.
+fn reference(id: Option<(&str, &str)>) -> String {
+    let id = id.map_or_else(String::new, |(first, second)| {
+        format!(" /ID [<{first}> <{second}>]")
+    });
+    format!("/Ref << /F << /Type /Filespec /F (target.pdf) /UF (target.pdf) >> /Page 0{id} >>")
+}
 
 /// Wraps a body of numbered objects in §7.5's header, cross-reference table and trailer.
-fn assemble(body: &str) -> Vec<u8> {
+fn assemble(body: &str, id: Option<(&str, &str)>) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -110,20 +170,39 @@ fn assemble(body: &str) -> Vec<u8> {
     for offset in &offsets {
         let _ = writeln!(out, "{offset:010} 00000 n ");
     }
+    // §7.5.5 Table 15 makes `/ID` "Required in PDF 2.0 and later"; §14.4 is what it is for.
+    let id = id.map_or_else(String::new, |(first, second)| {
+        format!(" /ID [<{first}> <{second}>]")
+    });
     let _ = write!(
         out,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        "trailer\n<< /Size {size} /Root 1 0 R{id} >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
 }
 
-/// Interprets the fixture's page at `index`.
-fn interpret(bytes: &[u8], index: usize) -> pdf_model::Interpretation {
-    let document = Document::open(bytes.to_vec()).expect("the fixture is a valid PDF");
+/// Interprets the containing document's only page against the supplied target documents.
+fn interpret(reference: &str, supply: &Supply) -> pdf_model::Interpretation {
+    let bytes = containing(reference);
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document)
-        .get(index)
+        .get(0)
         .expect("the fixture's page");
-    pdf_model::interpret(&document, &page)
+    pdf_model::content::interpret_importing(
+        &document,
+        &page,
+        &pdf_model::view::ViewState::of(&document),
+        &pdf_model::FontCache::new(),
+        supply,
+    )
+}
+
+/// The target document, supplied as a host would.
+fn supplied() -> Supply {
+    let (supply, refused) = Supply::read([("target.pdf", target())], "the test's own bytes");
+    assert!(refused.is_empty(), "{refused:?}");
+    assert_eq!(supply.len(), 1);
+    supply
 }
 
 /// The fixture rendered at one pixel per unit, as RGBA rows.
@@ -140,30 +219,47 @@ fn raster(interpretation: &pdf_model::Interpretation) -> Vec<[u8; 4]> {
         .collect()
 }
 
-/// The RGBA pixel at device `(x, y)` of a 100-pixel-square raster.
-fn pixel(interpretation: &pdf_model::Interpretation, x: usize, y: usize) -> [u8; 4] {
-    raster(interpretation)[y * 100 + x]
+/// The RGBA pixel at **page** `(x, y)` of a 100-unit-square page, rastered one pixel per unit.
+///
+/// Page coordinates rather than device ones, because every assertion here is about where a
+/// *document* put something. `TargetSpec::for_page` does the flip, about the page's height, and
+/// stating it once here is what keeps trap 12a out of a file with a dozen of these.
+fn at(interpretation: &pdf_model::Interpretation, x: usize, y: usize) -> [u8; 4] {
+    raster(interpretation)[(99 - y) * 100 + x]
 }
 
-/// §8.10.4.1's provision for a reader like this one, exercised and pinned.
+/// Whatever the interpretation said about §8.10.4, joined — empty where it said nothing.
+fn said(interpretation: &pdf_model::Interpretation) -> String {
+    interpretation
+        .unsupported
+        .iter()
+        .filter_map(|report| match report {
+            pdf_model::Unsupported::ReferenceXObject { detail } => Some(detail.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// §8.10.4.1's provision for a reader with no target document, exercised and pinned.
 ///
-/// > PDF processors that do not recognise the Ref entry shall simply display or print the
-/// > proxy as an ordinary form XObject.
+/// > PDF processors that do not recognise the Ref entry shall simply display or print the proxy
+/// > as an ordinary form XObject.
 ///
-/// *Simply* and *ordinary* are the load-bearing words, and the strongest reading of them is
-/// that the entry changes nothing: the same proxy with and without `/Ref` produces the same
-/// display list, command for command. The pixels are asserted as well as the list because
-/// "ordinary form `XObject`" carries §8.10.1's step c) with it — a proxy is clipped by its own
-/// `/BBox` like any other form, and a reader that exempted one would draw past it.
+/// *Simply* and *ordinary* are the load-bearing words, and the strongest reading of them is that
+/// the entry changes nothing: the same proxy with and without `/Ref` produces the same display
+/// list, command for command. The pixels are asserted as well as the list because "ordinary form
+/// `XObject`" carries §8.10.1's step c) with it — a proxy is clipped by its own `/BBox` like any
+/// other form, and a reader that exempted one would draw past it.
 ///
 /// Nothing is reported, and that is the clause's doing rather than an oversight
-/// (`doc/traps/instruments-and-reports.md`'s trap 11): §8.10.4.1 states the alternative this
-/// reader takes, so there is no gap to name. A report here would take every page holding a
-/// proxy out of the oracle's comparison for a requirement the standard says is met.
+/// (`doc/traps/instruments-and-reports.md`'s trap 11): §8.10.4.1 states this alternative, so there
+/// is no gap to name. A report here would take every page holding a proxy out of the oracle's
+/// comparison for a requirement the standard says is met.
 #[test]
-fn a_proxy_carrying_ref_is_drawn_as_an_ordinary_form_xobject() {
-    let with = interpret(&fixture(REF), 0);
-    let without = interpret(&fixture(""), 0);
+fn a_proxy_carrying_ref_is_drawn_as_an_ordinary_form_xobject_where_nothing_was_supplied() {
+    let with = interpret(&reference(Some(TARGET_ID)), &Supply::NONE);
+    let without = interpret("", &Supply::NONE);
 
     assert!(with.is_complete(), "{:?}", with.unsupported);
     assert!(without.is_complete(), "{:?}", without.unsupported);
@@ -172,55 +268,214 @@ fn a_proxy_carrying_ref_is_drawn_as_an_ordinary_form_xobject() {
         without.display_list.commands(),
         "/Ref changed what the proxy draws"
     );
+    assert_eq!(said(&with), "", "a supply nobody offered is not a gap");
 
-    // Device (10, 90) is page (10, 10), inside the `/BBox`; (60, 40) is page (60, 60), outside
-    // it and inside the rectangle the proxy fills.
-    assert_eq!(pixel(&with, 10, 90), [255, 0, 0, 255], "the proxy paints");
+    assert_eq!(at(&with, 10, 10), PROXY_RED, "the proxy paints");
     assert_eq!(
-        pixel(&with, 60, 40),
-        [255, 255, 255, 255],
+        at(&with, 60, 60),
+        BLANK,
         "and is clipped by its own /BBox, as any form is"
     );
 }
 
-/// §8.10.4.3's two considerations have no imported page to be about.
+/// §8.10.4.1's other half: the referenced page, drawn where the proxy was.
 ///
-/// Both are conditional on importing the target page — its annotations "shall be included in
-/// the rendering of the imported page", and its logical structure "may be ignored" — and
-/// neither arises while §8.10.4.1's proxy is what is drawn. That is an argument about an
-/// absence, so what holds it is a fixture whose target page is *reachable*: page 1 of this
-/// very file, filled blue, carrying a `Square` annotation whose appearance is green. Table
-/// 95's `/F` and `/Page` both name it.
+/// > Those PDF processors that do implement reference XObjects shall use the proxy in place of the
+/// > imported content if the latter is unavailable.
 ///
-/// Neither colour may appear anywhere on the containing page. The test fails on the day a
-/// round imports the target — which is the point: the row it is evidence for says the two
-/// considerations do not arise, and an import that leaves this test standing has either
-/// carried the annotation appearances (§8.10.4.3's first consideration) or drawn nothing.
+/// — so where it *is* available the imported content is what is drawn. And §8.10.4.1 says exactly
+/// how:
+///
+/// > When the imported content replaces the proxy, it shall be transformed according to the proxy
+/// > object's transformation matrix and clipped to the boundaries of its bounding box, as
+/// > specified by the Matrix and BBox entries in the proxy's form dictionary
+///
+/// Four pixels, one per claim, and each excludes a different wrong answer: the proxy's own red
+/// inside the box, the target's blue outside it, the containing page's green drawn from another
+/// file's object 6, and a page that drew nothing at all.
 #[test]
-fn no_content_of_the_target_page_reaches_the_containing_page() {
-    let containing = raster(&interpret(&fixture(REF), 0));
+fn a_supplied_target_page_is_drawn_in_the_proxys_place() {
+    let drawn = interpret(&reference(Some(TARGET_ID)), &supplied());
 
-    // The target's own colours, as it and its annotation state them. Read off the fixture
-    // rather than off a render: a match at *any* pixel is the failure, so an exact equality is
-    // what discriminates.
-    let filled = [0, 0, 255, 255];
-    let annotated = [0, 255, 0, 255];
+    assert_eq!(said(&drawn), "", "the page was found and is unchanged");
+    assert_eq!(
+        at(&drawn, 10, 10),
+        TARGET_BLUE,
+        "the referenced page's own content is what the proxy's place holds"
+    );
+    assert_eq!(
+        at(&drawn, 60, 60),
+        BLANK,
+        "and it is clipped by the proxy's /BBox, which §8.10.4.1 makes the imported page's"
+    );
+    assert_eq!(
+        at(&drawn, 70, 20),
+        CONTAINING_MAGENTA,
+        "the containing page's own shading is still this document's"
+    );
+    assert_ne!(
+        at(&drawn, 10, 10),
+        DECOY_GREEN,
+        "the imported page's /Sh0 was looked up in the containing document's /Shading table"
+    );
+}
+
+/// §8.10.4.3's first consideration, which is the only one of its two that binds a reader.
+///
+/// > When the page imported by a reference XObject contains annotations (see 12.5,
+/// > "Annotations"), all annotations that contain a printable, unhidden, visible appearance stream
+/// > (12.5.5, "Appearance streams") shall be included in the rendering of the imported page.
+///
+/// The target page's `Square` states `/F 4` — Table 167's Print, nothing hidden — and an
+/// appearance stream that fills its own box yellow. "[I]ncluded in the rendering of the imported
+/// page" is read at its strongest: the imported page is *rendered*, annotations and all, and that
+/// rendering is then what §8.10.4.1 clips to the proxy's box. So the annotation is half inside
+/// and half outside the box on purpose, and both halves are asserted — an appearance drawn over
+/// the containing page the way this document's own annotations are would spill past (50, 50).
+#[test]
+fn an_imported_pages_annotation_is_drawn_and_clipped_with_the_page_it_is_on() {
+    let drawn = interpret(&reference(Some(TARGET_ID)), &supplied());
+
+    assert_eq!(
+        at(&drawn, 35, 35),
+        ANNOTATION_YELLOW,
+        "the imported page's annotation appearance is part of its rendering"
+    );
+    assert_eq!(
+        at(&drawn, 60, 60),
+        BLANK,
+        "and the part of it outside the proxy's /BBox is clipped away with the page"
+    );
+}
+
+/// §14.4's match is on the identifier, and a file that is not the one named is refused by name.
+///
+/// > If the first identifier in the reference matches the first identifier in the referenced
+/// > file's ID entry, and the last identifier in the reference matches the last identifier in the
+/// > referenced file's ID entry, it is very likely that the correct and unchanged PDF file has
+/// > been found.
+///
+/// A supply is not a permission to draw whatever is in it. The file offered here is the same file
+/// as ever and the reference names a different one, so §8.10.4.1's "unavailable" is the truth and
+/// the proxy is what is drawn — and this time it *is* reported, because a reader who supplied
+/// files and got a grey box is owed the reason (trap 5).
+#[test]
+fn a_supplied_file_the_reference_does_not_name_is_refused_by_name() {
+    let drawn = interpret(&reference(Some(("aaaa", "0304"))), &supplied());
+
+    assert_eq!(at(&drawn, 10, 10), PROXY_RED, "the proxy is drawn");
     assert!(
-        !containing.contains(&filled),
-        "the target page's own fill reached the containing page"
+        said(&drawn).contains("none of the 1 supplied target document(s) states its /ID"),
+        "{}",
+        said(&drawn)
+    );
+}
+
+/// §14.4's second string: the right file, a different version of it — drawn, and said.
+///
+/// > If only the first identifier matches, a different version of the correct PDF file has been
+/// > found.
+///
+/// Table 95 says what the entry is for in the same breath: it "allows it to warn the user if the
+/// PDF file has changed since the reference was created". A warning is not a refusal, so the page
+/// is drawn — and the sentence names the file, because a reader looking at a page that may not be
+/// the page the producer saw has to be able to find out which file it came from.
+#[test]
+fn a_file_whose_changing_identifier_moved_is_drawn_and_said() {
+    let drawn = interpret(&reference(Some(("0102", "9999"))), &supplied());
+
+    assert_eq!(
+        at(&drawn, 10, 10),
+        TARGET_BLUE,
+        "the correct file was found, so its page is drawn"
     );
     assert!(
-        !containing.contains(&annotated),
-        "the target page's annotation appearance reached the containing page"
+        said(&drawn).contains("different version of the file"),
+        "{}",
+        said(&drawn)
     );
+}
 
-    // And the fixture is not vacuous: the target page draws both when it is the page being
-    // interpreted, so the absences above are this reader declining to import rather than a
-    // document that states nothing.
-    let target = raster(&interpret(&fixture(REF), 1));
-    assert!(target.contains(&filled), "the target page states a fill");
+/// A reference with no `/ID` names nothing this reader can match, and says so.
+///
+/// Table 95 makes `/ID` optional, and this is the cost of leaving it out here: the only other
+/// thing the dictionary offers is `/F`, a path into somebody else's filesystem, and matching on it
+/// would let a *document* choose which of the host's files is opened for it. So the proxy is
+/// drawn — §8.10.4.1's own answer — and the reason is stated rather than left to look like a
+/// document with nothing in it.
+#[test]
+fn a_reference_with_no_identifier_imports_nothing_and_says_why() {
+    let drawn = interpret(&reference(None), &supplied());
+
+    assert_eq!(at(&drawn, 10, 10), PROXY_RED, "the proxy is drawn");
+    assert!(said(&drawn).contains("states no /ID"), "{}", said(&drawn));
+}
+
+/// §8.10.4.1 Table 95's own sentence about a `/Page` that no longer exists.
+///
+/// > This reference is a weak one and may be inadvertently invalidated if the referenced page is
+/// > changed or replaced in the target document after the reference is created.
+///
+/// The file is found and the page is not, which is the clause describing its own failure mode. The
+/// proxy is drawn and the sentence names the file, so that a reader can tell this apart from the
+/// file not being there at all — the two have different remedies.
+#[test]
+fn a_page_the_named_file_does_not_have_falls_back_to_the_proxy() {
+    let stated = reference(Some(TARGET_ID)).replace("/Page 0", "/Page 7");
+    let drawn = interpret(&stated, &supplied());
+
+    assert_eq!(at(&drawn, 10, 10), PROXY_RED, "the proxy is drawn");
     assert!(
-        target.contains(&annotated),
-        "the target page states an annotation appearance"
+        said(&drawn).contains("that the file does not have"),
+        "{}",
+        said(&drawn)
+    );
+}
+
+/// A file a host offered that is not a PDF is refused at the supply, by name.
+///
+/// `pdf_signature::trust::Supply`'s rule one crate over, and for its reason: a person who pointed
+/// at a directory of two files and got one target document would otherwise be reading pages
+/// imported under a supply they did not supply. The refusal carries the name the host used, which
+/// is the only name this crate has for a file it cannot open.
+#[test]
+fn a_file_that_is_not_a_pdf_is_refused_at_the_supply_and_named() {
+    let (supply, refused) = Supply::read(
+        [
+            ("target.pdf", target()),
+            ("notes.txt", b"not a PDF at all".to_vec()),
+        ],
+        "the test's own bytes",
+    );
+    assert_eq!(supply.len(), 1, "the PDF is kept");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(
+        refused[0].to_string().contains("notes.txt"),
+        "{}",
+        refused[0]
+    );
+}
+
+/// A PDF with no `/ID` of its own is refused too, because nothing could ever name it.
+///
+/// §7.5.5 Table 15 makes the entry "Required in PDF 2.0 and later, or if an Encrypt entry is
+/// present; optional otherwise", so a file without one is pre-2.0 or malformed — a fact about the
+/// file. Keeping it would be keeping a document no reference can reach, which is a supply that
+/// looks larger than it is.
+#[test]
+fn a_target_document_stating_no_identifier_is_refused() {
+    let without = {
+        let whole = String::from_utf8(target()).expect("the fixture is ASCII");
+        whole
+            .replace(&format!(" /ID [<{}> <{}>]", TARGET_ID.0, TARGET_ID.1), "")
+            .into_bytes()
+    };
+    let (supply, refused) = Supply::read([("target.pdf", without)], "the test's own bytes");
+    assert!(supply.is_empty(), "nothing can name it");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(
+        refused[0].to_string().contains("states no /ID"),
+        "{}",
+        refused[0]
     );
 }

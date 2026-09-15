@@ -696,7 +696,7 @@ impl Interpreter<'_> {
         // load is there — see [`FontCache`] for why keeping a failure would change the second
         // page's reports rather than only its cost — so a miss here falls through to the load,
         // which is exactly what an uncached font does.
-        let font = self.across.get(self.document, key)?;
+        let font = self.across?.get(self.document, key)?;
         // A report is about **this page** rather than about the font, so a font served out of
         // the cache that outlives the page owes the same sentence a fresh load owes: a second
         // page drawing part of a damaged `/CharProcs` in silence is trap 5's own failure, and it
@@ -834,8 +834,11 @@ impl Interpreter<'_> {
             // metrics-only font kept there would let page two draw nothing through a refused
             // program in silence — trap 5's own failure. The page-scoped cache below is where
             // it belongs: within one page the refusal has already been said once.
-            if let Some(font) = result.as_ref().filter(|font| !font.is_metrics_only()) {
-                self.across.keep(self.document, key.clone(), font);
+            if let Some((across, font)) = self
+                .across
+                .zip(result.as_ref().filter(|font| !font.is_metrics_only()))
+            {
+                across.keep(self.document, key.clone(), font);
             }
             self.fonts.insert(key, result.clone());
         }

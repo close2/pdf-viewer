@@ -66,8 +66,13 @@ fn main() {
                 };
                 let mut state = ViewState::of(&document);
                 state.set_magnification(Some(1.0));
-                let (first, replacement) =
-                    pdf_model::content::interpret_replaceable(&document, &page, &state, &fonts);
+                let (first, replacement) = pdf_model::content::interpret_replaceable(
+                    &document,
+                    &page,
+                    &state,
+                    &fonts,
+                    &pdf_model::reference::Supply::NONE,
+                );
                 // The seam's own condition, checked on the wide population rather than asserted.
                 // **One direction only, since ADR 1080**: a page kept for replacement that is not
                 // view-dependent is a list nothing will ever ask to move, and the other direction
@@ -90,8 +95,14 @@ fn main() {
                 for magnification in MAGNIFICATIONS {
                     let mut moved = ViewState::of(&document);
                     moved.set_magnification(magnification);
-                    let replaced =
-                        pdf_model::content::replace(&document, &page, &moved, &fonts, &replacement);
+                    let replaced = pdf_model::content::replace(
+                        &document,
+                        &page,
+                        &moved,
+                        &fonts,
+                        &pdf_model::reference::Supply::NONE,
+                        &replacement,
+                    );
                     let whole =
                         pdf_model::content::interpret_with_fonts(&document, &page, &moved, &fonts);
                     judged = judged.saturating_add(1);

@@ -204,6 +204,26 @@ pub enum Command {
     /// the *reader* rather than about any one file. What a document already said about itself is
     /// worded again when it arrives, because the answer to the third question has changed.
     Trust(TrustPolicy),
+    /// ISO 32000-2 §8.10.4's target documents: the files a reference `XObject` may import from.
+    ///
+    /// **The seventh host-supplied policy value, and it is the same shape as [`Self::Trust`] for
+    /// the same reason.** §8.10.4.1 addresses a `shall` to each of two classes of processor —
+    /// one that draws the proxy, one that draws the referenced page — and which of the two this
+    /// program is depends on whether the target file is in front of it. `CLAUDE.md` principle 3
+    /// gives the renderer no filesystem, so it never is unless a host puts it there; and a
+    /// *document* that could name arbitrary files to be read would be a document choosing what
+    /// this machine opens, which is precisely what that principle exists to prevent. So the files
+    /// come from outside, from the only party with a disk to read them off, and what decides
+    /// which of them a reference names is §14.4's identifier rather than any path.
+    ///
+    /// **Nothing changes for a host that never sends this**, which is every host by default:
+    /// every reference `XObject` draws §8.10.4.1's proxy and reports nothing, which is what this
+    /// tree did for its whole life and what the clause writes for a processor in that position.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent again,
+    /// which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a fact about
+    /// the *reader* rather than about any one file. ADR 1101.
+    References(ReferenceFiles),
     /// The person's answer to [`crate::Event::Asking`].
     ///
     /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing
@@ -984,6 +1004,39 @@ pub struct Viewing {
     /// delta has, and the same units. **Already clamped**: this is where the viewer put the
     /// reader, not where a host asked for them to be.
     pub scroll: (f32, f32),
+}
+
+/// ISO 32000-2 §8.10.4's target documents as a host holds them: bytes, each under a name.
+///
+/// The *bytes* rather than parsed documents, because the party that reads a file off a disk is
+/// outside the confinement and the party that parses one is inside it — the same division
+/// [`Command::Trust`] makes for a certificate, and for the sharper of its two reasons: parsing a
+/// PDF is the largest untrusted-input surface this program has, and it belongs where every other
+/// document is parsed.
+///
+/// `source` is the sentence saying where they came from — a directory a person named, say. It is
+/// carried rather than derived because neither this crate nor `pdf-model` has a filesystem to
+/// describe, and a reader shown a page from another file is owed *which file, on whose say-so*.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReferenceFiles {
+    /// Each file's bytes, under the name the host knows it by.
+    pub files: Vec<(String, Vec<u8>)>,
+    /// Where the host says they came from.
+    pub source: String,
+}
+
+impl ReferenceFiles {
+    /// Whether a host supplied anything at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// How many files were supplied.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
 }
 
 /// Whom this reader believes, and how much of what it could not check it will act on.

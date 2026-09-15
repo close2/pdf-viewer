@@ -15,7 +15,7 @@ use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
 use super::reader::{ContentReader, NestedContent, Word, inline_dictionary, token_to_object};
-use super::report::{ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
+use super::report::{ArtifactSource, ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
 use super::text::TextObject;
 use super::{
     GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERANDS, MAX_OPERATIONS, MAX_STATE_DEPTH,
@@ -1035,6 +1035,9 @@ impl Interpreter<'_> {
                             self.artifacts.push(ArtifactSpan {
                                 range: section.starts_at..self.text.len(),
                                 artifact,
+                                // §14.8.2.2.2's first sentence: the producer said so, with one of
+                                // the two methods it names.
+                                found: ArtifactSource::Declared,
                             });
                         }
                         // §14.7.5.2's identifier over the same range, for the same reason and

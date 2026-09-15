@@ -2076,40 +2076,44 @@ impl CpuRasterizer {
     }
 }
 
-/// Draws a stroke thinner than a device pixel as a shape this rasteriser can measure, ISO 32000-2
-/// §10.7.4, and reports whether it did.
+/// Draws a stroke the raster cannot state the coverage of, ISO 32000-2 §10.7.4, and reports
+/// whether it did.
 ///
-/// The clause's "no shape ever disappears" applies to strokes as well as fills — "[t]his rule
-/// applies both to fill operations and to strokes with non-zero width" — and `tiny-skia` loses a
-/// thin one in two ways of its own. Its painter draws a stroke under a pixel wide as a **hairline**
-/// with the paint's opacity scaled by the width, which
+/// # What is owed, and how far down
 ///
-/// - smears the mark symmetrically about the path whatever fraction of a pixel the path lies at,
-///   so a rule within half a pixel of the raster's edge loses the half that falls outside — 0.0549
-///   of its own 0.1 at the top edge of a 320-unit page, where the graphics device carried 0.0980;
-/// - and lays that mark down **one pixel per step along the line's longer device axis**, so a rule
-///   at `θ` from the nearer axis carries `cos θ` of its area. Measured by
-///   `render-raster/examples/sub_pixel_marks`: 3.4% short at 15°, 13.4% at 30° and **29.3% at
-///   45°**, at every thickness rather than only near the coverage quantum.
+/// The clause's stated purpose covers strokes as well as fills — "[t]his rule applies both to fill
+/// operations and to strokes with non-zero width":
 ///
-/// The second reads directly against the sentence three along from the one above — "[t]he area
-/// covered by painted pixels shall always be at least as large as the area of the original shape"
-/// — so both are answered here rather than left to the library.
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// A coverage that rounds to nothing is that disappearance reached by another route, so a mark too
+/// thin for the raster's depth is restated as one it can hold. **What is owed is bounded by what
+/// the device can express, and this backend's device states the winding integral over a pixel
+/// exactly** (`render_cpu::area`, ADR 1082), down to the eight bits the raster itself carries. So
+/// the boundary is [`pdf_render::unmeasurable_width`] — one *level* of a device pixel — and above
+/// it nothing is widened. What is above it is drawn as the shape the document states: by the exact
+/// construction below where that applies, and otherwise by returning `false` so that the stroke's
+/// own outline reaches [`draw_stroked_outline`], which is the shape `render_raster` builds from the
+/// same stated width (ADR 1102).
 ///
 /// # Two constructions, exact first
 ///
 /// [`draw_rule_as_bands`] is ADR 0226's and is exact: the outline of a straight axis-aligned rule
 /// is the rectangle its width and length state, and [`pdf_render::sub_pixel_bands`] draws that at
 /// the coverage its own area implies, including the part that is off the raster, which is then
-/// clipped away rather than folded back in.
+/// clipped away rather than folded back in. It is tried for every rule thinner than a device pixel
+/// rather than only for one under a level, because a closed form costs neither a stroker nor a
+/// path conversion and lands on the same coverage the general converter would compute.
 ///
-/// [`draw_rule_at_one_pixel`] is the general answer and is ADR 0268's: **the same path stroked one
+/// [`draw_rule_at_one_pixel`] is ADR 0268's, and it is the last resort: **the same path stroked one
 /// device pixel wide, with the width it gave up carried in the paint's alpha.** That conserves the
-/// ink exactly at every angle, because widening by a factor and dividing the alpha by it cancel,
-/// and it needs no scan converter of our own — which is what the residual `doc/todo/11` carried
-/// since ADR 0226 was priced at. It is tried second because it is the blunter of the two: a band
-/// one device pixel wide spreads its ink over a pixel where a band of the true width spreads it
-/// over `w`, and at the raster's edge it still loses what falls outside.
+/// ink exactly at every angle, because widening by a factor and dividing the alpha by it cancel.
+/// What it costs is where the ink lands — a band one device pixel wide spreads it over a pixel
+/// where a band of the true width spreads it over `w`, at the raster's edge it loses what falls
+/// outside, and a coverage carried as alpha no longer composes like coverage, so two draws of one
+/// rule come out heavier than the rule. Under [`pdf_render::unmeasurable_width`] that price buys
+/// the mark's existence; above it, it buys nothing.
 ///
 /// Nothing is snapped by either. A 0.1-unit rule draws 0.1 of a row at the fractional position the
 /// document put it, which is the sentence `doc/todo/_scan-conversion.md` demands of anything that
@@ -2121,7 +2125,7 @@ impl CpuRasterizer {
 /// The whole rule is conditioned on [`carries_coverage_as_alpha`], which is where its warrant
 /// lives. Beyond that, only a stroke the stroker itself refuses — and the exact construction
 /// declines a great deal more, each case argued in `pdf_render::sub_pixel`'s module comment.
-/// A dashed rule is now taken: the dashes are dispensed by `tiny_skia::Path::dash`, which is the
+/// A dashed rule is taken: the dashes are dispensed by `tiny_skia::Path::dash`, which is the
 /// same function `stroke_path` would have called, rather than by a second implementation of
 /// §8.4.3.6 in this file.
 fn draw_sub_pixel_rule(
@@ -2160,10 +2164,26 @@ fn draw_sub_pixel_rule(
     {
         return true;
     }
+    // **The widened band is the last resort and not the general answer, which is what ADR 1102
+    // moved.** A mark whose coverage the raster can state is drawn as the shape the document
+    // states — by the exact construction above where it applies, and by the stroke's own outline
+    // filled through `render_cpu::area` below where it does not (ADR 1082). Only under
+    // `pdf_render::unmeasurable_width` is there no coverage left to state, and there the alpha is
+    // the one place the mark can go.
+    if !pdf_render::unmeasurable_width(at).is_some_and(|floor| style.width <= floor) {
+        return false;
+    }
     draw_rule_at_one_pixel(pixmap, (geometry, cap), style, at, scale, brush, clip)
 }
 
-/// Whether a mark this wide is one §10.7.4 owes its substitute, at a quantum of `one_pixel`.
+/// Whether a mark this wide is one ISO 32000-2 §10.7.4 may restate, at a quantum of `one_pixel`.
+///
+/// Asked twice, of two different quanta. [`draw_sub_pixel_rule`] asks it of
+/// [`pdf_render::thinnest_line`], which is the width above which nothing in this module applies at
+/// all; [`draw_rule_at_one_pixel`] asks it of [`pdf_render::band_substitute_width`], which is the
+/// width its own widening would state. **Neither is the width at which a substitute is *owed*** —
+/// that is [`pdf_render::unmeasurable_width`], one level of a device pixel, and it is asked
+/// separately (ADR 1102).
 ///
 /// **The boundary is inclusive, and that is a decision rather than a reading.** §10.7.4 states
 /// the rule and one exemption:
@@ -2173,23 +2193,12 @@ fn draw_sub_pixel_rule(
 /// > width. Zero-width strokes may be done in an implementation-defined manner that may include
 /// > fewer pixels than the rule implies.
 ///
-/// For a stroke the document gave a width the `shall` is plain, and `tiny-skia`'s hairline —
-/// which it chooses for every width up to and including one device pixel — carries `cos θ` of
-/// the rule's area, 29.3% short at 45°. That is the whole reason this boundary moved from `<` to
-/// `<=`: at exactly one device pixel a `1 w` rule was being drawn short of its own area on every
-/// technical drawing in the corpus, and the discontinuity was `tiny-skia`'s `<=` rather than
-/// anything derived.
-///
-/// **A `0 w` rule follows it, and the clause permits either.** §10.7.4's exemption is a `may`, so
-/// the hairline is allowed; §8.4.3.2 says "[a] line width of 0 shall denote the thinnest line
-/// that can be rendered at device resolution: 1 device pixel wide", and a staircase one pixel
-/// wide *along an axis* is thinner than that measured across the line. Neither reading is forced.
-/// What decides it here is this project's own rule about two backends: `pdf_render::Stroke::
-/// device_width` resolves a zero width to one device pixel **in the shared crate**, so that both
-/// backends draw one mark, and raster strokes exactly that. Leaving the hairline in place would
-/// be `render-cpu` privately re-deciding what `pdf-render` had decided, and the two backends
-/// would disagree by 29% on every turned `0 w` line with no clause to arbitrate. No corpus
-/// document ranks the choice: the whole gate is identical either way, measured.
+/// A `0 w` rule is the case the inclusive end is about. §10.7.4's exemption is a `may`, so
+/// drawing it short is allowed; §8.4.3.2 says "[a] line width of 0 shall denote the thinnest line
+/// that can be rendered at device resolution: 1 device pixel wide". `pdf_render::Stroke::
+/// device_width` resolves the zero to one device pixel **in the shared crate**, so both backends
+/// draw one mark from one number, and a boundary that excluded its own value would put that mark
+/// on a different path from the `1 w` rule beside it for no reason a clause states.
 ///
 /// `<=` rather than an equality test on purpose: a page transform of 1.0037 leaves the two sides
 /// near rather than equal, and a rule that only fired on the exact float would be a rule about
@@ -2493,18 +2502,19 @@ const RECTANGULAR_OUTLINE_VERBS: usize = 8;
 /// `scan::fill` can compose it — the same move `draw_long_mitres` already makes for the paths
 /// §8.4.3.5 takes out of the stroker's hands.
 ///
-/// # The second half: the hairline boundary was the *library's*
+/// # The second half: the hairline boundary is not the *library's*
 ///
-/// The remaining half of that sentence — contradicting the hairline — is answered by moving the
-/// boundary rather than by crossing it. `tiny-skia` decides between a hairline and an outline with
-/// `treat_as_hairline`, which maps the width along each of the transform's two basis vectors and
-/// compares an approximate length against 1; `pdf_render::thinnest_line` is a singular value and is
-/// exact, and the two agree for every similarity transform and part by up to a factor of `√2`
-/// under a shear. A boundary either backend can be given by its own library is a boundary neither
-/// backend chose (trap 2), so it is `pdf-render`'s here: at or under one device pixel §10.7.4's
-/// substitutions own the mark, and above it the stroke's own outline does. The library's hairline
-/// is then reached only where [`carries_coverage_as_alpha`] has already withdrawn every
-/// substitution this module makes.
+/// The remaining half of that sentence — contradicting the hairline — is answered by never letting
+/// the library choose. `tiny-skia` draws every stroke at or under one device pixel as a hairline,
+/// which lays one pixel per step along the longer device axis and so carries `cos θ` of a turned
+/// rule's area — 29.3% short at 45°, measured by `render-raster/examples/sub_pixel_marks` at every
+/// thickness. That reads directly against "[t]he area covered by painted pixels shall always be at
+/// least as large as the area of the original shape". A boundary either backend can be given by
+/// its own library is a boundary neither backend chose (trap 2), so this function takes every
+/// width the raster can state a coverage for — down to [`pdf_render::unmeasurable_width`] — and
+/// fills the outline the library's own stroker built. The hairline is reached only through
+/// `scan::stroke`, where [`carries_coverage_as_alpha`] has already withdrawn every substitution
+/// this module makes.
 ///
 /// # And what falls out of it, because a stroke's mark is now a fill's
 ///
@@ -2523,10 +2533,10 @@ fn draw_stroked_outline(
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
-    let Some(one_pixel) = pdf_render::thinnest_line(at) else {
-        return false;
-    };
-    if at_or_under_the_quantum(style.width, one_pixel) {
+    // ISO 32000-2 §10.7.4's substitutions own a stroke only where the raster cannot state its
+    // coverage at all, which is one level of 255 and not one device pixel (ADR 1102). Everything
+    // above that is a shape this backend can measure, and its outline is what it measures.
+    if pdf_render::unmeasurable_width(at).is_some_and(|floor| style.width <= floor) {
         return false;
     }
     let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
@@ -2635,7 +2645,10 @@ fn draw_long_mitres(
     ) else {
         return false;
     };
-    if pdf_render::thinnest_line(at).is_some_and(|one_pixel| style.width <= one_pixel) {
+    // The same boundary [`draw_stroked_outline`] takes: under one level of the raster the mark is
+    // §10.7.4's substitution and has no joins to draw, and above it the stroker builds the same
+    // joins for a sub-pixel stroke as for any other (ADR 1102).
+    if pdf_render::unmeasurable_width(at).is_some_and(|floor| style.width <= floor) {
         return false;
     }
     let Some(wedges) = convert::path(&wedges) else {

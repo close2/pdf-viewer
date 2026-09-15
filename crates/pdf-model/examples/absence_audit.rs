@@ -58,6 +58,13 @@ enum Scope {
     Curated,
     /// The `SafeDocs` `CC-MAIN-2021-31` crawl under `corpus-cache/`, and nothing else.
     Crawl,
+    /// The two cached corpora neither of the three above reaches: `corpus-cache/openpreserve`
+    /// and `corpus-cache/tika-issue-tracker`.
+    ///
+    /// Added in the one-thousand-and-eighty-seventh session, because §8.10.4's row carried the
+    /// phrase "67 195 of the 67 460 PDFs on this disk" — a population with a stated remainder
+    /// nothing had ever walked, which is a claim of absence with a hole in it by construction.
+    Cached,
 }
 
 /// Every PDF this project can measure over, in the scope asked for.
@@ -72,6 +79,10 @@ fn corpus(scope: Scope) -> Vec<PathBuf> {
         Scope::PdfJs => &["doc/pdf.js/test/pdfs"],
         Scope::Curated => &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"],
         Scope::Crawl => &["corpus-cache/safedocs/cc-main-2021-31"],
+        Scope::Cached => &[
+            "corpus-cache/openpreserve",
+            "corpus-cache/tika-issue-tracker",
+        ],
     };
     for relative in scope {
         collect(&root.join(relative), &mut files);
@@ -190,6 +201,8 @@ struct Answers {
 fn main() {
     let scope = if std::env::args().any(|a| a == "--crawl") {
         Scope::Crawl
+    } else if std::env::args().any(|a| a == "--cached") {
+        Scope::Cached
     } else if std::env::args().any(|a| a == "--pdfjs") {
         Scope::PdfJs
     } else {

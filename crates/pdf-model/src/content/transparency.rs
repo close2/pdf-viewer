@@ -1761,6 +1761,9 @@ fn knockout_can_show(commands: &[Command]) -> bool {
 struct KnockoutConstruction {
     /// The elements as the display list states them, rewritten where a shape had to be.
     commands: Vec<Command>,
+    /// The group's conversion out, with the black half of a press pair rewritten alongside
+    /// `commands` — [`commit_knockout`] — or carried through untouched.
+    pair: Option<pdf_render::GroupBlending>,
     /// Whether the group goes to the backends with `knockout: true`.
     knockout: bool,
     /// Whether it goes with `isolated: false` beside it — §11.4.6's own backdrop (ADR 0327).
@@ -1806,9 +1809,26 @@ struct KnockoutConstruction {
 /// the collapse unchanged (`blend_at_the_do`). It does not share the second: an element of an
 /// enclosing knockout group is composited with that group's initial backdrop, which NOTE 6
 /// makes this group's own, so the derivation is the same one.
+///
+/// # The pair
+///
+/// A group compositing in a press is one content stream interpreted twice, and the second
+/// list travels in `pair` (`pdf_render::GroupBlending::FourComponents`). A backend resolves
+/// the two against one another per pixel, so each of the rewrites above is applied to both
+/// halves or to neither — [`commit_knockout`], which is what lets
+/// [`Interpreter::group_press`] admit a knockout group at all. Where the black half will not
+/// take the same rewrite the group falls to the flat drawing with the report §11.4.6 already
+/// had, which is the answer it had before the pair existed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "§11.4.6's conditions are the clause's own, and each is read from a different \
+              scope: the group's entry, the state at the `Do`, the enclosing group and the \
+              interpretation's shape masks"
+)]
 fn knockout_construction(
     group: &TransparencyGroup,
     commands: Vec<Command>,
+    pair: Option<pdf_render::GroupBlending>,
     alpha: Option<AlphaSource>,
     backdrop_transparent: bool,
     enclosing_knockout: bool,
@@ -1822,6 +1842,7 @@ fn knockout_construction(
     let knockout_shows = group.knockout && knockout_can_show(&commands);
     let mut construction = KnockoutConstruction {
         commands,
+        pair,
         knockout: false,
         backdrop_composited: false,
         blend: outer_blend,
@@ -1830,13 +1851,25 @@ fn knockout_construction(
     let Some(alpha) = alpha.filter(|_| group.knockout) else {
         return construction;
     };
-    let commands = &construction.commands;
-    if group.isolated || backdrop_transparent || !any_command(commands, &command_blends) {
-        if knockout_shape_is_coverage(commands, alpha) {
+    if group.isolated
+        || backdrop_transparent
+        || !any_command(&construction.commands, &command_blends)
+    {
+        // The bare case rewrites nothing, so both halves of a pair are already the lists the
+        // backends will resolve — but the question is still asked of each, because what the
+        // backend reads off an element is that element's own shape.
+        if knockout_shape_is_coverage(&construction.commands, alpha)
+            && construction
+                .pair
+                .as_ref()
+                .and_then(pdf_render::GroupBlending::black)
+                .is_none_or(|black| knockout_shape_is_coverage(black, alpha))
+        {
             construction.knockout = true;
-        } else if let Some(elements) = knockout_elements(commands, alpha, shape_masks) {
-            construction.commands = elements;
-            construction.knockout = true;
+        } else {
+            commit_knockout(&mut construction, |commands| {
+                knockout_elements(commands, alpha, shape_masks)
+            });
         }
     } else if knockout_shows && outer_blend == BlendMode::Normal {
         // The third condition is what keeps `note_group_structure` honest rather than a
@@ -1844,26 +1877,60 @@ fn knockout_construction(
         // its own transparency either way, but the report reads a group's tree, and a mode
         // left anywhere in it would be named as blending with the backdrop this group
         // excludes.
-        if let Some(mode) = blend_at_the_do(commands)
-            && let Some(stripped) = commands
-                .iter()
-                .map(without_blend)
-                .collect::<Option<Vec<_>>>()
-            && !any_command(&stripped, &command_blends)
-            && let Some(elements) = transparent_knockout_elements(&stripped, alpha, shape_masks)
-        {
-            construction.commands = elements;
-            construction.knockout = true;
+        let mode = blend_at_the_do(&construction.commands);
+        let moved = mode.is_some()
+            && commit_knockout(&mut construction, |commands| {
+                let stripped = commands
+                    .iter()
+                    .map(without_blend)
+                    .collect::<Option<Vec<_>>>()?;
+                if any_command(&stripped, &command_blends) {
+                    return None;
+                }
+                transparent_knockout_elements(&stripped, alpha, shape_masks)
+            });
+        if let Some(mode) = mode.filter(|_| moved) {
             construction.blend = mode;
         } else if !enclosing_knockout
-            && let Some(elements) = stated_elements(commands, alpha, shape_masks)
+            && commit_knockout(&mut construction, |commands| {
+                stated_elements(commands, alpha, shape_masks)
+            })
         {
-            construction.commands = elements;
-            construction.knockout = true;
             construction.backdrop_composited = true;
         }
     }
     construction
+}
+
+/// Applies one of §11.4.6's rewrites to a group's elements, and to the black half of its
+/// press pair beside them — or to neither.
+///
+/// A group compositing in a four-component space runs its content twice and the two lists are
+/// resolved against one another per pixel (`pdf_render::GroupBlending::FourComponents`), so a
+/// rewrite that reached one half and not the other would leave the backend converting a
+/// colour against a shape that never drew it. The rewrite is a function of the list alone —
+/// the halves differ only in what each colour resolved to — so it is run on both and
+/// committed only where both succeed and the results still [`paired`].
+///
+/// Answers whether it was committed; where it was not, the caller's construction is untouched
+/// and the group keeps §11.4.6's report.
+fn commit_knockout(
+    construction: &mut KnockoutConstruction,
+    rewrite: impl Fn(&[Command]) -> Option<Vec<Command>>,
+) -> bool {
+    let Some(elements) = rewrite(&construction.commands) else {
+        return false;
+    };
+    if let Some(pdf_render::GroupBlending::FourComponents { black, .. }) = &mut construction.pair {
+        let Some(rewritten) = rewrite(black).filter(|rewritten| paired(&elements, rewritten))
+        else {
+            return false;
+        };
+        *black = rewritten;
+    }
+    construction.commands = elements;
+    construction.knockout = true;
+    true
 }
 
 /// What §11.4.7's page group asks a page to composite in.
@@ -2169,10 +2236,19 @@ impl Interpreter<'_> {
     ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
     ///   compositing, and reinterpreting them in ink would convert a colour that was never
     ///   stated here.
-    /// - **Not a knockout group.** §11.4.6's staged rewrites edit the element list after
-    ///   the runs, and editing one half of a pair would leave the other describing a
-    ///   different construction. Such a group keeps the report it has; no corpus document
-    ///   states the combination.
+    ///
+    /// # A knockout group used to be a fourth condition
+    ///
+    /// §11.4.6's rewrites edit the element list after the runs, and this function refused a
+    /// knockout group outright because editing one half of a pair would leave the other
+    /// describing a different construction. What that never asked is whether the *same* edit
+    /// can be made to both halves, and it can: the two lists are one content stream
+    /// interpreted twice with only the colours resolved differently, so
+    /// [`knockout_construction`] applies its chosen rewrite to the pair's black half as well
+    /// and commits neither unless the results still [`paired`]. The backdrop §11.4.6
+    /// composites each element against needs no conversion of its own here, because a group
+    /// reaching this function is isolated and the clause says what such a group's is: "[a]n
+    /// isolated knockout group composites the element with a transparent backdrop." ADR 1103.
     ///
     /// # The condition that came off, and why the uncoloured one did not go with it
     ///
@@ -2197,7 +2273,7 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         rendering: Rendering,
     ) -> Option<Arc<Press>> {
-        if !group.isolated || group.knockout || self.uncoloured {
+        if !group.isolated || self.uncoloured {
             return None;
         }
         // The page's own §14.11.5 intent, resolved once when this interpretation began — a
@@ -2230,10 +2306,9 @@ impl Interpreter<'_> {
     /// value with all three components the same" — or a curve or a cube the group carries out
     /// to its backend ([`Compositing::Calibrated`], [`Compositing::Additive`],
     /// `pdf_render::GroupBlending`), so the group composites onto its parent as any other
-    /// group does. So a knockout group is drawn too
-    /// (§11.4.6's staged rewrites edit one list, and there is only one), and Table 57's black
-    /// generation does not enter — §11.7.5.3 puts it inside §10.4.2.4's conversion into
-    /// `DeviceCMYK`, which is on no route into grey.
+    /// group does. §11.4.6's rewrite therefore edits one list here rather than a pair's two,
+    /// and Table 57's black generation does not enter — §11.7.5.3 puts it inside §10.4.2.4's
+    /// conversion into `DeviceCMYK`, which is on no route into grey.
     ///
     /// Two of [`Interpreter::group_press`]'s conditions stay, for the reasons given there: the
     /// group must be isolated, because §11.6.6 gives a non-isolated group's `/CS` no effect;
@@ -2598,7 +2673,7 @@ impl Interpreter<'_> {
             .get_key(&request.group.dict, "Resources")
             .as_dict()
             .cloned()
-            .unwrap_or_else(|| self.page_resources.clone());
+            .unwrap_or_else(|| self.page_resources.as_ref().clone());
 
         for detail in &request.departures {
             self.note(Unsupported::TransparencyGroup {
@@ -2932,6 +3007,7 @@ impl Interpreter<'_> {
 
         let KnockoutConstruction {
             commands,
+            pair,
             knockout,
             backdrop_composited,
             blend,
@@ -2939,6 +3015,7 @@ impl Interpreter<'_> {
         } = knockout_construction(
             group,
             commands,
+            pair,
             alpha_sources.settled(),
             backdrop_transparent,
             enclosing_knockout,

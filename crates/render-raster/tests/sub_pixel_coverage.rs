@@ -185,6 +185,17 @@ fn rule(y: f32, width: f32) -> DisplayList {
     list
 }
 
+/// The same rule stated twice, in one display list, exactly where it was.
+///
+/// ISO 32000-2 §8.5.3.3 makes the painted region a set of points, so a region painted twice covers
+/// what it covers once and the two draws owe one rule's ink between them.
+fn rule_twice(y: f32, width: f32) -> DisplayList {
+    let mut list = rule(y, width);
+    let repeat = list.commands()[0].clone();
+    list.push(repeat);
+    list
+}
+
 /// Total ink over the mark's own columns, in units of one fully covered row.
 fn ink(raster: &pdf_render::Raster) -> f32 {
     let w = raster.width as usize;
@@ -625,4 +636,176 @@ fn a_rule_under_one_level_of_alpha_still_marks_the_processors_raster() {
             );
         }
     }
+}
+
+/// Where a rule is placed so that it lies **inside one device row** and a band one device pixel
+/// wide about it would not.
+///
+/// The page is 320 units tall and its raster 320 rows, and `TargetSpec::for_page` flips about the
+/// page's height (`render_cpu` and the display list do not share a y axis), so a mark at page
+/// `y` sits at device `320 - y`. At 160.25 that is device 159.75, a quarter of a pixel from the
+/// boundary: a rule up to half a pixel wide lies wholly inside row 159, and the band ADR 0268
+/// widened it to would reach a quarter of a pixel into row 160.
+const INSIDE_ONE_ROW: f32 = 160.25;
+
+/// A sub-pixel rule the document draws **twice** lands where the document put it, on both
+/// backends — the gate on ADR 1102's boundary.
+///
+/// ISO 32000-2 §11.3.6 composites two objects painted over one another, and over an opaque white
+/// backdrop with Normal blend and no constant alpha the result is `1 − (1 − a)(1 − b)` per pixel.
+/// So a rule of device width `w` lying inside one device row, stated twice, owes that row
+/// `1 − (1 − w)²` — a number that comes from the geometry the document states and from the
+/// compositing formula, and from neither backend.
+///
+/// **This is what a substitution costs above the width at which it is owed, and it is why ADR 1102
+/// moved that width.** Restating a mark as a band one device pixel wide with its area in the
+/// paint's alpha conserves the ink of *one* mark exactly — widening by a factor and dividing the
+/// alpha by it cancel — and that identity holds only while the mark meets nothing. Move the ink to
+/// pixels the shape does not cover and every later composite sees a different pair of coverages:
+/// at [`INSIDE_ONE_ROW`] a 0.5-unit rule owes 0.7500 and the widened band puts 0.8438 across two
+/// rows, 12.5% more ink than the document asked for. `standard_fonts.pdf` draws every table rule
+/// twice at 0.57 of a device pixel, and that was 7.8% of the whole page: the marks alone sum to
+/// 48 418.38 where the page composites to 31 937.84, and the page now composites to 29 674.33 with
+/// the marks' own sum unmoved at 48 530.71.
+///
+/// Sub-pixel widths only, and that is the test's subject rather than a limitation: above one device
+/// pixel there is no substitution to make and the rule no longer lies inside one row.
+#[test]
+fn a_sub_pixel_rule_stated_twice_composites_where_the_document_put_it() {
+    for width in [0.1_f32, 0.2, 0.3, 0.5] {
+        let composited = 1.0 - (1.0 - width) * (1.0 - width);
+        agrees_with_the_area(
+            &rule_twice(INSIDE_ONE_ROW, width),
+            ink,
+            TOLERANCE,
+            composited,
+            &format!("a {width}-unit rule stated twice"),
+        );
+    }
+}
+
+/// A sub-pixel rule paints only the pixels its own band meets, on both backends — ISO 32000-2
+/// §10.7.4's first sentence read for what it excludes.
+///
+/// > A shape shall be scan-converted by painting any pixel whose half-open square region
+/// > intersects the shape, no matter how small the intersection is.
+///
+/// The sentence names the pixels a shape affects, and a pixel the shape does not intersect is not
+/// among them. That is the half of §10.7.4 a substitution can fail while conserving the ink
+/// perfectly: ADR 0268's band is the rule widened to a whole device pixel with the width it gave
+/// up carried in the paint's alpha, so its total is the rule's own at every angle and its
+/// *footprint* is up to a pixel wider than the rule. That costs nothing while the mark meets
+/// nothing and costs whatever it meets otherwise, which is why ADR 1102 stops the substitution at
+/// [`pdf_render::unmeasurable_width`] — one level of a device pixel — and draws the shape the
+/// document states above it.
+///
+/// **Calibrated, and the calibration is the old boundary** (trap 13). A 200-unit rule at 5° marks
+/// 248 pixels at 0.2 wide and 308 at 0.5, on both backends, and every one of them is a pixel the
+/// band meets; with the substitution taken at one whole device pixel instead, the processor marked
+/// 400 and 404, of which **144** and **96** lie further from the rule than half its width. At 45°
+/// the widened band happens to meet the same 424 pixels the rule does, which is why this is
+/// measured at more than one angle.
+#[test]
+fn a_sub_pixel_rule_marks_only_the_pixels_its_own_band_meets() {
+    for degrees in [5.0_f32, 15.0, 45.0] {
+        for width in [0.2_f32, 0.5] {
+            let list = turned_rule(degrees, width);
+            let target =
+                TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a page of a stated size");
+            let Ok(mut device) = QuorraRasterizer::new_headless() else {
+                println!("skipped: no adapter on this machine");
+                return;
+            };
+            let drawn = [
+                (
+                    "processor",
+                    render_cpu::CpuRasterizer::new()
+                        .rasterize(&list, target)
+                        .expect("a scene of one mark"),
+                ),
+                (
+                    "device",
+                    device
+                        .rasterize(&list, target)
+                        .expect("a scene of one mark"),
+                ),
+            ];
+            for (backend, raster) in drawn {
+                let stray = pixels_the_band_does_not_meet(&raster, degrees, width);
+                assert_eq!(
+                    stray, 0,
+                    "a {width}-unit rule at {degrees} degrees painted {stray} pixels its own band                      does not intersect, on the {backend}"
+                );
+            }
+        }
+    }
+}
+
+/// How many inked pixels of `raster` lie further from [`turned_rule`]'s segment than half its
+/// width.
+///
+/// A pixel `(i, j)` is the square `[i, i+1) × [j, j+1)` (§10.7.4), so the shape meets it when the
+/// segment passes within `width / 2` of some point of that square. The raster's y axis is the
+/// device's and the rule's is the page's, so the rule is reflected about the page height before
+/// the comparison (trap 12a).
+fn pixels_the_band_does_not_meet(raster: &pdf_render::Raster, degrees: f32, width: f32) -> usize {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (cx, cy) = (TURNED.width / 2.0, TURNED.height / 2.0);
+    // Device space: y grows downward, so the rule's two ends swap sides of the centre line.
+    let from = (cx - REACH * cos, TURNED.height - (cy - REACH * sin));
+    let to = (cx + REACH * cos, TURNED.height - (cy + REACH * sin));
+    let mut stray = 0;
+    let stride = raster.width as usize;
+    for (index, pixel) in raster.data.chunks_exact(4).enumerate() {
+        if pixel[0] == 255 {
+            continue;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a raster index under 2^24 on a page this test states the size of"
+        )]
+        let (i, j) = ((index % stride) as f32, (index / stride) as f32);
+        let corners = [(i, j), (i + 1.0, j), (i + 1.0, j + 1.0), (i, j + 1.0)];
+        let nearest = (0..4)
+            .map(|k| segment_distance((from, to), (corners[k], corners[(k + 1) % 4])))
+            .fold(f32::INFINITY, f32::min);
+        if nearest > width / 2.0 {
+            stray += 1;
+        }
+    }
+    stray
+}
+
+/// The distance between two segments: zero where they cross, and otherwise the nearest of the
+/// four endpoint-to-segment distances, which is where the minimum of a convex distance over two
+/// convex sets is attained.
+fn segment_distance(a: ((f32, f32), (f32, f32)), b: ((f32, f32), (f32, f32))) -> f32 {
+    let cross = |o: (f32, f32), p: (f32, f32), q: (f32, f32)| {
+        (p.0 - o.0) * (q.1 - o.1) - (p.1 - o.1) * (q.0 - o.0)
+    };
+    let (d1, d2) = (cross(a.0, a.1, b.0), cross(a.0, a.1, b.1));
+    let (d3, d4) = (cross(b.0, b.1, a.0), cross(b.0, b.1, a.1));
+    if d1 * d2 < 0.0 && d3 * d4 < 0.0 {
+        return 0.0;
+    }
+    [
+        distance_to_segment(a.0, b.0, b.1),
+        distance_to_segment(a.1, b.0, b.1),
+        distance_to_segment(b.0, a.0, a.1),
+        distance_to_segment(b.1, a.0, a.1),
+    ]
+    .into_iter()
+    .fold(f32::INFINITY, f32::min)
+}
+
+/// The distance from `point` to the segment `from`–`to`.
+fn distance_to_segment(point: (f32, f32), from: (f32, f32), to: (f32, f32)) -> f32 {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let length_squared = dx * dx + dy * dy;
+    let t = if length_squared > 0.0 {
+        (((point.0 - from.0) * dx + (point.1 - from.1) * dy) / length_squared).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (point.0 - (from.0 + t * dx)).hypot(point.1 - (from.1 + t * dy))
 }

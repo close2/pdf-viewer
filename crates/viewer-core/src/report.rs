@@ -42,6 +42,13 @@ pub(crate) fn describe(item: &Unsupported) -> String {
              was not carried out as written (§7.8.2)"
         ),
         Unsupported::Font { detail } => format!("a font was not drawn: {detail}"),
+        // §8.10.4: what is on the page is the proxy the producer put there for exactly this
+        // case, so the sentence says which page is missing and why rather than calling it a
+        // failure — except for the one shape that *did* draw, where what it says is Table 95's
+        // own warning.
+        Unsupported::ReferenceXObject { detail } => {
+            format!("a page imported from another file: {detail}")
+        }
         Unsupported::Content { issue } => {
             format!("part of the page's content is missing: {issue:?}")
         }

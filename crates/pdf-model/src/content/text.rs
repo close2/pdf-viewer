@@ -1301,9 +1301,13 @@ impl Interpreter<'_> {
         // reason. **Not the stream whose text-showing operator reached this glyph**, which is a
         // different dictionary whenever that stream is a form with `/Resources` of its own, and
         // which is what this call site passed until ADR 1059.
+        // The page's dictionary is reached through an `Arc` rather than borrowed, because
+        // `run` takes `&mut self`: one pointer clone per glyph description, against a `Dictionary`
+        // that has to outlive the call. [`Interpreter::page_resources`] says why it is owned.
+        let page_resources = Arc::clone(&self.page_resources);
         self.run(
             &data,
-            font.resources(stated.as_ref(), self.page_resources),
+            font.resources(stated.as_ref(), &page_resources),
             &inner,
         );
         self.leave_ledger_frame();

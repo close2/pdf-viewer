@@ -1037,6 +1037,15 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "an operator given fewer operands than its table states (§7.8.2)",
         ),
+        // The file's, in all four of its shapes. Three of them are a `/Ref` that names a target
+        // document or page the host's files do not hold — §8.10.4.1's own "unavailable", said out
+        // loud because the reader *was* given files — and the fourth is §14.4's "a different
+        // version of the correct PDF file has been found", which is the file identifying itself.
+        // Nothing here is owed by this reader: it drew the proxy, which is the clause's answer.
+        Unsupported::ReferenceXObject { .. } => (
+            Whose::TheFile,
+            "a reference XObject whose target the supplied files do not hold (§8.10.4)",
+        ),
     })
 }
 

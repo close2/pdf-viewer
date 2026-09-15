@@ -166,6 +166,7 @@ fn open_document(
     restrictions: RestrictionLevel,
     trust_anchors: Option<&std::path::Path>,
     accept_unknown_revocation: bool,
+    reference_files: Option<&std::path::Path>,
 ) -> (Viewer, Vec<Event>) {
     // Open on disk rather than read whole: the core reads the trailer, the table and the objects
     // page one needs through the handle, and a document's size stops being its cost (ADR 0809).
@@ -196,6 +197,20 @@ fn open_document(
         eprintln!("note: {refusal}");
     }
     drop(viewer.handle(Command::Trust(trust)));
+    // **§8.10.4's target documents, and rule 2 a third time.** The core has no filesystem, so the
+    // party that turns `--reference-files` into bytes is this one — and which of those bytes a
+    // reference names is decided in the core by §14.4's identifier, never here by a path.
+    let (files, refused) = viewer_host::reference_files(reference_files);
+    for refusal in &refused {
+        eprintln!("note: {refusal}");
+    }
+    drop(viewer.handle(Command::References(files)));
+    for refusal in viewer.reference_refusals() {
+        // The other half of the same sentence, from the party that opened each file: a person who
+        // named six files and got four target documents would otherwise wonder which page came
+        // from where (trap 5).
+        eprintln!("note: {refusal}");
+    }
     let mut events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -233,6 +248,7 @@ fn main() {
         restrictions,
         trust_anchors,
         accept_unknown_revocation,
+        reference_files,
         proxy_pages,
         supersample,
         coverage,
@@ -260,6 +276,7 @@ fn main() {
                 restrictions,
                 trust_anchors.as_deref(),
                 accept_unknown_revocation,
+                reference_files.as_deref(),
             )
         }
     });

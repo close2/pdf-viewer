@@ -44,7 +44,7 @@ from somebody else's reading of a text we do not have, so a part whose normative
 | target | offered | why |
 |---|---|---|
 | **PDF/A-2b** | yes | text owned. The recommended default for a document that has to be archived and is not being made accessible. |
-| **PDF/A-2u** | yes, conditionally | adds ISO 19005-2 §6.2.11.7's Unicode requirement, which some documents cannot meet — see §4.3. |
+| **PDF/A-2u** | yes, conditionally | adds ISO 19005-2 section 6.2.11.7's Unicode requirement, which some documents cannot meet — see §4.3. |
 | **PDF/A-2a** | yes, from a source that is already tagged | §5.1. What is refused is *inventing* a structure tree, not certifying one the document has. |
 | **PDF/A-4** | yes | text owned. Built on PDF 2.0, which is the version this tree reads natively. |
 | **PDF/A-4f** | yes | the only target that keeps arbitrary attachments (Annex A.2). |
@@ -70,7 +70,7 @@ should produce, and it is the reason the validator is built before the converter
 
 ### 1.2 PDF/A-2's base document, and the day it stopped being a limitation
 
-ISO 19005-2 §5.1 makes a conforming file one that adheres to **all requirements of ISO 32000-1**
+ISO 19005-2 section 5.1 makes a conforming file one that adheres to **all requirements of ISO 32000-1**
 as modified by part 2, and §6.7.2.1 pulls in ISO 32000-1:2008 §14.8 wholesale for Level A. This
 tree is written against **ISO 32000-2** — that is what the conformance ledger is written against
 and what every doc comment in `crates/` cites — so for as long as ISO 32000-1:2008 was not here,
@@ -167,7 +167,7 @@ evidence the level exists to require.
 
 ### 2.2 Content that draws `.notdef`
 
-ISO 19005-2 §6.2.11.8, ISO 19005-4 §6.2.10.9: a conforming file shall not reference the `.notdef`
+ISO 19005-2 section 6.2.11.8, ISO 19005-4 section 6.2.10.9: a conforming file shall not reference the `.notdef`
 glyph from any text-showing operator, in any rendering mode.
 
 **Whether this refuses anything depends on where the missing glyph is**, and the split is the same
@@ -199,15 +199,15 @@ one §2.1 makes.
 
 ### 2.3 Streams whose data is outside the file
 
-ISO 19005-2 §6.1.7.1, ISO 19005-4 §6.1.6.1: a stream dictionary shall not carry `/F`, `/FFilter`
-or `/FDecodeParams`. ISO 19005-2 §6.2.9.2 and ISO 19005-4 §6.2.8.2 say the same of reference
+ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1: a stream dictionary shall not carry `/F`, `/FFilter`
+or `/FDecodeParams`. ISO 19005-2 section 6.2.9.2 and ISO 19005-4 section 6.2.8.2 say the same of reference
 XObjects.
 
 - **Class: Refuse** for an external stream the page actually uses. The bytes are on somebody's
   disk or server; fetching them is a network operation this program does not have and (principle
   3) will not acquire, and a file assembled from an unverifiable fetch is not an archival object.
   This is one of the two places where "cannot view it either" and "cannot archive it" agree.
-- **An external stream nothing draws is not a refusal.** ISO 19005-2 §6.2.2 exempts a named
+- **An external stream nothing draws is not a refusal.** ISO 19005-2 section 6.2.2 exempts a named
   resource that is present in a resources dictionary and never referenced from the content stream
   it belongs to — the standard's own words are that such a resource is not used for rendering and
   is therefore exempt from every requirement of the part. Dropping it is then lossless by the
@@ -223,7 +223,7 @@ XObjects.
 
 ### 2.4 An encrypted document whose password you do not have
 
-ISO 19005-2 §6.1.3 and ISO 19005-4 §6.1.3 forbid `/Encrypt` in the trailer outright.
+ISO 19005-2 section 6.1.3 and ISO 19005-4 section 6.1.3 forbid `/Encrypt` in the trailer outright.
 
 - **Class: Refuse** if the file cannot be decrypted. Nothing can be read, so nothing can be
   converted.
@@ -231,7 +231,7 @@ ISO 19005-2 §6.1.3 and ISO 19005-4 §6.1.3 forbid `/Encrypt` in the trailer out
 
 ### 2.5 Geometry outside PDF/A-2's implementation limits
 
-ISO 19005-2 §6.1.13 sets hard limits: integers within ±2 147 483 647, reals bounded, strings
+ISO 19005-2 section 6.1.13 sets hard limits: integers within ±2 147 483 647, reals bounded, strings
 ≤ 32 767 bytes, names ≤ 127 bytes, ≤ 8 388 607 indirect objects, `q`/`Q` nesting ≤ 28, DeviceN
 ≤ 32 colourants, CID ≤ 65 535, and every page boundary between 3 and 14 400 units in each
 direction.
@@ -252,8 +252,8 @@ Each of these can be done. Each throws something away. None of them may happen s
 
 ### 3.1 Attachments — the case that turns on the target
 
-ISO 19005-2 §6.8 permits `/EF` and `/EmbeddedFiles` **only if every embedded file is itself
-conforming to ISO 19005-1 or -2**. ISO 19005-4 §6.9 widens that to ISO 19005-1, -2 or -4 —
+ISO 19005-2 section 6.8 permits `/EF` and `/EmbeddedFiles` **only if every embedded file is itself
+conforming to ISO 19005-1 or -2**. ISO 19005-4 section 6.9 widens that to ISO 19005-1, -2 or -4 —
 note that it does *not* list part 3 — and adds two requirements of its own: every embedded file
 specification shall carry `/AFRelationship`, and shall carry `/F` and `/UF`. **ISO 19005-4
 Annex A.2 (PDF/A-4f) is the one place where an embedded file may be of any type**, and it
@@ -324,7 +324,7 @@ The decision tree, in the order a converter should try it:
    offered for somebody else's program, and the warning lives where an operator declares one:
    *this runs a program you chose, on a document you did not write*.
 3. **Dropping is Ask, always**, listing every file dropped by name and size, and recording the
-   removal in `xmpMM:History` — which ISO 19005-2 §6.6.6 explicitly asks a converter to do, its
+   removal in `xmpMM:History` — which ISO 19005-2 section 6.6.6 explicitly asks a converter to do, its
    own example of a thing to record being objects that were not retained.
 
 **Default: never drop.** Report that the document has *n* attachments, that PDF/A-4f keeps them,
@@ -332,8 +332,8 @@ and let the user choose between the target and the attachments.
 
 ### 3.2 Multimedia and 3D annotations
 
-ISO 19005-2 §6.3.1 forbids annotation subtypes not defined in ISO 32000-1, plus `3D`, `Sound`,
-`Screen` and `Movie`. ISO 19005-4 §6.3.1 forbids `Sound`, `Screen` and `Movie`; permits `3D` and
+ISO 19005-2 section 6.3.1 forbids annotation subtypes not defined in ISO 32000-1, plus `3D`, `Sound`,
+`Screen` and `Movie`. ISO 19005-4 section 6.3.1 forbids `Sound`, `Screen` and `Movie`; permits `3D` and
 `RichMedia` only in a PDF/A-4e file; and permits `FileAttachment` only in a PDF/A-4f file.
 
 - **Class: Ask.** Removal is the only option, and for `Screen`/`Movie`/`Sound` the media stream
@@ -355,7 +355,7 @@ ISO 19005-2 §6.3.1 forbids annotation subtypes not defined in ISO 32000-1, plus
 
 ### 3.3 JavaScript, and the actions that carry behaviour
 
-ISO 19005-2 §6.5.1 forbids `Launch`, `Sound`, `Movie`, `ResetForm`, `ImportData`, `Hide`,
+ISO 19005-2 section 6.5.1 forbids `Launch`, `Sound`, `Movie`, `ResetForm`, `ImportData`, `Hide`,
 `SetOCGState`, `Rendition`, `Trans`, `GoTo3DView` and `JavaScript` actions, the obsolete
 set-state and no-op actions, and every named action but the four page-navigation ones. §6.5.2
 forbids `/AA` on widgets, fields, the catalog and pages.
@@ -367,8 +367,8 @@ never runs them. §6.6.3 permits `/AA` on widget annotations and restricts (with
 *shall* on the key set) the other places it may appear.
 
 - **Class: Ask** for PDF/A-2, because a form that computed its own fields stops computing them.
-- **`/A` on a widget goes in both parts.** ISO 19005-2 §6.4.1 forbids `/A` and `/AA` on a widget
-  annotation or field dictionary; ISO 19005-4 §6.4.1 forbids `/A` and permits `/AA`. So a button
+- **`/A` on a widget goes in both parts.** ISO 19005-2 section 6.4.1 forbids `/A` and `/AA` on a widget
+  annotation or field dictionary; ISO 19005-4 section 6.4.1 forbids `/A` and permits `/AA`. So a button
   that opened a URL through its `/A` action loses it whichever target is chosen — and in PDF/A-4
   the equivalent written as an `/AA` `/U` entry survives, which is a difference worth knowing
   before deciding it is impossible.
@@ -378,7 +378,7 @@ never runs them. §6.6.3 permits `/AA` on widget annotations and restricts (with
   `/AFRelationship` `FormData`. The behaviour stops working and is not lost: what the form
   computed is written down in a format that outlives it.
 - **But that workaround is itself an embedded file, and §3.1 governs it.** An XFDF file is XML,
-  not PDF/A, so ISO 19005-4 §6.9 excludes it and **only PDF/A-4f can hold it**; ISO 19005-2 §6.8
+  not PDF/A, so ISO 19005-4 section 6.9 excludes it and **only PDF/A-4f can hold it**; ISO 19005-2 section 6.8
   excludes it outright. So the standard's own archival path for form logic **is not available for
   a PDF/A-2 target at all** — converting a live form to PDF/A-2 loses its behaviour with nowhere
   to put it, and the only mitigation is outside the file: keep the source. A converter has to say
@@ -386,7 +386,7 @@ never runs them. §6.6.3 permits `/AA` on widget annotations and restricts (with
 
 ### 3.4 XFA forms
 
-ISO 19005-2 §6.4.2 and ISO 19005-4 §6.4.2 both forbid `/XFA` in the AcroForm dictionary and
+ISO 19005-2 section 6.4.2 and ISO 19005-4 section 6.4.2 both forbid `/XFA` in the AcroForm dictionary and
 `/NeedsRendering` in the catalog.
 
 - **Class: Ask**, and usually a large loss: a *dynamic* XFA form's pages are generated by the XFA
@@ -394,7 +394,7 @@ ISO 19005-2 §6.4.2 and ISO 19005-4 §6.4.2 both forbid `/XFA` in the AcroForm d
 - **What makes it survivable**: ISO 32000-2 Annex K requires a conforming hybrid file's AcroForm
   entries to be consistent with the XFA information, so the AcroForm this tree already reads *is*
   the form for a static XFA document. ISO 19005-2 Annex D describes moving the XFA dataset into
-  the file rather than losing it; ISO 19005-4 §6.4.1's XFDF route (§3.3) is the newer equivalent.
+  the file rather than losing it; ISO 19005-4 section 6.4.1's XFDF route (§3.3) is the newer equivalent.
 - **Default: keep the data, drop the `/XFA` key, and refuse a dynamic form outright** — for a
   dynamic one the AcroForm is not the document and the conversion would produce a placeholder
   page wearing a conformance claim. `CLAUDE.md` excludes XFA rendering, so this project cannot
@@ -407,7 +407,7 @@ Both parts forbid `/Encrypt` (§6.1.3 in each). Removing it is trivial and is no
 - the document's confidentiality is gone — an archived copy is readable by anyone who holds it;
 - Table 22's `/P` permission flags are gone with it, so "no printing", "no extraction" and the
   rest stop being asserted;
-- ISO 19005-2 §6.1.7.2 and ISO 19005-4 §6.1.6.2 additionally forbid the `Crypt` filter unless it
+- ISO 19005-2 section 6.1.7.2 and ISO 19005-4 section 6.1.6.2 additionally forbid the `Crypt` filter unless it
   is `Identity`, so per-stream encryption goes too.
 
 **Class: Ask, always, and never a default.** This project's own position on document restrictions
@@ -418,7 +418,7 @@ carries no permissions, and does it only when told.
 
 ### 3.6 Digital signatures
 
-Both parts permit signatures (ISO 19005-2 §6.4.3 and Annex B; ISO 19005-4 §6.5). **Conversion
+Both parts permit signatures (ISO 19005-2 section 6.4.3 and Annex B; ISO 19005-4 section 6.5). **Conversion
 invalidates every one of them, and nothing can prevent that.**
 
 - A signature covers a byte range of a specific file. Conversion is a *rewrite* — RFC 0002 §10's
@@ -453,7 +453,7 @@ invalidates every one of them, and nothing can prevent that.**
     longer does.
   - **What stays**: the field, its widget and its `/AP` — §12.7.5.5 makes the appearance
     "strictly for the purpose of providing a way for a human verifier to perform their own
-    verification" and forbids it to carry a validation status, and ISO 19005-2 §6.3.3 requires
+    verification" and forbids it to carry a validation status, and ISO 19005-2 section 6.3.3 requires
     it; the field's `/Lock` and `/SV`, which constrain the *next* signing; `/DSS` and `/Legal`,
     which name no byte of the file; `SignaturesExist`, because the fields do; and the permissions
     dictionary itself, empty, because Table 263 makes every entry optional.
@@ -466,8 +466,8 @@ invalidates every one of them, and nothing can prevent that.**
     was waiting for.
   - **The output is proved before it is written**: walked the same three ways as the source,
     and refused by name if a signature remains.
-- ISO 19005-2 §6.1.12 and ISO 19005-4 §6.1.11 additionally allow only `UR3` and `DocMDP` in a
-  permissions dictionary, and ISO 19005-2 §6.1.12 strips three keys from a `/DocMDP` signature
+- ISO 19005-2 section 6.1.12 and ISO 19005-4 section 6.1.11 additionally allow only `UR3` and `DocMDP` in a
+  permissions dictionary, and ISO 19005-2 section 6.1.12 strips three keys from a `/DocMDP` signature
   reference. **The second is a removal from the signature dictionary, and goes with it under the
   same authorisation.** The first is not a signature at all: §12.8.6 makes each key "the name of a
   permission handler" and Table 263 lists the two the standard defines, so a key naming any other
@@ -479,7 +479,7 @@ invalidates every one of them, and nothing can prevent that.**
 
 ### 3.7 Hidden annotations cannot stay hidden
 
-ISO 19005-2 §6.3.2 and ISO 19005-4 §6.3.2: every annotation but `Popup` shall carry `/F`, and
+ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2: every annotation but `Popup` shall carry `/F`, and
 where present its `Print` bit shall be 1 and its `Hidden`, `Invisible`, `ToggleNoView` and
 `NoView` bits shall be 0.
 
@@ -500,7 +500,7 @@ where present its `Print` bit shall be 1 and its `Hidden`, `Invisible`, `ToggleN
 
 ### 3.8 Optional content whose states were automatic
 
-ISO 19005-2 §6.9 forbids `/AS` in any optional content configuration dictionary; ISO 19005-4 §6.10
+ISO 19005-2 section 6.9 forbids `/AS` in any optional content configuration dictionary; ISO 19005-4 section 6.10
 permits it and requires a conforming processor to ignore it. Both require every configuration to
 carry a unique `/Name`, and an `/Order` array (where present) to reference every OCG in the file.
 
@@ -577,7 +577,7 @@ and choosing well is most of what makes a converter usable.
 
 ### 4.1 The output intent, and the sRGB default
 
-ISO 19005-2 §6.2.4.1 and ISO 19005-4 §6.2.4.1 require every colour to be device-independent —
+ISO 19005-2 section 6.2.4.1 and ISO 19005-4 section 6.2.4.1 require every colour to be device-independent —
 either directly, or indirectly through the destination profile of a PDF/A output intent. §6.2.4.3
 in each part then says exactly when a device colour space is allowed: `DeviceRGB` needs a
 `DefaultRGB` or an RGB output intent, `DeviceCMYK` a `DefaultCMYK` or a CMYK output intent, and
@@ -626,17 +626,17 @@ must add an output intent, and that means shipping a profile.
 
 - **The XMP packet is required.** Both parts require `/Metadata` on the catalog (-2 §6.6.2.1,
   -4 §6.7.2.1). **Default: synthesise one** where the document has none.
-- **The identification schema is required and is the conformance claim itself.** ISO 19005-2 §6.6.4
-  requires `pdfaid:part` = 2 and `pdfaid:conformance` = A, B or U; ISO 19005-4 §6.7.3 requires
+- **The identification schema is required and is the conformance claim itself.** ISO 19005-2 section 6.6.4
+  requires `pdfaid:part` = 2 and `pdfaid:conformance` = A, B or U; ISO 19005-4 section 6.7.3 requires
   `pdfaid:part` = 4 and, newly, `pdfaid:rev` — the four-digit year of the revision — with
   `pdfa:conformance` present only for `E` (PDF/A-4e) or `F` (PDF/A-4f). Note the prefix change
   in part 4's table: the conformance property is `pdfa:conformance`, not `pdfaid:conformance`.
   **Mechanical**, and the one place the converter states a claim about its own output.
 - **`/Info` goes in opposite directions in the two parts, and this surprises people.**
-  ISO 19005-2 §6.6.3 permits a document information dictionary, requires a conforming reader to
+  ISO 19005-2 section 6.6.3 permits a document information dictionary, requires a conforming reader to
   ignore it, and asks a writer to keep it consistent with XMP through Table 7's crosswalk
   (`Title`→`dc:title`, `Author`→`dc:creator[0]`, `Keywords`→`pdf:Keywords`, and so on).
-  **ISO 19005-4 §6.1.3 forbids `/Info` in the trailer** unless the catalog has `/PieceInfo`, and
+  **ISO 19005-4 section 6.1.3 forbids `/Info` in the trailer** unless the catalog has `/PieceInfo`, and
   even then it may contain only `/ModDate`.
   - Converting to **PDF/A-2**: **Default** — copy `/Info` into XMP through the crosswalk, keeping
     both in step.
@@ -644,7 +644,7 @@ must add an output intent, and that means shipping a profile.
     Its values survive in XMP if they were copied there first, and a user who looks at
     File → Properties in another reader may notice fields that used to be filled. Copy first,
     then delete, and say so.
-- **Custom XMP properties need a schema, or they go.** ISO 19005-2 §6.6.2.3 requires every property
+- **Custom XMP properties need a schema, or they go.** ISO 19005-2 section 6.6.2.3 requires every property
   to come from a predefined schema or from an *extension schema whose description is embedded in
   the file*, using the container schema of §6.6.2.3.3. A document carrying a producer's private
   XMP property with no description is not conforming.
@@ -659,24 +659,24 @@ must add an output intent, and that means shipping a profile.
     value and namespace in the wrong letters, so the packet is respelled in place and nothing is
     lost, asked or invented. A field the packet does not state at all is the paragraph above and
     stays an **Ask** nobody can yet answer — the interface for a `supply` does not exist.
-  - ISO 19005-4 §6.7.2.3 replaces this with a *should*: an associated file carrying an ISO 16684-2
+  - ISO 19005-4 section 6.7.2.3 replaces this with a *should*: an associated file carrying an ISO 16684-2
     schema description. Softer, and easier to satisfy.
 - **`xmpMM:History`.** Both parts (-2 §6.6.6, -4 §6.7.5) ask a converter to record what it did,
   and name exactly the kind of thing this document is a list of — content or functionality
   altered, metadata handled, objects not retained. Every **Ask** above writes one entry.
   **Mechanical**, and it is the audit trail that makes the Asks defensible.
-- **The trailer `/ID`.** ISO 19005-2 §6.1.3 requires it; both parts require the changing half to be
+- **The trailer `/ID`.** ISO 19005-2 section 6.1.3 requires it; both parts require the changing half to be
   updated when an `xmpMM:History` entry is added (-2 §6.6.5, -4 §6.7.4). **Mechanical.**
 
 ### 4.3 Text extraction: `ToUnicode`, and the difference between -2u and -4
 
-ISO 19005-2 §6.2.11.7 requires a `ToUnicode` CMap on every font, with four exemptions (predefined
+ISO 19005-2 section 6.2.11.7 requires a `ToUnicode` CMap on every font, with four exemptions (predefined
 Mac/WinAnsi encodings; Type 1 and Type 3 fonts whose glyph names are all in the Adobe Glyph List
 or the Symbol set; Type 0 fonts on the four named Adobe character collections; non-symbolic
 TrueType) — **but only for Level A and Level U**. §6.2.11.7.3 adds, for Level A only, an
 `/ActualText` wherever a character maps into the Unicode Private Use Area.
 
-ISO 19005-4 §6.2.10.7 states the same rule with the same four exemptions as a ***should***, and
+ISO 19005-4 section 6.2.10.7 states the same rule with the same four exemptions as a ***should***, and
 §6.2.10.8 makes the PUA `/ActualText` a *should* as well — with one *shall*: `/ActualText` must
 not itself contain PUA values.
 
@@ -705,11 +705,11 @@ not itself contain PUA values.
 
 ### 4.4 Annotation appearances
 
-ISO 19005-2 §6.3.3 requires every annotation — widgets included — to have an appearance
+ISO 19005-2 section 6.3.3 requires every annotation — widgets included — to have an appearance
 dictionary, except those with an empty `/Rect` and those whose subtype is `Popup` or `Link`; the
 appearance dictionary shall contain only `/N`; and a conforming reader renders that appearance and
 ignores `/C`, `/IC`, `/Border`, `/BS`, `/BE`, `/CA`, `/DA`, `/Q`, `/DS`, `/LE`, `/LL`, `/LLE`,
-`/Sy`. **ISO 19005-4 §6.3.3 states the requirement differently and it matters**: it gives the
+`/Sy`. **ISO 19005-4 section 6.3.3 states the requirement differently and it matters**: it gives the
 `/N`-only rule and requires appearance content to obey §6.2, but the obligation to *have* an
 appearance is not restated there — its NOTE 1 attributes that to ISO 32000-2's own Table 166 and
 the paragraph following it. So a converter must not read part 4's silence as permission: what
@@ -728,6 +728,10 @@ require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
   archive is not the appearance the clauses state; a button field's widget, whose `/N` §12.7.5.2.3
   makes a subdictionary of one appearance per state and whose states an absent `/AP` does not
   name; and an annotation written inline into a page's `/Annots` rather than as an object.
+  **An annotation the conversion removes is not one of the four.** Section 6.3.1's forbidden
+  subtypes go off the page (`doc/adr/1099`), so the output holds no such annotation and this
+  requirement has no place on it — a `Movie` or a `Screen` with no `/AP` is answered by the removal
+  the operator already authorised rather than refused for artwork nobody will see. `doc/adr/1105`.
   **One interaction is worth knowing before running it**: a constructed appearance paints in the
   annotation's own device colours, so a document that had no device colour of its own now needs
   §4.1's output intent for marks the conversion itself wrote — and since nothing is changed that
@@ -748,7 +752,7 @@ require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
 
 ### 4.5 Colour space bookkeeping
 
-- **`Colorants` becomes mandatory.** ISO 19005-2 §6.2.4.4 and ISO 19005-4 §6.2.4.4 require an entry
+- **`Colorants` becomes mandatory.** ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4 require an entry
   in the `/Colorants` dictionary for every spot colour used in a DeviceN or NChannel space, which
   ISO 32000-2 leaves optional. **Default: synthesise it** from the DeviceN's own tint transform —
   mechanical, and no mark changes.
@@ -759,12 +763,12 @@ require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
   - **Ask.** Making them agree means choosing one definition and rewriting the others, and the two
     definitions may genuinely render differently. The converter reports the disagreement, shows
     both, and rewrites only when told which one wins.
-- **Overprint mode.** ISO 19005-2 §6.2.4.2 forbids `OPM` = 1 with an ICCBased CMYK space when
+- **Overprint mode.** ISO 19005-2 section 6.2.4.2 forbids `OPM` = 1 with an ICCBased CMYK space when
   overprinting is on. **Ask**: changing `OPM` changes how overlapping CMYK marks composite.
 
 ### 4.6 Transparency's blending space
 
-ISO 19005-2 §6.2.10 and ISO 19005-4 §6.2.9: a conforming reader uses the PDF/A output intent as
+ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9: a conforming reader uses the PDF/A output intent as
 the default blending space, and where the document has none, every page containing transparency
 must carry a `/Group` whose `/CS` supplies one (in -4, or a page-level output intent).
 
@@ -803,7 +807,7 @@ surprised by them:
 
 ### 4.8 Halftones and transfer functions
 
-ISO 19005-2 §6.2.5 and ISO 19005-4 §6.2.5: no `/TR`; `/TR2` only with the value `Default`;
+ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5: no `/TR`; `/TR2` only with the value `Default`;
 halftones only of type 1 or 5 and without `/HalftoneName`; and no `/HTP` — which part 2 spells
 `HTP`, explaining in its NOTE 1 that the key was removed by PDF 1.3, while **part 4 as published
 spells it `HTO`**. ISO 32000-2 defines no `HTO`, so this reads as a typographic error for `HTP`
@@ -835,7 +839,7 @@ the first version of this file said the opposite and the argument against it is 
 2. **Refusing preserves nothing.** The document does not stay as it was — it stays unarchived, and
    the set of faces a future system will substitute from is further from the producer's than
    today's is. A refusal declines to act; it does not conserve.
-3. **The standard contemplates it.** ISO 19005-2 §6.6.6's NOTE 1 and ISO 19005-4 §6.7.5's NOTE
+3. **The standard contemplates it.** ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE
    give, as their examples of a converter action that changes the document's appearance and should
    therefore be recorded in `xmpMM:History`, downsampling and **font substitution**. A standard
    that names the act and tells you where to write it down has not forbidden it.
@@ -858,7 +862,7 @@ believing it is easy.
   word positions and page geometry are fixed by the content stream and survive substitution
   untouched. What changes is the shape of each glyph, drawn at a position the file already
   determined.
-- **But PDF/A then requires the two to agree.** ISO 19005-2 §6.2.11.5 and ISO 19005-4 §6.2.10.5
+- **But PDF/A then requires the two to agree.** ISO 19005-2 section 6.2.11.5 and ISO 19005-4 section 6.2.10.5
   require the glyph widths in the font dictionary and in the embedded program to be consistent to
   within 1/1000 unit. A substitute whose advances differ from the `/Widths` already in the file is
   therefore **not conforming**, and there are exactly three ways out:
@@ -873,7 +877,7 @@ believing it is easy.
      glyphs, so this one *does* move the text.
   The converter does 1 where it can and 2 otherwise, and reports which.
 - **The same agreement is required going down the page, and it is a separate requirement with a
-  separate answer.** ISO 19005-4 §6.2.10.5's third paragraph — part 2 has no counterpart — makes a
+  separate answer.** ISO 19005-4 section 6.2.10.5's third paragraph — part 2 has no counterpart — makes a
   composite font shown in vertical writing mode agree with its program's `vmtx`, and §9.7.4.3's
   `/DW2` and `/W2` are the dictionary's side of it. **Route 3 is forbidden here by a clause rather
   than by an inference**: §9.9.1 says the `vhea` and `vmtx` tables "shall never be used by a PDF
@@ -913,7 +917,7 @@ believing it is easy.
 
 ### 4.10 JPEG 2000 images, and where the offending field lives
 
-ISO 19005-2 §6.2.8.3 and ISO 19005-4 §6.2.7.3 place seven restrictions on JPEG 2000 data, and
+ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 place seven restrictions on JPEG 2000 data, and
 until this was implemented nobody here could see any of them. The useful thing a user needs
 told is not the list — it is that **the restrictions divide by where the field sits**, and that
 division decides whether the fix costs anything at all.
@@ -1040,7 +1044,7 @@ reading order of a two-column page is, and what an image *depicts* — stays out
 `CLAUDE.md`'s "authoring content from nothing", and a wrong reading order is worse than none
 because it misleads confidently.
 
-**ISO 19005-2 §6.7.1 takes the same position in its own words**: it advises writers not to add
+**ISO 19005-2 section 6.7.1 takes the same position in its own words**: it advises writers not to add
 structural or semantic information that is not explicitly or implicitly present in the source
 material solely to achieve conformance, and its NOTE 2 calls it inadvisable to generate such
 information by automated processes without appropriate verification. So the refusal is not this
@@ -1079,7 +1083,7 @@ respells one operator, from a list, where a rule names it.
 
 ## 6. Limitations that come from PDF/A-4 being PDF 2.0
 
-ISO 19005-4 §5.1 contains a sweeping sentence that has no counterpart in part 2: features that
+ISO 19005-4 section 5.1 contains a sweeping sentence that has no counterpart in part 2: features that
 ISO 32000-2 describes as **deprecated shall not be used**. Every deprecation in a 1000-page
 standard becomes a conversion requirement, and the common ones bite ordinary files:
 

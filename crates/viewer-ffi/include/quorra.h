@@ -691,6 +691,29 @@ int32_t quorra_trust_anchors(quorra_viewer *viewer, const uint8_t *const *certif
                        const char *source, int64_t at, uint32_t acceptance,
                        quorra_events **events);
 
+/* §8.10.4: which PDF files a reference XObject may import its page from.
+ *
+ * This library has no filesystem, so the files arrive here or not at all. §8.10.4.1 writes a shall
+ * for a processor that imports the referenced page and a shall for one that draws the proxy the
+ * producer put there instead, and which of the two this is depends entirely on what a caller hands
+ * over. A caller that never calls this draws every proxy and reports nothing, which is the clause's
+ * own answer for a reader with no target file.
+ *
+ * Which file a reference names is decided by §14.4's identifier and never by the path the document
+ * writes: the permanent identifier decides which file, and a difference in the changing one means
+ * "a different version of the correct PDF file has been found", which is drawn and said rather than
+ * refused. Nothing a document writes selects a member of this list.
+ *
+ * files is count pointers to whole PDF files and lengths their lengths. names may be NULL, or count
+ * NUL-terminated strings naming each one — whatever the caller knows them by, which is what a file
+ * this library will not open is reported against. source is the sentence saying where they came
+ * from: a reader shown a page out of another file is owed "which file, on whose say-so".
+ *
+ * A count of 0 withdraws the files. The bytes are copied before this returns. */
+int32_t quorra_reference_files(quorra_viewer *viewer, const uint8_t *const *files,
+                       const size_t *lengths, const char *const *names, size_t count,
+                       const char *source, quorra_events **events);
+
 /* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */
 /* ------------------------------------------------------------------------------------------- */

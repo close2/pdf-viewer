@@ -154,6 +154,18 @@ pub struct Viewer {
     /// the same route [`pdf_model::view::ViewState::set_magnification`] takes and for the same
     /// reason — rule 1 makes that state the only channel into interpretation. ADR 0245.
     delegated: pdf_model::view::WidgetAppearances,
+    /// §8.10.4's target documents, parsed once for every document this viewer holds.
+    ///
+    /// Handed to each [`Open`] as it is created, so that a document opened after
+    /// [`Command::References`] gets the same supply as one opened before it — which is
+    /// [`Command::Restrict`]'s rule for every host-supplied policy value.
+    references: Arc<pdf_model::reference::Supply>,
+    /// The files [`Command::References`] offered that this reader will not import from.
+    ///
+    /// Kept rather than raised as an event: a refusal is a fact about the *host's* input and not
+    /// about any document, so the party that sent the command is the party that asks. See
+    /// [`Self::reference_refusals`].
+    reference_refusals: Vec<pdf_model::reference::Refusal>,
 }
 
 impl Viewer {
@@ -176,6 +188,8 @@ impl Viewer {
             restrictions: crate::RestrictionLevel::default(),
             trust: crate::TrustPolicy::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
+            references: Arc::new(pdf_model::reference::Supply::none()),
+            reference_refusals: Vec::new(),
         }
     }
 
@@ -205,6 +219,45 @@ impl Viewer {
         self.documents
             .get(&document)
             .map(|open| open.readbacks.report())
+    }
+
+    /// §8.10.4's target documents, parsed once here rather than once per open document.
+    ///
+    /// The files are the *reader's* policy and not any document's, so one supply is shared by every
+    /// tab and a document opened later gets the same one — [`Command::Restrict`]'s rule for every
+    /// host-supplied value. The refusals are kept rather than printed: what a host does with them
+    /// is the host's, exactly as `viewer_host::trust_anchors` leaves an anchor's to its caller.
+    fn supply_references(&mut self, files: &crate::ReferenceFiles) {
+        let (supply, refused) = pdf_model::reference::Supply::read(
+            files
+                .files
+                .iter()
+                .map(|(name, bytes)| (name.clone(), bytes.clone())),
+            files.source.clone(),
+        );
+        let supply = Arc::new(supply);
+        self.reference_refusals = refused;
+        for open in self.documents.values_mut() {
+            open.references = Arc::clone(&supply);
+            // Every list this document has is a function of what could be imported, so the ones
+            // already built are no longer the ones this policy would produce.
+            open.stale();
+        }
+        self.references = supply;
+    }
+
+    /// The files [`Command::References`] offered that this reader will not import from.
+    ///
+    /// Named one by one rather than counted, for the reason `pdf_signature::trust::Supply` gives
+    /// one crate over: a person who pointed at a directory of six files and got four target
+    /// documents would otherwise be reading pages imported under a supply they did not supply.
+    ///
+    /// A query rather than an [`Event`], because a refusal here is a fact about the *host's*
+    /// input and about no document — so the party that sent the command is the party that asks,
+    /// and it may ask whenever it likes. Empty until [`Command::References`] has been sent.
+    #[must_use]
+    pub fn reference_refusals(&self) -> &[pdf_model::reference::Refusal] {
+        &self.reference_refusals
     }
 
     /// Answers a question about the viewer's state without changing any of it.
@@ -447,6 +500,7 @@ impl Viewer {
                     open.forget_about();
                 }
             }
+            Command::References(files) => self.supply_references(&files),
             Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -524,6 +578,10 @@ impl Viewer {
     ) {
         match Open::new(bytes, password) {
             Ok(mut open) => {
+                // §8.10.4's target documents are the reader's policy rather than any document's,
+                // so a document opened after `Command::References` gets the same supply as one
+                // opened before it — `Command::Restrict`'s rule for every host-supplied value.
+                open.references = Arc::clone(&self.references);
                 // A document opened *during* a presentation arrives in the mode the host is in:
                 // §12.4.4.2's node is a property of the page being shown and NOTE 2's saved groups
                 // of the document, so both are taken here rather than only on `Command::Present`.

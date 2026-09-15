@@ -16,6 +16,7 @@
 //! partial page *and* know it is partial: the viewer can say so, and the harness can
 //! exclude the page from comparison rather than reporting a false difference.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -28,6 +29,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use crate::colour::{ColourSpace, Compositing};
 use crate::icc::Rendering;
 use crate::page::Page;
+use crate::reference::Supply;
 
 use colour::{BlackPoint, Intent, output_intent_space};
 pub use ext_gstate::Transfer;
@@ -58,8 +60,8 @@ mod xobject;
 pub use font::{FONT_BUDGET, FontCache, FontCacheReport};
 pub use ledger::Ledger;
 pub use report::{
-    ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed, Shortfall,
-    UnnamedCodes, Unsupported, named_sequences,
+    ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed,
+    Shortfall, UnnamedCodes, Unsupported, named_sequences,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.
@@ -505,7 +507,40 @@ pub fn interpret_with_fonts(
     state: &crate::view::ViewState,
     fonts: &FontCache,
 ) -> Interpretation {
-    interpreted(document, page, state, fonts, Keep::Nothing, None).0
+    interpret_importing(document, page, state, fonts, &Supply::NONE)
+}
+
+/// Interprets a page against the target documents a host has supplied (ISO 32000-2 §8.10.4).
+///
+/// The same as [`interpret_with_fonts`] except that a form `XObject` carrying Table 95's `/Ref`
+/// draws the *referenced page* wherever `references` holds the file §14.4's identifier names, and
+/// §8.10.4.1's proxy wherever it does not. [`interpret_with_fonts`] is this function with
+/// [`Supply::NONE`], which is what every caller that has not been given target documents passes —
+/// so the two cannot diverge and a host that supplies nothing pays one `is_empty` per `/Ref`.
+///
+/// **Why the documents come from a caller**: `CLAUDE.md` principle 3 gives this crate no
+/// filesystem, and [`crate::file_spec`] is where that is argued. Table 95's `/F` is read and never
+/// opened; what decides which supplied file a reference names is §14.4's identifier, which is the
+/// match that clause itself states. [`crate::reference`] has the whole argument and ADR 1101 the
+/// decision.
+#[must_use]
+pub fn interpret_importing(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    fonts: &FontCache,
+    references: &Supply,
+) -> Interpretation {
+    interpreted(
+        document,
+        page,
+        state,
+        fonts,
+        references,
+        Keep::Nothing,
+        None,
+    )
+    .0
 }
 
 /// Interprets a page and hands back every named resource its content selected.
@@ -523,6 +558,7 @@ pub fn interpret_ledgered(document: &Document, page: &Page) -> (Interpretation, 
         page,
         &crate::view::ViewState::of(document),
         &FontCache::new(),
+        &Supply::NONE,
         Keep::Nothing,
         Some(&ledger),
     );
@@ -552,8 +588,17 @@ pub fn interpret_replaceable(
     page: &Page,
     state: &crate::view::ViewState,
     fonts: &FontCache,
+    references: &Supply,
 ) -> (Interpretation, Option<Replacement>) {
-    interpreted(document, page, state, fonts, Keep::Replacement, None)
+    interpreted(
+        document,
+        page,
+        state,
+        fonts,
+        references,
+        Keep::Replacement,
+        None,
+    )
 }
 
 /// Runs §12.5.3's annotation pass again, over the content half a [`Replacement`] kept.
@@ -574,6 +619,7 @@ pub fn replace(
     page: &Page,
     state: &crate::view::ViewState,
     fonts: &FontCache,
+    references: &Supply,
     replacement: &Replacement,
 ) -> Interpretation {
     let mut interpreter = Interpreter::for_page(
@@ -583,6 +629,7 @@ pub fn replace(
         replacement.checkpoint.compositing.clone(),
         &replacement.presses,
         fonts,
+        references,
         None,
     );
     interpreter.restore(replacement.checkpoint.clone());
@@ -620,6 +667,7 @@ fn interpreted(
     page: &Page,
     state: &crate::view::ViewState,
     fonts: &FontCache,
+    references: &Supply,
     keep: Keep,
     ledger: Option<&std::cell::RefCell<Ledger>>,
 ) -> (Interpretation, Option<Replacement>) {
@@ -648,6 +696,7 @@ fn interpreted(
             Compositing::Subtractive(crate::colour::Half::Chromatic, Arc::clone(&press)),
             &presses,
             fonts,
+            references,
             Keep::Nothing,
             ledger,
         );
@@ -659,6 +708,7 @@ fn interpreted(
                 Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press)),
                 &presses,
                 fonts,
+                references,
                 Keep::Nothing,
                 ledger,
             );
@@ -696,7 +746,7 @@ fn interpreted(
     // the cube they leave by rides on the display list beside the curve.
     if let Some(own_space) = transparency::page_own_space(document, page, &presses) {
         let (grey, drawable, checkpoint) = interpret_into(
-            document, page, state, own_space, &presses, fonts, keep, ledger,
+            document, page, state, own_space, &presses, fonts, references, keep, ledger,
         );
         if drawable {
             let replacement = checkpoint
@@ -715,6 +765,7 @@ fn interpreted(
         Compositing::Device,
         &presses,
         fonts,
+        references,
         keep,
         ledger,
     );
@@ -739,6 +790,11 @@ impl<'a> Interpreter<'a> {
     /// instructed about §12.7's widgets, what §11.4.7 gives the page to composite in — reads
     /// as the one list of answers it is, rather than as the opening third of the function
     /// that then runs the page.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the inputs `interpret_into` threads here, one parameter each; a struct for them \
+                  would name the same eight things once more"
+    )]
     fn for_page(
         document: &'a Document,
         page: &'a Page,
@@ -746,6 +802,7 @@ impl<'a> Interpreter<'a> {
         compositing: Compositing,
         presses: &'a crate::colour::Presses,
         across: &'a FontCache,
+        references: &'a Supply,
         ledger: Option<&'a std::cell::RefCell<Ledger>>,
     ) -> Self {
         let size = displayed_size(page);
@@ -780,7 +837,8 @@ impl<'a> Interpreter<'a> {
             operations: 0,
             reach_scanned: 0,
             fonts: BTreeMap::new(),
-            across,
+            across: Some(across),
+            references,
             text: String::new(),
             described: Vec::new(),
             artifacts: Vec::new(),
@@ -801,18 +859,26 @@ impl<'a> Interpreter<'a> {
             // Table 51's and Table 52's initial values.
             pattern_initial: PatternInitial::of(&GraphicsState::initial(base_transform(page))),
             page: size,
-            page_resources: &page.resources,
+            page_resources: Arc::new(page.resources.clone()),
             shadings: crate::shading::Cache::default(),
             resource_tables: std::cell::RefCell::default(),
             icc_spaces: BTreeMap::new(),
             image_masks: crate::image::MaskCache::default(),
             image_rasters: crate::image::RasterCache::default(),
             structure: Arc::new(crate::structure::ParentTree::for_page(document, &page.dict)),
+            // §14.8.1's claim first, because it is one dictionary lookup and it is false for all
+            // but a sixth of the corpus; the tree only for a document that made it.
+            tagged: crate::structure::MarkInfo::read(document)
+                .marked
+                .then(|| crate::structure::Tree::of(document))
+                .flatten(),
+            structural_annotations: Vec::new(),
             stream_structures: BTreeMap::new(),
             output_intent: output_intent_space(document, Some(&page.dict)),
             optional_content: state.optional_content().cloned(),
-            view: state,
+            view: Cow::Borrowed(state),
             delegated,
+            annotations_clipped_to: None,
             hidden: 0,
             glyph_depth: 0,
             soft_mask_depth: 0,
@@ -860,6 +926,8 @@ impl<'a> Interpreter<'a> {
             // produces them again from the same inputs.
             document: _,
             across: _,
+            references: _,
+            annotations_clipped_to: _,
             view: _,
             // False wherever a checkpoint is taken at all: `interpret_into` withholds the
             // checkpoint from a page whose content the magnification placed, because §12.5.3's
@@ -871,6 +939,7 @@ impl<'a> Interpreter<'a> {
             page: _,
             page_resources: _,
             structure: _,
+            tagged: _,
             output_intent: _,
             optional_content: _,
             delegated: _,
@@ -909,6 +978,7 @@ impl<'a> Interpreter<'a> {
             described,
             artifacts,
             marked,
+            structural_annotations,
             marking,
             associated,
             reversed_chars,
@@ -951,6 +1021,7 @@ impl<'a> Interpreter<'a> {
             described: described.clone(),
             artifacts: artifacts.clone(),
             marked: marked.clone(),
+            structural_annotations: structural_annotations.clone(),
             marking: marking.clone(),
             associated: associated.clone(),
             reversed_chars: *reversed_chars,
@@ -1000,6 +1071,7 @@ impl<'a> Interpreter<'a> {
             described,
             artifacts,
             marked,
+            structural_annotations,
             marking,
             associated,
             reversed_chars,
@@ -1041,6 +1113,7 @@ impl<'a> Interpreter<'a> {
         self.described = described;
         self.artifacts = artifacts;
         self.marked = marked;
+        self.structural_annotations = structural_annotations;
         self.marking = marking;
         self.associated = associated;
         self.reversed_chars = reversed_chars;
@@ -1123,6 +1196,14 @@ struct Checkpoint {
     artifacts: Vec<ArtifactSpan>,
     /// See [`Interpretation::marked`].
     marked: Vec<MarkedSpan>,
+    /// §14.7.5.3's object content items on this page, as ranges of [`Self::text`].
+    ///
+    /// One entry per annotation whose own `/StructParent` makes it a content item of a structure
+    /// element and whose appearance stream read back anything. An appearance carries no `/MCID` of
+    /// its own, so this is the only route by which §14.8.2.2.2's "all page content as well as
+    /// annotations" can say an annotation's text *is* in the tree — and without it every widget's
+    /// value on a tagged form would be classified an artifact by absence.
+    structural_annotations: Vec<std::ops::Range<usize>>,
     /// Marked-content sequences a malformed content stream left open, which the annotation pass
     /// would otherwise close on a stack that had not been opened.
     marking: Vec<marked::OpenSequence>,
@@ -1201,7 +1282,7 @@ impl Interpreter<'_> {
 #[expect(
     clippy::too_many_arguments,
     reason = "one interpretation's inputs, threaded from the four public entry points to \
-              `Interpreter::for_page`; a struct for them would name the same eight things once more"
+              `Interpreter::for_page`; a struct for them would name the same nine things once more"
 )]
 fn interpret_into(
     document: &Document,
@@ -1210,6 +1291,7 @@ fn interpret_into(
     compositing: Compositing,
     presses: &crate::colour::Presses,
     fonts: &FontCache,
+    references: &Supply,
     keep: Keep,
     ledger: Option<&std::cell::RefCell<Ledger>>,
 ) -> (Interpretation, bool, Option<Checkpoint>) {
@@ -1221,8 +1303,16 @@ fn interpret_into(
     // to interpret an ordinary page, and one report arriving late: a part damaged half way
     // through is met half way through, so the reader is asked twice, here and after the run.
     let mut reader = reader::ContentReader::for_page(document, page);
-    let mut interpreter =
-        Interpreter::for_page(document, page, state, compositing, presses, fonts, ledger);
+    let mut interpreter = Interpreter::for_page(
+        document,
+        page,
+        state,
+        compositing,
+        presses,
+        fonts,
+        references,
+        ledger,
+    );
 
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
@@ -1477,6 +1567,18 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         | Compositing::Subtractive(..) => {}
     }
 
+    // §14.8.2.2.2's second sentence, last of all because it is the *complement* of every route
+    // into the structure tree and every one of them has to have been recorded first.
+    let mut artifacts = interpreter.artifacts;
+    if interpreter.tagged.is_some() {
+        by_absence(
+            &interpreter.text,
+            &interpreter.marked,
+            &interpreter.structural_annotations,
+            &mut artifacts,
+        );
+    }
+
     Interpretation {
         display_list: list,
         // §12.5.3's `NoZoom` annotations, and §8.7.3.1's lattice: the two things that make this
@@ -1490,13 +1592,46 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         codes_without_a_vertical_form: interpreter.codes_without_a_vertical_form,
         codes_without_a_character: interpreter.codes_without_a_character,
         described: interpreter.described,
-        artifacts: interpreter.artifacts,
+        artifacts,
         marked: interpreter.marked,
         inferred_separators: interpreter.inferred_separators,
         associated_files: interpreter.associated,
         language,
         text_layer: interpreter.text_layer,
     }
+}
+
+/// Appends ISO 32000-2 §14.8.2.2.2's artifacts by absence to what the page already declared.
+///
+/// Three routes into the structure tree have to be subtracted before the complement means
+/// anything: a sequence the producer identified with an `/MCID` (§14.7.5.2), an annotation whose
+/// own `/StructParent` makes it a content item (§14.7.5.3), and the artifacts the producer declared
+/// outright. Called only for a document that claims §14.8 applies to it — see
+/// [`Interpreter::tagged`] — and [`crate::structure::artifacts_by_absence`] carries the reading.
+fn by_absence(
+    text: &str,
+    marked: &[MarkedSpan],
+    annotations: &[std::ops::Range<usize>],
+    artifacts: &mut Vec<ArtifactSpan>,
+) {
+    let included: Vec<std::ops::Range<usize>> = marked
+        .iter()
+        .map(|span| span.range.clone())
+        .chain(artifacts.iter().map(|span| span.range.clone()))
+        .chain(annotations.iter().cloned())
+        .collect();
+    artifacts.extend(
+        crate::structure::artifacts_by_absence(text, &included)
+            .into_iter()
+            .map(|range| ArtifactSpan {
+                range,
+                // The clause's own words for this case are "even when not enclosed in a
+                // marked-content sequence", so there is no property list and nothing for
+                // Table 363 to have said.
+                artifact: crate::structure::Artifact::default(),
+                found: ArtifactSource::Absence,
+            }),
+    );
 }
 
 /// The page's extent as it is displayed: after §7.7.3.3's `/Rotate`, and in `/UserUnit`s.
@@ -1719,7 +1854,12 @@ struct Interpreter<'a> {
     /// Empty and unshared for every caller that does not, which is [`interpret`] and
     /// [`interpret_with`] — those build one per call, so the two runs of §11.4.7's subtractive
     /// pair below share a cache and nothing else does.
-    across: &'a FontCache,
+    ///
+    /// `None` while §8.10.4's imported page is being drawn, and that is the whole reason it is
+    /// an `Option`: a [`FontCache`] is bound to one document's bytes and *empties itself* when
+    /// another arrives, so a page that imported would clear the cache the containing document
+    /// shares with every other page of itself. See [`Interpreter::enter_imported`].
+    across: Option<&'a FontCache>,
     /// Maps PDF user space to page space.
     ///
     /// Pattern space is defined relative to the page's default coordinates rather than to
@@ -1744,7 +1884,10 @@ struct Interpreter<'a> {
     /// dictionary of the page on which they are used", and Table 110's `/Resources` cell says
     /// the same of a Type 3 font. Kept here rather than threaded through every `run`, because
     /// it is one dictionary per interpretation and every nested stream inherits the same one.
-    page_resources: &'a Dictionary,
+    ///
+    /// Owned only while §8.10.4's imported page is being drawn, where the page is another
+    /// document's and there is no `&'a Page` to borrow it from.
+    page_resources: Arc<Dictionary>,
     /// Shadings already built, by the object that states them (§8.7, ADR 0069).
     ///
     /// A page paints one shading object many times — a pattern under every cell of a chart,
@@ -1837,6 +1980,26 @@ struct Interpreter<'a> {
     artifacts: Vec<ArtifactSpan>,
     /// §14.7.5.2's marked-content spans, in the order their sections closed.
     marked: Vec<MarkedSpan>,
+    /// §14.7.5.3's object content items on this page, as ranges of [`Self::text`].
+    ///
+    /// One entry per annotation whose own `/StructParent` makes it a content item of a structure
+    /// element and whose appearance stream read back anything. An appearance carries no `/MCID` of
+    /// its own, so this is the only route by which §14.8.2.2.2's "all page content as well as
+    /// annotations" can say an annotation's text *is* in the tree — and without it every widget's
+    /// value on a tagged form would be classified an artifact by absence.
+    structural_annotations: Vec<std::ops::Range<usize>>,
+    /// The structure tree, for a document that claims §14.8's rules apply to it.
+    ///
+    /// `Some` only where the catalog's `/MarkInfo` states `/Marked true` — §14.8.1 makes that "a
+    /// mark information dictionary … with a value of true for the Marked entry" the claim to be a
+    /// tagged PDF — **and** a `/StructTreeRoot` exists. Both conditions, because §14.8.2.2.2's
+    /// artifact by absence is a rule about what a tagged file left out of its tree, and a file that
+    /// never claimed to follow §14.8 has left nothing out of anything: over the corpus that
+    /// distinction is 831 599 characters, 98.6% of all the unreached content there is
+    /// (`examples/unreached_content_census`, ADR 1100).
+    ///
+    /// `None` for every untagged document, which is where it costs one dictionary lookup.
+    tagged: Option<crate::structure::Tree>,
     /// Which content stream the operators now being read came out of (§14.7.5.2).
     ///
     /// [`ContentStream::Page`] while the page's own `/Contents` is running, and replaced for the
@@ -1906,7 +2069,15 @@ struct Interpreter<'a> {
     /// have moved it and the interpreter reads it thousands of times per page.
     optional_content: Option<crate::optional_content::OptionalContent>,
     /// The viewer state, for the half of it the interpreter asks per annotation (§12.6.4.11).
-    view: &'a crate::view::ViewState,
+    ///
+    /// Owned only while §8.10.4's imported page is being drawn, and that is a correctness matter
+    /// rather than a lifetime one: this state files §12.6.4.11's overrides and a person's own
+    /// additions under [`ObjectId`], and two documents hand out the same object numbers — so the
+    /// containing document's state, applied to a target document's annotations, would hide one
+    /// annotation because an unrelated one was hidden. The imported page gets
+    /// [`crate::view::ViewState::of`] its own document, carrying only the magnification, which is
+    /// the reader's rather than either file's (§12.5.3).
+    view: Cow<'a, crate::view::ViewState>,
     /// §12.7's widgets on this page whose appearance the host draws instead (§6.3.2.2).
     ///
     /// Empty for every caller that has not asked, which is every caller in this workspace but a
@@ -2127,6 +2298,17 @@ struct Interpreter<'a> {
     /// Shared by every run of the page — §11.4.7's pair is one content stream interpreted
     /// twice — so that a press is sampled once and counted once. ADR 0417.
     presses: &'a crate::colour::Presses,
+    /// §8.10.4's target documents a host supplied, empty for every caller that supplied none.
+    references: &'a Supply,
+    /// The clip §12.5.3's annotation pass draws every appearance inside, or `None` for a page of
+    /// the document this interpretation opened.
+    ///
+    /// `None` is the ordinary answer and the clause's: an annotation is drawn *over* the page and
+    /// is not bounded by anything the content stream clipped. §8.10.4's imported page is the one
+    /// exception, and it is the standard's — §8.10.4.1 clips the whole imported page "to the
+    /// boundaries of its bounding box", and §8.10.4.3 makes that page's annotation appearances
+    /// part of its rendering, so they are inside the proxy's box like everything else it brought.
+    annotations_clipped_to: Option<ClipId>,
 }
 
 /// Applies the `d` dash operator.

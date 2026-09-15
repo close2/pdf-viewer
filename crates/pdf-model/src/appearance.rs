@@ -217,16 +217,18 @@ pub(crate) struct Constructed {
 /// algorithm then maps the box onto the rectangle as the identity, and the marks land exactly
 /// where this module drew them.
 ///
-/// **`None` where there is no appearance to write**: an annotation with no readable `/Rect` or
-/// `/Subtype`, or one whose clause states no artwork — [`construct`]'s arms carry the reading for
-/// each of those. An annotation that legitimately draws *nothing* is not one of them: it gets an
-/// empty stream, because drawing nothing is what its own entries state and an empty form `XObject`
-/// says exactly that.
+/// **`None` where there is no annotation to construct from**: one with no readable `/Rect`, or
+/// none whose `/Subtype` resolves to a name. A subtype whose own clause states no artwork is
+/// *not* one of those — [`construct`]'s arms carry the reading for each, and every one of them
+/// returns a stream with the whole of the artwork owed, which [`Written::drawn`] is what says it.
 ///
 /// The report is [`Constructed::report`], and a caller writing this into a file is expected to
 /// act on it rather than only print it: a construction that could not be completed is a partial
 /// rendering, and freezing one into a document is not the same act as writing down what the
-/// clauses state.
+/// clauses state. **[`Written::drawn`] separates a partial rendering from no rendering at all**,
+/// which is a different refusal with a different sentence: an annotation that legitimately draws
+/// nothing, one drawn as far as its entries reach, and one whose clause states no mark anywhere
+/// all carry a stream, and only the last two owe anything.
 #[must_use]
 pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Written> {
     let subtype = document
@@ -241,10 +243,12 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Wr
         crate::view::AnnotationView::default(),
         rect,
     );
+    let drawn = built.content.is_some();
     Some(Written {
         // An annotation that draws nothing gets an empty stream rather than none: drawing
         // nothing is what its own entries state, and an empty form `XObject` says exactly that.
         stream: form_xobject(rect, built.resources, built.content.unwrap_or_default()),
+        drawn,
         owed: built.report,
     })
 }
@@ -349,6 +353,19 @@ pub fn intent(document: &Document, annotation: &Dictionary) -> Option<Intent> {
 pub struct Written {
     /// The form `XObject` an `/AP` `/N` entry would name.
     pub stream: Object,
+    /// Whether the construction put any mark at all into [`Self::stream`].
+    ///
+    /// `false` for the subtypes whose own clause states no artwork — a stamp's legend, a caret, an
+    /// unapplied redaction, a printer's mark, a trap network, a movie's poster, a watermark, 3D or
+    /// rich media artwork, an annotation stating no `/Subtype` — and `true` everywhere else,
+    /// including for an annotation whose entries legitimately describe nothing to draw.
+    ///
+    /// **Read it with [`Self::owed`] rather than instead of it.** The pair distinguishes three
+    /// outcomes a single stream cannot: drawn whole (`drawn`, nothing owed), drawn as far as the
+    /// entries reach (`drawn`, something owed), and nothing drawn at all (`!drawn`, everything
+    /// owed). A caller deciding whether to *write* the stream into a file needs the third told
+    /// apart from the second, because the reasons differ and so does the sentence a person reads.
+    pub drawn: bool,
     /// What the subtype's clause asks for and this module could not derive, where anything.
     ///
     /// A stream with something owed is a *partial* rendering of the annotation, which is a
@@ -673,10 +690,33 @@ pub(crate) fn construct(
             "its clause states where an appearance stream is placed rather than a mark to draw, \
              and Table 194's entries all transform the annotation rectangle",
         )),
-        // Every subtype Table 171 defines has an arm above, or was answered before this module
-        // was reached, so what is left is an annotation that states no `/Subtype` — required by
-        // Table 166, and `issue7446.pdf` is the corpus witness. It has no subtype clause, so a
-        // sentence about one would be false of the only case that can arrive here.
+        // **§12.5.6.18 states this one's answer outright**, and it states it in the prose after
+        // Table 190 rather than in the table (ADR 0901):
+        //
+        // > If AP is not present, the screen annotation shall not have a default visual appearance
+        // > and shall not be printed.
+        //
+        // So a `Screen` with no appearance stream is not an annotation whose artwork is left
+        // unstated; it is one the clause says has none, and Table 190's `/MK` is not a second
+        // route — that cell gives its `/I` entry as "the icon used in generating the appearance
+        // referred to by the screen annotation's AP entry", which describes how a *stored* stream
+        // was made. `crate::annotation::construct` answers the same subtype before reaching this
+        // function, so the viewer never arrives here; [`for_annotation`] has no such caller in
+        // front of it and did arrive, at the catch-all below, whose sentence is about an
+        // annotation that states no subtype and is therefore false of this one.
+        b"Screen" => Err(Refusal::NotDerivable(
+            "§12.5.6.18 states that without an AP entry a screen annotation shall not have a \
+             default visual appearance and shall not be printed",
+        )),
+        // Every subtype Table 171 defines has an arm above, except `Popup` and `Projection` —
+        // two of the three Table 166 excepts from needing an appearance dictionary at all,
+        // "Annotations whose Subtype value is Popup, Projection or Link", so nothing asks this
+        // function for either, and `crate::annotation::construct` answers both before it. The
+        // third, `Link`, has an arm because §12.5.6.5's border is a mark a viewer draws whether
+        // or not a writer owed a dictionary for it. So what is left is an annotation that states
+        // no `/Subtype` — required by Table 166, and `issue7446.pdf` is the corpus witness. It
+        // has no subtype clause, so a sentence about one would be false of the only case that can
+        // arrive here.
         _ => Err(Refusal::NotDerivable(
             "Table 166 makes /Subtype required and this annotation states none, so no subtype \
              clause says what to draw",

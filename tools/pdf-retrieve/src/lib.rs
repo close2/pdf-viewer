@@ -731,6 +731,15 @@ fn edges(assembled: &str, starts: &[usize], section: &Section) -> (Option<usize>
 /// **not** the default, because the default is the readback the text gate measures and an
 /// answer that quietly differed from it would put this crate between a caller and that
 /// measurement.
+///
+/// **Both of §14.8.2.2.2's sentences arrive here and neither is distinguished**, which is the
+/// point of taking [`pdf_model::content::ArtifactSpan`] rather than a tag: the clause's two
+/// explicit methods say *this is an artifact*, and its other sentence — "[a]ny content that is
+/// not included in the structure tree is an artifact", tagged or not — says the same thing of
+/// what no structure element reaches.
+/// A caller asking for a clause's text wants both gone. `interpret` produces the second only for
+/// a document whose `/MarkInfo` claims §14.8 (ADR 1100), so an untagged file's whole page never
+/// vanishes through this flag.
 fn without_artifacts(text: &str, interpretation: &Interpretation) -> String {
     if interpretation.artifacts.is_empty() {
         return text.to_owned();

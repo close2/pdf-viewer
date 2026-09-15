@@ -97,16 +97,27 @@ fn a_replaced_page_is_the_page_it_would_have_been_interpreted_as() {
         };
         let mut state = ViewState::of(&document);
         state.set_magnification(Some(1.0));
-        let (_, replacement) =
-            pdf_model::content::interpret_replaceable(&document, &page, &state, &fonts);
+        let (_, replacement) = pdf_model::content::interpret_replaceable(
+            &document,
+            &page,
+            &state,
+            &fonts,
+            &pdf_model::reference::Supply::NONE,
+        );
         let Some(replacement) = replacement else {
             continue;
         };
         for magnification in MAGNIFICATIONS {
             let mut moved = ViewState::of(&document);
             moved.set_magnification(magnification);
-            let replaced =
-                pdf_model::content::replace(&document, &page, &moved, &fonts, &replacement);
+            let replaced = pdf_model::content::replace(
+                &document,
+                &page,
+                &moved,
+                &fonts,
+                &pdf_model::reference::Supply::NONE,
+                &replacement,
+            );
             let whole = pdf_model::content::interpret_with_fonts(&document, &page, &moved, &fonts);
             agree(&replaced, &whole, index, magnification);
             compared = compared.saturating_add(1);
@@ -137,8 +148,13 @@ fn a_page_no_annotation_makes_view_dependent_keeps_nothing_to_replace_from() {
         };
         let mut state = ViewState::of(&document);
         state.set_magnification(Some(1.0));
-        let (interpretation, replacement) =
-            pdf_model::content::interpret_replaceable(&document, &page, &state, &fonts);
+        let (interpretation, replacement) = pdf_model::content::interpret_replaceable(
+            &document,
+            &page,
+            &state,
+            &fonts,
+            &pdf_model::reference::Supply::NONE,
+        );
         // **The two are no longer the same question**, and since ADR 1080 saying so is the
         // point of this line: §12.5.3's annotations are one of the things a magnification moves
         // and §8.7.3.1's lattice is the other, so a page can be view-dependent with nothing to

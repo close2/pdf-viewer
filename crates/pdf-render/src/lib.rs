@@ -87,5 +87,5 @@ pub use strips::{
 pub use sub_pixel::{
     EnlargedMark, PointMark, SubPixelBand, band_substitute_width, enlarged_mark, enlarged_mark_at,
     expressible_coverage, marks_in_their_pixels, only_flat_subpaths, pixel_containing, point_mark,
-    sub_pixel_bands, sub_pixel_caps, substitute_width, substitute_width_across,
+    sub_pixel_bands, sub_pixel_caps, substitute_width, substitute_width_across, unmeasurable_width,
 };

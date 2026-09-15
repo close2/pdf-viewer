@@ -260,10 +260,11 @@ const NO_PLACE_TO_RECORD_A_REMOVAL: &str = "removing a metadata property is reco
 /// Why an annotation's appearance could not be constructed.
 const APPEARANCE_NOT_DERIVABLE: &str = "this document holds an annotation with no appearance \
      dictionary whose own subtype clause states no artwork for it — a stamp's legend, a caret, an \
-     unapplied redaction, a printer's mark, a trap network, 3D or rich media artwork, or an \
-     annotation stating no Subtype or no readable Rect at all. ISO 32000-2 Table 166 requires the \
-     dictionary and the subtype clause is what would say what goes in it, so constructing one \
-     here would be putting a mark on the page the document never described";
+     unapplied redaction, a printer's mark, a trap network, a movie's poster, a watermark, 3D or \
+     rich media artwork, or an annotation stating no Subtype or no readable Rect at all. \
+     ISO 32000-2 Table 166 requires the dictionary and the subtype clause is what would say what \
+     goes in it, so constructing one here would be putting a mark on the page the document never \
+     described";
 
 /// Why a partly derivable appearance is not written either.
 const APPEARANCE_INCOMPLETE: &str = "this document holds an annotation whose appearance this \
@@ -532,6 +533,16 @@ pub(super) struct Appearances {
     pub(super) written: Vec<(ObjectId, Object)>,
     /// Every appearance written, for the report.
     pub(super) constructed: Vec<WrittenAppearance>,
+    /// How many places the requirement failed at that section 6.3.1's removal takes off the page.
+    ///
+    /// **Not a gap and not a construction: a place that will not exist.** ISO 19005-2 section
+    /// 6.3.3 and ISO 19005-4 section 6.3.3 ask an appearance dictionary of the annotations a
+    /// *conforming file* holds, and section 6.3.1 forbids some subtypes outright — so an
+    /// annotation the removal takes out of its page's `/Annots` is one the output does not hold
+    /// and the appearance requirement has no place on. Counting them is what lets
+    /// [`super::decision::answer_of`] tell a document whose every failing place goes with the
+    /// removal from one that failed nowhere this preparation could see.
+    pub(super) removed: usize,
 }
 
 /// One appearance this conversion constructed, as the report names it.
@@ -840,8 +851,16 @@ impl Prepared {
             to_unicode::derive(document, &unicode_fonts(input), &mut spare)
                 .map_err(Because::NotBuiltYet)
         });
+        // **Prepared after the removal and from it**, for the reason the composed pages are:
+        // section 6.3.3's population is the annotations the *output* holds, and section 6.3.1's
+        // removal is what says which of the source's those are (ADR 1105).
         let appearances = asked(wanted(Rewrite::AppearanceDictionary), || {
-            prepare_appearances(document, plan.target, &mut spare)
+            prepare_appearances(
+                document,
+                plan.target,
+                forbidden_annotations.as_ref().ok(),
+                &mut spare,
+            )
         });
         let structure = structure_tree(wanted(Rewrite::MarkInfo), document, catalog.as_ref());
         let already = Already {
@@ -1465,20 +1484,35 @@ fn device_n(tint: ObjectId, profile: ObjectId) -> Object {
 /// **Nothing is judged here either.** `pdf_archive::annotations_without_an_appearance` is the same
 /// reading the two requirement rows are, and `pdf_model::appearance` is the construction the
 /// viewer already draws from the annotation's own entries. What this decides is whether the
-/// construction may be *written down*, and it refuses three cases rather than writing something
+/// construction may be *written down*, and it refuses four cases rather than writing something
 /// weaker than the clauses state.
+///
+/// **`forbidden` narrows the population to the annotations the output will still hold**, which is
+/// what the clause asks about: ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 bind the
+/// annotations of a conforming *file*, and section 6.3.1's removal takes some of the source's out
+/// of it. Constructing an appearance for one of those would be drawing a picture for an
+/// annotation this conversion is about to delete — and refusing the document because no such
+/// picture can be drawn, which is what happened until ADR 1105, refuses it over a place the
+/// output does not have. `None` where the removal was not prepared at all, which is every
+/// document whose section 6.3.1 row did not fail (ADR 1099).
 fn prepare_appearances(
     document: &Document,
     target: Target,
+    forbidden: Option<&ForbiddenAnnotations>,
     spare: &mut Spare,
 ) -> Result<Appearances, Because> {
     let mut at = BTreeMap::new();
     let mut written = Vec::new();
     let mut constructed = Vec::new();
+    let mut removed = 0_usize;
     for missing in pdf_archive::annotations_without_an_appearance(document, target) {
         let annotation = missing
             .at
             .ok_or(Because::NotBuiltYet(APPEARANCE_ON_A_DIRECT_ANNOTATION))?;
+        if forbidden.is_some_and(|forbidden| forbidden.at.contains(&annotation)) {
+            removed = removed.saturating_add(1);
+            continue;
+        }
         let dict = document
             .get(annotation)
             .as_dict()
@@ -1489,8 +1523,16 @@ fn prepare_appearances(
         }
         let built = pdf_model::appearance::for_annotation(document, &dict)
             .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
+        // Two refusals rather than one, because they are two facts and only one of them is about
+        // this program: a construction that put marks on the page and owes an entry beside them is
+        // partial, and one that put none is a subtype whose clause states no artwork anywhere.
+        // The sentence a person reads is the difference, and the second is ADR 0816's fence.
         if built.owed.is_some() {
-            return Err(Because::TheFence(APPEARANCE_INCOMPLETE));
+            return Err(Because::TheFence(if built.drawn {
+                APPEARANCE_INCOMPLETE
+            } else {
+                APPEARANCE_NOT_DERIVABLE
+            }));
         }
         let stream = spare
             .take(document)
@@ -1508,6 +1550,7 @@ fn prepare_appearances(
         at,
         written,
         constructed,
+        removed,
     })
 }
 

@@ -256,15 +256,56 @@ pub(crate) fn find(text: &str, needle: &str) -> Vec<(usize, usize)> {
     out
 }
 
+/// ISO 32000-2 §14.8.2.3's soft hyphen, U+00AD.
+///
+/// > In tagged PDF, the visible hyphen that is introduced through the incidental division of a
+/// > word at the end of a line but which would not be present otherwise, may be represented as a
+/// > soft hyphen , mapped to the Unicode value U+00AD
+const SOFT_HYPHEN: char = '\u{00ad}';
+
 /// The byte length of a case-insensitive match at the start of `text`, if there is one.
 ///
 /// Whitespace is the one place the two sides are not compared character for character: a run of
 /// it in the needle stands for a run of it in the text, for the reason [`find`] states.
+///
+/// # §14.8.2.3's rejoining, which is the third judgement
+///
+/// A soft hyphen in the *text* is skipped, together with the line break after it, so that a word
+/// an incidental line division split is found by its own spelling. The clause states the
+/// distinction and its purpose — a writer "shall distinguish explicitly between soft and hard
+/// hyphens so that a PDF processor can unambiguously determine which type a given character
+/// represents" — and states nothing at all about what the processor then does with the
+/// determination, which §14.8.2.2.1 NOTE 3 says outright is not tagged PDF's business: its purpose
+/// "is not to prescribe what the PDF processor does". So this is a documented choice and not a
+/// clause obeyed, and ADR 1100 is the argument. What makes it *this* choice: the character's whole
+/// reason for existing is to say the hyphen "would not be present otherwise", and a find bar that
+/// cannot find "transparency" on the page that plainly says it has ignored the one thing the
+/// producer went to the trouble of stating.
+///
+/// **The readback keeps the character.** Nothing here rewrites `Interpretation::text`; the fold is
+/// the searcher's, so a caller copying the same range still gets what §9.10.2's mapping produced.
+///
+/// **The needle is not folded**, which is what lets a person who types a soft hyphen still mean
+/// one: the skip below is declined whenever the needle wants that character next.
+///
+/// **A hard hyphen is untouched.** NOTE 1 makes U+002D a different character, and a reader that
+/// folded it would join two words the page keeps apart.
 fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
     let mut wanted = needle.iter().copied().peekable();
     let mut characters = text.chars().peekable();
     let mut length = 0_usize;
     loop {
+        // §14.8.2.3, before either branch: the character and the break it introduced are not part
+        // of the word, so neither side of the comparison should see them.
+        if characters.peek() == Some(&SOFT_HYPHEN) && wanted.peek() != Some(&SOFT_HYPHEN) {
+            characters.next();
+            length = length.saturating_add(SOFT_HYPHEN.len_utf8());
+            while let Some(character) = characters.peek().copied().filter(|c| c.is_whitespace()) {
+                characters.next();
+                length = length.saturating_add(character.len_utf8());
+            }
+            continue;
+        }
         if wanted.peek().is_some_and(|want| want.is_whitespace()) {
             let mut separated = false;
             while let Some(character) = characters.peek().copied().filter(|c| c.is_whitespace()) {
@@ -377,6 +418,41 @@ mod tests {
         assert_eq!(found.len(), 1);
         let (from, to) = found[0];
         assert_eq!(&text[from..to], "then", "the range indexes the original");
+    }
+
+    /// ISO 32000-2 §14.8.2.3's soft hyphen: a word a line division split is found by its spelling.
+    ///
+    /// The clause's own subject is the character — "the visible hyphen that is introduced through
+    /// the incidental division of a word at the end of a line but which would not be present
+    /// otherwise, may be represented as a soft hyphen , mapped to the Unicode value U+00AD" — and
+    /// the rejoining is this crate's decision rather than a requirement it states (ADR 1100).
+    ///
+    /// Four cases, and the last three are the calibration (`doc/traps/instruments-and-reports.md`
+    /// trap 13): a hard hyphen is **not** folded, a needle that states a soft hyphen still wants
+    /// one, and a soft hyphen does not turn two separate words into one match.
+    #[test]
+    fn a_word_a_soft_hyphen_divided_is_found_whole() {
+        assert_eq!(
+            find("transparen\u{ad}\ncy group", "transparency"),
+            vec![(0, 15)],
+            "the character and the break it introduced are not part of the word, and the range \
+             still covers both halves so that a highlight shows the whole of what matched"
+        );
+        assert_eq!(
+            find("well\u{2d}\nknown", "wellknown"),
+            vec![],
+            "NOTE 1's hard hyphen is a different character and stays"
+        );
+        assert_eq!(
+            find("soft\u{ad}ly", "soft\u{ad}ly"),
+            vec![(0, 8)],
+            "a needle that states the character is compared against it"
+        );
+        assert_eq!(
+            find("red\u{ad}\ngreen", "redgreenblue"),
+            vec![],
+            "folding joins what the division split, and invents nothing"
+        );
     }
 
     /// A phrase whose words the page put on two lines is still that phrase.

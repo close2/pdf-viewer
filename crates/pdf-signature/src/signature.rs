@@ -2741,6 +2741,112 @@ impl UsageRights {
             }
         }
     }
+
+    /// Whether Table 258 grants the operation an update is seen to have performed.
+    ///
+    /// The other direction from [`UsageRights::grants`], and the two are deliberately separate
+    /// questions. `grants` is asked of a [`Right`] before *this program* writes, which is what
+    /// §12.8.2.3's "should remove that signature prior to writing the newly modified PDF" needs;
+    /// this is asked of an [`Operation`] a *file* already carries, which is what the clause's other
+    /// sentence needs:
+    ///
+    /// > Next, a PDF processor shall examine the current version of the document to see whether
+    /// > there have been modifications to any objects that are not permitted by the transform
+    /// > parameters.
+    ///
+    /// [`crate::revision::Comparison::against_usage_rights`] is that examination.
+    ///
+    /// The two rules [`UsageRights::grants`] states come first here for the same reasons and in
+    /// the same order: `/P` false means "any possible restriction may be ignored", and a `/V`
+    /// other than `2.2` means "no rights shall be enabled".
+    #[must_use]
+    pub fn permits(&self, operation: Operation) -> bool {
+        if !self.restrictive {
+            return true;
+        }
+        if !self.version_understood {
+            return false;
+        }
+        // Three of Table 258's five arrays, because [`Operation`] has a variant for a right in
+        // those three alone: `/Document`'s one value is about saving rather than about an object,
+        // and `/EF`'s four are operations on named embedded files this comparison does not tell
+        // apart. Both are refused by name in [`crate::revision::RIGHTS_NOT_RECOGNISED`].
+        let array = match operation {
+            Operation::AnnotationCreated
+            | Operation::AnnotationDeleted
+            | Operation::AnnotationModified => &self.annots,
+            Operation::FormFilledIn
+            | Operation::FormFieldAdded
+            | Operation::FormFieldDeleted
+            | Operation::PageTemplateSpawned => &self.form,
+            Operation::SignatureModified => &self.signature,
+        };
+        array.iter().any(|entry| entry == operation.name())
+    }
+}
+
+/// One of Table 258's rights, named as the operation an update is seen to have performed.
+///
+/// [`Right`] is what this program is about to *do* and this is what a file was seen to have
+/// *done*; [`UsageRights::permits`] is where the second is asked. One variant per right this
+/// program's revision comparison can recognise in a changed object — which is eight of the
+/// twenty-three Table 258 names, and [`crate::revision::RIGHTS_NOT_RECOGNISED`] is the other
+/// fifteen, refused there by name rather than passed over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Operation {
+    /// `/Annots` `Create`. Table 258 permits "the user to perform the named operation on
+    /// annotations".
+    AnnotationCreated,
+    /// `/Annots` `Delete`.
+    AnnotationDeleted,
+    /// `/Annots` `Modify`.
+    AnnotationModified,
+    /// `/Form` `FillIn` — "[p]ermits the user to save a document on which form fill-in has been
+    /// done".
+    FormFilledIn,
+    /// `/Form` `Add` — "[p]ermits the user to add form fields to the document".
+    FormFieldAdded,
+    /// `/Form` `Delete` — "[p]ermits the user to delete form fields to the document".
+    FormFieldDeleted,
+    /// `/Form` `SpawnTemplate` — "[p]ermits new pages to be instantiated from named page
+    /// templates", which is §12.7.7's operation and Table 257's third.
+    PageTemplateSpawned,
+    /// `/Signature` `Modify` — "permits a user to apply a digital signature to an existing
+    /// signature form field or clear a signed signature form field".
+    SignatureModified,
+}
+
+impl Operation {
+    /// Which of Table 258's arrays names this right.
+    #[must_use]
+    pub fn array(self) -> &'static str {
+        match self {
+            Self::AnnotationCreated | Self::AnnotationDeleted | Self::AnnotationModified => {
+                "Annots"
+            }
+            Self::FormFilledIn
+            | Self::FormFieldAdded
+            | Self::FormFieldDeleted
+            | Self::PageTemplateSpawned => "Form",
+            Self::SignatureModified => "Signature",
+        }
+    }
+
+    /// The name Table 258 gives it inside that array.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        // Three of Table 258's arrays use the same name for different operations — `/Annots`
+        // `Delete` and `/Form` `Delete`, `/Annots` `Modify` and `/Signature` `Modify` — so a name
+        // means nothing without the array [`Operation::array`] gives beside it.
+        match self {
+            Self::AnnotationCreated => "Create",
+            Self::AnnotationDeleted | Self::FormFieldDeleted => "Delete",
+            Self::AnnotationModified | Self::SignatureModified => "Modify",
+            Self::FormFilledIn => "FillIn",
+            Self::FormFieldAdded => "Add",
+            Self::PageTemplateSpawned => "SpawnTemplate",
+        }
+    }
 }
 
 /// §12.8.2.2's `/P`: which changes the author's signature survives. Table 257.

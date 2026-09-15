@@ -266,7 +266,7 @@ charge — it is the edition ISO approved as ISO 32000-1:2008 — and the root `
 in this tree gets: **free to obtain is not free to redistribute**, and ADR 0187's discipline
 applies unchanged.
 
-**Why it matters here.** ISO 19005-2 §5.1 makes a conforming PDF/A-2 file one that adheres to all
+**Why it matters here.** ISO 19005-2 section 5.1 makes a conforming PDF/A-2 file one that adheres to all
 of ISO 32000-1 as modified by that part, and every "ISO 32000-1:2008, 9.x" citation part 2 makes
 points into it. Until now this tree carried only ISO 32000-2, so `crates/pdf-archive`'s `Part::Two`
 records that a PDF/A-2 verdict leaning on a difference between the editions would be citing the
@@ -297,7 +297,7 @@ The owner obtained it on 2026-09-07 as `doc/ISO_IEC 15444.pdf` — *Information 
 2000 image coding system — Part 1: Core coding system*, the 2000 first edition. `/doc/*.pdf`
 already excludes it and the same licence position applies as to every specification here.
 
-ISO 19005-2 §6.2.8.3's JPEG 2000 rules turn on fields no reader in this tree could see: Annex
+ISO 19005-2 section 6.2.8.3's JPEG 2000 rules turn on fields no reader in this tree could see: Annex
 I.5.3.3's `colr` box carries `METH`, `PREC`, `APPROX` and `EnumCS`, and Annex A.5.1's `SIZ`
 marker segment carries the component count and each component's bit depth. Two agents had
 declined those rules for exactly that reason, and correctly.
@@ -487,7 +487,7 @@ a profile names, and everything of either document beyond clause 6.3's tag lists
 
 ## The XMP Specification, read for a table of facts
 
-ISO 19005-2 §6.6.2.3.1 requires every XMP property to come from a predefined schema, and deciding
+ISO 19005-2 section 6.6.2.3.1 requires every XMP property to come from a predefined schema, and deciding
 that needs to know what those schemas *contain* — the corpus's 273 witnesses for the clause are
 almost all a predefined property carrying the wrong value type, not an unknown property. The
 standard names its source in its own bibliography, entry [20]: *XMP: Extensible Metadata Platform,

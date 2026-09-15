@@ -1064,6 +1064,200 @@ fn a_devicen_passes_its_none_components_to_the_tint_transform() {
     );
 }
 
+/// An `NChannel` `DeviceN` space, its tint transform deliberately wrong.
+///
+/// `names` is the space's colourant names and `process` the body of §8.6.6.5's Table 71
+/// process dictionary. The tint transform paints pure red whatever it is given, so a draw
+/// that comes out red took the route the `NChannel` subtype asks a processor to leave.
+fn nchannel(names: &str, inputs: usize, subtype: &str, process: &str) -> String {
+    let domain = "0 1 ".repeat(inputs);
+    // §7.10.5's operands are already on the stack when the program starts, so one `pop` per
+    // input leaves exactly the three the `/Range` asks for.
+    let program = format!("{{ {}1 0 0 }}", "pop ".repeat(inputs));
+    format!(
+        "5 0 obj\n[/DeviceN [{names}] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [{domain}] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /{subtype} /Process 8 0 R >>\nendobj\n\
+         8 0 obj\n<< {process} >>\nendobj\n",
+        program.len().saturating_add(1)
+    )
+}
+
+/// The colour a fill in the space `extra` defines comes out, for one set of operands.
+fn devicen_fill(extra: &str, operands: &str) -> (u8, u8, u8) {
+    centre_colour(pdf_with(
+        extra,
+        "/ColorSpace << /Sep 5 0 R >>",
+        &format!("/Sep cs {operands} scn 0 0 20 20 re f"),
+    ))
+}
+
+/// The colour a `DeviceCMYK` fill comes out, as the thing an `NChannel` answer is held to.
+fn cmyk_fill(operands: &str) -> (u8, u8, u8) {
+    centre_colour(pdf_with("", "", &format!("{operands} k 0 0 20 20 re f")))
+}
+
+/// Table 71's process dictionary over `DeviceCMYK`, with all four names.
+const CMYK_PROCESS: &str = "/ColorSpace /DeviceCMYK /Components [/Cyan /Magenta /Yellow /Black]";
+
+/// An `NChannel` space of only process components is drawn as its process space.
+///
+/// ISO 32000-2 §8.6.6.5 asks for the components to be taken apart — "[f]or NChannel colour
+/// spaces, the components shall be evaluated individually; that is, only the ones not present
+/// on the output device shall use the alternate colour space of that component" — and on a
+/// display the alternate colour space of a process component is the process dictionary's own:
+///
+/// > The values associated with the process components shall be stored in their natural form
+/// > (that is, subtractive colour values for CMYK and additive colour values for RGB ), since
+/// > they shall be interpreted directly as process values by consumers making use of the
+/// > process dictionary.
+///
+/// So the assertion is an equality rather than a number: the same four numbers, drawn once
+/// through this space and once through `k`, are one colour. The names array is `/Yellow` then
+/// `/Cyan`, which §8.6.6.5 permits — "[f]or a CMYK colour space, a subset of the components
+/// may be present, and they may appear in any order in the names array" — so a reader that
+/// took the operands in the names array's order rather than Table 71's `/Components` order
+/// would answer cyan where this answers yellow. `/Magenta` and `/Black` are absent, and
+/// §8.6.4.4 says what an absent colourant is worth: "0.0 shall denote the complete absence of
+/// a process colourant".
+///
+/// The tint transform paints red, so it is also an assertion about which route was taken.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.6.6.5 and §8.6.4.4 verbatim, and a quotation is not \
+              marked up"
+)]
+#[test]
+fn an_nchannel_space_of_process_components_is_its_process_space() {
+    let space = nchannel("/Yellow /Cyan", 2, "NChannel", CMYK_PROCESS);
+    assert_eq!(
+        devicen_fill(&space, "1 0"),
+        cmyk_fill("0 0 1 0"),
+        "the first tint is Table 71's third component"
+    );
+    assert_eq!(
+        devicen_fill(&space, "0 1"),
+        cmyk_fill("1 0 0 0"),
+        "the second tint is Table 71's first component"
+    );
+}
+
+/// A component the process dictionary does not name is a spot colourant, and keeps the
+/// tint transform.
+///
+/// §8.6.6.5: "Any component not specified in the process dictionary shall be considered to be
+/// a spot colourant." Such a component's own alternate space is its `/Colorants` `Separation`,
+/// and combining that with the process components is the blending the clause never states and
+/// NOTE 3 hands to the processor — so the space reverts through its tint transform, which is
+/// the route both of the clause's paragraphs agree on. Red is that transform's answer.
+#[test]
+fn an_nchannel_spot_component_keeps_the_tint_transform() {
+    let space = nchannel("/Spot /Cyan", 2, "NChannel", CMYK_PROCESS);
+    assert_eq!(devicen_fill(&space, "1 0"), (255, 0, 0));
+}
+
+/// Table 70's `/Subtype` decides it, and `DeviceN` means the tint transform.
+///
+/// ISO 32000-2 §8.6.6.5:
+///
+/// > A value of DeviceN for the Subtype entry, or no value, shall mean that only the previous
+/// > features shall be supported.
+///
+/// The previous features are the alternate space and the tint transform, so the same process
+/// dictionary under the other subtype changes nothing.
+#[test]
+fn a_devicen_subtype_keeps_the_tint_transform() {
+    let space = nchannel("/Yellow /Cyan", 2, "DeviceN", CMYK_PROCESS);
+    assert_eq!(devicen_fill(&space, "1 0"), (255, 0, 0));
+}
+
+/// An omitted process component is `DeviceCMYK`'s permission and nobody else's.
+///
+/// §8.6.6.5 admits a subset for one family — "[f]or a CMYK colour space, a subset of the
+/// components may be present" — and §8.6.4.4 is what then supplies the missing value. For any
+/// other process space the standard states neither, so a space whose names array leaves a
+/// component of an RGB process space unsupplied reverts through its tint transform rather than
+/// having a value invented for it; the same space with all three named is drawn as the process
+/// space, which is what makes the first assertion about the omission and not about the family.
+/// The one component named is `/Green`, so the two routes answer different colours: red is the
+/// tint transform's and the process route would answer green.
+#[test]
+fn an_omitted_process_component_is_admitted_only_for_cmyk() {
+    let rgb = "/ColorSpace /DeviceRGB /Components [/Red /Green /Blue]";
+    assert_eq!(
+        devicen_fill(&nchannel("/Green", 1, "NChannel", rgb), "1"),
+        (255, 0, 0),
+        "an unsupplied RGB component reverted through the tint transform"
+    );
+    assert_eq!(
+        devicen_fill(&nchannel("/Red /Green /Blue", 3, "NChannel", rgb), "0 1 0"),
+        (0, 255, 0),
+        "all three supplied, so the tints are the process space's own components"
+    );
+}
+
+/// The subset is admitted for a CMYK colour space, whichever way the file names one.
+///
+/// §8.6.6.5's permission is about the space — "[f]or a CMYK colour space, a subset of the
+/// components may be present" — and Table 71 lets the process dictionary name "any device or
+/// CIE-based colour space except Lab", so `/DeviceCMYK` and a four-channel `ICCBased` space are
+/// two spellings of one family. Reading the entry instead of the space would answer differently
+/// for the same profile depending on whether the file named it here or through §8.6.5.6's
+/// `/DefaultCMYK`, which is the one-conversion-in-one-place rule (trap 6) with a colour space on
+/// each side of it.
+///
+/// The profile is [`green_cyan_profile`], whose pure-cyan corner is sRGB's green primary — a
+/// colour no ink table produces — so the assertion says both that the process route was taken
+/// and that the process space converted the result.
+#[test]
+fn a_cmyk_process_space_may_be_a_profile_rather_than_the_device_name() {
+    let mut hex = String::new();
+    for byte in green_cyan_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    let space = format!(
+        "5 0 obj\n[/DeviceN [/Cyan] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [1 0 0] /N 1 >>\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Process 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /ColorSpace [/ICCBased 9 0 R] \
+         /Components [/Cyan /Magenta /Yellow /Black] >>\nendobj\n\
+         9 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
+         endobj\n",
+        hex.len().saturating_add(1)
+    );
+    let drawn = |name: &str, operands: &str| {
+        centre_colour(pdf_with(
+            &space,
+            "/ColorSpace << /Sep 5 0 R /Icc [/ICCBased 9 0 R] >>",
+            &format!("/{name} cs {operands} scn 0 0 20 20 re f"),
+        ))
+    };
+    assert_eq!(
+        drawn("Sep", "1"),
+        drawn("Icc", "1 0 0 0"),
+        "the one tint is the profile's cyan, and the other three are absent"
+    );
+}
+
+/// The process dictionary answers where the tint transform cannot be read at all.
+///
+/// §8.6.6.5 puts the two in an order — "PDF processors need not use the alternateSpace and
+/// tintTransform parameters, and may instead use custom blending algorithms, along with other
+/// information provided in the attributes dictionary if present" — and an `NChannel` space
+/// whose process dictionary answers for every component needs neither. A tint transform that
+/// is not an object at all used to take the whole space with it and leave the fill undrawn.
+#[test]
+fn an_nchannel_process_space_answers_without_a_readable_tint_transform() {
+    // Table 38 has no type 9, so the tint transform is an object this crate cannot read.
+    let space = "5 0 obj\n[/DeviceN [/Black] /DeviceCMYK 6 0 R 7 0 R]\nendobj\n\
+                 6 0 obj\n<< /FunctionType 9 /Domain [0 1] >>\nendobj\n\
+                 7 0 obj\n<< /Subtype /NChannel /Process 8 0 R >>\nendobj\n"
+        .to_owned()
+        + &format!("8 0 obj\n<< {CMYK_PROCESS} >>\nendobj\n");
+    assert_eq!(devicen_fill(&space, "1"), cmyk_fill("0 0 0 1"));
+}
+
 /// The `/All` colourant is the tint complemented, applied to every colourant.
 ///
 /// §8.6.6.4: "When outputting to an additive device, such as a computer monitor, the

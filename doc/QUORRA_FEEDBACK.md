@@ -5176,3 +5176,46 @@ the accumulated sum, which declined 514 of 854 marks on a text page and cost it 
 per-cell form costs +1.2%. Whether an analytic scene compositor can ask the same question cheaply is
 your measurement; §10.7.4's third sentence means the current answer errs on the permitted side, so
 this is a correctness item rather than a page drawn wrong.
+
+## 46. A reduced image carries 15–19% more ink than the same samples magnified — the residual filter under two-to-one
+
+An ask, with the control in the same measurement, and with the note that the reduction itself is
+shared and is not what this is about.
+
+**What is shared and what is not.** `pdf_render::Image::area_averaged` replaces each block of source
+samples that would share one device pixel with their mean, and `raster/crates/raster-gpu/src/
+raster/reduce.rs` mirrors it statement for statement, so both sides start from the same reduced
+grid. The factor is the *floor* of the ratio, which by construction leaves between one and two
+source samples per device pixel; what each backend does with that residual is its own filter, and
+that is where this lives.
+
+**The page.** `22060_A1_01_Plans.pdf` is an A3 fire-safety plan at 1:150 whose four floor plans are
+2480 × 2630 scans of line work, each reduced by (6, 6) to 414 × 439 and then drawn onto roughly
+350 × 380 device pixels under `ImageFilter::Linear`. Ink is `765 − r − g − b` summed over the
+raster and scale-normalised, measured per `Command` with every clip off:
+
+```text
+  image      1x cpu    1x raster   |   8x cpu    8x raster
+  [2]      10260.44    10852.24    |  10248.22   10250.42
+  [4]       9602.65    10652.49    |   9579.85    9583.59
+  [6]       5128.87     5571.69    |   5122.83    5124.96
+  [8]       6979.08     8200.65    |   7013.58    7018.59
+```
+
+**The 8× column is the control**, and it is what makes this an ask rather than a difference of
+convention: at that rung the placement magnifies the samples, no reduction happens on either side,
+and the two backends agree to **0.07%**. The oracle holds one figure across the whole ladder — 1×,
+2×, 4× and 8× are within 0.8% of each other on every one of the four — where raster reads 15%, 19%
+and 17% heavy at 1×, 2× and 4×. A filter that resamples cannot add ink to a page of black rules on
+white: at a reduction of about 1.18 a two-tap support steps past some source samples entirely, which
+loses ink, and nothing in the construction gains it.
+
+**What the whole page comes to.** `render-raster/examples/ink_ladder` reads cpu 40 681.01 against
+raster 43 526.89 at 1×, 40 802.56 against 44 986.29 at 2× and 40 826.62 against 44 263.17 at 4×; the
+oracle is at 40 915.45 at 8×, where the frame's scene-byte budget refuses your side. Three sessions
+of this project read that gap as a §10.7.4 stroke substitution before anyone counted the page's
+strokes: `pdf-model/examples/sub_pixel_width_census` says it states **four** strokes under a device
+pixel, at 0.7559 and 0.8504 of one, and a per-command ink diff puts −3306 of ink on the four images
+where the page's whole net gap is −3078 and every other command on it is inside 6. The page is the
+one remaining name on this project's `render-raster --test corpus` differing list whose cause is
+neither §45 above nor §24c.

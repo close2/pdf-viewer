@@ -314,6 +314,13 @@ pub(crate) struct Open {
     /// right before the layer switch is right after it. Dropping it there would make every layer
     /// switch re-read the page's font programs for no change in any answer.
     pub(crate) fonts: pdf_model::FontCache,
+    /// ISO 32000-2 §8.10.4's target documents, as [`crate::Command::References`] supplied them.
+    ///
+    /// Empty for every document a host said nothing about, which is every document by default.
+    /// Shared with every other open document rather than parsed per document: the files are the
+    /// *reader's* policy, and re-opening them once per tab would parse one PDF several times to
+    /// reach the same answer. Replaced wholesale when the command arrives again.
+    pub(crate) references: Arc<pdf_model::reference::Supply>,
     /// How many objects lost to a damaged object stream this document has already been told about.
     ///
     /// §7.5.7's losses are discovered when an object inside such a stream is first asked for,
@@ -775,6 +782,7 @@ impl Open {
             popups: BTreeMap::new(),
             readbacks: crate::readback::Readbacks::default(),
             fonts: pdf_model::FontCache::new(),
+            references: Arc::new(pdf_model::reference::Supply::none()),
             losses_said: 0,
             scan_refusal_said: false,
             about: OnceCell::new(),
@@ -2005,6 +2013,7 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
                 &page,
                 &open.view,
                 &open.fonts,
+                &open.references,
                 replacement,
             ),
             None,
@@ -2014,6 +2023,7 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
             &page,
             &open.view,
             &open.fonts,
+            &open.references,
         ),
     };
     let reports = interpretation

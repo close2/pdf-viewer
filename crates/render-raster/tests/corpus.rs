@@ -749,7 +749,7 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// converter's own tolerance is within 0.011% of its limit. The worst tile the gate prints is at
 /// (32, 224), which is the raster's own bottom row and one pixel tall — trap 26, and the verdict
 /// here rests on the differing fraction.
-const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr12564.pdf"];
+const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
@@ -795,10 +795,9 @@ const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr1
 /// than either moving toward the other, ADR 0226), 8-px text
 /// (`issue16316`, `standard_fonts`), halftone photographs under the stated linear-sampler
 /// variance (`issue269_2`) — where the two rasterisers put the same ink on different sides
-/// of a pixel boundary. **`22060_A1_01_Plans.pdf` is unmoved to four decimals and that is a
-/// finding rather than an omission**: its rules are diagonals and polylines, which
-/// `pdf_render::sub_pixel` declines by name, so the corpus's largest page of sub-pixel line work
-/// is the one the new rule does not reach. Matching `tiny-skia`'s sub-pixel distribution
+/// of a pixel boundary. **`22060_A1_01_Plans.pdf` belongs with none of them**: it is four sampled
+/// images, its whole gap is in their reduction, and the paragraph near the end of this note is what
+/// measures that. Matching `tiny-skia`'s sub-pixel distribution
 /// byte-for-byte would be curve-fitting to another renderer, which raster's charter forbids;
 /// they stay listed so a *growth* in their numbers is still a finding.
 ///
@@ -898,18 +897,13 @@ const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr1
 /// **0.251**, the area itself. raster draws 0.5, twice the area, at this scale only — the two
 /// agree at 2× and above. Erring heavy is the side §10.7.4's third sentence permits, so this is a
 /// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` is where an ask would go.
-const DIFFERS_IN_SHAPE: [&str; 11] = [
+const DIFFERS_IN_SHAPE: [&str; 6] = [
     "22060_A1_01_Plans.pdf",
-    "issue12295.pdf",
     "issue15150.pdf",
-    "issue16038.pdf",
-    "issue18030.pdf",
     "issue19083.pdf",
     "issue20232.pdf",
     "issue21068.pdf",
     "issue269_2.pdf",
-    "issue4402_reduced.pdf",
-    "standard_fonts.pdf",
 ];
 
 /// The two groups as one list, sorted as the run produces them.
@@ -930,10 +924,10 @@ const DIFFERS_IN_SHAPE: [&str; 11] = [
 ///
 /// > Its coordinates are mapped into device space but not rounded to device pixel boundaries.
 ///
-/// **Nine of the names below are the ones this and the next three paragraphs read** —
-/// `issue11473`, `issue12295`, `issue16038`, `issue18030`, `issue269_2`, `issue2177`,
-/// `issue4402_reduced`, `pr12564` and `standard_fonts`. The rest part on the ladder and are read
-/// from `issue19083` on, and the fourth paragraph moves two of the nine over to them.
+/// **Two of the names below are what this and the next two paragraphs read** — `issue2177` and
+/// `pr12564`. Seven more were read here until the thousand-and-eighty-eighth session and left the
+/// list when the two backends took one substitution (ADR 1102); the paragraph after next is what
+/// they left by. The rest part on the ladder and are read from `issue19083` on.
 ///
 /// **Neither backend snaps a path's edges to a lattice, and that is measured rather than assumed.**
 /// `render_cpu::area` computes the coverage this subclause's own definition of a pixel implies
@@ -951,33 +945,25 @@ const DIFFERS_IN_SHAPE: [&str; 11] = [
 /// by a digit (`issue15150`, `issue16038`, `issue21068`, `issue2177`, `issue269_2`), so the knob
 /// reached what it names rather than everything.
 ///
-/// **What is coarser on this tree's side is the *substitution* rather than the converter.**
-/// `pdf-model/examples/sub_pixel_width_census` names the population: six of the nine state strokes
-/// under a device pixel — `issue12295` 65 859 at 0.1366, `standard_fonts` 516
-/// at 0.5700, `issue11473` 492 at 0.3985, `issue16038` 214 at 0.3985, `issue4402_reduced` 22 at
-/// 0.5000, `issue18030` 4 at 0.5000 — where `issue269_2` and `issue2177` state none and `pr12564`
-/// states 16 over 616 896 pixels. Such a rule reaches `pdf_render::substitute_width` on the
-/// oracle, which draws it one device pixel wide with the width it gave up carried in the paint's
-/// alpha, because `tiny-skia`'s hairline carried only `cos θ` of a diagonal rule's area (ADR
-/// 0268); raster outlines the stroke in path space at the width the document states and never
-/// needed the substitute. The same ink is therefore a soft band of whole pixels on one backend and
-/// a hard sliver on the other, and §10.7.4's third sentence ranks the two:
+/// **Both backends now take one substitution, and seven pages left this list when they did**
+/// (ADR 1102). ISO 32000-2 §10.7.4's restatement of a mark too thin to measure is owed only where
+/// the raster cannot state the mark's coverage at all, and after ADR 1082 the oracle's converter
+/// states the winding integral over a pixel exactly, down to the eight bits the raster carries. So
+/// the boundary is `pdf_render::unmeasurable_width` — one *level* of a device pixel — and between
+/// that and one whole pixel a stroke is drawn as the shape the document states: `sub_pixel_bands`'
+/// closed form where the mark is an axis-aligned rectangle, and the stroke's own outline filled
+/// through `render_cpu::area` otherwise, which is the shape `render_raster` builds from the same
+/// stated width (`stroke::resolve_width`, ADR 0701). `examples/ink_ladder` at 1×:
+/// `standard_fonts` cpu 31 937.84 → **29 674.33** against raster 29 627.02, and `issue12295`
+/// 13 450.96 → **12 866.31** against 12 834.50 — 7.8% and 4.8% apart to 0.16% and 0.25%.
+/// `issue11473`, `issue16038`, `issue18030` and `issue4402_reduced` left with them.
 ///
-/// > The area covered by painted pixels shall always be at least as large as the area of the
-/// > original shape.
-///
-/// The oracle is the side that meets it. `issue11473.pdf` is the isolated case: 0.074% of its
-/// pixels differ by more than a tenth of the range and every one of them is inside a single
-/// 140 × 116 box, which holds the diagonal hatch swatches ADR 0268 was measured on.
-///
-/// **And two of the nine are not placement at all, which the ladder says**: `standard_fonts` reads
-/// cpu 31 937.84 against raster 29 627.02 at 1×, 7.8% apart, and `issue12295` cpu 13 450.31
-/// against raster 12 834.50, 4.8% apart, where the other seven are inside 2% at every rung. Both
-/// gaps close by 4× onto totals the two share, so each backend is paying the substitution above
-/// and paying a different amount for it — one of `standard_fonts`' 0.57-pixel rules reads
-/// 0.894 + 0.459 of two columns on the oracle against 0.965 of one on raster. They belong with
-/// `issue19083.pdf` below rather than with the placement seven, and narrowing the gap is
-/// `pdf_render::sub_pixel`'s round rather than this backend's.
+/// **What the widened band was costing is not the ink of one mark but the ink of two.** ADR 0268's
+/// substitution conserves a single mark's area exactly — widening by a factor and dividing the
+/// alpha by it cancel — but a coverage carried in alpha over a band a pixel wide does not compose
+/// the way coverage does: two draws of one rule put `1 − (1 − a)(1 − b)` on each pixel of that band
+/// where the shape's own geometry puts `a` on the sliver it covers. `standard_fonts.pdf` draws
+/// every table rule twice, 0.57 of a device pixel wide, and that was 7.8% of the page.
 ///
 /// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
 /// says what it is. A gap that halves at every rung is a cost paid per boundary pixel, and one
@@ -1003,20 +989,28 @@ const DIFFERS_IN_SHAPE: [&str; 11] = [
 /// on both backends stated once and 2.9961 against raster's **4.0000** stated twice, at 1× and at
 /// 2× alike. `doc/QUORRA_FEEDBACK.md` section 45 is the ask.
 ///
-/// `22060_A1_01_Plans.pdf` is the one gap on this list that does *not* close, which makes it a
-/// difference of geometry rather than of boundary and the page here worth opening next.
+/// **`22060_A1_01_Plans.pdf` is four sampled images and not a stroke at all**, which three
+/// sessions read the other way. It is an A3 fire-safety plan at 1:150 whose four floor plans are
+/// 2480 × 2630 scans; `pdf-model/examples/sub_pixel_width_census` says the page states **four**
+/// strokes under a device pixel, at 0.7559 and 0.8504, and a per-command ink diff puts **−3306** of
+/// ink on those four `Command::Image`s where the page's whole net gap is −3078 and every other
+/// command on it is inside 6. The gap is
+/// in the *reduction*: `pdf_render::Image::area_averaged` divides the grid by (6, 6) on both
+/// backends, and what each does with the residual under two-to-one is its own. At 1× the four read
+/// cpu 6979.08, 9602.65, 10 260.44 and 5128.87 against raster 8200.65, 10 652.49, 10 852.24 and
+/// 5571.69; at **8×**, where the placement magnifies the samples and no reduction happens, they
+/// read 7013.58, 9579.85, 10 248.22 and 5122.83 against 7018.59, 9583.59, 10 250.42 and 5124.96 —
+/// **0.07% apart**. That rung is the control: cpu holds one figure across the whole ladder and
+/// raster is 15–19% heavy wherever it reduces. `doc/QUORRA_FEEDBACK.md` section 46 is the ask.
 ///
-/// **`issue15150.pdf` is the page where the ladder convicts both backends**, and it is 449 bytes:
+/// **`issue15150.pdf` is 449 bytes and the two backends still part on it**:
 /// `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s` on a 10 × 10 page, whose stroked region is the device
 /// rectangle `[0, 0.5] × [0, 0.5]` and whose area is therefore a quarter of pixel (0, 0). Both
-/// backends draw that area at 2× and above; at 1× `render-cpu` lays down 0.1875 of it and raster
-/// 0.5. The oracle's is the side §10.7.4 forbids — "[t]he area covered by painted pixels shall
-/// always be at least as large as the area of the original shape" — and the route is known:
-/// `s` closes the subpath, `tiny-skia`'s stroker then emits the outline as **two** contours, the
-/// inner one carrying a collinear vertex on each side, so `pdf_render::sub_pixel_bands` declines a
-/// path it would otherwise measure exactly and the rule falls to ADR 0268's widened band, whose
-/// ink off the top of the raster is lost. Fixing it is `pdf_render::sub_pixel`'s round rather than
-/// this one: its rectangle predicate and its contested-line test both have to move, and the
+/// backends draw that area at 2× and above; at 1× `render-cpu` lays down **0.251**, the area
+/// itself, by `pdf_render::sub_pixel_bands`' closed form, and raster 0.5. `s` closes the subpath,
+/// so the outline is the same rectangle traversed twice the same way round — one region by
+/// §8.5.3.3's winding rule and two by an integral that is clamped after it is accumulated, which
+/// is the `issue20232` defect above on the smallest page that states it.
 /// predicate is shared with `pdf_render::edge`'s exact-rectangle machinery.
 fn differing_pages() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = DIFFERS_AT_THE_EDGES

@@ -366,6 +366,34 @@ pub fn expressible_coverage(coverage: f32) -> f32 {
     }
 }
 
+/// The stroke width, in the path's own space, under which no pixel a mark meets can hold one
+/// level of the raster — the width at which ISO 32000-2 §10.7.4's substitution starts being owed.
+///
+/// [`substitute_width`] is one device pixel across whichever way the mark runs; this is one
+/// *level* across it, which is one two-hundred-and-fifty-fifth of that. A band of device width
+/// `w` puts at most `w` of coverage into any pixel it crosses, so below this width there is no
+/// pixel the raster can state the mark in at all, and §10.7.4's own purpose bites:
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// **Above it there is nothing to substitute**, which is what this boundary is for. A shape whose
+/// coverage the device can express is drawn as the shape the document states, at the coverage
+/// §10.7.4's own definition of a pixel implies — [`sub_pixel_bands`]' closed form where the mark
+/// is an axis-aligned rectangle and `render_cpu::area`'s winding integral otherwise. Widening it
+/// and carrying the width in the alpha would move ink up to half a device pixel from the shape
+/// and would state a coverage that no longer composes: two draws of one rule put
+/// `1 − (1 − a)(1 − b)` on each pixel of a band a pixel wide where the shape's own geometry puts
+/// `a` on the sliver it covers, and `standard_fonts.pdf`'s table rules are 7.8% of a page of
+/// that. ADR 1102.
+///
+/// Returns `None` for [`substitute_width`]'s reason: a transform that is singular or not finite
+/// leaves a path no space of its own for a width to be stated in.
+#[must_use]
+pub fn unmeasurable_width(to_device: Transform) -> Option<f32> {
+    Some(substitute_width(to_device)? * ONE_LEVEL)
+}
+
 /// The stroke width, in the path's own space, at which a mark is one whole device pixel across
 /// whichever way the path runs — ISO 32000-2 §10.7.4's substitute for a rule too thin to measure.
 ///
@@ -1942,6 +1970,36 @@ mod tests {
         assert!(
             (whole_placement.width - 200.0).abs() < 1e-3,
             "the mark that has to be a pixel across both ways is still stated at 200"
+        );
+    }
+
+    /// The width at which a substitution is owed is one *level* of a device pixel, not one pixel.
+    ///
+    /// ISO 32000-2 §10.7.4's restatement exists so that no shape disappears, and what makes a shape
+    /// disappear is a coverage the raster cannot hold — which after ADR 1082 is one level of 255
+    /// and not the sixteenth a supersampled converter could state. A band of device width `w` puts
+    /// at most `w` into any pixel it crosses, so the boundary is the width at which that reaches
+    /// one level. ADR 1102.
+    #[test]
+    fn a_substitution_is_owed_at_one_level_of_a_pixel_and_not_at_one_pixel() {
+        for scale in [0.5_f32, 1.0, 2.5, 96.0] {
+            let at = Transform::new(scale, 0.0, 0.0, -scale, 0.0, 0.0);
+            let pixel = super::substitute_width(at).expect("a placement with a width");
+            let owed = super::unmeasurable_width(at).expect("the same placement");
+            assert!(
+                (owed * 255.0 - pixel).abs() <= pixel * 1e-5,
+                "at scale {scale} the boundary is {owed}, which is not one level of {pixel}"
+            );
+            // The width that used to be substituted and now is not: a rule the raster can measure.
+            let measurable = pixel / 2.0;
+            assert!(
+                measurable > owed,
+                "half a device pixel is a coverage the raster holds and owes no substitute"
+            );
+        }
+        assert!(
+            super::unmeasurable_width(Transform::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)).is_none(),
+            "a singular placement leaves no space for a width to be stated in"
         );
     }
 }

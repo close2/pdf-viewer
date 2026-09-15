@@ -52,7 +52,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_syntax::xref::{self, Location, XrefTable};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, SyntaxError};
 
-use crate::signature::{Coverage, Excluded, FieldMdp, Modification, Signature, SignedEnd};
+use crate::signature::{
+    Coverage, Excluded, FieldMdp, Modification, Operation, Signature, SignedEnd, UsageRights,
+};
 
 /// Most object numbers a [`Objects`] names before it stops naming and only counts.
 ///
@@ -107,6 +109,14 @@ pub struct Comparison {
     /// `/Fields`, "[a]n array of references to the document's root fields (those with no ancestors
     /// in the field hierarchy)", are the two narrower objects that reach the same population.
     form: BTreeSet<u32>,
+    /// What each changed object was seen to *do*, in Table 258's vocabulary.
+    ///
+    /// The second of the two rankings, and a different question from [`Self::tally`]'s: Table 257
+    /// ranks a change against a `/DocMDP` level and Table 258 against the rights a `UR` signature
+    /// grants, so an object is classified once into each vocabulary and neither is derived from
+    /// the other. [`Exercise`] says why the two disagree about a form field added — Table 257 has
+    /// no operation for it and Table 258 has `/Form` `Add`.
+    exercises: BTreeMap<Exercise, Objects>,
     /// What each changed object is, counted exactly and named up to [`MAX_NAMED`] per kind.
     ///
     /// Keyed by [`Kind`] and by the disposition of the update carrying it, because both are
@@ -707,6 +717,178 @@ pub enum FieldJudgement {
     },
 }
 
+/// The Table 258 rights this comparison cannot recognise in a changed object, each by name.
+///
+/// Table 258 names twenty-three rights across five arrays and [`Operation`] has a variant for
+/// eight of them; these are the other fifteen, and they are listed rather than counted for
+/// trap 5's reason — a reader told that a change is outside a `UR` signature's rights is owed the
+/// list of rights the answer could not have been about.
+///
+/// Three groups, and what puts each here:
+///
+/// - **`/Document` `FullSave`** and `/Form` `SubmitStandalone`: neither is a modification to an
+///   object. Table 258 calls the first one that "permits a user to save the document along with
+///   modified form and/or annotation data", which is a permission to write a file rather than
+///   something a written file records.
+/// - **`/EF`'s four**: operations "on named embedded files", which §7.11.4 puts in the name
+///   dictionary's `/EmbeddedFiles` tree. A file added or removed there is a change to objects
+///   [`Kind::Unclassified`] already refuses, and telling the four apart would be a classifier this
+///   comparison does not have.
+/// - **the rest**: `Copy`, `Import`, `Export`, `Online`, `SummaryView` and `BarcodePlaintext` name
+///   what a *user interface* may do with content — none of them writes a change into the file that
+///   a comparison of two revisions could see.
+pub const RIGHTS_NOT_RECOGNISED: &[(&str, &str)] = &[
+    ("Document", "FullSave"),
+    ("Annots", "Copy"),
+    ("Annots", "Import"),
+    ("Annots", "Export"),
+    ("Annots", "Online"),
+    ("Annots", "SummaryView"),
+    ("Form", "Import"),
+    ("Form", "Export"),
+    ("Form", "SubmitStandalone"),
+    ("Form", "BarcodePlaintext"),
+    ("Form", "Online"),
+    ("EF", "Create"),
+    ("EF", "Delete"),
+    ("EF", "Modify"),
+    ("EF", "Import"),
+];
+
+/// What one changed object was taken to have done, in Table 258's vocabulary.
+///
+/// The [`Kind`] of the same object answers Table 257's question and this answers §12.8.2.3's, and
+/// the two are computed together and neither from the other. They disagree in both directions and
+/// the disagreements are the reason this type exists: a form field *added* is
+/// [`Kind::Unclassified`] because Table 257 names no such operation, and it is
+/// [`Operation::FormFieldAdded`] because Table 258 does; a page instantiated from a template is
+/// permitted by Table 257's levels 2 and 3 outright and needs `/Form` `SpawnTemplate` here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Exercise {
+    /// Not a modification to the document at all, so no right is needed for it.
+    ///
+    /// [`Kind::RestatedUnchanged`] and [`Kind::CrossReferenceStream`], on the arguments those two
+    /// carry: an object restated as it stood is a change to the file and not to the document, and
+    /// §7.5.8's cross-reference stream is the update's own table rather than anything it says.
+    /// Table 258 has no carve-out of Table 257's kind and needs none for either.
+    Nothing,
+    /// One of Table 258's rights, which the update is seen to have exercised.
+    Did(Operation),
+    /// No right this reader can name.
+    ///
+    /// **Not a permission and not a prohibition.** The standing members are an object no table
+    /// places, a replaced catalog, a page or a stream that is none of Table 258's subjects,
+    /// §12.8.4's validation material — for which Table 258 states no right at all, where Table 257
+    /// states a carve-out — and an object that is a form field *and* an annotation at once, added
+    /// or removed, where `/Form` `Add` and `/Annots` `Create` both describe what happened and
+    /// nothing in the file says which the producer needed.
+    Unrecognised,
+}
+
+/// What a `UR` signature's Table 258 rights say about one changed object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RightVerdict {
+    /// Nothing was modified, so no right was needed.
+    NotAModification,
+    /// The rights grant the operation this change is.
+    Granted,
+    /// The rights do not grant it, which §12.8.2.3 makes a modification "not permitted by the
+    /// transform parameters".
+    NotGranted,
+    /// Not ranked — and therefore **not** granted either.
+    Unrecognised,
+}
+
+/// One changed object, what it did, and what the rights say about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exercised {
+    /// The object number.
+    pub number: u32,
+    /// What the update was seen to have done to it.
+    pub exercise: Exercise,
+    /// What the rights say about that.
+    pub verdict: RightVerdict,
+}
+
+/// Table 258's ranking of one comparison's changes against the rights one `UR` signature grants.
+///
+/// [`Ranking`]'s shape exactly, because it answers the same shape of question about the same
+/// objects: every changed object lands in one bucket, the counts are exact, the naming is bounded
+/// by [`MAX_NAMED`], and an object this reader could not rank is in [`Self::unrecognised`] rather
+/// than absent from the arithmetic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RightsRanking {
+    /// Objects whose change modified nothing in the document.
+    pub not_a_modification: Objects,
+    /// Objects whose operation these rights grant.
+    pub granted: Objects,
+    /// Objects whose operation these rights do not grant.
+    pub not_granted: Objects,
+    /// Objects whose operation this reader cannot name.
+    pub unrecognised: Objects,
+    /// The first [`MAX_NAMED`] objects in full, ascending — for a person to read.
+    pub detail: Vec<Exercised>,
+}
+
+impl RightsRanking {
+    /// The one-line answer, on [`Ranking::judgement`]'s conservative ordering and for its reason.
+    ///
+    /// A single operation the rights do not grant settles the question whatever else is unranked:
+    /// §12.8.2.3 asks "whether there have been modifications to any objects that are not permitted
+    /// by the transform parameters", and one such modification answers it.
+    #[must_use]
+    pub fn judgement(&self) -> RightsJudgement {
+        if !self.not_granted.is_empty() {
+            return RightsJudgement::OutsideTheRightsGranted {
+                objects: self.not_granted.count(),
+            };
+        }
+        if !self.unrecognised.is_empty() {
+            return RightsJudgement::NotClassified {
+                objects: self.unrecognised.count(),
+            };
+        }
+        if self.granted.is_empty() && self.not_a_modification.is_empty() {
+            return RightsJudgement::NoChangeToRank;
+        }
+        RightsJudgement::WithinTheRightsGranted {
+            objects: self.granted.count(),
+        }
+    }
+}
+
+/// What Table 258's rights say about a set of changes.
+///
+/// **Not a verdict on a signature**, for [`Judgement`]'s reason: §12.8.2.3 puts the byte range
+/// digest first — "First, a PDF processor shall verify the byte range digest" — and this is the
+/// step after it. Nothing here reaches the word *valid*, which [`crate::verdict::Valid`] holds and
+/// only an anchored proof constructs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RightsJudgement {
+    /// There is no change to rank.
+    NoChangeToRank,
+    /// Every change is an operation these rights grant.
+    WithinTheRightsGranted {
+        /// How many objects were ranked as granted.
+        objects: u64,
+    },
+    /// At least one change is an operation these rights do not grant.
+    ///
+    /// §12.8.2.3: "If the signature is invalid because the document has been modified in a way
+    /// that is not permitted or the identity of the signer is not granted the extended
+    /// permissions, additional rights shall not be granted." The first of those two is what this
+    /// answers; the second is §12.8.1's third question and has no trust store behind it here.
+    OutsideTheRightsGranted {
+        /// How many objects the rights do not grant.
+        objects: u64,
+    },
+    /// **Refused.** Nothing is outside the rights and something was not ranked.
+    NotClassified {
+        /// How many objects could not be ranked.
+        objects: u64,
+    },
+}
+
 impl Comparison {
     /// The state of `current` when `signature` was made, beside `current` itself.
     ///
@@ -767,7 +949,8 @@ impl Comparison {
             .collect();
         let updates_after = tables.len();
         let (changes, touched) = compare(&signed, current, end);
-        let tally = classify(&signed, current, &touched, changes.catalog_moved, &tables);
+        let (tally, exercises) =
+            classify(&signed, current, &touched, changes.catalog_moved, &tables);
         let mut moved: BTreeSet<u32> = touched.iter().map(|&(number, _)| number).collect();
         if changes.catalog_moved
             && let Some(Object::Reference(root)) = current.xref().trailer().get("Root")
@@ -786,6 +969,7 @@ impl Comparison {
             updates_after,
             changes,
             tally,
+            exercises,
             changed: moved,
             subjects,
             form,
@@ -865,6 +1049,96 @@ impl Comparison {
     #[must_use]
     pub fn against(&self, level: Modification) -> Judgement {
         self.rank(level).judgement()
+    }
+
+    /// What each changed object is, counted by [`Kind`] and named up to [`MAX_NAMED`] apiece.
+    ///
+    /// The population [`Self::rank`] ranks, before any level is applied — which is what a report
+    /// says to a person who wants to know what an update *did* rather than whether one `/P` value
+    /// permitted it. Ascending by [`Kind`], and a kind with nothing in it does not appear.
+    #[must_use]
+    pub fn kinds(&self) -> Vec<(Kind, Objects)> {
+        let mut folded: BTreeMap<Kind, Objects> = BTreeMap::new();
+        for (&(kind, _), objects) in &self.tally {
+            folded.entry(kind).or_default().absorb(objects);
+        }
+        folded
+            .into_iter()
+            .map(|(kind, mut objects)| {
+                objects.sort_named();
+                (kind, objects)
+            })
+            .collect()
+    }
+
+    /// §12.8.2.3's second step: which changes the rights a `UR` signature grants do not permit.
+    ///
+    /// The two steps are §12.8.2.2.2's shape and §12.8.2.3's own words:
+    ///
+    /// > First, a PDF processor shall verify the byte range digest to determine whether the
+    /// > portion of the document specified by ByteRange corresponds to the state of the document
+    /// > at the time of signing. Next, a PDF processor shall examine the current version of the
+    /// > document to see whether there have been modifications to any objects that are not
+    /// > permitted by the transform parameters.
+    ///
+    /// **The transform parameters are Table 258's rights, and that is what makes this a different
+    /// ranking from [`Self::rank`]'s** rather than the same one under another name. Table 257
+    /// states three levels each permitting a set of operations; Table 258 states twenty-three
+    /// named rights in five arrays, and the file picks any subset of them. So the same changed
+    /// object is classified twice — into [`Kind`] for the first question and into [`Exercise`] for
+    /// this one — and the two answers differ in both directions: a form field added is
+    /// [`Kind::Unclassified`] and [`Operation::FormFieldAdded`], and a page instantiated from a
+    /// template is permitted outright by levels 2 and 3 and needs `/Form` `SpawnTemplate` here.
+    ///
+    /// [`UsageRights::permits`] applies Table 258's own two rules before the arrays are read:
+    /// `/P` false means "any possible restriction may be ignored" and every operation is granted,
+    /// and a `/V` other than `2.2` means "no rights shall be enabled" and none is.
+    ///
+    /// **Nothing here says the signature is valid**, and [`RightsJudgement`] says why at length.
+    #[must_use]
+    pub fn against_usage_rights(&self, rights: &UsageRights) -> RightsRanking {
+        let mut ranking = RightsRanking {
+            not_a_modification: Objects::default(),
+            granted: Objects::default(),
+            not_granted: Objects::default(),
+            unrecognised: Objects::default(),
+            detail: Vec::new(),
+        };
+        for (&exercise, objects) in &self.exercises {
+            let verdict = match exercise {
+                Exercise::Nothing => RightVerdict::NotAModification,
+                Exercise::Unrecognised => RightVerdict::Unrecognised,
+                Exercise::Did(operation) => {
+                    if rights.permits(operation) {
+                        RightVerdict::Granted
+                    } else {
+                        RightVerdict::NotGranted
+                    }
+                }
+            };
+            match verdict {
+                RightVerdict::NotAModification => ranking.not_a_modification.absorb(objects),
+                RightVerdict::Granted => ranking.granted.absorb(objects),
+                RightVerdict::NotGranted => ranking.not_granted.absorb(objects),
+                RightVerdict::Unrecognised => ranking.unrecognised.absorb(objects),
+            }
+            for &number in objects.named() {
+                ranking.detail.push(Exercised {
+                    number,
+                    exercise,
+                    verdict,
+                });
+            }
+        }
+        ranking.not_a_modification.sort_named();
+        ranking.granted.sort_named();
+        ranking.not_granted.sort_named();
+        ranking.unrecognised.sort_named();
+        ranking
+            .detail
+            .sort_unstable_by_key(|exercised| exercised.number);
+        ranking.detail.truncate(MAX_NAMED);
+        ranking
     }
 
     /// §12.8.2.4's transform applied to these changes: which of them it includes, and which
@@ -1057,7 +1331,13 @@ enum Bucket {
     Unplaceable,
 }
 
-/// What every changed object is, tallied by [`Kind`] and by its update's [`Disposition`].
+/// What every changed object is, tallied by [`Kind`] and by its update's [`Disposition`], and
+/// what it did, tallied by [`Exercise`].
+///
+/// **Both vocabularies are decided here and in one walk**, because they are read off the same
+/// evidence — which bucket the object landed in and which of its entries moved — and computing
+/// either from the other would make one of the two rankings a restatement of a question the
+/// standard asks separately (Table 257's levels, Table 258's rights).
 ///
 /// Two passes, because an appearance stream is identified by its *owner* and the owner's object
 /// number may be higher than its own: the first decides every object on its own evidence, the
@@ -1069,20 +1349,32 @@ fn classify(
     touched: &[(u32, Bucket)],
     catalog_moved: bool,
     tables: &BTreeSet<usize>,
-) -> BTreeMap<(Kind, Disposition), Objects> {
+) -> (
+    BTreeMap<(Kind, Disposition), Objects>,
+    BTreeMap<Exercise, Objects>,
+) {
     let material = validation_material(current);
     // Read out of the **signed** revision, which is the whole of what makes the answer mean
     // anything: a template the update itself added is not one the signer put out of the page
     // tree's reach, so instantiating "it" would be a page composed after signing.
     let templates = templates(signed);
     let mut kinds: BTreeMap<u32, Kind> = BTreeMap::new();
+    // The second vocabulary, kept per object beside the first for the reason in this function's
+    // own comment; an appearance stream takes its owner's entry, so this is filled in two passes
+    // exactly as `kinds` is.
+    let mut exercises: BTreeMap<u32, Exercise> = BTreeMap::new();
     let mut of_a_field: BTreeSet<u32> = BTreeSet::new();
     let mut of_an_annotation: BTreeSet<u32> = BTreeSet::new();
     let mut of_a_template: BTreeSet<u32> = BTreeSet::new();
+    // What the object that claimed an appearance stream was itself seen to do. Filling a field in
+    // writes an appearance beside it (Table 166), so the stream is part of that same operation and
+    // needs the same right rather than one of its own.
+    let mut claimed: BTreeMap<u32, Exercise> = BTreeMap::new();
 
     for &(number, bucket) in touched {
         if bucket == Bucket::Unplaceable {
             kinds.insert(number, Kind::Unplaceable);
+            exercises.insert(number, Exercise::Unrecognised);
             continue;
         }
         let held = if bucket == Bucket::Removed {
@@ -1091,24 +1383,40 @@ fn classify(
             current
         };
         let offset = placement(current.xref(), number).map(|(at, _)| at);
-        let kind = classify_one(
+        let (kind, exercise) = classify_one(
             signed, current, number, bucket, &material, tables, offset, &templates,
         );
         if let Some(dict) = dictionary_of(&held.get(ObjectId::new(number, 0))) {
             let owned = appearances(held, &dict);
             match kind {
-                Kind::FieldFilledIn | Kind::Signing => of_a_field.extend(owned),
-                Kind::Annotation => of_an_annotation.extend(owned),
+                Kind::FieldFilledIn | Kind::Signing => {
+                    for stream in &owned {
+                        claimed.insert(*stream, exercise);
+                    }
+                    of_a_field.extend(owned);
+                }
+                Kind::Annotation => {
+                    for stream in &owned {
+                        claimed.insert(*stream, exercise);
+                    }
+                    of_an_annotation.extend(owned);
+                }
                 // The page's content is the template's, and §12.7.7 does not say whether an
                 // implementation shares the stream object or copies it. Where it copied, the copy
                 // is an object the signed revision never held and carries no `/Type` of its own —
                 // so it is claimed here by the page it draws, on the evidence that its bytes were
                 // already what [`instantiated`] matched.
-                Kind::TemplateInstantiated => of_a_template.extend(content_streams(held, &dict)),
+                Kind::TemplateInstantiated => {
+                    for stream in content_streams(held, &dict) {
+                        claimed.insert(stream, exercise);
+                        of_a_template.insert(stream);
+                    }
+                }
                 _ => {}
             }
         }
         kinds.insert(number, kind);
+        exercises.insert(number, exercise);
     }
 
     for (number, kind) in &mut kinds {
@@ -1121,12 +1429,71 @@ fn classify(
             *kind = Kind::AnnotationAppearance;
         } else if of_a_template.contains(number) {
             *kind = Kind::TemplateInstantiated;
+        } else {
+            continue;
+        }
+        if let Some(&exercise) = claimed.get(number) {
+            exercises.insert(*number, exercise);
         }
     }
 
-    // A third pass, because a page tree node is decided by what its *kids* turned out to be and a
-    // kid's object number may be either side of the node's. §12.7.7's operation puts a page into
-    // the tree, so the node that received it changed as part of the same instantiation.
+    extend_instantiations(signed, current, &mut kinds, &mut exercises);
+
+    if catalog_moved {
+        // The object the *current* trailer points at, which is what a reader now opens. A direct
+        // `/Root` names no object at all, and 0 is the free list's head and can be no catalog, so
+        // it stands for "the trailer said it" without pretending to be an object number.
+        let root = match current.xref().trailer().get("Root") {
+            Some(Object::Reference(id)) => id.number,
+            _ => 0,
+        };
+        // An update may both add the new catalog and point at it, in which case this replaces
+        // the object's own classification rather than standing beside it — and replacing it is
+        // the conservative direction, because no level ranks a replaced catalog as permitted.
+        kinds.insert(root, Kind::CatalogReplaced);
+        // Table 258 names no right for replacing the whole document's catalog, and reading one of
+        // its arrays as covering it would be the lenient default this module refuses.
+        exercises.insert(root, Exercise::Unrecognised);
+    }
+
+    let dispositions = dispositions(current, &kinds, tables);
+    let ranked: BTreeMap<u32, (Kind, Disposition)> = kinds
+        .iter()
+        .map(|(number, kind)| {
+            let disposition = update_of(current, *number, tables)
+                .and_then(|update| dispositions.get(&update).copied())
+                .unwrap_or(Disposition::Ordinary);
+            (*number, (*kind, disposition))
+        })
+        .collect();
+    (tally_by(&ranked), tally_by(&exercises))
+}
+
+/// Folds a per-object classification into a tally: exact counts, naming bounded by [`MAX_NAMED`].
+///
+/// One function for both vocabularies, because the two differ in what they classify into and not
+/// in how a population of object numbers is counted.
+fn tally_by<K: Copy + Ord>(classified: &BTreeMap<u32, K>) -> BTreeMap<K, Objects> {
+    let mut tally: BTreeMap<K, Objects> = BTreeMap::new();
+    for (number, key) in classified {
+        tally.entry(*key).or_default().push(*number);
+    }
+    tally
+}
+
+/// The page tree nodes that received a page §12.7.7 instantiated, raised to the same operation.
+///
+/// A third pass over the classification, because a page tree node is decided by what its *kids*
+/// turned out to be and a kid's object number may be either side of the node's. §12.7.7's
+/// operation puts a page into the tree, so the node that received it changed as part of the same
+/// instantiation — in both vocabularies, since Table 258 gives the operation `/Form`
+/// `SpawnTemplate` and Table 257 permits it at levels 2 and 3.
+fn extend_instantiations(
+    signed: &Document,
+    current: &Document,
+    kinds: &mut BTreeMap<u32, Kind>,
+    exercises: &mut BTreeMap<u32, Exercise>,
+) {
     let instantiated: BTreeSet<u32> = kinds
         .iter()
         .filter(|(_, kind)| **kind == Kind::TemplateInstantiated)
@@ -1142,31 +1509,8 @@ fn classify(
         .collect();
     for number in extended {
         kinds.insert(number, Kind::TemplateInstantiated);
+        exercises.insert(number, Exercise::Did(Operation::PageTemplateSpawned));
     }
-
-    if catalog_moved {
-        // The object the *current* trailer points at, which is what a reader now opens. A direct
-        // `/Root` names no object at all, and 0 is the free list's head and can be no catalog, so
-        // it stands for "the trailer said it" without pretending to be an object number.
-        let root = match current.xref().trailer().get("Root") {
-            Some(Object::Reference(id)) => id.number,
-            _ => 0,
-        };
-        // An update may both add the new catalog and point at it, in which case this replaces
-        // the object's own classification rather than standing beside it — and replacing it is
-        // the conservative direction, because no level ranks a replaced catalog as permitted.
-        kinds.insert(root, Kind::CatalogReplaced);
-    }
-
-    let dispositions = dispositions(current, &kinds, tables);
-    let mut tally: BTreeMap<(Kind, Disposition), Objects> = BTreeMap::new();
-    for (number, kind) in &kinds {
-        let disposition = update_of(current, *number, tables)
-            .and_then(|update| dispositions.get(&update).copied())
-            .unwrap_or(Disposition::Ordinary);
-        tally.entry((*kind, disposition)).or_default().push(*number);
-    }
-    tally
 }
 
 /// Table 257's carve-out, asked of each update rather than of each object.
@@ -1221,7 +1565,12 @@ fn update_of(current: &Document, number: u32, tables: &BTreeSet<usize>) -> Optio
     tables.range(offset..).next().copied()
 }
 
-/// What one changed object is, on its own evidence.
+/// What one changed object is, and what it did, both on its own evidence.
+///
+/// The two answers are returned together because they are read off the same facts and the reader
+/// of each is a different clause: [`Kind`] is what Table 257's levels rank and [`Exercise`] what
+/// Table 258's rights do. Where they disagree the disagreement is deliberate and is named at the
+/// line that makes it.
 #[expect(
     clippy::too_many_arguments,
     reason = "every one of them is a fact about the object under test that this function may not \
@@ -1237,7 +1586,7 @@ fn classify_one(
     tables: &BTreeSet<usize>,
     offset: Option<usize>,
     templates: &[Vec<u8>],
-) -> Kind {
+) -> (Kind, Exercise) {
     let id = ObjectId::new(number, 0);
     let held = if bucket == Bucket::Removed {
         signed
@@ -1246,50 +1595,62 @@ fn classify_one(
     };
     let object = held.get(id);
     let Some(dict) = dictionary_of(&object) else {
-        return Kind::Unclassified;
+        return (Kind::Unclassified, Exercise::Unrecognised);
     };
     if matches!(object, Object::Stream(_))
         && name(&dict, "Type").as_deref() == Some("XRef")
         && offset.is_some_and(|at| tables.contains(&at))
     {
-        return Kind::CrossReferenceStream;
+        return (Kind::CrossReferenceStream, Exercise::Nothing);
     }
     if material.contains(&number) || name(&dict, "Type").as_deref() == Some("DocTimeStamp") {
-        return Kind::ValidationMaterial;
+        // **The two tables part company here.** Table 257 carves a DSS or document-timestamp
+        // update out of the question entirely; Table 258 states no such carve-out and names no
+        // right that covers one, so the same object is disregarded there and refused here.
+        return (Kind::ValidationMaterial, Exercise::Unrecognised);
     }
     if name(&dict, "Type").as_deref() == Some("Sig") {
-        return Kind::Signing;
+        // Table 258's `/Signature` `Modify` "permits a user to apply a digital signature to an
+        // existing signature form field or clear a signed signature form field", and a Table 255
+        // signature dictionary appearing or going is one of those two whichever way it went.
+        return (Kind::Signing, Exercise::Did(Operation::SignatureModified));
     }
     let field = field_type(held, &dict);
     match bucket {
         Bucket::Redefined => {
             let before = signed.get(id);
             if restated(&before, &object) {
-                return Kind::RestatedUnchanged;
+                return (Kind::RestatedUnchanged, Exercise::Nothing);
             }
             let was = dictionary_of(&before).unwrap_or_default();
             let moved = changed_keys(&was, &dict);
             if moved.len() == 1 && moved.contains(b"DSS".as_slice()) {
                 // §12.8.4.3: the store "shall be the value of a DSS key in the document catalog
                 // dictionary", so the catalog gaining one is part of adding the store.
-                return Kind::ValidationMaterial;
+                return (Kind::ValidationMaterial, Exercise::Unrecognised);
             }
             if let Some(field) = field {
                 if moved.iter().all(|key| named_in(&FILLING_WRITES, key)) {
                     return if field == "Sig" {
-                        Kind::Signing
+                        (Kind::Signing, Exercise::Did(Operation::SignatureModified))
                     } else {
-                        Kind::FieldFilledIn
+                        // Table 258's `/Form` `FillIn`, whose own words are what a fill is: it
+                        // "[p]ermits the user to save a document on which form fill-in has been
+                        // done".
+                        (Kind::FieldFilledIn, Exercise::Did(Operation::FormFilledIn))
                     };
                 }
                 if moved.iter().any(|key| named_in(&FIELD_DEFINING, key)) {
-                    return Kind::Unclassified;
+                    return (Kind::Unclassified, Exercise::Unrecognised);
                 }
             }
             if is_annotation(&dict) {
-                Kind::Annotation
+                (
+                    Kind::Annotation,
+                    Exercise::Did(Operation::AnnotationModified),
+                )
             } else {
-                Kind::Unclassified
+                (Kind::Unclassified, Exercise::Unrecognised)
             }
         }
         // An added signature field is signing; an added field of any other type is a form being
@@ -1299,15 +1660,40 @@ fn classify_one(
             // page to the current document", and a page the signed revision already displayed was
             // not added by anybody.
             if bucket == Bucket::Added && instantiated(current, &dict, templates) {
-                return Kind::TemplateInstantiated;
+                // Table 258's `/Form` `SpawnTemplate`: "[p]ermits new pages to be instantiated
+                // from named page templates", which is §12.7.7's operation by its own name.
+                return (
+                    Kind::TemplateInstantiated,
+                    Exercise::Did(Operation::PageTemplateSpawned),
+                );
             }
-            match (field.as_deref(), is_annotation(&dict)) {
+            let kind = match (field.as_deref(), is_annotation(&dict)) {
                 (Some("Sig"), _) => Kind::Signing,
                 (None, true) => Kind::Annotation,
                 _ => Kind::Unclassified,
-            }
+            };
+            // **Table 258 asks a question Table 257 does not, and the answer is not the `Kind`.**
+            // The table names `/Form` `Add` — "[p]ermits the user to add form fields to the
+            // document" — and `/Form` `Delete`, where Table 257 states no operation for either and
+            // therefore permits them at no level. So an added or removed *field* names a right
+            // even where its kind is [`Kind::Unclassified`].
+            //
+            // **And an object that is both is refused rather than assigned.** A widget annotation
+            // is a field (Table 226's `/FT`) and an annotation (Table 166) at once; `/Form` `Add`
+            // and `/Annots` `Create` both describe adding one, the file says which of the two the
+            // producer needed nowhere, and picking one would grant a change on a right the
+            // producer may not have been given.
+            let created = bucket == Bucket::Added;
+            let exercise = match (field.is_some(), is_annotation(&dict)) {
+                (true, false) if created => Exercise::Did(Operation::FormFieldAdded),
+                (true, false) => Exercise::Did(Operation::FormFieldDeleted),
+                (false, true) if created => Exercise::Did(Operation::AnnotationCreated),
+                (false, true) => Exercise::Did(Operation::AnnotationDeleted),
+                _ => Exercise::Unrecognised,
+            };
+            (kind, exercise)
         }
-        Bucket::Unplaceable => Kind::Unplaceable,
+        Bucket::Unplaceable => (Kind::Unplaceable, Exercise::Unrecognised),
     }
 }
 
@@ -1925,9 +2311,12 @@ mod tests {
     use pdf_syntax::Document;
 
     use super::{
-        Comparison, FieldJudgement, Judgement, NotComparable, NotScoped, Ranked, ScopedTo,
+        Comparison, Exercise, Exercised, FieldJudgement, Judgement, NotComparable, NotScoped,
+        RIGHTS_NOT_RECOGNISED, Ranked, RightVerdict, RightsJudgement, ScopedTo,
     };
-    use crate::signature::{FieldMdp, FieldSelection, Modification, Signature, signatures};
+    use crate::signature::{
+        FieldMdp, FieldSelection, Modification, Operation, Signature, signatures,
+    };
 
     /// The signature object every fixture here carries, with a `/ByteRange` to be filled in.
     ///
@@ -1952,11 +2341,22 @@ mod tests {
 
     /// The same, with the catalog spelled out — for a fixture that needs a `/Names` tree in it.
     fn signed_file_under(catalog: &str, extra: &[&str]) -> Vec<u8> {
-        let mut objects = vec![
+        signed_file_over(
             catalog,
             "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
             SIGNATURE,
+            extra,
+        )
+    }
+
+    /// The same again, with the page tree node and the signature spelled out — for a fixture that
+    /// needs a second page, or transform parameters of its own.
+    fn signed_file_over(catalog: &str, pages: &str, signature: &str, extra: &[&str]) -> Vec<u8> {
+        let mut objects = vec![
+            catalog,
+            pages,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            signature,
             "<< /FT /Sig /T (Signature1) /V 4 0 R /Subtype /Widget >>",
         ];
         objects.extend_from_slice(extra);
@@ -3103,6 +3503,249 @@ mod tests {
         assert!(
             matches!(refusal, NotComparable::NotARevisionBoundary(_)),
             "{refusal:?}"
+        );
+    }
+    /// Table 258's own words for the rights this comparison ranks a change against.
+    ///
+    /// `/P true` so that the arrays are read at all — the table's default is false, which makes
+    /// "any possible restriction … be ignored" — and `/V /2.2`, which is the one version it admits.
+    fn ur_signature(parameters: &str) -> String {
+        format!(
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /Reference [ << /Type /SigRef /TransformMethod /UR3 /TransformParams \
+             << /Type /TransformParams {parameters} >> >> ] \
+             /ByteRange [0000000000 0000000000 0000000000 0000000000] \
+             /Contents <00112233445566778899aabbccddeeff> >>"
+        )
+    }
+
+    /// A document whose `/UR3` grants `rights`, with an annotation and a second page to change.
+    ///
+    /// Object 6 is the annotation the signed revision already held and 7 its second page, so an
+    /// update can delete either; object 4 is the usage rights signature, reached from the
+    /// permissions dictionary as §12.8.1 requires — "not from a signature field" — and from the
+    /// field as well, so that the fixture's one signature is the one every test here compares.
+    fn rights_file(rights: &str) -> Vec<u8> {
+        rights_file_under(&format!("/V /2.2 /P true {rights}"))
+    }
+
+    /// The same, with the whole transform parameters dictionary spelled out.
+    fn rights_file_under(parameters: &str) -> Vec<u8> {
+        let signature = ur_signature(parameters);
+        signed_file_over(
+            "<< /Type /Catalog /Pages 2 0 R /Perms << /UR3 4 0 R >> \
+             /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 2 /Kids [3 0 R 7 0 R] >>",
+            signature.as_str(),
+            &[
+                "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            ],
+        )
+    }
+
+    /// The `/UR3` this document's permissions dictionary states, with the rights it grants.
+    fn only_rights(document: &Document) -> crate::signature::UsageRights {
+        crate::signature::permissions(document)
+            .usage_rights
+            .expect("a /UR3 with UR transform parameters")
+    }
+
+    /// An annotation created under a `/UR3` that names `/Annots [/Create]` is within the rights.
+    ///
+    /// The positive half, and the one a refusing implementation would pass trivially (trap 13):
+    /// the operation the file granted is the operation the update performed, and the answer has to
+    /// be the one word this module is otherwise built to withhold.
+    #[test]
+    fn an_annotation_created_under_a_right_that_names_it_is_within_what_was_granted() {
+        let mut bytes = rights_file("/Annots [/Create]");
+        update(
+            &mut bytes,
+            &[(8, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+        let ranking = comparison.against_usage_rights(&only_rights(&document));
+
+        assert_eq!(ranking.granted.named(), [8], "{ranking:?}");
+        assert!(ranking.not_granted.is_empty(), "{ranking:?}");
+        assert!(ranking.unrecognised.is_empty(), "{ranking:?}");
+        assert_eq!(
+            ranking.judgement(),
+            RightsJudgement::WithinTheRightsGranted { objects: 1 }
+        );
+        assert_eq!(
+            ranking.detail,
+            [Exercised {
+                number: 8,
+                exercise: Exercise::Did(Operation::AnnotationCreated),
+                verdict: RightVerdict::Granted,
+            }]
+        );
+    }
+
+    /// The same right, and the three other things an update can do to the same document.
+    ///
+    /// **The calibration the test above cannot give**: an annotation *deleted* needs `/Annots`
+    /// `Delete`, which these parameters do not name, so §12.8.2.3's "modifications to any objects
+    /// that are not permitted by the transform parameters" has a member. And a *page* deleted is
+    /// neither — Table 258 names no right for it at all, so it is refused by name rather than
+    /// called outside, on ADR 1049 §2's argument that a refusal is the answer that is neither a
+    /// false alarm nor a lenient default. The page tree node that lost the kid is refused with it.
+    #[test]
+    fn an_annotation_deleted_is_outside_that_right_and_a_page_deleted_is_refused() {
+        let mut bytes = rights_file("/Annots [/Create]");
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>"),
+                (8, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>"),
+            ],
+            &[6, 7],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+        let ranking = comparison.against_usage_rights(&only_rights(&document));
+
+        assert_eq!(ranking.granted.named(), [8], "{ranking:?}");
+        assert_eq!(ranking.not_granted.named(), [6], "{ranking:?}");
+        assert_eq!(ranking.unrecognised.named(), [2, 7], "{ranking:?}");
+        assert_eq!(
+            ranking.judgement(),
+            RightsJudgement::OutsideTheRightsGranted { objects: 1 }
+        );
+
+        // **The control, and it has to move the one object it is about and no other** (trap 13):
+        // the same file whose `/UR3` also names `Delete` ranks object 6 as granted, and the page
+        // stays refused — which is what says the refusal is about Table 258 rather than about this
+        // update.
+        let mut bytes = rights_file("/Annots [/Create /Delete]");
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>"),
+                (8, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>"),
+            ],
+            &[6, 7],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+        let ranking = comparison.against_usage_rights(&only_rights(&document));
+        assert_eq!(ranking.granted.named(), [6, 8], "{ranking:?}");
+        assert!(ranking.not_granted.is_empty(), "{ranking:?}");
+        assert_eq!(
+            ranking.judgement(),
+            RightsJudgement::NotClassified { objects: 2 }
+        );
+    }
+
+    /// Table 258's two rules about the parameters come before its arrays, and both are ranked.
+    ///
+    /// `/P` false is the table's default and means "any possible restriction may be ignored", so
+    /// an update that deletes an annotation the arrays never named is granted anyway; a `/V` the
+    /// table does not admit means "no rights shall be enabled", so the same update is outside even
+    /// where the array names the operation.
+    #[test]
+    fn the_parameters_own_two_rules_decide_before_the_arrays_do() {
+        for (rights, expected) in [
+            ("/V /2.2 /P false /Annots []", RightVerdict::Granted),
+            (
+                "/V /1.0 /P true /Annots [/Delete]",
+                RightVerdict::NotGranted,
+            ),
+        ] {
+            let mut bytes = rights_file_under(rights);
+            update(&mut bytes, &[], &[6], 1);
+            let document = Document::open(bytes).expect("a valid file");
+            let comparison = Comparison::of(&only_signature(&document), &document)
+                .expect("two comparable states");
+            let ranking = comparison.against_usage_rights(&only_rights(&document));
+            assert_eq!(
+                ranking.detail,
+                [Exercised {
+                    number: 6,
+                    exercise: Exercise::Did(Operation::AnnotationDeleted),
+                    verdict: expected,
+                }],
+                "{rights}"
+            );
+        }
+    }
+
+    /// Every one of Table 258's twenty-three rights is either recognised or refused by name.
+    ///
+    /// The list a reader is shown has to be the table's, not a subset of it that happens to be
+    /// what this reader implements — so the eight [`Operation`] carries and the fifteen
+    /// [`RIGHTS_NOT_RECOGNISED`] names are held to the table here, and neither may name the other's.
+    #[test]
+    fn table_258s_rights_are_each_either_recognised_or_refused_and_never_both() {
+        let table: &[(&str, &[&str])] = &[
+            ("Document", &["FullSave"]),
+            (
+                "Annots",
+                &[
+                    "Create",
+                    "Delete",
+                    "Modify",
+                    "Copy",
+                    "Import",
+                    "Export",
+                    "Online",
+                    "SummaryView",
+                ],
+            ),
+            (
+                "Form",
+                &[
+                    "Add",
+                    "Delete",
+                    "FillIn",
+                    "Import",
+                    "Export",
+                    "SubmitStandalone",
+                    "SpawnTemplate",
+                    "BarcodePlaintext",
+                    "Online",
+                ],
+            ),
+            ("Signature", &["Modify"]),
+            ("EF", &["Create", "Delete", "Modify", "Import"]),
+        ];
+        let recognised = [
+            Operation::AnnotationCreated,
+            Operation::AnnotationDeleted,
+            Operation::AnnotationModified,
+            Operation::FormFilledIn,
+            Operation::FormFieldAdded,
+            Operation::FormFieldDeleted,
+            Operation::PageTemplateSpawned,
+            Operation::SignatureModified,
+        ];
+        let mut named: usize = 0;
+        for (array, names) in table {
+            for name in *names {
+                let is_recognised = recognised
+                    .iter()
+                    .any(|operation| operation.array() == *array && operation.name() == *name);
+                let is_refused = RIGHTS_NOT_RECOGNISED.contains(&(array, name));
+                assert!(
+                    is_recognised != is_refused,
+                    "/{array} {name}: recognised {is_recognised}, refused {is_refused}"
+                );
+                named = named.saturating_add(1);
+            }
+        }
+        assert_eq!(named, 23);
+        assert_eq!(
+            recognised.len().saturating_add(RIGHTS_NOT_RECOGNISED.len()),
+            23
         );
     }
 }

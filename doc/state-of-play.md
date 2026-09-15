@@ -494,6 +494,20 @@ what the source stated as well as the two rasters, and `pages`'s, which rotates 
 one document and holds every surviving page to its source page under the rotation stated. ADRs 0800,
 0801, 0802, 0803, 0804, 0816, 0817, 0818, 0821, 0830.
 
+**It can draw a page one document imports from another, where the person running it names the file
+it comes from.** §8.10.4's reference `XObject` is a form carrying Table 95's `/Ref`, and §8.10.4.1
+writes a `shall` for a processor that draws the referenced page and a `shall` for one that draws the
+proxy the producer put there instead; which of the two this is depends on whether the target file is
+in front of it, and with no filesystem it never is unless somebody puts it there. `--reference-files
+<dir>` names a directory, `viewer_core::Command::References` carries the bytes in, and **which file
+a reference names is decided by §14.4's identifier and never by the path Table 95 states** — a path
+a document writes would let the file choose what this machine opens. A supplied file whose
+identifier does not match is refused by name; one whose *changing* identifier moved is drawn with
+the clause's own warning that it is "a different version of the correct PDF file"; and a reader who
+names no directory gets every proxy drawn and is told nothing, which is what the clause asks of a
+reader with no target file. The imported page is placed by the proxy's `/Matrix`, clipped to its
+`/BBox`, and rendered with §8.10.4.3's annotation appearances inside that same box. ADR 1101.
+
 **It can tell a person that a signed document changed after it was signed, whether its signature
 verifies, and — where the person running it names a certification authority — whether the signature
 is valid.** §12.8.1 divides verifying a signature into three questions, and the third is a host's

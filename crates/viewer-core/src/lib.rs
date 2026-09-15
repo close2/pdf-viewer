@@ -106,7 +106,8 @@ pub mod transition;
 pub use accessibility::{AccessibilityNode, Character, TableCell, TextLine, places};
 pub use command::{
     AttachHome, Command, Edit, Find, FindDirection, FocusMove, PageTarget, PointerAction,
-    PresentationMode, Purpose, Rendered, RestrictionLevel, Selection, TrustPolicy, Viewing, Zoom,
+    PresentationMode, Purpose, ReferenceFiles, Rendered, RestrictionLevel, Selection, TrustPolicy,
+    Viewing, Zoom,
 };
 pub use event::{Event, Extraction, Found, RenderRequest};
 /// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,
