@@ -104,6 +104,12 @@ impl App {
     }
 
     /// Does what one event asks.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per `Event` kind, and the kinds are a closed vocabulary a host must \
+answer in full — splitting the match would put the question of which events this window \
+answers in two places"
+    )]
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
             // **Neither of these leaves the process, and both did until the
@@ -168,10 +174,18 @@ impl App {
                 self.redraw();
             }
             Event::Damage(_) => self.redraw(),
-            // §12.6.4.8: printed rather than opened. What this program will not do is hand a
-            // string a document controls to a browser, because that is a decision about this
-            // machine and not about the document.
-            Event::OpenUri { uri, .. } => println!("link: {uri}"),
+            // §12.6.4.8: resolved against this document's own location where the action left it
+            // partial, then declined or opened by the one policy every window shares — so a host
+            // that does open links, or `doc/todo/38`'s ask and warn levels, is a change in
+            // `viewer_host::policy` and not in four `println!`s (ADR 1079).
+            Event::OpenUri { uri, .. } => {
+                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
+                let refused = viewer_host::policy::may_open_uri(&uri).err();
+                println!(
+                    "{}",
+                    viewer_host::policy::uri_note(&uri, refused.as_deref())
+                );
+            }
             // §12.7.6.2: the policy is `viewer_host::policy::may_submit`'s and not this
             // window's, so that a host with a network — or `doc/todo/38`'s ask and warn levels —
             // is a change in one place (ADR 1062). What this arm owns is saying it out loud.

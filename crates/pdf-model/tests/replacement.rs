@@ -139,11 +139,16 @@ fn a_page_no_annotation_makes_view_dependent_keeps_nothing_to_replace_from() {
         state.set_magnification(Some(1.0));
         let (interpretation, replacement) =
             pdf_model::content::interpret_replaceable(&document, &page, &state, &fonts);
-        assert_eq!(
-            interpretation.view_dependent,
-            replacement.is_some(),
-            "page {} keeps a replacement exactly where §12.5.3 makes it depend on the \
-             magnification",
+        // **The two are no longer the same question**, and since ADR 1080 saying so is the
+        // point of this line: §12.5.3's annotations are one of the things a magnification moves
+        // and §8.7.3.1's lattice is the other, so a page can be view-dependent with nothing to
+        // replace from — the annotation pass cannot re-place a tiling laid while the content
+        // stream ran. What still holds in one direction is what is asserted: a page carrying no
+        // `NoZoom` annotation keeps no replacement, whatever else made it depend on the
+        // magnification.
+        assert!(
+            replacement.is_none(),
+            "page {} sets no /NoZoom flag, so §12.5.3's pass has nothing to re-place",
             index.saturating_add(1)
         );
         if !interpretation.view_dependent {

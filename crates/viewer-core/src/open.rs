@@ -788,9 +788,18 @@ impl Open {
     /// rather than `&mut self` because a [`OnceCell`] is what makes "once" a property of the
     /// value rather than of the caller's discipline — and because the document is immutable, so
     /// the sentences are a function of the file and are the same sentences every time.
-    pub(crate) fn about(&self) -> &[String] {
+    pub(crate) fn about(&self, trust: &crate::TrustPolicy) -> &[String] {
         self.about
-            .get_or_init(|| crate::notes::about(&self.document))
+            .get_or_init(|| crate::notes::about(&self.document, trust))
+    }
+
+    /// Drops the wording, because the policy it was worded under has changed.
+    ///
+    /// [`Command::Trust`] is the one thing that can invalidate it: the sentences are a function of
+    /// the document *and* of whom this reader believes, and the first of those two is immutable
+    /// while the second is a host's to change at any moment.
+    pub(crate) fn forget_about(&mut self) {
+        self.about = OnceCell::new();
     }
 
     /// Drops everything derived from what the page draws, because the view state moved.

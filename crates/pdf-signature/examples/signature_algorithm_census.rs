@@ -59,6 +59,7 @@ use pdf_signature::signature::{
     signing_certificate_bindings,
 };
 use pdf_signature::trust::{Trust, TrustAnchors};
+use pdf_signature::verdict::{Acceptance, Timestamps, Verdict};
 use pdf_signature::x509::{self, Instant, PublicKey};
 use pdf_syntax::Document;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -198,6 +199,19 @@ struct Counts {
     /// this exercises is the *algorithm* over chains and revocation material nobody here could have
     /// made, which is the half a fixture cannot reach (ADR 1067). Nothing here says valid.
     revocation: BTreeMap<String, usize>,
+    /// What [`pdf_signature::verdict::Verdict`] answered over the same arrangement, by reason.
+    ///
+    /// **The one measurement that says how far the corpus can get once an anchor exists.** The
+    /// anchor is again the file's own self-signed certificate — a file vouching for itself, which
+    /// is exactly what a trust store prevents and is said out loud here for that reason (trap 8) —
+    /// and the acceptance is the most permissive one, so this is an *upper bound* on what the
+    /// crawl could reach rather than a verdict anybody should act on. What it measures is which of
+    /// §12.8.1's three questions actually stops these documents when the third is no longer the
+    /// first thing in the way. ADR 1076.
+    verdicts: BTreeMap<String, usize>,
+    /// What §12.8.5's four steps answered for each document timestamp, with the token's own
+    /// self-signed certificate supplied as the anchor — [`count_established`]'s caveat and all.
+    established: BTreeMap<String, usize>,
 }
 
 impl Counts {
@@ -240,6 +254,8 @@ impl Counts {
             (&mut self.authenticity, other.authenticity),
             (&mut self.material_refused, other.material_refused),
             (&mut self.revocation, other.revocation),
+            (&mut self.verdicts, other.verdicts),
+            (&mut self.established, other.established),
         ] {
             for (key, count) in theirs {
                 let slot = map.entry(key).or_default();
@@ -460,6 +476,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
             counts
                 .witnesses
                 .push(format!("{path}: §12.8.5 document timestamp"));
+            count_established(signature, bytes, &mut counts);
         }
         if states_indefinite_length(&signature.contents) {
             counts.indefinite_lengths = counts.indefinite_lengths.saturating_add(1);
@@ -468,7 +485,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
                 .push(format!("{path}: §12.8.3.4.2 indefinite ASN.1 length"));
         }
         if has_store {
-            count_revocation(&store, signature, &mut counts);
+            count_revocation(&store, signature, bytes, &mut counts);
         }
         let answer = signature.authenticity(bytes);
         let unverifiable = matches!(
@@ -581,6 +598,7 @@ fn count_store(path: &str, store: &pdf_signature::signature::SecurityStore, coun
 fn count_revocation(
     store: &pdf_signature::signature::SecurityStore,
     signature: &Signature,
+    bytes: &pdf_syntax::FileBytes,
     counts: &mut Counts,
 ) {
     let at = Instant::from_unix_seconds(1_780_272_000);
@@ -615,6 +633,66 @@ fn count_revocation(
         other => format!("(no path: {})", variant(&other)),
     };
     let slot = counts.revocation.entry(named).or_default();
+    *slot = slot.saturating_add(1);
+
+    // And what that path, plus the two questions before it, adds up to. `Timestamps::None` because
+    // this is asked per *signature*: a document's chain is `timestamp::chain`'s and is counted a
+    // few lines up rather than folded into a signature's own verdict here.
+    let trust = signature.trust(&anchors, &material, at);
+    let verdict = Verdict::of(
+        &signature.integrity(bytes),
+        &signature.authenticity(bytes),
+        &trust,
+        Acceptance::UnknownRevocationAccepted,
+        Timestamps::None,
+        at,
+    );
+    let named = match &verdict {
+        Verdict::Valid(valid) => format!("valid (path of {})", valid.path_length()),
+        Verdict::Reserved(reservation) => format!("not valid: {reservation}"),
+    };
+    let slot = counts.verdicts.entry(named).or_default();
+    *slot = slot.saturating_add(1);
+}
+
+/// What §12.8.5's four steps answer for one document timestamp, with the file's own root supplied.
+///
+/// **The same arrangement `count_revocation` uses and the same caveat** (trap 8): the anchor is a
+/// self-signed certificate the *token* carries, so this is a file vouching for its own authority.
+/// What it measures is which of ADR 1071's four steps the crawl's real tokens actually reach once
+/// step 4 is no longer refused for want of anybody to end a path at — which until the
+/// one-thousand-and-sixty-second session was every one of them, by name.
+fn count_established(timestamp: &Signature, bytes: &pdf_syntax::FileBytes, counts: &mut Counts) {
+    let at = Instant::from_unix_seconds(1_780_272_000);
+    let Ok(cms) = timestamp.signed_data() else {
+        return;
+    };
+    let roots: Vec<_> = cms
+        .certificates
+        .iter()
+        .filter_map(|entry| x509::read(*entry).ok())
+        .filter(|certificate| certificate.subject == certificate.issuer)
+        .collect();
+    let anchors = TrustAnchors::of(&roots);
+    let named = match pdf_signature::timestamp::established(
+        timestamp,
+        bytes,
+        &anchors,
+        &pdf_signature::revocation::Material::none(),
+        pdf_signature::timestamp::AskedAt::TheCallersInstant(at),
+    ) {
+        pdf_signature::timestamp::Time::Established { .. } => "an instant established".to_owned(),
+        // The variant's name rather than its payload: a census groups, and a refusal carrying a
+        // whole `Authenticity` or a whole `Trust` would make one row per document.
+        pdf_signature::timestamp::Time::Unknown(why) => match why {
+            pdf_signature::timestamp::Unestablished::AuthorityNotEstablished(ref trust) => {
+                format!("no path to the token's own root: {}", variant(trust))
+            }
+            ref other => format!("unknown: {other:?}"),
+        },
+        ref other => format!("(an answer this census does not name: {other:?})"),
+    };
+    let slot = counts.established.entry(named).or_default();
     *slot = slot.saturating_add(1);
 }
 
@@ -685,6 +763,11 @@ fn paths() -> Vec<String> {
     out
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one function per line of the report, in the order it prints: a split would put the \
+              population's figures out of sight of the counts they were taken from"
+)]
 fn main() {
     let paths = paths();
     let counts = paths
@@ -753,6 +836,16 @@ fn main() {
     report(
         "RFC 5280 section 6.1.3 (a)(3) over the signatures in a document carrying a store",
         &counts.revocation,
+    );
+    report(
+        "§12.8.1's three questions together, with each file's own self-signed root as the anchor \
+         (a file vouching for itself: an upper bound, not a verdict)",
+        &counts.verdicts,
+    );
+    report(
+        "§12.8.5's four steps per document timestamp, with the token's own self-signed root as the \
+         anchor (a file vouching for its own authority)",
+        &counts.established,
     );
     report(
         "§12.8.2.2 certification signatures, by Table 257 /P",

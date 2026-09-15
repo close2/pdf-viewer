@@ -24,6 +24,9 @@ pdf-render.workspace = true
 render-cpu.workspace = true
 # §12.3.3's outline items, which `Answer::Outline` now hands over owned (ADR 0247).
 pdf-model.workspace = true
+# RFC 5280 section 6.1.1's inputs (d) and (b): `quorra_trust_anchors` takes DER from a C caller
+# and hands it in as `Supply`. No signature is read here (ADR 1039, ADR 1076).
+pdf-signature.workspace = true
 # §12.5.6.5's targets and §8.11's groups are named by object identity, and `Command::Activate`
 # takes one — the same two numbers §7.3.10 makes an indirect reference.
 pdf-syntax.workspace = true

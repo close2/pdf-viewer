@@ -2304,6 +2304,19 @@ fn the_launch_path_stays_inside_its_bands() {
 
     let mut unjudged = 0_usize;
     for (what, figure) in &judged {
+        // **The band goes out beside the figure on every run, and not only when the figure is
+        // outside it.** A band this gate prints only on a failure is a band nobody reads until it
+        // has already fired, so a figure creeping toward an edge over ten rounds is invisible for
+        // all ten of them — the same defect `gate_ratchet` was written for one shape along, where
+        // a ceiling printed nothing beside the population it bounded (ADR 1075). The distance to
+        // the *nearer* edge is what a reader wants: which edge, how far, and how much of the
+        // band's own width that is.
+        gate_ratchet::band(
+            &format!("{what} ({})", figure.key),
+            figure.value,
+            figure.band.low,
+            figure.band.high,
+        );
         let held = figure.band.holds(figure.value);
         // **Per figure, and paired with its own child's probe.** A steady figure is judged
         // whatever the machine is doing; every other one is judged only where the process that

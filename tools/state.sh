@@ -603,11 +603,64 @@ section_questions() {
         cargo test -q -p conformance --test questions -- --nocapture
 }
 
+# Every bound in the tree, printed beside the population or the figure it bounds, off one run
+# (ADR 1075, ADR 1081). It answers the question no single gate can: **is any gate about to stop
+# being able to fire** — a ceiling drifted above its population, a floor below it, a named
+# population that moved, a band a figure is creeping toward the edge of.
+#
+# **A composed section**: every line it runs is a line another section already runs, with the
+# ratchet table kept instead of that gate's own summary, so it is not in `all` — a full run pays
+# for these walks once. It is the most expensive thing here that is not `oracle`, because the
+# bounds are spread over eight gates and two of them read a reference renderer.
+#
+# **The population is derived, because a hand-written list of gate files is trap 25's shape** —
+# ADR 1075's own tier-1 check found three files carrying bounds nobody had listed. Every tracked
+# test file under `crates/` or `tools/` that calls into `gate-ratchet` is a line here, and *how*
+# to run it comes from `doc/todo/02` §2, which owns the sequence: a gate the sequence runs under
+# `--release` is run under `--release` and this script states no second opinion about it. The
+# tier-1 check goes first, because its own line says how many bounds are routed through the
+# crate, which is the count the table below has to fill.
+section_ratchets() {
+    gate_binaries
+    cargo build --release -p pdf-sandbox --bins >/dev/null 2>&1 || status=1
+    # The command is assembled through a variable on purpose: `state_sections.rs` reads every
+    # `cargo test` line in this script as a gate line, and a loop written literally would tell it
+    # this script runs a gate called `"$package"`.
+    local cargo=cargo file line package target profile ignored
+    run "bounds routed through gate-ratchet (the count the table below has to fill)" \
+        '^ratchets: ' \
+        "$cargo" test -p conformance --test ratchets -- --nocapture
+    for file in $(git ls-files 'crates/*/tests/*.rs' 'tools/*/tests/*.rs' |
+        awk -F/ 'NF == 4' | xargs grep -l 'gate_ratchet::' | sort); do
+        package=$(printf '%s\n' "$file" | cut -d/ -f2)
+        target=$(basename "$file" .rs)
+        [ "$package/$target" = conformance/ratchets ] && continue
+        line=$(grep -E "^cargo test .*-p +$package .*--test +$target " doc/todo/02-every-round.md | head -1)
+        profile=$(printf '%s\n' "$line" | grep -oE -- '--profile [a-z]+|--release')
+        # `--ignored` and not `--include-ignored`, from the sequence's own line. The difference is
+        # not cosmetic: `save_round_trip.rs` holds an ignored corpus walk *and* an unignored
+        # single-document check over the same document in the same temporary directory, and
+        # libtest runs the two in parallel threads — one deletes the file the other's `mupdf` is
+        # reading, and the gate fails naming a document that is fine.
+        ignored=$(printf '%s\n' "$line" | grep -oE -- '--ignored')
+        [ -z "$profile" ] &&
+            printf 'doc/todo/02 §2 names no line for %s --test %s, so it runs under the default profile\n' \
+                "$package" "$target"
+        run "$package --test $target" '^ratchet: ' \
+            tools/bounded.sh -- "$cargo" test $profile -p "$package" --test "$target" -- $ignored --nocapture
+    done
+}
+
 all="ledger conformance annex-o governing questions counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
 quick="ledger conformance annex-o governing questions counts hosts windows binaries disk"
 
+# Sections that compose other sections' gates rather than running a gate of their own. Not in
+# `all`, because a full run already pays for every line they run; named by `--list`, because a
+# section a reader cannot discover is a section nobody runs.
+composed="ratchets"
+
 case ${1-} in
---list) printf '%s\n' $all; exit 0 ;;
+--list) printf '%s\n' $all $composed; exit 0 ;;
 esac
 
 case ${1-all} in
@@ -649,6 +702,7 @@ for section in $sections; do
     windows) section_windows ;;
     binaries) section_binaries ;;
     disk) section_disk ;;
+    ratchets) section_ratchets ;;
     *)
         printf 'no such section: %s (tools/state.sh --list)\n' "$section" >&2
         status=1

@@ -65,4 +65,5 @@ pub mod revocation;
 pub mod signature;
 pub mod timestamp;
 pub mod trust;
+pub mod verdict;
 pub mod x509;

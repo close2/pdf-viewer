@@ -191,6 +191,25 @@ the flows as mockups first, so each window gained only the display half — the 
 `viewer_host::unanswerable` and `proceed: false`, out loud, because a window that cannot ask must
 not let *ask* behave like *on* in silence. ADR 0814.
 
+**And the one-thousand-and-sixty-second added one `Command` and one entry point, for the input ADR
+1039 named forty rounds earlier and did not build.** §12.8.1's third question — *is the signer
+anyone to believe* — needs RFC 5280 section 6.1.1's input (d), the trust anchors, and that RFC says
+whose choice they are: "The selection of a trust anchor is a matter of policy." So the value comes
+from outside the document, and `Command::Trust(TrustPolicy)` is how, on `Command::Restrict`'s rules
+and for a sharper version of its reason: a state machine over a file cannot know whom its reader
+believes, and a *file* that could name its own anchors would be vouching for itself. It passes this
+file's own test for a message — no host holds a certification path, and no core has a filesystem or
+a clock to read certificates with. **Two consumers failed to compile**, `viewer-confined`'s wire
+(command kind 28, the DER crossing into the confinement rather than out of it) and `quorra`'s trace
+line; `QUORRA_EVENT_KIND_COUNT` stayed where it is because nothing here is an event, and the C ABI
+gained one entry point and two constants — `quorra_trust_anchors`, `QUORRA_ACCEPT_*`.
+`QUORRA_ABI_VERSION` did not move, because an entry point *added* is one an old caller never calls
+and this one takes no struct by value. **No host gained a gesture**: `quorra` gained
+`--trust-anchors <dir>` and `--accept-unknown-revocation`, which is how this host supplies every
+other policy it has, and `doc/todo/38`'s user interface is still not to be built. A host that
+supplies nothing gets exactly the answers it got before, which is ADR 1039's decision unchanged.
+ADR 1076.
+
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

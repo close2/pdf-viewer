@@ -5887,7 +5887,86 @@ fn the_pointer_raises_table_197s_events() {
     assert_eq!(
         marks(&pressed),
         Some(1),
-        "`/E` and then `/D`, in the order the cursor arrived and pressed"
+        "`/D` switched it on; the press may not also enter, which §12.6.3's first constraint \
+         forbids while the button is down"
+    );
+}
+
+/// §12.6.3's constraints on the four mouse events, which are not in Table 197 and bind it.
+///
+/// The table says when each event happens; the paragraph after Table 200 says when it may not.
+/// Three of the four are about this test:
+///
+/// > - An E (enter) event may occur only when the mouse button is up.
+/// > - An X (exit) event may not occur without a preceding E event.
+/// > - A U (up) event may not occur without preceding E and D events.
+///
+/// Both halves below were wrong before the thousand-and-sixty-fifth session, and each was wrong
+/// because Table 197's own sentence was read as the whole condition. A cursor dragged into an
+/// annotation raised `/E` with the button held down, and a release inside an annotation raised
+/// `/U` whether or not that annotation had ever seen a press — a document could therefore act on
+/// a click it never received.
+///
+/// The fourth constraint needs no test of its own: `over` is the topmost annotation under the
+/// cursor rather than a set, so entering one nested in another changes it, and the `/X` the
+/// clause requires for the first is the one that pair already raises.
+#[test]
+fn a_press_may_not_enter_and_a_release_needs_its_own_press() {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_mouse_triggers().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+
+    // The annotation is the page's bottom-left quarter; the other point is outside it.
+    let inside = device_point(&viewer, [10.0, 10.0, 30.0, 30.0], 100.0);
+    let outside = device_point(&viewer, [70.0, 70.0, 90.0, 90.0], 100.0);
+    let pointer = |viewer: &mut Viewer, at, action| {
+        let events: Vec<Event> = viewer.handle(Command::Pointer { at, action }).collect();
+        uris(&events)
+    };
+
+    // A click made of the whole gesture: the cursor arrives with the button up, presses and
+    // lets go, so `/U` has the `/E` and the `/D` the clause requires before it.
+    assert_eq!(
+        pointer(&mut viewer, inside, PointerAction::Moved),
+        ["https://example.invalid/enter"],
+    );
+    assert_eq!(
+        pointer(&mut viewer, inside, PointerAction::Pressed),
+        ["https://example.invalid/down"],
+    );
+    assert_eq!(
+        pointer(&mut viewer, inside, PointerAction::Released),
+        ["https://example.invalid/up"],
+    );
+    assert_eq!(
+        pointer(&mut viewer, outside, PointerAction::Moved),
+        ["https://example.invalid/exit"],
+    );
+
+    // And the same annotation reached the other way: the button goes down outside it and the
+    // cursor is dragged in. No `/E` may occur while it is held, and the release that follows has
+    // no `/D` of its own to stand on, so `/U` may not occur either — what arrives is the entry
+    // the first constraint postponed until the button came up, and nothing else.
+    assert_eq!(
+        pointer(&mut viewer, outside, PointerAction::Pressed),
+        Vec::<String>::new(),
+        "nothing is under the press"
+    );
+    assert_eq!(
+        pointer(&mut viewer, inside, PointerAction::Dragged),
+        Vec::<String>::new(),
+        "an E event may occur only when the mouse button is up",
+    );
+    assert_eq!(
+        pointer(&mut viewer, inside, PointerAction::Released),
+        ["https://example.invalid/enter"],
+        "the entry, now that the button is up; and no U, which had no preceding D",
     );
 }
 
@@ -6012,6 +6091,54 @@ fn marks(events: &[Event]) -> Option<usize> {
         Event::NeedsRender(request) => Some(request.list.commands().len()),
         _ => None,
     })
+}
+
+/// A page whose one annotation names each of §12.6.3's four mouse events in its own URI.
+///
+/// A URI action rather than a layer switch because the assertion here is *which* event occurred
+/// and in what order, and a layer is one bit: `with_triggers`'s fixture switches the same group
+/// on for both `/E` and `/D`, so a page drawn after either is the same page. `Event::OpenUri`
+/// carries the document's own string, so an enter that happened when the clause forbids one is
+/// legible as itself.
+///
+/// The page states no text, which is what makes the second half of
+/// `a_press_may_not_enter_and_a_release_needs_its_own_press` measure a clause rather than the
+/// selection: a drag across a page with nothing to select leaves `clicked` true, so the `/U` that
+/// does not arrive is §12.6.3's third constraint and not "a drag is not a click".
+fn with_mouse_triggers() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "20 20 10 10 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+         /Annots [5 0 R] /Resources << >> >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 50 50] /F 4 \
+         /AA << /E 6 0 R /X 7 0 R /D 8 0 R /U 9 0 R >> >>\nendobj\n\
+         6 0 obj\n<< /S /URI /URI (https://example.invalid/enter) >>\nendobj\n\
+         7 0 obj\n<< /S /URI /URI (https://example.invalid/exit) >>\nendobj\n\
+         8 0 obj\n<< /S /URI /URI (https://example.invalid/down) >>\nendobj\n\
+         9 0 obj\n<< /S /URI /URI (https://example.invalid/up) >>\nendobj\n",
+        content.len().saturating_add(1),
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
 }
 
 /// A page whose one widget states §12.6.3's `/E`, `/X` and `/D`, each switching a layer.

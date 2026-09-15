@@ -1312,7 +1312,7 @@ fn ratchet(
     // `/AuthEvent`, so Table 25's default `DocOpen` requires the key before the document opens and
     // its one page is now locked rather than drawn. A screen reader is told nothing about it
     // because the file will not open without a password, which is the file's answer and not a
-    // regression in this program — the same change moved `corpus.rs`'s `MAX_LOCKED`,
+    // regression in this program — the same change moved `corpus.rs`'s `LOCKED`,
     // `collections.rs`, `oracle.rs`, `save_round_trip.rs` and `raster_golden.tsv` (ADR 1040).
     gate_ratchet::floor(
         "untagged pages answering honestly",

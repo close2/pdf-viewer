@@ -113,6 +113,20 @@ pub(crate) struct Arguments {
     /// other one it has — the sandbox, the backend, the page to open at. The four levels the
     /// project owner named, and the menu that will offer them, are later.
     pub(crate) restrictions: RestrictionLevel,
+    /// The directory `--trust-anchors` named, or nothing, which is the default and means nobody.
+    ///
+    /// **§12.8.1's third question, as a host's input.** RFC 5280 section 6.1.1 makes the trust
+    /// anchors input (d) and "a matter of policy"; ADR 1039 decided this program ships no root
+    /// list and reads no platform store, so the only way one arrives is a person naming it.
+    /// `viewer_host::trust_anchors` is what reads the directory, on the document's thread rather
+    /// than this one: nothing about it is needed to show page one (`CLAUDE.md` principle 2).
+    pub(crate) trust_anchors: Option<PathBuf>,
+    /// Whether `--accept-unknown-revocation` was typed.
+    ///
+    /// The second half of the same policy, and a separate word because it is a separate decision:
+    /// ADR 1067's rule that an absence of §12.8.4 material is never a `Good` is not what this
+    /// touches, and what it decides is whether a reader acts on a verdict resting on one.
+    pub(crate) accept_unknown_revocation: bool,
     /// How many whole pages the window retains a low-resolution picture of, from
     /// `--proxy-pages`, defaulting to [`crate::stale::PROXY_PAGES`].
     ///
@@ -162,6 +176,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut backend_asked_for = false;
     let mut opens_at = None;
     let mut restrictions = RestrictionLevel::On;
+    let mut trust_anchors = None;
+    let mut accept_unknown_revocation = false;
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
     let mut coverage = CoverageChoice::Auto;
@@ -219,6 +235,30 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             supersample = supersample_factor(arguments.next());
         } else if argument == "--coverage" {
             coverage = coverage_choice(arguments.next());
+        } else if argument == viewer_host::TRUST_ANCHORS {
+            // Refused here rather than carried and refused later, for `--backend`'s reason: a
+            // person who names a directory that is not one has mistyped it, and a launch that
+            // ignored the word would answer every signature's third question with *nobody* while
+            // that person believed they had answered it.
+            let Some(directory) = arguments.next() else {
+                eprintln!(
+                    "{} wants a directory of PEM or DER certificates",
+                    viewer_host::TRUST_ANCHORS
+                );
+                std::process::exit(2);
+            };
+            let directory = PathBuf::from(directory);
+            if !directory.is_dir() {
+                eprintln!(
+                    "{} {}: not a directory",
+                    viewer_host::TRUST_ANCHORS,
+                    directory.display()
+                );
+                std::process::exit(2);
+            }
+            trust_anchors = Some(directory);
+        } else if argument == viewer_host::ACCEPT_UNKNOWN_REVOCATION {
+            accept_unknown_revocation = true;
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
             // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
             // prints has to name a word every host's parser takes — and for two hosts of three it
@@ -271,6 +311,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         opens_at,
         fragment,
         restrictions,
+        trust_anchors,
+        accept_unknown_revocation,
         proxy_pages,
         coverage,
         supersample,
@@ -489,6 +531,17 @@ fn usage() {
     eprintln!("                perform an operation a document says its reader may not — filling");
     eprintln!("                in a field under §7.6.4.2's permission flags or an author's");
     eprintln!("                §12.8.2.2 certification. The default is to obey and say so.");
+    eprintln!("  {} D", viewer_host::TRUST_ANCHORS);
+    eprintln!("                believe the certification authorities in directory D, as PEM or");
+    eprintln!("                DER, when answering the third of the three questions a signature");
+    eprintln!("                asks (§12.8.1): is the signer anyone to believe. This program");
+    eprintln!("                ships no root list and reads no platform store, so without this");
+    eprintln!("                word the answer is that nobody named one — which is a statement");
+    eprintln!("                about this program and not about any document.");
+    eprintln!("  {}", viewer_host::ACCEPT_UNKNOWN_REVOCATION);
+    eprintln!("                act on a signature whose revocation status the document's own");
+    eprintln!("                §12.8.4 material does not settle. Nothing computes a clean answer");
+    eprintln!("                from an absent one either way; this decides what to do with one.");
     eprintln!("  --licences    print the third-party notices this binary carries, and exit.");
 }
 

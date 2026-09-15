@@ -1237,8 +1237,8 @@ fn an_undefined_crypt_filter_is_refused_where_the_version_names_no_method() {
 
 /// A trailer whose `/Encrypt` names an object the file does not define is refused by name.
 ///
-/// `PDFBOX-4352-0.pdf` is the corpus's only document under the corpus gate's
-/// `MAX_UNREADABLE_ENCRYPTION`, and what is beyond this reader in it is not a clause of §7.6
+/// `PDFBOX-4352-0.pdf` is the one name in the corpus gate's `UNREADABLE_ENCRYPTION`, and what
+/// is beyond this reader in it is not a clause of §7.6
 /// at all: one byte of its `6 0 obj` reads `E<` where §7.3.7 puts `<<`, so the object does not
 /// parse and §7.3.10 makes the reference to it the null object — "[a]n indirect reference to an
 /// undefined object shall not be considered an error by a PDF processor; it shall be treated as

@@ -148,11 +148,11 @@ pub use answers::{
 pub use events::{Events, Searched, TransitionNumbers};
 pub use form::Form;
 pub use kinds::{
-    AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
-    DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind, FolderTextKind,
-    InitialKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind,
-    PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind,
-    RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
+    AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
+    ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
+    FolderTextKind, InitialKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind,
+    PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind,
+    PurposeKind, RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
 pub use session::{FrameInfo, Session, rasterise};

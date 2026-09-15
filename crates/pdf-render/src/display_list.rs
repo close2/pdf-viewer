@@ -861,10 +861,19 @@ impl DisplayList {
     /// against a shape that never drew it, and no gate in this tree would see the result as
     /// anything but a wrong colour.
     ///
-    /// Deliberately cheap and structural — variants, counts, transforms, identifiers and path
+    /// Deliberately cheap and structural — each command's variant, its clip and mask
+    /// identifiers, its blend mode and the *number* of segments in its path, plus the two table
     /// lengths — rather than a second `PartialEq` with colours masked out: this runs on every
     /// page that states such a space, and what it is guarding against is a *structural*
     /// divergence rather than a numerical one.
+    ///
+    /// **What it therefore does not see is a number**, and a caller measuring whether a page
+    /// *changed* must not reach for it: two lists whose commands differ only in the transform
+    /// on them, or only in a path's coordinates, hash the same. That is sound for the pair this
+    /// exists for — the two runs differ in colour resolution alone, so their geometry is
+    /// identical by construction and any divergence is structural — and unsound for anything
+    /// else. `issue16038.pdf` page 1 is the standing witness: its tiling lattice snapped under
+    /// §8.7.3.1 moves 12.8% of the page's pixels with the two digests equal (ADR 1080).
     #[must_use]
     pub fn geometry_digest(&self) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();

@@ -10,6 +10,12 @@
 //! "unless otherwise instructed", which takes §12.7's widget appearances off the page and leaves
 //! everything else (`pdf_model::view::WidgetAppearances`, ADR 0245). It is here rather than in a
 //! test because the two pages side by side are what a person reads.
+//!
+//! `--magnified` says that `scale` is the magnification the page is being drawn at, rather than
+//! leaving it unstated. Two clauses read that: §12.5.3's `NoZoom` annotations and §8.7.3.1's
+//! Table 74 lattice, whose constant-spacing codes need a device pixel grid before they can snap
+//! to one (ADR 1080). It is the flag that draws what a *viewer* at this scale would show, and the
+//! two pages side by side are again what a person reads.
 
 #![expect(
     clippy::print_stdout,
@@ -27,7 +33,9 @@ fn main() {
         .expect("a number");
     let scale: f32 = args.next().expect("a scale").parse().expect("a number");
     let out = args.next().expect("an output png");
-    let delegate = args.next().is_some_and(|word| word == "--delegate");
+    let flags: Vec<String> = args.collect();
+    let delegate = flags.iter().any(|word| word == "--delegate");
+    let magnified = flags.iter().any(|word| word == "--magnified");
 
     let document =
         pdf_syntax::Document::open(std::fs::read(&path).expect("readable")).expect("a PDF");
@@ -36,6 +44,9 @@ fn main() {
     let mut view = pdf_model::view::ViewState::of(&document);
     if delegate {
         view.set_widget_appearances(pdf_model::view::WidgetAppearances::Delegated);
+    }
+    if magnified {
+        view.set_magnification(Some(scale));
     }
     let interpretation = pdf_model::content::interpret_with(&document, &page, &view);
     let list = interpretation.display_list;

@@ -30,8 +30,10 @@ use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
     Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
     FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query,
-    RestrictionLevel, Selection, Zoom,
+    RestrictionLevel, Selection, TrustPolicy, Zoom,
 };
+
+use pdf_signature::verdict::Acceptance;
 
 use crate::Reply;
 
@@ -999,6 +1001,11 @@ mod command_kind {
     // one-thousand-and-twenty-seventh: `notes::about` left the open path so that a signed
     // document's digest stopped being part of a launch. ADR 1044.
     pub(super) const REPORT: u8 = 27;
+    // §12.8.1's third question, since the one-thousand-and-sixty-second: whom the reader believes.
+    // A confined worker holds the document and therefore reads its signatures, so RFC 5280 section
+    // 6.1.1's inputs (d) and (b) have to cross to reach the party that validates a path. The
+    // certificates cross as DER, which is what they are on a host's disk (ADR 1076).
+    pub(super) const TRUST: u8 = 28;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1165,6 +1172,28 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::Answer { document, proceed } => {
             writer.u8(k::ANSWER).document(*document).bool(*proceed);
+        }
+        // §12.8.1's third question crosses for the reason every other policy does, and for a
+        // sharper one of its own: the confined process is where a certification path is built, and
+        // a *document* that could name its own anchors would be vouching for itself — which is the
+        // one thing a trust store exists to prevent. So the anchors come from outside the
+        // confinement, from the party that read them off a disk (ADR 1039, ADR 1076).
+        Command::Trust(policy) => {
+            writer
+                .u8(k::TRUST)
+                .u8(match policy.acceptance {
+                    Acceptance::UnknownRevocationAccepted => 1,
+                    // `RevocationMustBeGood`, and every variant added later: an acceptance this
+                    // encoder does not know crosses as the conservative one, which is the
+                    // direction a policy value is safe to be wrong in.
+                    _ => 0,
+                })
+                .i64(policy.anchors.at().unix_seconds())
+                .str(policy.anchors.source())
+                .u32(u32::try_from(policy.anchors.len()).unwrap_or(u32::MAX));
+            for (name, der) in policy.anchors.certificates() {
+                writer.str(name).bytes(der);
+            }
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -1359,6 +1388,30 @@ pub(crate) fn decode_command_holding(
             document: reader.document(what)?,
             proceed: reader.bool("an answer")?,
         },
+        k::TRUST => {
+            let acceptance = match reader.u8("a revocation acceptance")? {
+                0 => Acceptance::RevocationMustBeGood,
+                1 => Acceptance::UnknownRevocationAccepted,
+                other => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a revocation acceptance",
+                        value: u32::from(other),
+                    });
+                }
+            };
+            let at = pdf_signature::x509::Instant::from_unix_seconds(reader.i64("an instant")?);
+            let source = reader.string("the anchors' source")?;
+            let count = reader.u32("a trust anchor count")?;
+            let mut certificates = Vec::new();
+            for _ in 0..count {
+                let name = reader.string("a trust anchor's name")?;
+                certificates.push((name, reader.bytes("a trust anchor")?.to_vec()));
+            }
+            Command::Trust(TrustPolicy {
+                anchors: pdf_signature::trust::Supply::of(certificates, source, at),
+                acceptance,
+            })
+        }
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,
             1 => RestrictionLevel::Off,
@@ -3462,6 +3515,22 @@ mod tests {
             // The other two of `CLAUDE.md`'s four levels, and the answer that makes the third
             // one a level, since the eight-hundred-and-eighty-fifth session (ADR 0814).
             Command::Restrict(RestrictionLevel::Ask),
+            // §12.8.1's third question: the empty policy every host starts with, and a populated
+            // one. Both, because the empty set is not a degenerate case — it is this program's
+            // standing answer (ADR 1039) and a wire that lost it would turn *nobody named one*
+            // into a store nobody supplied.
+            Command::Trust(TrustPolicy::default()),
+            Command::Trust(TrustPolicy {
+                anchors: pdf_signature::trust::Supply::of(
+                    vec![
+                        ("root.der".to_owned(), vec![0x30, 0x03, 0x02, 0x01, 0x00]),
+                        ("second.pem (certificate 2)".to_owned(), vec![0x30, 0x00]),
+                    ],
+                    "/etc/quorra/anchors (--trust-anchors)".to_owned(),
+                    pdf_signature::x509::Instant::from_unix_seconds(1_790_812_800),
+                ),
+                acceptance: Acceptance::UnknownRevocationAccepted,
+            }),
             Command::Restrict(RestrictionLevel::Warn),
             Command::Answer {
                 document: DocumentId(3),

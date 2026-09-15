@@ -139,6 +139,13 @@ pub struct Viewer {
     /// [`Command::Restrict`] and asked **once per operation** in [`Self::edit`]. Defaults to
     /// obeying. ADR 0212.
     restrictions: crate::RestrictionLevel,
+    /// Whom this reader believes — §12.8.1's third question, which no state machine over a file
+    /// can answer for itself.
+    ///
+    /// The whole of the policy ADR 1039 made a host's, supplied by [`Command::Trust`] and read
+    /// when a document is asked what it says about itself. Defaults to no anchors at all, which is
+    /// what every host in this tree supplied before the command existed.
+    trust: crate::TrustPolicy,
     /// Who draws §12.7's form widgets, as the host has said (§6.3.2.2).
     ///
     /// Held here rather than per document because it is a fact about the *host*: a program that
@@ -167,6 +174,7 @@ impl Viewer {
             presenting: crate::PresentationMode::default(),
             holds_rasters: true,
             restrictions: crate::RestrictionLevel::default(),
+            trust: crate::TrustPolicy::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
         }
     }
@@ -429,6 +437,16 @@ impl Viewer {
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::View(view) => self.restore(view, events),
             Command::Restrict(level) => self.restrictions = level,
+            // A document's report is a function of the file *and* of whom this reader believes, so
+            // the wording already produced is no longer the wording this policy would produce.
+            // `Open::about` is a `OnceCell` over exactly that function (ADR 1044), and forgetting
+            // it is how "once" stays a property of the value rather than a stale answer.
+            Command::Trust(policy) => {
+                self.trust = policy;
+                for open in self.documents.values_mut() {
+                    open.forget_about();
+                }
+            }
             Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -781,12 +799,31 @@ impl Viewer {
         }
 
         // Table 197's `/E` and `/X`, in the clause's own order: the cursor leaves one region
-        // before it enters the next, and a document may act on both.
+        // before it enters the next, and a document may act on both. §12.6.3's fourth constraint
+        // needs nothing here because `over` is the topmost annotation rather than a set — "[i]n
+        // the case of overlapping or nested annotations, entering a second annotation's active
+        // area causes an X event to occur for the first annotation", and a cursor crossing into
+        // an annotation nested inside the one it is in changes `over`, so both are raised.
+        //
+        // **The button decides whether an entry may happen at all.** §12.6.3 states four
+        // constraints on the mouse events beside the table that defines them, and the first two
+        // are about this pair: "[a]n E (enter) event may occur only when the mouse button is up"
+        // and "[a]n X (exit) event may not occur without a preceding E event". A press puts the
+        // button down and a drag keeps it there, so neither may enter — and the region the cursor
+        // reached that way is therefore *not entered*, which is what keeps the second constraint
+        // true when the cursor later leaves it. The entry is postponed rather than dropped: this
+        // field stays empty until a message finds the button up over the same annotation, which
+        // is the earliest moment the first constraint allows one.
+        let button_down = matches!(action, PointerAction::Pressed | PointerAction::Dragged);
         let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
         if open.inside != over {
             raised.extend(open.inside.map(|left| (left, Trigger::Exit)));
-            raised.extend(over.map(|entered| (entered, Trigger::Enter)));
-            open.inside = over;
+            if button_down {
+                open.inside = None;
+            } else {
+                raised.extend(over.map(|entered| (entered, Trigger::Enter)));
+                open.inside = over;
+            }
         }
 
         match action {
@@ -862,11 +899,23 @@ impl Viewer {
                 // through both would perform its actions twice.
                 //
                 // **Raised before the link question is asked, since the three-hundred-and-twelfth
-                // session**, and that is a clause rather than a tidy-up: the table conditions the
-                // event on the *release* being inside the area and on nothing else, while this
-                // arm used to return early whenever the release did not activate a link — so a
-                // click on a stamp, a widget or a markup annotation raised nothing at all.
-                if clicked && let Some(annotation) = over.filter(|over| Some(*over) != under) {
+                // session**, and that is a clause rather than a tidy-up: this arm used to return
+                // early whenever the release did not activate a link — so a click on a stamp, a
+                // widget or a markup annotation raised nothing at all.
+                //
+                // **Table 197's sentence is not the whole condition**, and §12.6.3's third
+                // constraint is the rest of it: "[a] U (up) event may not occur without preceding
+                // E and D events". So a release inside an annotation's area raises `/U` only
+                // where that same annotation has both — `inside` is the one an `/E` was raised
+                // for and not withdrawn by an `/X`, and `pressed_on` is the one the `/D` went
+                // down on. A press on the page that drags into an annotation and lets go there
+                // has neither, and used to raise `/U` all the same.
+                let entered = open.inside;
+                if clicked
+                    && let Some(annotation) = over
+                        .filter(|over| Some(*over) != under)
+                        .filter(|over| entered == Some(*over) && pressed_on == Some(*over))
+                {
                     raised.push((annotation, Trigger::Up));
                 }
                 // §12.5.1's other half: "[w]hen the user activates the annotation by clicking it,
@@ -1389,7 +1438,7 @@ impl Viewer {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return;
         };
-        let notes = open.about();
+        let notes = open.about(&self.trust);
         if !notes.is_empty() {
             events.push(Event::Reported {
                 document: id,

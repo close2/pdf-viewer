@@ -179,6 +179,31 @@ pub enum Command {
     /// restrictions without being asked would be making the choice on the person's behalf in the
     /// other direction.
     Restrict(RestrictionLevel),
+    /// §12.8.1's third question: whom this reader believes, and what it will accept not knowing.
+    ///
+    /// **The sixth host-supplied policy value, and the one ADR 1039 named and left unbuilt.** That
+    /// decision settled that a trust store is "an input to path validation, supplied by the host",
+    /// priced a compiled-in root programme and the platform's certificate store, and refused both
+    /// *as defaults* — "a host that wants either reads it and passes the anchors in". This is the
+    /// passing in. RFC 5280 section 6.1.1 makes the anchors input (d) and says whose choice they
+    /// are: "The selection of a trust anchor is a matter of policy."
+    ///
+    /// It passes `doc/ui-boundary.md`'s test for a message the same way [`Self::Restrict`] does,
+    /// and for a sharper version of the same reason. A state machine over a file cannot know whom
+    /// its reader believes; worse, a file that could name its own anchors would be vouching for
+    /// itself, which is the one thing a trust store exists to prevent. So the value comes from
+    /// outside the document, from the only party with a filesystem and a clock to read it with.
+    ///
+    /// **[`pdf_signature::trust::Supply::none`] is the default and nothing changes for a host that
+    /// never sends this**: every signature answers [`pdf_signature::trust::Trust::NoAnchorSupplied`]
+    /// and every sentence [`crate::notes`] prints about the third question is the one it has
+    /// printed since the three-hundred-and-seventy-seventh session.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent again,
+    /// which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a fact about
+    /// the *reader* rather than about any one file. What a document already said about itself is
+    /// worded again when it arrives, because the answer to the third question has changed.
+    Trust(TrustPolicy),
     /// The person's answer to [`crate::Event::Asking`].
     ///
     /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing
@@ -959,4 +984,21 @@ pub struct Viewing {
     /// delta has, and the same units. **Already clamped**: this is where the viewer put the
     /// reader, not where a host asked for them to be.
     pub scroll: (f32, f32),
+}
+
+/// Whom this reader believes, and how much of what it could not check it will act on.
+///
+/// Two values rather than one because they are two decisions and a host may reasonably make them
+/// differently: *which* authorities end a certification path, and what to do where §12.8.4's
+/// material in the document answers nothing about revocation. Both are `CLAUDE.md` principle 3's
+/// shape — a policy asked once, in a place a host can supply — and both default to the answer this
+/// program gave before either existed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TrustPolicy {
+    /// RFC 5280 section 6.1.1's inputs (d) and (b): the anchors, where they came from, and the
+    /// instant to validate at. Empty by default.
+    pub anchors: pdf_signature::trust::Supply,
+    /// What to do where revocation is undetermined. [`pdf_signature::verdict::Acceptance::
+    /// RevocationMustBeGood`] by default, which is the conservative answer.
+    pub acceptance: pdf_signature::verdict::Acceptance,
 }

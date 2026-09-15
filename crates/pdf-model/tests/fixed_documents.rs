@@ -428,6 +428,19 @@ fn every_document_a_round_fixed_is_still_fixed() {
                     observed.reports.len(),
                     row.session
                 );
+                // **The band goes out beside the ink on every run, and not only when the ink is
+                // outside it.** A bound printed only on a failure is a bound nobody reads until it
+                // has already fired, so a page drifting toward an edge over ten rounds is
+                // invisible for all ten (ADR 1075, ADR 1081). The two-unit bands here are narrow
+                // enough that the distance is the whole story.
+                if let (Ink::Band { low, high }, Some(measured)) = (&row.ink, observed.ink) {
+                    gate_ratchet::band(
+                        &format!("{} p{} ink", row.path, row.page),
+                        measured,
+                        *low,
+                        *high,
+                    );
+                }
                 for complaint in complaints {
                     failures.push(format!(
                         "{} p{}: {complaint}\n    {}",

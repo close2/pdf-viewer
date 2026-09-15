@@ -1217,3 +1217,215 @@ fn the_page_that_is_a_closed_form_weighs_what_the_closed_form_says() {
          ({rules:.3} of rules plus {borders:.3} of border less {shared:.3} they share)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Table 74's `/TilingType`: the lattice, measured (ISO 32000-2 §8.7.3.1, ADR 1080)
+// ---------------------------------------------------------------------------
+
+/// A cell holding one 2-unit red bar, whose `/XStep` and `/YStep` are 10.4 units.
+///
+/// 10.4 at one pixel per unit is the calibration: it is 0.4 of a device pixel away from a whole
+/// number, so Table 74's code 1 has something to snap and code 2 has something to drift by. The
+/// bar spans the cell's full height, so a column of the raster is either bar or gap all the way
+/// down and the tiling's period can be read straight off the columns.
+fn barred_cell(tiling_type: i32) -> String {
+    let content = "1 0 0 rg 0 0 2 10.4 re f";
+    format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType {tiling_type} /BBox [0 0 10.4 10.4] \
+         /XStep 10.4 /YStep 10.4 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    )
+}
+
+/// The fixture's page, filled edge to edge with the pattern.
+fn barred_page(tiling_type: i32) -> Vec<u8> {
+    pdf_with(
+        &barred_cell(tiling_type),
+        "/Pattern cs /P0 scn 0 0 100 100 re f",
+    )
+}
+
+/// Interprets a fixture, with or without a stated magnification.
+fn interpreted(bytes: &[u8], magnification: Option<f32>) -> pdf_model::content::Interpretation {
+    let document = Document::open(bytes.to_vec()).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut view = pdf_model::view::ViewState::of(&document);
+    view.set_magnification(magnification);
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &view);
+    assert!(
+        interpretation.is_complete(),
+        "the fixture should draw completely: {:?}",
+        interpretation.unsupported
+    );
+    interpretation
+}
+
+/// Where each site of the tiling landed along x, in page space, sorted and deduplicated.
+fn site_offsets(interpretation: &pdf_model::content::Interpretation) -> Vec<f32> {
+    let mut offsets = Vec::new();
+    collect_offsets(interpretation.display_list.commands(), &mut offsets);
+    offsets.sort_by(|a, b| a.partial_cmp(b).expect("finite offsets"));
+    offsets.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+    offsets
+}
+
+/// [`site_offsets`]'s walk, which descends into §11.4's groups because the tiling is inside one.
+fn collect_offsets(commands: &[pdf_render::Command], into: &mut Vec<f32>) {
+    for command in commands {
+        match command {
+            pdf_render::Command::Fill { transform, .. } => into.push(transform.e),
+            pdf_render::Command::Group { commands, .. } => collect_offsets(commands, into),
+            _ => {}
+        }
+    }
+}
+
+/// Table 74's code 1: "Pattern cells shall be spaced consistently - that is, by a multiple of a
+/// device pixel."
+#[test]
+fn a_constant_spacing_lattice_steps_by_a_whole_number_of_device_pixels() {
+    let offsets = site_offsets(&interpreted(&barred_page(1), Some(1.0)));
+    assert!(offsets.len() >= 9, "the page holds ten cells: {offsets:?}");
+    for offset in &offsets {
+        assert!(
+            (offset - offset.round()).abs() < 1e-3,
+            "site at {offset} is not on a whole device pixel: {offsets:?}"
+        );
+    }
+    for pair in offsets.windows(2) {
+        assert!(
+            (pair[1] - pair[0] - 10.0).abs() < 1e-3,
+            "consecutive sites are {} apart, not the snapped 10: {offsets:?}",
+            pair[1] - pair[0]
+        );
+    }
+}
+
+/// Table 74's code 2: "The pattern cell shall not be distorted, but the spacing between pattern
+/// cells may vary by as much as 1 device pixel".
+#[test]
+fn a_no_distortion_lattice_steps_by_exactly_what_the_file_states() {
+    for magnification in [None, Some(1.0), Some(3.0)] {
+        let offsets = site_offsets(&interpreted(&barred_page(2), magnification));
+        for pair in offsets.windows(2) {
+            assert!(
+                (pair[1] - pair[0] - 10.4).abs() < 1e-3,
+                "code 2 moved the step to {} at {magnification:?}: {offsets:?}",
+                pair[1] - pair[0]
+            );
+        }
+    }
+}
+
+/// Table 74's code 3 is code 1's lattice: "Pattern cells shall be spaced consistently as in
+/// tiling Type 1".
+#[test]
+fn faster_tiling_is_given_constant_spacings_lattice() {
+    let three = site_offsets(&interpreted(&barred_page(3), Some(1.0)));
+    let one = site_offsets(&interpreted(&barred_page(1), Some(1.0)));
+    assert_eq!(three.len(), one.len(), "{three:?} against {one:?}");
+    for (from_three, from_one) in three.iter().zip(&one) {
+        assert!((from_three - from_one).abs() < 1e-3, "{three:?} / {one:?}");
+    }
+}
+
+/// A caller that states no magnification has no device pixel grid, so nothing is snapped to it.
+#[test]
+fn without_a_stated_magnification_a_constant_spacing_lattice_is_the_files_own() {
+    let unstated = site_offsets(&interpreted(&barred_page(1), None));
+    for pair in unstated.windows(2) {
+        assert!(
+            (pair[1] - pair[0] - 10.4).abs() < 1e-3,
+            "an unstated magnification moved the step to {}",
+            pair[1] - pair[0]
+        );
+    }
+}
+
+/// Table 74's bound on code 1, asserted over a sweep rather than at one magnification.
+///
+/// "The amount of distortion shall not exceed 1 device pixel." The distortion is the cell's, and
+/// the cell here is one step across, so the step's own adjustment is what it comes to.
+#[test]
+fn the_placed_step_is_never_more_than_a_device_pixel_from_the_stated_one() {
+    for magnification in [0.25_f32, 0.5, 0.77, 1.0, 1.5, 2.0, 3.3, 7.0, 24.0] {
+        let offsets = site_offsets(&interpreted(&barred_page(1), Some(magnification)));
+        for pair in offsets.windows(2) {
+            let placed = (pair[1] - pair[0]) * magnification;
+            let stated = 10.4 * magnification;
+            assert!(
+                (placed - stated).abs() <= 1.0,
+                "at {magnification} pixels per unit the step was placed {placed} device pixels \
+                 apart where the file states {stated}"
+            );
+        }
+    }
+}
+
+/// Renders a fixture at `magnification` pixels per unit, having said so.
+fn render_at(bytes: &[u8], magnification: f32) -> pdf_render::Raster {
+    let list = interpreted(bytes, Some(magnification)).display_list;
+    let target = TargetSpec::for_page(&list, magnification, GENEROUS).expect("valid target");
+    CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported")
+}
+
+/// How much ink each column of the raster holds.
+fn column_ink(raster: &pdf_render::Raster) -> Vec<u32> {
+    let mut columns = vec![0u32; raster.width as usize];
+    for y in 0..raster.height {
+        for x in 0..raster.width {
+            columns[x as usize] += u32::from(pixel(raster, x, y).3);
+        }
+    }
+    columns
+}
+
+/// The measurement Table 74's code 1 is *for*, taken on pixels: the tiling's period.
+///
+/// Code 1 makes the tiled pixels repeat exactly — every column is the column ten pixels along —
+/// and code 2 is the control that must fail the same test, because its cells land at 0, 10.4,
+/// 20.8 … and each carries a different sub-pixel phase. A period measurement that both codes
+/// passed would be measuring the page rather than the lattice (`doc/traps/instruments…` trap 13).
+#[test]
+fn constant_spacing_makes_the_tiled_pixels_repeat_and_no_distortion_does_not() {
+    let snapped = column_ink(&render_at(&barred_page(1), 1.0));
+    let mut differences = 0usize;
+    for x in 0..snapped.len().saturating_sub(10) {
+        if snapped[x] != snapped[x + 10] {
+            differences += 1;
+        }
+    }
+    assert_eq!(
+        differences, 0,
+        "code 1's columns should repeat every ten pixels: {snapped:?}"
+    );
+
+    let exact = column_ink(&render_at(&barred_page(2), 1.0));
+    let drifting = (0..exact.len().saturating_sub(10))
+        .filter(|&x| exact[x] != exact[x + 10])
+        .count();
+    assert!(
+        drifting > 20,
+        "code 2's columns should drift out of a ten-pixel period: {exact:?}"
+    );
+}
+
+/// A page whose lattice the magnification placed is one a zoom has to interpret again.
+#[test]
+fn a_constant_spacing_tiling_makes_the_page_depend_on_the_magnification() {
+    assert!(
+        interpreted(&barred_page(1), Some(1.0)).view_dependent,
+        "a snapped lattice is a function of the magnification"
+    );
+    assert!(
+        !interpreted(&barred_page(2), Some(1.0)).view_dependent,
+        "code 2's lattice is not"
+    );
+    assert!(
+        !interpreted(&barred_page(1), None).view_dependent,
+        "and neither is code 1's where no magnification was stated"
+    );
+}

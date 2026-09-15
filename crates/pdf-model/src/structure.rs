@@ -775,7 +775,13 @@ impl Tree {
     /// entries are present and a given attribute is specified by both, the one specified by
     /// the A entry shall take precedence". So the list is the `/C` classes first and the `/A`
     /// objects after them, each in array order, and the *last* object stating an attribute is
-    /// the one that holds — which is what [`Self::attribute`] does with it.
+    /// the one that holds.
+    ///
+    /// **That order decides within one of §14.8.5.3's priorities and not between them**, which
+    /// is why each object carries the route it came by ([`AttributeObject::from_class`]): the
+    /// clause ranks an `/A` object above a class-map one whatever their array positions were,
+    /// and ranks some owners above other `/A` objects again. [`Self::attribute`] applies that
+    /// ranking to this list.
     ///
     /// Both entries carry §14.7.6.3's revision numbers, and reading them is not optional even
     /// though the mechanism is deprecated in PDF 2.0 and useless to a reader that does not
@@ -799,21 +805,21 @@ impl Tree {
                 Object::Array(items) => {
                     for item in items.iter().take(MAX_CHILDREN) {
                         if let Some(object) =
-                            AttributeObject::read(document, &document.resolve(item), revision)
+                            AttributeObject::read(document, &document.resolve(item), revision, true)
                         {
                             out.push(object);
                         }
                     }
                 }
                 other => {
-                    if let Some(object) = AttributeObject::read(document, &other, revision) {
+                    if let Some(object) = AttributeObject::read(document, &other, revision, true) {
                         out.push(object);
                     }
                 }
             }
         }
         for (object, revision) in paired(document, &document.get_key(element, "A")) {
-            if let Some(object) = AttributeObject::read(document, &object, revision) {
+            if let Some(object) = AttributeObject::read(document, &object, revision, false) {
                 out.push(object);
             }
         }
@@ -823,16 +829,20 @@ impl Tree {
     /// One attribute's value, by §14.8.5.3's priority, **without** the inherited step.
     ///
     /// The clause states five priorities and this applies the first three, which are the ones
-    /// about *this* element:
+    /// about *this* element. [`Priority`] is that ranking as a type and carries each band's
+    /// own words; what this function adds is the search:
     ///
-    /// 1. an `/A` attribute owned by a format-specific owner — anything but Table 376's five
-    ///    PDF-native ones — "if processing based on the format indicated by the owner value",
-    ///    which this program is not, so it is skipped rather than preferred;
-    /// 2. an `/A` attribute owned by `Layout`, `PrintField`, `Table`, `List` or `Artifact`;
-    /// 3. an attribute from a class the element's `/C` names.
-    ///
-    /// §14.7.6's two rules decide within each of those, and [`Self::attributes`] has already put
-    /// the objects in the order that makes the last match the winner.
+    /// - **between bands, the band decides.** A band-1 value beats a band-2 one and both beat
+    ///   the class map's, whatever order the objects were written in.
+    /// - **within one band, §14.7.6's two rules decide**, and [`Self::attributes`] has already
+    ///   put the objects in the order that makes the last match the winner — which is why this
+    ///   walks the list in reverse and keeps the first value found at the best band so far.
+    /// - **an object the clause does not admit at all is not consulted**, which is
+    ///   [`AttributeObject::priority`] answering `None`: an export format's attributes, because
+    ///   §14.8.5.2 says they "shall be applied only when processing PDF content based on that
+    ///   format" and this program processes to no format, and a namespace owner whose name this
+    ///   standard gives no owner for. Both are refused *by name* rather than in silence:
+    ///   [`Self::unranked_owners`] is the list of what was skipped on an element.
     ///
     /// The fourth priority — "[t]he resolved value of the parent structure element, if the
     /// attribute is inheritable" — is [`Self::inherited_attribute`], because whether an
@@ -847,15 +857,28 @@ impl Tree {
         name: &str,
     ) -> Option<Object> {
         let attached = self.attributes(document, element);
-        // Priority 2 and 3 together, in the order `attributes` returns them: classes first,
-        // then `/A`, so the last match wins. A format-specific owner is not consulted at all —
-        // the clause conditions priority 1 on "processing based on the format indicated by the
-        // owner value", and nothing here translates to XML, HTML or CSS.
-        attached
-            .iter()
-            .rev()
-            .filter(|object| object.kind.is_pdf_native() || object.kind == Owner::Namespace)
-            .find_map(|object| object.get(document, name))
+        ranked(document, &attached, name, |_| true)
+    }
+
+    /// The attribute objects on this element whose owner §14.8.5.3 gives no applicable rank.
+    ///
+    /// One string per object, as the file wrote the owner: the `/O` name, or — where `/O` is
+    /// `NSO` — the namespace name §14.7.4.2 says "shall be considered as identifying the owner".
+    /// These are the objects [`Self::attribute`] skips, and naming them is the difference
+    /// between a reader that declined an owner it does not process and one that dropped
+    /// attributes without saying so (`doc/traps/parsers-and-streams.md` trap 5).
+    ///
+    /// An export-format owner is in this list for a reason the clause states and is not a defect
+    /// in the file; a namespace owner is in it because the clause's equivalence has no member for
+    /// that name. `examples/attribute_owner_census` asks it of every element of every document
+    /// this project holds.
+    #[must_use]
+    pub fn unranked_owners(&self, document: &Document, element: &Dictionary) -> Vec<String> {
+        self.attributes(document, element)
+            .into_iter()
+            .filter(|object| object.priority().is_none())
+            .map(|object| object.owner_as_written())
+            .collect()
     }
 
     /// §14.8.5.3's fourth priority: the value this element or its nearest ancestor states.
@@ -1253,20 +1276,29 @@ impl Tree {
 
     /// One Table 385 attribute, under the owners §14.8.5.8's first sentence permits.
     ///
-    /// [`Self::attribute`] with one filter changed: it admits every PDF-native owner, and this
-    /// clause excludes four of the five by name. `Owner::UserProperties` is excluded with them —
-    /// §14.7.6.4 makes that owner's `/P` array the attributes, not the entries beside it.
+    /// [`Self::attribute`] with one filter added: that clause names four of the five PDF-native
+    /// owners and excludes them, so what is left is `Artifact` and whatever §14.7.4.2's
+    /// equivalence leaves an `NSO` object owned by — which is why the filter is applied to
+    /// [`AttributeObject::effective_owner`] rather than to `/O` as written. `UserProperties` and
+    /// an export format are already out, the first because §14.7.6.4 makes that owner's `/P`
+    /// array the attributes rather than the entries beside it, the second because §14.8.5.2
+    /// applies it only to a processor translating to that format.
+    ///
+    /// The ranking is [`Self::attribute`]'s unchanged: the clause narrows *who may state* these
+    /// attributes and says nothing about which of two statements wins, so §14.8.5.3 still does.
     fn artifact_attribute(
         &self,
         document: &Document,
         element: &Dictionary,
         name: &str,
     ) -> Option<Object> {
-        self.attributes(document, element)
-            .iter()
-            .rev()
-            .filter(|object| matches!(object.kind, Owner::Artifact | Owner::Namespace))
-            .find_map(|object| object.get(document, name))
+        let attached = self.attributes(document, element);
+        ranked(document, &attached, name, |owner| {
+            !matches!(
+                owner,
+                Owner::Layout | Owner::List | Owner::PrintField | Owner::Table
+            )
+        })
     }
 
     /// Table 384's `/Headers` for a `TH` or `TD`: the element identifiers the cell states.
@@ -3930,6 +3962,14 @@ pub struct AttributeObject {
     /// shall have a revision number of 0". Deprecated with PDF 2.0, and read because it is
     /// what makes the arrays parseable at all.
     pub revision: i64,
+    /// Which of §14.7.6's two routes attached this object: `true` for the element's `/C`,
+    /// `false` for its `/A`.
+    ///
+    /// The route is part of §14.8.5.3's ranking rather than bookkeeping. Two of the clause's
+    /// priorities name "the element's A entry" and the third names "a class map associated with
+    /// the element's C entry", so an object's band cannot be read off its owner alone — see
+    /// [`Self::priority`].
+    pub from_class: bool,
     /// The dictionary itself, whose other entries are the attributes.
     pub dict: Dictionary,
 }
@@ -3940,7 +3980,7 @@ impl AttributeObject {
     /// Table 360 makes `/O` required, so a dictionary without one has not said whose
     /// attributes these are — and since an attribute's meaning is its owner's, a reader that
     /// took the entries anyway would be inventing a vocabulary.
-    fn read(document: &Document, object: &Object, revision: i64) -> Option<Self> {
+    fn read(document: &Document, object: &Object, revision: i64, from_class: bool) -> Option<Self> {
         let resolved = document.resolve(object);
         let dict = resolved.as_dict()?;
         let owner = document.get_key(dict, "O").as_name()?.clone();
@@ -3954,8 +3994,110 @@ impl AttributeObject {
             owner,
             namespace,
             revision,
+            from_class,
             dict: dict.clone(),
         })
+    }
+
+    /// The owner this object's attributes are interpreted under, after §14.7.4.2's equivalence.
+    ///
+    /// §14.8.5.2 makes the owner the interpretation — "[m]ultiple owners may define like-named
+    /// attributes with different value types or interpretations" — and §14.7.4.2 says how an
+    /// `NSO` object names one:
+    ///
+    /// > When the owner of an attribute object (see Table 360 -Entries common to all attribute
+    /// > object dictionaries) is specified by an NS entry, the namespace name shall be considered
+    /// > as identifying the owner.  For common namespace names which correspond to the values of
+    /// > owner entries defined in Table 376 -Standard structure attribute owners, they shall be
+    /// > considered equivalent.
+    ///
+    /// So the namespace name is put through [`Owner::read`], which is the whole of the
+    /// correspondence this standard states: a name that *is* one of Table 376's values is that
+    /// owner, and the clause lists no other pairing — it says "common namespace names which
+    /// correspond" and never prints one, so a table of URIs mapped onto owner values would be
+    /// this reader's invention wearing the clause's number.
+    ///
+    /// `None` is a **refusal, and it is what this program does not process**, in three shapes:
+    ///
+    /// - an export format's owner, `HTML-4.01` or `CSS-3` or an Annex E name — §14.8.5.2 says
+    ///   such an object "shall be applied only when processing PDF content based on that format",
+    ///   and nothing here translates to one;
+    /// - `UserProperties`, whose attributes are §14.7.6.4's `/P` array rather than the entries
+    ///   beside it;
+    /// - a namespace owner outside §14.8.6.1's two standard structure namespaces whose name is
+    ///   not a Table 376 value either. `MathML`'s namespace is the standard's own example of
+    ///   one, and it is in the same position as `HTML-4.01`: a vocabulary this program does not
+    ///   process.
+    ///
+    /// **A standard structure namespace is not refused**, and the reason is §14.8.6.1's: the two
+    /// names it defines are the schema for §14.8.4 and §14.8.5 themselves, so the format such an
+    /// owner indicates is PDF, which is the format being processed. ADR 1077.
+    #[must_use]
+    pub fn effective_owner(&self) -> Option<Owner> {
+        match &self.kind {
+            Owner::Namespace => {
+                let space = self.namespace.as_ref()?;
+                match Owner::read(&space.name) {
+                    native if native.is_pdf_native() => Some(native),
+                    // Not an equivalence the clause states: the namespace is PDF's own
+                    // vocabulary, which is not one Table 376 owner but the table's whole
+                    // PDF-native half, so it ranks where §14.8.5.3 puts an owner that is none
+                    // of the five.
+                    _ if space.is_standard() => Some(Owner::Namespace),
+                    _ => None,
+                }
+            }
+            Owner::UserProperties | Owner::Format(_) => None,
+            owner => Some(owner.clone()),
+        }
+    }
+
+    /// §14.8.5.3's band for this object, or `None` where the clause does not admit it.
+    ///
+    /// The clause's first three priorities, each in its own words, and the band is decided by
+    /// [`Self::effective_owner`] and [`Self::from_class`] together:
+    ///
+    /// 1. [`Priority::Owner`] — "[t]he value of the attribute specified in the element's A
+    ///    entry, owned by an owner as specified by the O entry, or, if the value of the O entry
+    ///    is NSO , the NS entry, excluding Layout, PrintField, Table , List and Artifact , if
+    ///    present, and if processing based on the format indicated by the owner value";
+    /// 2. [`Priority::Standard`] — "owned by Layout, PrintField, Table, List or Artifact";
+    /// 3. [`Priority::Class`] — "specified in a class map associated with the element's C entry".
+    ///
+    /// The clause conditions band 1 and puts no condition on band 3, and both of those are the
+    /// clause's own asymmetry rather than this reader's: an object the first two bands would
+    /// refuse is refused in the class map too, because §14.8.5.2's sentence about an export
+    /// format is about the *object* and names no route.
+    #[must_use]
+    #[expect(
+        clippy::doc_markdown,
+        reason = "a verbatim quotation: §14.8.5.3 spells the owner names without backticks, and \
+                  adding them inside the quotation marks would make the conformance gate's \
+                  quotation check fail"
+    )]
+    pub fn priority(&self) -> Option<Priority> {
+        let owner = self.effective_owner()?;
+        if self.from_class {
+            return Some(Priority::Class);
+        }
+        Some(if owner.is_pdf_native() {
+            Priority::Standard
+        } else {
+            Priority::Owner
+        })
+    }
+
+    /// The owner as the file wrote it: `/O`, or the namespace name where `/O` is `NSO`.
+    ///
+    /// §14.7.4.2 is why the second case is the name rather than the string `NSO` — "the
+    /// namespace name shall be considered as identifying the owner" — and this is what a refusal
+    /// says out loud, so that an owner nobody here processes is named rather than dropped.
+    #[must_use]
+    pub fn owner_as_written(&self) -> String {
+        match (&self.kind, self.namespace.as_ref()) {
+            (Owner::Namespace, Some(space)) => space.name.clone(),
+            _ => self.owner.clone(),
+        }
     }
 
     /// One attribute's value, resolved.
@@ -4017,6 +4159,71 @@ impl AttributeObject {
     }
 }
 
+/// §14.8.5.3's priority, as far as it is about *this* element.
+///
+/// > The following list shows the priority for determining attribute values. A PDF processor
+/// > determines an attribute's value to be the first item in the following list that applies
+///
+/// The list has five items and this type is its first three; the fourth is the parent's resolved
+/// value and is [`Tree::inherited_attribute`], and the fifth is the attribute's own default,
+/// which §14.8.5.4's tables state per attribute and this reader answers wherever it knows the
+/// attribute. The derived order **is** the clause's: `Owner` beats `Standard` beats `Class`, so
+/// the winner among a set of candidates is the smallest.
+///
+/// Each band's members are [`AttributeObject::priority`]'s subject, and the one that needs saying
+/// twice is band 1's condition: it applies "if processing based on the format indicated by the
+/// owner value", which for `HTML-4.01` this program never is and for §14.8.6.1's standard
+/// structure namespaces it always is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Priority {
+    /// Priority 1: an `/A` object whose owner is none of the five PDF-native ones, and whose
+    /// format this program is processing.
+    Owner,
+    /// Priority 2: an `/A` object owned by `Layout`, `PrintField`, `Table`, `List` or `Artifact`.
+    Standard,
+    /// Priority 3: an object reached through the element's `/C` and the structure tree root's
+    /// class map.
+    Class,
+}
+
+/// The value `name` takes among `attached`, by [`Priority`], where `admits` allows the owner.
+///
+/// Two orderings at once, and keeping them apart is the whole of the function: §14.8.5.3 ranks
+/// the *bands* and §14.7.6 ranks the objects *inside* one. So the walk runs backwards — which is
+/// the order [`Tree::attributes`] made the last stated value the winner in — and takes the first
+/// value it meets at each band, keeping the best band it has seen. An object stating nothing
+/// under `name` does not claim its band, because the clause ranks the *value* of an attribute
+/// and an object that states none has stated no value.
+///
+/// `admits` is §14.8.5.8's narrowing and nothing else: [`Tree::attribute`] admits every owner the
+/// clause ranks, and [`Tree::artifact_attribute`] takes four of the five PDF-native ones out.
+fn ranked(
+    document: &Document,
+    attached: &[AttributeObject],
+    name: &str,
+    admits: impl Fn(&Owner) -> bool,
+) -> Option<Object> {
+    let mut best: Option<(Priority, Object)> = None;
+    for object in attached.iter().rev() {
+        let Some(owner) = object.effective_owner() else {
+            continue;
+        };
+        if !admits(&owner) {
+            continue;
+        }
+        let Some(priority) = object.priority() else {
+            continue;
+        };
+        if best.as_ref().is_some_and(|(held, _)| *held <= priority) {
+            continue;
+        }
+        if let Some(value) = object.get(document, name) {
+            best = Some((priority, value));
+        }
+    }
+    best.map(|(_, value)| value)
+}
+
 /// §14.8.5.2's standard attribute owners. Table 376.
 ///
 /// The owner "determines the interpretation of the attributes defined in the object", so it is
@@ -4039,6 +4246,10 @@ pub enum Owner {
     UserProperties,
     /// `NSO`: the owner is the namespace the object's `/NS` names, which Table 360 requires to
     /// be present in exactly this case.
+    ///
+    /// This is `/O` as written and not the owner: §14.7.4.2 says "the namespace name shall be
+    /// considered as identifying the owner", so which owner it is takes the namespace as well
+    /// and is [`AttributeObject::effective_owner`].
     Namespace,
     /// One of Table 376's format-specific owners — `XML-1.00`, `HTML-4.01`, `CSS-3`, `ARIA-1.1`
     /// and the rest — or a name registered under Annex E, kept as written.
@@ -4073,6 +4284,9 @@ impl Owner {
     /// those five. So the five are the PDF-native vocabulary and everything else is somebody
     /// else's format — which outranks it *for a processor translating to that format*, and this
     /// one translates to none.
+    ///
+    /// Asked of an *effective* owner ([`AttributeObject::effective_owner`]) rather than of `/O` as
+    /// written, because §14.7.4.2 lets a namespace name be one of these five.
     #[must_use]
     pub fn is_pdf_native(&self) -> bool {
         matches!(
@@ -4411,13 +4625,13 @@ const GRANDFATHERED: [&str; 26] = [
 #[cfg(test)]
 mod tests {
     use super::{
-        Artifact, ArtifactKind, BlockProgression, BlockSpacing, CellFacts, CellPlacement, Checked,
-        Child, FieldRole, HeaderScope, ListContinuation, ListEntry, MAX_TABLE_COLUMNS, ParentTree,
-        StandardType, TableGrid, TableStack, Tree, WritingMode, actual_text, allocation_rectangle,
-        annotation_languages, annotation_rectangles, list_predecessors, table_cell_rectangles,
-        well_formed_language_tag,
+        Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, CellFacts,
+        CellPlacement, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
+        MAX_TABLE_COLUMNS, Owner, ParentTree, Priority, StandardType, TableGrid, TableStack, Tree,
+        WritingMode, actual_text, allocation_rectangle, annotation_languages,
+        annotation_rectangles, list_predecessors, table_cell_rectangles, well_formed_language_tag,
     };
-    use pdf_syntax::{Document, Object};
+    use pdf_syntax::{Dictionary, Document, Object};
     use std::collections::BTreeSet;
 
     /// RFC 5646 section 2.1's grammar, one production at a time, in both directions.
@@ -5493,8 +5707,6 @@ mod tests {
     /// is the fourth priority and only reachable through `inherited_attribute`.
     #[test]
     fn an_attributes_owner_and_its_ancestry_decide_which_value_applies() {
-        use super::Owner;
-
         let doc = document(&[
             "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
             "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
@@ -5545,6 +5757,156 @@ mod tests {
                 .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec())),
             Some(b"Start".to_vec()),
             "an element that states its own is not overridden by its parent's"
+        );
+    }
+
+    /// §14.8.5.3's bands, where the clause's order and the array's disagree.
+    ///
+    /// The fixture states `/TextAlign` twice on one element, in one `/A` array, and puts the
+    /// object the clause ranks **higher** *first* — so a reader that took the last value written
+    /// and a reader that took the highest band give different answers, which is what makes this
+    /// a calibration rather than a restatement (`doc/traps/instruments-and-reports.md` trap 13).
+    ///
+    /// Three elements, one per case §14.7.4.2's closing paragraph produces for an `NSO` owner:
+    ///
+    /// - **the PDF 2.0 standard structure namespace.** §14.8.6.1 defines it as the schema for
+    ///   §14.8.4 and §14.8.5 themselves, so it is not one Table 376 owner value and falls where
+    ///   §14.8.5.3 puts an owner that is none of the five — band 1, above the `Layout` object
+    ///   written after it. `Center` wins (ADR 1077).
+    /// - **the namespace name `Layout`.** This is the one equivalence the clause states:
+    ///   "[f]or common namespace names which correspond to the values of owner entries defined
+    ///   in Table 376 … they shall be considered equivalent". So the object is a `Layout` object,
+    ///   band 2, and the `Layout` object written *after* it in the array wins on §14.7.6's rule.
+    ///   `Start` — the same shape as the case above with the opposite answer, and the only
+    ///   difference between them is the clause's equivalence.
+    /// - **`MathML`'s namespace.** No Table 376 value corresponds to it and it is not a standard
+    ///   structure namespace, so it is in `HTML-4.01`'s position: an owner this program does not
+    ///   process, refused for every attribute and named by [`Tree::unranked_owners`].
+    #[test]
+    fn a_namespace_owner_ranks_where_the_clause_puts_the_owner_it_names() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R >>",
+            "<< /Type /StructElem /S /Sect /K [6 0 R 7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /A [9 0 R 12 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /A [10 0 R 12 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /A [11 0 R 12 0 R] >>",
+            "<< /O /NSO /NS 13 0 R /TextAlign /Center >>",
+            "<< /O /NSO /NS 14 0 R /TextAlign /Center >>",
+            "<< /O /NSO /NS 15 0 R /TextAlign /Center >>",
+            "<< /O /Layout /TextAlign /Start >>",
+            "<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>",
+            "<< /Type /Namespace /NS (Layout) >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(section)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element under the root");
+        };
+        let kids = tree.children(&doc, Some(&section));
+        let [
+            Child::Element(standard),
+            Child::Element(equivalent),
+            Child::Element(foreign),
+        ] = kids.as_slice()
+        else {
+            panic!("three paragraphs: {kids:?}");
+        };
+        let align = |element: &Dictionary| {
+            tree.attribute(&doc, element, "TextAlign")
+                .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()))
+        };
+
+        assert_eq!(
+            tree.attributes(&doc, standard)[0].priority(),
+            Some(Priority::Owner),
+            "a standard structure namespace is not one of the five owners §14.8.5.3 excludes"
+        );
+        assert_eq!(
+            align(standard),
+            Some(b"Center".to_vec()),
+            "band 1 outranks the Layout object written after it"
+        );
+
+        assert_eq!(
+            tree.attributes(&doc, equivalent)[0].effective_owner(),
+            Some(Owner::Layout),
+            "§14.7.4.2's equivalence, which is the one correspondence the clause states"
+        );
+        assert_eq!(
+            align(equivalent),
+            Some(b"Start".to_vec()),
+            "two Layout objects in one band, and §14.7.6 gives the later one"
+        );
+
+        assert_eq!(
+            tree.attributes(&doc, foreign)[0].priority(),
+            None,
+            "MathML is a vocabulary this program does not process"
+        );
+        assert_eq!(
+            align(foreign),
+            Some(b"Start".to_vec()),
+            "the refused object states the attribute and is consulted for nothing"
+        );
+        assert_eq!(
+            tree.unranked_owners(&doc, foreign),
+            vec!["http://www.w3.org/1998/Math/MathML".to_owned()],
+            "and the refusal names the owner rather than dropping it in silence"
+        );
+        assert!(
+            tree.unranked_owners(&doc, standard).is_empty(),
+            "which the two ranked elements do not do"
+        );
+    }
+
+    /// §14.8.5.3 band 3: the class map loses to the element's own `/A`, and keeps what `/A` omits.
+    ///
+    /// The class states `/Placement` and `/TextAlign`; the `/A` object states `/Placement` alone.
+    /// The clause's third priority is reached only for an attribute the second one did not state,
+    /// so `/Placement` is the `/A` object's and `/TextAlign` is the class's — one element, two
+    /// bands, and the band is per *attribute* rather than per element.
+    ///
+    /// Calibrated per trap 13: a plant that gives a class-map object band 1 instead of band 3
+    /// fails this and the two-route test above, which is what says the route decides the band.
+    #[test]
+    fn a_class_map_answers_only_what_the_elements_own_attributes_did_not() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R /ClassMap << /Boxed 7 0 R >> >>",
+            "<< /Type /StructElem /S /P /C /Boxed /A 6 0 R >>",
+            "<< /O /Layout /Placement /Inline >>",
+            "<< /O /Layout /Placement /Block /TextAlign /Justify >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element under the root");
+        };
+        let bands = tree
+            .attributes(&doc, &element)
+            .iter()
+            .map(AttributeObject::priority)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bands,
+            vec![Some(Priority::Class), Some(Priority::Standard)],
+            "the class map first, the element's own /A after it"
+        );
+        assert_eq!(
+            tree.attribute(&doc, &element, "Placement")
+                .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec())),
+            Some(b"Inline".to_vec()),
+            "priority 2 beats priority 3"
+        );
+        assert_eq!(
+            tree.attribute(&doc, &element, "TextAlign")
+                .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec())),
+            Some(b"Justify".to_vec()),
+            "and priority 3 is what answers an attribute priority 2 did not state"
         );
     }
 
@@ -5717,7 +6079,7 @@ mod tests {
     }
 
     /// Table 355's `/ID`, as [`ListEntry`] wants it.
-    fn document_id(document: &Document, element: &pdf_syntax::Dictionary) -> Option<Vec<u8>> {
+    fn document_id(document: &Document, element: &Dictionary) -> Option<Vec<u8>> {
         document
             .get_key(element, "ID")
             .as_string()

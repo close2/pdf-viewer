@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use viewer_core::{Answer, Command, DocumentId, Extraction, Query, Viewer};
+use viewer_host::policy::{may_open_uri, resolve_uri, uri_note};
 use viewer_host::{
     Clicked, ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, collection_rows,
     control_kind, layer_rows, may_write_extracted, outline_rows, resolve_import,
@@ -421,6 +422,67 @@ fn the_import_policy_admits_a_neighbour_and_refuses_everything_else() {
         resolve_import(None, "data.fdf"),
         Err(ImportRefusal::NoDirectory),
         "a document with no directory has no neighbourhood to resolve against"
+    );
+}
+
+/// ISO 32000-2 §12.6.4.8, Table 211's `/Base`, on the document that states none:
+///
+/// > If no base URI is specified, such partial URIs shall be interpreted relative to the location
+/// > of the document itself.
+///
+/// `pdf_model::action` applies the `/Base` a document states and leaves a partial reference
+/// partial when it states none, because the location of the document is a fact about this machine
+/// and `viewer_core` rule 2 keeps paths out of the core. A host has the path, so the `shall` is
+/// carried out here — and so is the refusal beside it, which was four windows' own `println!`
+/// until this test's session (ADR 1079).
+#[test]
+fn a_partial_uri_resolves_against_the_documents_own_location() {
+    let document = Path::new("/documents/report.pdf");
+    assert_eq!(
+        resolve_uri(Some(document), "https://example.invalid/a?b#c"),
+        "https://example.invalid/a?b#c",
+        "an absolute reference needs no base and is not touched by one"
+    );
+    assert_eq!(
+        resolve_uri(Some(document), "foo.bar.com"),
+        "file:///documents/foo.bar.com",
+        "a partial reference against the location of the document itself; `pr19449.pdf` is the \
+         corpus document that states this one and no /Base"
+    );
+    // The encoding is the load-bearing half, not decoration: a `#` left as itself would make the
+    // *base* carry a fragment, so RFC 3986 section 5.3's merge would take the directory from
+    // `/awkward/a` rather than from `/awkward/a#b.pdf` and resolve to the wrong neighbour.
+    assert_eq!(
+        resolve_uri(Some(Path::new("/awk ward/a#b.pdf")), "next.pdf"),
+        "file:///awk%20ward/next.pdf",
+    );
+    assert_eq!(
+        resolve_uri(Some(Path::new("report.pdf")), "next.pdf"),
+        "next.pdf",
+        "a relative path is no base at all, so the reference stays what the document said"
+    );
+
+    // And the verb, which is the one question left once the string is decided.
+    let resolved = resolve_uri(Some(document), "https://example.invalid/a");
+    let refused = may_open_uri(&resolved).expect_err("no window here opens a link");
+    assert!(
+        refused.contains("decision about this machine"),
+        "the refusal is about this program rather than about the file: {refused}"
+    );
+    assert_eq!(
+        uri_note(&resolved, Some(&refused)),
+        format!("link: declined — {refused}. The document asked for https://example.invalid/a"),
+        "a link this reader will not follow still says where it went"
+    );
+    assert_eq!(
+        uri_note(&resolved, None),
+        "link: https://example.invalid/a",
+        "and a host that opened it says the same URI without the refusal"
+    );
+    let unresolvable = may_open_uri("next.pdf").expect_err("a partial reference names no resource");
+    assert!(
+        unresolvable.contains("relative reference"),
+        "the other refusal names the other failure: {unresolvable}"
     );
 }
 
@@ -922,4 +984,88 @@ fn every_embedded_file_is_shown_whatever_its_key_names() {
     // members of the folder structure by an interactive PDF processor" — so it is drawn at the
     // root rather than dropped.
     assert_eq!(listed("/Folders 10 0 R", 9), both);
+}
+
+/// **§12.8.1's third question is answered by a host, and by nobody who did not ask.**
+///
+/// The two halves of `viewer_host::trust_anchors`, and the first is the one ADR 1039 decided:
+/// with no directory named, the policy is empty and every signature in every document answers
+/// `Trust::NoAnchorSupplied` — which is what this program has said since the
+/// three-hundred-and-seventy-seventh session and what nobody typing nothing may change.
+///
+/// The second is the reading itself, over a directory laid out here: one DER certificate, one PEM
+/// file holding two, one file that is neither, and one subdirectory. What must come back is three
+/// anchors, one named refusal, and an order that does not depend on how the filesystem listed them.
+#[test]
+fn a_host_supplies_the_anchors_or_nobody_does() {
+    let (none, refused) = viewer_host::trust_anchors(None, false);
+    assert_eq!(
+        viewer_host::trust_anchors(None, true).0.acceptance,
+        pdf_signature::verdict::Acceptance::UnknownRevocationAccepted,
+        "a word a person typed is not dropped because the other one was not typed"
+    );
+    assert!(none.anchors.is_empty(), "nobody named an anchor");
+    assert_eq!(none.anchors.source(), "");
+    assert!(refused.is_empty());
+    assert_eq!(
+        none.acceptance,
+        pdf_signature::verdict::Acceptance::RevocationMustBeGood,
+        "a host that has not decided gets the conservative answer (ADR 1067)"
+    );
+
+    let directory =
+        std::env::temp_dir().join(format!("quorra-anchors-{}-{}", std::process::id(), line!()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(directory.join("a-subdirectory")).expect("a scratch directory");
+    // X.690 clause 8.1.2's constructed `SEQUENCE`, which is what makes a file DER here. Its
+    // contents need not be a certificate: whether it is one is `pdf_signature::x509`'s to say, and
+    // this host's job ends at handing the octets over.
+    std::fs::write(directory.join("1-root.der"), [0x30, 0x03, 0x02, 0x01, 0x00])
+        .expect("a DER file");
+    std::fs::write(
+        directory.join("2-pair.pem"),
+        "a comment PEM permits before the boundary\n\
+         -----BEGIN CERTIFICATE-----\nMAMCAQA=\n-----END CERTIFICATE-----\n\
+         -----BEGIN CERTIFICATE-----\nMAMCAQE=\n-----END CERTIFICATE-----\n",
+    )
+    .expect("a PEM file");
+    std::fs::write(directory.join("3-notes.txt"), "not a certificate at all\n")
+        .expect("a plain file");
+
+    let (policy, refused) = viewer_host::trust_anchors(Some(&directory), true);
+    assert_eq!(policy.anchors.len(), 3, "one DER and two PEM blocks");
+    let names: Vec<&str> = policy
+        .anchors
+        .certificates()
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["1-root.der", "2-pair.pem", "2-pair.pem (certificate 2)"],
+        "sorted by name, so two runs over one directory supply one store"
+    );
+    assert_eq!(
+        policy.anchors.certificates()[1].1,
+        [0x30, 0x03, 0x02, 0x01, 0x00],
+        "the PEM block's base64 is what came out of it"
+    );
+    assert!(
+        policy.anchors.source().contains("--trust-anchors"),
+        "a verdict names where its anchors came from: {}",
+        policy.anchors.source()
+    );
+    assert!(
+        policy.anchors.at().unix_seconds() > 1_700_000_000,
+        "a clock"
+    );
+    assert_eq!(
+        policy.acceptance,
+        pdf_signature::verdict::Acceptance::UnknownRevocationAccepted
+    );
+    let [one] = refused.as_slice() else {
+        panic!("the one file that is neither is named, not dropped: {refused:?}");
+    };
+    assert!(one.to_string().contains("3-notes.txt"), "trap 5: {one}");
+    let _ = std::fs::remove_dir_all(&directory);
 }

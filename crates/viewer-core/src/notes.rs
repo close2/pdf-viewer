@@ -14,7 +14,7 @@ use pdf_signature::signature::{PadesDeparture, ReferenceDigest, SigningCertifica
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
-pub(crate) fn about(document: &Document) -> Vec<String> {
+pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<String> {
     let mut notes = Vec::new();
 
     if document.was_recovered() {
@@ -175,7 +175,7 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
     }
 
     tagged_structure(document, &mut notes);
-    signatures(document, &mut notes);
+    signatures(document, trust, &mut notes);
     notes
 }
 
@@ -427,37 +427,66 @@ pub(crate) fn restricted(
         .collect()
 }
 
-/// §12.8's signatures: what a program with no trust store can honestly say about one.
+/// §12.8's signatures: what this program can honestly say about one, given what a host supplied.
 ///
-/// **A signature asks three questions and this program answers two of them** (ADR 0215, ADR 0229),
-/// so the hardest part of this function is keeping them apart in the words it uses. It says who
-/// signed, why, whether the range they signed runs to the end of the file (§12.8.1), whether the
-/// bytes that range names still hash to the digest the signature records, and — since the
-/// three-hundred-and-ninety-second session — **whether the signature verifies under the public key
-/// in the certificate the file itself carries** (§12.8.3.3.1).
+/// **A signature asks three questions** (§12.8.1, ADR 0215), and until the
+/// one-thousand-and-sixty-second session this program answered two of them for every document
+/// there was. It says who signed, why, whether the range they signed runs to the end of the file
+/// (§12.8.1), whether the bytes that range names still hash to the digest the signature records,
+/// and — since the three-hundred-and-ninety-second session — **whether the signature verifies
+/// under the public key in the certificate the file itself carries** (§12.8.3.3.1).
 ///
-/// What it still does not say is whether that certificate belongs to anyone worth believing, or
-/// whether it had been revoked: that needs a certificate store and a network, which is §7.6.5's
-/// refusal one clause over (ADR 0031). **None of these sentences contains the word *valid*, and
-/// that is the point of them** — a certificate that arrived in the same file as the signature it
-/// verifies proves the two are consistent with each other and nothing about who made either.
-fn signatures(document: &Document, notes: &mut Vec<String>) {
+/// **The third is answered when, and only when, a host has named an anchor.** RFC 5280 section
+/// 6.1.1 makes the anchors input (d) and a matter of policy, ADR 1039 made them a host's to supply
+/// and this crate's to receive, and [`crate::Command::Trust`] is the receiving. With none — which
+/// is every host's default and what a host that says nothing gets — every sentence below is the
+/// one this program has printed since the three-hundred-and-seventy-seventh session, the closing
+/// paragraph included.
+///
+/// **And a verdict is never separable from where its anchors came from.** [`anchors_note`] is that
+/// sentence: a reader told that a signature is valid is owed *valid according to whom*, and only
+/// the host that read the certificates can say.
+fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<String>) {
     let signatures = every_signature(document);
     if signatures.is_empty() {
         return;
     }
+    let reading = trust.anchors.read();
+    // §12.8.4's store and §12.8.5's chain are read once here and lent to the three functions that
+    // word them: `Signature::trust` needs the material, the chain needs it too, and a verdict on a
+    // signature needs to know whether the document states a time this program could establish.
+    let store = pdf_signature::signature::security_store(document);
+    let material = store.material();
+    let chain =
+        pdf_signature::timestamp::chain(document, &reading.anchors, &material, trust.anchors.at());
     let length = document.bytes().len() as u64;
-    for signature in &signatures {
-        about_one(signature, document, length, notes);
+    let timestamps = standing(&chain);
+    for (index, signature) in signatures.iter().enumerate() {
+        let established = established_over(&chain, index);
+        let asked = Asked {
+            anchors: &reading.anchors,
+            material: &material,
+            at: established.unwrap_or_else(|| trust.anchors.at()),
+            from_a_token: established.is_some(),
+            acceptance: trust.acceptance,
+            timestamps,
+        };
+        about_one(signature, document, length, &asked, notes);
     }
     permissions(document, notes);
-    security_store(document, notes);
-    document_timestamps(document, notes);
+    security_store(&store, &material, notes);
+    document_timestamps(&chain, notes);
+    anchors_note(trust, &reading, notes);
     // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
-    // the sentences above it being read as "the signature is good". Two of them are answered and
-    // the third is the one that decides whether a signature means anything about a *person*: a
-    // key that verifies is a key, and this program has nothing to say about whose.
-    notes.push(
+    // the sentences above it being read as "the signature is good": where nobody named an anchor
+    // two of them are answered, and the third is the one that decides whether a signature means
+    // anything about a *person*, because a key that verifies is a key and this program has nothing
+    // to say about whose.
+    //
+    // **Keyed on what *read*, not on what was handed over.** A host that named a directory of six
+    // files none of which is a certificate has supplied no anchor, and the paragraph below would
+    // otherwise tell a reader that the third question was asked when nothing could ask it.
+    notes.push(if reading.anchors.is_empty() {
         "of the three questions a signature asks, this program answers two: whether the document \
          changed since it was signed (§12.8.1's digest, recomputed above) and whether the \
          signature verifies under the public key in the certificate the file itself carries \
@@ -468,8 +497,124 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
          to end the chain at, which nothing here does. A signature that verifies here was \
          made by whoever holds the key in a certificate that arrived with the document, which is \
          not the same as a valid signature. Nothing here says valid"
-            .to_owned(),
-    );
+            .to_owned()
+    } else {
+        "all three of the questions a signature asks were asked of this document: whether it \
+         changed since it was signed (§12.8.1's digest, recomputed above), whether the signature \
+         verifies under the public key in the certificate the file carries (§12.8.3.3.1), and \
+         whether a certification path from that certificate reaches an authority you named (RFC \
+         5280 section 6.1). The third was asked because you named one; it is your answer this \
+         program is applying and not one of its own, it still makes no network request, and \
+         whether a certificate was revoked is answered from the material this file itself carries \
+         and from nothing else"
+            .to_owned()
+    });
+}
+
+/// What §12.8.1's third question needs, gathered once per document and lent to every signature.
+///
+/// A struct rather than a row of parameters because these travel together and are meaningless
+/// apart: the anchors without the instant cannot validate a period, and the acceptance without the
+/// material decides nothing.
+struct Asked<'a> {
+    /// RFC 5280 section 6.1.1's input (d), as the host supplied it.
+    anchors: &'a pdf_signature::trust::TrustAnchors<'a>,
+    /// §12.8.4's CRLs and OCSP responses, out of this document.
+    material: &'a pdf_signature::revocation::Material<'a>,
+    /// Section 6.1.1's input (b), and which instant it is depends on the document.
+    at: pdf_signature::x509::Instant,
+    /// Whether [`Self::at`] came from a document timestamp rather than from the host's clock.
+    from_a_token: bool,
+    /// What the host will accept where the material answers nothing.
+    acceptance: pdf_signature::verdict::Acceptance,
+    /// What §12.8.5's chain contributes, computed once for the document.
+    timestamps: pdf_signature::verdict::Timestamps,
+}
+
+/// What §12.8.5's chain contributes to a verdict on any signature in this document.
+///
+/// §12.8.5 is optional, so a document with no chain reserves nothing. A document *with* one states
+/// a time, and a time this program could not establish is a statement it could not check — which
+/// ADR 1071 makes a reservation rather than a detail.
+fn standing(chain: &pdf_signature::timestamp::Chain) -> pdf_signature::verdict::Timestamps {
+    use pdf_signature::verdict::Timestamps;
+    match chain.outermost() {
+        None => Timestamps::None,
+        // Anything but an established instant is a time this program did not establish, which is
+        // the conservative reading and the one a variant added later should get by default.
+        Some(link) => match link.time {
+            pdf_signature::timestamp::Time::Established { at, .. } => Timestamps::Established(at),
+            _ => Timestamps::NotEstablished,
+        },
+    }
+}
+
+/// The instant a signature's certification path is validated at, where the document fixes one.
+///
+/// **§12.8.4.2's second `shall`, and it is the whole reason long-term validation works**: "the UTC
+/// time included in that timestamp token shall be used as the time reference to check the
+/// revocation status of the signer's certificate and of all the intermediate CA certificates, up to
+/// a trusted root". A signature whose certificate expired years ago cannot be checked against
+/// today's clock — RFC 5280 section 6.1.3 (a)(2) refuses the path before revocation is reached —
+/// and §12.8.5's stack of tokens exists to say what the file looked like while it was still current.
+///
+/// The innermost established timestamp covering this signature is the one taken, because that is
+/// the closest statement anybody made about the moment the signature was still being relied on. A
+/// token whose own authority this program could not establish supplies nothing (ADR 1071), which is
+/// why this answers `None` without an anchor and every verdict falls back to the host's clock.
+fn established_over(
+    chain: &pdf_signature::timestamp::Chain,
+    signature: usize,
+) -> Option<pdf_signature::x509::Instant> {
+    chain
+        .links
+        .iter()
+        .filter(|link| link.covers.contains(&signature))
+        .find_map(|link| match link.time {
+            pdf_signature::timestamp::Time::Established { at, .. } => Some(at),
+            _ => None,
+        })
+}
+
+/// Where the anchors came from, said once, beside every verdict that rests on them.
+///
+/// **A verdict is not separable from its source and this is why the sentence is not optional.** RFC
+/// 5280 section 6.1 says an anchor is believable because "it was delivered to the path processing
+/// procedure by some trustworthy out-of-band procedure" — a procedure this program did not perform
+/// and cannot describe. So the host describes it, `pdf_signature::trust::Supply::source` carries the
+/// description, and a reader who wants to know *valid according to whom* reads it here.
+///
+/// The certificates a host handed over that this reader would not take are named one by one rather
+/// than counted (trap 5): a person who pointed at a directory of six and got four anchors would
+/// otherwise be reading a verdict computed under a store they did not supply.
+fn anchors_note(
+    trust: &crate::TrustPolicy,
+    reading: &pdf_signature::trust::Reading<'_>,
+    notes: &mut Vec<String>,
+) {
+    if trust.anchors.is_empty() {
+        return;
+    }
+    notes.push(format!(
+        "the certification authorities this reader will end a path at were supplied by whoever \
+         started it, from {}: {} of {} read as RFC 5280 certificates. Nothing about them was \
+         checked here — an anchor is trusted because of where it came from, which is not this \
+         program's to know",
+        trust.anchors.source(),
+        reading.anchors.len(),
+        trust.anchors.len(),
+    ));
+    for refusal in &reading.refused {
+        notes.push(format!("{refusal}"));
+    }
+    if trust.acceptance == pdf_signature::verdict::Acceptance::UnknownRevocationAccepted {
+        notes.push(
+            "and this reader was told to accept a signature whose revocation status it could not \
+             determine — §12.8.4's material in the file answers what it answers, and what it does \
+             not answer is being passed over by your instruction rather than by this program"
+                .to_owned(),
+        );
+    }
 }
 
 /// §12.8.4's document security store: what the file carries for a validation later on.
@@ -485,12 +630,14 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
 /// (ADR 1067), but RFC 5280 section 6.3.3 applies it to a *certification path*, and a path ends at
 /// an anchor nobody in this tree supplies (ADR 1039). So this names what is there and what could
 /// not be read, and the closing paragraph says what is still missing.
-fn security_store(document: &Document, notes: &mut Vec<String>) {
-    let store = pdf_signature::signature::security_store(document);
+fn security_store(
+    store: &pdf_signature::signature::SecurityStore,
+    material: &pdf_signature::revocation::Material<'_>,
+    notes: &mut Vec<String>,
+) {
     if store.is_empty() {
         return;
     }
-    let material = store.material();
     notes.push(format!(
         "this document carries a §12.8.4 document security store — the material a validator needs \
          after the signer's certificate has expired: {} certificate(s), {} certificate revocation \
@@ -562,18 +709,7 @@ fn security_store(document: &Document, notes: &mut Vec<String>) {
 /// trusts, which is §12.8.1's third question and nobody's answer here (ADR 1039, ADR 1071). So the
 /// token's `genTime` is reported as the token's own characters, the way `/M` is, and the sentence
 /// after it says what is missing.
-fn document_timestamps(document: &Document, notes: &mut Vec<String>) {
-    let store = pdf_signature::signature::security_store(document);
-    let material = store.material();
-    // RFC 5280 section 6.1.1's input (b) is the caller's and this caller has no clock to offer, so
-    // the chain is asked at the epoch and every link reports what instant it was asked about. What
-    // that changes here is nothing: with no anchor, step 4 refuses before the instant is used.
-    let chain = pdf_signature::timestamp::chain(
-        document,
-        &pdf_signature::trust::TrustAnchors::none(),
-        &material,
-        pdf_signature::x509::Instant::from_unix_seconds(0),
-    );
+fn document_timestamps(chain: &pdf_signature::timestamp::Chain, notes: &mut Vec<String>) {
     if chain.is_empty() {
         return;
     }
@@ -621,16 +757,27 @@ fn document_timestamps(document: &Document, notes: &mut Vec<String>) {
     for refusal in &chain.refused {
         notes.push(format!("{refusal}"));
     }
-    notes.push(
-        "none of those timestamps tells this program *when* the document was in that state. A \
-         token's genTime is a statement by a timestamp authority, and believing it means \
-         establishing that the authority is one to believe — §12.8.5.2's \"trusted timestamp \
-         authority\", which is §12.8.1's third question. This program verifies the token's own \
-         signature and builds the authority's certification path, and stops where that path would \
-         end: nobody has named a certification authority to end it at. So the times above are \
-         claims the file makes, and nothing here says otherwise"
+    // **And whether any of those claims is an instant.** §12.8.5.2's authority is a *trusted* one,
+    // so the four steps ADR 1071 states end at an anchor — and which of the two sentences below is
+    // true of this run is decided by whether a host named one.
+    notes.push(match chain.outermost().map(|link| &link.time) {
+        Some(pdf_signature::timestamp::Time::Established { at, .. }) => format!(
+            "the outermost of those timestamps establishes an instant: its authority's \
+             certification path reaches an anchor you supplied, its token's signature verifies, \
+             and the token's contents are bound to that signature (§12.8.5.2, RFC 3161). The \
+             instant is {} seconds after the epoch. What it establishes is the state of the file \
+             at that moment and nothing about what the file says",
+            at.unix_seconds()
+        ),
+        _ => "none of those timestamps tells this program *when* the document was in that state. A \
+              token's genTime is a statement by a timestamp authority, and believing it means \
+              establishing that the authority is one to believe — §12.8.5.2's \"trusted timestamp \
+              authority\", which is §12.8.1's third question. This program verifies the token's own \
+              signature and builds the authority's certification path, and stops where that path \
+              would end: nobody has named a certification authority to end it at. So the times \
+              above are claims the file makes, and nothing here says otherwise"
             .to_owned(),
-    );
+    });
 }
 
 /// Every signature dictionary the document holds, from both places §12.8.1 puts one.
@@ -742,6 +889,7 @@ fn about_one(
     signature: &pdf_signature::signature::Signature,
     document: &Document,
     length: u64,
+    asked: &Asked<'_>,
     notes: &mut Vec<String>,
 ) {
     {
@@ -812,7 +960,7 @@ fn about_one(
                 signature.indirect_values.join(", ")
             ));
         }
-        verdicts(signature, document, notes);
+        verdicts(signature, document, asked, notes);
         // **Table 255's `/V` is the file saying which part of the validation matters**, and it is
         // the one sentence of that entry addressed to whoever validates: "[t]he value is 1 if the
         // Reference dictionary shall be considered critical to the validation of the signature"
@@ -1072,6 +1220,7 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
 fn verdicts(
     signature: &pdf_signature::signature::Signature,
     document: &Document,
+    asked: &Asked<'_>,
     notes: &mut Vec<String>,
 ) {
     use pdf_signature::signature::{Authenticity, Integrity, Signed};
@@ -1109,6 +1258,48 @@ fn verdicts(
     if let Some(said) = verifies(&authenticity, integrity) {
         notes.push(said);
     }
+    // **§12.8.1's third question, asked only where a host answered whom to believe.**
+    // `Verdict::of` is the one function in this tree that can produce the word *valid*, and an
+    // empty anchor set reaches `Reservation::NoAnchorSupplied` rather than any other answer — so
+    // with no host input this adds nothing at all, which is what it added before anchors existed.
+    if asked.anchors.is_empty() {
+        return;
+    }
+    let trust = signature.trust(asked.anchors, asked.material, asked.at);
+    let verdict = pdf_signature::verdict::Verdict::of(
+        &integrity,
+        &authenticity,
+        &trust,
+        asked.acceptance,
+        asked.timestamps,
+        asked.at,
+    );
+    // Which instant the path was asked about, where it is not simply now: §12.8.4.2's own reason
+    // for a document security store is that a signature outlives its certificate, and a reader
+    // told a path validated is owed *as of when*.
+    let asked_at = if asked.from_a_token {
+        format!(
+            ", as of {} seconds after the epoch, which a document timestamp over it established \
+             (§12.8.4.2)",
+            asked.at.unix_seconds()
+        )
+    } else {
+        String::new()
+    };
+    notes.push(match &verdict {
+        pdf_signature::verdict::Verdict::Valid(valid) => format!(
+            "that signature is valid: the document has not changed since it was signed, the \
+             signature verifies under the signer's key, and a certification path {} certificate(s) \
+             long reaches an authority you supplied (RFC 5280 section 6.1){asked_at}. This is the \
+             one sentence this program says the word in, and it is your anchors that make it \
+             sayable",
+            valid.path_length()
+        ),
+        pdf_signature::verdict::Verdict::Reserved(reservation) => format!(
+            "that signature is not called valid here{asked_at}, and this is the first thing that \
+             stopped it: {reservation}"
+        ),
+    });
 }
 
 /// §12.8.1's first question in words: did the bytes under this signature move?
@@ -1373,7 +1564,7 @@ mod tests {
             "<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 \
              /ByteRange [0 0 0 0] /Contents <> >>",
         ]);
-        let said = about(&stamped).join("\n");
+        let said = about(&stamped, &crate::TrustPolicy::default()).join("\n");
         assert!(
             said.contains("carries 1 §12.8.5 document timestamp(s)"),
             "{said}"
@@ -1412,7 +1603,7 @@ mod tests {
             "<< /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 /ByteRange [0 0 0 0] \
              /Contents <> >>",
         ]);
-        let quiet = about(&plain).join("\n");
+        let quiet = about(&plain, &crate::TrustPolicy::default()).join("\n");
         assert!(!quiet.contains("§12.8.5 document timestamp(s)"), "{quiet}");
         assert!(
             !quiet.contains("none of those timestamps tells this program"),
@@ -1442,7 +1633,7 @@ mod tests {
             "<< /Length 0 >>\nstream\n\nendstream",
             "<< /Length 0 >>\nstream\n\nendstream",
         ]);
-        let said = about(&with_store).join("\n");
+        let said = about(&with_store, &crate::TrustPolicy::default()).join("\n");
         assert!(
             said.contains(
                 "carries a §12.8.4 document security store — the material a validator needs after \
@@ -1483,7 +1674,7 @@ mod tests {
             "<< /Type /Sig /Filter /Adobe.PPKLite /ByteRange [0 0 0 0] /Contents <> >>",
         ]);
         assert!(
-            !about(&without)
+            !about(&without, &crate::TrustPolicy::default())
                 .join("\n")
                 .contains("document security store"),
             "a signed document with no store is told nothing about one"
@@ -1507,7 +1698,7 @@ mod tests {
             return;
         };
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
 
         assert!(
             said.contains("no longer hash to the SHA256 digest it records"),
@@ -1564,7 +1755,7 @@ mod tests {
             return;
         };
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
         assert!(
             said.contains(
                 "carries revocation information with it (§12.8.3.3.2's \
@@ -1590,7 +1781,7 @@ mod tests {
         )
         .expect("a valid file");
         assert!(
-            !about(&plain)
+            !about(&plain, &crate::TrustPolicy::default())
                 .join("\n")
                 .contains("carries revocation information"),
             "a signature with no signed attributes carries none"
@@ -1629,7 +1820,7 @@ mod tests {
             "<< /Type /SigRef /TransformMethod /DocMDP \
              /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>",
         ]);
-        let said = about(&document);
+        let said = about(&document, &crate::TrustPolicy::default());
         let critical: Vec<_> = said
             .iter()
             .filter(|note| note.contains("considered critical to validating it (Table 255)"))
@@ -1673,7 +1864,7 @@ mod tests {
             "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /SHA2 >>",
             "<< /Type /SigRef /TransformMethod /DocMDP >>",
         ]);
-        let said = about(&document);
+        let said = about(&document, &crate::TrustPolicy::default());
         let stated: Vec<_> = said
             .iter()
             .filter(|note| note.contains("states /DigestMethod"))
@@ -1718,7 +1909,7 @@ mod tests {
             return;
         };
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
         assert!(
             said.contains(
                 "directly over the bytes its /ByteRange names — so those bytes are the ones that \
@@ -1763,7 +1954,7 @@ mod tests {
         let said = |sub_filter: &str| {
             let bodies = objects(sub_filter);
             let borrowed: Vec<&str> = bodies.iter().map(String::as_str).collect();
-            about(&document(&borrowed)).join("\n")
+            about(&document(&borrowed), &crate::TrustPolicy::default()).join("\n")
         };
 
         let ordinary = said("adbe.pkcs7.detached");
@@ -1801,7 +1992,11 @@ mod tests {
         let root = "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>";
         let element = "<< /Type /StructElem /S /Widget /NS 3 0 R >>";
 
-        let said = about(&document(&[tagged, pages, foreign, root, element])).join("\n");
+        let said = about(
+            &document(&[tagged, pages, foreign, root, element]),
+            &crate::TrustPolicy::default(),
+        )
+        .join("\n");
         assert!(
             said.contains(
                 "1 of its structure elements end in the namespace \
@@ -1816,9 +2011,12 @@ mod tests {
         // taken on the requirement at all.
         let untagged = "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>";
         assert!(
-            !about(&document(&[untagged, pages, foreign, root, element]))
-                .join("\n")
-                .contains("§14.8.6.2"),
+            !about(
+                &document(&[untagged, pages, foreign, root, element]),
+                &crate::TrustPolicy::default()
+            )
+            .join("\n")
+            .contains("§14.8.6.2"),
             "a document that does not say it is tagged is outside the clause's sentence"
         );
 
@@ -1829,9 +2027,12 @@ mod tests {
         let mapped = "<< /Type /Namespace /NS (http://example.invalid/tagset) \
                       /RoleMapNS << /Widget /Div >> >>";
         assert!(
-            !about(&document(&[tagged, pages, mapped, root, element]))
-                .join("\n")
-                .contains("§14.8.6.2"),
+            !about(
+                &document(&[tagged, pages, mapped, root, element]),
+                &crate::TrustPolicy::default()
+            )
+            .join("\n")
+            .contains("§14.8.6.2"),
             "a role map into the default standard namespace satisfies the third bullet"
         );
 
@@ -1840,9 +2041,12 @@ mod tests {
         let mathml = "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>";
         let math = "<< /Type /StructElem /S /math /NS 3 0 R >>";
         assert!(
-            !about(&document(&[tagged, pages, mathml, root, math]))
-                .join("\n")
-                .contains("§14.8.6.2"),
+            !about(
+                &document(&[tagged, pages, mathml, root, math]),
+                &crate::TrustPolicy::default()
+            )
+            .join("\n")
+            .contains("§14.8.6.2"),
             "MathML is a namespace §14.8.6.3 identifies"
         );
 
@@ -1852,9 +2056,12 @@ mod tests {
         let plain_root = "<< /Type /StructTreeRoot /K [5 0 R] >>";
         let plain = "<< /Type /StructElem /S /P >>";
         assert!(
-            !about(&document(&[tagged, pages, foreign, plain_root, plain]))
-                .join("\n")
-                .contains("§14.8.6.2"),
+            !about(
+                &document(&[tagged, pages, foreign, plain_root, plain]),
+                &crate::TrustPolicy::default()
+            )
+            .join("\n")
+            .contains("§14.8.6.2"),
             "an element with no /NS is in the default standard structure namespace"
         );
     }
@@ -1875,7 +2082,11 @@ mod tests {
         let root = "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>";
         let math = "<< /Type /StructElem /S /math /NS 3 0 R >>";
 
-        let said = about(&document(&[tagged, pages, mathml, root, math])).join("\n");
+        let said = about(
+            &document(&[tagged, pages, mathml, root, math]),
+            &crate::TrustPolicy::default(),
+        )
+        .join("\n");
         assert!(
             said.contains("1 of its structure elements are §14.8.6.3's MathML"),
             "the planted violation is named, with the count: {said}"
@@ -1883,9 +2094,12 @@ mod tests {
 
         let formula = "<< /Type /StructElem /S /Formula /K [6 0 R] >>";
         assert!(
-            !about(&document(&[tagged, pages, mathml, root, formula, math]))
-                .join("\n")
-                .contains("§14.8.6.3"),
+            !about(
+                &document(&[tagged, pages, mathml, root, formula, math]),
+                &crate::TrustPolicy::default()
+            )
+            .join("\n")
+            .contains("§14.8.6.3"),
             "a Formula around it is the clause satisfied"
         );
 
@@ -1894,9 +2108,12 @@ mod tests {
         // taken them on.
         let untagged = "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>";
         assert!(
-            !about(&document(&[untagged, pages, mathml, root, math]))
-                .join("\n")
-                .contains("§14.8.6.3"),
+            !about(
+                &document(&[untagged, pages, mathml, root, math]),
+                &crate::TrustPolicy::default()
+            )
+            .join("\n")
+            .contains("§14.8.6.3"),
             "a document that does not say it is tagged is outside the clause"
         );
     }
@@ -1909,17 +2126,140 @@ mod tests {
     /// already refuses to answer the default for one; this is the same refusal one layer up.
     #[test]
     fn a_namespace_that_states_no_name_is_reported_as_naming_nothing() {
-        let said = about(&document(&[
-            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
-            "<< /Type /Pages /Kids [] /Count 0 >>",
-            "<< /Type /Namespace /Schema 9 0 R >>",
-            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>",
-            "<< /Type /StructElem /S /Widget /NS 3 0 R >>",
-        ]))
+        let said = about(
+            &document(&[
+                "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+                "<< /Type /Pages /Kids [] /Count 0 >>",
+                "<< /Type /Namespace /Schema 9 0 R >>",
+                "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>",
+                "<< /Type /StructElem /S /Widget /NS 3 0 R >>",
+            ]),
+            &crate::TrustPolicy::default(),
+        )
         .join("\n");
         assert!(
             said.contains("a namespace whose dictionary states no name of its own"),
             "{said}"
         );
     }
+
+    /// **A host names an anchor, and every sentence about the third question changes.**
+    ///
+    /// The corpus's certification signature is the witness and its answer is the honest one: its
+    /// signer's certificate was issued by a real authority, this project holds no root of that
+    /// authority's, and no path from it reaches the root supplied here. So the report says the
+    /// third question *was* asked, says where the answer's authorities came from, and says the
+    /// signature is not called valid — naming the step that stopped it rather than going quiet.
+    ///
+    /// **This is trap 8 written as a test.** No document in any corpus on this machine can supply a
+    /// path whose positive outcome is known in advance; the only anchors that exist for the crawl's
+    /// signed documents are their own issuers' roots, which nobody here holds. A *positive* verdict
+    /// is `pdf_signature::verdict`'s own fixture, over a hierarchy this project issued.
+    #[test]
+    fn an_anchor_a_host_supplies_changes_what_the_third_question_is_answered_with() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let document = Document::open(bytes).expect("a valid file");
+        let trust = crate::TrustPolicy {
+            anchors: pdf_signature::trust::Supply::of(
+                vec![
+                    ("a-root.der".to_owned(), hex(A_ROOT)),
+                    ("notes.txt".to_owned(), b"not a certificate at all".to_vec()),
+                ],
+                "the directory a test named".to_owned(),
+                pdf_signature::x509::Instant::from_unix_seconds(1_790_812_800),
+            ),
+            acceptance: pdf_signature::verdict::Acceptance::RevocationMustBeGood,
+        };
+        let said = about(&document, &trust).join("\n");
+
+        assert!(
+            said.contains("were supplied by whoever started it, from the directory a test named"),
+            "a verdict is never separable from where its anchors came from: {said}"
+        );
+        assert!(
+            said.contains("1 of 2 read as RFC 5280 certificates"),
+            "{said}"
+        );
+        assert!(
+            said.contains("notes.txt is not a certificate this reader can use as a trust anchor"),
+            "what a host handed over and this reader would not take is named (trap 5): {said}"
+        );
+        assert!(
+            said.contains("all three of the questions a signature asks were asked"),
+            "the third question is asked once somebody names an anchor: {said}"
+        );
+        assert!(
+            said.contains("not called valid here, and this is the first thing that stopped it"),
+            "{said}"
+        );
+        assert!(
+            said.contains("no certification path from the signer's certificate reaches any anchor"),
+            "the corpus's authorities are not this project's to anchor at (trap 8): {said}"
+        );
+        assert!(
+            !said.contains("that signature is valid"),
+            "nothing in the crawl reaches the word: {said}"
+        );
+
+        // **And with no anchor the report is the one this program has printed since the
+        // three-hundred-and-seventy-seventh session**, which is what makes the supply an input
+        // rather than a change of behaviour.
+        let quiet = about(&document, &crate::TrustPolicy::default()).join("\n");
+        assert!(
+            quiet.contains("no certificate store and makes no network request"),
+            "{quiet}"
+        );
+        assert!(
+            !quiet.contains("were supplied by whoever started it"),
+            "{quiet}"
+        );
+        assert!(!quiet.contains("not called valid here"), "{quiet}");
+    }
+
+    /// Hexadecimal to bytes, as `pdf-signature`'s fixture modules spell it.
+    fn hex(text: &str) -> Vec<u8> {
+        text.as_bytes()
+            .chunks(2)
+            .filter_map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
+            .collect()
+    }
+
+    /// A self-signed root `openssl` issued for `pdf_signature::verdict`'s fixtures, 2026 to 2036.
+    ///
+    /// Held here as well as there because a `#[cfg(test)]` fixture is not public API and a crate
+    /// boundary is not a thing to punch a hole in for a test. What it stands for is a *host*: the
+    /// party that reads certificates off a disk and hands them in, which is the whole subject of
+    /// the test above.
+    const A_ROOT: &str = "\
+    308203373082021fa00302010202140ac4cbde908c14cb6d200f4a1e388b4d07\
+    4edd96300d06092a864886f70d01010b050030233121301f06035504030c1871\
+    756f7272612076657264696374207465737420726f6f74301e170d3236303130\
+    313030303030305a170d3336303130313030303030305a30233121301f060355\
+    04030c1871756f7272612076657264696374207465737420726f6f7430820122\
+    300d06092a864886f70d01010105000382010f003082010a0282010100ac4a44\
+    39adb83d24ac0f79a4476d321390049d5c125fb796420bbbcc21c38c47b41bec\
+    5342583558dfb7eda004baa3efb29cce4e57babd406201a008912d10035bb669\
+    7e77ab7ed9d398bb009b74f36fdd1db77ccd5ab90617a94ed0f8f99306255e47\
+    6b3c1fb26d448e704091ba89451c9d7b6f49ab19a9051578b2cf28ffe516d304\
+    216242babafc99949123da92f14d680939c9a5d9b9413e7293629c2f9a1af506\
+    7177df72d3fd9c8ea0404fc656d269c890a32f9b864f4b650a8fbb0b2a65000f\
+    9d09f3c625d595fa3ebec5b9acd3d420ce7a1b81990ea248dda086d310080d8c\
+    eb975fa405150048ba50ab72d4907b0e8db725a684153c984519a33bc3020301\
+    0001a3633061301d0603551d0e041604146a7d48af4c1be8f361759023106e3d\
+    88080f143f301f0603551d230418301680146a7d48af4c1be8f361759023106e\
+    3d88080f143f300f0603551d130101ff040530030101ff300e0603551d0f0101\
+    ff040403020106300d06092a864886f70d01010b050003820101006b5285e666\
+    1185000da52beb7756bf6b42f7fb36def8d7761d76754a8bfab627d6fa2832bc\
+    db4abc7462aed0eaf56c10613ac357e0843c7eb943d51143f13221784725ec18\
+    8be7b847295209fb8e225b6d8a3f2db9b038ef7f1280d35eaa552d496efd2746\
+    ec1df0f38f473f374afac0798f0809058cd167fde883e58a1b85c67a90fe73dc\
+    d288e6f66c6f4f0e4164f55d813676213bfb96b4210e3dda72bf317f1c66e29e\
+    01145ff95d50573d9f49ce9a3ffacfc3be2129836e13390ec4d42d7da886f8ab\
+    40be249e1ede625527e447d12d26ab4e7e1b9358621fa709fc05dde4fb1dfdb4\
+    87de183084bf0c50f5693a4a5a35b3a7d0d81bae8a12ecbe42e482";
 }

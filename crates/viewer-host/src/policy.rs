@@ -38,11 +38,33 @@
 //! §12.7.6.4 paragraph asks about a filesystem. [`may_submit`] is where it is asked and
 //! [`submission_note`] is the sentence, and they are one unit here for [`refused`]'s reason
 //! (ADR 1062).
+//!
+//! **And a sixth, which was a `println!` in each of four windows** — whether a link's URI is
+//! handed to whatever this machine opens one with. §12.6.4.8's `shall` is that "[a] URI action
+//! causes a URI to be resolved", and the same division applies for the third time: what the URI
+//! *is* — Table 210's `/URI` against Table 211's `/Base`, then [`resolve_uri`] against the
+//! location of the document itself, which is a fact about this machine and so cannot be the
+//! core's — is answered before a host sees it, and [`may_open_uri`] is the one question left
+//! (ADR 1079).
+//!
+//! **And a seventh, which ADR 1039 named in the one-thousand-and-twenty-second session and left
+//! unbuilt for forty rounds** — §12.8.1's third question, *is the signer anyone to believe*. RFC
+//! 5280 section 6.1.1 makes the trust anchors input (d) of nine and says whose choice they are:
+//! "The selection of a trust anchor is a matter of policy: it could be the top CA in a
+//! hierarchical PKI, the CA that issued the verifier's own certificate(s), or any other CA in a
+//! network PKI." `pdf-signature` holds no root, reads no file and asks no clock; this module is
+//! the party with all three. [`trust_anchors`] is where the question is asked, and it answers
+//! *nobody* unless a person said otherwise — which is ADR 1039's decision unchanged rather than a
+//! default chosen here. ADR 1076.
 
 use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use pdf_model::submission::{Method, Submission};
-use viewer_core::Extraction;
+use pdf_signature::trust::Supply;
+use pdf_signature::verdict::Acceptance;
+use pdf_signature::x509::Instant;
+use viewer_core::{Extraction, TrustPolicy};
 
 /// The word a person types to turn a document's restrictions off, in every host that has a
 /// command line.
@@ -263,6 +285,114 @@ pub fn submission_note(submission: &Submission, refused: Option<&str>) -> String
     }
 }
 
+/// §12.6.4.8's URI, against the location of the document itself where the action left it partial.
+///
+/// Table 211's `/Base` is applied in `pdf_model::action` and is the whole of what the *document*
+/// states about resolving one. What the clause says when the document states nothing is not a
+/// silence and never was:
+///
+/// > If no base URI is specified, such partial URIs shall be interpreted relative to the location
+/// > of the document itself.
+///
+/// The location of the document is a fact about this machine rather than about the file — a core
+/// that "reads through what it was handed, never a path" (`viewer_core` rule 2) cannot know it and
+/// every window built on this crate does, because each of them opened the file. So the `shall` is
+/// carried out here, by RFC 3986 section 5's own algorithm through [`pdf_model::uri::resolve`],
+/// against the `file` URL of the path the host opened. ADR 1079.
+///
+/// A reference that is already absolute is returned untouched and the path is not even consulted;
+/// so is one whose document has no usable location, and [`uri_note`] says so rather than letting a
+/// partial reference pass for a resolved one.
+#[must_use]
+pub fn resolve_uri(document: Option<&Path>, uri: &str) -> String {
+    if pdf_model::uri::is_absolute(uri) {
+        return uri.to_owned();
+    }
+    match document.and_then(file_url) {
+        Some(base) => pdf_model::uri::resolve(&base, uri),
+        None => uri.to_owned(),
+    }
+}
+
+/// The `file` URL of an absolute path, for [`resolve_uri`]'s base.
+///
+/// RFC 8089 section 2: "[a] file URI takes the form of `file://<host>/<path>`", with an empty host
+/// meaning this machine. Every byte outside RFC 3986's unreserved set is percent-encoded and the
+/// separator is not, which is the conservative encoding: encoding a character that need not be is
+/// harmless, and leaving one that must be would put a `?` or a `#` from a file name into the
+/// query or the fragment of the URI a link resolves to.
+///
+/// `None` for a relative path — a base has to be absolute for section 5's algorithm to mean
+/// anything — and for one that is not UTF-8, which is a narrowing this tree takes deliberately
+/// rather than guessing an encoding for somebody's directory name.
+fn file_url(path: &Path) -> Option<String> {
+    use std::fmt::Write as _;
+
+    let text = path.is_absolute().then(|| path.to_str())??;
+    let mut url = String::from("file://");
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                url.push(char::from(byte));
+            }
+            // `fmt::Write for String` never answers `Err`, which is why nothing is dropped here:
+            // the discard is the infallibility rather than a swallowed failure.
+            _ => {
+                let _ = write!(url, "%{byte:02X}");
+            }
+        }
+    }
+    Some(url)
+}
+
+/// Whether §12.6.4.8's resolved URI may be **handed to whatever this machine opens one with**.
+///
+/// §12.6.4.8 says "[a] URI action causes a URI to be resolved", of a string the clause introduces
+/// as one that "identifies (resolves to) a resource on the Internet" — so the verb is reaching
+/// that resource, and everything before it is a question about the document that
+/// `pdf_model::action` and [`resolve_uri`] have answered. Reaching it is a program this one would
+/// have to start, on a string the *document* chose, and that is a decision about this machine.
+///
+/// **A function rather than a refusal written at each call site**, for [`may_submit`]'s reason and
+/// ADR 1062's: the policy is asked once, in a place a host can supply, so a host that does open
+/// links — or `doc/todo/38`'s *ask* and *warn* levels, which is what a person would want in front
+/// of this one — is a change here and nowhere else. Four windows each said this in a `println!` of
+/// their own until the thousand-and-sixty-fifth session, which is exactly the shape `CLAUDE.md`
+/// calls a refusal that cannot become an "ask".
+///
+/// # Errors
+///
+/// The sentence to say to the person. Two of them, because the clause makes two different things
+/// go wrong: a reference nothing could resolve names no resource at all, and a resolved one is
+/// declined by this machine.
+pub fn may_open_uri(uri: &str) -> Result<(), String> {
+    if pdf_model::uri::is_absolute(uri) {
+        return Err(
+            "this reader opens nothing itself — handing a string the document chose to \
+                    another program is a decision about this machine, not about the file"
+                .to_owned(),
+        );
+    }
+    Err(
+        "it is still a relative reference and names no resource: the document states no /Base \
+         and this window could not name its own location (ISO 32000-2 §12.6.4.8)"
+            .to_owned(),
+    )
+}
+
+/// What a host says about a URI action, whether it opens it or declines.
+///
+/// The URI in one line, because a person who clicked a link is owed *where it went* rather than
+/// the word "declined": a link this reader will not follow is still a link whose target somebody
+/// may want to copy. [`submission_note`]'s shape, for [`submission_note`]'s reason.
+#[must_use]
+pub fn uri_note(uri: &str, refused: Option<&str>) -> String {
+    match refused {
+        Some(why) => format!("link: declined — {why}. The document asked for {uri}"),
+        None => format!("link: {uri}"),
+    }
+}
+
 /// Whether §7.11.4's extracted bytes may be **opened as a document** in this reader.
 ///
 /// **A different question from [`may_write_extracted`], and Annex O asks both of them.** ISO 32000-2
@@ -330,4 +460,252 @@ pub fn may_write_extracted(asked: Extraction) -> Result<(), String> {
                 .to_owned(),
         ),
     }
+}
+
+/// The word a person types to name the certification authorities this reader will believe.
+///
+/// **ADR 1039's "a host that wants either reads it and passes the anchors in", as a word.** That
+/// decision priced two defaults — a compiled-in root programme and the platform's certificate
+/// store — and refused both, for three reasons of which the third stands whatever happens to the
+/// first two: a list compiled in is a policy hard-coded where no host can reach it, and
+/// `CLAUDE.md` principle 3 says the policy is asked once in a place a host can supply. This is
+/// that place, and the value after the word is a directory.
+///
+/// **Not a user interface for it**, which `doc/todo/38` says is not to be built until the project
+/// owner asks: it is one policy value [`viewer_core::Command::Trust`] carries, supplied the way
+/// this host supplies the sandbox, the backend and the page to open at.
+pub const TRUST_ANCHORS: &str = "--trust-anchors";
+
+/// The word a person types to act on a signature whose revocation status could not be determined.
+///
+/// **ADR 1067's rule is what this does not touch.** A [`pdf_signature::revocation::Revocation::
+/// Good`] is "only ever the output of arithmetic this program performed", and an absence of
+/// material stays `Unknown` with its reason kept whatever anybody types. What this word decides is
+/// whether a *reader* will act on a verdict resting on one — RFC 5280 section 6.3.3's remedy is to
+/// fetch a newer list, which is the one branch a document cannot supply and principle 3 gives this
+/// program no network for.
+pub const ACCEPT_UNKNOWN_REVOCATION: &str = "--accept-unknown-revocation";
+
+/// Why one file in the anchor directory did not become an anchor.
+///
+/// Typed rather than a string, and every one of them is said out loud: trap 5 on a path where this
+/// host declines to do something a *reader* asked for. A person who pointed at a directory of six
+/// files and got four anchors is owed the two names, because the verdicts that follow were computed
+/// under a store they did not supply.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AnchorRefusal {
+    /// The directory could not be listed.
+    #[error("cannot read the trust anchor directory {directory}: {error}")]
+    DirectoryUnreadable {
+        /// The directory as the person named it.
+        directory: String,
+        /// What the filesystem said.
+        error: String,
+    },
+    /// One file in it could not be read.
+    #[error("cannot read {name} in the trust anchor directory: {error}")]
+    FileUnreadable {
+        /// The file's name within the directory.
+        name: String,
+        /// What the filesystem said.
+        error: String,
+    },
+    /// A file holds neither a DER certificate nor a PEM `CERTIFICATE` block.
+    #[error("{name} in the trust anchor directory is neither DER nor a PEM CERTIFICATE block")]
+    NotACertificateFile {
+        /// The file's name within the directory.
+        name: String,
+    },
+}
+
+/// **The one place a host answers "which anchors, if any", and the answer is *none* by default.**
+///
+/// `directory` is what [`TRUST_ANCHORS`] named, or `None` where nobody typed it — and `None`
+/// produces [`TrustPolicy::default`], which is [`Supply::none`], which is
+/// [`pdf_signature::trust::Trust::NoAnchorSupplied`] for every signature in every document. That
+/// chain is the whole of ADR 1039's decision and it is unchanged by this function existing.
+///
+/// Every file in the directory is offered, in the order the filesystem lists them sorted by name so
+/// that two runs over one directory supply the same store in the same order. Two encodings are
+/// taken, because both are what a person has on a disk: a file beginning with X.690's `SEQUENCE`
+/// tag is DER, and anything else is scanned for PEM `-----BEGIN CERTIFICATE-----` blocks, of which
+/// a file may hold any number. Nothing else about a file is checked here — not its extension, not
+/// its dates, not its own signature — because `pdf_signature::trust::TrustAnchor::of` states why
+/// there would be nothing to check against: "The trust anchor information is trusted because it was
+/// delivered to the path processing procedure by some trustworthy out-of-band procedure."
+///
+/// **The instant comes from this machine's clock**, which is RFC 5280 section 6.1.1's input (b) and
+/// is a host's for the same reason the anchors are: `viewer-core` has no clock (rule 3 of
+/// `doc/ui-boundary.md`) and `pdf-signature` asks none. A clock before the epoch answers zero
+/// rather than panicking, because a verdict is not the place to discover a misconfigured machine.
+///
+/// The refusals are returned rather than printed: what a host does with them is the host's, and
+/// `viewer_core::notes` says the rest of the sentence beside the verdict itself.
+#[must_use]
+pub fn trust_anchors(
+    directory: Option<&Path>,
+    accept_unknown_revocation: bool,
+) -> (TrustPolicy, Vec<AnchorRefusal>) {
+    let acceptance = if accept_unknown_revocation {
+        Acceptance::UnknownRevocationAccepted
+    } else {
+        Acceptance::RevocationMustBeGood
+    };
+    let Some(directory) = directory else {
+        // The acceptance is carried even with no anchors, because dropping a policy value a person
+        // typed would make the two words interact: nothing here computes a verdict without an
+        // anchor, and a value that survives is a value the next `Command::Trust` does not have to
+        // re-derive.
+        return (
+            TrustPolicy {
+                anchors: Supply::none(),
+                acceptance,
+            },
+            Vec::new(),
+        );
+    };
+    let mut refused = Vec::new();
+    let mut names: Vec<PathBuf> = match std::fs::read_dir(directory) {
+        Ok(entries) => entries.flatten().map(|entry| entry.path()).collect(),
+        Err(error) => {
+            refused.push(AnchorRefusal::DirectoryUnreadable {
+                directory: directory.display().to_string(),
+                error: error.to_string(),
+            });
+            return (
+                TrustPolicy {
+                    anchors: Supply::none(),
+                    acceptance,
+                },
+                refused,
+            );
+        }
+    };
+    names.sort();
+    let mut certificates = Vec::new();
+    for path in names {
+        if path.is_dir() {
+            continue;
+        }
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                refused.push(AnchorRefusal::FileUnreadable {
+                    name,
+                    error: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let found = certificates_in(&bytes);
+        if found.is_empty() {
+            refused.push(AnchorRefusal::NotACertificateFile { name });
+            continue;
+        }
+        for (index, der) in found.into_iter().enumerate() {
+            let labelled = if index == 0 {
+                name.clone()
+            } else {
+                format!("{name} (certificate {})", index.saturating_add(1))
+            };
+            certificates.push((labelled, der));
+        }
+    }
+    let at = Instant::from_unix_seconds(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|since| i64::try_from(since.as_secs()).ok())
+            .unwrap_or(0),
+    );
+    (
+        TrustPolicy {
+            anchors: Supply::of(
+                certificates,
+                format!("{} (--trust-anchors)", directory.display()),
+                at,
+            ),
+            acceptance,
+        },
+        refused,
+    )
+}
+
+/// Every certificate one file holds, as DER: the file itself, or each PEM block in it.
+///
+/// X.690 clause 8.1.2's identifier octet for a constructed `SEQUENCE` is `0x30`, and RFC 5280
+/// section 4.1 makes a `Certificate` one — so a file starting with it is offered whole and read by
+/// `pdf_signature::x509`, which is the only thing here entitled to decide whether it is a
+/// certificate. Everything else is scanned for PEM's `-----BEGIN CERTIFICATE-----` boundaries (RFC
+/// 7468, which this tree does not hold — see [`base64`]).
+fn certificates_in(bytes: &[u8]) -> Vec<Vec<u8>> {
+    const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+    const END: &str = "-----END CERTIFICATE-----";
+    if bytes.first() == Some(&0x30) {
+        return vec![bytes.to_vec()];
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = Vec::new();
+    let mut rest = text.as_ref();
+    while let Some(start) = rest.find(BEGIN) {
+        let after = start.saturating_add(BEGIN.len());
+        let Some(stop) = rest[after..].find(END) else {
+            break;
+        };
+        if let Some(der) = base64(&rest[after..after.saturating_add(stop)]) {
+            out.push(der);
+        }
+        rest = &rest[after.saturating_add(stop).saturating_add(END.len())..];
+    }
+    out
+}
+
+/// RFC 4648 section 4's alphabet, decoded, with whitespace skipped and anything else refusing.
+///
+/// Written here rather than taken from a package because it is thirty lines and the alternative is
+/// a dependency on the path that reads a stranger's file. RFC 7468 is what a PEM file's boundaries
+/// are defined by and this tree does not hold it, so the scan above is written to the shape the
+/// format has in practice — text before and between blocks is skipped, and a block whose base64
+/// this function refuses is one certificate lost rather than a file rejected.
+fn base64(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut accumulator: u32 = 0;
+    let mut bits = 0_u32;
+    let mut padding = 0_usize;
+    for byte in text.bytes() {
+        let value = match byte {
+            b'A'..=b'Z' => u32::from(byte.wrapping_sub(b'A')),
+            b'a'..=b'z' => u32::from(byte.wrapping_sub(b'a')).saturating_add(26),
+            b'0'..=b'9' => u32::from(byte.wrapping_sub(b'0')).saturating_add(52),
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => {
+                padding = padding.saturating_add(1);
+                continue;
+            }
+            b' ' | b'\t' | b'\r' | b'\n' => continue,
+            _ => return None,
+        };
+        if padding > 0 {
+            return None;
+        }
+        accumulator = (accumulator << 6) | value;
+        bits = bits.saturating_add(6);
+        if bits >= 8 {
+            bits = bits.saturating_sub(8);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the shift leaves exactly the eight bits this takes"
+            )]
+            out.push((accumulator >> bits) as u8);
+        }
+    }
+    // The leftover bits must be the zero padding RFC 4648 section 3.5 requires, not data: a block
+    // whose final group carries bits nobody encoded is not base64 this reader will act on.
+    let mask = 1_u32.checked_shl(bits).unwrap_or(1).saturating_sub(1);
+    (bits == 0 || accumulator & mask == 0).then_some(out)
 }

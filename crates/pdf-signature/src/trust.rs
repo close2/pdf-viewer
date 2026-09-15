@@ -205,6 +205,148 @@ impl<'a> TrustAnchors<'a> {
     }
 }
 
+/// Why one of the certificates a host handed over is not an anchor.
+///
+/// Said out loud rather than dropped, which is trap 5 on the one path where this program declines
+/// to use something a *reader* asked it to use: a host that pointed at a directory of six files and
+/// got four anchors is owed the two names, because a verdict computed under four anchors is not the
+/// verdict that host asked for.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{name} is not a certificate this reader can use as a trust anchor: {error}")]
+pub struct AnchorRefusal {
+    /// What the host called it — a file name, an index, whatever it named it by.
+    pub name: String,
+    /// What reading it as RFC 5280's `Certificate` produced.
+    pub error: x509::X509Error,
+}
+
+/// A host's anchors as the host holds them: the DER itself, where it came from, and when to ask.
+///
+/// **This is the input ADR 1039 named and did not build.** That decision settled that a trust store
+/// is "an input to path validation, supplied by the host", priced a compiled-in root programme and
+/// the platform's store, and refused both *as defaults* — and then nothing in this tree supplied
+/// one, so every document's answer stayed [`Trust::NoAnchorSupplied`]. [`TrustAnchors`] is the
+/// borrowed set section 6.1.1 input (d) actually wants; a host cannot hold one, because every
+/// anchor in it borrows from certificate bytes somebody has to own. This is the owner.
+///
+/// Three things travel together because a verdict is not separable from any of them:
+///
+/// - **the certificates**, as DER, exactly as the host read them;
+/// - **[`Self::source`], the sentence saying where they came from.** RFC 5280 section 6.1 says why
+///   an anchor is believable at all — "The trust anchor information is trusted because it was
+///   delivered to the path processing procedure by some trustworthy out-of-band procedure" — and
+///   that procedure is the host's, so only the host can describe it. A reader told that a signature
+///   is valid is owed *valid according to whom*, and this is the half of that answer this crate
+///   cannot invent;
+/// - **[`Self::at`], section 6.1.1's input (b)**, "the current date/time". This crate asks no clock
+///   (`CLAUDE.md` principle 3), so the instant arrives with the anchors from the party that has one.
+///
+/// [`Self::none`] is the default and is what every host in this tree supplied before this type
+/// existed: no anchors, and therefore [`Trust::NoAnchorSupplied`] unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Supply {
+    certificates: Vec<(String, Vec<u8>)>,
+    source: String,
+    at: Instant,
+}
+
+impl Default for Supply {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl Supply {
+    /// Nobody named an anchor — this program's default, and its answer is unchanged by this type
+    /// existing.
+    #[must_use]
+    pub fn none() -> Self {
+        Self {
+            certificates: Vec::new(),
+            source: String::new(),
+            at: Instant::from_unix_seconds(0),
+        }
+    }
+
+    /// The anchors a host read, the sentence saying where, and the instant to validate at.
+    ///
+    /// Each certificate arrives with the name the host knows it by — a file name, usually — so that
+    /// [`AnchorRefusal`] can say which one this reader would not take.
+    #[must_use]
+    pub fn of(certificates: Vec<(String, Vec<u8>)>, source: String, at: Instant) -> Self {
+        Self {
+            certificates,
+            source,
+            at,
+        }
+    }
+
+    /// Whether nobody named an anchor.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.certificates.is_empty()
+    }
+
+    /// How many certificates the host handed over, before any of them was read.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.certificates.len()
+    }
+
+    /// Where the host says these came from, for the sentence a report owes a reader.
+    ///
+    /// Empty where [`Self::none`] made it, which is a host that named nothing rather than a host
+    /// that named something and would not say where.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// RFC 5280 section 6.1.1's input (b), as the host supplied it.
+    #[must_use]
+    pub const fn at(&self) -> Instant {
+        self.at
+    }
+
+    /// The DER, with the name the host knows each certificate by.
+    #[must_use]
+    pub fn certificates(&self) -> &[(String, Vec<u8>)] {
+        &self.certificates
+    }
+
+    /// The anchors themselves, and the ones this reader would not take.
+    ///
+    /// Reading happens here rather than when the host handed the bytes over, because
+    /// [`TrustAnchor`] borrows from the DER and the DER is owned by `self`. Nothing about an anchor
+    /// certificate is checked — not its dates, not its own signature — for the reason
+    /// [`TrustAnchor::of`] states: the host vouched for it, and section 6.1's own paragraph says
+    /// there would be nothing to check it against.
+    #[must_use]
+    pub fn read(&self) -> Reading<'_> {
+        let mut anchors = TrustAnchors::none();
+        let mut refused = Vec::new();
+        for (name, der) in &self.certificates {
+            match x509::parse(der) {
+                Ok(certificate) => anchors.push(TrustAnchor::of(&certificate)),
+                Err(error) => refused.push(AnchorRefusal {
+                    name: name.clone(),
+                    error,
+                }),
+            }
+        }
+        Reading { anchors, refused }
+    }
+}
+
+/// What [`Supply::read`] made of a host's certificates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reading<'a> {
+    /// The anchors, in the order the host supplied them.
+    pub anchors: TrustAnchors<'a>,
+    /// The certificates that are not anchors, each by the name the host gave it.
+    pub refused: Vec<AnchorRefusal>,
+}
+
 /// What this program intends to use the target certificate's key for.
 ///
 /// RFC 5280 section 4.2.1.12 makes an `extKeyUsage` a statement about *use* — "If the extension is
@@ -745,4 +887,4 @@ fn verify_certificate(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -51,7 +51,10 @@
 //! `/URI` against Table 211's `/Base`, by RFC 3986 section 5's algorithm in [`crate::uri`]
 //! — and it can apply `/IsMap`'s coordinates. What it cannot do is fetch anything, and it deliberately
 //! does not: handing a document-controlled URI to a browser is a decision about this machine,
-//! so [`Action::Uri`] carries the answer and the caller decides whether to open it.
+//! so [`Action::Uri`] carries the answer and the caller decides whether to open it. That decision
+//! is `viewer_host::policy::may_open_uri`, asked once for every window in this tree, and the
+//! location a partial reference is resolved against is `viewer_host::policy::resolve_uri`'s for
+//! the same reason: both are facts about the machine rather than about the file (ADR 1079).
 //!
 //! # `/Next` makes an action a tree
 //!
@@ -861,7 +864,8 @@ pub struct Uri {
     /// §12.6.4.8: with no base URI, partial URIs "shall be interpreted relative to the
     /// location of the document itself" — which is a fact about where the file was opened
     /// from and not about the file, so this crate cannot finish the job. The caller opened
-    /// the document and can.
+    /// the document and can: `viewer_host::policy::resolve_uri` is where the three windows of
+    /// this tree do, against the `file` URL of the path each of them opened (ADR 1079).
     pub relative: bool,
     /// Table 210's `/IsMap`, **default `false`**.
     ///

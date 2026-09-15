@@ -21,6 +21,10 @@ pdf-font.workspace = true
 pdf-model.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true
+# RFC 5280 section 6.1.1's inputs (d) and (b) cross this boundary as `Supply` and `Acceptance`:
+# the party that reads certificates off a disk is outside the confinement and the party that
+# validates a path is inside it (ADR 1076).
+pdf-signature.workspace = true
 pdf-syntax.workspace = true
 # The confined process must *state* how many threads to rasterise with. `rayon`'s own default
 # asks the machine, and asking the machine reads `/proc/self/cgroup` — which a process with no

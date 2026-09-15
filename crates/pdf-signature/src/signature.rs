@@ -1205,6 +1205,15 @@ impl Signature {
         if anchors.is_empty() {
             return Trust::NoAnchorSupplied;
         }
+        // **§12.8.3.2's value is not a CMS object and its chain is in the dictionary.** That clause
+        // puts it there in as many words — "[t]he certificate chain of the signer shall be stored
+        // in the Cert entry" — so a path for an `adbe.x509.rsa_sha1` signature is built from
+        // `/Cert` and never from a `SignedData` the value does not contain. §12.8.3.4.2 forbids
+        // the entry for a PAdES signature, which is why the two routes cannot be tried in turn:
+        // the sub-filter decides which one a file meant.
+        if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
+            return self.chain_trust(anchors, material, at, purpose);
+        }
         let Ok(cms) = self.signed_data() else {
             return Trust::NoPathToAnyAnchor { examined: 0 };
         };
@@ -1231,6 +1240,38 @@ impl Signature {
             .filter(|candidate| candidate.tbs != target.tbs)
             .collect();
         trust::validate_for(&target, &others, anchors, &material, at, purpose)
+    }
+
+    /// §12.8.3.2's path: the target is `/Cert`'s first entry and the rest of the entry is the pool.
+    ///
+    /// §12.8.3.2: "The certificate chain of the signer shall be stored in the Cert entry", and
+    /// [`Self::pkcs1_authenticity`] already takes the first of them as the signer's — so the two
+    /// agree about which certificate the signature was verified under, which is the one thing a
+    /// path from it has to be a path *from*.
+    ///
+    /// No revocation material comes out of the signature here, because there is no CMS object to
+    /// carry §12.8.3.3.2's attribute; §12.8.4's store is the only supply, and it is the caller's.
+    fn chain_trust(
+        &self,
+        anchors: &TrustAnchors<'_>,
+        material: &crate::revocation::Material<'_>,
+        at: Instant,
+        purpose: trust::Purpose,
+    ) -> Trust {
+        let Some(first) = self.chain.first() else {
+            return Trust::NoPathToAnyAnchor { examined: 0 };
+        };
+        let Ok(target) = x509::parse(first) else {
+            return Trust::NoPathToAnyAnchor { examined: 0 };
+        };
+        let others: Vec<_> = self
+            .chain
+            .iter()
+            .skip(1)
+            .filter_map(|entry| x509::parse(entry).ok())
+            .filter(|candidate| candidate.tbs != target.tbs)
+            .collect();
+        trust::validate_for(&target, &others, anchors, material, at, purpose)
     }
 
     /// **Has this document changed since it was signed?**, over the bytes of `file`.
@@ -4416,6 +4457,60 @@ mod tests {
             Authenticity::AlgorithmNotVerifiable {
                 algorithm: "2.16.840.1.101.3.4.2.1".to_owned(),
             }
+        );
+    }
+
+    /// **§12.8.3.2 puts the chain in the dictionary, so a path is built from there or from nowhere.**
+    ///
+    /// The clause states it outright — "[t]he certificate chain of the signer shall be stored in
+    /// the Cert entry" — and this `/SubFilter`'s `/Contents` is a PKCS #1 signature with no CMS
+    /// object in it at all, so the route every other signature format takes finds nothing. Until
+    /// the one-thousand-and-sixty-second session that is what happened: `Signature::trust` looked
+    /// for a `SignedData`, failed, and answered `NoPathToAnyAnchor` with nothing examined, which
+    /// reads as *this file carries too few certificates* about a file carrying exactly the one the
+    /// clause asks for.
+    ///
+    /// The certificate here is self-signed, so supplying it is supplying the root of a one-long
+    /// chain — which is what the negative beside it calibrates: a different root reaches nothing.
+    #[test]
+    fn a_pkcs1_signatures_path_is_built_from_its_cert_entry() {
+        let file = b"the signed bytes";
+        let signature = pkcs1_signature(file.len() as u64, hex(CERTIFICATE));
+        let anchor = hex(CERTIFICATE);
+        let anchor = crate::x509::parse(&anchor).expect("the fixture certificate parses");
+        let at = anchor
+            .validity
+            .expect("the fixture certificate states a validity period")
+            .not_before;
+        let anchors = crate::trust::TrustAnchors::of(std::slice::from_ref(&anchor));
+        assert_eq!(
+            signature.trust(&anchors, &crate::revocation::Material::none(), at),
+            crate::trust::Trust::Anchored {
+                length: 1,
+                revocation: crate::revocation::Revocation::NotChecked,
+            },
+            "the chain the clause puts in /Cert is the pool the path is built from"
+        );
+        // And the calibration: a root that issued nothing here reaches nothing, so the assertion
+        // above is about the path and not about the certificate happening to parse (trap 13).
+        let other = hex(crate::trust::tests::fixtures::ROOT);
+        let other = crate::x509::parse(&other).expect("the other fixture root parses");
+        let others = crate::trust::TrustAnchors::of(std::slice::from_ref(&other));
+        assert!(
+            matches!(
+                signature.trust(&others, &crate::revocation::Material::none(), at),
+                crate::trust::Trust::NoPathToAnyAnchor { .. }
+            ),
+            "somebody else's root ends nothing"
+        );
+        // And with no anchor it is this program's own answer, unchanged (ADR 1039).
+        assert_eq!(
+            signature.trust(
+                &crate::trust::TrustAnchors::none(),
+                &crate::revocation::Material::none(),
+                at
+            ),
+            crate::trust::Trust::NoAnchorSupplied
         );
     }
 

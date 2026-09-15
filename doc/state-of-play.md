@@ -494,9 +494,15 @@ what the source stated as well as the two rasters, and `pages`'s, which rotates 
 one document and holds every surviving page to its source page under the rotation stated. ADRs 0800,
 0801, 0802, 0803, 0804, 0816, 0817, 0818, 0821, 0830.
 
-**It can tell a person that a signed document changed after it was signed, and whether its
-signature verifies.** §12.8.1 divides verifying a signature into three questions and only the
-third needs the trust store the whole clause had been refused for. `Signature::integrity`
+**It can tell a person that a signed document changed after it was signed, whether its signature
+verifies, and — where the person running it names a certification authority — whether the signature
+is valid.** §12.8.1 divides verifying a signature into three questions, and the third is a host's
+input rather than a list this program ships: `--trust-anchors <dir>` reads PEM or DER,
+`viewer_core::Command::Trust` carries it in, and `pdf_signature::verdict::Verdict` is the only place
+the word *valid* is reachable — its `Valid` has no public constructor and the only one that makes it
+takes a proof no caller can build without a path that reached a supplied anchor. **A reader who
+names nobody is told that nobody was named**, which is a statement about this program rather than
+about any document (ADRs 1039, 1076). `Signature::integrity`
 recomputes the digest over §12.8.1's `/ByteRange` — with the algorithms Table 260 and Table 256
 name — and compares it with what `pdf_signature::cms` reads out of §12.8.3.3's `SignedData`, over a
 bounded in-tree X.690 reader that allocates nothing (ADR 0215). `Signature::authenticity` then
@@ -516,8 +522,8 @@ six, the three Brainpool ones, because their packages are release-candidate-only
 stable package carries the field arithmetic without the signature scheme. The sentences the program uses keep every
 asymmetry: a mismatch is decisive, a match is the absence of one kind of evidence, and a
 certificate that arrived in the same file as the signature it verifies proves the two are
-consistent with each other and nothing about who made either. **Nothing here says a signature is
-valid.** **And where the file marks the part this program does not do**, it says that too: Table
+consistent with each other and nothing about who made either. **Without an anchor nothing here says
+a signature is valid**, and with one the sentence that does says whose anchors made it sayable. **And where the file marks the part this program does not do**, it says that too: Table
 255's `/V 1` states that "the Reference dictionary shall be considered critical to the validation
 of the signature", and this program evaluates no transform method, so the note that names the
 questions it answered now names that one as well (ADR 0637).

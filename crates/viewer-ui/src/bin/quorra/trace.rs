@@ -271,6 +271,14 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
         Command::Restrict(level) => format!("restrictions {level:?}"),
+        // The anchors' *count* and where they came from, never the certificates: a trace line is
+        // read beside a verdict, and what a reader needs is whose store it was computed under.
+        Command::Trust(policy) => format!(
+            "trust {} anchor(s) from {:?}, {:?}",
+            policy.anchors.len(),
+            policy.anchors.source(),
+            policy.acceptance
+        ),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),

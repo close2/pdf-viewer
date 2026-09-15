@@ -793,6 +793,7 @@ impl<'a> Interpreter<'a> {
             associated: Vec::new(),
             reversed_chars: 0,
             view_dependent: false,
+            magnified_tiling: false,
             text_cursor: None,
             base: base_transform(page),
             // §11.6.7's companion to `base`, and initialised from the same place: nothing has run
@@ -860,6 +861,10 @@ impl<'a> Interpreter<'a> {
             document: _,
             across: _,
             view: _,
+            // False wherever a checkpoint is taken at all: `interpret_into` withholds the
+            // checkpoint from a page whose content the magnification placed, because §12.5.3's
+            // pass cannot re-place §8.7.3.1's lattice (ADR 1080).
+            magnified_tiling: _,
             presses: _,
             base: _,
             pattern_initial: _,
@@ -1319,7 +1324,13 @@ fn interpret_into(
     // the annotations rather than after them, and only where Table 167's bit says the page has
     // one whose placement the magnification decides: on every other page the clone below would
     // be a second copy of a list nothing will ever ask to move. `doc/todo/46`, ADR 0777.
-    let checkpoint = (keep == Keep::Replacement && interpreter.any_no_zoom(page))
+    // A page whose *content* the magnification placed is not one the annotation pass alone can
+    // re-place, so it keeps no checkpoint: §8.7.3.1's lattice is laid while the content stream
+    // runs, and `replace` would put a new magnification's annotations over the old one's tiles
+    // (ADR 1080).
+    let checkpoint = (keep == Keep::Replacement
+        && interpreter.any_no_zoom(page)
+        && !interpreter.magnified_tiling)
         .then(|| interpreter.checkpoint());
     let (interpretation, drawable) = complete(document, page, base, interpreter);
     (interpretation, drawable, checkpoint)
@@ -1468,7 +1479,9 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
 
     Interpretation {
         display_list: list,
-        view_dependent: interpreter.view_dependent,
+        // §12.5.3's `NoZoom` annotations, and §8.7.3.1's lattice: the two things that make this
+        // page's marks a function of the magnification, which is the one question this answers.
+        view_dependent: interpreter.view_dependent || interpreter.magnified_tiling,
         unsupported,
         text: interpreter.text,
         glyphs: interpreter.glyphs,
@@ -1868,6 +1881,19 @@ struct Interpreter<'a> {
     reversed_chars: usize,
     /// Whether any annotation on this page sets §12.5.3's `NoZoom`.
     view_dependent: bool,
+    /// Whether §8.7.3.1's lattice was laid against a magnification this caller stated.
+    ///
+    /// The second thing that makes a page's *marks* a function of the magnification, and the
+    /// first that is content rather than an annotation: Table 74's `/TilingType` 1 and 3 space
+    /// their cells "by a multiple of a device pixel", so a tiling placed under a stated
+    /// magnification is placed differently at another one. See [`pattern::Interpreter::lattice`]
+    /// and ADR 1080.
+    ///
+    /// **It is the content half, so it does more than `view_dependent` does.** ADR 0777's
+    /// [`Replacement`] keeps the content and re-runs §12.5.3's annotation pass at the new
+    /// magnification; a page whose *content* moved cannot be replaced that way, so this also
+    /// withholds the checkpoint.
+    magnified_tiling: bool,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
     /// Where each shown code's readback sits on the page; see [`Interpretation::text_layer`].

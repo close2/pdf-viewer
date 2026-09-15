@@ -29,6 +29,14 @@
 //!    the same commit with its reason. [`ceiling_with_headroom`] and [`floor_with_headroom`] take
 //!    an argued distance and the argument for it, and print both.
 //!
+//! # And where the members have names, the names are the bound
+//!
+//! [`population`] is the fifth entry point and the strongest of them. A count of ten cannot tell a
+//! document that *started* needing a password from one that *stopped*, and both are findings; a
+//! list of ten names tells them apart and says which. It prints the same line — the count beside
+//! the length of the list — so the table stays whole, and then holds the two sets equal in both
+//! directions. Use it wherever the gate already knows its members by name.
+//!
 //! # When headroom is the right answer
 //!
 //! Zero slack is right for a population this tree alone decides — how many corpus documents draw
@@ -42,6 +50,8 @@
 //! re-measured is the defect above, wearing a justification.
 
 #![forbid(unsafe_code)]
+
+use std::collections::BTreeSet;
 
 /// Which way a bound may move, and therefore which side of it the slack is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,11 +99,12 @@ impl Direction {
     }
 }
 
-/// Prints the line, then holds the bound, then holds the slack.
+/// Prints the one line every entry point here puts on the run's output.
 ///
-/// One body for all four entry points so that the printed shape and the order of the two
-/// assertions are stated once.
-fn hold(
+/// Separated from [`hold`] so that [`population`] prints the same shape before making an
+/// assertion of its own: the printing comes first everywhere, so the two numbers are on the
+/// output even when what follows fails.
+fn line(
     direction: Direction,
     what: &str,
     population: usize,
@@ -113,6 +124,22 @@ fn hold(
             direction.word()
         ),
     }
+}
+
+/// Prints the line, then holds the bound, then holds the slack.
+///
+/// One body for all four entry points so that the printed shape and the order of the two
+/// assertions are stated once.
+fn hold(
+    direction: Direction,
+    what: &str,
+    population: usize,
+    bound: usize,
+    headroom: usize,
+    why: Option<&str>,
+) {
+    let slack = direction.slack(population, bound);
+    line(direction, what, population, bound, headroom, why);
     assert!(
         direction.holds(population, bound),
         "{what}: {population}, {} of {bound} this gate holds",
@@ -194,9 +221,113 @@ pub fn floor_with_headroom(
     );
 }
 
+/// A population held as the **names** of its members, with the count printed beside them.
+///
+/// The strongest shape a ratchet has, and the one a count cannot reach. A ceiling of ten on the
+/// documents that need a password says nothing when one document starts needing one in the same
+/// run as another stops: the count is ten both times, and both are findings. So the bound is the
+/// list, how many names it holds is what goes on the table beside the population, and the
+/// assertion is set equality in both directions — a name that joined, and a name that left, each reported as
+/// itself. `crates/pdf-model/tests/save_round_trip.rs` and
+/// `crates/viewer-core/tests/accessibility_census.rs` are where the shape came from; this is it
+/// with the printed line the other four entry points put on every run.
+///
+/// The list carries the reason each member is in it, beside its name in the source. That is not
+/// bookkeeping: a document leaves this population when somebody fixes something, and the round
+/// that deletes the name is the round that has to read what the name was for.
+///
+/// # Panics
+///
+/// When the found set and the named set differ, naming the difference in both directions.
+pub fn population(what: &str, found: impl IntoIterator<Item = String>, named: &[&str]) {
+    let found: BTreeSet<String> = found.into_iter().collect();
+    let expected: BTreeSet<&str> = named.iter().copied().collect();
+    line(
+        Direction::Ceiling,
+        what,
+        found.len(),
+        expected.len(),
+        0,
+        None,
+    );
+    let joined: Vec<&str> = found
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !expected.contains(name))
+        .collect();
+    let left: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|name| !found.contains(*name))
+        .collect();
+    assert!(
+        joined.is_empty() && left.is_empty(),
+        "{what}: the population moved — joined {joined:?}, left {left:?}. Both directions are \
+         findings: a name that joined is a document that started needing this, and a name that \
+         left is one that stopped. Read each, then edit the list with the reason beside the name, \
+         in that order."
+    );
+}
+
+/// How far `value` sits from the nearer edge of `low .. high`, in the band's own unit and as a
+/// share of its width.
+///
+/// The share is what makes two figures in different units comparable at a glance: 50% is the
+/// middle of the band, 0% is the edge, and a figure creeping toward one is a falling percentage
+/// over consecutive runs.
+fn margin(value: f64, low: f64, high: f64) -> String {
+    let (edge, distance) = if value - low <= high - value {
+        ("low", value - low)
+    } else {
+        ("high", high - value)
+    };
+    if distance < 0.0 {
+        return format!("{:.3} past the {edge} edge", -distance);
+    }
+    let width = high - low;
+    if width <= 0.0 {
+        return format!("{distance:.3} from the {edge} edge");
+    }
+    format!(
+        "{distance:.3} from the {edge} edge ({:.0}% of the band)",
+        distance / width * 100.0
+    )
+}
+
+/// A figure printed beside the two-sided band it is held to, and how far it is from the nearer
+/// edge.
+///
+/// **A band is a bound, and until this existed it was printed only when a figure had already
+/// crossed it.** `doc/checks/launch-path.toml`'s clock and memory bands and
+/// `doc/checks/fixed-documents.toml`'s ink bands are both of that shape, so a figure creeping
+/// toward an edge over ten rounds was invisible for all ten — the defect ADR 1075 was written
+/// about, one shape along.
+///
+/// **It prints and does not assert**, which is the difference between a band and the four
+/// one-sided bounds above, and it is deliberate rather than a gap. A band's verdict has conditions
+/// this crate has no business knowing: the launch path declines a figure whose child's probe says
+/// the machine was busy, and the fixed-documents check pins a *refusal* on some rows and nothing
+/// at all on others. Those verdicts stay in the gates, where the reasons are; what belongs here is
+/// the one line that puts the figure, the band and the distance on the run's output.
+///
+/// **A share of 0% is not always a warning, and trap 39 is why that is said here rather than
+/// discovered.** Where an edge is a wall the quantity cannot cross — eight rows of
+/// `doc/checks/fixed-documents.toml` pin a page that is honestly blank as `ink = 0.0 .. 1.0`, and
+/// ink is a mean of `255 - luma` with nowhere below zero to go — the figure sits *on* the low edge
+/// on every run, by design, and the bound that can actually fire is the other one. A falling share
+/// is the signal; a constant one is a fact about the row.
+pub fn band(what: &str, value: f64, low: f64, high: f64) {
+    println!(
+        "ratchet: {what}: {value:.3}, band {low:.3} .. {high:.3}, {}",
+        margin(value, low, high)
+    );
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ceiling, ceiling_with_headroom, floor, floor_with_headroom};
+    use super::{
+        band, ceiling, ceiling_with_headroom, floor, floor_with_headroom, margin, population,
+    };
 
     /// A bound that sits on its population is what a ratchet is, in both directions.
     #[test]
@@ -265,6 +396,82 @@ mod tests {
             10,
             2,
             "a reference upgrade",
+        );
+    }
+
+    /// Trap 13: what [`margin`] says has to be shown saying each of the three things it says.
+    #[test]
+    fn a_margin_names_the_nearer_edge_and_how_far_it_is() {
+        assert!(
+            margin(11.0, 10.0, 20.0).starts_with("1.000 from the low edge (10%"),
+            "a figure a tenth of the way in is a tenth of the band from the low edge: {}",
+            margin(11.0, 10.0, 20.0)
+        );
+        assert!(
+            margin(19.5, 10.0, 20.0).starts_with("0.500 from the high edge (5%"),
+            "the nearer edge is the one reported: {}",
+            margin(19.5, 10.0, 20.0)
+        );
+        assert_eq!(
+            margin(9.0, 10.0, 20.0),
+            "1.000 past the low edge",
+            "a figure outside its band says so, and by how much"
+        );
+        assert_eq!(
+            margin(22.0, 10.0, 20.0),
+            "2.000 past the high edge",
+            "and the same above the band"
+        );
+    }
+
+    /// A band prints and does not assert, which is the one thing about it a reader must not
+    /// have to take on trust: a figure outside its band returns from this call.
+    #[test]
+    fn a_band_prints_a_figure_outside_it_rather_than_failing() {
+        band("the cold open", 0.90, 0.49, 0.80);
+    }
+
+    /// The three documents a gate would name, found and named alike, is what holding looks like.
+    #[test]
+    fn a_named_population_that_matches_holds() {
+        population(
+            "documents that need a password",
+            ["a.pdf", "b.pdf"].map(str::to_owned),
+            &["a.pdf", "b.pdf"],
+        );
+    }
+
+    /// Trap 13, one direction: a document the list does not name is named as having joined.
+    #[test]
+    #[should_panic(expected = "joined [\"c.pdf\"], left []")]
+    fn a_document_that_joined_is_named() {
+        population(
+            "documents that need a password",
+            ["a.pdf", "b.pdf", "c.pdf"].map(str::to_owned),
+            &["a.pdf", "b.pdf"],
+        );
+    }
+
+    /// Trap 13, the other direction: a name the run no longer finds is named as having left.
+    #[test]
+    #[should_panic(expected = "joined [], left [\"b.pdf\"]")]
+    fn a_document_that_left_is_named() {
+        population(
+            "documents that need a password",
+            ["a.pdf"].map(str::to_owned),
+            &["a.pdf", "b.pdf"],
+        );
+    }
+
+    /// And the case that is the whole reason a name beats a count: one joined, one left, and the
+    /// count identical on both sides of the swap.
+    #[test]
+    #[should_panic(expected = "joined [\"c.pdf\"], left [\"b.pdf\"]")]
+    fn a_swap_a_count_cannot_see_is_named() {
+        population(
+            "documents that need a password",
+            ["a.pdf", "c.pdf"].map(str::to_owned),
+            &["a.pdf", "b.pdf"],
         );
     }
 }

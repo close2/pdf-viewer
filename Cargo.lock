@@ -4894,6 +4894,7 @@ dependencies = [
  "pdf-model",
  "pdf-render",
  "pdf-sandbox",
+ "pdf-signature",
  "pdf-syntax",
  "png",
  "rayon",
@@ -4924,6 +4925,7 @@ version = "0.1.0"
 dependencies = [
  "pdf-model",
  "pdf-render",
+ "pdf-signature",
  "pdf-syntax",
  "render-cpu",
  "viewer-core",
@@ -4951,6 +4953,7 @@ version = "0.1.0"
 dependencies = [
  "pdf-model",
  "pdf-render",
+ "pdf-signature",
  "pdf-syntax",
  "render-cpu",
  "thiserror 2.0.19",
@@ -4978,6 +4981,7 @@ name = "viewer-ui"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "gate-ratchet",
  "log",
  "pdf-font",
  "pdf-model",

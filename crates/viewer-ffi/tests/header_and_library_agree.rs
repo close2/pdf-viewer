@@ -25,11 +25,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
-    DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind, FolderTextKind,
-    InitialKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind, PixelFormat,
-    PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind,
-    ScopeKind, SelectKind, ShortfallKind, Status, TextKind,
+    AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
+    ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
+    FolderTextKind, InitialKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind,
+    PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind,
+    RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -131,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        178,
+        179,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -298,6 +298,20 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         // arrived with the event and the entry point that answer it (ADR 0814).
         ("QUORRA_RESTRICT_ASK", RestrictKind::Ask),
         ("QUORRA_RESTRICT_WARN", RestrictKind::Warn),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    // §12.8.1's third question: what a reader does where §12.8.4's material settles nothing about
+    // revocation, which `quorra_trust_anchors` takes beside the anchors themselves (ADR 1076).
+    for (name, kind) in [
+        (
+            "QUORRA_ACCEPT_REVOCATION_MUST_BE_GOOD",
+            AcceptKind::RevocationMustBeGood,
+        ),
+        (
+            "QUORRA_ACCEPT_UNKNOWN_REVOCATION",
+            AcceptKind::UnknownRevocationAccepted,
+        ),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

@@ -56,6 +56,9 @@ arboard.workspace = true
 # dev-dependencies because the shell itself will drive rendering through `viewer-core`
 # rather than reaching for a backend directly.
 [dev-dependencies]
+# The bands `tests/launch_path.rs` holds, each printed beside the figure it bounds and the
+# distance to its nearer edge (ADR 1075, ADR 1081).
+gate-ratchet.workspace = true
 test-scenes.workspace = true
 # `examples/chrome_ladder` writes the frames it measured, so a person can look at the one the
 # numbers accuse (trap 1).

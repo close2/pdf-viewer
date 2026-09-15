@@ -502,6 +502,45 @@ impl RestrictKind {
     }
 }
 
+/// What a reader does where §12.8.4's material settles nothing about revocation.
+///
+/// **ADR 1067's rule is not what this expresses.** A `Revocation::Good` stays "only ever the output
+/// of arithmetic this program performed" whatever a caller passes; what this decides is whether a
+/// verdict resting on an undetermined status is one this reader will act on. RFC 5280 section 6.3.3
+/// ends by returning the status `UNDETERMINED` where nothing settled it, and its remedy — fetch a
+/// newer list — is the one branch a document cannot supply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AcceptKind {
+    /// Nothing short of a status this program computed will do. The default.
+    RevocationMustBeGood = 0,
+    /// An undetermined status is admitted, and the reason travels into the verdict.
+    UnknownRevocationAccepted = 1,
+}
+
+impl AcceptKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::RevocationMustBeGood,
+            1 => Self::UnknownRevocationAccepted,
+            _ => return None,
+        })
+    }
+
+    /// What `pdf-signature` calls it.
+    #[must_use]
+    pub const fn acceptance(self) -> pdf_signature::verdict::Acceptance {
+        match self {
+            Self::RevocationMustBeGood => pdf_signature::verdict::Acceptance::RevocationMustBeGood,
+            Self::UnknownRevocationAccepted => {
+                pdf_signature::verdict::Acceptance::UnknownRevocationAccepted
+            }
+        }
+    }
+}
+
 /// Where `quorra_attach` puts the file: [`viewer_core::AttachHome`], numbered for C.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]

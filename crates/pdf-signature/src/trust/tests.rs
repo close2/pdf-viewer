@@ -39,7 +39,7 @@ fn certificate(bytes: &[u8]) -> Certificate<'_> {
     parse(bytes).expect("a fixture certificate this tree issued parses")
 }
 
-mod fixtures {
+pub(crate) mod fixtures {
     /// The trust anchor of the fixture hierarchy: a self-signed CA, 2026 to 2036.
     ///
     /// Built once with `openssl` and pasted in, on the footing [`crate::x509::fixtures`] states:
@@ -48,7 +48,7 @@ mod fixtures {
     /// corpus document can stand in — a positive path validation needs a hierarchy whose *private*
     /// keys somebody here held, and the certificates in the corpus's signatures are real ones
     /// nobody here can issue under.
-    pub(super) const ROOT: &str = "\
+    pub(crate) const ROOT: &str = "\
         30820306308201eea003020102021470871fda503ba52cebf609b193a5742a90\
         a86b02300d06092a864886f70d01010b0500301b3119301706035504030c1071\
         756f727261207465737420726f6f74301e170d3236303130313030303030305a\

@@ -98,7 +98,42 @@ const MAX_UNOPENABLE: usize = 0;
 /// `auth-event-ef-open.pdf` — the same bytes plus that one line — is the file the tolerance was
 /// actually for. A locked document is one waiting for a person, which this one now is, and the
 /// entry is load-bearing for the first time. ADR 1040.
-const MAX_LOCKED: usize = 10;
+///
+/// **Named rather than counted since the thousand-and-sixty-seventh session**, because a ceiling
+/// of ten cannot tell a document that *started* needing a password from one that *stopped*, and
+/// both are findings — a file this reader stopped decrypting and a file whose password began
+/// working are the same number and opposite news (ADR 1081). The count is still printed beside the
+/// length of this list, so the ratchet table stays whole. Each name carries where its password
+/// comes from; `pdf-syntax`'s `encryption.rs` is what opens all ten with it.
+const LOCKED: [&str; 10] = [
+    // §7.6.4.4's user password, published in the pdf.js issue or pull request each file is named
+    // after, and opened with it by `encryption.rs`'s
+    // `a_document_with_a_password_opens_with_it_and_not_without`: `test`.
+    "issue15893_reduced.pdf",
+    // `ELXRTQWS`.
+    "issue3371.pdf",
+    // `Hello`.
+    "bug1782186.pdf",
+    // `abc`.
+    "issue6010_1.pdf",
+    // `æøå`, which has to reach the hash as UTF-8 (§7.6.4.1's preprocessing).
+    "issue6010_2.pdf",
+    // `SªSL­prep`, the one SASLprep *changes*: U+00AA normalises to `a` and U+00AD maps to
+    // nothing, which is what makes §7.6.4.1's preprocessing load-bearing rather than decorative.
+    "saslprep-r6.pdf",
+    // `asdfasdf`, from pull request #6531's discussion — a user password and no owner password.
+    "pr6531_1.pdf",
+    // `1234`, in no issue at all: it is typed into pdf.js's own browser test, which is the only
+    // place the file is used.
+    "print_protection.pdf",
+    // `pässwört`, and this one is /R 5 — refused outright until ADR 0820 read §7.6.4.1 as stating
+    // a requirement about revision 5 rather than a silence.
+    "issue21579.pdf",
+    // No password anybody has recorded, and it is here by a reading rather than by a failure:
+    // §7.6.6 binds a failed authorization to the stream, this file states no `/AuthEvent`, and
+    // Table 25's default `DocOpen` therefore wants the key at the open. ADR 1040.
+    "encrypted-attachment.pdf",
+];
 
 /// Documents whose encryption this reader does not implement.
 ///
@@ -150,7 +185,19 @@ const MAX_LOCKED: usize = 10;
 /// mode this refusal exists to avoid, and §7.6.2 is what forbids it: only "[t]he absence of
 /// this entry from the trailer dictionary" lets a processor consider the document unencrypted,
 /// and the entry is present.
-const MAX_UNREADABLE_ENCRYPTION: usize = 1;
+///
+/// **Named rather than counted since the thousand-and-sixty-seventh session** (ADR 1081), and on
+/// a population of one the difference is the whole of it: a ceiling of one holds just as well when
+/// the one document is a *different* document, and this reader declining a second file's
+/// encryption while learning the first is exactly the swap a count cannot see.
+const UNREADABLE_ENCRYPTION: [&str; 1] = [
+    // Not a revision, a crypt filter method, a public-key handler or an AES variant: `6 0 obj`
+    // reads `E<` where §7.3.7 puts `<<`, so §7.3.10 makes `/Encrypt 6 0 R` the null object and
+    // no clause says how to read a dictionary whose opening token is gone. The paragraphs above
+    // are the thousand-and-fifty-eighth session's reading of it, with the control that opens the
+    // file when the byte is restored.
+    "PDFBOX-4352-0.pdf",
+];
 
 /// Documents that open but whose first page cannot be reached.
 ///
@@ -306,7 +353,36 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 1;
 ///   is no reading to raise confidence in until the filter is published. What is owed meanwhile
 ///   is loudness, and the file is not silent: the rebuild note says one of its object streams
 ///   could not be read, and the gate now says which clause the page tree stopped at.
-const MAX_PAGELESS: usize = 5;
+///
+/// **Named rather than counted since the thousand-and-sixty-seventh session** (ADR 1081). The five
+/// were opened one by one in the thousand-and-fifty-eighth and the paragraphs above are what each
+/// answer was; a count of five could not have said that one of them had been replaced by a sixth
+/// file failing for a sixth reason, which is the direction this population moves in when it moves
+/// at all. [`why_no_page_one`] is what the run prints beside each name, so the clause a file
+/// stopped at is on the output rather than only here.
+const PAGELESS: [&str; 5] = [
+    // 184 bytes of unterminated dictionaries, no `xref` and no `startxref`. All four references
+    // refuse; the Mozilla bug it is named after is a null dereference in Firefox's worker
+    // shutdown, so the file was never a document.
+    "bug1020226.pdf",
+    // Linearised and truncated at 871 of the 7945 bytes its own `/L` states; no object past 13 is
+    // in the file. All four references refuse. There is no page to lose.
+    "REDHAT-1531897-0.pdf",
+    // Fuzzed twice over: the `/Kids` `[` became a NUL, which §7.2.3 makes white space, so the
+    // entry is a bare reference where Table 30 requires an array — and object 3 does not parse
+    // either. Nothing declares Table 31's `/Type /Page`. All four references refuse.
+    "poppler-937-0-fuzzed.pdf",
+    // `3 18446744073709551616 obj` is a generation number outside any representation §7.3.3
+    // permits, so the file defines no object `3 0` and §7.3.10 makes the reference the null
+    // object. Three references refuse; `hayro` draws a 595 × 65535 raster, which is evidence
+    // about `hayro`.
+    "poppler-85140-0.pdf",
+    // Every object including the cross-reference stream is `/BrotliDecode`, which ISO 32000-2
+    // does not define — `doc/md/` holds not one occurrence of the name — so the catalogue comes
+    // from a scan and its `/Pages` lives in the one object stream this reader cannot inflate.
+    // `mupdf` and `ghostscript` draw it in full; nothing is owed until the filter is published.
+    "Brotli-Prototype-FileA.pdf",
+];
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
@@ -678,7 +754,7 @@ const MAX_PAGELESS: usize = 5;
 /// two of them into the oracle's *agreeing* set: 837 pages to 839.
 ///
 /// **86 to 90 in the hundred-and-seventh session, and it is a rise on purpose.** Six documents
-/// that had no page one now have one (see `MAX_PAGELESS`), and five of them report something —
+/// that had no page one now have one (see [`PAGELESS`]), and five of them report something —
 /// a form-depth cycle the file is named for, two whose content is ciphertext this reader derives
 /// the wrong key for, and a fuzzed file whose content stream does not inflate. Trap 5: a rise in
 /// this count is not a regression when it is a new report, and here it is not even that — it is
@@ -1413,7 +1489,7 @@ fn corpus() -> Option<Vec<PathBuf>> {
 /// the clause it comes from, and none of them consults another renderer.
 ///
 /// **It reports and it does not judge.** Nothing here decides whether the document *should*
-/// have had a page — [`MAX_PAGELESS`] is where that is held, and its doc comment is where each
+/// have had a page — [`PAGELESS`] is where that is held, and its doc comment is where each
 /// of these files is argued.
 ///
 /// Every one of its six answers is planted and named in
@@ -1830,20 +1906,24 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.unopenable.len(),
         MAX_UNOPENABLE,
     );
-    gate_ratchet::ceiling(
+    // Three of the five are held by **name** rather than by count, because each already knew its
+    // members: a ceiling says ten and ten again when one document has left and another arrived,
+    // and both halves of that swap are findings (ADR 1081). The count still prints, beside the
+    // length of the list, so the table above and below these three is one table.
+    gate_ratchet::population(
         "documents that need a password",
-        tally.locked.len(),
-        MAX_LOCKED,
+        tally.locked.iter().cloned(),
+        &LOCKED,
     );
-    gate_ratchet::ceiling(
+    gate_ratchet::population(
         "documents encrypted in a way this reader does not implement",
-        tally.unreadable_encryption.len(),
-        MAX_UNREADABLE_ENCRYPTION,
+        tally.unreadable_encryption.iter().cloned(),
+        &UNREADABLE_ENCRYPTION,
     );
-    gate_ratchet::ceiling(
+    gate_ratchet::population(
         "documents with no reachable first page",
-        tally.pageless.len(),
-        MAX_PAGELESS,
+        tally.pageless.iter().map(|(name, _)| name.clone()),
+        &PAGELESS,
     );
     gate_ratchet::ceiling(
         "documents that draw incompletely",

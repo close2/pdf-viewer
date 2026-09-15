@@ -446,7 +446,7 @@ fn a_document_with_no_timestamp_has_no_chain_and_nothing_to_refuse() {
     assert!(chain.refused.is_empty());
 }
 
-mod fixtures {
+pub(crate) mod fixtures {
     use std::fmt::Write as _;
 
     use crate::cms::Digest;
@@ -462,7 +462,7 @@ mod fixtures {
     ///
     /// The offsets are recorded as the bytes are laid down rather than patched afterwards, so the
     /// cross-reference tables are right by construction.
-    pub(super) fn two_timestamps(material_last: bool) -> Vec<u8> {
+    pub(crate) fn two_timestamps(material_last: bool) -> Vec<u8> {
         /// Hexadecimal characters reserved for each signature value.
         const ROOM: usize = 1024;
         let value = format!("<{}>", "0".repeat(ROOM));
@@ -602,7 +602,7 @@ mod fixtures {
     }
 
     /// A document with no signature dictionary at all.
-    pub(super) fn unsigned() -> Vec<u8> {
+    pub(crate) fn unsigned() -> Vec<u8> {
         let mut file = Layout::default();
         file.bytes.extend_from_slice(b"%PDF-1.7\n");
         file.put(1, "<< /Type /Catalog /Pages 2 0 R >>");
@@ -618,7 +618,7 @@ mod fixtures {
     /// vector exercises the whole of RFC 3161 section 2.4.2's grammar. The signer is an end-entity
     /// certificate asserting `id-kp-timeStamping`, issued by [`ROOT`] and carried inside the token
     /// itself, which is what lets a path be built from the token alone.
-    pub(super) const TOKEN: &str = "\
+    pub(crate) const TOKEN: &str = "\
         3082062306092a864886f70d010702a082061430820610020103310f300d0609\
         60864801650304020105003081af060b2a864886f70d0109100104a0819f0481\
         9c30819902010106042a0304013031300d060960864801650304020105000420\
@@ -674,7 +674,7 @@ mod fixtures {
     ///
     /// Supplied as RFC 5280 section 6.1.1's input (d) by the tests above and by nothing else in
     /// this tree: a trust anchor is a host's to name, and no host here names one (ADR 1039).
-    pub(super) const ROOT: &str = "\
+    pub(crate) const ROOT: &str = "\
         30820307308201efa003020102020101300d06092a864886f70d01010b050030\
         253123302106035504030c1a71756f7272612074696d657374616d7020746573\
         7420726f6f74301e170d3236303130313030303030305a170d33363031303130\

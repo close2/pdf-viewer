@@ -68,10 +68,13 @@ fn main() {
                 state.set_magnification(Some(1.0));
                 let (first, replacement) =
                     pdf_model::content::interpret_replaceable(&document, &page, &state, &fonts);
-                // The seam's own condition, checked on the wide population rather than asserted:
-                // a page §12.5.3 makes view-dependent and that kept nothing to replace from would
-                // re-interpret for ever, silently and correctly, which is the shape no gate reads.
-                if first.view_dependent != replacement.is_some() {
+                // The seam's own condition, checked on the wide population rather than asserted.
+                // **One direction only, since ADR 1080**: a page kept for replacement that is not
+                // view-dependent is a list nothing will ever ask to move, and the other direction
+                // is now a page §8.7.3.1's lattice made view-dependent — it re-interprets on every
+                // zoom, which is what a tiling asking for Table 74's constant spacing needs and
+                // not a defect.
+                if replacement.is_some() && !first.view_dependent {
                     unpaired = unpaired.saturating_add(1);
                     println!(
                         "{} page {}: view_dependent {} but replacement {}",

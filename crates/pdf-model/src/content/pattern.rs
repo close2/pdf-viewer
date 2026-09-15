@@ -1883,34 +1883,19 @@ impl Interpreter<'_> {
             return None;
         };
 
-        // Table 74's `/TilingType`, read here and given value 2's treatment whatever it says.
+        // Table 74's `/TilingType`, "[a] code that controls adjustments to the spacing of tiles
+        // relative to the device pixel grid". `pdf_render::lattice` carries the three codes and
+        // the arithmetic each one asks for; [`Interpreter::lattice`] below is where the device
+        // pixel grid comes from, and ADR 1080 is why the answer lives in those two places.
         //
-        // The entry is "[a] code that controls adjustments to the spacing of tiles relative to the
-        // device pixel grid", and a display list has no such grid in it: the sites below are
-        // multiples of `/XStep` and `/YStep` in *pattern* space, and each backend rasterises them
-        // at whatever resolution it was asked for, which is what lets a zoom re-rasterise without
-        // re-interpreting. So what this tree draws is the geometry the file states, undistorted and
-        // unsnapped — which is Table 74's value 2 in its own words, "[t]he pattern cell shall not
-        // be distorted, but the spacing between pattern cells may vary by as much as 1 device
-        // pixel, both horizontally and vertically, when the pattern is painted."
-        //
-        // **Values 1 and 3 ask for something else and get this**, and the clause bounds what that
-        // costs: value 1 wants cells "spaced consistently" by a whole number of device pixels, and
-        // permits the cell to be distorted to achieve it with "[t]he amount of distortion shall not
-        // exceed 1 device pixel"; value 3 is the same with more distortion permitted "to enable a
-        // more efficient" tiling. A conforming type 1 rendering is therefore within a device pixel
-        // of the geometry stated, and so is this one — the placement differs, no mark does.
-        //
-        // **It is read and not *reported*, which is a decision and not an omission** (ADR 1031).
-        // Trap 5's usual answer is the other one, and it was measured before it was declined: an
-        // `Unsupported` here puts seven of this corpus's documents on `corpus.rs`'s incomplete
-        // list — every one of them a tiling document — and an incomplete page leaves the oracle's
-        // judged population, taking `tiling-pattern-box.pdf page 1` and
-        // `tiling_patterns_variations.pdf page 1` out of its ambiguous buckets with their
-        // diagnoses. That is ADR 0563's shape exactly: a report that costs the judgement of the
-        // very pages the clause is about, for a difference the clause itself bounds at one device
-        // pixel. `examples/tiling_type_census.rs` is what counts the population instead.
-        let _ = self.document.get_key(dict, "TilingType");
+        // It is read and not **reported**, which is a decision and not an omission (ADR 1031):
+        // an `Unsupported` here would name a departure on almost every patterned page in the
+        // world, and take each of them off the oracle's judged list to say it.
+        let tiling_type = self
+            .document
+            .get_key(dict, "TilingType")
+            .as_integer()
+            .and_then(pdf_render::TilingType::from_code);
         // `/XStep` and `/YStep` may differ from the cell's bounding box, which is how a
         // pattern tiles with gaps or with overlap. Zero would mean an infinite number of
         // cells in one place, so the specification forbids it and so does this.
@@ -2005,15 +1990,65 @@ impl Interpreter<'_> {
             _ => None,
         };
 
+        // §8.7.2: the pattern matrix "maps the pattern's internal coordinate system to the
+        // default coordinate system of the pattern's parent content stream", which `base` holds.
+        let stated = crate::shading::matrix_of(self.document, dict, "Matrix").then(self.base);
+
         Some(Rc::new(Tiling {
             content,
             resources,
             source,
             step,
             bbox: cell_box,
-            to_page: crate::shading::matrix_of(self.document, dict, "Matrix").then(self.base),
+            to_page: self.lattice(tiling_type, stated, step, cell_box),
             tint,
         }))
+    }
+
+    /// Table 74's `/TilingType` applied to one pattern's matrix (§8.7.3.1).
+    ///
+    /// Codes 1 and 3 ask for cells "spaced consistently - that is, by a multiple of a device
+    /// pixel"; [`pdf_render::snap_lattice`] is that sentence's arithmetic and states what each
+    /// code gets. This function is the other half of the answer — **where a device pixel comes
+    /// from** — and there is exactly one place in this tree that knows: `ViewState`'s
+    /// magnification, in device pixels per default user space unit, which §12.5.3's `NoZoom` put
+    /// there for the same reason. A caller that has stated none is drawing at no particular
+    /// resolution, so there is no grid to snap to and the tiling is placed at the geometry the
+    /// file states — which is code 2's treatment, and which is what every caller that never
+    /// mentions a magnification has always had.
+    ///
+    /// A page whose lattice the magnification can move is view-dependent in the sense
+    /// [`Interpretation::view_dependent`](crate::content::Interpretation::view_dependent) already
+    /// carries, so [`Self::magnified_tiling`] is set and a zoom re-interprets rather than
+    /// re-rasterising. It is set whenever a constant-spacing tiling is placed under a stated
+    /// magnification, and not only where the snap was taken: whether it is taken is itself a
+    /// function of the magnification, so a page where it was declined would otherwise keep a list
+    /// that a different magnification would have snapped. ADR 1080.
+    fn lattice(
+        &mut self,
+        tiling_type: Option<pdf_render::TilingType>,
+        stated: Transform,
+        step: (f32, f32),
+        cell: Option<[f32; 4]>,
+    ) -> Transform {
+        if !tiling_type.is_some_and(pdf_render::TilingType::constant_spacing) {
+            return stated;
+        }
+        let Some(pixels_per_unit) = self.view.magnification() else {
+            return stated;
+        };
+        self.magnified_tiling = true;
+        // What the distortion is measured across. Table 74 makes `/BBox` required and a pattern
+        // stating none is tiled as though its cell were one step across, which is the same
+        // fallback `spans` uses.
+        let extent = cell.map_or((step.0.abs(), step.1.abs()), |corners| {
+            (
+                (corners[2] - corners[0]).abs(),
+                (corners[3] - corners[1]).abs(),
+            )
+        });
+        pdf_render::snap_lattice(stated, step, extent, pixels_per_unit)
+            .map_or(stated, |lattice| lattice.to_page)
     }
 }
 

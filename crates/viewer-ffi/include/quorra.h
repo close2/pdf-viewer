@@ -120,6 +120,13 @@ extern "C" {
 #define QUORRA_RESTRICT_ASK  2u
 #define QUORRA_RESTRICT_WARN 3u
 
+/* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
+ * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC
+ * 5280 section 6.3.3 returns UNDETERMINED and this library says so — and this decides only whether
+ * a verdict resting on one is acted on. MUST_BE_GOOD is the default. */
+#define QUORRA_ACCEPT_REVOCATION_MUST_BE_GOOD 0u
+#define QUORRA_ACCEPT_UNKNOWN_REVOCATION      1u
+
 /* Where quorra_attach puts a file: §7.7.4's /EmbeddedFiles tree, or §12.5.6.15's annotation on the
  * page under a point. */
 #define QUORRA_ATTACH_DOCUMENT 0u
@@ -663,6 +670,26 @@ int32_t quorra_layout(quorra_viewer *viewer, uint32_t layout, quorra_events **ev
 int32_t quorra_restrict(quorra_viewer *viewer, uint32_t level, quorra_events **events);
 /* §6.3.2.2's "unless otherwise instructed". QUORRA_DELEGATE_*. Re-interprets the page. */
 int32_t quorra_delegate(quorra_viewer *viewer, uint32_t appearances, quorra_events **events);
+/* §12.8.1's third question: which certification authorities this reader will end a path at.
+ *
+ * This library ships no root list and reads no platform certificate store. RFC 5280 section 6.1.1
+ * makes the trust anchors input (d) of nine and says whose choice they are — "The selection of a
+ * trust anchor is a matter of policy" — so a caller that never calls this gets, for every signature
+ * in every document, the answer that nobody named one. That is a statement about this program and
+ * not about any document.
+ *
+ * certificates is count pointers to DER Certificate encodings and lengths their lengths. names may
+ * be NULL, or count NUL-terminated strings naming each one — whatever the caller knows them by,
+ * which is what a certificate this library will not read is reported against. source is the
+ * sentence saying where they came from: a reader told a signature is valid is owed "according to
+ * whom", and only the caller can say. at is section 6.1.1's input (b), seconds since the Unix
+ * epoch, because this library asks no clock. acceptance is QUORRA_ACCEPT_*.
+ *
+ * A count of 0 clears the store. The bytes are copied before this returns. */
+int32_t quorra_trust_anchors(quorra_viewer *viewer, const uint8_t *const *certificates,
+                       const size_t *lengths, const char *const *names, size_t count,
+                       const char *source, int64_t at, uint32_t acceptance,
+                       quorra_events **events);
 
 /* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */

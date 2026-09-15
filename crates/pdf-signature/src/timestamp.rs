@@ -1016,4 +1016,4 @@ fn split_material(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

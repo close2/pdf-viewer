@@ -721,6 +721,59 @@ const DIFFERS_IN_SHAPE: [&str; 16] = [
 ];
 
 /// The two groups as one list, sorted as the run produces them.
+///
+/// # The split that matters is not the one the two arrays make
+///
+/// Both arrays above are cut by *structural similarity*, which is a classifier's line rather than
+/// a cause's: every figure this gate prints compares pixel against pixel at one scale, and two
+/// unrelated faults read the same there — the same ink in different places, and different amounts
+/// of ink. Only the second is something a clause arbitrates, and `examples/ink_ladder.rs` is what
+/// separates them: each backend's total ink at 1×, 2×, 4× and 8×, scale-normalised, so that the
+/// geometry the page states is the reference rather than either backend. Run it over this list
+/// before reading a page's three numbers as a defect.
+///
+/// **A page whose two totals agree at every rung has nothing missing and nothing mis-sized**, and
+/// what is left is where each rasteriser puts a boundary. On this list that is the majority, and
+/// the coarser of the two placements is **this tree's own**: `tiny-skia` supersamples four times
+/// per pixel row and quantises a run to quarter-pixel steps along `x`, so `render-cpu` states
+/// every path edge on a quarter-pixel grid and its coverage is a multiple of a sixteenth — the
+/// arithmetic `render_cpu`'s scan module names and `pdf_render::sub_pixel`'s module comment
+/// measures. raster has no such quantum, and ISO 32000-2 §10.7.4 says which grid a shape's
+/// coordinates are *not* snapped to:
+///
+/// > Its coordinates are mapped into device space but not rounded to device pixel boundaries.
+///
+/// The tree has moved three shape classes off that quantum one at a time — a rectangular fill and
+/// a rectangular clip region (ADR 0476), a path of axis-aligned portions (ADR 0583), a sub-pixel
+/// rule (ADR 0226) — and what is left is the general path, which is what small text is made of.
+/// So a text page on this list is **the oracle rounding and raster not**, and it stays here until
+/// that converter changes rather than because either backend drew the wrong picture.
+///
+/// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
+/// says what it is. A gap that halves at every rung is a cost paid per boundary pixel:
+/// `issue16473.pdf`, `issue19083.pdf`, `bug1844583.pdf` and `bug1978317.pdf` are raster short of
+/// the oracle at 1× and level with it by 4×, which is ADR 0355's clip-against-the-mark product
+/// measured in ink instead of in pixels — §10.7.4 asks for "the intersection of the set of pixels
+/// defined by the clipping region with the set of pixels for the region to be painted", and a
+/// product at a coincident boundary takes ink an intersection does not.
+/// `doc/QUORRA_FEEDBACK.md` section 24 is the standing ask. `issue20232.pdf` and `issue21068.pdf`
+/// are the same shape with the sign the other way — raster long at 1×, halving its excess at each
+/// rung — and
+/// `22060_A1_01_Plans.pdf` is the one gap on this list that does *not* close, which makes it a
+/// difference of geometry rather than of boundary and the page here worth opening next.
+///
+/// **`issue15150.pdf` is the page where the ladder convicts both backends**, and it is 449 bytes:
+/// `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s` on a 10 × 10 page, whose stroked region is the device
+/// rectangle `[0, 0.5] × [0, 0.5]` and whose area is therefore a quarter of pixel (0, 0). Both
+/// backends draw that area at 2× and above; at 1× `render-cpu` lays down 0.1875 of it and raster
+/// 0.5. The oracle's is the side §10.7.4 forbids — "[t]he area covered by painted pixels shall
+/// always be at least as large as the area of the original shape" — and the route is known:
+/// `s` closes the subpath, `tiny-skia`'s stroker then emits the outline as **two** contours, the
+/// inner one carrying a collinear vertex on each side, so `pdf_render::sub_pixel_bands` declines a
+/// path it would otherwise measure exactly and the rule falls to ADR 0268's widened band, whose
+/// ink off the top of the raster is lost. Fixing it is `pdf_render::sub_pixel`'s round rather than
+/// this one: its rectangle predicate and its contested-line test both have to move, and the
+/// predicate is shared with `pdf_render::edge`'s exact-rectangle machinery.
 fn differing_pages() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = DIFFERS_AT_THE_EDGES
         .iter()

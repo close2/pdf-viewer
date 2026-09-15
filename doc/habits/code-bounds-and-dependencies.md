@@ -169,6 +169,15 @@ Read by: a round that writes code, sets or lifts a bound, or takes a dependency.
   `cargo clean --profile gates -p …` and `--profile release -p …` too, then
   `grep -rl <the dead path> <target>/*/build/*/output` until it prints nothing.
 
+  The same directory has a second way to lie, seen at the merge of sessions 1062-1067: the FFI
+  tests' nested `cargo test --no-run --package viewer-ffi` failed compiling `pdf-model` against a
+  `pdf_render` with no `TilingType`, while the workspace build had just compiled the same crates
+  green. `-v` showed the cause in one word — `Fresh pdf-render` — cargo reusing, for that one
+  `--package` graph, an rlib built before the module existed. No feature, no path: a fingerprint
+  miss. `cargo clean -p pdf-render` was the whole repair. So when a nested or `--package` build
+  disagrees with the workspace build about what a crate exports, ask `-v` whether the crate is
+  `Fresh` before reading any source.
+
   `tools/worktree.sh open` exists so that this cannot happen: every worktree it makes gets its
   own `target-dir` in `.cargo/config.toml`. A checkout made any other way must do the same or
   must not be deleted while anything else builds. `tools/round.sh` already checks for a build

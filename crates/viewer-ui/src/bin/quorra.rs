@@ -164,6 +164,8 @@ fn open_document(
     opens_at: Option<usize>,
     fragment: Option<&str>,
     restrictions: RestrictionLevel,
+    trust_anchors: Option<&std::path::Path>,
+    accept_unknown_revocation: bool,
 ) -> (Viewer, Vec<Event>) {
     // Open on disk rather than read whole: the core reads the trailer, the table and the objects
     // page one needs through the handle, and a document's size stops being its cost (ADR 0809).
@@ -182,6 +184,18 @@ fn open_document(
     // does is restricted, so this is about where the value *belongs* rather than about an
     // operation it would otherwise miss.
     drop(viewer.handle(Command::Restrict(restrictions)));
+    // **§12.8.1's third question, answered by whoever started this program and by nobody else.**
+    // Rule 2 again, and the same reason: the core has no filesystem and no clock, so the party
+    // that turns `--trust-anchors` into RFC 5280 section 6.1.1's inputs (d) and (b) is this one.
+    // Here rather than on the launch path because nothing about it is needed to show page one
+    // (`CLAUDE.md` principle 2), and with no directory named it reads nothing at all.
+    let (trust, refused) = viewer_host::trust_anchors(trust_anchors, accept_unknown_revocation);
+    for refusal in &refused {
+        // Said out loud rather than swallowed: a person who named six files and got four anchors
+        // would otherwise read verdicts computed under a store they did not supply (trap 5).
+        eprintln!("note: {refusal}");
+    }
+    drop(viewer.handle(Command::Trust(trust)));
     let mut events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -217,6 +231,8 @@ fn main() {
         opens_at,
         fragment,
         restrictions,
+        trust_anchors,
+        accept_unknown_revocation,
         proxy_pages,
         supersample,
         coverage,
@@ -236,7 +252,16 @@ fn main() {
     let opening = std::thread::spawn({
         let path = path.clone();
         let fragment = fragment.clone();
-        move || open_document(&path, opens_at, fragment.as_deref(), restrictions)
+        move || {
+            open_document(
+                &path,
+                opens_at,
+                fragment.as_deref(),
+                restrictions,
+                trust_anchors.as_deref(),
+                accept_unknown_revocation,
+            )
+        }
     });
 
     // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:

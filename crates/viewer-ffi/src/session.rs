@@ -738,6 +738,16 @@ impl Session {
         self.handle(Command::Delegate(appearances))
     }
 
+    /// §12.8.1's third question: which certification authorities this reader believes.
+    ///
+    /// RFC 5280 section 6.1.1's inputs (d) and (b), which ADR 1039 made a host's to supply and
+    /// this library's never to invent. An empty set is the default and is what a caller that never
+    /// calls this gets.
+    #[must_use]
+    pub fn trust(&mut self, policy: viewer_core::TrustPolicy) -> Events {
+        self.handle(Command::Trust(policy))
+    }
+
     /// How many pages on the screen this viewer has anything to say about.
     ///
     /// **The entry point a C caller could not have deduced**, and it exists for

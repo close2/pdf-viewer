@@ -50,7 +50,7 @@
 // gives up is replaced by a test that reads the sources back.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use core::ffi::{c_char, c_int};
+use core::ffi::{CStr, c_char, c_int};
 
 use pdf_render::Raster;
 use viewer_core::RenderRequest;
@@ -59,10 +59,10 @@ use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
 use crate::kinds::{
-    AttachKind, BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind, EventKind,
-    FocusKind, FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind,
-    PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind, PurposeKind,
-    RestrictKind, RowKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
+    AcceptKind, AttachKind, BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind,
+    EventKind, FocusKind, FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind,
+    PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
+    PurposeKind, RestrictKind, RowKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -2874,6 +2874,92 @@ pub unsafe extern "C" fn quorra_restrict(
     Status::Ok.code()
 }
 
+/// §12.8.1's third question: the certification authorities this reader will end a path at.
+///
+/// **A library that ships no root list, because ADR 1039 priced two defaults and refused both.** RFC
+/// 5280 section 6.1.1 makes the trust anchors input (d) of nine and says whose choice they are:
+/// "The selection of a trust anchor is a matter of policy: it could be the top CA in a hierarchical
+/// PKI, the CA that issued the verifier's own certificate(s), or any other CA in a network PKI." So
+/// this library holds none, reads no file and opens no socket, and a caller that never calls this
+/// gets exactly the answers it got before the entry point existed: every signature's third question
+/// is *nobody named one*, which is a statement about this program rather than about a document.
+///
+/// `certificates` is `count` pointers to DER `Certificate` encodings and `lengths` their lengths.
+/// `names` may be null, or `count` NUL-terminated strings naming each one — whatever the caller
+/// knows them by, which is what a refusal to read one is reported against. `source` is the sentence
+/// saying where they came from, which is not decoration: a reader told that a signature is valid is
+/// owed *valid according to whom*, and only the caller that read the certificates can say. `at` is
+/// section 6.1.1's input (b), seconds since the Unix epoch, because this library asks no clock.
+/// `acceptance` is `QUORRA_ACCEPT_*`.
+///
+/// A `count` of zero clears the store, which is how a caller withdraws one. The bytes are copied
+/// before this returns, so the caller may free them immediately.
+///
+/// **This takes no struct by value**, so [`crate::abi::QUORRA_ABI_VERSION`] does not move: an entry
+/// point *added* is one an old caller never calls.
+///
+/// # Safety
+///
+/// See the module documentation. `certificates` and `lengths` are readable for `count` elements,
+/// each `certificates[i]` readable for `lengths[i]` bytes; `names`, where not null, is readable for
+/// `count` pointers to NUL-terminated strings; `source` is a NUL-terminated string or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_trust_anchors(
+    viewer: *mut Session,
+    certificates: *const *const u8,
+    lengths: *const usize,
+    names: *const *const c_char,
+    count: usize,
+    source: *const c_char,
+    at: i64,
+    acceptance: u32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(acceptance) = AcceptKind::from_code(acceptance) else {
+        return Status::WrongKind.code();
+    };
+    if count > 0 && (certificates.is_null() || lengths.is_null()) {
+        return Status::NullArgument.code();
+    }
+    let mut held = Vec::with_capacity(count);
+    for index in 0..count {
+        let pointer = *certificates.add(index);
+        let length = *lengths.add(index);
+        if pointer.is_null() {
+            return Status::NullArgument.code();
+        }
+        let name = if names.is_null() {
+            format!("certificate {}", index.saturating_add(1))
+        } else {
+            let given = *names.add(index);
+            if given.is_null() {
+                format!("certificate {}", index.saturating_add(1))
+            } else {
+                CStr::from_ptr(given).to_string_lossy().into_owned()
+            }
+        };
+        held.push((name, core::slice::from_raw_parts(pointer, length).to_vec()));
+    }
+    let source = if source.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(source).to_string_lossy().into_owned()
+    };
+    let policy = viewer_core::TrustPolicy {
+        anchors: pdf_signature::trust::Supply::of(
+            held,
+            source,
+            pdf_signature::x509::Instant::from_unix_seconds(at),
+        ),
+        acceptance: acceptance.acceptance(),
+    };
+    *events = Box::into_raw(Box::new(viewer.trust(policy)));
+    Status::Ok.code()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]
@@ -4706,7 +4792,7 @@ pub unsafe extern "C" fn quorra_collection_folder_of(
     if key.is_null() {
         return Status::NullArgument.code();
     }
-    let Ok(key) = core::ffi::CStr::from_ptr(key).to_str() else {
+    let Ok(key) = CStr::from_ptr(key).to_str() else {
         return Status::NotUtf8.code();
     };
     let Some((folder, name)) = pdf_model::collection::folder_of(key) else {
@@ -4747,7 +4833,7 @@ unsafe fn owned_text(text: *const c_char) -> Result<Option<String>, ()> {
     if text.is_null() {
         return Ok(None);
     }
-    core::ffi::CStr::from_ptr(text)
+    CStr::from_ptr(text)
         .to_str()
         .map(|text| Some(text.to_owned()))
         .map_err(|_| ())

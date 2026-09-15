@@ -358,8 +358,16 @@ fn every_hand_written_bound_in_a_gate_is_printed_beside_its_population() {
          its fact — delete it:\n  {}",
         stale_excuse.join("\n  ")
     );
+    // **This floor was 10 and is 8, and the reason is a conversion rather than a loss.** The
+    // thousand-and-sixty-seventh session turned three of `corpus.rs`'s integer ceilings — the
+    // documents that need a password, the one encryption this reader declines, the five with no
+    // reachable first page — into named populations held by `gate_ratchet::population`, which is
+    // the stronger shape and the one `integer_constant` deliberately does not count (ADR 1081). A
+    // `&[&str]` is not a bound this scan can read, so a gate getting *better* takes three off this
+    // number. What the floor still guards is the scan itself: a reading of two would be the parse
+    // breaking rather than the gates going bare.
     assert!(
-        routed > 10,
+        routed > 8,
         "only {routed} bound(s) were found routed through gate_ratchet, which is fewer than the \
          tree holds — the scan is reading the sources wrongly rather than the gates being bare"
     );

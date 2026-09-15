@@ -591,10 +591,16 @@ impl Host {
                 self.ask_frame();
                 self.redraw();
             }
-            // §12.6.4.8: resolving a URI reaches outside the program, and this window declines
-            // by name rather than quietly. The policy a fuller host applies is `viewer_host`'s.
+            // §12.6.4.8: the same policy the other three windows ask, rather than this one's own
+            // sentence about links — the URI is resolved against the document's location first,
+            // which is the half of the clause a window can answer and the core cannot (ADR 1079).
             Event::OpenUri { uri, .. } => {
-                eprintln!("this window does not open links; the document asked for: {uri}");
+                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
+                let refused = viewer_host::policy::may_open_uri(&uri).err();
+                eprintln!(
+                    "{}",
+                    viewer_host::policy::uri_note(&uri, refused.as_deref())
+                );
             }
             // §12.7.6.2, the same way: composed by the confined process and declined here,
             // because whether this machine makes a network request is a host's answer and this

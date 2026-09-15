@@ -839,7 +839,14 @@ impl Host {
             // §12.6.4.8: handed over rather than opened. The string is one the *document*
             // controls, and giving it to a browser is a decision about this machine that this
             // host has not been given — the same answer `viewer-ui` gives.
-            Event::OpenUri { uri, .. } => self.say(&format!("link: {uri}")),
+            // §12.6.4.8: resolved against this document's own location where the action left
+            // it partial, then declined or opened by the one policy three windows share
+            // (ADR 1079). What this arm owns is saying it out loud.
+            Event::OpenUri { uri, .. } => {
+                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
+                let refused = viewer_host::policy::may_open_uri(&uri).err();
+                self.say(&viewer_host::policy::uri_note(&uri, refused.as_deref()));
+            }
             // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
             // `viewer_host::policy::may_submit`'s one answer rather than this window's (ADR 1062).
             Event::Submit { submission, .. } => self.say(&viewer_host::policy::submission_note(
