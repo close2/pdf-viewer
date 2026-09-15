@@ -490,7 +490,17 @@ pub fn band_substitute_width(path: &Path, to_device: Transform) -> Option<f32> {
             narrowest = Some(narrowest.map_or(width, |had: f32| had.min(width)));
         }
     }
-    narrowest.or_else(|| substitute_width(to_device))
+    let width = narrowest.or_else(|| substitute_width(to_device))?;
+    // Floored at [`crate::thinnest_line`], and the floor is arithmetic rather than caution: with
+    // singular values `s1 >= s2`, `|T u| / |u|` lies in `[s2, s1]` and `|det T|` is `s1 * s2`, so
+    // every direction's answer lies in `[1 / s1, 1 / s2]` — between `thinnest_line` and
+    // [`substitute_width`] — and so does the narrowest of them. In `f32` the two ends can cross by
+    // a unit in the last place, because `thinnest_line` reaches `s1` through a square root and
+    // this reaches it through a ratio, and a *caller* that compares one width against both numbers
+    // then has a gap to fall into: `render_cpu::draw_sub_pixel_rule` admits a stroke at or under
+    // `thinnest_line` and hands the widening a stroke at or under this, and a `1 w` rule on
+    // `bug1844576.pdf` sat between the two. ADR 1095.
+    Some(crate::thinnest_line(to_device).map_or(width, |floor| width.max(floor)))
 }
 
 /// A mark whose area goes as the *square* of the stroke's width, restated at a width the device
@@ -1874,6 +1884,42 @@ mod tests {
         assert!((width(&down) - 8.0).abs() < 1e-3, "{}", width(&down));
         assert!((width(&both) - 8.0).abs() < 1e-3, "{}", width(&both));
         assert!((width(&alone) - 200.0).abs() < 1e-3, "{}", width(&alone));
+    }
+
+    /// [`band_substitute_width`] is never under [`crate::thinnest_line`], and a caller comparing
+    /// one width against both of them is why that has to be true rather than nearly true.
+    ///
+    /// With singular values `s1 >= s2`, every direction's `substitute_width_across` lies in
+    /// `[1 / s1, 1 / s2]`, so the narrowest of them is at least `1 / s1`, which is
+    /// `thinnest_line`. This is `bug1844576.pdf`'s own placement — an annotation appearance
+    /// stretched by one unit in the last place, composed with a page transform that flips `y` —
+    /// where `thinnest_line` reaches `s1` through a square root and this reaches it through a
+    /// ratio, and the two came out **1.0** and **0.9999999**. A `1 w` rule then satisfied
+    /// `render_cpu::draw_sub_pixel_rule`'s entry test and failed the widening's own, so it fell
+    /// past every one of §10.7.4's substitutions to the library's hairline — where a clip
+    /// multiplies instead of intersecting, and cost that page 9.0% of its ink. ADR 1095.
+    #[test]
+    fn the_band_width_is_never_under_the_thinnest_line() {
+        let at = Transform::new(1.000_000_1, 0.0, 0.0, -1.0, 0.0, 53.75);
+        let border = path(&[
+            PathCommand::MoveTo(Point::new(0.5, 0.5)),
+            PathCommand::LineTo(Point::new(150.5, 0.5)),
+            PathCommand::LineTo(Point::new(150.5, 21.5)),
+            PathCommand::LineTo(Point::new(0.5, 21.5)),
+            PathCommand::Close,
+        ]);
+        let floor = crate::thinnest_line(at).expect("a placement with a thinnest line");
+        let band = super::band_substitute_width(&border, at).expect("a placement");
+        assert!(
+            band >= floor,
+            "a band width of {band} under a thinnest line of {floor}: a stroke between the two \
+             reaches no substitution at all"
+        );
+        // And the floor is not a licence to widen: the answer is still one device pixel across.
+        assert!(
+            band <= super::substitute_width(at).expect("a placement"),
+            "{band} above the width that is a pixel across in every direction"
+        );
     }
 
     /// A cap is restated at the width of the body it caps, not at a width of its own.

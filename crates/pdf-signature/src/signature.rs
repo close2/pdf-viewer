@@ -2982,6 +2982,34 @@ impl FieldSelection {
     }
 }
 
+/// One §12.8.2.4 transform method, as the two tables that describe it state it.
+///
+/// Table 259 says *which fields* — [`Self::selection`] — and Table 256 says *which object the
+/// analysis runs on*. They are one type because a transform that stated only one of them would be
+/// scoped by nothing: §12.8.2.1's sentence is that "[t]ransform methods, along with transform
+/// parameters, shall determine which objects are included and excluded in revision comparison",
+/// and it takes both halves to determine anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldMdp {
+    /// Table 259's `/Action` with its `/Fields`: which form fields the transform covers.
+    pub selection: FieldSelection,
+    /// Table 256's `/Data`, as the reference the entry requires it to be. §12.8.1's table:
+    ///
+    /// > (Required when TransformMethod is FieldMDP, shall be an indirect reference) An indirect
+    /// > reference to the object in the document upon which the object modification analysis
+    /// > should be performed. For transform methods other than FieldMDP , this object is
+    /// > implicitly defined.
+    ///
+    /// **The last sentence is why this entry belongs to this transform alone.** `UR` and `DocMDP`
+    /// have their object "implicitly defined", so there is nothing for a reader to read and no
+    /// `/Data` for either to state; `FieldMDP` is the one method whose subject the file names.
+    /// `None` where the file stated no `/Data`, or stated it as a direct object the entry's own
+    /// "shall be an indirect reference" forbids — the difference between the two is not kept,
+    /// because neither names an object and [`crate::revision::Comparison::against_field_mdp`]
+    /// refuses on the absence rather than on its shape.
+    pub data: Option<ObjectId>,
+}
+
 /// Every §12.7.5.5 lock a *signed* signature field in this document asserts.
 ///
 /// The clause states the prohibition in prose rather than in Table 236, and the difference
@@ -3019,6 +3047,62 @@ pub fn field_locks(document: &Document) -> Vec<FieldSelection> {
     out
 }
 
+/// The Table 256 `/TransformMethod` names this document states, each once, ascending.
+///
+/// §12.8.1's table gives the entry:
+///
+/// > (Required) The name of the transform method (see 12.8.2, "Transform methods") that shall
+/// > guide the modification analysis that takes place when the signature is validated.
+///
+/// The names are handed back as the file spells them rather than as an enumeration, because the
+/// entry's value list is the standard's and a file may state a fourth: a census that folded an
+/// unknown name into "other" would hide the one document worth looking at. The condition is
+/// [`field_locks`]'s and for its reason — a `/Reference` on a signature nobody made guides no
+/// analysis.
+///
+/// **A set rather than a list**, because the two routes below reach one signature dictionary
+/// twice: §12.8.1 requires a certification signature's dictionary to "be the value of a signature
+/// field", and §12.8.6's `/DocMDP` then points at that same object. What a caller can ask of this
+/// is which methods a document names, which is the question either route answers the same way.
+///
+/// **§12.8.6's two entries are walked beside the form tree, and leaving them out made this
+/// instrument blind to a whole transform method.** A usage rights signature is the one "referred
+/// to from the UR3 entry in the permissions dictionary", and in every document that states one it
+/// is reached from there rather than from a signature field — so a walk over the form alone
+/// counted `UR` at zero over ninety thousand documents and the zero was the walk's, not the
+/// world's (trap 13).
+#[must_use]
+pub fn transform_methods(document: &Document) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    let mut read_methods = |signature: &Dictionary| {
+        let references = document.get_key(signature, "Reference");
+        let Some(references) = references.as_array().map(<[Object]>::to_vec) else {
+            return;
+        };
+        for reference in references.iter().take(MAX_INDIRECT_VALUES) {
+            let resolved = document.resolve(reference);
+            let Some(reference) = resolved.as_dict() else {
+                continue;
+            };
+            if let Some(method) = document.get_key(reference, "TransformMethod").as_name() {
+                out.insert(String::from_utf8_lossy(method.as_bytes()).into_owned());
+            }
+        }
+    };
+    for_each_signed_field(document, |_field, signature| read_methods(signature));
+    if let Ok(catalog) = document.catalog() {
+        let perms = document.get_key(&catalog, "Perms");
+        if let Some(perms) = perms.as_dict() {
+            for key in ["DocMDP", "UR3", "UR"] {
+                if let Some(signature) = document.get_key(perms, key).as_dict() {
+                    read_methods(signature);
+                }
+            }
+        }
+    }
+    out.into_iter().collect()
+}
+
 /// Every §12.8.2.4 `FieldMDP` transform a *signed* signature field's signature states.
 ///
 /// > The FieldMDP transform method shall be used to detect changes to the values of a list of
@@ -3038,12 +3122,11 @@ pub fn field_locks(document: &Document) -> Vec<FieldSelection> {
 /// itself — and the transform is the copy inside the signed byte range, where a later incremental
 /// update cannot quietly drop it.
 ///
-/// **What is not done here is §12.8.2.2.2's comparison**, which "`FieldMDP` signatures shall be
-/// validated in a similar manner to" and which needs the signed revision reconstructed from the
-/// `/ByteRange`; [`Signature::integrity`] establishes only whether the signed bytes moved. Table
-/// 256's `/Data`, "[a]n indirect reference to the object in the document upon which the object
-/// modification analysis should be performed", is what that comparison would start from and is
-/// therefore unread rather than unnoticed: nothing here performs the analysis it scopes.
+/// **§12.8.2.2.2's comparison is `pdf_signature::revision`'s**, which "`FieldMDP` signatures shall
+/// be validated in a similar manner to", and Table 256's `/Data` is what scopes it — "[a]n
+/// indirect reference to the object in the document upon which the object modification analysis
+/// should be performed" — so it is carried beside the selection rather than dropped.
+/// [`crate::revision::Comparison::against_field_mdp`] is what performs the analysis it names.
 ///
 /// The condition is the same one [`field_locks`] applies — a signature that has been signed —
 /// and for the same reason: a `/Reference` on a signature nobody made covers nothing.
@@ -3055,7 +3138,7 @@ pub fn field_locks(document: &Document) -> Vec<FieldSelection> {
 /// "[t]ransform methods, along with transform parameters, shall determine which objects are
 /// included and excluded in revision comparison".
 #[must_use]
-pub fn field_mdp(document: &Document) -> Vec<FieldSelection> {
+pub fn field_mdp(document: &Document) -> Vec<FieldMdp> {
     let mut out = Vec::new();
     for_each_signed_field(document, |_field, signature| {
         let references = document.get_key(signature, "Reference");
@@ -3075,9 +3158,12 @@ pub fn field_mdp(document: &Document) -> Vec<FieldSelection> {
                 continue;
             }
             if let Some(parameters) = document.get_key(reference, "TransformParams").as_dict()
-                && let Some(covered) = read_selection(document, parameters)
+                && let Some(selection) = read_selection(document, parameters)
             {
-                out.push(covered);
+                out.push(FieldMdp {
+                    selection,
+                    data: reference.get("Data").and_then(Object::as_reference),
+                });
             }
         }
     });

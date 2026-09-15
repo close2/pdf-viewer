@@ -23,8 +23,8 @@ use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
 use super::jpeg2000::Specifications;
 use super::prepare::{
-    Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, Respelled,
-    intent_dictionary, metadata_stream, output_intent_entries,
+    Appearances, Cleaned, DefaultCmyk, ForbiddenAnnotations, Headers, Intent, Metadata, Prepared,
+    Respelled, intent_dictionary, metadata_stream, output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -197,6 +197,27 @@ pub enum Rewrite {
     /// §12.5.2's Table 166 already put in force by giving `/F` a default of 0. **The one bit that
     /// changes is the one the requirement is about.**
     AnnotationFlags,
+    /// Every annotation of a subtype the target's part does not admit is taken out of the
+    /// `/Annots` array of the page it is on.
+    ///
+    /// ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1 state a prohibition and no
+    /// alternative, so the only rewrite that meets either is removal.
+    /// `doc/pdf-a-conversion-limits.md` section 3.2 classes it *Ask*, which is why the decision
+    /// is a `Decision::Authorised` carrying [`super::Loss::ForbiddenAnnotation`]; `doc/adr/1099`
+    /// is the argument, and `doc/adr/0816` is why the alternative of re-badging the annotation as
+    /// a subtype the part admits is not available.
+    ///
+    /// **The reference is what is removed, and nothing hunts for the object.** The walk copies
+    /// what the converted document reaches, so an annotation no `/Annots` array names is an
+    /// object the output does not hold — and its `/Sound`, `/Movie`, `/RichMediaContent` or
+    /// `/3DD` go with it for the same reason, without this rewrite having to know their names.
+    /// A `Popup` whose `/Parent` was removed goes too: §12.5.6.14 makes it the window belonging
+    /// to some other annotation, and one whose parent is gone is a window onto nothing.
+    ///
+    /// **The normal appearance is the one part that can be kept**, and `remedy = "preserve"` is
+    /// how: [`Self::PreservedAsPage`] then holds the same stream object on an appended page, so
+    /// it stays reachable and the producer's marks stay in the archive.
+    ForbiddenAnnotationRemoved,
     /// Every annotation requiring an appearance dictionary and stating none gains an `/AP` whose
     /// `/N` names a form `XObject` constructed from the annotation's own entries.
     ///
@@ -617,6 +638,11 @@ impl Rewrite {
                 "an annotation stating no /F is given one whose only set bit is Print, which is \
                  the value the requirement asks for and the default in every other bit"
             }
+            Self::ForbiddenAnnotationRemoved => {
+                "an annotation of a subtype ISO 19005 does not admit is taken out of its page's \
+                 Annots array, and everything only that annotation reached — its media stream, \
+                 its 3D artwork, its popup — leaves the file with it"
+            }
             Self::AppearanceDictionary => {
                 "an annotation stating no appearance dictionary is given an /AP whose /N names a \
                  form XObject constructed from the entries its own subtype clause states"
@@ -755,6 +781,7 @@ impl Rewrite {
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
             Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
             Self::AnnotationFlags => "annotation-flags",
+            Self::ForbiddenAnnotationRemoved => "forbidden-annotation-removed",
             Self::AppearanceDictionary => "appearance-dictionary",
             Self::SubstituteFontProgram => "substitute-font-program",
             Self::RestateFontMetrics => "restate-font-metrics",
@@ -823,6 +850,7 @@ pub(super) fn convert(
         cleaned: prepared.properties.as_ref().ok(),
         respelled: prepared.respelled.as_ref().ok(),
         appearances: prepared.appearances.as_ref().ok(),
+        forbidden_annotations: prepared.forbidden_annotations.as_ref().ok(),
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
         rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
@@ -1525,6 +1553,8 @@ struct Rewriter<'a> {
     respelled: Option<&'a Respelled>,
     /// The appearance each annotation's `/AP` `/N` is to name, where any are being constructed.
     appearances: Option<&'a Appearances>,
+    /// The annotations to take out of their pages' `/Annots`, where any are being removed.
+    forbidden_annotations: Option<&'a ForbiddenAnnotations>,
     /// The `/FontFile` entry each font descriptor is to gain, where any are being embedded.
     substitutes: Option<&'a Substitutes>,
     /// The font program stream to write in place of each one being restated.
@@ -1639,6 +1669,9 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::PresentationSteps);
             changed = true;
+        }
+        if self.sites.pages.contains(&id) && self.wants(Rewrite::ForbiddenAnnotationRemoved) {
+            changed |= self.remove_the_forbidden_annotations(&mut out, applied);
         }
         if self.wants(Rewrite::AnnotationFlags)
             && self.sites.annotations.contains(&id)
@@ -2309,6 +2342,57 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed
+    }
+
+    /// Takes every annotation the target's part does not admit out of one page's `/Annots`.
+    ///
+    /// ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1 forbid the subtype and offer
+    /// nothing to put in its place, so the reference is what goes. Nothing hunts for the
+    /// annotation object: the walk copies what the converted document reaches, so an annotation
+    /// no array names is an object the output does not hold — and its media stream, its artwork
+    /// and its popup go with it without this rewrite naming any of them.
+    ///
+    /// **An array left empty is removed rather than written empty.** §7.7.3.3's Table 31 makes
+    /// `/Annots` optional, so a page whose every annotation the target forbids ends up saying
+    /// what it now means — this page has no annotations — rather than stating an empty array.
+    fn remove_the_forbidden_annotations(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(forbidden) = self.forbidden_annotations else {
+            return false;
+        };
+        let Some(listed) = self
+            .document
+            .get_key(out, "Annots")
+            .as_array()
+            .map(<[Object]>::to_vec)
+        else {
+            return false;
+        };
+        let kept: Vec<Object> = listed
+            .iter()
+            .filter(|entry| {
+                entry
+                    .as_reference()
+                    .is_none_or(|id| !forbidden.at.contains(&id))
+            })
+            .cloned()
+            .collect();
+        let removed = listed.len().saturating_sub(kept.len());
+        if removed == 0 {
+            return false;
+        }
+        for _ in 0..removed {
+            count(applied, Rewrite::ForbiddenAnnotationRemoved);
+        }
+        if kept.is_empty() {
+            out.remove("Annots");
+        } else {
+            out.insert(Name::new(&b"Annots"[..]), Object::Array(kept));
+        }
+        true
     }
 
     /// Adds the composed pages to the page tree's root node.

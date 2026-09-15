@@ -1134,21 +1134,26 @@ ISO 19005-4 6.2.10.8 · PDF/A-4, 4f, 4e · today `the-fence`
 
 #### `annotations/subtype-defined-in-iso-32000-1` (PDF/A-2)
 #### `annotations/subtype-defined-in-iso-32000-2` (part 4)
-ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · today `not-built-yet`
+ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · **two of the four built** (ADR 1099)
 
 - **Mitigation** — section 3.2 of the limits document says removal is the only option. **It is the
   only option for the *annotation*, and not for what the annotation carried**, and separating those
   two is the finding:
-  - `discard` the annotation, which is the limits document's section 3.2 Ask and stays the default;
+  - `discard` the annotation, which is the limits document's section 3.2 Ask and stays the default.
+    **Built**: `--authorise forbidden-annotation`, the report naming each annotation, its page and
+    whether it drew anything;
   - `preserve` its **normal appearance**, which is content the producer wrote, by appending it as a
-    page (section 1.2's appended page, `Q58` permitting). Re-badging it as a `Stamp` remains fenced
-    — that invents an annotation — but drawing the producer's own appearance stream onto a page
-    invents no marks;
+    page. **Built**: `remedy = "preserve"`, `placement = "append"`, the producer's stream invoked
+    under §12.5.5's own matrix on a page stating the source page's boxes, so no placement choice is
+    this program's. Re-badging it as a `Stamp` remains fenced — that invents an annotation — and an
+    annotation that drew nothing refuses by name rather than having an appearance constructed for
+    it to preserve. Whether the marks may go back onto the page they came off, rather than onto a
+    page of their own, is `doc/questions/Q65`;
   - `preserve` the **media stream** of a `Screen`, `Movie` or `Sound` annotation by attaching it,
     which 4f and 4e allow for any file type. The sound is then in the archive, as a file, instead of
-    being deleted;
+    being deleted. **Not built**;
   - `derive` a poster frame, key frames or a transcript through a declared tool, which is the
-    owner's own example and is never a default.
+    owner's own example and is never a default. **Not built**.
 - **By target** — differs in kind three ways. Part 2 forbids `3D`, `Sound`, `Screen` and `Movie`;
   part 4 forbids only the last three; **4e admits `3D` and `RichMedia` and 4f admits
   `FileAttachment`**, so for those subtypes the target is the shorter route and the report should

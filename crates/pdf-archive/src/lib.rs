@@ -61,7 +61,10 @@ pub use crate::finding::{Finding, Findings, Where};
 pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
-pub use crate::table::interaction::{MissingAppearance, annotations_without_an_appearance};
+pub use crate::table::interaction::{
+    ForbiddenSubtype, MissingAppearance, annotation_subtype_permitted,
+    annotations_of_a_forbidden_subtype, annotations_without_an_appearance,
+};
 pub use crate::table::metadata::{
     ContainerField, MisusedProperty, REQUIRED_PREFIXES, dates_stated, extension_container_fields,
     properties_outside_their_schema,

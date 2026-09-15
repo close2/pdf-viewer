@@ -52,7 +52,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_syntax::xref::{self, Location, XrefTable};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, SyntaxError};
 
-use crate::signature::{Coverage, Excluded, Modification, Signature, SignedEnd};
+use crate::signature::{Coverage, Excluded, FieldMdp, Modification, Signature, SignedEnd};
 
 /// Most object numbers a [`Objects`] names before it stops naming and only counts.
 ///
@@ -84,6 +84,29 @@ pub struct Comparison {
     updates_after: usize,
     /// How the two states' objects differ.
     changes: Changes,
+    /// Every changed object number, ascending and unabridged.
+    ///
+    /// [`Changes`] bounds its *naming* at [`MAX_NAMED`] and [`Ranking`] bounds its detail; this is
+    /// the population both are views of, because a selection has to be applied to all of it. It is
+    /// bounded by the file's own object count, as [`compare`]'s own set already is.
+    changed: BTreeSet<u32>,
+    /// Which form field each object of the interactive form belongs to.
+    ///
+    /// Over the whole form rather than over the changed objects alone, because Table 256's
+    /// `/Data` may name a field that did not itself change: the entry says which object the
+    /// analysis runs *on*, and answering that needs the tree whether or not the tree moved. The
+    /// walk is bounded by [`MAX_FORM_FIELDS`].
+    subjects: BTreeMap<u32, Subject>,
+    /// The objects Table 256's `/Data` may name to scope the analysis to every field there is.
+    ///
+    /// Three of them, and the first is the one a real producer writes. Table 15's `/Root` is
+    /// "[t]he catalog dictionary for the PDF file", so a `/Data` naming it puts the whole document
+    /// under the analysis and therefore every field in it — which is what
+    /// `xfa_filled_imm1344e.pdf`'s `FieldMDP` states, the corpus's only one. Table 29's
+    /// `/AcroForm` — the catalog's entry for "[t]he document's interactive form" — and Table 224's
+    /// `/Fields`, "[a]n array of references to the document's root fields (those with no ancestors
+    /// in the field hierarchy)", are the two narrower objects that reach the same population.
+    form: BTreeSet<u32>,
     /// What each changed object is, counted exactly and named up to [`MAX_NAMED`] per kind.
     ///
     /// Keyed by [`Kind`] and by the disposition of the update carrying it, because both are
@@ -248,10 +271,8 @@ impl Changes {
 /// this reader cannot place is [`Kind::Unclassified`] and is **never** ranked as permitted; the
 /// rule that governs the whole module is that a lenient default is worse than a refusal.
 ///
-/// **One of Table 257's own permitted operations has no variant here.** "[I]nstantiating page
-/// templates" (§12.7.6) is a change to the page tree that this reader does not tell apart from
-/// any other change to the page tree, so a document that instantiated one comes back
-/// [`Kind::Unclassified`] — refused rather than permitted. Named so that a later round finds it.
+/// **Table 257's third permitted operation is [`Kind::TemplateInstantiated`]**, and what tells it
+/// apart from any other page added is §12.7.7's own sentence about where a template lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
     /// The update wrote the object again and it says exactly what it said.
@@ -283,6 +304,33 @@ pub enum Kind {
     /// added. §12.7.5.5 makes the first the shape signing takes: a signature "shall be the value
     /// of a signature field".
     Signing,
+    /// A page instantiated from a template — Table 257's "instantiating page templates".
+    ///
+    /// §12.7.7 is what makes this decidable, and it decides it in two sentences. The first says
+    /// where a template is:
+    ///
+    /// > If the page is not intended to be displayed by the PDF processor, it shall be referenced
+    /// > from the name dictionary's Templates tree instead.
+    ///
+    /// and the second says what instantiating one produces:
+    ///
+    /// > A script executed by an ECMAScript action can add the named page to the current document
+    /// > as a regular page.
+    ///
+    /// So the operation takes a page the *signed* revision already held out of reach of the page
+    /// tree and puts a regular page into it — and the added page's content is that template's,
+    /// because it **is** the named page. [`instantiated`] is that test, over the content the two
+    /// pages carry rather than over the reference by which either names it: §12.7.7 states the
+    /// identity of the page and says nothing about whether an implementation shares the content
+    /// stream or copies it, so a reader that insisted on a shared object would be ranking a
+    /// mechanic the clause never fixed.
+    ///
+    /// **A page tree node carries the same kind, and only under the narrowest condition.** Adding
+    /// a page to the tree rewrites the `/Pages` node that receives it, and that rewrite is a
+    /// change to the document like any other; it is part of *this* operation only where the node
+    /// changed in Table 30's `/Kids` and `/Count` alone, gained nothing but instantiated pages,
+    /// and lost nothing. Anything else about the page tree is [`Kind::Unclassified`] and refused.
+    TemplateInstantiated,
     /// An appearance stream belonging to a field this update filled in.
     ///
     /// Filling a field is not optional about this. Table 166's `/AP`: "Every annotation
@@ -336,6 +384,44 @@ const FIELD_DEFINING: [&str; 7] = ["FT", "T", "Ff", "Kids", "Parent", "DV", "AA"
 /// reading of the clause, and a chain longer than this yields no field type rather than a wrong
 /// one, which sends the object to [`Kind::Unclassified`].
 const MAX_FIELD_ANCESTRY: usize = 64;
+
+/// How many pages of the signed revision's `/Templates` tree are held for comparison.
+///
+/// §12.7.7 states no bound on how many pages a document may name, so the population comes out of
+/// the file and this is a guard rather than a reading (trap 38). A document naming more than this
+/// has pages beyond the cut compared against nothing, which sends a page instantiated from one of
+/// them to [`Kind::Unclassified`] — a refusal, which is the direction this module always takes
+/// when it runs out of what it can establish.
+const MAX_TEMPLATES: usize = 256;
+
+/// How many bytes of one page's content are held for that comparison.
+///
+/// The same reasoning: §7.3.8's stream length is the file's to state. A template whose content
+/// exceeds this is not compared, so the page instantiated from it is refused rather than ranked.
+const MAX_TEMPLATE_CONTENT: usize = 1 << 20;
+
+/// How deep §7.9.6's name tree is followed looking for `/Templates`.
+///
+/// §7.9.6 names the three kinds of node a tree is built of and states no bound on how many levels
+/// they may be stacked in, so this is a guard against a cycle rather than a reading of the clause
+/// (trap 38): a balanced tree over any population a file can hold is far shallower.
+const MAX_NAME_TREE_DEPTH: usize = 64;
+
+/// How many objects of one interactive form are recorded for §12.8.2.4's transform to select on.
+///
+/// §12.7.3 states no bound — "[a] PDF document may contain any number of fields appearing on any
+/// combination of pages" — so the population comes out of the file (trap 38). A form larger than
+/// this leaves its remaining objects unrecorded, which makes a changed one of them
+/// [`Included::Excluded`] from the analysis rather than silently covered.
+const MAX_FORM_FIELDS: usize = 8192;
+
+/// How deep §12.7.4.1's `/Kids` hierarchy is walked building those names.
+///
+/// The mirror of [`MAX_FIELD_ANCESTRY`], which climbs the same chain from the other end, and for
+/// the same reason: "[a]n interactive PDF processor shall not limit the range of inheritance for
+/// field dictionaries", so this is a guard against a cycle and a field deeper than it is named by
+/// nothing rather than named wrongly.
+const MAX_FORM_DEPTH: usize = 32;
 
 /// What one update after the signed revision is, as far as Table 257's carve-out is concerned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -483,6 +569,144 @@ pub enum Judgement {
     },
 }
 
+/// Why §12.8.2.4's analysis has no subject to be performed on.
+///
+/// §12.8.1's Table 256 is where `/Data` is, and it says what the analysis runs over:
+///
+/// > (Required when TransformMethod is FieldMDP, shall be an indirect reference) An indirect
+/// > reference to the object in the document upon which the object modification analysis should
+/// > be performed.
+///
+/// A transform that states none, or states one naming something this reader cannot resolve to a
+/// part of the interactive form, has not scoped anything — and a ranking computed over a subject
+/// nobody chose would be this module's standing failure, an answer arrived at by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NotScoped {
+    /// The transform states no `/Data`, which Table 256 requires of this method alone.
+    #[error("the FieldMDP transform states no /Data, which Table 256 requires of it")]
+    NoData,
+    /// `/Data` names an object that is neither the interactive form nor a field in it.
+    #[error(
+        "the FieldMDP transform's /Data names object {0}, which is not this document's \
+         interactive form nor a field in it"
+    )]
+    DataIsNotTheForm(u32),
+}
+
+/// Whether §12.8.2.4's transform includes one changed object, and on what footing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Included {
+    /// The object belongs to a form field Table 259's selection names.
+    ///
+    /// §12.8.2.4's own consequence: "any modifications to specific form fields shall invalidate
+    /// that recipient's signature".
+    Covered,
+    /// The object belongs to a form field the selection does not name, so the transform permits
+    /// the change: `/Include` names "[o]nly those form fields specified in Fields".
+    Outside,
+    /// `/Data` does not scope the analysis to this object, so this transform says nothing about
+    /// it — §12.8.2.1's "excluded in revision comparison", and the word is the clause's.
+    ///
+    /// **Not a permission.** Table 257's levels rank a change §12.8.2.4 excludes;
+    /// [`Comparison::rank`] is where that answer lives, and the two transforms are asked
+    /// separately because the standard states them separately.
+    Excluded,
+    /// The object is in the interactive form and no chain of `/T` entries names its field.
+    ///
+    /// §12.7.4.2 builds a fully qualified name "from the partial field names of the field and all
+    /// of its ancestors", so a field tree that names none of them states nothing a `/Fields` array
+    /// can match — and matching it against nothing would be a lenient default.
+    Undecided,
+}
+
+/// One changed object, the field it belongs to, and what §12.8.2.4's transform says about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopedTo {
+    /// The object number.
+    pub number: u32,
+    /// §12.7.4.2's fully qualified name of the field it belongs to, where it has one.
+    pub field: Option<String>,
+    /// Whether the transform includes it.
+    pub included: Included,
+}
+
+/// §12.8.2.4's transform applied to one comparison's changes, object by object.
+///
+/// The four buckets are [`Included`]'s four answers, counted exactly and named up to
+/// [`MAX_NAMED`] apiece, the way [`Ranking`] holds Table 257's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldRanking {
+    /// Objects belonging to a field the transform covers.
+    pub covered: Objects,
+    /// Objects belonging to a field it does not cover.
+    pub outside: Objects,
+    /// Objects the transform's `/Data` does not scope the analysis to.
+    pub excluded: Objects,
+    /// Objects in the form whose field this reader could not name.
+    pub undecided: Objects,
+    /// The first [`MAX_NAMED`] in full, ascending — for a person to read.
+    pub detail: Vec<ScopedTo>,
+}
+
+impl FieldRanking {
+    /// The one-line answer, on [`Ranking::judgement`]'s conservative ordering.
+    #[must_use]
+    pub fn judgement(&self) -> FieldJudgement {
+        if !self.covered.is_empty() {
+            return FieldJudgement::CoveredFieldChanged {
+                objects: self.covered.count(),
+            };
+        }
+        if !self.undecided.is_empty() {
+            return FieldJudgement::NotClassified {
+                objects: self.undecided.count(),
+            };
+        }
+        if self.outside.is_empty() && self.excluded.is_empty() {
+            return FieldJudgement::NoChangeToRank;
+        }
+        FieldJudgement::NoCoveredFieldChanged {
+            outside: self.outside.count(),
+            excluded: self.excluded.count(),
+        }
+    }
+}
+
+/// What §12.8.2.4's transform says about a set of changes.
+///
+/// **Not a verdict on a signature**, for [`Judgement`]'s reason and one of its own — §12.8.2.4:
+///
+/// > FieldMDP signatures shall be validated in a similar manner to DocMDP signatures.
+///
+/// and §12.8.2.2.2 makes the byte range digest the step before this one. Nothing here reaches the
+/// word
+/// *valid*, which [`crate::verdict::Valid`] holds and only an anchored proof constructs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldJudgement {
+    /// Nothing in the transform's scope changed, and nothing outside it did either.
+    NoChangeToRank,
+    /// A field the transform covers changed.
+    ///
+    /// §12.8.2.4: "any modifications to specific form fields shall invalidate that recipient's
+    /// signature".
+    CoveredFieldChanged {
+        /// How many objects belonging to a covered field changed.
+        objects: u64,
+    },
+    /// Something changed and none of it was a field this transform covers.
+    NoCoveredFieldChanged {
+        /// How many changed objects belong to a field outside the selection.
+        outside: u64,
+        /// How many the `/Data` scope excludes from this analysis altogether.
+        excluded: u64,
+    },
+    /// **Refused.** Nothing covered changed and something in the form could not be named.
+    NotClassified {
+        /// How many objects could not be attributed to a field.
+        objects: u64,
+    },
+}
+
 impl Comparison {
     /// The state of `current` when `signature` was made, beside `current` itself.
     ///
@@ -544,12 +768,27 @@ impl Comparison {
         let updates_after = tables.len();
         let (changes, touched) = compare(&signed, current, end);
         let tally = classify(&signed, current, &touched, changes.catalog_moved, &tables);
+        let mut moved: BTreeSet<u32> = touched.iter().map(|&(number, _)| number).collect();
+        if changes.catalog_moved
+            && let Some(Object::Reference(root)) = current.xref().trailer().get("Root")
+        {
+            moved.insert(root.number);
+        }
+        let mut subjects = BTreeMap::new();
+        // The current state first and the signed one after it, so that a field both states hold is
+        // named as it is named now and a field the update *removed* is still named at all.
+        field_subjects(current, &mut subjects);
+        field_subjects(&signed, &mut subjects);
+        let form = form_objects(current);
         Ok(Self {
             signed,
             end,
             updates_after,
             changes,
             tally,
+            changed: moved,
+            subjects,
+            form,
         })
     }
 
@@ -626,6 +865,98 @@ impl Comparison {
     #[must_use]
     pub fn against(&self, level: Modification) -> Judgement {
         self.rank(level).judgement()
+    }
+
+    /// §12.8.2.4's transform applied to these changes: which of them it includes, and which
+    /// covered field moved.
+    ///
+    /// This is §12.8.2.1's sentence executed rather than quoted — "[t]ransform methods, along with
+    /// transform parameters, shall determine which objects are included and excluded in revision
+    /// comparison" — and it is the one transform whose parameters name a subject the file chooses.
+    /// §12.8.2.4's Table 259 says which fields:
+    ///
+    /// > (Required) A name that, along with the Fields array, describes which form fields do not
+    /// > permit changes after the signature is applied.
+    ///
+    /// and Table 256's `/Data` says which object the analysis runs on. Both are read: a field the
+    /// selection names is [`Included::Covered`], one it does not is [`Included::Outside`], and an
+    /// object the `/Data` scope does not reach is [`Included::Excluded`] — which is a statement
+    /// about *this* transform and not a permission, because [`Self::rank`] is where Table 257
+    /// ranks the same object.
+    ///
+    /// `/Fields` is matched against §12.7.4.2's fully qualified name, which Errata Collection 3's
+    /// Issue #33 writes into the entry itself; [`crate::signature::FieldSelection::covers`] carries that reading.
+    ///
+    /// # Errors
+    ///
+    /// [`NotScoped`], where Table 256's `/Data` names no subject this reader can resolve.
+    pub fn against_field_mdp(&self, transform: &FieldMdp) -> Result<FieldRanking, NotScoped> {
+        let Some(data) = transform.data else {
+            return Err(NotScoped::NoData);
+        };
+        let whole_form = self.form.contains(&data.number);
+        if !whole_form && !self.names_a_field(data.number) {
+            return Err(NotScoped::DataIsNotTheForm(data.number));
+        }
+        let mut ranking = FieldRanking {
+            covered: Objects::default(),
+            outside: Objects::default(),
+            excluded: Objects::default(),
+            undecided: Objects::default(),
+            detail: Vec::new(),
+        };
+        for &number in &self.changed {
+            let (field, included) = match self.subjects.get(&number) {
+                None => (None, Included::Excluded),
+                Some(Subject::Unnamed) => (None, Included::Undecided),
+                Some(Subject::Field { name, under }) => {
+                    if whole_form || under.contains(&data.number) {
+                        let included = if transform.selection.covers(name) {
+                            Included::Covered
+                        } else {
+                            Included::Outside
+                        };
+                        (Some(name.clone()), included)
+                    } else {
+                        (Some(name.clone()), Included::Excluded)
+                    }
+                }
+            };
+            match included {
+                Included::Covered => ranking.covered.push(number),
+                Included::Outside => ranking.outside.push(number),
+                Included::Excluded => ranking.excluded.push(number),
+                Included::Undecided => ranking.undecided.push(number),
+            }
+            if ranking.detail.len() < MAX_NAMED {
+                ranking.detail.push(ScopedTo {
+                    number,
+                    field,
+                    included,
+                });
+            }
+        }
+        Ok(ranking)
+    }
+
+    /// The one-line answer [`Self::against_field_mdp`] comes to.
+    ///
+    /// # Errors
+    ///
+    /// [`NotScoped`], for the same reason.
+    pub fn against_transform(&self, transform: &FieldMdp) -> Result<FieldJudgement, NotScoped> {
+        Ok(self.against_field_mdp(transform)?.judgement())
+    }
+
+    /// Whether `number` is a field dictionary in the interactive form.
+    ///
+    /// [`Subject::Field::under`] begins with the object itself, so a `/Data` naming a field is one
+    /// the walk recorded as its own first ancestor.
+    fn names_a_field(&self, number: u32) -> bool {
+        self.subjects.values().any(|subject| match subject {
+            Subject::Field { under, .. } => under.first() == Some(&number),
+            Subject::Unnamed => false,
+        })
     }
 }
 
@@ -740,9 +1071,14 @@ fn classify(
     tables: &BTreeSet<usize>,
 ) -> BTreeMap<(Kind, Disposition), Objects> {
     let material = validation_material(current);
+    // Read out of the **signed** revision, which is the whole of what makes the answer mean
+    // anything: a template the update itself added is not one the signer put out of the page
+    // tree's reach, so instantiating "it" would be a page composed after signing.
+    let templates = templates(signed);
     let mut kinds: BTreeMap<u32, Kind> = BTreeMap::new();
     let mut of_a_field: BTreeSet<u32> = BTreeSet::new();
     let mut of_an_annotation: BTreeSet<u32> = BTreeSet::new();
+    let mut of_a_template: BTreeSet<u32> = BTreeSet::new();
 
     for &(number, bucket) in touched {
         if bucket == Bucket::Unplaceable {
@@ -755,12 +1091,20 @@ fn classify(
             current
         };
         let offset = placement(current.xref(), number).map(|(at, _)| at);
-        let kind = classify_one(signed, current, number, bucket, &material, tables, offset);
+        let kind = classify_one(
+            signed, current, number, bucket, &material, tables, offset, &templates,
+        );
         if let Some(dict) = dictionary_of(&held.get(ObjectId::new(number, 0))) {
             let owned = appearances(held, &dict);
             match kind {
                 Kind::FieldFilledIn | Kind::Signing => of_a_field.extend(owned),
                 Kind::Annotation => of_an_annotation.extend(owned),
+                // The page's content is the template's, and §12.7.7 does not say whether an
+                // implementation shares the stream object or copies it. Where it copied, the copy
+                // is an object the signed revision never held and carries no `/Type` of its own —
+                // so it is claimed here by the page it draws, on the evidence that its bytes were
+                // already what [`instantiated`] matched.
+                Kind::TemplateInstantiated => of_a_template.extend(content_streams(held, &dict)),
                 _ => {}
             }
         }
@@ -775,7 +1119,29 @@ fn classify(
             *kind = Kind::FieldAppearance;
         } else if of_an_annotation.contains(number) {
             *kind = Kind::AnnotationAppearance;
+        } else if of_a_template.contains(number) {
+            *kind = Kind::TemplateInstantiated;
         }
+    }
+
+    // A third pass, because a page tree node is decided by what its *kids* turned out to be and a
+    // kid's object number may be either side of the node's. §12.7.7's operation puts a page into
+    // the tree, so the node that received it changed as part of the same instantiation.
+    let instantiated: BTreeSet<u32> = kinds
+        .iter()
+        .filter(|(_, kind)| **kind == Kind::TemplateInstantiated)
+        .map(|(number, _)| *number)
+        .collect();
+    let extended: Vec<u32> = kinds
+        .iter()
+        .filter(|(number, kind)| {
+            **kind == Kind::Unclassified
+                && extended_by_instantiation(signed, current, **number, &instantiated)
+        })
+        .map(|(number, _)| *number)
+        .collect();
+    for number in extended {
+        kinds.insert(number, Kind::TemplateInstantiated);
     }
 
     if catalog_moved {
@@ -856,6 +1222,12 @@ fn update_of(current: &Document, number: u32, tables: &BTreeSet<usize>) -> Optio
 }
 
 /// What one changed object is, on its own evidence.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "every one of them is a fact about the object under test that this function may not \
+              recompute per object: the two states, its number, which bucket it landed in, the \
+              update's own tables, the validation material and the signed revision's templates"
+)]
 fn classify_one(
     signed: &Document,
     current: &Document,
@@ -864,6 +1236,7 @@ fn classify_one(
     material: &BTreeSet<u32>,
     tables: &BTreeSet<usize>,
     offset: Option<usize>,
+    templates: &[Vec<u8>],
 ) -> Kind {
     let id = ObjectId::new(number, 0);
     let held = if bucket == Bucket::Removed {
@@ -921,11 +1294,19 @@ fn classify_one(
         }
         // An added signature field is signing; an added field of any other type is a form being
         // built rather than filled in, which Table 257 permits at no level.
-        Bucket::Added | Bucket::Removed => match (field.as_deref(), is_annotation(&dict)) {
-            (Some("Sig"), _) => Kind::Signing,
-            (None, true) => Kind::Annotation,
-            _ => Kind::Unclassified,
-        },
+        Bucket::Added | Bucket::Removed => {
+            // Only an *added* page can be an instantiation: §12.7.7's operation "add[s] the named
+            // page to the current document", and a page the signed revision already displayed was
+            // not added by anybody.
+            if bucket == Bucket::Added && instantiated(current, &dict, templates) {
+                return Kind::TemplateInstantiated;
+            }
+            match (field.as_deref(), is_annotation(&dict)) {
+                (Some("Sig"), _) => Kind::Signing,
+                (None, true) => Kind::Annotation,
+                _ => Kind::Unclassified,
+            }
+        }
         Bucket::Unplaceable => Kind::Unplaceable,
     }
 }
@@ -977,6 +1358,355 @@ fn referenced(object: &Object, into: &mut BTreeSet<u32>) {
             }
         }
     }
+}
+
+/// What §12.8.2.4's analysis takes one object of the interactive form to be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Subject {
+    /// An object belonging to the field §12.7.4.2 gives this fully qualified name.
+    Field {
+        /// The fully qualified name, "formed by appending the child field's partial name to the
+        /// parent's fully qualified name, separated by a PERIOD (2Eh)".
+        name: String,
+        /// The field objects it sits under, itself first and then each ancestor.
+        ///
+        /// Table 256's `/Data` may name a field rather than the whole form, and this is what says
+        /// whether a given object is inside what it named.
+        under: Vec<u32>,
+    },
+    /// An object in the field tree that no chain of `/T` entries names.
+    Unnamed,
+}
+
+/// Every object of this document's interactive form, under the field it belongs to.
+///
+/// Entries already present are kept, so a caller walking the current state first and the signed
+/// one after it gets each field named as it is named *now* and still hears about a field the
+/// update removed.
+fn field_subjects(document: &Document, into: &mut BTreeMap<u32, Subject>) {
+    let Ok(catalog) = document.catalog() else {
+        return;
+    };
+    let form = document.get_key(&catalog, "AcroForm");
+    let Some(form) = form.as_dict() else {
+        return;
+    };
+    let fields = document.get_key(form, "Fields");
+    let Some(fields) = fields.as_array().map(<[Object]>::to_vec) else {
+        return;
+    };
+    let mut seen = BTreeSet::new();
+    for field in &fields {
+        walk_field_subjects(document, field, None, &[], into, &mut seen, 0);
+    }
+}
+
+/// One level of [`field_subjects`]'s walk.
+///
+/// §12.7.4.2 decides the two cases that are not a simple append. A field with no parent takes its
+/// own partial name — "[f]or a field with no parent, the partial and fully qualified names are the
+/// same" — and one with no `/T` at all is not a field but its parent's widget:
+///
+/// > A field dictionary that does not have a partial field name ( T entry) of its own shall not be
+/// > considered a field but simply a Widget annotation.
+///
+/// so such an object carries the parent's name rather than none, which is exactly what makes a
+/// widget's change a change to the field a `/Fields` array can have named.
+fn walk_field_subjects(
+    document: &Document,
+    field: &Object,
+    inherited: Option<&str>,
+    ancestry: &[u32],
+    into: &mut BTreeMap<u32, Subject>,
+    seen: &mut BTreeSet<ObjectId>,
+    depth: usize,
+) {
+    if depth > MAX_FORM_DEPTH || into.len() >= MAX_FORM_FIELDS {
+        return;
+    }
+    if let Some(id) = field.as_reference()
+        && !seen.insert(id)
+    {
+        return;
+    }
+    let resolved = document.resolve(field);
+    let Some(dict) = resolved.as_dict() else {
+        return;
+    };
+    let partial = match dict.get("T") {
+        Some(Object::String(bytes)) => Some(pdf_syntax::text_string(bytes)),
+        _ => None,
+    };
+    let name = match (inherited, partial.as_deref()) {
+        (Some(prefix), Some(partial)) => Some(format!("{prefix}.{partial}")),
+        (None, Some(partial)) => Some(partial.to_owned()),
+        (Some(prefix), None) => Some(prefix.to_owned()),
+        (None, None) => None,
+    };
+    let mut under = Vec::with_capacity(ancestry.len().saturating_add(1));
+    if let Some(id) = field.as_reference() {
+        under.push(id.number);
+    }
+    under.extend_from_slice(ancestry);
+    let subject = match &name {
+        Some(name) => Subject::Field {
+            name: name.clone(),
+            under: under.clone(),
+        },
+        None => Subject::Unnamed,
+    };
+    if let Some(id) = field.as_reference() {
+        into.entry(id.number).or_insert_with(|| subject.clone());
+        // Table 166's `/AP` belongs to the field the way `/V` does — it is what §12.7.4.3 has the
+        // processor construct *for* a value — so an appearance stream rewritten by an update is a
+        // change to the field it draws, and a transform naming that field reaches it.
+        for appearance in appearances(document, dict) {
+            into.entry(appearance).or_insert_with(|| subject.clone());
+        }
+    }
+    if let Some(kids) = document
+        .get_key(dict, "Kids")
+        .as_array()
+        .map(<[Object]>::to_vec)
+    {
+        for kid in &kids {
+            walk_field_subjects(
+                document,
+                kid,
+                name.as_deref(),
+                &under,
+                into,
+                seen,
+                depth.saturating_add(1),
+            );
+        }
+    }
+}
+
+/// The objects a Table 256 `/Data` may name to scope the analysis to every field in the document.
+fn form_objects(document: &Document) -> BTreeSet<u32> {
+    let mut out = BTreeSet::new();
+    if let Some(Object::Reference(root)) = document.xref().trailer().get("Root") {
+        out.insert(root.number);
+    }
+    let Ok(catalog) = document.catalog() else {
+        return out;
+    };
+    if let Some(Object::Reference(id)) = catalog.get("AcroForm") {
+        out.insert(id.number);
+    }
+    let form = document.get_key(&catalog, "AcroForm");
+    if let Some(form) = form.as_dict()
+        && let Some(Object::Reference(id)) = form.get("Fields")
+    {
+        out.insert(id.number);
+    }
+    out
+}
+
+/// The content of every page §12.7.7's `/Templates` name tree holds in this state of the file.
+///
+/// > If the page is not intended to be displayed by the PDF processor, it shall be referenced
+/// > from the name dictionary's Templates tree instead.
+///
+/// so the tree is reached through §7.7.4's name dictionary, and each of its values is a page. What
+/// is kept is the page's **content** rather than its object number, because that is what survives
+/// instantiation either way the clause leaves open — the same stream object, or a copy of it.
+///
+/// A page whose content is empty is not kept, and this is not a saving. Two empty contents match
+/// each other, so keeping one would rank every contentless page added after signing as an
+/// instantiation of it — a lenient default in exactly the place this module refuses them.
+fn templates(document: &Document) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let Ok(catalog) = document.catalog() else {
+        return out;
+    };
+    let names = document.get_key(&catalog, "Names");
+    let Some(names) = names.as_dict() else {
+        return out;
+    };
+    let tree = document.get_key(names, "Templates");
+    name_tree_pages(document, &tree, &mut out, 0);
+    out
+}
+
+/// One node of §7.9.6's name tree, collecting the content of every page its values name.
+fn name_tree_pages(document: &Document, node: &Object, out: &mut Vec<Vec<u8>>, depth: usize) {
+    if depth > MAX_NAME_TREE_DEPTH || out.len() >= MAX_TEMPLATES {
+        return;
+    }
+    let Some(node) = node.as_dict() else {
+        return;
+    };
+    if let Some(entries) = document
+        .get_key(node, "Names")
+        .as_array()
+        .map(<[Object]>::to_vec)
+    {
+        // Table 36: "[ key 1 value 1 key 2 value 2 …key n value n ]", so the values are the odd
+        // positions and the keys — the names a script would instantiate by — decide nothing here.
+        for value in entries.iter().skip(1).step_by(2) {
+            if out.len() >= MAX_TEMPLATES {
+                return;
+            }
+            let page = document.resolve(value);
+            if let Some(dict) = dictionary_of(&page)
+                && let Some(content) = page_content(document, &dict)
+            {
+                out.push(content);
+            }
+        }
+    }
+    if let Some(kids) = document
+        .get_key(node, "Kids")
+        .as_array()
+        .map(<[Object]>::to_vec)
+    {
+        for kid in &kids {
+            let kid = document.resolve(kid);
+            name_tree_pages(document, &kid, out, depth.saturating_add(1));
+        }
+    }
+}
+
+/// Table 31's `/Contents` as the bytes its streams hold, or `None` where there are none to hold.
+///
+/// §7.7.3.3's table gives the entry:
+///
+/// > ( Optional ) A content stream (see 7.8.2, "Content streams") that shall describe the contents
+/// > of this page. If this entry is absent, the page shall be empty.
+///
+/// A stream whose data could not be decrypted yields `None` rather than the empty data
+/// [`pdf_syntax::Stream::decryption_failed`] leaves behind, for [`restated`]'s reason: two
+/// empties are not evidence that two pages say the same thing.
+fn page_content(document: &Document, page: &Dictionary) -> Option<Vec<u8>> {
+    let contents = document.get_key(page, "Contents");
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut absorb = |stream: &pdf_syntax::Stream| -> bool {
+        if stream.decryption_failed
+            || bytes.len().saturating_add(stream.data.len()) > MAX_TEMPLATE_CONTENT
+        {
+            return false;
+        }
+        bytes.extend_from_slice(&stream.data);
+        true
+    };
+    match &contents {
+        Object::Stream(stream) => {
+            if !absorb(stream) {
+                return None;
+            }
+        }
+        Object::Array(items) => {
+            for item in items {
+                let resolved = document.resolve(item);
+                let Object::Stream(stream) = &resolved else {
+                    return None;
+                };
+                if !absorb(stream) {
+                    return None;
+                }
+            }
+        }
+        _ => return None,
+    }
+    if bytes.is_empty() { None } else { Some(bytes) }
+}
+
+/// Whether an added object is a page instantiated from one of `templates`.
+///
+/// Three tests, and each is a sentence rather than a heuristic. Table 31 says what a regular page
+/// in the tree is — `/Type` "shall be Page for a page object", `/Parent` "( Required; shall be an
+/// indirect reference ) The page tree node that is the immediate parent of this page object" — and
+/// §12.7.7 says a template is precisely the page that has neither: "[s]uch invisible pages shall
+/// have an object type of Template rather than Page and shall have no Parent or B entry". So the
+/// object added has to be the *regular* page the operation produces. The third test is the
+/// content, which is what identifies *which* page it is.
+fn instantiated(current: &Document, page: &Dictionary, templates: &[Vec<u8>]) -> bool {
+    if templates.is_empty()
+        || name(page, "Type").as_deref() != Some("Page")
+        || page.get("Parent").is_none()
+    {
+        return false;
+    }
+    let Some(content) = page_content(current, page) else {
+        return false;
+    };
+    templates.contains(&content)
+}
+
+/// Whether a page tree node changed only by receiving pages this update instantiated.
+///
+/// Table 30's two entries are the whole of what receiving a page writes: `/Kids`, "[a]n array of
+/// indirect references to the immediate children of this node", and `/Count`, "[t]he number of
+/// leaf nodes (page objects) that are descendants of this node within the page tree". A node that
+/// moved anything else, lost a kid, or gained one that is not an instantiated page is not part of
+/// this operation and stays [`Kind::Unclassified`] — which is a refusal, not a permission.
+fn extended_by_instantiation(
+    signed: &Document,
+    current: &Document,
+    number: u32,
+    instantiated: &BTreeSet<u32>,
+) -> bool {
+    let id = ObjectId::new(number, 0);
+    let Some(after) = dictionary_of(&current.get(id)) else {
+        return false;
+    };
+    let Some(before) = dictionary_of(&signed.get(id)) else {
+        return false;
+    };
+    if name(&after, "Type").as_deref() != Some("Pages") {
+        return false;
+    }
+    if !changed_keys(&before, &after)
+        .iter()
+        .all(|key| named_in(&["Kids", "Count"], key))
+    {
+        return false;
+    }
+    let was = kids(signed, &before);
+    let now = kids(current, &after);
+    now.len() > was.len()
+        && was.iter().all(|kid| now.contains(kid))
+        && now
+            .iter()
+            .filter(|kid| !was.contains(kid))
+            .all(|kid| instantiated.contains(&kid.number))
+}
+
+/// The objects Table 31's `/Contents` names, where it names any.
+///
+/// Table 31 allows the entry both shapes — "[t]he value shall be either a single stream or an
+/// array of streams" — and either may be written indirectly, so an indirect entry contributes its
+/// own number *and*, where it resolves to an array, the numbers of the streams in it.
+fn content_streams(document: &Document, page: &Dictionary) -> Vec<u32> {
+    let numbers = |items: &[Object]| -> Vec<u32> {
+        items
+            .iter()
+            .filter_map(Object::as_reference)
+            .map(|id| id.number)
+            .collect()
+    };
+    match page.get("Contents") {
+        Some(&Object::Reference(id)) => {
+            let mut out = vec![id.number];
+            if let Object::Array(items) = document.get(id) {
+                out.extend(numbers(&items));
+            }
+            out
+        }
+        Some(Object::Array(items)) => numbers(items),
+        _ => Vec::new(),
+    }
+}
+
+/// The objects Table 30's `/Kids` names, in the order the array states them.
+fn kids(document: &Document, node: &Dictionary) -> Vec<ObjectId> {
+    document
+        .get_key(node, "Kids")
+        .as_array()
+        .map(|kids| kids.iter().filter_map(Object::as_reference).collect())
+        .unwrap_or_default()
 }
 
 /// The object numbers an annotation's `/AP` names, one appearance subdictionary deep.
@@ -1163,7 +1893,10 @@ fn verdict(level: Modification, kind: Kind, disposition: Disposition) -> Verdict
         // "2 Permitted changes shall be filling in forms, instantiating page templates, and
         // signing; other changes shall invalidate the signature."
         Modification::FormFilling => match kind {
-            Kind::FieldFilledIn | Kind::Signing | Kind::FieldAppearance => Verdict::Permitted,
+            Kind::FieldFilledIn
+            | Kind::Signing
+            | Kind::FieldAppearance
+            | Kind::TemplateInstantiated => Verdict::Permitted,
             Kind::Annotation | Kind::AnnotationAppearance => Verdict::NotPermitted,
             _ => Verdict::Unrankable,
         },
@@ -1173,6 +1906,7 @@ fn verdict(level: Modification, kind: Kind, disposition: Disposition) -> Verdict
             Kind::FieldFilledIn
             | Kind::Signing
             | Kind::FieldAppearance
+            | Kind::TemplateInstantiated
             | Kind::Annotation
             | Kind::AnnotationAppearance => Verdict::Permitted,
             _ => Verdict::Unrankable,
@@ -1190,8 +1924,10 @@ mod tests {
 
     use pdf_syntax::Document;
 
-    use super::{Comparison, Judgement, NotComparable, Ranked};
-    use crate::signature::{Modification, Signature, signatures};
+    use super::{
+        Comparison, FieldJudgement, Judgement, NotComparable, NotScoped, Ranked, ScopedTo,
+    };
+    use crate::signature::{FieldMdp, FieldSelection, Modification, Signature, signatures};
 
     /// The signature object every fixture here carries, with a `/ByteRange` to be filled in.
     ///
@@ -1202,14 +1938,22 @@ mod tests {
                              /ByteRange [0000000000 0000000000 0000000000 0000000000] \
                              /Contents <00112233445566778899aabbccddeeff> >>";
 
+    /// The catalog every fixture here carries, unless a test states its own.
+    const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> \
+                           /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>";
+
     /// A one-revision document ending at `%%EOF`, with the signature's range naming its own bytes.
     ///
     /// Object 1 is the catalog, 2 the page tree, 3 a page and 4 the signature; a caller adds more
     /// after those.
     fn signed_file(extra: &[&str]) -> Vec<u8> {
+        signed_file_under(CATALOG, extra)
+    }
+
+    /// The same, with the catalog spelled out — for a fixture that needs a `/Names` tree in it.
+    fn signed_file_under(catalog: &str, extra: &[&str]) -> Vec<u8> {
         let mut objects = vec![
-            "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> \
-             /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>",
+            catalog,
             "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
             SIGNATURE,
@@ -1823,6 +2567,492 @@ mod tests {
                 "{level:?}"
             );
         }
+    }
+
+    /// The catalog of a document that holds §12.7.7's template, out of the page tree's reach.
+    const CATALOG_WITH_A_TEMPLATE: &str = "<< /Type /Catalog /Pages 2 0 R \
+         /Perms << /DocMDP 4 0 R >> /AcroForm << /Fields [5 0 R] /SigFlags 3 >> \
+         /Names << /Templates << /Names [(Schedule) 6 0 R] >> >> >>";
+
+    /// §12.7.7's invisible page: "an object type of Template rather than Page … no Parent or B".
+    const TEMPLATE: &str = "<< /Type /Template /MediaBox [0 0 10 10] /Contents 7 0 R >>";
+
+    /// The content that tells that template from any other page.
+    const TEMPLATE_CONTENT: &str = "<< /Length 9 >>\nstream\n0 0 10 10\nendstream";
+
+    /// Instantiating a page template is Table 257's level 2, and it is told apart by §12.7.7.
+    ///
+    /// §12.8.2.2.2's Table 257 states three operations in its second value, and this is the one
+    /// that had no classifier until now:
+    ///
+    /// > 2 Permitted changes shall be filling in forms, instantiating page templates, and
+    /// > signing; other changes shall invalidate the signature.
+    ///
+    /// The update does what §12.7.7 says the operation does — a script "can add the named page to
+    /// the current document as a regular page" — so a page appears in the tree carrying the content of
+    /// a page the signed revision kept in its `/Templates`, and the `/Pages` node that received it
+    /// gains a kid and a count. Both are part of the one operation and both are permitted at 2.
+    #[test]
+    fn a_page_instantiated_from_a_template_is_what_level_two_permits() {
+        let mut bytes = signed_file_under(CATALOG_WITH_A_TEMPLATE, &[TEMPLATE, TEMPLATE_CONTENT]);
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 2 /Kids [3 0 R 8 0 R] >>"),
+                (
+                    8,
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 7 0 R >>",
+                ),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            [
+                "2 TemplateInstantiated Permitted",
+                "8 TemplateInstantiated Permitted"
+            ]
+        );
+        for level in [
+            Modification::FormFilling,
+            Modification::FormFillingAndAnnotation,
+        ] {
+            assert_eq!(
+                comparison.against(level),
+                Judgement::WithinWhatIsPermitted {
+                    level,
+                    objects: 2,
+                    disregarded: 0,
+                },
+                "{level:?}"
+            );
+        }
+        // "1 No changes to the document shall be permitted", and this is a change.
+        assert_eq!(
+            comparison.against(Modification::None),
+            Judgement::NotPermitted {
+                level: Modification::None,
+                objects: 2,
+            }
+        );
+    }
+
+    /// A page whose content is nobody's template is refused, which is what makes the test above
+    /// mean something.
+    ///
+    /// **The defect this is calibrated against is the whole risk of the classifier**: a reader
+    /// that ranked "a page was added at level 2" as an instantiation would wave through any page
+    /// composed after signing, which is the change a certification exists to catch. The two tests
+    /// are the same update differing in one object's content, and the answers differ with it.
+    #[test]
+    fn a_page_added_that_is_no_templates_is_refused_rather_than_ranked_as_one() {
+        let mut bytes = signed_file_under(CATALOG_WITH_A_TEMPLATE, &[TEMPLATE, TEMPLATE_CONTENT]);
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 2 /Kids [3 0 R 8 0 R] >>"),
+                (
+                    8,
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 9 0 R >>",
+                ),
+                (9, "<< /Length 9 >>\nstream\n1 1 11 11\nendstream"),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            [
+                "2 Unclassified Unrankable",
+                "8 Unclassified Unrankable",
+                "9 Unclassified Unrankable"
+            ]
+        );
+        for level in [
+            Modification::FormFilling,
+            Modification::FormFillingAndAnnotation,
+        ] {
+            assert_eq!(
+                comparison.against(level),
+                Judgement::NotClassified { level, objects: 3 },
+                "{level:?}"
+            );
+        }
+    }
+
+    /// A template instantiated by *copying* its content is the same operation, and is ranked so.
+    ///
+    /// §12.7.7 says the operation adds the named page and says nothing about whether an
+    /// implementation shares the content stream or copies it, so a reader that insisted on the
+    /// shared object would refuse half the conforming instantiations there are. The copy is object
+    /// 9 here, byte for byte object 7 — and it is ranked as part of the page it draws rather than
+    /// on its own evidence, which it has none of.
+    #[test]
+    fn a_template_instantiated_by_copying_its_content_is_the_same_operation() {
+        let mut bytes = signed_file_under(CATALOG_WITH_A_TEMPLATE, &[TEMPLATE, TEMPLATE_CONTENT]);
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 2 /Kids [3 0 R 8 0 R] >>"),
+                (
+                    8,
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 9 0 R >>",
+                ),
+                (9, TEMPLATE_CONTENT),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            [
+                "2 TemplateInstantiated Permitted",
+                "8 TemplateInstantiated Permitted",
+                "9 TemplateInstantiated Permitted"
+            ]
+        );
+    }
+
+    /// A document with no `/Templates` tree has instantiated nothing, whatever it added.
+    ///
+    /// The other control: the same update as the first test, over a file whose catalog states no
+    /// name tree. Without it the classifier would be reading the *page* and not the template, and
+    /// the first test would pass for the wrong reason.
+    #[test]
+    fn a_page_added_where_the_signed_revision_held_no_template_is_refused() {
+        let mut bytes = signed_file(&[TEMPLATE, TEMPLATE_CONTENT]);
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 2 /Kids [3 0 R 8 0 R] >>"),
+                (
+                    8,
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 7 0 R >>",
+                ),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            comparison.against(Modification::FormFilling),
+            Judgement::NotClassified {
+                level: Modification::FormFilling,
+                objects: 2,
+            }
+        );
+    }
+
+    /// A page tree node that *lost* a kid is not part of an instantiation, whatever else it did.
+    ///
+    /// Table 257 permits instantiating a page template; it permits nothing that removes a page.
+    /// The plant is the first test's update with object 3 dropped from `/Kids`, which is a page
+    /// deleted under cover of a page added.
+    #[test]
+    fn a_page_tree_node_that_lost_a_page_is_refused_even_beside_an_instantiation() {
+        let mut bytes = signed_file_under(CATALOG_WITH_A_TEMPLATE, &[TEMPLATE, TEMPLATE_CONTENT]);
+        update(
+            &mut bytes,
+            &[
+                (2, "<< /Type /Pages /Count 1 /Kids [8 0 R] >>"),
+                (
+                    8,
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 7 0 R >>",
+                ),
+            ],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            detail(&comparison, Modification::FormFilling),
+            [
+                "2 Unclassified Unrankable",
+                "8 TemplateInstantiated Permitted"
+            ]
+        );
+        assert_eq!(
+            comparison.against(Modification::FormFilling),
+            Judgement::NotClassified {
+                level: Modification::FormFilling,
+                objects: 1,
+            }
+        );
+    }
+
+    /// The transform every `FieldMDP` test here starts from: `/Data` naming the whole document.
+    ///
+    /// Object 1 is the catalog, which is what `xfa_filled_imm1344e.pdf`'s own `FieldMDP` states —
+    /// so the fixture's scope is the corpus's, and not a shape invented for the test.
+    fn transform(selection: FieldSelection) -> FieldMdp {
+        FieldMdp {
+            selection,
+            data: Some(pdf_syntax::ObjectId::new(1, 0)),
+        }
+    }
+
+    /// A catalog whose interactive form holds the signature field **and** a field to fill in.
+    ///
+    /// Table 224's `/Fields` is "[a]n array of references to the document's root fields", so a
+    /// field the array does not reach is no part of the form a `/Data` scopes an analysis to —
+    /// which is why the fixture states it rather than leaving the field loose in the file.
+    const CATALOG_WITH_A_FIELD: &str = "<< /Type /Catalog /Pages 2 0 R \
+         /Perms << /DocMDP 4 0 R >> /AcroForm << /Fields [5 0 R 6 0 R] /SigFlags 3 >> >>";
+
+    /// The update every `FieldMDP` test here ranks: the field named `Name` filled in.
+    fn a_filled_field() -> Vec<u8> {
+        let mut bytes = signed_file_under(CATALOG_WITH_A_FIELD, &[EMPTY_FIELD]);
+        update(
+            &mut bytes,
+            &[(
+                6,
+                "<< /FT /Tx /T (Name) /Subtype /Widget /Type /Annot /Rect [100 200 300 220] \
+                 /P 3 0 R /V (Ada) >>",
+            )],
+            &[],
+            1,
+        );
+        bytes
+    }
+
+    /// What `against_field_mdp` said about each object, as text a failure can name.
+    fn scoped(comparison: &Comparison, transform: &FieldMdp) -> Vec<String> {
+        comparison
+            .against_field_mdp(transform)
+            .expect("a transform scoped to the catalog")
+            .detail
+            .iter()
+            .map(
+                |ScopedTo {
+                     number,
+                     field,
+                     included,
+                 }| {
+                    format!("{number} {} {included:?}", field.as_deref().unwrap_or("-"))
+                },
+            )
+            .collect()
+    }
+
+    /// Table 259's `/Fields` selects, and it selects **both ways** over one update.
+    ///
+    /// This is §12.8.2.1's sentence made to do something — "[t]ransform methods, along with
+    /// transform parameters, shall determine which objects are included and excluded in revision
+    /// comparison" — and the pair is the calibration (trap 13). One update, one changed field, and
+    /// four selections: the two that name it answer that a covered field moved, the two that do
+    /// not answer that none did. A reader that ignored `/Fields` would give one answer to all four.
+    #[test]
+    fn a_field_mdp_transform_selects_by_the_fields_table_259_names() {
+        let document = Document::open(a_filled_field()).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        // "All All form fields." — and the field this update wrote is one.
+        for selection in [
+            FieldSelection::All,
+            FieldSelection::Include(vec!["Name".to_owned()]),
+            FieldSelection::Exclude(vec!["Other".to_owned()]),
+        ] {
+            let transform = transform(selection.clone());
+            assert_eq!(scoped(&comparison, &transform), ["6 Name Covered"]);
+            assert_eq!(
+                comparison
+                    .against_transform(&transform)
+                    .expect("a scoped transform"),
+                FieldJudgement::CoveredFieldChanged { objects: 1 },
+                "{selection:?}"
+            );
+        }
+
+        // "Include Only those form fields that specified in Fields" and "Exclude Only those form
+        // fields not specified in Fields" (ISO 32000-1's Table 256, which the 2.0 conversion drops
+        // — `FieldSelection` says where both readings come from). Neither names this field.
+        for selection in [
+            FieldSelection::Include(vec!["Other".to_owned()]),
+            FieldSelection::Exclude(vec!["Name".to_owned()]),
+        ] {
+            let transform = transform(selection.clone());
+            assert_eq!(scoped(&comparison, &transform), ["6 Name Outside"]);
+            assert_eq!(
+                comparison
+                    .against_transform(&transform)
+                    .expect("a scoped transform"),
+                FieldJudgement::NoCoveredFieldChanged {
+                    outside: 1,
+                    excluded: 0,
+                },
+                "{selection:?}"
+            );
+        }
+    }
+
+    /// An object that is no form field is excluded from this analysis, not permitted by it.
+    ///
+    /// §12.8.2.4's transform detects "changes to the values of a list of form fields", so a page
+    /// rewritten after signing is outside its subject entirely — which is the half of §12.8.2.1's
+    /// sentence about objects *excluded*. Table 257's ranking is where that object is answered,
+    /// and it refuses it: the two transforms are asked separately because the standard states them
+    /// separately.
+    #[test]
+    fn a_change_that_is_no_form_field_is_excluded_from_the_transforms_analysis() {
+        let mut bytes = signed_file_under(CATALOG_WITH_A_FIELD, &[EMPTY_FIELD]);
+        update(
+            &mut bytes,
+            &[(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] >>")],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        let transform = transform(FieldSelection::All);
+        assert_eq!(scoped(&comparison, &transform), ["3 - Excluded"]);
+        assert_eq!(
+            comparison
+                .against_transform(&transform)
+                .expect("a scoped transform"),
+            FieldJudgement::NoCoveredFieldChanged {
+                outside: 0,
+                excluded: 1,
+            }
+        );
+        assert_eq!(
+            comparison.against(Modification::FormFilling),
+            Judgement::NotClassified {
+                level: Modification::FormFilling,
+                objects: 1,
+            }
+        );
+    }
+
+    /// A `/Data` naming one field scopes the analysis to that field's subtree and no further.
+    ///
+    /// Table 256's entry is "[a]n indirect reference to the object in the document upon which the
+    /// object modification analysis should be performed", so what it names is the subject — and a
+    /// `/Data` naming the signature field cannot reach the text field beside it, whatever
+    /// `/Action /All` would otherwise cover.
+    #[test]
+    fn a_data_naming_one_field_scopes_the_analysis_to_it() {
+        let document = Document::open(a_filled_field()).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        let narrowed = FieldMdp {
+            selection: FieldSelection::All,
+            // Object 5 is the signature field, which the changed field 6 is not under.
+            data: Some(pdf_syntax::ObjectId::new(5, 0)),
+        };
+        assert_eq!(scoped(&comparison, &narrowed), ["6 Name Excluded"]);
+        assert_eq!(
+            comparison
+                .against_transform(&narrowed)
+                .expect("a scoped transform"),
+            FieldJudgement::NoCoveredFieldChanged {
+                outside: 0,
+                excluded: 1,
+            }
+        );
+    }
+
+    /// A transform with no subject is refused by name rather than ranked over everything.
+    ///
+    /// Table 256 makes `/Data` required for this method and for no other, so a `FieldMDP` without
+    /// one has not said what its analysis runs on — and the standing rule of this module is that a
+    /// missing input is a refusal rather than a default.
+    #[test]
+    fn a_field_mdp_transform_with_no_subject_is_refused_by_name() {
+        let document = Document::open(a_filled_field()).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        assert_eq!(
+            comparison
+                .against_field_mdp(&FieldMdp {
+                    selection: FieldSelection::All,
+                    data: None,
+                })
+                .expect_err("a transform with no /Data is not scoped"),
+            NotScoped::NoData
+        );
+        assert_eq!(
+            comparison
+                .against_field_mdp(&FieldMdp {
+                    selection: FieldSelection::All,
+                    // The page tree root: an object in the document and no part of the form.
+                    data: Some(pdf_syntax::ObjectId::new(2, 0)),
+                })
+                .expect_err("a /Data naming no part of the form is not scoped"),
+            NotScoped::DataIsNotTheForm(2)
+        );
+    }
+
+    /// A widget with no `/T` of its own is its parent field's, which is what §12.7.4.2 says it is.
+    ///
+    /// > A field dictionary that does not have a partial field name ( T entry) of its own shall
+    /// > not be considered a field but simply a Widget annotation.
+    ///
+    /// So a transform naming `Name` reaches the widget that draws it, and the defect this is
+    /// calibrated against is a reader that looked for a `/T` on the changed object, found none,
+    /// and excluded from the analysis the very object the update rewrote.
+    #[test]
+    fn a_widget_with_no_name_of_its_own_belongs_to_the_field_above_it() {
+        let mut bytes = signed_file_under(
+            CATALOG_WITH_A_FIELD,
+            &[
+                "<< /FT /Tx /T (Name) /Kids [7 0 R] >>",
+                "<< /Subtype /Widget /Type /Annot /Rect [100 200 300 220] /Parent 6 0 R \
+                 /P 3 0 R >>",
+            ],
+        );
+        update(
+            &mut bytes,
+            &[(
+                7,
+                "<< /Subtype /Widget /Type /Annot /Rect [100 200 300 220] /Parent 6 0 R \
+                 /P 3 0 R /AS /Off >>",
+            )],
+            &[],
+            1,
+        );
+        let document = Document::open(bytes).expect("a valid file");
+        let comparison =
+            Comparison::of(&only_signature(&document), &document).expect("two comparable states");
+
+        let names_it = transform(FieldSelection::Include(vec!["Name".to_owned()]));
+        let does_not = transform(FieldSelection::Include(vec!["Other".to_owned()]));
+        assert_eq!(scoped(&comparison, &names_it), ["7 Name Covered"]);
+        assert_eq!(scoped(&comparison, &does_not), ["7 Name Outside"]);
+        assert_eq!(
+            comparison.against_transform(&names_it),
+            Ok(FieldJudgement::CoveredFieldChanged { objects: 1 })
+        );
+        assert_eq!(
+            comparison.against_transform(&does_not),
+            Ok(FieldJudgement::NoCoveredFieldChanged {
+                outside: 1,
+                excluded: 0,
+            })
+        );
     }
 
     /// A range whose hole holds more than the signature value is refused rather than compared.

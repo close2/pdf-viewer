@@ -99,16 +99,38 @@ pub enum Loss {
     /// Not a default and never mechanical, however invisible on the page: the assertion is the
     /// point of a signed document, and section 3.6 classes its loss *Ask, loudly*.
     SignatureAssertion,
+    /// section 3.2: an annotation of a subtype ISO 19005 does not admit, taken off the page.
+    ///
+    /// ISO 19005-2 section 6.3.1 admits no annotation subtype ISO 32000-1 does not define, and
+    /// strikes `3D`, `Sound`, `Screen` and `Movie` by name; ISO 19005-4 section 6.3.1 strikes the
+    /// last three. Neither clause offers any way to keep such an annotation, so the only rewrite
+    /// that meets the requirement removes it — section 3.2 of
+    /// `doc/pdf-a-conversion-limits.md` classes that *Ask*, and re-badging it as a subtype the
+    /// part admits is `doc/adr/0816`'s fence rather than a fix, because that invents an
+    /// annotation the producer did not write.
+    ///
+    /// **What goes with it is everything the annotation carried except its marks.** A `Sound`
+    /// annotation's sound, a `Movie`'s movie, a `Screen`'s rendition, a `3D`'s artwork, a
+    /// `RichMedia`'s content, and each one's `/Contents` description: none of them is content any
+    /// of the six targets holds, which is why the clause strikes the subtype at all.
+    ///
+    /// **Its marks are a separate question, and the configuration is where it is answered.** The
+    /// normal appearance is a form `XObject` the producer wrote and §12.5.5 makes it what a
+    /// reader draws for the annotation, so `remedy = "preserve"` keeps those marks on a page
+    /// appended to the document rather than losing them with the rest (`doc/adr/1099`). Without
+    /// it the page loses the mark, and the report names the page it was on.
+    ForbiddenAnnotation,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
         Self::Jpeg2000ColourFallback,
         Self::SignatureAssertion,
+        Self::ForbiddenAnnotation,
     ];
 
     /// The word a caller authorises it by.
@@ -120,6 +142,7 @@ impl Loss {
             Self::AnnotationPrinting => "annotation-printing",
             Self::Jpeg2000ColourFallback => "jpeg2000-colour-fallback",
             Self::SignatureAssertion => "signature-assertion",
+            Self::ForbiddenAnnotation => "forbidden-annotation",
         }
     }
 
@@ -149,6 +172,14 @@ impl Loss {
                  rather than carried as a signature that no longer covers the bytes it sits in. \
                  Each field keeps its widget and appearance; the report names each signature, \
                  its signer, its time, and what verifying it over the source found"
+            }
+            Self::ForbiddenAnnotation => {
+                "an annotation whose subtype ISO 19005 does not admit is removed from the page it \
+                 was on, and with it everything that annotation carried \u{2014} a sound, a \
+                 movie, a rendition, 3D artwork, and its own Contents description. Its normal \
+                 appearance is the one part of it a target will hold: answer this site with \
+                 remedy = \"preserve\" and those marks are kept on a page appended to the \
+                 document"
             }
         }
     }
@@ -183,6 +214,8 @@ pub struct Authorisations {
     pub jpeg2000_colour_fallback: bool,
     /// Whether [`Loss::SignatureAssertion`] was authorised.
     pub signature_assertion: bool,
+    /// Whether [`Loss::ForbiddenAnnotation`] was authorised.
+    pub forbidden_annotation: bool,
 }
 
 impl Authorisations {
@@ -195,6 +228,7 @@ impl Authorisations {
             Loss::AnnotationPrinting => self.annotation_printing,
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback,
             Loss::SignatureAssertion => self.signature_assertion,
+            Loss::ForbiddenAnnotation => self.forbidden_annotation,
         }
     }
 
@@ -206,6 +240,7 @@ impl Authorisations {
             Loss::AnnotationPrinting => self.annotation_printing = true,
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback = true,
             Loss::SignatureAssertion => self.signature_assertion = true,
+            Loss::ForbiddenAnnotation => self.forbidden_annotation = true,
         }
     }
 }
@@ -958,6 +993,27 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "annotations/flags-entry-present",
         answer: Answer::Loses(Loss::AnnotationPrinting, Rewrite::AnnotationFlags),
     },
+    // ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1, each clause's first sentence and
+    // its struck names. The clause states a prohibition and no alternative, so the one rewrite
+    // that meets it takes the annotation off the page — `doc/pdf-a-conversion-limits.md` section
+    // 3.2's *Ask*, built as one (`doc/adr/1099`). **The flavour rows below are not these two**:
+    // ISO 19005-4's later paragraphs confine `3D`, `RichMedia` and `FileAttachment` to a flavour
+    // rather than forbidding them, so the first answer there is the flavour that admits the
+    // subtype and the `FileAttachment` case keeps the file it names; both stay refused by name.
+    Remedy {
+        requirement: "annotations/subtype-defined-in-iso-32000-1",
+        answer: Answer::Loses(
+            Loss::ForbiddenAnnotation,
+            Rewrite::ForbiddenAnnotationRemoved,
+        ),
+    },
+    Remedy {
+        requirement: "annotations/subtype-defined-in-iso-32000-2",
+        answer: Answer::Loses(
+            Loss::ForbiddenAnnotation,
+            Rewrite::ForbiddenAnnotationRemoved,
+        ),
+    },
     // ISO 19005-2 section 6.6.2.3.1, and the only route of the three
     // `doc/pdf-a-conversion-limits.md` section 3.9 leaves open — which is why it is a loss rather
     // than a default.
@@ -1444,22 +1500,16 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "forms/no-action-on-widget-or-field",
         Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
     ),
-    // ISO 19005-2 section 6.3.1, ISO 19005-4 section 6.3.1.
-    (
-        "annotations/subtype-defined-in-iso-32000-1",
-        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "annotations/subtype-defined-in-iso-32000-2",
-        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
-    ),
+    // ISO 19005-4 section 6.3.1's later paragraphs. The two rows about the subtype *set* are
+    // answered in `REMEDIES`; these two are the flavour conditions, and their first answer is a
+    // retarget rather than a removal.
     (
         "annotations/three-dimensional-only-in-engineering-files",
-        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
+        Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
     ),
     (
         "annotations/file-attachment-only-in-embedded-file-files",
-        Because::NotBuiltYet(ANNOTATION_REMOVAL_NOT_BUILT),
+        Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
     ),
     // ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2: the half of section 3.7 that is not
     // an annotation stating no flags at all.
@@ -1865,15 +1915,22 @@ const ACTION_REMOVAL_NOT_BUILT: &str = "an action carries behaviour, and the onl
      refused here for PDF/A-2 may convert to PDF/A-4 untouched; and PDF/A-4e admits a \
      SetOCGState or GoTo3DView action that plain PDF/A-4 does not";
 
-/// Why removing an annotation of a forbidden subtype is not built.
-const ANNOTATION_REMOVAL_NOT_BUILT: &str = "this annotation's subtype is one ISO 19005 does not \
-     admit for the target asked for, and removal is the only remedy. \
-     doc/pdf-a-conversion-limits.md section 3.2 makes it an Ask — a removed annotation takes its \
-     normal appearance off the page with it, and for a Screen, Movie or Sound one the media \
-     stream goes too — and neither the authorisation word nor the rewrite is built. Re-badging \
-     it as a Stamp to keep the mark is ADR 0816's fence rather than a fix. PDF/A-4e admits a 3D \
-     or RichMedia annotation and PDF/A-4f a FileAttachment, so for those two the target is the \
-     shorter route";
+/// Why an annotation a flavour confines is refused rather than removed.
+///
+/// ISO 19005-4 section 6.3.1 confines `3D` and `RichMedia` to a PDF/A-4e file and
+/// `FileAttachment` to a PDF/A-4f one, which is a narrower statement than the subtype
+/// prohibitions `REMEDIES` answers: the subtype is admitted by the part and refused by the
+/// flavour, so the first answer is the flavour that admits it. The second, for a
+/// `FileAttachment`, is `doc/pdf-a-mitigations.md`'s: the annotation is a marker and the file it
+/// names may stay in the document, which is a different rewrite from the removal beside it and is
+/// not built.
+const ANNOTATION_FLAVOUR_NOT_BUILT: &str = "this annotation's subtype is one ISO 19005-4 admits \
+     only in another flavour of PDF/A-4 — 3D and RichMedia in a PDF/A-4e file, \
+     FileAttachment in a PDF/A-4f one — so the shorter route is that flavour rather than a \
+     rewrite. Removing it is what the other two annotation-subtype rows do with \
+     --authorise forbidden-annotation; here that would also take the embedded file a \
+     FileAttachment names out of the archive, which doc/pdf-a-mitigations.md says need not go, \
+     and the rewrite that keeps it is not built";
 
 /// Why an annotation the producer hid is neither shown nor removed.
 const HIDDEN_ANNOTATION_NOT_BUILT: &str = "this annotation states flags ISO 19005 forbids — \
@@ -2234,6 +2291,23 @@ const UTF8_NAMES: &str = "ISO 19005 binds these names to valid UTF-8, and renami
 /// The middle stage, as a pure function of the validator's report and the caller's
 /// authorisations. **A requirement absent from [`REMEDIES`] and [`WRITER_EMITS`] is refused by
 /// name** — never passed over, and never answered by a rewrite invented here.
+/// The rewrite the table answers one requirement with, where it answers it with exactly one.
+///
+/// **Read off [`REMEDIES`] rather than written down a second time**, so that a `preserve` remedy
+/// cannot name a rewrite the table would not have taken for the site: what `preserve` changes is
+/// where the content goes, never what makes the file conform. `None` for a requirement the table
+/// does not answer, and for [`Answer::CmykUnderPartTwo`], whose two rewrites the profile in hand
+/// picks between.
+pub(super) fn rewrite_for(id: &str) -> Option<Rewrite> {
+    let remedy = REMEDIES.iter().find(|remedy| remedy.requirement == id)?;
+    match remedy.answer {
+        Answer::Mechanical(rewrite) | Answer::Stated(_, rewrite, _) | Answer::Loses(_, rewrite) => {
+            Some(rewrite)
+        }
+        Answer::CmykUnderPartTwo | Answer::AsUnderlying(_) => None,
+    }
+}
+
 pub(super) fn decide(
     input: &pdf_archive::Report,
     judgement: &Judgement,

@@ -17,7 +17,7 @@ use crate::json::Value;
 
 use super::decision::Decision;
 use super::fonts::{RestatedFont, SubstitutedFont};
-use super::prepare::{DestinationProfile, WrittenAppearance};
+use super::prepare::{DestinationProfile, RemovedAnnotation, WrittenAppearance};
 use super::signatures::SourceSignature;
 
 /// What the conversion decided about the signatures the source carries, and what they were.
@@ -191,14 +191,52 @@ pub struct Preserved {
     pub pages: Vec<usize>,
     /// How it was placed, in one sentence — every choice in it argued in `doc/adr/1025` section 4.
     pub placement: &'static str,
-    /// The face this conversion embedded to set it, where it embedded one.
+    /// The typeface the appended page is set in, where anything on it is set at all.
     ///
     /// **`doc/questions/A47`'s condition**, which the appended page inherits along with the
     /// permission: a face this program ships rather than one the document carried is named, so a
     /// reader can see that the letters on the page are this program's shapes and the words are the
-    /// document's. `None` where the page is set in a face the document itself embeds, which is
-    /// what this prefers and what puts nothing on the page from outside the file.
-    pub face: Option<String>,
+    /// document's.
+    pub face: SetIn,
+}
+
+/// What an appended page's content is set in.
+///
+/// Three states rather than an `Option`, because the third is not the absence of the second:
+/// a page carrying an annotation's normal appearance sets no text at all, so no face was chosen
+/// for it and none could have been named. `doc/adr/1099`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SetIn {
+    /// Nothing on the page is text: it carries marks the producer already drew.
+    NoText,
+    /// A face the document itself embeds, which puts nothing on the page from outside the file.
+    ///
+    /// What this prefers, and `doc/adr/1014`'s rule read strictly.
+    TheDocumentsOwnFace,
+    /// A face this program ships, named — `doc/questions/A47`'s permission and its condition.
+    AFaceThisProgramShips(String),
+}
+
+impl SetIn {
+    /// The clause the report adds after the placement sentence.
+    fn sentence(&self) -> String {
+        match self {
+            Self::NoText => String::new(),
+            Self::TheDocumentsOwnFace => ", in a face this document itself embeds".to_owned(),
+            Self::AFaceThisProgramShips(face) => format!(
+                ", in a face this document does not carry: {face}, embedded for it \
+                 (doc/questions/A47)"
+            ),
+        }
+    }
+
+    /// The face's name as JSON, which is `null` for either face this program did not embed.
+    fn to_json(&self) -> Value {
+        match self {
+            Self::NoText | Self::TheDocumentsOwnFace => Value::Null,
+            Self::AFaceThisProgramShips(face) => Value::text(face.clone()),
+        }
+    }
 }
 
 impl Preserved {
@@ -212,10 +250,7 @@ impl Preserved {
                 Value::Array(self.pages.iter().copied().map(Value::count).collect()),
             ),
             ("placement".to_owned(), Value::text(self.placement)),
-            (
-                "face".to_owned(),
-                self.face.as_ref().map_or(Value::Null, Value::text),
-            ),
+            ("face".to_owned(), self.face.to_json()),
             (
                 "warns".to_owned(),
                 Value::text(crate::archive::PRESERVED_AS_A_PAGE),
@@ -391,6 +426,14 @@ pub struct Conversion {
     /// appearance written, so the difference between the producer's file and ours is visible in
     /// the report rather than only in the bytes.
     pub appearances: Vec<WrittenAppearance>,
+    /// Every annotation this conversion removed for its subtype.
+    ///
+    /// `doc/pdf-a-conversion-limits.md` section 3.2's condition on the loss, in its own words:
+    /// *remove the annotation and report it*, and *where the removed annotation had a normal
+    /// appearance the page loses that mark, and the report says which page*. So each row names the
+    /// page, the subtype and whether it drew anything — and where `remedy = "preserve"` answered
+    /// the site, [`Self::preserved`] says which appended page the marks went to instead.
+    pub removed_annotations: Vec<RemovedAnnotation>,
     /// Every font this conversion embedded a face for, with what was asked for and what was used.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 4.9's condition, in its own words: report per
@@ -489,6 +532,15 @@ impl Conversion {
             (
                 "removed_metadata_properties".to_owned(),
                 Value::Array(self.removed.iter().map(removed_to_json).collect()),
+            ),
+            (
+                "removed_annotations".to_owned(),
+                Value::Array(
+                    self.removed_annotations
+                        .iter()
+                        .map(RemovedAnnotation::to_json)
+                        .collect(),
+                ),
             ),
             (
                 "constructed_appearances".to_owned(),
@@ -730,13 +782,7 @@ impl Conversion {
                         .join(", "),
                     row.site,
                     row.placement,
-                    row.face.as_ref().map_or_else(
-                        || ", in a face this document itself embeds".to_owned(),
-                        |face| format!(
-                            ", in a face this document does not carry: {face}, embedded for it \
-                             (doc/questions/A47)"
-                        )
-                    )
+                    row.face.sentence()
                 );
             }
         }
@@ -767,6 +813,32 @@ impl Conversion {
     fn render_what_was_written(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
+        if !self.removed_annotations.is_empty() {
+            let drew = self
+                .removed_annotations
+                .iter()
+                .filter(|removed| removed.appearance.is_some())
+                .count();
+            let _ = writeln!(
+                out,
+                "  {} annotation(s) removed for a subtype ISO 19005 does not admit, {drew} of \
+                 which drew marks the page no longer carries:",
+                self.removed_annotations.len()
+            );
+            for removed in &self.removed_annotations {
+                let _ = writeln!(
+                    out,
+                    "      a {} annotation on page {}, which {}",
+                    removed.subtype,
+                    removed.page.saturating_add(1),
+                    if removed.appearance.is_some() {
+                        "had a normal appearance"
+                    } else {
+                        "drew nothing of its own"
+                    }
+                );
+            }
+        }
         if !self.appearances.is_empty() {
             let _ = writeln!(
                 out,

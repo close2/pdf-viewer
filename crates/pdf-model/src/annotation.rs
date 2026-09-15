@@ -1378,6 +1378,33 @@ pub(crate) fn stored_frame(
     Some((bbox, placement(bbox, matrix, rect)))
 }
 
+/// §12.5.5's `AA` for one appearance stream and the annotation whose `/AP` names it.
+///
+/// [`stored_frame`] answers the same question for the appearance an annotation is *showing*, which
+/// needs the view state to know which state that is. This one is handed the stream, so it answers
+/// for a caller that already knows which one it means — `pdf_transform`'s archive conversion,
+/// which is keeping a producer's marks where the producer put them.
+///
+/// The two defaults are the ones that clause is applied under throughout this module: a missing
+/// `/Matrix` makes the map the identity, and a stream with no `/BBox` gets §12.7.4.3's — the
+/// annotation rectangle's dimensions at the origin. `None` where neither the annotation nor the
+/// stream states a rectangle, which leaves the algorithm nothing to map onto.
+pub(crate) fn placement_of(
+    document: &Document,
+    annotation: &Dictionary,
+    appearance: &Dictionary,
+) -> Option<Transform> {
+    let matrix = matrix(document, appearance);
+    let stated_bbox = rectangle(document, appearance, "BBox");
+    let rect = match (rectangle(document, annotation, "Rect"), stated_bbox) {
+        (Some(rect), _) => rect,
+        (None, Some(bbox)) => transformed(bbox, matrix),
+        (None, None) => return None,
+    };
+    let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
+    Some(placement(bbox, matrix, rect))
+}
+
 /// Computes `AA`, the matrix ISO 32000-2 §12.5.5 defines.
 ///
 /// The three steps of the clause, in order:

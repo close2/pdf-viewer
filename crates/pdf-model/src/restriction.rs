@@ -412,7 +412,7 @@ pub fn asserted(
         }
         if pdf_signature::signature::field_mdp(document)
             .iter()
-            .any(|covered| covered.covers(field))
+            .any(|covered| covered.selection.covers(field))
         {
             out.push(Restriction::FieldCovered);
         }

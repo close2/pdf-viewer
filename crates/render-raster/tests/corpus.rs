@@ -872,19 +872,23 @@ const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr1
 /// its own `/BBox`: `examples/ink_ladder` puts them at 416.00 → **501.87** and 429.13 →
 /// **500.93** against the 501.78 the geometry states at 8×.
 ///
-/// **The two that arrived are the *oracle* short of ink at page scale, and that is measured
-/// rather than inferred.** `examples/clip_cost` (new) draws a page twice on each backend, once
-/// as stated and once with every clip taken off, so what it prints for a clip that cuts nothing
-/// is the composition rather than the document. At 1×, `bug1844576.pdf` reads cpu 849.31 of
-/// 933.38 against raster 933.09 of 933.09, and `bug1978317.pdf` cpu 13 387.41 of 15 165.68
-/// against raster 15 118.43 of 15 118.43 — so those clips cost the device nothing and cost the
-/// oracle 9.0% and 11.7% of the page. At 8× they cost the oracle nothing either, which is the
-/// signature of §10.7.4's substitutions: what `render-cpu` composes by `min` there is a mark ADR
-/// 0268 already *widened* to a device pixel with the given-up width in its alpha, and a widened
-/// mark reaches past a box the document's own geometry sits inside. §10.7.4's third sentence
-/// ranks the two answers — "The area covered by painted pixels shall always be at least as large
-/// as the area of the original shape" — and it is the oracle that is under it here. Fixing it is
-/// `render-cpu`'s round; **re-stating the clip on this side would not be one.**
+/// **The two that arrived left again in the thousand-and-eighty-first, on the oracle** (ADR
+/// 1095), which is what the sentence they arrived with asked for. `examples/clip_cost` draws a
+/// page twice on each backend, once as stated and once with every clip taken off, so what it
+/// prints for a clip that cuts nothing is the composition rather than the document: at 1×,
+/// `bug1844576.pdf` read cpu 849.31 of 933.38 against raster 933.09 of 933.09, and
+/// `bug1978317.pdf` cpu 13 387.41 of 15 165.68 against raster 15 118.43 of 15 118.43 — those
+/// clips costing the device nothing and the oracle 9.0% and 11.7% of the page. Two things were
+/// wrong on that side. A `1 w` rule fell between `pdf_render::thinnest_line` and
+/// `pdf_render::band_substitute_width`, which parted by a unit in the last place, reached no
+/// §10.7.4 substitution at all and was drawn by `tiny-skia`, where a clip multiplies; and where
+/// `render_cpu::area` declines a mark, its boundary pixel comes off that library's quarter
+/// lattice while its clip's comes off the clause's own closed form, so `min` cut the quarter that
+/// rounded up. `render_cpu::MaskCache`'s own `cuts_nothing` now leaves a containing clip off the
+/// mark here too, asked about the shape the *document* states rather than the widened one —
+/// §10.7.4's third sentence, "The area covered by painted pixels shall always be at least as
+/// large as the area of the original shape", is what ranks those two. Both pages now read their
+/// unclipped ink on the oracle: 933.38 and 15 165.68.
 ///
 /// **`issue15150.pdf` stays, and the backend it convicts has changed sides** (ADR 1082). Its whole
 /// content stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s`, whose stroked region is the device
@@ -894,10 +898,8 @@ const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr1
 /// **0.251**, the area itself. raster draws 0.5, twice the area, at this scale only — the two
 /// agree at 2× and above. Erring heavy is the side §10.7.4's third sentence permits, so this is a
 /// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` is where an ask would go.
-const DIFFERS_IN_SHAPE: [&str; 13] = [
+const DIFFERS_IN_SHAPE: [&str; 11] = [
     "22060_A1_01_Plans.pdf",
-    "bug1844576.pdf",
-    "bug1978317.pdf",
     "issue12295.pdf",
     "issue15150.pdf",
     "issue16038.pdf",
@@ -923,21 +925,59 @@ const DIFFERS_IN_SHAPE: [&str; 13] = [
 /// before reading a page's three numbers as a defect.
 ///
 /// **A page whose two totals agree at every rung has nothing missing and nothing mis-sized**, and
-/// what is left is where each rasteriser puts a boundary. On this list that is the majority, and
-/// the coarser of the two placements is **this tree's own**: `tiny-skia` supersamples four times
-/// per pixel row and quantises a run to quarter-pixel steps along `x`, so `render-cpu` states
-/// every path edge on a quarter-pixel grid and its coverage is a multiple of a sixteenth — the
-/// arithmetic `render_cpu`'s scan module names and `pdf_render::sub_pixel`'s module comment
-/// measures. raster has no such quantum, and ISO 32000-2 §10.7.4 says which grid a shape's
-/// coordinates are *not* snapped to:
+/// what is left is where each rasteriser puts a boundary. ISO 32000-2 §10.7.4 says which grid a
+/// shape's coordinates are *not* snapped to:
 ///
 /// > Its coordinates are mapped into device space but not rounded to device pixel boundaries.
 ///
-/// The tree has moved three shape classes off that quantum one at a time — a rectangular fill and
-/// a rectangular clip region (ADR 0476), a path of axis-aligned portions (ADR 0583), a sub-pixel
-/// rule (ADR 0226) — and what is left is the general path, which is what small text is made of.
-/// So a text page on this list is **the oracle rounding and raster not**, and it stays here until
-/// that converter changes rather than because either backend drew the wrong picture.
+/// **Nine of the names below are the ones this and the next three paragraphs read** —
+/// `issue11473`, `issue12295`, `issue16038`, `issue18030`, `issue269_2`, `issue2177`,
+/// `issue4402_reduced`, `pr12564` and `standard_fonts`. The rest part on the ladder and are read
+/// from `issue19083` on, and the fourth paragraph moves two of the nine over to them.
+///
+/// **Neither backend snaps a path's edges to a lattice, and that is measured rather than assumed.**
+/// `render_cpu::area` computes the coverage this subclause's own definition of a pixel implies
+/// (ADR 1082), and `examples/coverage_lattice` puts both backends at the chance its run prints,
+/// 25.0% for a band of ±1.5 levels: `endchar` 14.2% against 14.2%, `pr12564` 17.0% against 17.5%,
+/// `standard_fonts` 15.5% against 14.2%, `issue11473` 15.5% against 20.0%, `issue12295` 21.3%
+/// against 10.8%.
+///
+/// **raster's own quantum is a glyph *phase* rather than a coverage, and it holds nothing here.**
+/// This gate draws at [`render_raster::options`]'s `glyph_quantum: Some(16)`, so a glyph's origin
+/// is bucketed to a sixteenth of a pixel (ADR 0498). `PDFVIEWER_RASTER_GLYPH_QUANTUM=off` over the
+/// whole corpus prints the same sixteen names: the bucket is worth up to 0.32 of 255 of mean error
+/// — `pr12564` 0.6792 → 0.3632, `issue18030` 1.7311 → 1.4812, `standard_fonts` 1.5342 → 1.4888 —
+/// and takes no page off the list. The control is in the same run: five of the sixteen do not move
+/// by a digit (`issue15150`, `issue16038`, `issue21068`, `issue2177`, `issue269_2`), so the knob
+/// reached what it names rather than everything.
+///
+/// **What is coarser on this tree's side is the *substitution* rather than the converter.**
+/// `pdf-model/examples/sub_pixel_width_census` names the population: six of the nine state strokes
+/// under a device pixel — `issue12295` 65 859 at 0.1366, `standard_fonts` 516
+/// at 0.5700, `issue11473` 492 at 0.3985, `issue16038` 214 at 0.3985, `issue4402_reduced` 22 at
+/// 0.5000, `issue18030` 4 at 0.5000 — where `issue269_2` and `issue2177` state none and `pr12564`
+/// states 16 over 616 896 pixels. Such a rule reaches `pdf_render::substitute_width` on the
+/// oracle, which draws it one device pixel wide with the width it gave up carried in the paint's
+/// alpha, because `tiny-skia`'s hairline carried only `cos θ` of a diagonal rule's area (ADR
+/// 0268); raster outlines the stroke in path space at the width the document states and never
+/// needed the substitute. The same ink is therefore a soft band of whole pixels on one backend and
+/// a hard sliver on the other, and §10.7.4's third sentence ranks the two:
+///
+/// > The area covered by painted pixels shall always be at least as large as the area of the
+/// > original shape.
+///
+/// The oracle is the side that meets it. `issue11473.pdf` is the isolated case: 0.074% of its
+/// pixels differ by more than a tenth of the range and every one of them is inside a single
+/// 140 × 116 box, which holds the diagonal hatch swatches ADR 0268 was measured on.
+///
+/// **And two of the nine are not placement at all, which the ladder says**: `standard_fonts` reads
+/// cpu 31 937.84 against raster 29 627.02 at 1×, 7.8% apart, and `issue12295` cpu 13 450.31
+/// against raster 12 834.50, 4.8% apart, where the other seven are inside 2% at every rung. Both
+/// gaps close by 4× onto totals the two share, so each backend is paying the substitution above
+/// and paying a different amount for it — one of `standard_fonts`' 0.57-pixel rules reads
+/// 0.894 + 0.459 of two columns on the oracle against 0.965 of one on raster. They belong with
+/// `issue19083.pdf` below rather than with the placement seven, and narrowing the gap is
+/// `pdf_render::sub_pixel`'s round rather than this backend's.
 ///
 /// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
 /// says what it is. A gap that halves at every rung is a cost paid per boundary pixel, and one

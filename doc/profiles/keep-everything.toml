@@ -58,13 +58,18 @@ unlisted = "stop"
 
 [site."annotations/subtype-defined-in-iso-32000-1"]
 remedy = "preserve"
-keep = ["appearance-as-page", "media-as-attachment"]                # NOT-YET-IN-FORMAT
+placement = "append"      # the normal appearance, on a page stating the geometry it was drawn at
 on-failure = "stop"
 
 [site."annotations/subtype-defined-in-iso-32000-2"]
 remedy = "preserve"
-keep = ["appearance-as-page", "media-as-attachment"]                # NOT-YET-IN-FORMAT
+placement = "append"
 on-failure = "stop"
+
+# The media a Screen, Movie or Sound annotation named is the half of this site that is not built:
+# `placement = "attach"` would keep the stream as an embedded file at 4f and 4e, and
+# doc/pdf-a-mitigations.md section 6 is the entry. An annotation that drew nothing has nothing to
+# preserve either, and the conversion is refused naming it rather than converted silently.
 
 [site."annotations/three-dimensional-stream-format"]
 remedy = "derive"

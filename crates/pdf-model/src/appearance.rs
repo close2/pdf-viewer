@@ -290,6 +290,27 @@ pub enum Intent {
     Unknown(String),
 }
 
+/// ISO 32000-2 §12.5.5's matrix `AA`, for an appearance stream a caller has already chosen.
+///
+/// > A matrix A shall be computed that scales and translates the transformed appearance box to
+/// > align with the edges of the annotation's rectangle (specified by the Rect entry).
+///
+/// ISO 32000-1:2008's 12.5.5 states the same three steps, so the map is the same under either
+/// edition. One implementation of the algorithm serves every caller — [`crate::annotation`]
+/// places what a viewer draws, and this is the same matrix handed to a caller that is moving an
+/// annotation's marks rather than drawing them.
+///
+/// `None` where neither the annotation nor the stream states a rectangle the algorithm can map
+/// onto.
+#[must_use]
+pub fn placement(
+    document: &Document,
+    annotation: &Dictionary,
+    appearance: &Dictionary,
+) -> Option<Transform> {
+    crate::annotation::placement_of(document, annotation, appearance)
+}
+
 /// Reads §12.5.6.7's or §12.5.6.9's `/IT`, where the annotation states one.
 ///
 /// # Which table applies is the annotation's `/Subtype`

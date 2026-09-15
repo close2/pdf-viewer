@@ -1576,6 +1576,12 @@ archive:
                            specification a JPEG 2000 image uses, so a processor that cannot use
                            that one falls back to a device space rather than to the producer's
                            next specification, no image sample being touched;
+                           forbidden-annotation takes an annotation of a subtype ISO 19005 does
+                           not admit off the page it was on, and with it the sound, movie,
+                           rendition or 3D artwork it named and its own Contents description,
+                           the report naming each and whether it drew anything — answer the site
+                           with a preserve remedy in a --config file and its normal appearance
+                           is kept on a page appended to the document instead;
                            signature-assertion lets a signed document be rewritten at all — a
                            signature covers the bytes of one file and a conversion moves every
                            one of them, so each signature field loses its value and keeps its

@@ -38,6 +38,20 @@ impl Font {
         }
     }
 
+    /// Whether this font carries the document's metrics and no glyphs at all.
+    ///
+    /// True for a font `pdf-font` refused and [`pdf_font::LoadedFont::metrics_only`] then built
+    /// from the dictionary's own widths. A Type 3 font is never one: its glyphs are content
+    /// streams this crate runs, so a `/CharProcs` it cannot read is `crate::type3`'s to report
+    /// and Table 110 puts its widths in a glyph space `/FontMatrix` defines rather than in the
+    /// thousandths §9.2.4 states.
+    pub(super) fn is_metrics_only(&self) -> bool {
+        match self {
+            Self::Program(font) => font.is_metrics_only(),
+            Self::Type3(_) => false,
+        }
+    }
+
     /// Splits a PDF string into character codes.
     ///
     /// A Type 3 font is a simple font — Table 110 gives it `/FirstChar` and `/LastChar`,
@@ -795,7 +809,16 @@ impl Interpreter<'_> {
                 self.note(Unsupported::Font {
                     detail: error.to_string(),
                 });
-                None
+                // **The refusal is about the glyph program and not about the file's
+                // arithmetic.** §9.2.4 NOTE 2 — "[s]toring this information in the font
+                // dictionary, although redundant, enables a PDF processor to determine glyph
+                // positioning without having to look inside the font program" — so the codes
+                // this font cannot draw still displace the pen by what the document states,
+                // and §9.4.4 still requires the text matrix to be updated for each of them.
+                // Dropping that moved the *next* font's glyphs, which is a page drawn wrong
+                // for a fault the page already reported elsewhere (ADR 1094).
+                dict.and_then(|dict| pdf_font::LoadedFont::metrics_only(self.document, dict, name))
+                    .map(|font| Font::Program(Arc::new(font)))
             }
             None => {
                 self.note(Unsupported::Font {
@@ -806,7 +829,12 @@ impl Interpreter<'_> {
         };
 
         if let Some(key) = key {
-            if let Some(font) = result.as_ref() {
+            // **Not across pages, and that is the report rather than the cost.** `across`
+            // outlives the page and `cached_font` serves what it holds without reporting, so a
+            // metrics-only font kept there would let page two draw nothing through a refused
+            // program in silence — trap 5's own failure. The page-scoped cache below is where
+            // it belongs: within one page the refusal has already been said once.
+            if let Some(font) = result.as_ref().filter(|font| !font.is_metrics_only()) {
                 self.across.keep(self.document, key.clone(), font);
             }
             self.fonts.insert(key, result.clone());

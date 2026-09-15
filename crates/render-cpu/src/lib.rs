@@ -794,6 +794,10 @@ impl CpuRasterizer {
                 continue;
             }
 
+            // How far this command's marks reach, in the page's own space: what decides whether
+            // §10.7.4's intersection with its clip is the mark itself, and so whether the clip
+            // is composed into it at all ([`MaskCache::cuts_nothing`]).
+            let reach = marks_reach(command, surface.page.transform);
             // Resolved before the match so that every arm shares one code path for
             // clip handling; a per-arm lookup would be a place for them to diverge.
             // The clip admits no row of the target, so nothing this command draws can
@@ -802,7 +806,7 @@ impl CpuRasterizer {
                 band,
                 mask: clip,
                 admits,
-            }) = masks.effective(list, command.clip(), command.mask())?
+            }) = masks.effective(list, command.clip(), command.mask(), reach)?
             else {
                 continue;
             };
@@ -1021,7 +1025,7 @@ impl CpuRasterizer {
 
         // The band is taken first so that a group whose clip admits no row costs nothing at
         // all — not even the buffer.
-        let Some(Admitted { band, .. }) = masks.effective(list, group.clip, group.mask)? else {
+        let Some(Admitted { band, .. }) = masks.group_admits(list, group.clip, group.mask)? else {
             return Ok(());
         };
 
@@ -1058,7 +1062,7 @@ impl CpuRasterizer {
         // Resolved again rather than held across the recursion: the elements' own clips
         // share this cache and may have evicted the entry, and a rebuilt mask is the mask
         // that was dropped — see `a_rebuilt_mask_is_the_mask_that_was_evicted`.
-        let Some(Admitted { mask: clip, .. }) = masks.effective(list, group.clip, group.mask)?
+        let Some(Admitted { mask: clip, .. }) = masks.group_admits(list, group.clip, group.mask)?
         else {
             return Ok(());
         };
@@ -2279,9 +2283,10 @@ fn draw_rule_at_one_pixel(
     };
     // A width above the substitute's is not this rule's business: `draw_sub_pixel_rule` has
     // already established that the stroke is at or under one device pixel by §8.4.3.2's reading.
-    // Kept although `band_substitute_width` is never under `thinnest_line` — the two are equal
-    // for a path holding a curve — so that the test guarding the widening below is the widening's
-    // own rather than a property of a caller.
+    // Kept although `band_substitute_width` is never under `thinnest_line` — a floor that
+    // function states rather than an accident of the arithmetic, and ADR 1095 is what made it
+    // one — so that the test guarding the widening below is the widening's own rather than a
+    // property of a caller.
     if !at_or_under_the_quantum(style.width, width) {
         return false;
     }
@@ -2356,6 +2361,59 @@ fn draw_rule_at_one_pixel(
         );
     }
     true
+}
+
+/// How far a command's marks reach in the page's own space, or `None` where this cannot say.
+///
+/// The question [`MaskCache::cuts_nothing`] asks its clip about, and **it is asked about the shape
+/// the document states, not about the one this backend paints.** ISO 32000-2 §10.7.4 makes the
+/// two differ — the clause's substitutions widen a mark too thin to measure, so that "no shape
+/// ever disappears" — and the clause itself ranks the two answers where a clip meets the wider
+/// one:
+///
+/// > The area covered by painted pixels shall always be at least as large as the area of the
+/// > original shape.
+///
+/// With the document's shape `S` inside the region `C`, §10.7.4's own intersection leaves `S`
+/// whole, so the area owed is `S`'s. Cutting the substitute back to `C` paints *less* than that —
+/// a rule half a device pixel tall inside a clip half a device pixel tall keeps three quarters of
+/// its ink on `bug1978317.pdf`, 15 004 times over — which is the side of the sentence above that
+/// is forbidden. So the substitute is drawn whole, and what it puts outside `C` is the half device
+/// pixel ADR 0268 and ADR 0154 already spend on an unclipped mark. ADR 1095.
+///
+/// - A **fill** marks its own path, so its page-space box is the shape the document states.
+/// - A **stroke** is bounded by [`pdf_render::stroked_bounds`] at the width §8.4.3.2 and §10.7.5
+///   resolve — [`Stroke::device_width`], asked against the *real* device so that a `0 w` rule and
+///   a stroke-adjusted one are measured where they are drawn rather than at page scale.
+/// - An **image** fills §8.9.5.2's unit square and [`Command::device_bounds`] maps its corners.
+/// - A **group** keeps its clip: §8.5.4 gives its result "the union of the shapes of its
+///   constituent objects" and nothing here bounds that union without walking the elements. So
+///   does §11.4.6's shaped element, and so does every variant [`Command`] gains after this.
+///
+/// [`Stroke::device_width`]: pdf_render::Stroke::device_width
+fn marks_reach(command: &Command, page: Transform) -> Option<pdf_render::Rect> {
+    match command {
+        Command::Fill {
+            path, transform, ..
+        } => path.bounds(*transform),
+        Command::Stroke {
+            path,
+            transform,
+            stroke,
+            ..
+        } => {
+            let stated = Stroke {
+                // Already resolved against the device, so the copy may not resolve it again:
+                // `stroked_bounds` asks `device_width` a second time, in the path's own space.
+                adjust: false,
+                width: stroke.device_width(transform.then(page)),
+                ..stroke.clone()
+            };
+            pdf_render::stroked_bounds(path, &stated, *transform)
+        }
+        Command::Image { .. } => command.device_bounds(Transform::IDENTITY),
+        _ => None,
+    }
 }
 
 /// Which device rectangles a fill's path is, if any — ISO 32000-2 §10.7.4 and §11.6.2.
@@ -3622,6 +3680,10 @@ struct MaskCache {
     bytes: usize,
     /// Largest total the masks may reach before the oldest are dropped.
     budget: usize,
+    /// The page-space rectangle each chain admits wholly, memoised — `pdf_render::DisplayList::
+    /// clip_admits`, which [`MaskCache::cuts_nothing`] asks once per *command* and a page states
+    /// one chain per clipping path (ADR 0132).
+    admits_wholly: HashMap<usize, Option<pdf_render::Rect>>,
     /// Where a mark's own coverage is built before §10.7.4's intersection composes the two.
     /// Here because it is one buffer per band, which is what this cache already is.
     scratch: scan::Scratch,
@@ -3670,6 +3732,7 @@ impl MaskCache {
             bytes: 0,
             soft_bytes: 0,
             budget,
+            admits_wholly: HashMap::new(),
             scratch: scan::Scratch::default(),
             reach: Arc::new(HashMap::new()),
         }
@@ -3706,6 +3769,75 @@ impl MaskCache {
         }
     }
 
+    /// [`MaskCache::effective`] for a group, whose marks this cannot bound.
+    ///
+    /// ISO 32000-2 §8.5.4 gives a group's result a shape of its own, "defined as the union of the
+    /// shapes of its constituent objects", and nothing bounds that union without walking the
+    /// elements — so a group keeps its clip whatever it contains ([`MaskCache::cuts_nothing`]).
+    fn group_admits(
+        &mut self,
+        list: &DisplayList,
+        clip: Option<ClipId>,
+        mask: Option<SoftMaskId>,
+    ) -> Result<Option<Admitted<'_>>, CpuRasterError> {
+        self.effective(list, clip, mask, None)
+    }
+
+    /// Whether this chain takes nothing from a mark that reaches no further than `marks`, so
+    /// that the mark may be drawn with no clip composed into it at all.
+    ///
+    /// # The clause states a set, and a set that contains a mark takes nothing from it
+    ///
+    /// ISO 32000-2 §10.7.4:
+    ///
+    /// > For clipping, the clipping region consists of the set of pixels that would be included
+    /// > by a fill operation. Subsequent painting operations shall affect a region that is the
+    /// > intersection of the set of pixels defined by the clipping region with the set of pixels
+    /// > for the region to be painted.
+    ///
+    /// and §8.5.4 says the same of the shape — "[t]he effective shape is the intersection of the
+    /// object's intrinsic shape with the clipping path". `S ∩ C = S` where `S` lies inside `C`,
+    /// at every pixel, the mark's own anti-aliased boundary included. ADR 1095.
+    ///
+    /// # Why the oracle needs it when it already composes by `min`
+    ///
+    /// ADR 0355 made this backend meet a clip by `min` rather than by a product, which is exact
+    /// wherever the two boundaries coincide or nest **and both are measured the same way**. They
+    /// are not always: a clip stating a rectangle is measured by §10.7.4's own closed form (ADR
+    /// 0476) and a mark `crate::area` declines falls back to the library's converter, whose
+    /// boundary pixel is rounded to a quarter (ADR 1082). A quarter that rounded *up* is then cut
+    /// back to the clip's exact value and the quarter that rounded *down* is not restored, so a
+    /// clip coinciding with a mark's own outline costs the page ink — 9.0% of `bug1844576.pdf`.
+    /// Not stating the clip removes the arithmetic rather than making the two converters agree,
+    /// and it is what `render_raster::scene::Encoder::cuts_nothing` does on the other backend
+    /// (ADR 1088), so the two agree here by one rule rather than by luck.
+    ///
+    /// # Why the question is asked in page space
+    ///
+    /// Both rectangles are the document's, before this target's transform, so the answer is a
+    /// property of the file rather than of this magnification: every affine carries a containment
+    /// to a containment, and §10.7.4's pixel region — "painting any pixel whose half-open square
+    /// region intersects the shape" — is a superset of the geometric region it is built from, so a
+    /// containment that holds geometrically holds against the pixels the device clips with. It is
+    /// also what keeps ADR 0219's row offset out of the comparison: a band's transform and the
+    /// page's agree to within rounding rather than exactly, and a containment decided within that
+    /// rounding would make a strip of a page a different picture from the page.
+    ///
+    /// `marks` is `None` for a command whose reach [`marks_reach`] cannot bound, which keeps the
+    /// clip.
+    fn cuts_nothing(
+        &mut self,
+        list: &DisplayList,
+        clip: ClipId,
+        marks: Option<pdf_render::Rect>,
+    ) -> bool {
+        let Some(marks) = marks else { return false };
+        self.admits_wholly
+            .entry(clip.index())
+            .or_insert_with(|| list.clip_admits(clip))
+            .is_some_and(|admits| admits.contains(marks))
+    }
+
     /// Returns what a command with this clip and this soft mask may mark.
     ///
     /// `None` means nothing this command draws can survive, which is not the same as
@@ -3725,17 +3857,53 @@ impl MaskCache {
         list: &DisplayList,
         clip: Option<ClipId>,
         mask: Option<SoftMaskId>,
+        marks: Option<pdf_render::Rect>,
     ) -> Result<Option<Admitted<'_>>, CpuRasterError> {
-        match (clip, mask) {
+        // ISO 32000-2 §10.7.4's intersection with a region that contains the mark is the mark, so
+        // the clip is left off it entirely and the composition below never runs. The mask still
+        // has to be *built*, because it is what bands the draw: the mark lies inside the region,
+        // so the region's rows are rows enough for it, and keeping them is what keeps this saving
+        // from costing a page-tall buffer per command.
+        let contained = match clip {
+            Some(clip) => self.cuts_nothing(list, clip, marks),
+            None => false,
+        };
+        match (clip.filter(|_| !contained), mask) {
             // Unmasked, and still carrying the scratch buffer: a mark whose own portions share a
             // device pixel is composed in one whether or not anything clips it (§11.6.2, ADR 0590).
-            (None, None) => Ok(Some(Admitted {
+            (None, None) if !contained => Ok(Some(Admitted {
                 band: self.surface.rows,
                 mask: scan::Clip::Unclipped {
                     scratch: &self.scratch,
                 },
                 admits: None,
             })),
+            // The same answer, banded by the clip this mark is inside of rather than by the page.
+            (None, None) => {
+                let Some(clip) = clip else {
+                    // `contained` is only ever set for a clip, so this cannot be reached; the
+                    // page-wide band is the answer that draws the mark anyway if it ever is.
+                    return Ok(Some(Admitted {
+                        band: self.surface.rows,
+                        mask: scan::Clip::Unclipped {
+                            scratch: &self.scratch,
+                        },
+                        admits: None,
+                    }));
+                };
+                if self.get(list, clip)?.is_none() {
+                    return Ok(None);
+                }
+                let Self { built, scratch, .. } = self;
+                Ok(built
+                    .get(&Key::Clip(clip))
+                    .and_then(Option::as_ref)
+                    .map(|built| Admitted {
+                        band: built.band,
+                        mask: scan::Clip::Unclipped { scratch },
+                        admits: built.admits,
+                    }))
+            }
             // A clip on its own is §10.7.4's set of pixels, which is the one case a mark's
             // own coverage may be composed with by `min`. Built first and looked up after, the
             // way the `(Some, Some)` arm below does, because the composition needs the cache's

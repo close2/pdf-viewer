@@ -64,13 +64,21 @@
 //! schema does not define the value it holds (section 3.9), `--authorise annotation-printing`
 //! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7),
 //! `--authorise jpeg2000-colour-fallback` keeps only the colour space specification a JPEG 2000
-//! image uses, dropping the ones the part directs a processor to ignore ([`jpeg2000`]), and
+//! image uses, dropping the ones the part directs a processor to ignore ([`jpeg2000`]),
+//! `--authorise forbidden-annotation` takes an annotation of a subtype ISO 19005 does not admit
+//! off the page it was on and everything it carried with it (section 3.2, `doc/adr/1099`), and
 //! `--authorise signature-assertion` lets a signed source be rewritten at all — every signature
 //! loses its value and keeps its field and appearance, and the report names each one, its
 //! signer, its time and what verifying it over the source found (section 3.6, [`signatures`]).
 //! Each names in the report exactly what it did — [`Conversion::removed`],
-//! [`Conversion::signatures`] and the flag's own count — because a loss nobody can see
-//! afterwards is the failure section 3 exists against.
+//! [`Conversion::removed_annotations`], [`Conversion::signatures`] and the flag's own count —
+//! because a loss nobody can see afterwards is the failure section 3 exists against.
+//!
+//! **And the one of those a `preserve` remedy makes smaller.** An annotation's normal appearance
+//! is a form `XObject` the *producer* wrote, and ISO 19005-2 section 6.2.2's NOTE 2 puts a page
+//! description and an annotation appearance under the same restrictions — so `remedy =
+//! "preserve"` at either section 6.3.1 site keeps those marks on an appended page, invoked under
+//! §12.5.5's own matrix on a page stating the source page's boxes and turn. `doc/adr/1099`.
 //!
 //! **Everything else is refused by name**: the fonts section 4.9 cannot answer — a composite font
 //! nothing embedded (section 2.1), a page that draws a glyph its own embedded program has not got
@@ -157,10 +165,10 @@ pub use config::{
 };
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
-pub use prepare::{DestinationProfile, ProfileSource, WrittenAppearance};
+pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use report::{
     Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
-    Preserved, SignatureDecision, SuppliedFact,
+    Preserved, SetIn, SignatureDecision, SuppliedFact,
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
@@ -170,7 +178,7 @@ use prepare::{
     DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
     substituted_fonts_recorded,
 };
-pub use preserve::PRESERVED_AS_A_PAGE;
+pub use preserve::{PRESERVED_AS_A_PAGE, PRESERVED_MARKS_AS_A_PAGE};
 use remedies::Remedies;
 pub use remedies::{DERIVED_NOT_ORIGINAL, SUPPLIED_BY_THE_OPERATOR};
 use report::describe_decision;
@@ -459,6 +467,7 @@ fn decide_every_failure(
         recorded: None,
         removed: Vec::new(),
         appearances: Vec::new(),
+        removed_annotations: Vec::new(),
         substituted: Vec::new(),
         restated: Vec::new(),
         signatures: None,
@@ -546,11 +555,27 @@ fn configured(
         .any(|preservation| preservation.site == id)
     {
         return Some(match &prepared.preserved {
+            // The rewrite named is the *table's* for this site — the property removal, the
+            // annotation removal — because that is what makes the file conform; the pages are
+            // what keep what it takes away, and `rewrites_wanted` adds `PreservedAsPage` beside
+            // it. A site the table answers with no single rewrite cannot be preserved, and says
+            // so rather than writing pages beside a requirement still failing.
             Ok(composed) if composed.carried.iter().any(|row| row.site == id) => {
-                Decision::Configured {
-                    kind: RemedyKind::Preserve,
-                    rewrite: Rewrite::PropertyOutsideItsSchema,
-                    warns: PRESERVED_AS_A_PAGE,
+                match decision::rewrite_for(id) {
+                    Some(rewrite) => Decision::Configured {
+                        kind: RemedyKind::Preserve,
+                        rewrite,
+                        // Two sentences rather than one, and `preserve::PRESERVED_MARKS_AS_A_PAGE`
+                        // says why: at the annotation sites the remedy keeps the marks and does
+                        // not keep the annotation, so an operator told the packet site's sentence
+                        // would think nothing had gone.
+                        warns: if rewrite == Rewrite::ForbiddenAnnotationRemoved {
+                            PRESERVED_MARKS_AS_A_PAGE
+                        } else {
+                            PRESERVED_AS_A_PAGE
+                        },
+                    },
+                    None => Decision::Refused(Because::NotBuiltYet(NO_REWRITE_TO_PRESERVE_BESIDE)),
                 }
             }
             Ok(_) => Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE)),
@@ -590,6 +615,17 @@ fn configured(
             remedies::AWAITING_TOOL,
         )))
 }
+
+/// Why a `preserve` at a site the table answers with no single rewrite is refused.
+///
+/// `preserve` keeps what a rewrite takes away, so it needs the rewrite: a site whose answer
+/// depends on what the caller supplied — ISO 19005-2 section 6.2.4.3's `DeviceCMYK`, which the
+/// profile in hand decides between two licences for — has no one rewrite to keep content beside,
+/// and no such site has content to keep either.
+const NO_REWRITE_TO_PRESERVE_BESIDE: &str = "this configuration answers this requirement by \
+     preserving what it would otherwise lose on a page appended to the document, and this \
+     requirement is not one the converter answers with a single rewrite — so there is \
+     nothing for the appended page to sit beside";
 
 /// Why a `preserve` that composed pages answered no requirement.
 const NOTHING_TO_PRESERVE: &str = "this configuration answers this requirement by preserving what \
@@ -643,7 +679,12 @@ enum Written {
 }
 
 /// Stage 3: the rewrites, the output's own verdict, and the sink.
-#[expect(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "stage three is one sequence — the rewrites, the output's own verdict, the sink — and \
+its inputs are that sequence's; splitting it would put the order in two places"
+)]
 fn apply_the_decisions(
     plan: &ArchivePlan,
     document: &Document,
@@ -710,6 +751,16 @@ fn apply_the_decisions(
         && let Ok(appearances) = &prepared.appearances
     {
         conversion.appearances.clone_from(&appearances.constructed);
+    }
+    // What went off the page, beside what was put on it: `doc/pdf-a-conversion-limits.md` section
+    // 3.2 asks for the page each removed annotation was on, and whether it drew anything, because
+    // an annotation that is gone leaves nothing in the output to notice.
+    if wanted.contains(&Rewrite::ForbiddenAnnotationRemoved)
+        && let Ok(forbidden) = &prepared.forbidden_annotations
+    {
+        conversion
+            .removed_annotations
+            .clone_from(&forbidden.removed);
     }
     // section 3.9's condition on the loss: what went is named per property, because a removed
     // property leaves nothing in the output for a user to find it by.

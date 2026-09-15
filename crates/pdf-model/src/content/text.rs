@@ -317,6 +317,11 @@ impl Interpreter<'_> {
             return;
         };
 
+        if font.is_metrics_only() {
+            self.advance_through_a_refused_font(&font, bytes, state, text);
+            return;
+        }
+
         // The three operations of Table 104, and the two clauses that ask about the paint
         // behind them; see `GlyphPainting::read`. Mode 3 does none of the three and mode 7
         // only the last, which is what an OCR layer under a scanned image uses; either way
@@ -638,6 +643,63 @@ impl Interpreter<'_> {
             self.tally_glyph(&state.text.font_name, coverage);
         }
         self.append_reversed(&pieces, reversed_quads);
+    }
+
+    /// Moves the pen across a string whose font has no program, drawing and reading nothing.
+    ///
+    /// ISO 32000-2 §9.4.4 makes the update owed by every code a show string states, whatever
+    /// became of the glyph — "[a]fter the glyph is painted, the text matrix shall be updated
+    /// according to the glyph displacement and any spacing parameters that apply" — and §9.2.4
+    /// puts the displacement in the *font dictionary* as well as in the program, so a font
+    /// `pdf-font` refused still states it. What the refusal costs is the mark; what it does not
+    /// cost is the position of everything after it, which on a line that continues in a second
+    /// font is that font's glyphs. `issue6127.pdf` page 1 is the witness and ADR 1094 the
+    /// argument: `/C2_14 1 Tf 5.737 0 Td <0003>Tj /C2_2 1 Tf [<0003>187<000b>…]TJ`, where
+    /// `/C2_14` is an `/Identity-H` over a `CIDFont` with no program (§9.7.5.2 forbids the
+    /// combination outright) whose descendant's `/W` states 250 for CID 3, and `/C2_2` is a font
+    /// this tree loads — so the `TJ` began 3.0158 pt short of where both references put it.
+    ///
+    /// Three things the ordinary path does are deliberately not done here, and they are one
+    /// sentence: this font marked no part of the page. There is no glyph to paint, no
+    /// quadrilateral for the text layer to place over blank paper, and no §9.10.2 readback — a
+    /// code named here would be selectable text with nothing under it, while the page's own
+    /// `Unsupported::Font` already says the program was refused. The string is still counted as
+    /// text the page could not draw, exactly as it was before the metrics were kept.
+    fn advance_through_a_refused_font(
+        &mut self,
+        font: &Font,
+        bytes: &[u8],
+        state: &GraphicsState,
+        text: &mut TextObject,
+    ) {
+        if !self.is_hidden() {
+            self.text_operations = self.text_operations.saturating_add(1);
+        }
+        let vertical = font.is_vertical();
+        for code in font.decode(bytes) {
+            // §9.3.3's word spacing, on the same test the drawing path uses: the rule is about
+            // the code's encoded length rather than its value.
+            let word = if code.takes_word_spacing() {
+                state.text.word_spacing
+            } else {
+                0.0
+            };
+            let displacement = match font {
+                // §9.7.4.3's `w1`, whose horizontal component is 0 and whose vertical component
+                // `/W2` and `/DW2` state — read from the dictionary like every other metric here.
+                Font::Program(program) if vertical => program.vertical_metrics(code).0[1],
+                Font::Program(_) | Font::Type3(_) => font.advance(code),
+            };
+            text.matrix = Self::advance_step(
+                displacement,
+                state.text.size,
+                state.text.char_spacing + word,
+                state.text.horizontal_scale,
+                vertical,
+            )
+            .then(text.matrix);
+            self.text_cursor = Some((text.matrix.e, text.matrix.f));
+        }
     }
 
     /// §14.8.2.5.3's reversal: one show string's readback, appended backwards.

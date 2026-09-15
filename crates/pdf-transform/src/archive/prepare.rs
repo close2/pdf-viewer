@@ -643,6 +643,12 @@ pub(super) struct Prepared {
     /// because a reader of this struct should be able to see which of its parts are the two
     /// constructions this verb was built around and which are the lossless rewrites it grew.
     pub(super) owed: Owed,
+    /// Every annotation a target's section 6.3.1 does not admit, or why none can be removed.
+    ///
+    /// Prepared **before** [`Self::preserved`], because a `preserve` remedy at either subtype site
+    /// keeps the normal appearances of exactly these annotations: the population is the removal's
+    /// and the pages are composed from it.
+    pub(super) forbidden_annotations: Result<ForbiddenAnnotations, Because>,
     /// The pages a `preserve` remedy appends, or why none can be.
     ///
     /// `doc/adr/1014`, and the field is `Err(NOT_ASKED_FOR)` for every conversion whose caller
@@ -752,11 +758,18 @@ impl Prepared {
         // and an entry cannot be written for pages nobody has worked out yet. What they carry is
         // the producer's own packets — the bytes the removal above is about to edit — so this is
         // prepared after `properties` and reads what it found.
+        // The annotations the two section 6.3.1 rows are about, worked out before the pages are
+        // composed: a `preserve` remedy at either site keeps these annotations' normal
+        // appearances, so the removal's population is what the composition is built from.
+        let forbidden_annotations = asked(wanted(Rewrite::ForbiddenAnnotationRemoved), || {
+            prepare_forbidden_annotations(document, plan.target)
+        });
         let preserved = the_preserved_pages(
             plan,
             document,
             &failed,
             properties.as_ref(),
+            forbidden_annotations.as_ref(),
             intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
             &mut spare,
         );
@@ -848,6 +861,7 @@ impl Prepared {
             structure,
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
+            forbidden_annotations,
             preserved,
             recorded_provenance,
         }
@@ -894,6 +908,9 @@ impl Prepared {
                 self.owed.specifications.as_ref().err().copied()
             }
             Rewrite::PreservedAsPage => self.preserved.as_ref().err().copied(),
+            Rewrite::ForbiddenAnnotationRemoved => {
+                self.forbidden_annotations.as_ref().err().copied()
+            }
             Rewrite::SignatureValueRemoved => self.signatures.obstacle,
             Rewrite::ForeignPermissionHandlers => {
                 self.owed.foreign_handlers.as_ref().err().copied()
@@ -1494,6 +1511,103 @@ fn prepare_appearances(
     })
 }
 
+/// Every annotation a target's part does not admit, and what taking each off the page costs.
+///
+/// ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1, as one population.
+/// `pdf_archive::annotations_of_a_forbidden_subtype` is the reading and this is what the rewrite
+/// and the `preserve` remedy are both built from, so neither can act on an annotation the
+/// requirement's own predicate would have passed.
+#[derive(Debug)]
+pub(super) struct ForbiddenAnnotations {
+    /// The objects to take out of their pages' `/Annots` arrays.
+    ///
+    /// The popup of a removed annotation is in here beside it: §12.5.6.14 makes a popup the
+    /// window belonging to some other annotation, and one whose parent has gone is a window onto
+    /// nothing.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// Every annotation removed, in page order, for the report and for `preserve`.
+    pub(super) removed: Vec<RemovedAnnotation>,
+}
+
+/// One annotation a target does not admit, as the report names it and as `preserve` reads it.
+///
+/// **A list rather than a count**, for the reason `Conversion::removed` is one: an annotation that
+/// is gone leaves nothing in the output to notice, and `doc/pdf-a-conversion-limits.md` section
+/// 3.2 asks the report to say which page lost a mark. Whether it had one to lose is
+/// [`Self::appearance`], because an annotation with no appearance stream took no mark off the
+/// page when it went.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedAnnotation {
+    /// The annotation object itself.
+    pub at: ObjectId,
+    /// The zero-based page it was on.
+    pub page: usize,
+    /// Its `/Subtype`, or the words for an annotation that states none.
+    pub subtype: String,
+    /// The form `XObject` its `/AP` `/N` names, where it names one.
+    ///
+    /// `Some` means the page loses a mark when the annotation goes — the marks
+    /// `remedy = "preserve"` keeps. `None` means it drew nothing of its own.
+    pub appearance: Option<ObjectId>,
+}
+
+impl RemovedAnnotation {
+    /// One removed annotation as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("page".to_owned(), Value::count(self.page)),
+            ("subtype".to_owned(), Value::text(self.subtype.clone())),
+            (
+                "object".to_owned(),
+                Value::text(format!("{} {}", self.at.number, self.at.generation)),
+            ),
+            ("drew".to_owned(), Value::Bool(self.appearance.is_some())),
+        ])
+    }
+}
+
+/// Why an annotation nothing can name is not removed.
+///
+/// §7.7.3.3's Table 31 requires `/Annots` to "contain indirect references to all annotations
+/// associated with the page", and files exist that write a dictionary straight into the array
+/// instead. This rewrite acts on objects, so there is nothing for it to take out;
+/// `prepare_appearances` refuses the same case for the same reason.
+const REMOVAL_OF_A_DIRECT_ANNOTATION: &str = "an annotation of a subtype ISO 19005 does not admit \
+     is written directly into its page's Annots array rather than being an object of its own, and \
+     the rewrite that removes one acts on objects. Nothing here can reach it";
+
+/// The annotations the two section 6.3.1 rows are about, read off the document once.
+fn prepare_forbidden_annotations(
+    document: &Document,
+    target: Target,
+) -> Result<ForbiddenAnnotations, Because> {
+    let mut at = BTreeSet::new();
+    let mut removed = Vec::new();
+    for forbidden in pdf_archive::annotations_of_a_forbidden_subtype(document, target) {
+        let annotation = forbidden
+            .at
+            .ok_or(Because::NotBuiltYet(REMOVAL_OF_A_DIRECT_ANNOTATION))?;
+        at.insert(annotation);
+        // §12.5.6.2's Table 172 gives a markup annotation a `/Popup` naming the window it opens,
+        // and that window is an annotation of the page in its own right. It goes with its parent
+        // rather than being left pointing at an object the output does not hold.
+        if let Some(dict) = document.get(annotation).as_dict()
+            && let Some(popup) = dict.get("Popup").and_then(Object::as_reference)
+        {
+            at.insert(popup);
+        }
+        removed.push(RemovedAnnotation {
+            at: annotation,
+            page: forbidden.page,
+            subtype: forbidden
+                .subtype
+                .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
+            appearance: forbidden.normal_appearance,
+        });
+    }
+    Ok(ForbiddenAnnotations { at, removed })
+}
+
 /// Whether this annotation is the widget of a button field.
 ///
 /// §12.7.4.1's Table 228 makes `/FT` inheritable, and `TechNote 0010`'s A023 resolves that an
@@ -1656,41 +1770,65 @@ fn prepare_respellings(
 ///
 /// **Nothing is composed for a conversion that asked for none** — `doc/adr/0947`'s first rule
 /// applied to a remedy — so a caller naming no preservation never loads a font or measures a page.
-/// The one site built appends the packets ISO 19005-2 section 6.6.2.3.1's removal is about to
-/// edit, **as the producer wrote them**: the whole packet rather than the properties alone,
-/// because a value cut down to what a report can print is not the value, and because the packet is
-/// what `doc/rfc/0007` section 2 names — *instead of losing metadata it could be appended or
-/// prefixed as an extra page*.
+///
+/// Two sites reach a page, and they are the two kinds of content `preserve` knows:
+///
+/// - ISO 19005-2 section 6.6.2.3.1's removal is about to edit a packet, so the packet **as the
+///   producer wrote it** is appended: the whole packet rather than the properties alone, because a
+///   value cut down to what a report can print is not the value, and because the packet is what
+///   `doc/rfc/0007` section 2 names — *instead of losing metadata it could be appended or prefixed
+///   as an extra page*;
+/// - either section 6.3.1 row's removal is about to take an annotation off a page, so its **normal
+///   appearance** is appended: the form `XObject` the producer wrote, invoked where §12.5.5 puts
+///   it. `doc/adr/1099` is the argument.
 fn the_preserved_pages(
     plan: &ArchivePlan,
     document: &Document,
     failed: &BTreeSet<&'static str>,
     properties: Result<&Cleaned, &Because>,
+    forbidden: Result<&ForbiddenAnnotations, &Because>,
     has_output_intent: bool,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
-    if !plan
-        .preservations
-        .iter()
-        .any(|preservation| preservation.site == SCHEMA_REQUIREMENT)
-        || !failed.contains(SCHEMA_REQUIREMENT)
-    {
+    let asked = |site: &'static str| {
+        plan.preservations
+            .iter()
+            .any(|preservation| preservation.site == site)
+            && failed.contains(site)
+    };
+    let packets = if asked(SCHEMA_REQUIREMENT) {
+        // The removal is what makes the file conform; the pages are what keep what it removes. A
+        // document whose packet cannot be cut gets neither, and the reason is the cut's own.
+        let cleaned = properties.map_err(|because| *because)?;
+        let mut packets: Vec<(ObjectId, std::sync::Arc<[u8]>)> = Vec::new();
+        for at in cleaned.packets.keys() {
+            let Object::Stream(stream) = document.get(*at) else {
+                return Err(Because::NotBuiltYet(NOT_A_PACKET));
+            };
+            let Some(bytes) = document.decoded_stream_data(&stream) else {
+                return Err(Because::NotBuiltYet(NOT_A_PACKET));
+            };
+            packets.push((*at, bytes));
+        }
+        packets
+    } else {
+        Vec::new()
+    };
+    let annotation_site = SUBTYPE_REQUIREMENTS
+        .into_iter()
+        .find(|site| asked(site))
+        .map(|site| {
+            // The removal is what makes the file conform and the page is what keeps its marks, so
+            // a document whose annotations cannot be removed gets neither — the packet site's own
+            // construction, for its reason.
+            let removals = forbidden.map_err(|because| *because)?;
+            marks_of(document, removals).map(|marks| (site, marks))
+        })
+        .transpose()?;
+    if packets.is_empty() && annotation_site.is_none() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
-    // The removal is what makes the file conform; the pages are what keep what it removes. A
-    // document whose packet cannot be cut gets neither, and the reason is the cut's own.
-    let cleaned = properties.map_err(|because| *because)?;
-    let mut packets: Vec<(ObjectId, std::sync::Arc<[u8]>)> = Vec::new();
-    for at in cleaned.packets.keys() {
-        let Object::Stream(stream) = document.get(*at) else {
-            return Err(Because::NotBuiltYet(NOT_A_PACKET));
-        };
-        let Some(bytes) = document.decoded_stream_data(&stream) else {
-            return Err(Because::NotBuiltYet(NOT_A_PACKET));
-        };
-        packets.push((*at, bytes));
-    }
-    let keeps: Vec<preserve::Keep<'_>> = packets
+    let mut keeps: Vec<preserve::Keep<'_>> = packets
         .iter()
         .map(|(at, bytes)| preserve::Keep {
             site: SCHEMA_REQUIREMENT,
@@ -1698,10 +1836,110 @@ fn the_preserved_pages(
                 "the XMP metadata packet object {} {} holds, as the producer wrote it",
                 at.number, at.generation
             ),
-            bytes,
+            content: preserve::Kept::Text(bytes),
         })
         .collect();
+    if let Some((site, marks)) = annotation_site {
+        for (removed, marks) in marks {
+            keeps.push(preserve::Keep {
+                site,
+                subject: format!(
+                    "the normal appearance of the {} annotation object {} {} held on page {}, as \
+                     the producer wrote it",
+                    removed.subtype,
+                    removed.at.number,
+                    removed.at.generation,
+                    removed.page.saturating_add(1)
+                ),
+                content: preserve::Kept::Marks(marks),
+            });
+        }
+    }
     preserve::compose(document, &keeps, has_output_intent, spare)
+}
+
+/// The two requirements whose refusal a page of preserved marks answers.
+const SUBTYPE_REQUIREMENTS: [&str; 2] = [
+    "annotations/subtype-defined-in-iso-32000-1",
+    "annotations/subtype-defined-in-iso-32000-2",
+];
+
+/// Why an annotation with no normal appearance stream is refused rather than dropped quietly.
+///
+/// The operator asked for what the removal would lose to be kept, and for this annotation there is
+/// nothing in the file to keep: §12.5.5 makes the normal appearance the marks a reader draws, and
+/// an annotation stating none has no marks of its own. Constructing one from the annotation's
+/// appearance characteristics is what `pdf_model::appearance` does for the requirement that *asks*
+/// for a dictionary; doing it here would mean preserving a picture this program drew and calling
+/// it the producer's, which `doc/questions/A48` forbids and `doc/adr/1014` bounds. So the document
+/// is refused, naming the annotation, rather than converted with the operator's request silently
+/// unmet.
+const NO_APPEARANCE_TO_PRESERVE: &str = "this configuration answers an annotation ISO 19005 does \
+     not admit by keeping its normal appearance on an appended page, and one of the annotations to \
+     be removed states no normal appearance stream — so there are no marks of the producer's to \
+     keep. The report names it. Authorising the loss with --authorise forbidden-annotation removes \
+     it without a page, which loses nothing that was ever drawn";
+
+/// Why an appearance whose placement §12.5.5 cannot compute is refused.
+const NO_PLACEMENT: &str = "an annotation to be removed states a normal appearance and neither it \
+     nor the stream states a rectangle ISO 32000-2 \u{a7}12.5.5's algorithm can map onto, so there \
+     is nowhere on a page to put the marks that is the producer's choice rather than this \
+     program's";
+
+/// Why an appearance on a page this converter cannot measure is refused.
+const NO_PAGE_FOR_THE_MARKS: &str = "an annotation to be removed sits on a page whose own boxes \
+     this converter cannot read, and a page of preserved marks states the boxes of the page the \
+     annotation was on. Inventing a paper size would put the producer's marks somewhere the \
+     producer did not";
+
+/// Each removed annotation's normal appearance, with §12.5.5's matrix and its page's geometry.
+fn marks_of<'a>(
+    document: &Document,
+    removals: &'a ForbiddenAnnotations,
+) -> Result<Vec<(&'a RemovedAnnotation, preserve::Marks)>, Because> {
+    let tree = pdf_model::Pages::new(document);
+    let mut out = Vec::new();
+    for removed in &removals.removed {
+        let appearance = removed
+            .appearance
+            .ok_or(Because::NotBuiltYet(NO_APPEARANCE_TO_PRESERVE))?;
+        let annotation = document
+            .get(removed.at)
+            .as_dict()
+            .cloned()
+            .ok_or(Because::NotBuiltYet(NO_APPEARANCE_TO_PRESERVE))?;
+        let stream = document
+            .get(appearance)
+            .as_stream()
+            .map(|stream| stream.dict.clone())
+            .ok_or(Because::NotBuiltYet(NO_APPEARANCE_TO_PRESERVE))?;
+        let placement = pdf_model::appearance::placement(document, &annotation, &stream)
+            .ok_or(Because::NotBuiltYet(NO_PLACEMENT))?;
+        let page = tree
+            .get(removed.page)
+            .ok_or(Because::NotBuiltYet(NO_PAGE_FOR_THE_MARKS))?;
+        if page.substituted_media_box.is_some() {
+            return Err(Because::NotBuiltYet(NO_PAGE_FOR_THE_MARKS));
+        }
+        out.push((
+            removed,
+            preserve::Marks {
+                appearance,
+                placement: [
+                    placement.a,
+                    placement.b,
+                    placement.c,
+                    placement.d,
+                    placement.e,
+                    placement.f,
+                ],
+                media_box: page.media_box,
+                crop_box: page.crop_box,
+                rotate: i64::from(page.rotate),
+            },
+        ));
+    }
+    Ok(out)
 }
 
 /// Whether the source already states an output intent of its own.

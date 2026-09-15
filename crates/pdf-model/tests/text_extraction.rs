@@ -1193,35 +1193,16 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// extractor's ascent/descent convention on **both** axes, and the 90-degree transposition in
 /// [`PairDelta::in_reading_frame`] cannot name a diagonal reading axis.
 ///
-/// **A glyph in a font this tree refuses does not advance the pen** — `issue6127.pdf`, *past the
-/// horizontal bound alone*: the last two words of one line, `(réf.` and `S3182).`, sit 3.02 pt
-/// *before* where **both** references put them (`pdftotext`'s xMin 165.117 and `mutool`'s `(`
-/// at 165.11672 against this tree's 162.101). Page one states, inside one text object,
-/// `/C2_14 1 Tf  5.737 0 Td  <0003>Tj  /C2_2 1 Tf  [<0003>187<000b>-32<0055>…]TJ`, and `/C2_14`
-/// is `/TimesNewRoman`, `/Type0`, `/Encoding /Identity-H` over a `/CIDFontType2` with no embedded
-/// program — a combination §9.7.5.2 forbids outright:
-///
-/// > The Identity-H and Identity-V CMaps shall not be used with a non-embedded font.
-///
-/// The file broke that, and `pdf_font`'s refusal is the honest answer to it; what is this tree's is
-/// that the refusal does not stay inside the font it is about. `Reader::show_text` returns before
-/// §9.4.4's `t x` is computed for a show string whose font failed to load, so the `TJ` after it —
-/// drawn by `/C2_2`, a font this tree does load — begins where the `Td` left the pen instead of
-/// 3.0158 pt along it, and both words carry that whole error.
-///
-/// The displacement the refusal drops is the *file's*, not the program's. §9.7.4.3 states it:
-///
-/// > Widths for a CIDFont are defined using the DW and W entries in the CIDFont dictionary.
-///
-/// That descendant's `/W` states 250 for CID 3, so `t x` is (0.25 + `Tc` 0.0013) × the text
-/// matrix's 12.0008 = 3.0158 pt whatever the program does — `Tw` staying out of it because §9.3.3
-/// applies word spacing "only to the ASCII SPACE character (20h)" and an `Identity-H` code is two
-/// bytes. Both references advance it and place every later glyph on the line accordingly. The two
-/// earlier `/C2_14` spaces on the same line are each followed by a `Td` that re-establishes the
-/// position from the line matrix, which is why only the two words after the third one move.
-/// Closing it wants a font that carries the dictionary's metrics with no program behind them,
-/// which is `pdf-font`'s to build.
-const SELECTION_BELOW_FLOOR: [&str; 10] = [
+/// **~~A glyph in a font this tree refuses does not advance the pen~~ — off this list since
+/// `pdf_font::LoadedFont::metrics_only`** (ADR 1094), and it is the one mechanism here that was
+/// this tree's own rather than a convention or a substitution. `issue6127.pdf`'s `(réf.` and
+/// `S3182).` sat 3.02 pt before where both references put them because the refusal of `/C2_14`'s
+/// program — an `/Identity-H` over a `CIDFontType2` with none, which §9.7.5.2 forbids the *file*
+/// from writing — was taken to refuse §9.4.4's displacement as well, so the `TJ` that follows in
+/// `/C2_2` began where the `Td` left the pen. The displacement was the file's: §9.7.4.3 puts it in
+/// the `CIDFont` dictionary, whose `/W` states 250 for CID 3. A refused program now keeps the
+/// widths the document states, and `refused_font_metrics.rs` holds both halves of the rule.
+const SELECTION_BELOW_FLOOR: [&str; 9] = [
     "TrueType_without_cmap.pdf",
     "bug1771477.pdf",
     "issue11555.pdf",
@@ -1230,7 +1211,6 @@ const SELECTION_BELOW_FLOOR: [&str; 10] = [
     "issue1905.pdf",
     "issue20232.pdf",
     "issue2391-2.pdf",
-    "issue6127.pdf",
     "vertical.pdf",
 ];
 
@@ -1275,9 +1255,9 @@ const JUDGED_FLOOR: usize = 503;
 /// word this instrument matches is drawn by a widget's `/AP` `/N` whose own `/Resources` names
 /// `/HeBo`, and that font is the standard-14 `/Helvetica-Bold` with no `/FontDescriptor` at all —
 /// so Table 120's pair is stated nowhere, while a walk of the page's resources found no `/Font`
-/// key and answered *yes* to a question it had not asked anything. The verdict is 11094/11131
-/// either way, which is what says this took a claim off the instrument rather than a failure off
-/// the tree.
+/// key and answered *yes* to a question it had not asked anything. The verdict printed above was
+/// the same before the fall and after it, which is what says this took a claim off the instrument
+/// rather than a failure off the tree.
 const CROSS_AXIS_FLOOR: usize = 8266;
 
 /// One point per axis before two statements of the page's frame count as the same frame.

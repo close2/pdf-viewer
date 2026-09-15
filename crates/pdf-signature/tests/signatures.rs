@@ -160,8 +160,12 @@ fn the_corpus_states_the_fields_one_signature_covers() {
     assert!(locks.is_empty(), "documents with a signed /Lock: {locks:?}");
     assert_eq!(
         transforms,
-        vec!["xfa_filled_imm1344e.pdf: [Include([\"form1[0].SignatureField3[0]\"])]".to_owned()],
-        "the corpus's FieldMDP transforms"
+        vec![
+            "xfa_filled_imm1344e.pdf: [FieldMdp { selection: Include([\"form1[0].SignatureField3\
+             [0]\"]), data: Some(ObjectId { number: 1, generation: 0 }) }]"
+                .to_owned(),
+        ],
+        "the corpus's FieldMDP transforms, with the object Table 256's /Data scopes each to"
     );
 }
 

@@ -686,6 +686,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         annotation_printing: false,
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -822,6 +823,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         annotation_printing: true,
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -885,6 +887,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         annotation_printing: false,
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -2955,6 +2958,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         annotation_printing: true,
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3529,6 +3533,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3565,6 +3570,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3599,6 +3605,7 @@ fn two_specifications_marked_best_stay_refused() {
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -3626,6 +3633,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         annotation_printing: false,
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -3902,6 +3910,7 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
 
     let authorised = Authorisations {
         signature_assertion: true,
+        forbidden_annotation: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -3997,6 +4006,7 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
 
     let authorised = Authorisations {
         signature_assertion: true,
+        forbidden_annotation: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4854,6 +4864,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         annotation_printing: false,
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
+        forbidden_annotation: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -5001,5 +5012,265 @@ fn a_preserve_by_attachment_at_a_target_that_cannot_hold_the_original_names_both
     assert!(
         said.contains("PDF/A-4f"),
         "and says which targets hold the original unchanged: {said}"
+    );
+}
+
+/// A document whose one annotation is of a subtype neither part admits, with an appearance.
+///
+/// `Sound` is struck by name in both ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1, so
+/// one fixture exercises both rows. Its `/F` states the `Print` bit and nothing else, and it
+/// carries a normal appearance, so the *only* requirement it fails is the subtype one — which is
+/// what makes the decision this test reads unambiguous.
+fn a_sound_annotation(subtype: &str, appearance: Option<&str>) -> Vec<u8> {
+    let marks = b"0 0 40 40 re f\n";
+    Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![format!(
+            "<< /Type /Annot /Subtype /{subtype} /Rect [20 30 60 70] /F 4 {} >>",
+            appearance.unwrap_or("")
+        )],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                marks.len()
+            ),
+            marks,
+        )],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn an_annotation_of_a_subtype_the_part_admits_is_not_touched() {
+    // **Trap 13's calibration, at the fixture.** The tests below say the removal fires on a
+    // `Sound` annotation; this says it does not fire on the same annotation wearing a subtype the
+    // part admits. Without it, a removal that took every annotation off every page and a removal
+    // that took the right ones would look identical from those tests alone.
+    //
+    // The same fixture otherwise: it paints in the colour space Table 51 makes the initial one,
+    // so ISO 19005-4 section 6.2.4.2 asks for the output intent this conversion adds without
+    // anyone authorising anything — which is why a conversion happens at all here.
+    let source = a_sound_annotation("Square", Some("/AP << /N 7 0 R >>"));
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    assert!(
+        !holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == row),
+        "a Square is a subtype ISO 32000-2's Table 171 defines and part 4 does not strike"
+    );
+
+    let (report, output) = to_part_four(&source);
+    let output = output.expect("the colour requirement is answered without an authorisation");
+    assert!(
+        !conversion(&report)
+            .decided
+            .iter()
+            .any(|decided| decided.requirement == row),
+        "the subtype row was not among the requirements decided: {:?}",
+        conversion(&report).decided
+    );
+    assert!(
+        conversion(&report).removed_annotations.is_empty(),
+        "and no annotation was removed"
+    );
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    assert!(
+        !held.get_key(&page.dict, "Annots").is_null(),
+        "so the annotation the part admits is still on the page"
+    );
+}
+
+#[test]
+fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
+    // ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1 forbid the subtype and offer
+    // nothing to put in its place, so removal is the only rewrite that meets either — and
+    // `doc/pdf-a-conversion-limits.md` section 3.2 makes it an *Ask*, because what goes with the
+    // annotation is the sound it named and the marks it drew. `doc/adr/1099`.
+    let source = a_sound_annotation("Sound", Some("/AP << /N 7 0 R >>"));
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::ForbiddenAnnotation,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+        }
+    );
+
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: false,
+        signature_assertion: false,
+        forbidden_annotation: true,
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::ForbiddenAnnotation,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+        }
+    );
+    let output = output.expect("the authorised loss converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    // section 3.2's condition on the loss: the report says which page lost a mark.
+    let removed = &conversion(&report).removed_annotations;
+    assert_eq!(removed.len(), 1, "one annotation went: {removed:?}");
+    let gone = removed.first().expect("the removed annotation");
+    assert_eq!(gone.subtype, "Sound");
+    assert_eq!(gone.page, 0);
+    assert!(
+        gone.appearance.is_some(),
+        "and it had a normal appearance, so the page lost a mark"
+    );
+
+    // Proved on the copy: the array is gone because nothing is left in it, and the walk copies
+    // only what the converted document reaches, so the appearance stream is gone with it.
+    let held =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    assert!(
+        held.get_key(&page.dict, "Annots").is_null(),
+        "the page's only annotation was the one the target forbids"
+    );
+    assert_eq!(pages.len(), 1, "and no page was appended");
+    assert!(
+        !String::from_utf8_lossy(&output).contains("/Subtype /Form"),
+        "the appearance nothing reaches is not in the output either"
+    );
+}
+
+#[expect(
+    clippy::float_cmp,
+    reason = "the appended page states the source page's /MediaBox copied whole, so exact \
+equality with the numbers the source wrote is the claim, not a tolerance"
+)]
+#[test]
+fn a_forbidden_annotations_marks_are_kept_where_its_producer_put_them() {
+    // `doc/adr/1099`, on `doc/adr/1014`'s permission: the annotation cannot stay, and what it
+    // *drew* is a form XObject the producer wrote. ISO 19005-2 section 6.2.2's NOTE 2 puts a page
+    // description and an annotation appearance under the same restrictions, so a page may carry
+    // those marks directly — and ISO 32000-2 §12.5.5 fixes the matrix, so the page this composes
+    // makes no placement choice of its own.
+    let source = a_sound_annotation("Sound", Some("/AP << /N 7 0 R >>"));
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert_eq!(
+        decision(&report, row),
+        Decision::Configured {
+            kind: pdf_transform::archive::RemedyKind::Preserve,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+            warns: pdf_transform::archive::PRESERVED_MARKS_AS_A_PAGE,
+        },
+        "the operator's answer is what the conversion does about the requirement"
+    );
+    let output = output.expect("the preservation converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let pages = page_contents(&output);
+    assert_eq!(pages.len(), 2, "one page was appended");
+    let appended = String::from_utf8_lossy(pages.last().expect("the appended page"));
+    // §12.5.5's own algorithm over this fixture: a /BBox of [0 0 40 40] under the identity
+    // /Matrix is its own transformed appearance box, and A maps that box's corners onto a /Rect
+    // of [20 30 60 70] — a scale of 1 on each axis and a translation to the rectangle's corner.
+    assert!(
+        appended.contains("1 0 0 1 20 30 cm"),
+        "the matrix is §12.5.5's, computed from the producer's own entries: {appended}"
+    );
+    assert!(
+        appended.contains("/PreservedMarks Do"),
+        "and what it places is the producer's stream, invoked: {appended}"
+    );
+
+    // Proved on the copy: the stream the page names is the producer's bytes, and the page it
+    // sits on states the boxes of the page the annotation was on.
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let tree = pdf_model::Pages::new(&held);
+    let appended = tree.get(1).expect("the appended page");
+    assert_eq!(appended.media_box, [0.0, 0.0, 200.0, 200.0]);
+    let marks = held.get_key(&appended.resources, "XObject");
+    let marks = marks.as_dict().expect("the page names one XObject");
+    let marks = held.get_key(marks, "PreservedMarks");
+    let marks = marks.as_stream().expect("which is a form XObject");
+    assert_eq!(
+        held.decoded_stream_data(marks)
+            .expect("its content decodes")
+            .as_ref(),
+        b"0 0 40 40 re f\n",
+        "the producer's marks, byte for byte"
+    );
+
+    let preserved = &conversion(&report).preserved;
+    assert_eq!(preserved.len(), 1, "one thing preserved: {preserved:?}");
+    let kept = preserved.first().expect("the preserved row");
+    assert_eq!(kept.site, row);
+    assert_eq!(kept.pages, vec![1]);
+    assert_eq!(
+        kept.face,
+        pdf_transform::archive::SetIn::NoText,
+        "no text is set on a page of marks, so no face was chosen for one"
+    );
+}
+
+#[test]
+fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
+    // The operator asked for what the removal would lose to be kept, and this annotation has
+    // nothing in the file to keep: §12.5.5 makes the normal appearance the marks a reader draws,
+    // and one stating none drew nothing of its own. Constructing an appearance and preserving it
+    // would be keeping a picture this program drew and calling it the producer's, which
+    // `doc/questions/A48` forbids — so the document is refused, naming the annotation.
+    let source = a_sound_annotation("Sound", None);
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(
+        output.is_none(),
+        "nothing to preserve, so nothing is written"
+    );
+    let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, row) else {
+        panic!("the preservation is refused: {:?}", decision(&report, row));
+    };
+    assert!(
+        because.contains("states no normal appearance stream"),
+        "and the refusal says which of preserve's conditions failed: {because}"
+    );
+
+    // And the loss is still available to an operator who would rather the annotation simply went.
+    let authorised = Authorisations {
+        image_smoothing: false,
+        metadata_property: false,
+        annotation_printing: false,
+        jpeg2000_colour_fallback: false,
+        signature_assertion: false,
+        forbidden_annotation: true,
+    };
+    let (report, output) = convert(&source, target, authorised);
+    let output = output.expect("the authorised loss converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let removed = &conversion(&report).removed_annotations;
+    assert_eq!(
+        removed.first().and_then(|gone| gone.appearance),
+        None,
+        "and the report says it drew nothing of its own"
     );
 }

@@ -44,7 +44,7 @@ use pdf_syntax::serialize::flate_encode;
 use super::COMPRESSION_LEVEL;
 use super::decision::Because;
 use super::prepare::Spare;
-use super::report::Preserved;
+use super::report::{Preserved, SetIn};
 
 /// The type size the preserved text is set at, in text space units.
 ///
@@ -218,8 +218,41 @@ pub(super) struct Keep<'a> {
     pub(super) site: &'static str,
     /// What the content is, in the words the report uses — the document's own object, named.
     pub(super) subject: String,
-    /// The bytes, as the producer wrote them.
-    pub(super) bytes: &'a [u8],
+    /// What is kept, and therefore what kind of page carries it.
+    pub(super) content: Kept<'a>,
+}
+
+/// The two kinds of content this composes a page for.
+///
+/// **They are two kinds and not two sources**, and the difference is what a page has to do with
+/// each. Text has no place of its own — an XMP packet is not *anywhere* on any page — so a page
+/// for it is one this program lays out, and `doc/adr/1025` section 4 argues every choice in the
+/// layout. Marks already have a place: §12.5.5 fixes where an annotation's normal appearance is
+/// drawn, down to the matrix, so a page for them makes no layout choice at all and the only thing
+/// composed is the page they sit on.
+pub(super) enum Kept<'a> {
+    /// Text laid out at [`SIZE`] on [`LEADING`] inside [`MARGIN`], in a face the document carries.
+    Text(&'a [u8]),
+    /// A form `XObject` the producer wrote, invoked where the producer's own entries put it.
+    Marks(Marks),
+}
+
+/// One appearance stream, and everything §12.5.5 and §7.7.3.3 need to put it back where it was.
+#[derive(Debug, Clone)]
+pub(super) struct Marks {
+    /// The form `XObject`, in the *source's* numbering.
+    ///
+    /// The producer's stream, referenced rather than rewritten: the whole point of this remedy is
+    /// that not a byte of the marks changes.
+    pub(super) appearance: ObjectId,
+    /// §12.5.5's matrix `AA`, which maps the appearance's own space onto the annotation's `/Rect`.
+    pub(super) placement: [f32; 6],
+    /// The `/MediaBox` of the page the annotation was on, as `[x0, y0, x1, y1]`.
+    pub(super) media_box: [f32; 4],
+    /// The `/CropBox` of that page.
+    pub(super) crop_box: [f32; 4],
+    /// That page's `/Rotate`, after §7.7.3.3's inheritance.
+    pub(super) rotate: i64,
 }
 
 /// Composes the pages one conversion appends, or the reason it will not.
@@ -234,12 +267,99 @@ pub(super) fn compose(
     has_output_intent: bool,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
-    if !has_output_intent {
+    let sets_text = keeps
+        .iter()
+        .any(|keep| matches!(keep.content, Kept::Text(_)));
+    // **The output-intent condition belongs to the text page and not to the marks one.** A page
+    // that sets text paints in the colour space Table 51 makes the initial one, which is a device
+    // space the file has to give a meaning. A page that invokes an appearance stream selects no
+    // colour of its own, and the stream's own colours were already in this document's rendered
+    // content — ISO 19005-2 section 6.2.2's NOTE 2 puts a page description and an annotation
+    // appearance under the same restrictions — so moving it onto a page asks nothing of the file
+    // that the file was not already asked.
+    if sets_text && !has_output_intent {
         return Err(Because::NotBuiltYet(NO_OUTPUT_INTENT));
     }
     refuse_a_document_whose_structure_would_not_describe_the_page(document)?;
     let tree = Pages::new(document);
-    let (width, height) = the_size_of_the_page_a_reader_has_been_looking_at(&tree)?;
+    // Every keep is laid out on pages of its own, so that the report can say which pages carry
+    // which of the document's objects rather than "somewhere in the six pages appended".
+    let mut composed = Composed {
+        written: Vec::new(),
+        pages: Vec::new(),
+        labels: None,
+        carried: Vec::new(),
+    };
+    let first = tree.len();
+    let face = sets_text
+        .then(|| a_face_for(document, keeps, spare))
+        .transpose()?;
+    if let Some(face) = face.as_ref() {
+        composed.written.extend(face.written.iter().cloned());
+    }
+    for keep in keeps {
+        let began = first.saturating_add(composed.pages.len());
+        match &keep.content {
+            Kept::Text(bytes) => {
+                let face = face.as_ref().ok_or(Because::NotBuiltYet(NO_FACE))?;
+                set_the_text(document, bytes, face, &tree, spare, &mut composed)?;
+            }
+            Kept::Marks(marks) => {
+                place_the_marks(document, marks, spare, &mut composed)?;
+            }
+        }
+        composed.carried.push(Preserved {
+            site: keep.site,
+            subject: keep.subject.clone(),
+            pages: (began..first.saturating_add(composed.pages.len())).collect(),
+            placement: match keep.content {
+                Kept::Text(_) => PLACEMENT,
+                Kept::Marks(_) => PLACEMENT_OF_MARKS,
+            },
+            face: match keep.content {
+                Kept::Text(_) => match face.as_ref().and_then(|face| face.embedded) {
+                    Some(shipped) => SetIn::AFaceThisProgramShips(shipped.to_owned()),
+                    None => SetIn::TheDocumentsOwnFace,
+                },
+                // Nothing is set on a page of marks, so no face was chosen for one.
+                Kept::Marks(_) => SetIn::NoText,
+            },
+        });
+    }
+    composed.labels = labels_extended(document, first)?;
+    Ok(composed)
+}
+
+/// The face every text keep is set in, chosen once over all of them.
+///
+/// A face the document itself embeds first, because a page set in one puts nothing on the
+/// document that did not come from it; the face this program ships second, which `doc/adr/1014`
+/// section 5 and `doc/questions/A47` permit and whose condition — that what was embedded is
+/// reported — the report's row carries.
+fn a_face_for(document: &Document, keeps: &[Keep<'_>], spare: &mut Spare) -> Result<Face, Because> {
+    let mut text = String::new();
+    for keep in keeps {
+        let Kept::Text(bytes) = keep.content else {
+            continue;
+        };
+        text.push_str(std::str::from_utf8(bytes).map_err(|_| Because::NotBuiltYet(NOT_TEXT))?);
+        text.push('\n');
+    }
+    a_face_the_document_carries(document, &text)
+        .or_else(|| a_face_this_program_ships(document, &text, spare))
+        .ok_or(Because::NotBuiltYet(NO_FACE))
+}
+
+/// Lays one keep's text out on pages the size of the page a reader has been looking at.
+fn set_the_text(
+    document: &Document,
+    bytes: &[u8],
+    face: &Face,
+    tree: &Pages<'_>,
+    spare: &mut Spare,
+    composed: &mut Composed,
+) -> Result<(), Because> {
+    let (width, height) = the_size_of_the_page_a_reader_has_been_looking_at(tree)?;
     let margin = the_margin_for(width, height);
     let measure = width - 2.0 * margin;
     let lines_to_a_page = ((height - 2.0 * margin) / LEADING).floor();
@@ -255,64 +375,69 @@ pub(super) fn compose(
     // Bounded as well as floored: a page may be 14 400 units tall, and a line count taken from a
     // page's own height should not become a number this program allocates against.
     let lines_to_a_page = (lines_to_a_page as usize).min(MOST_LINES_TO_A_PAGE);
-    let mut text = String::new();
-    for keep in keeps {
-        let readable =
-            std::str::from_utf8(keep.bytes).map_err(|_| Because::NotBuiltYet(NOT_TEXT))?;
-        text.push_str(readable);
-        text.push('\n');
-    }
-    // A face the document itself embeds first, because a page set in one puts nothing on the
-    // document that did not come from it; the face this program ships second, which
-    // `doc/adr/1014` section 5 and `doc/questions/A47` permit and whose condition — that what was
-    // embedded is reported — the report's row carries.
-    let face = a_face_the_document_carries(document, &text)
-        .or_else(|| a_face_this_program_ships(document, &text, spare))
-        .ok_or(Because::NotBuiltYet(NO_FACE))?;
-    // Every keep is laid out on pages of its own, so that the report can say which pages carry
-    // which of the document's objects rather than "somewhere in the six pages appended".
-    let mut composed = Composed {
-        written: face.written.clone(),
-        pages: Vec::new(),
-        labels: None,
-        carried: Vec::new(),
-    };
-    let first = tree.len();
-    for keep in keeps {
-        let readable =
-            std::str::from_utf8(keep.bytes).map_err(|_| Because::NotBuiltYet(NOT_TEXT))?;
-        let lines = wrapped(readable, &face, measure)?;
-        let began = first.saturating_add(composed.pages.len());
-        for page in lines.chunks(lines_to_a_page) {
-            if composed.pages.len() >= MOST_PAGES {
-                return Err(Because::NotBuiltYet(TOO_MANY_PAGES));
-            }
-            let content = spare
-                .take(document)
-                .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
-            let at = spare
-                .take(document)
-                .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
-            composed.written.push((
-                content,
-                stream_of(page, width, height).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
-            ));
-            composed.written.push((
-                at,
-                page_dictionary(document, &face, content, width, height)?,
-            ));
-            composed.pages.push(at);
+    let readable = std::str::from_utf8(bytes).map_err(|_| Because::NotBuiltYet(NOT_TEXT))?;
+    let lines = wrapped(readable, face, measure)?;
+    for page in lines.chunks(lines_to_a_page) {
+        if composed.pages.len() >= MOST_PAGES {
+            return Err(Because::NotBuiltYet(TOO_MANY_PAGES));
         }
-        composed.carried.push(Preserved {
-            site: keep.site,
-            subject: keep.subject.clone(),
-            pages: (began..first.saturating_add(composed.pages.len())).collect(),
-            placement: PLACEMENT,
-            face: face.embedded.map(str::to_owned),
-        });
+        let content = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        let at = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        composed.written.push((
+            content,
+            stream_of(page, width, height).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
+        ));
+        composed
+            .written
+            .push((at, page_dictionary(document, face, content, width, height)?));
+        composed.pages.push(at);
     }
-    composed.labels = labels_extended(document, first)?;
-    Ok(composed)
+    Ok(())
+}
+
+/// Puts one appearance stream on a page of its own, exactly where its annotation had it.
+///
+/// **Nothing about this page is a layout choice.** ISO 32000-2 §12.5.5 fixes the map from the
+/// appearance's own coordinate system onto the annotation's rectangle, and the rectangle is in
+/// the page's default user space — so a page stating that page's own boxes, invoking the same
+/// stream under the same matrix, shows the producer's marks at the producer's coordinates and at
+/// the producer's size. The one sentence of the algorithm that decides it:
+///
+/// > A matrix A shall be computed that scales and translates the transformed appearance box to
+/// > align with the edges of the annotation's rectangle (specified by the Rect entry).
+///
+/// `/Rotate` is the source page's rather than zero, which is where this departs from
+/// `doc/adr/1025` section 4's second choice and for that choice's own reason: there the page was
+/// composed upright in a box of its own and an inherited turn would have laid the text on its
+/// side; here the turn is part of where the producer's marks are.
+fn place_the_marks(
+    document: &Document,
+    marks: &Marks,
+    spare: &mut Spare,
+    composed: &mut Composed,
+) -> Result<(), Because> {
+    if composed.pages.len() >= MOST_PAGES {
+        return Err(Because::NotBuiltYet(TOO_MANY_PAGES));
+    }
+    let content = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    let at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    composed.written.push((
+        content,
+        marks_stream(marks).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
+    ));
+    composed
+        .written
+        .push((at, marks_page(document, marks, content)?));
+    composed.pages.push(at);
+    Ok(())
 }
 
 /// How the appended pages are laid out, in the one sentence the report carries.
@@ -325,6 +450,29 @@ pub(super) const PLACEMENT: &str = "set verbatim at 9 units on 12, inside a marg
      of this document's first page, in the order the source states it; long lines are broken at \
      the measure, and a byte-order mark and the whitespace-only lines at the end of the content \
      are not set";
+
+/// How a page of preserved marks is laid out, which is to say: it is not laid out at all.
+///
+/// The other half of `doc/adr/1014` section 5's fourth bullet, for the content that already had a
+/// place. Every number on such a page is the producer's or ISO 32000-2 §12.5.5's, which is what
+/// makes this remedy the smallest one that keeps the marks.
+pub(super) const PLACEMENT_OF_MARKS: &str = "invoked as the form XObject it is, under the matrix \
+     ISO 32000-2 §12.5.5 computes from the annotation's own Rect, BBox and Matrix, on a page \
+     stating the MediaBox, CropBox and Rotate of the page the annotation was on — so the \
+     marks are the producer's bytes at the producer's coordinates, and nothing about the page is \
+     this program's choice";
+
+/// What an operator agrees to when a `preserve` remedy keeps an annotation's marks.
+///
+/// **A second sentence and not a variant of the first**, because this site's `preserve` does not
+/// keep everything: the annotation itself has to go, ISO 19005 having no place for its subtype,
+/// and the sound, movie, rendition or 3D artwork it named goes with it. What the appended page
+/// keeps is the *marks*, which is the part of it a reader was looking at. An operator told only
+/// the sentence below would think nothing had been lost. `doc/adr/1099`.
+pub const PRESERVED_MARKS_AS_A_PAGE: &str = "the annotation itself is gone — ISO 19005 admits no \
+     annotation of its subtype — and so is the sound, movie, rendition or 3D artwork it named. \
+     What is kept is what it drew: the producer's own appearance stream, on a page this \
+     conversion composed, at the coordinates and the size the producer gave it";
 
 /// What an operator agrees to when a `preserve` remedy appends a page.
 ///
@@ -361,10 +509,12 @@ pub(super) fn preserved_history(rows: &[Preserved]) -> Option<String> {
                 .join(", "),
             row.site,
             row.placement,
-            row.face.as_ref().map_or_else(
-                || ", in a face this document itself embeds".to_owned(),
-                |face| format!(", in {face}, a face this program embedded for it")
-            )
+            match &row.face {
+                SetIn::NoText => String::new(),
+                SetIn::TheDocumentsOwnFace => ", in a face this document itself embeds".to_owned(),
+                SetIn::AFaceThisProgramShips(face) =>
+                    format!(", in {face}, a face this program embedded for it"),
+            }
         );
     }
     Some(out)
@@ -1099,6 +1249,84 @@ fn stream_of(lines: &[Vec<u8>], width: f32, height: f32) -> Option<Object> {
         data: data.into(),
         decryption_failed: false,
     })))
+}
+
+/// The name the appended page's resource dictionary binds the preserved appearance to.
+///
+/// One name on a page this program composes, whose `/XObject` dictionary holds nothing else, so
+/// there is nothing for it to collide with.
+const PRESERVED_MARKS: &[u8] = b"PreservedMarks";
+
+/// One page of marks: the producer's stream invoked under §12.5.5's own matrix.
+///
+/// **No colour, no clip and no state of this program's.** The three operators written are `q`,
+/// `cm` and `Do` with the matching `Q` — the concatenation the algorithm computes and the
+/// invocation §8.10.1 defines — and §8.10.2 makes the stream's own `/BBox` clip it, so the
+/// appearance draws exactly what it drew inside the annotation.
+fn marks_stream(marks: &Marks) -> Option<Object> {
+    let mut content = String::from("q\n");
+    for value in marks.placement {
+        content.push_str(&number(value));
+        content.push(' ');
+    }
+    content.push_str("cm\n/");
+    content.push_str(std::str::from_utf8(PRESERVED_MARKS).ok()?);
+    content.push_str(" Do\nQ\n");
+    let data = flate_encode(content.as_bytes(), COMPRESSION_LEVEL)?;
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(data.len()).ok()?),
+    );
+    Some(Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: data.into(),
+        decryption_failed: false,
+    })))
+}
+
+/// One page of marks' dictionary, stating the boxes and the turn its source page stated.
+///
+/// `/MediaBox` and `/CropBox` are both written, as they are on a page of text and for the same
+/// reason: §7.7.3.3 makes both inheritable, and a page tree root stating either would otherwise
+/// decide where these marks land.
+fn marks_page(document: &Document, marks: &Marks, content: ObjectId) -> Result<Object, Because> {
+    let root = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get("Pages").and_then(Object::as_reference))
+        .ok_or(Because::NotBuiltYet(NO_PAGE_TO_MEASURE))?;
+    let box_of = |corners: [f32; 4]| {
+        Object::Array(
+            corners
+                .into_iter()
+                .map(|value| Object::Real(f64::from(value)))
+                .collect(),
+        )
+    };
+    let mut xobjects = Dictionary::new();
+    xobjects.insert(
+        Name::new(PRESERVED_MARKS),
+        Object::Reference(marks.appearance),
+    );
+    let mut resources = Dictionary::new();
+    resources.insert(Name::new(&b"XObject"[..]), Object::Dictionary(xobjects));
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Page"[..])),
+    );
+    dict.insert(Name::new(&b"Parent"[..]), Object::Reference(root));
+    dict.insert(Name::new(&b"MediaBox"[..]), box_of(marks.media_box));
+    dict.insert(Name::new(&b"CropBox"[..]), box_of(marks.crop_box));
+    dict.insert(Name::new(&b"Rotate"[..]), Object::Integer(marks.rotate));
+    dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
+    dict.insert(Name::new(&b"Contents"[..]), Object::Reference(content));
+    Ok(Object::Dictionary(dict))
 }
 
 /// A number as a content stream writes one, without an exponent.

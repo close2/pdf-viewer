@@ -947,6 +947,14 @@ pub(crate) fn intersect_group(band: &mut [u8], clip: Clip<'_>) -> bool {
 /// decline as well and so loses no composition; a transform with no thinnest line; or a path the
 /// stroker or the dasher refused, which draws nothing here either. `doc/todo/11` item 4 carries
 /// what is left of the item.
+///
+/// **That list was short by one for eleven sessions**, and the missing entry is why ADR 1095
+/// exists: a stroke *at* the quantum satisfied `draw_sub_pixel_rule`'s entry test against
+/// `pdf_render::thinnest_line` and failed the widening's own against
+/// `pdf_render::band_substitute_width`, the two having parted by a unit in the last place, and
+/// `render_cpu::draw_stroked_outline` declines the same width from the other side. A `1 w`
+/// annotation border therefore arrived here and lost 9.0% of `bug1844576.pdf` to the product.
+/// The floor in `band_substitute_width` closes it.
 pub(crate) fn stroke(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     path: &tiny_skia::Path,

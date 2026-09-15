@@ -1159,6 +1159,55 @@ impl DisplayList {
         region
     }
 
+    /// The rectangle a clip chain **admits wholly**, in this list's own space, or `None` where
+    /// it states none this can read.
+    ///
+    /// ISO 32000-2 §10.7.4 states the clip as an intersection of sets:
+    ///
+    /// > For clipping, the clipping region consists of the set of pixels that would be included
+    /// > by a fill operation. Subsequent painting operations shall affect a region that is the
+    /// > intersection of the set of pixels defined by the clipping region with the set of pixels
+    /// > for the region to be painted.
+    ///
+    /// and §8.5.4 says the same of the shape — "[t]he effective shape is the intersection of the
+    /// object's intrinsic shape with the clipping path". An intersection with a region that
+    /// **contains** the mark is the mark, so a caller holding a mark inside this rectangle may
+    /// draw it with no clip at all and have computed the intersection exactly — with no
+    /// composition, and so with no arithmetic for a rasteriser to round differently on the two
+    /// sides of one boundary pixel.
+    ///
+    /// **An *inner* bound, which is the opposite of [`Self::clip_bounds`]**: that one is a
+    /// rectangle the region lies inside, and a containment test needs one that lies inside the
+    /// region. §8.5.4 makes each `W` intersect the path with what is already there — "the new
+    /// clipping path shall be the intersection of the current clipping path with the path" — so
+    /// the chain admits the intersection of its links' rectangles.
+    ///
+    /// The population is `/BBox` and `re W n`, which is what [`crate::device_rectangle`] reads:
+    /// a curved or many-sided region has an inner rectangle too and this does not look for it,
+    /// and the answer for everything else is `None`, which keeps the clip. A link that admits
+    /// nothing (§8.5.3.3.1's empty path) is `None` for the same reason — it is the caller's
+    /// [`Clip::admits_nothing`] to act on, not a containment to take.
+    #[must_use]
+    pub fn clip_admits(&self, id: ClipId) -> Option<Rect> {
+        let mut region: Option<Rect> = None;
+        let mut at = Some(id);
+        // The chain is a parent list rather than a cycle by construction, and the bound is
+        // [`Self::clip_bounds`]'s: a malformed caller must not be able to spin here.
+        for _ in 0..=self.clips.len() {
+            let Some(next) = at else {
+                return region;
+            };
+            let clip = self.clip(next)?;
+            let here = crate::device_rectangle(&clip.path, clip.transform)?;
+            region = Some(match region {
+                None => here,
+                Some(region) => region.intersection(here)?,
+            });
+            at = clip.parent;
+        }
+        region
+    }
+
     /// Returns the page bounds in user space, with the origin at the bottom left.
     #[must_use]
     pub fn page_bounds(&self) -> Rect {

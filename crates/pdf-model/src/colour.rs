@@ -1360,8 +1360,15 @@ impl ColourSpace {
             && decoded.damage.is_none()
             && let Some(profile) = crate::icc::Profile::parse(&decoded.data)
         {
+            // Table 65's `/Range`, "[a]n array of 2 × N numbers … that shall specify the
+            // minimum and maximum valid values of the corresponding colour components".
+            // `crate::icc::Profile::with_range` says what it does with one and why an absent
+            // entry leaves the profile's own range standing — that entry's default is
+            // Table 68's row for the profile's data colour space, which is what the profile
+            // already holds.
+            let range = icc_range(document, &stream.dict);
             return Some(Self::Icc {
-                profile: Arc::new(profile),
+                profile: Arc::new(profile.with_range(&range)),
             });
         }
 
@@ -1501,10 +1508,15 @@ impl ColourSpace {
 
     /// The range one component of a colour in this space may take.
     ///
-    /// Every family's components run from 0.0 to 1.0 except two. `Lab`'s lightness is a
+    /// Every family's components run from 0.0 to 1.0 except three. `Lab`'s lightness is a
     /// percentage and its two chromatic axes take their bounds from the space's own `/Range`
     /// (§8.6.5.4, Table 65). An `Indexed` space's one component is an index, which §8.6.6.3
-    /// bounds by `hival`: "if the value is greater than hival, it shall be clipped".
+    /// bounds by `hival`: "if the value is greater than hival, it shall be clipped". An
+    /// `ICCBased` space's are the profile's, which §8.6.5.5's prose under Table 67 and its
+    /// Table 68 state and Table 65's `/Range` restates — the unit interval for the three
+    /// device data colour spaces and something else for `'Lab '`. Table 88 names the same
+    /// thing from the other side, as an image's default `/Decode`: "[s]ame as the value of
+    /// Range in the ICC profile of the image's colour space".
     ///
     /// Two callers, both about a *range* rather than a value: [`Self::parse_indexed`] scales
     /// a colour table's bytes onto the base space's components, and [`crate::image`] clamps
@@ -1520,6 +1532,7 @@ impl ColourSpace {
                 let top = *high as f32;
                 (0.0, top)
             }
+            Self::Icc { profile } => profile.component_range(component),
             Self::Lab { range } => match component {
                 0 => (0.0, 100.0),
                 other => {
@@ -4006,6 +4019,29 @@ fn degamma(value: f32) -> f32 {
     } else {
         ((value + 0.055) / 1.055).powf(2.4)
     }
+}
+
+/// ISO 32000-2 §8.6.5.5 Table 65's `/Range`, read in pairs.
+///
+/// > ( Optional ) An array of 2 × N numbers [𝑚𝑖𝑛 0 𝑚𝑎𝑥 0 𝑚𝑖𝑛 1 𝑚𝑎𝑥 1 …] that shall specify the
+/// > minimum and maximum valid values of the corresponding colour components.
+///
+/// An odd trailing number is dropped rather than paired with a bound nobody wrote; whether the
+/// pairs that remain are the profile's `N` of them is [`crate::icc::Profile::with_range`]'s
+/// question, since the profile is what states how many components there are.
+fn icc_range(document: &Document, dict: &Dictionary) -> Vec<(f32, f32)> {
+    let array = document.get_key(dict, "Range");
+    let Some(items) = array.as_array() else {
+        return Vec::new();
+    };
+    items
+        .chunks_exact(2)
+        .filter_map(|pair| {
+            let low = document.resolve(pair.first()?).as_number().map(narrow)?;
+            let high = document.resolve(pair.get(1)?).as_number().map(narrow)?;
+            Some((low, high))
+        })
+        .collect()
 }
 
 fn narrow(value: f64) -> f32 {

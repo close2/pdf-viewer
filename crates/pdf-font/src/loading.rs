@@ -164,7 +164,113 @@ pub(crate) enum CodeMapping {
         /// `LoadedFont::unsupplied_vertical_form` counts (ADR 0764).
         downward: Option<Box<Downward>>,
     },
+    /// A font whose program this crate refused, carrying only what the *document* states.
+    ///
+    /// ISO 32000-2 §9.2.4 puts a glyph's displacement in two places at once — "[t]he width
+    /// information for each glyph shall be stored both in the font dictionary and in the font
+    /// program itself" — and its NOTE 2 says what the redundancy buys:
+    ///
+    /// > Storing this information in the font dictionary, although redundant, enables a PDF
+    /// > processor to determine glyph positioning without having to look inside the font
+    /// > program.
+    ///
+    /// So a refusal that reached the *program* has not reached the widths, and §9.4.4's update —
+    /// "[a]fter the glyph is painted, the text matrix shall be updated according to the glyph
+    /// displacement and any spacing parameters that apply" — is still owed for every code the
+    /// page shows. No glyph is reachable through this mapping and no code is named through it;
+    /// what it answers is where the *next* glyph goes, which on a line that continues in another
+    /// font is that font's position. See [`LoadedFont::metrics_only`] and ADR 1094.
+    MetricsOnly {
+        /// Codes to CIDs (§9.7.6.2), which is what splits the string into codes and what keys
+        /// §9.7.4.3's `/W`.
+        ///
+        /// `None` for a simple font, whose codes are single bytes (§9.6.1) and index Table 109's
+        /// `/Widths` directly.
+        cmap: Option<Box<CMap>>,
+    },
 }
+
+/// Everything a font dictionary says about where its glyphs go, read without a font program.
+///
+/// The four entries [`LoadedFont::metrics_only`] needs, gathered in one place so that the two
+/// kinds of font — a simple one keyed by code, a composite one keyed by CID — answer through one
+/// struct literal rather than two. Each field is read by the same function the ordinary load
+/// reads it with, because a second reader for the same table is a second reading of clause 9.
+struct StatedMetrics {
+    /// How the string is split into codes, and how each code keys `widths`.
+    mapping: CodeMapping,
+    /// Table 109's `/Widths` by code, or §9.7.4.3's `/W` by CID, in thousandths of an em.
+    widths: BTreeMap<u32, f32>,
+    /// Table 120's `/MissingWidth`, or Table 115's `/DW`.
+    default_width: f32,
+    /// Table 120's `/Ascent` and `/Descent`, in ems.
+    extent: (f32, f32),
+    /// §9.7.4.3's `/W2` and `/DW2`, for a `CMap` whose writing mode is 1.
+    vertical: Option<Vertical>,
+}
+
+impl StatedMetrics {
+    /// Reads them, or answers `None` for a font whose codes cannot be delimited at all.
+    fn read(document: &Document, dict: &Dictionary, name: &str) -> Option<Self> {
+        let composite = document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .is_some_and(|value| value.as_bytes() == b"Type0");
+        if !composite {
+            // §9.6.1: "Glyphs in the font shall be selected by single-byte character codes",
+            // and Table 109 indexes `/Widths` by exactly those codes.
+            let descriptor_object = document.get_key(dict, "FontDescriptor");
+            let descriptor = descriptor_object.as_dict();
+            return Some(Self {
+                mapping: CodeMapping::MetricsOnly { cmap: None },
+                widths: metrics::stated_widths(document, dict),
+                default_width: missing_width(document, descriptor),
+                extent: vertical_extent(document, descriptor),
+                // §9.2.4: a second set of metrics "is available only for composite fonts".
+                vertical: None,
+            });
+        }
+
+        // The `CMap` is the whole of what a composite font's outer dictionary states about
+        // placement (§9.7.5), and without it a string cannot be split into codes.
+        let cmap = composite_cmap(document, dict, name).ok()?;
+        let vertical = cmap.wmode() == 1;
+        // §9.7.6.1's Table 119: the one-element array naming the CIDFont whose `/W`, `/DW` and
+        // descriptor these come from. A file that selects none still places its codes, by the
+        // defaults those two entries carry.
+        let descendant = document
+            .get_key(dict, "DescendantFonts")
+            .as_array()
+            .and_then(<[Object]>::first)
+            .map(|item| document.resolve(item))
+            .and_then(|item| item.as_dict().cloned());
+        let descriptor_object = descendant
+            .as_ref()
+            .map(|descendant| document.get_key(descendant, "FontDescriptor"));
+        let descriptor = descriptor_object.as_ref().and_then(Object::as_dict);
+        Some(Self {
+            mapping: CodeMapping::MetricsOnly {
+                cmap: Some(Box::new(cmap)),
+            },
+            widths: descendant
+                .as_ref()
+                .map(|descendant| composite_widths(document, descendant))
+                .unwrap_or_default(),
+            default_width: descendant
+                .as_ref()
+                .and_then(|descendant| document.get_key(descendant, "DW").as_number())
+                .map_or(DEFAULT_CID_WIDTH, narrow),
+            extent: vertical_extent(document, descriptor),
+            vertical: match (&descendant, vertical) {
+                (Some(descendant), true) => Some(Vertical::read(document, descendant)),
+                _ => None,
+            },
+        })
+    }
+}
+
+/// Table 115's default for `/DW`, "[t]he default width for glyphs in the `CIDFont`".
+const DEFAULT_CID_WIDTH: f32 = 1000.0;
 
 /// Why ISO 32000-2 §9.10.2 could not say what a character code represents.
 ///
@@ -1091,7 +1197,7 @@ impl LoadedFont {
         let default_width = document
             .get_key(&descendant, "DW")
             .as_number()
-            .map_or(1000.0, narrow);
+            .map_or(DEFAULT_CID_WIDTH, narrow);
 
         Ok(Self {
             data,
@@ -1132,6 +1238,93 @@ impl LoadedFont {
             hinting: OnceLock::new(),
             program_by_glyph: OnceLock::new(),
         })
+    }
+
+    /// A font whose program was refused, carrying the metrics the **document** states.
+    ///
+    /// # What a refusal is about, and what it is not about
+    ///
+    /// [`Self::load`] refuses a font when nothing can draw its glyphs: §9.7.5.2 forbids the file
+    /// outright ("[t]he Identity-H and Identity-V `CMaps` shall not be used with a non-embedded
+    /// font"), or Table 120's three keys supplied no program and no face stands in, or the bytes
+    /// a `/FontFile` supplied will not parse. Every one of those is a statement about the *glyph
+    /// program*, and ISO 32000-2 §9.2.4 keeps the glyph's displacement somewhere else as well:
+    ///
+    /// > The width information for each glyph shall be stored both in the font dictionary and in
+    /// > the font program itself.
+    ///
+    /// > Storing this information in the font dictionary, although redundant, enables a PDF
+    /// > processor to determine glyph positioning without having to look inside the font program.
+    ///
+    /// So the file still says how far each code moves the pen — Table 109's `/Widths` and Table
+    /// 120's `/MissingWidth` for a simple font, and for a `CIDFont` the two entries §9.7.4.3
+    /// names: "[w]idths for a `CIDFont` are defined using the DW and W entries in the `CIDFont`
+    /// dictionary". §9.4.4 still requires the update — "[a]fter the glyph is painted, the text
+    /// matrix shall be updated according to the glyph displacement and any spacing parameters
+    /// that apply" — so a reader that drops the displacement with the program moves every glyph
+    /// that follows on the same line, including the glyphs of a font it loaded perfectly well.
+    /// ADR 1094.
+    ///
+    /// # What it carries, and what it deliberately does not
+    ///
+    /// The widths, the default width, Table 120's extent and — for a `CMap` in writing mode 1 —
+    /// §9.7.4.3's second set of metrics. Nothing else: no glyph is reachable
+    /// ([`Self::outline`] and [`Self::glyph_index`] answer `None` for every code) and no `CMap`
+    /// of §9.10.2's is read, so [`Self::text`] names nothing. Both omissions are the same
+    /// sentence: this font marks no part of the page, and a reader that named its codes would
+    /// put selectable text under blank paper while the page's own report says the font was
+    /// refused.
+    ///
+    /// # When there is not even that
+    ///
+    /// `None` where the document states nothing that could place a code: a composite font whose
+    /// `/Encoding` names no `CMap` this crate reads cannot even say where one code ends and the
+    /// next begins, so it has no displacement to offer.
+    #[must_use]
+    pub fn metrics_only(document: &Document, dict: &Dictionary, name: &str) -> Option<Self> {
+        let stated = StatedMetrics::read(document, dict, name)?;
+        Some(Self {
+            data: Arc::from(Vec::new()),
+            // No program was read, and every route that would consult this one is closed by
+            // `CodeMapping::MetricsOnly` before it is reached.
+            program: Program::Sfnt,
+            font_dicts: None,
+            type1: None,
+            mapping: stated.mapping,
+            class_of: Decision::default(),
+            classes: Vec::new(),
+            widths: stated.widths,
+            default_width: stated.default_width,
+            extent: stated.extent,
+            vertical: stated.vertical,
+            // A scale for a program there is none of; `units_per_em` divides no outline here.
+            units_per_em: 1.0,
+            stretch: NO_STRETCH,
+            // §9.7.4.2's substitution is a *face* standing in for the glyphs, which is exactly
+            // what did not happen: this font draws nothing rather than the wrong thing.
+            substituted: false,
+            to_unicode: tounicode::ToUnicode::default(),
+            collection: None,
+            symbolic_set: None,
+            glyph_names: None,
+            notdef: None,
+            reader_chosen: CodeSet::default(),
+            outlines: Mutex::new(BTreeMap::new()),
+            codes_by_character: OnceLock::new(),
+            agl_by_code: OnceLock::new(),
+            hinting: OnceLock::new(),
+            program_by_glyph: OnceLock::new(),
+        })
+    }
+
+    /// Whether this font carries the document's metrics and no glyphs at all.
+    ///
+    /// True only for a font [`Self::metrics_only`] built. A caller that shows text through one
+    /// advances the text matrix and draws nothing; see that constructor for why the two are
+    /// separable and ADR 1094 for why they are separated.
+    #[must_use]
+    pub fn is_metrics_only(&self) -> bool {
+        matches!(self.mapping, CodeMapping::MetricsOnly { .. })
     }
 
     /// Table 120's `/Ascent` and `/Descent`, in ems, for a caller measuring a line's height.
@@ -1232,12 +1425,7 @@ impl LoadedFont {
         // composite font as much as to a substituted one — the collection says what a CID
         // means whether or not the program that defines the CID is present.
         if let Some(table) = self.collection.as_ref()
-            && let Some(cid) = match &self.mapping {
-                CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
-                    cmap.cid(code)
-                }
-                CodeMapping::Named(_) => None,
-            }
+            && let Some(cid) = self.cmap().and_then(|cmap| cmap.cid(code))
             && table.append(cid, out)
         {
             return true;
@@ -1334,6 +1522,14 @@ impl LoadedFont {
             // A simple font that used no name at all: a symbolic `TrueType` selecting by code
             // through a `cmap` subtable (§9.6.5.4), whose program then named nothing either.
             CodeMapping::Named(_) => Some(NamingGap::UnnamedGlyph),
+            // No method of the clause's was tried, because the font draws nothing and this
+            // reader states no character for a mark the page does not carry. A code here has
+            // a displacement and no meaning; see [`Self::metrics_only`].
+            CodeMapping::MetricsOnly { cmap } => Some(if cmap.is_some() {
+                NamingGap::UnaddressableCid
+            } else {
+                NamingGap::UnnamedGlyph
+            }),
         }
     }
 
@@ -1435,13 +1631,18 @@ impl LoadedFont {
             }
             // A substitute is reached through what a code *means*, so there is no glyph of
             // the document's own to ask about.
-            CodeMapping::Substituted { .. } => None,
+            CodeMapping::Substituted { .. } | CodeMapping::MetricsOnly { .. } => None,
         };
         match glyph.and_then(|glyph| self.program_characters().get(&glyph).copied()) {
             Some(character) => {
                 out.push(character);
                 true
             }
+            // §9.10.2's closing permission — "a PDF processor may choose a character code of
+            // their choosing" — is a *reader's* choice, and this reader declines it for a font
+            // whose glyphs are not on the page: naming those codes would put selectable text
+            // under blank paper. See [`Self::metrics_only`].
+            None if self.is_metrics_only() => false,
             None => Self::text_from_the_code(code, out),
         }
     }
@@ -1528,20 +1729,33 @@ impl LoadedFont {
     /// this wrong does not merely shift text, it reads entirely different glyphs.
     #[must_use]
     pub fn decode(&self, bytes: &[u8]) -> Vec<Code> {
+        let Some(cmap) = self.cmap() else {
+            return bytes.iter().copied().map(Code::single_byte).collect();
+        };
+        let mut codes = Vec::new();
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            let code = cmap.next_code(rest);
+            // `next_code` never reports fewer than one byte, so this terminates.
+            let taken = usize::from(code.length()).clamp(1, rest.len());
+            rest = rest.get(taken..).unwrap_or_default();
+            codes.push(code);
+        }
+        codes
+    }
+
+    /// The `CMap` this font splits its codes with, where it has one.
+    ///
+    /// `None` for every simple font, whose codes are single bytes (§9.6.1); `Some` for every
+    /// composite one, whatever became of its program — which is why this is asked of the
+    /// mapping rather than of the subtype.
+    fn cmap(&self) -> Option<&CMap> {
         match &self.mapping {
-            CodeMapping::Named(_) => bytes.iter().copied().map(Code::single_byte).collect(),
             CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
-                let mut codes = Vec::new();
-                let mut rest = bytes;
-                while !rest.is_empty() {
-                    let code = cmap.next_code(rest);
-                    // `next_code` never reports fewer than one byte, so this terminates.
-                    let taken = usize::from(code.length()).clamp(1, rest.len());
-                    rest = rest.get(taken..).unwrap_or_default();
-                    codes.push(code);
-                }
-                codes
+                Some(cmap)
             }
+            CodeMapping::MetricsOnly { cmap } => cmap.as_deref(),
+            CodeMapping::Named(_) => None,
         }
     }
 
@@ -1754,7 +1968,7 @@ impl LoadedFont {
             CodeMapping::Composite { cmap, glyphs } => {
                 cmap.cid(code).and_then(|cid| glyphs.glyph(cid))
             }
-            CodeMapping::Substituted { .. } => None,
+            CodeMapping::Substituted { .. } | CodeMapping::MetricsOnly { .. } => None,
         }?;
         (glyph != NOTDEF_GLYPH).then_some(glyph)
     }
@@ -1810,12 +2024,7 @@ impl LoadedFont {
     /// font rather than about a code, which is why it is asked once where the font is loaded.
     #[must_use]
     pub fn cmap_truncated(&self) -> Option<&'static str> {
-        match &self.mapping {
-            CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
-                cmap.truncated()
-            }
-            CodeMapping::Named(_) => None,
-        }
+        self.cmap().and_then(CMap::truncated)
     }
 
     /// Which of `pdf-font`'s `/ToUnicode` bounds discarded a mapping one of this font's
@@ -2018,13 +2227,12 @@ impl LoadedFont {
     /// A simple font has no CID and its code indexes both its glyph table and its `/Widths`
     /// directly, so the code is its own selector.
     fn selector(&self, code: Code) -> u32 {
-        match &self.mapping {
-            CodeMapping::Named(_) => code.value(),
-            CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => cmap
-                .cid(code)
-                .or_else(|| cmap.notdef_cid(code))
-                .unwrap_or(0),
-        }
+        let Some(cmap) = self.cmap() else {
+            return code.value();
+        };
+        cmap.cid(code)
+            .or_else(|| cmap.notdef_cid(code))
+            .unwrap_or(0)
     }
 
     /// Resolves a character code to a glyph index.
@@ -2096,6 +2304,9 @@ impl LoadedFont {
             // that is final: falling back to the code as a glyph index here is exactly
             // how a font draws plausible, wrong text.
             CodeMapping::Named(table) => own((*table.get(usize::try_from(code.value()).ok()?)?)?),
+            // No program was read, so there is no glyph of any kind: what this font states is
+            // where the *next* one goes ([`Self::metrics_only`]).
+            CodeMapping::MetricsOnly { .. } => None,
         }
     }
 
@@ -2339,13 +2550,13 @@ impl LoadedFont {
             }
             map.entry(single).or_insert(code);
         };
-        match &self.mapping {
-            CodeMapping::Named(_) => {
+        match self.cmap() {
+            None => {
                 for byte in 0..=u8::MAX {
                     consider(Code::single_byte(byte));
                 }
             }
-            CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
+            Some(cmap) => {
                 if !cmap.each_addressable_code(MAX_ADDRESSABLE_CODES, &mut consider) {
                     return None;
                 }
@@ -2367,8 +2578,8 @@ impl LoadedFont {
             CodeMapping::Named(table) => *table.get(usize::try_from(selector).ok()?)?,
             CodeMapping::Composite { glyphs, .. } => glyphs.glyph(selector),
             // A substitute is reached through what a code *means*, so a selector alone
-            // cannot name a glyph in it.
-            CodeMapping::Substituted { .. } => None,
+            // cannot name a glyph in it; a metrics-only font has no glyphs to name.
+            CodeMapping::Substituted { .. } | CodeMapping::MetricsOnly { .. } => None,
         }
     }
 

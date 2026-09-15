@@ -328,6 +328,145 @@ fn an_icc_space_prefers_its_stated_alternate() {
     );
 }
 
+/// A `'Lab '` data colour space profile whose output depends on `L*` alone.
+///
+/// Three inputs, three outputs, two grid points an axis: the four corners with `L*` at the
+/// bottom of its range are the connection space's black and the four at the top are D50 white,
+/// so `a*` and `b*` reach the table and do not move it. That leaves the only variable the one
+/// ISO 32000-2 §8.6.5.5 Table 68 gives a range other than the unit interval.
+fn lab_data_profile() -> Vec<u8> {
+    // D50 white in the `u1Fixed15` encoding a lookup table's XYZ output uses.
+    let white: [u16; 3] = [31596, 32768, 27030];
+    let mut clut = vec![0u16; 8 * 3];
+    for corner in 4..8 {
+        clut[corner * 3..corner * 3 + 3].copy_from_slice(&white);
+    }
+
+    let mut header = vec![0u8; 128];
+    header[8] = 2;
+    header[16..20].copy_from_slice(b"Lab ");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"mft2");
+    tag.extend_from_slice(&[0; 4]);
+    tag.extend_from_slice(&[3, 3, 2, 0]); // three in, three out, two grid points
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    for value in &clut {
+        tag.extend_from_slice(&value.to_be_bytes());
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+
+    let mut out = header;
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&144u32.to_be_bytes());
+    out.extend_from_slice(&(tag.len() as u32).to_be_bytes());
+    out.extend_from_slice(&tag);
+    out
+}
+
+/// An `ICCBased` space over [`lab_data_profile`], with whatever `/Range` the caller states.
+fn lab_icc_page(range: &str, content: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in lab_data_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    let profile = format!(
+        "5 0 obj\n<< /N 3 {range} /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\n\
+         endstream\nendobj\n",
+        hex.len().saturating_add(1)
+    );
+    pdf_with(
+        &profile,
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >>",
+        content,
+    )
+}
+
+/// Table 65's `/Range` is read, and an absent one leaves Table 68's ranges standing.
+///
+/// ISO 32000-2 §8.6.5.5 states the range twice. The prose under Table 67 says it "is a function
+/// of the colour space specified by the profile and is indicated in the ICC specification" and
+/// Table 68 prints it — "𝐿 ∗ : [0 100] ; a ∗ and 𝑏 ∗ : [-128 127]" — while Table 65's `/Range`
+/// is the file's restatement of the same thing: "[t]hese values shall match the information in
+/// the ICC profile".
+///
+/// `L* = 50` is the operand that tells one reading from another. Over Table 68's range it is
+/// half way up this profile's only axis, which is half of D50 white in XYZ and therefore linear
+/// sRGB 0.5 in every channel — `1.055 × 0.5^(1/2.4) − 0.055`, or 188 of 255. Over a stated
+/// `/Range` of `[0 50 …]` the same operand is the top of the table and the pixel is white.
+#[test]
+fn an_icc_spaces_range_decides_what_its_operands_mean() {
+    let content = "/CS0 cs 50 0 0 scn 0 0 20 20 re f";
+    let default = centre_colour(lab_icc_page("", content));
+    assert!(
+        default.0.abs_diff(188) <= 1
+            && default.1.abs_diff(188) <= 1
+            && default.2.abs_diff(188) <= 1,
+        "half of Table 68's L* range is half the white point, got {default:?}"
+    );
+
+    let stated = centre_colour(lab_icc_page("/Range [0 50 -128 127 -128 127]", content));
+    assert!(
+        stated.0 > 250 && stated.1 > 250 && stated.2 > 250,
+        "a stated range of [0 50] puts L* = 50 at the top of the table, got {stated:?}"
+    );
+}
+
+/// Table 88's default `/Decode` for an `ICCBased` image is the profile's own range.
+///
+/// Table 88's row for the family is one sentence: the default is the "[s]ame as the value of
+/// Range in the ICC profile of the image's colour space".
+///
+/// The image states no `/Decode`, so the default decides what a sample means. Over the range
+/// §8.6.5.5 gives a `'Lab '` profile a mid sample is `L*` half way up its axis, which is the
+/// 188 the operand of the same value draws; over the unit interval every `ICCBased` space used
+/// to get, it is `L* = 0.5` and the pixel is black. The `a*` and `b*` samples reach the table
+/// and do not move it, which is what [`lab_data_profile`] is built for.
+#[test]
+fn an_icc_images_default_decode_is_the_profiles_range() {
+    let mut hex = String::new();
+    for byte in lab_data_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    let objects = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+         /ColorSpace [/ICCBased 6 0 R] /BitsPerComponent 8 /Filter /ASCIIHexDecode \
+         /Length 7 >>\nstream\n808080>\nendstream\nendobj\n\
+         6 0 obj\n<< /N 3 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
+         endobj\n",
+        hex.len().saturating_add(1)
+    );
+    let by_image = centre_colour(pdf_with(
+        &objects,
+        "/XObject << /Im0 5 0 R >>",
+        "q 20 0 0 20 0 0 cm /Im0 Do Q",
+    ));
+    // 0x80 of 0xFF is 0.50196 of the range, so `L*` is 50.196 and the linear light 0.50196;
+    // sRGB's transfer makes that 0.73648, or 188 of 255.
+    assert!(
+        by_image.0.abs_diff(188) <= 1
+            && by_image.1.abs_diff(188) <= 1
+            && by_image.2.abs_diff(188) <= 1,
+        "a mid sample over Table 68's L* range, got {by_image:?}"
+    );
+}
+
 /// A CMYK profile built to say one thing, so a test can tell whether it was consulted.
 ///
 /// Four input channels and two grid points per channel, which makes the table exactly the

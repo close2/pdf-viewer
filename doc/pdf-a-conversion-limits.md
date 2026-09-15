@@ -337,11 +337,19 @@ ISO 19005-2 §6.3.1 forbids annotation subtypes not defined in ISO 32000-1, plus
 `RichMedia` only in a PDF/A-4e file; and permits `FileAttachment` only in a PDF/A-4f file.
 
 - **Class: Ask.** Removal is the only option, and for `Screen`/`Movie`/`Sound` the media stream
-  goes with it.
+  goes with it. **Built** as `--authorise forbidden-annotation` (ADR 1099).
 - **Default: remove the annotation and report it.** The tempting alternative — keep its
   appearance stream by re-badging it as a `Stamp` — is inventing an annotation the producer did
   not write, and ADR 0816's fence is where that stops. Where the removed annotation had a normal
   appearance the page loses that mark, and the report says which page.
+- **The mark need not be lost, and that is ADR 1099's amendment to this entry.** A normal
+  appearance is a form `XObject` the producer wrote, and ISO 19005-2 section 6.2.2's NOTE 2 puts a
+  page description and an annotation appearance under the same restrictions — so a page may carry
+  those marks directly. `remedy = "preserve"` with `placement = "append"` keeps them on a page
+  stating the source page's own boxes, invoked under §12.5.5's matrix, so nothing about the page is
+  this converter's choice. An annotation that states no normal appearance stream refuses by name:
+  there are no marks of the producer's to keep, and constructing some would be preserving a picture
+  this program drew.
 - **`FileAttachment` annotations are §3.1's problem in a different dictionary**: in PDF/A-4 they
   force PDF/A-4f, and the *annotation* is what forces it, not just the name tree.
 

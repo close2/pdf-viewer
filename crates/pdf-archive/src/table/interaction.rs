@@ -584,6 +584,98 @@ static ADDED_BY_ISO_32000_2: &[&str] = &["Projection", "RichMedia"];
 /// PDF/A-4e.
 static THREE_DIMENSIONAL: &str = "3D";
 
+/// One annotation a target's section 6.3.1 does not admit, with what it would take off the page.
+///
+/// **The reading as a population rather than as a verdict**, on the same footing as
+/// [`MissingAppearance`] and `crate::properties_outside_their_schema`: a converter that removes
+/// these annotations has to be given exactly the ones the requirement reported, and a findings
+/// list is capped where a document's annotations are not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForbiddenSubtype {
+    /// The object the annotation is, where it is an indirect one.
+    ///
+    /// `None` for an annotation written directly into a page's `/Annots` array, which nothing
+    /// that rewrites objects can reach.
+    pub at: Option<ObjectId>,
+    /// The zero-based page it is on.
+    pub page: usize,
+    /// Its `/Subtype`, where it states one.
+    pub subtype: Option<String>,
+    /// The object its `/AP` `/N` names, where that is a stream of its own.
+    ///
+    /// The one thing a removal takes off the page that the file could still hold somewhere else:
+    /// §12.5.5 makes the normal appearance the marks a reader draws for the annotation, and
+    /// `doc/adr/1099` is what keeping them costs. `None` where the annotation states no appearance
+    /// stream — a subdictionary of states is `None` too, because no single stream is *the* normal
+    /// appearance until the annotation's own `/AS` picks one, and §12.5.5's own words make that a
+    /// question about which state the document is in.
+    pub normal_appearance: Option<ObjectId>,
+}
+
+/// Whether a part's section 6.3.1 admits an annotation of this subtype at all.
+///
+/// The two rows above, read as one predicate: ISO 19005-2 section 6.3.1 admits the ISO 32000-1
+/// set less `3D`, `Sound`, `Screen` and `Movie`, and ISO 19005-4 section 6.3.1 admits the ISO
+/// 32000-2 Table 171 set less `Sound`, `Screen` and `Movie`.
+///
+/// **A part rather than a target, and the flavour conditions are deliberately outside it.** ISO
+/// 19005-4 section 6.3.1's later paragraphs confine `3D` and `RichMedia` to PDF/A-4e and
+/// `FileAttachment` to PDF/A-4f, and those are two rows of their own because the answer to them is
+/// a different one: the flavour that admits the subtype is the shorter route, and for a
+/// `FileAttachment` the file it names may stay in the document when the annotation does not. A
+/// caller answering *this* predicate's refusals must not be given their population as well.
+///
+/// `None` — an annotation stating no `/Subtype` — is admitted by neither part: it is of no type
+/// either edition's table defines, which is what the first sentence of each clause forbids.
+#[must_use]
+pub fn annotation_subtype_permitted(subtype: Option<&str>, part: Part) -> bool {
+    let Some(subtype) = subtype else {
+        return false;
+    };
+    if !PERMITTED_IN_PART_FOUR.contains(&subtype) {
+        return false;
+    }
+    match part {
+        Part::Two => !ADDED_BY_ISO_32000_2.contains(&subtype) && subtype != THREE_DIMENSIONAL,
+        Part::Four => true,
+    }
+}
+
+/// Every annotation of a subtype the target's part does not admit at all.
+///
+/// The population [`annotation_subtype_permitted`] rejects, in page order, with the normal
+/// appearance each one would take off the page.
+#[must_use]
+pub fn annotations_of_a_forbidden_subtype(
+    document: &Document,
+    target: Target,
+) -> Vec<ForbiddenSubtype> {
+    let exam = Examination::new(document, target);
+    exam.annotations()
+        .iter()
+        .filter_map(|annotation| {
+            let subtype = name_at(document, &annotation.dict, "Subtype");
+            if annotation_subtype_permitted(subtype.as_deref(), target.part()) {
+                return None;
+            }
+            Some(ForbiddenSubtype {
+                at: annotation.id,
+                page: annotation.page,
+                subtype,
+                normal_appearance: normal_appearance_stream(document, &annotation.dict),
+            })
+        })
+        .collect()
+}
+
+/// The object an annotation's `/AP` `/N` names, where that object is a stream.
+fn normal_appearance_stream(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
+    let appearances = document.get_key(annotation, "AP");
+    let normal = appearances.as_dict()?.get("N")?;
+    let id = normal.as_reference()?;
+    document.get(id).as_stream().map(|_| id)
+}
+
 /// ISO 32000-2 Table 167's flag values, which are `1 << (bit position - 1)`.
 ///
 /// §12.5.3 states the numbering: bits run "from low-order to high-order, with the lowest-order
@@ -1879,13 +1971,16 @@ mod tests {
     use std::collections::BTreeSet;
     use std::fmt::Write as _;
 
-    use pdf_syntax::Document;
+    use pdf_syntax::{Document, ObjectId};
 
     use crate::finding::Findings;
     use crate::target::{Flavour, Level, Target};
 
+    use crate::target::Part;
+
     use super::{
-        REQUIREMENTS, additional_actions_hold_only_annotation_triggers,
+        PERMITTED_IN_PART_FOUR, REQUIREMENTS, additional_actions_hold_only_annotation_triggers,
+        annotation_subtype_permitted, annotations_of_a_forbidden_subtype,
         appearance_dictionary_holds_only_normal, appearance_dictionary_present_four,
         appearance_dictionary_present_two, flags_entry_present, named_action_is_page_navigation,
         no_action_on_widget_or_field, no_additional_actions_dictionary,
@@ -1987,7 +2082,7 @@ mod tests {
     /// `Movie` — and the set this crate reaches by subtraction is that set.
     #[test]
     fn the_part_two_subtypes_are_the_ones_iso_32000_1_defines() {
-        let derived: BTreeSet<&str> = super::PERMITTED_IN_PART_FOUR
+        let derived: BTreeSet<&str> = PERMITTED_IN_PART_FOUR
             .iter()
             .copied()
             .filter(|subtype| !super::ADDED_BY_ISO_32000_2.contains(subtype))
@@ -2001,6 +2096,93 @@ mod tests {
             "subtracting Table 171's PDF 2.0 rows gives ISO 32000-1's Table 169 less the three \
              section 6.3.1 strikes"
         );
+    }
+
+    /// [`annotation_subtype_permitted`] answers exactly what the two rows report, subtype for
+    /// subtype and part for part.
+    ///
+    /// **The predicate is what a converter removes annotations by**, so a predicate that drifted
+    /// from the rows would have it removing an annotation the requirement passed or leaving one it
+    /// failed. The population is derived rather than listed — every subtype either part's table
+    /// names, plus the three struck ones and a name no table defines — so a row added to
+    /// `PERMITTED_IN_PART_FOUR` is covered without this test being edited (trap 25).
+    #[test]
+    fn the_predicate_answers_what_the_two_rows_report() {
+        let mut subtypes: Vec<&str> = PERMITTED_IN_PART_FOUR.to_vec();
+        subtypes.extend(["Sound", "Screen", "Movie", "Salamander"]);
+        for subtype in subtypes {
+            let file = with_annotations(&[&format!(
+                "<< /Type /Annot /Subtype /{subtype} /Rect [0 0 1 1] /F 4 /AP << /N 9 0 R >> >>"
+            )]);
+            for (part, row) in [
+                (
+                    Part::Two,
+                    subtype_permitted_by_part_two as fn(&Examination<'_>, &mut Findings),
+                ),
+                (Part::Four, subtype_permitted_by_part_four),
+            ] {
+                assert_eq!(
+                    annotation_subtype_permitted(Some(subtype), part),
+                    faults(&file, row) == 0,
+                    "{subtype} under {part:?}"
+                );
+            }
+        }
+    }
+
+    /// An annotation stating no `/Subtype` is of no type either edition's table defines.
+    #[test]
+    fn an_annotation_stating_no_subtype_is_permitted_by_neither_part() {
+        let file =
+            with_annotations(&["<< /Type /Annot /Rect [0 0 1 1] /F 4 /AP << /N 9 0 R >> >>"]);
+        for (part, row) in [
+            (
+                Part::Two,
+                subtype_permitted_by_part_two as fn(&Examination<'_>, &mut Findings),
+            ),
+            (Part::Four, subtype_permitted_by_part_four),
+        ] {
+            assert!(!annotation_subtype_permitted(None, part));
+            assert_eq!(faults(&file, row), 1, "{part:?}");
+        }
+    }
+
+    /// The population a converter is handed is the annotations the rows fail, with what each drew.
+    #[test]
+    fn the_population_names_the_annotation_the_page_holds_and_its_normal_appearance() {
+        let file = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Annots [4 0 R 5 0 R] >>",
+            "<< /Type /Annot /Subtype /Sound /Rect [0 0 1 1] /F 4 /AP << /N 6 0 R >> >>",
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 1 1] /F 4 /AP << /N 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length 0 >>\nstream\n\nendstream",
+        ]);
+        let forbidden = annotations_of_a_forbidden_subtype(&file, Target::Four(Flavour::Plain));
+        assert_eq!(forbidden.len(), 1, "the Square is one part 4 admits");
+        let one = &forbidden[0];
+        assert_eq!(one.subtype.as_deref(), Some("Sound"));
+        assert_eq!(one.page, 0);
+        assert_eq!(
+            one.normal_appearance,
+            Some(ObjectId::new(6, 0)),
+            "and the marks a removal would take off the page are named"
+        );
+    }
+
+    /// An `/AP` whose `/N` is a subdictionary of states names no single normal appearance.
+    ///
+    /// §12.5.5 makes which of a subdictionary's streams is drawn a question the annotation's own
+    /// `/AS` answers, so no one stream is *the* normal appearance until it does.
+    #[test]
+    fn a_normal_appearance_that_is_a_subdictionary_of_states_names_no_stream() {
+        let file = with_annotations(&[
+            "<< /Type /Annot /Subtype /Sound /Rect [0 0 1 1] /F 4 /AP << /N << /On 5 0 R >> >> >>",
+        ]);
+        let forbidden = annotations_of_a_forbidden_subtype(&file, Target::Four(Flavour::Plain));
+        assert_eq!(forbidden.len(), 1);
+        assert_eq!(forbidden[0].normal_appearance, None);
     }
 
     /// ISO 19005-4 section 6.3.1 admits the two subtypes PDF 2.0 added; ISO 19005-2 section 6.3.1

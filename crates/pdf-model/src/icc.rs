@@ -193,8 +193,30 @@ impl Rendering {
 pub struct Profile {
     /// How many components a colour in this profile's space has.
     channels: usize,
+    /// The valid range of each device component, and the interval this profile's own tables
+    /// are indexed by.
+    ///
+    /// ISO 32000-2 §8.6.5.5 states it twice over and in that order. The prose under Table 67
+    /// says the range "is a function of the colour space specified by the profile and is
+    /// indicated in the ICC specification", and Table 68 prints it for the four data colour
+    /// spaces Table 67 admits: the unit interval for `'GRAY'`, `'RGB '` and `'CMYK'`, and
+    /// `L*: [0 100]`, `a*` and `b*: [-128 127]` for `'Lab '`. Table 65's `/Range` restates it
+    /// from the file — "[t]hese values shall match the information in the ICC profile" — and
+    /// [`Profile::with_range`] is where a document's statement replaces this one.
+    ///
+    /// It is held on the profile rather than on `crate::colour::ColourSpace` because it is the
+    /// profile's information travelling through PDF, and because it is what every table in
+    /// here indexes by: [`Profile::encoded`] is the one place a device value crosses onto it.
+    range: [(f32, f32); MAX_OUTPUTS],
     /// Whether the connection space is `Lab` rather than `XYZ`.
     lab_pcs: bool,
+    /// Whether the *data* colour space is `'Lab '` rather than one of the three device ones.
+    ///
+    /// Kept because it decides two things long after the header has gone: that an `A2B`
+    /// table's `mft` matrix does not apply — ISO 15076-1 section 10.10 confines it to a
+    /// PCSXYZ input, and a "to CIE" table's input is the data colour space — and that
+    /// [`Alternate`] must do the same when it parses its tag on first use.
+    lab_data: bool,
     /// Whether the profile states ICC version 4, which decides how `Lab` is encoded.
     ///
     /// Kept because [`Alternate`] parses its table long after the header has gone.
@@ -806,31 +828,24 @@ impl Profile {
         if data.get(36..40)? != b"acsp" {
             return None;
         }
-        let channels = match data.get(16..20)? {
-            b"GRAY" => 1,
-            b"RGB " => 3,
-            b"CMYK" => 4,
-            // ISO 32000-2 §8.6.5.5 Table 67 admits one more data colour space, `'Lab '`, and
-            // this reader refuses it on purpose, so that the space falls to its `/Alternate`
-            // (Table 66's own instruction for a profile that "is not supported"). What is
-            // missing is not the table — a Lab-input `A2B` is the same `mft2` or `mAB ` as a
-            // CMYK one — but the *encoding of its input*. ISO 15076-1's lookup-table clauses
-            // define a Lab encoding for the connection-space side of a table only, and say
-            // outright that the definition does not reach the data-colour-space field of the
-            // header; a Lab *device* value therefore lands on the table's 0..1 input by
-            // whatever scale the profile's maker assumed, and the one place a PDF states that
-            // scale is Table 66's `/Range` — "[t]hese values shall match the information in
-            // the ICC profile" — which `crate::colour::parse_icc_based` does not read, and
-            // which is the identity for every profile it does read. Reading it is the work,
-            // and it is `ColourSpace::Icc`'s to carry rather than this parser's. No document
-            // in the 1249 across `doc/pdf.js/test/pdfs`, `doc/corpora/` and `doc/corpora-own/`
-            // embeds such a profile (session 987's scan of every directly filtered stream:
-            // 333 profiles, 235 `'RGB '`, 95 `'GRAY'`, 3 `'CMYK'`), and a conformant file's
-            // `/Alternate` for one is `[/Lab …]`, so the cost of refusing is the difference
-            // between the profile's own modelling of CIELAB and §8.6.5.4's — ADR 1008.
-            // Every other Table 19 space is outside what Table 67 admits.
+        // The four data colour spaces ISO 32000-2 §8.6.5.5 Table 67 admits, and the component
+        // range each of them has. Every other Table 19 space is outside what Table 67 admits.
+        //
+        // `'Lab '` is a device space whose components are not confined to the unit interval a
+        // profile's tables are indexed by, which is the whole of what made it harder than the
+        // other three: the ICC lookup-table clauses define a Lab encoding for the
+        // *connection-space* side of a table and say it does not reach the header's
+        // data-colour-space field, so the scale a Lab device value lands on the table's input
+        // by is not the ICC's to state. §8.6.5.5 states it — the prose under Table 67 and
+        // Table 68's own row — and [`Profile::range`] carries it. ADR 1098.
+        let (channels, lab_data) = match data.get(16..20)? {
+            b"GRAY" => (1, false),
+            b"RGB " => (3, false),
+            b"CMYK" => (4, false),
+            b"Lab " => (3, true),
             _ => return None,
         };
+        let range = if lab_data { LAB_RANGE } else { UNIT_RANGE };
         let lab_pcs = match data.get(20..24)? {
             b"Lab " => true,
             b"XYZ " => false,
@@ -872,8 +887,12 @@ impl Profile {
         // came out at (28,27,23) where every other reader shows (0,0,0).
         let colorimetric_at = locate(b"A2B1").or_else(|| locate(b"A2B0"));
         let transform = if let Some(table) = colorimetric_at.and_then(slice) {
-            Transform::Lut(Box::new(parse_lut(table, lab_pcs, version_4, false)?))
-        } else if channels == 3 {
+            Transform::Lut(Box::new(lut_of(table, lab_pcs, lab_data, version_4)?))
+        } else if channels == 3 && !lab_data {
+            // The matrix-and-curve shorthand is an `'RGB '` profile's: its stages are the
+            // three colourant tags below, which a `'Lab '` profile does not carry. One with no
+            // `A2B` table at all therefore fails to parse and falls to Table 65's `/Alternate`,
+            // where a profile this reader cannot evaluate has always gone.
             let curves = [b"rTRC", b"gTRC", b"bTRC"]
                 .into_iter()
                 .map(|name| find(name).and_then(parse_curve).unwrap_or(Curve::None))
@@ -914,29 +933,13 @@ impl Profile {
                 .map(Arc::from),
             route: OnceLock::new(),
         };
-        // The media white point, for the absolute colorimetric intent. A display's is the
-        // connection space's own by ICC.1:2022 clause 9.2.36's statement — "For displays, the
-        // values specified shall be those of the PCS illuminant" — and ICC.1:2001-12 clause
-        // 6.4.27 said the same of a v2 profile, so a display profile's tag is not consulted:
-        // the standard states the value, and the one profile class whose tag is known to
-        // disagree with it (a 1998 sRGB carrying its monitor's D65) is a class the standard
-        // has already answered for. Every other class reads the tag, and a profile that omits
-        // one keeps the connection space's white, which makes the absolute intent the
-        // relative one: the derivation needs a value the profile did not state, and inventing
-        // a paper colour is not a reading of anything.
-        let media_white = if data.get(12..16)? == b"mntr" {
-            WHITE
-        } else {
-            find(b"wtpt")
-                .filter(|tag| tag.get(..4) == Some(b"XYZ "))
-                .and_then(|tag| Some([fixed_at(tag, 8)?, fixed_at(tag, 12)?, fixed_at(tag, 16)?]))
-                .filter(|white| white.iter().all(|value| *value > 0.0 && value.is_finite()))
-                .unwrap_or(WHITE)
-        };
+        let media_white = media_white_of(data.get(12..16)?, find(b"wtpt"));
 
         let mut profile = Self {
             channels,
+            range,
             lab_pcs,
+            lab_data,
             version_4,
             colorimetric: Route {
                 transform,
@@ -1037,6 +1040,9 @@ impl Profile {
 
     /// The connection-space XYZ a colour maps to through `transform`, before compensation or
     /// transfer.
+    ///
+    /// `values` are [`Profile::encoded`]'s: this profile's components on the unit interval its
+    /// tables index by, rather than the device values §8.6.5.5's range is stated in.
     fn connection(&self, transform: &Transform, values: &[f32]) -> [f32; 3] {
         let raw = match transform {
             Transform::Lut(lut) => {
@@ -1089,8 +1095,12 @@ impl Profile {
         alternate
             .route
             .get_or_init(|| {
-                let table =
-                    parse_lut(alternate.tag.as_ref()?, self.lab_pcs, self.version_4, false)?;
+                let table = lut_of(
+                    alternate.tag.as_ref()?,
+                    self.lab_pcs,
+                    self.lab_data,
+                    self.version_4,
+                )?;
                 let transform = Transform::Lut(Box::new(table));
                 let black = self.detect_black(&transform);
                 Some(Route { transform, black })
@@ -1103,6 +1113,108 @@ impl Profile {
     #[must_use]
     pub fn channels(&self) -> usize {
         self.channels
+    }
+
+    /// The same profile, with ISO 32000-2 §8.6.5.5 Table 65's `/Range` in place of the range
+    /// the profile's own data colour space states.
+    ///
+    /// > These values shall match the information in the ICC profile.
+    ///
+    /// So a document that states one is restating what [`Profile::range`] already holds, and
+    /// the two agree for every conformant file. Where they do not, the file's is taken: Table
+    /// 65 makes `/Range` the statement "of the minimum and maximum valid values of the
+    /// corresponding colour components", and §8.4.1 makes those bounds the ones the current
+    /// colour is held to — "[p]arameters that are numeric values, such as the current colour,
+    /// line width, and miter limit, shall be clipped into valid range, if necessary".
+    ///
+    /// `range` is Table 65's array read in pairs. One of the wrong length is not this clause's
+    /// range at all and is ignored, as is a pair whose minimum exceeds its maximum: both leave
+    /// the profile stating what it stated, which is the entry's own default.
+    #[must_use]
+    pub fn with_range(mut self, range: &[(f32, f32)]) -> Self {
+        if range.len() != self.channels {
+            return self;
+        }
+        let mut stated = self.range;
+        for (slot, (low, high)) in stated.iter_mut().zip(range.iter().copied()) {
+            if low.is_finite() && high.is_finite() && low <= high {
+                *slot = (low, high);
+            }
+        }
+        if stated != self.range {
+            // Two `ICCBased` spaces over one profile stating different ranges are two spaces,
+            // and [`Profile::identity`] is what the press registry and §8.6.5.7's passthrough
+            // tell spaces apart by. A conformant file cannot produce the case — the sentence
+            // above says both must match the profile — so this only has to keep a malformed
+            // one from being read as a press it is not.
+            let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+            for (low, high) in stated {
+                for byte in low
+                    .to_bits()
+                    .to_be_bytes()
+                    .into_iter()
+                    .chain(high.to_bits().to_be_bytes())
+                {
+                    hash ^= u64::from(byte);
+                    hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+            self.identity ^= u128::from(hash);
+            self.range = stated;
+            // The darkest colour the space reaches is found at the ends of that range, so a
+            // range that moved moves it too.
+            self.colorimetric.black = self.detect_black(&self.colorimetric.transform);
+        }
+        self
+    }
+
+    /// The device components a unit-interval colour stands for: [`Profile::encoded`] undone.
+    ///
+    /// What the "from CIE" direction produces is a table's or a curve's output, which is on the
+    /// unit interval whatever the space's own components run over, and §8.6.5.5's range is what
+    /// says which numbers those are. The identity for the three data colour spaces whose range
+    /// is the unit interval.
+    fn decoded(&self, mut values: [f32; MAX_OUTPUTS]) -> [f32; MAX_OUTPUTS] {
+        for (index, value) in values.iter_mut().enumerate().take(self.channels) {
+            let (low, high) = self.range.get(index).copied().unwrap_or((0.0, 1.0));
+            *value = low + *value * (high - low);
+        }
+        values
+    }
+
+    /// The valid range of one of this profile's components, as §8.6.5.5 states it.
+    ///
+    /// Table 68's row for the profile's own data colour space, or Table 65's `/Range` where the
+    /// document restated it. A component past this profile's own is the unit interval, which is
+    /// what every device space's is.
+    #[must_use]
+    pub fn component_range(&self, component: usize) -> (f32, f32) {
+        self.range.get(component).copied().unwrap_or((0.0, 1.0))
+    }
+
+    /// A colour in this profile's own components, on the unit interval its tables index by.
+    ///
+    /// Two clauses in one function, and neither of them is the ICC's. §8.4.1 clips the current
+    /// colour "into valid range", and [`Profile::range`] is what §8.6.5.5 says that range is;
+    /// the division then puts the clipped value where a lookup table, a tone curve or a
+    /// colourant matrix can be indexed by it. For the three data colour spaces whose range is
+    /// the unit interval the whole of it is `clamp(0.0, 1.0)`, which is what every curve in
+    /// here already did to its own input — so nothing but a `'Lab '` profile sees a different
+    /// number because of this.
+    fn encoded(&self, values: &[f32]) -> [f32; MAX_OUTPUTS] {
+        let mut out = [0.0f32; MAX_OUTPUTS];
+        for (index, slot) in out.iter_mut().enumerate().take(self.channels) {
+            let (low, high) = self.range.get(index).copied().unwrap_or((0.0, 1.0));
+            let value = values.get(index).copied().unwrap_or(low).clamp(low, high);
+            let span = high - low;
+            // A degenerate range states one value, and that value is where the table starts.
+            *slot = if span > 0.0 {
+                (value - low) / span
+            } else {
+                0.0
+            };
+        }
+        out
     }
 
     /// What tells this profile's bytes apart from another's.
@@ -1146,7 +1258,7 @@ impl Profile {
     #[must_use]
     pub fn to_xyz_with(&self, values: &[f32], rendering: Rendering) -> [f32; 3] {
         let route = self.route(rendering.transform());
-        let mut xyz = self.connection(&route.transform, values);
+        let mut xyz = self.connection(&route.transform, &self.encoded(values));
 
         // The absolute colorimetric intent: ICC.1:2022 clause 6.3.2.2's Equations (4) to (6),
         // each media-relative tristimulus value multiplied by the ratio of the media white
@@ -1254,7 +1366,7 @@ impl Profile {
             for ((value, curve), light) in out.iter_mut().zip(curves).zip(linear) {
                 *value = curve.invert(light.clamp(0.0, 1.0));
             }
-            return Some(out);
+            return Some(self.decoded(out));
         }
         let inverse = self.inverse.as_ref()?;
         if let Some(black) = self.colorimetric.black.filter(|_| rendering.black_point()) {
@@ -1276,7 +1388,7 @@ impl Profile {
         for value in out.iter_mut().skip(self.channels) {
             *value = 0.0;
         }
-        Some(out)
+        Some(self.decoded(out))
     }
 }
 
@@ -1285,6 +1397,18 @@ impl Profile {
 /// Four: PDF's `/N` permits one, three or four, and a table with more outputs — ICC permits
 /// fifteen — has the rest unread, which costs nothing this crate could consume.
 pub const MAX_OUTPUTS: usize = 4;
+
+/// The component range of every data colour space but one: ISO 32000-2 §8.6.5.5 Table 68's
+/// `[0.0 1.0]` for `Gray`, `RGB` and `CMYK`, which is also Table 65's default for `/Range`.
+const UNIT_RANGE: [(f32, f32); MAX_OUTPUTS] = [(0.0, 1.0); MAX_OUTPUTS];
+
+/// Table 68's component range for an ICC `L*a*b*` data colour space: "𝐿 ∗ : [0 100] ; a ∗ and
+/// 𝑏 ∗ : [-128 127]".
+///
+/// The fourth pair is unread — a `'Lab '` profile has three components — and is the unit
+/// interval so that the constant is a whole range whatever is asked of it.
+const LAB_RANGE: [(f32, f32); MAX_OUTPUTS] =
+    [(0.0, 100.0), (-128.0, 127.0), (-128.0, 127.0), (0.0, 1.0)];
 
 /// A three-component matrix profile's conversion to the connection space, in its two stages.
 ///
@@ -1522,6 +1646,43 @@ fn parse_curve(tag: &[u8]) -> Option<Curve> {
         }
         _ => None,
     }
+}
+
+/// The medium's white in connection-space XYZ, for the absolute colorimetric intent.
+///
+/// A display's is the connection space's own by ICC.1:2022 clause 9.2.36's statement — "For
+/// displays, the values specified shall be those of the PCS illuminant" — and ICC.1:2001-12
+/// clause 6.4.27 said the same of a v2 profile, so a display profile's tag is not consulted:
+/// the standard states the value, and the one profile class whose tag is known to disagree
+/// with it (a 1998 sRGB carrying its monitor's D65) is a class the standard has already
+/// answered for. `class` is the header's device class at bytes 12 to 15, which is what tells
+/// the two apart.
+///
+/// Every other class reads the tag, and a profile that omits one keeps the connection space's
+/// white, which makes the absolute intent the relative one: the derivation needs a value the
+/// profile did not state, and inventing a paper colour is not a reading of anything.
+fn media_white_of(class: &[u8], wtpt: Option<&[u8]>) -> [f32; 3] {
+    if class == b"mntr" {
+        return WHITE;
+    }
+    wtpt.filter(|tag| tag.get(..4) == Some(b"XYZ "))
+        .and_then(|tag| Some([fixed_at(tag, 8)?, fixed_at(tag, 12)?, fixed_at(tag, 16)?]))
+        .filter(|white| white.iter().all(|value| *value > 0.0 && value.is_finite()))
+        .unwrap_or(WHITE)
+}
+
+/// Parses an `A2B` tag, with the one stage a `'Lab '` data colour space takes out of it.
+///
+/// ISO 15076-1 section 10.10 confines an `mft` tag's matrix to an input colour space of
+/// PCSXYZ. For a "from CIE" table [`parse_lut`] answers that from the connection space, which
+/// is that table's input; for a "to CIE" table the input is the *data* colour space, and the
+/// one such space §8.6.5.5 Table 67 admits that is not a device space is `'Lab '`.
+fn lut_of(tag: &[u8], lab_pcs: bool, lab_data: bool, version_4: bool) -> Option<Lut> {
+    let mut table = parse_lut(tag, lab_pcs, version_4, false)?;
+    if lab_data {
+        table.matrix = None;
+    }
+    Some(table)
 }
 
 /// Parses an `A2B` or `B2A` tag in any of its three encodings.
@@ -3092,5 +3253,198 @@ mod tests {
             (mixed[2] - plain[2]).abs() > 0.05,
             "the paper moves the yellow ink: {mixed:?} against {plain:?}"
         );
+    }
+
+    /// A `'Lab '` data colour space profile: three inputs, three outputs, two grid points an
+    /// axis, whose output depends on the first axis alone.
+    ///
+    /// `L*` at the bottom of its range is the connection space's black and at the top is its
+    /// white; `a*` and `b*` reach the table and do not move it, which is what makes the
+    /// fixture's only variable the one ISO 32000-2 §8.6.5.5 Table 68 gives a range other than
+    /// the unit interval.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        clippy::indexing_slicing,
+        clippy::cast_possible_truncation,
+        reason = "test fixture: the constants are written as the fixed-point values the tag \
+                  encodes, and the table's extent is eight corners"
+    )]
+    fn lab_data_profile() -> Vec<u8> {
+        // D50 white in the `u1Fixed15` encoding a lookup table's XYZ output uses: `0x8000` is
+        // 1.0, so 0.9642 and 0.8249 are 31596 and 27030.
+        let white: [u16; 3] = [31596, 32768, 27030];
+        let mut clut = vec![0u16; 8 * 3];
+        for corner in 4..8 {
+            clut[corner * 3..corner * 3 + 3].copy_from_slice(&white);
+        }
+
+        let mut header = vec![0u8; 128];
+        header[8] = 2;
+        header[16..20].copy_from_slice(b"Lab ");
+        header[20..24].copy_from_slice(b"XYZ ");
+        header[36..40].copy_from_slice(b"acsp");
+
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"mft2");
+        tag.extend_from_slice(&[0; 4]);
+        tag.extend_from_slice(&[3, 3, 2, 0]); // three in, three out, two grid points
+        for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tag.extend_from_slice(&2u16.to_be_bytes());
+        tag.extend_from_slice(&2u16.to_be_bytes());
+        for _ in 0..3 {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        for value in &clut {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+        for _ in 0..3 {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+
+        let mut out = header;
+        out.extend_from_slice(&1u32.to_be_bytes());
+        out.extend_from_slice(b"A2B1");
+        out.extend_from_slice(&144u32.to_be_bytes());
+        out.extend_from_slice(&(tag.len() as u32).to_be_bytes());
+        out.extend_from_slice(&tag);
+        out
+    }
+
+    /// A `'Lab '` profile is read, and its components at the range ISO 32000-2 §8.6.5.5 states.
+    ///
+    /// Table 67 admits four data colour spaces and `'Lab '` is the one whose components are not
+    /// the unit interval: the prose under it says the range "is a function of the colour space
+    /// specified by the profile", and Table 68 prints it — "𝐿 ∗ : [0 100] ; a ∗ and 𝑏 ∗ :
+    /// [-128 127]".
+    ///
+    /// `L* = 50` is the value that tells the two readings apart, and the expectation is derived
+    /// rather than read off the raster: half way up this fixture's only axis is half of D50
+    /// white in XYZ, which is linear sRGB 0.5 in each channel because D50 white is what the
+    /// conversion sends to (1,1,1), and sRGB's transfer makes that `1.055 × 0.5^(1/2.4) −
+    /// 0.055` = 0.73535, or 188 of 255. Read at the unit interval the same value clips to the
+    /// top of the table and the pixel is white, which is what a `Profile::range` of
+    /// `UNIT_RANGE` produces here.
+    #[test]
+    fn a_lab_profiles_components_are_read_over_the_range_the_clause_states() {
+        let profile = Profile::parse(&lab_data_profile()).expect("a Lab profile parses");
+        assert_eq!(profile.channels(), 3, "Table 68's three components");
+
+        let black = profile.to_rgb(&[0.0, 0.0, 0.0]);
+        let white = profile.to_rgb(&[100.0, 0.0, 0.0]);
+        let middle = profile.to_rgb(&[50.0, 0.0, 0.0]);
+        assert!(
+            black.r < 0.01 && black.g < 0.01 && black.b < 0.01,
+            "{black:?}"
+        );
+        assert!(
+            white.r > 0.99 && white.g > 0.99 && white.b > 0.99,
+            "{white:?}"
+        );
+        for channel in [middle.r, middle.g, middle.b] {
+            assert!(
+                (channel - 0.735_35).abs() < 0.002,
+                "half of L*'s range is half of the white point: {middle:?}"
+            );
+        }
+    }
+
+    /// ISO 32000-2 §8.6.5.5 Table 65's `/Range` replaces the range the data colour space states.
+    ///
+    /// > An array of 2 × N numbers … that shall specify the minimum and maximum valid values of
+    /// > the corresponding colour components.
+    ///
+    /// A file stating `[0 50 -128 127 -128 127]` says its `L*` reaches the top of the table at
+    /// 50, so the value the test above draws as a mid grey is white here. An array of the wrong
+    /// length is not this entry and leaves the profile's own range standing.
+    #[test]
+    fn a_stated_range_replaces_the_one_the_data_colour_space_states() {
+        let profile = Profile::parse(&lab_data_profile()).expect("a Lab profile parses");
+        let stated = profile
+            .clone()
+            .with_range(&[(0.0, 50.0), (-128.0, 127.0), (-128.0, 127.0)]);
+        let white = stated.to_rgb(&[50.0, 0.0, 0.0]);
+        assert!(
+            white.r > 0.99 && white.g > 0.99 && white.b > 0.99,
+            "{white:?}"
+        );
+
+        let short = profile.clone().with_range(&[(0.0, 50.0)]);
+        let middle = short.to_rgb(&[50.0, 0.0, 0.0]);
+        assert!((middle.r - 0.735_35).abs() < 0.002, "{middle:?}");
+        assert_eq!(
+            short.identity(),
+            profile.identity(),
+            "a range that was not applied is not a different space"
+        );
+        assert_ne!(
+            stated.identity(),
+            profile.identity(),
+            "one that was applied is"
+        );
+    }
+
+    /// A component outside the stated range is clipped into it, not wrapped or extrapolated.
+    ///
+    /// ISO 32000-2 §8.4.1: "Parameters that are numeric values, such as the current colour,
+    /// line width, and miter limit, shall be clipped into valid range, if necessary", and
+    /// Table 65's `/Range` is what "valid range" names for this space.
+    ///
+    /// Asserted on [`Profile::encoded`] rather than on a colour, because a colour cannot tell
+    /// the two clamps apart: every lookup table in here clamps its own input to the unit
+    /// interval as well (`Lut::apply`), so an operand past the top of the range reaches the top
+    /// of the table either way. This is the clause held where the clause's own bound is known,
+    /// and it is the only place that knows it.
+    #[test]
+    fn a_component_outside_the_range_is_clipped_into_it() {
+        let profile = Profile::parse(&lab_data_profile()).expect("a Lab profile parses");
+        let over = profile.encoded(&[150.0, 200.0, 0.0]);
+        let under = profile.encoded(&[-40.0, -200.0, 0.0]);
+        assert_eq!(
+            over.first().map(|slot: &f32| slot.to_bits()),
+            Some(1.0_f32.to_bits()),
+            "L* past 100 is L* = 100: {over:?}"
+        );
+        assert_eq!(
+            over.get(1).map(|slot: &f32| slot.to_bits()),
+            Some(1.0_f32.to_bits()),
+            "a* past 127 is a* = 127: {over:?}"
+        );
+        assert_eq!(
+            under.first().map(|slot: &f32| slot.to_bits()),
+            Some(0.0_f32.to_bits()),
+            "L* below 0 is L* = 0: {under:?}"
+        );
+        assert_eq!(
+            under.get(1).map(|slot: &f32| slot.to_bits()),
+            Some(0.0_f32.to_bits()),
+            "a* below -128 is a* = -128: {under:?}"
+        );
+    }
+
+    /// The unit range is the identity, which is what keeps every profile that is not `'Lab '`
+    /// drawing the colour it drew.
+    ///
+    /// Table 68 gives `Gray`, `RGB` and `CMYK` the interval `[0.0 1.0]`, which is also Table
+    /// 65's default for `/Range`, so [`Profile::encoded`] subtracts zero and divides by one.
+    /// Asserted on the shipped sRGB profile rather than on a fixture, since that is the one
+    /// this program reads most.
+    #[test]
+    fn the_unit_range_leaves_every_component_where_it_was() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        let profile = Profile::parse(bytes).expect("the shipped profile parses");
+        for value in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            let encoded = profile.encoded(&[value, value, value]);
+            assert_eq!(
+                encoded.first().map(|slot: &f32| slot.to_bits()),
+                Some(value.to_bits()),
+                "the unit range is the identity, bit for bit"
+            );
+        }
     }
 }

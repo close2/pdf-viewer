@@ -53,6 +53,7 @@
 use std::collections::BTreeMap;
 
 use pdf_signature::cms::{self, SignatureAlgorithm};
+use pdf_signature::revision::{Comparison, FieldJudgement};
 use pdf_signature::revocation::Revocation;
 use pdf_signature::signature::{
     Authenticity, PadesDeparture, Signature, SigningCertificateBinding, permissions,
@@ -222,6 +223,43 @@ struct Counts {
     /// Counted because the row that names it states a population, and a population belongs to
     /// the command that produces it.
     format_versions: BTreeMap<String, usize>,
+    /// Table 256's `/TransformMethod`, counted by the documents that name each.
+    ///
+    /// **The cross-tab §12.8.2's ledger rows were missing.** Two of the three methods rank
+    /// nothing until something says which fields and which object they scope, and how many real
+    /// files state either is a question about the world rather than about the standard (trap 8).
+    /// Keyed by the name the file spells, because the entry's value list is the standard's and a
+    /// fourth name is the one document worth looking at.
+    transform_methods: BTreeMap<String, usize>,
+    /// What Table 256's `/Data` names, over every §12.8.2.4 transform a signed signature states.
+    ///
+    /// §12.8.1's Table 256 makes the entry required for this method alone:
+    ///
+    /// > (Required when TransformMethod is FieldMDP, shall be an indirect reference) An indirect
+    /// > reference to the object in the document upon which the object modification analysis
+    /// > should be performed.
+    ///
+    /// and it is what scopes the analysis, so whether real files state one — and what they point
+    /// it at — decides whether `revision::Comparison::against_field_mdp` has a subject or a
+    /// refusal. Counted rather than assumed, which is trap 8's rule and trap 13's: a refusal with
+    /// no members in the world is a branch only a fixture ever reaches, and this says which of
+    /// them are which.
+    field_mdp_data: BTreeMap<String, usize>,
+    /// What §12.8.2.4's transform then answers about each document that states one.
+    ///
+    /// Table 259's `/Action` and `/Fields` select, and a selection that never excluded anything
+    /// would be a selection in name only. The population is what says otherwise.
+    field_mdp_judgements: BTreeMap<String, usize>,
+    /// Documents carrying at least one §12.8.5 document timestamp.
+    ///
+    /// [`Counts::timestamps`] counts *dictionaries* and a document may stack several, so the two
+    /// answer different questions and the population a transform-method cross-tab is taken over
+    /// is this one.
+    timestamp_documents: usize,
+    /// Of those, how many also name a `FieldMDP` transform method.
+    timestamp_documents_with_field_mdp: usize,
+    /// Of those, how many also name a `UR` transform method.
+    timestamp_documents_with_usage_rights: usize,
     /// §12.8.2.2's certification signatures: a `/Perms /DocMDP`, keyed by the `/P` it states.
     ///
     /// §12.8.2.2's row calls one out by name — "[t]he corpus's one certification signature states
@@ -281,6 +319,15 @@ impl Counts {
         self.signatures = self.signatures.saturating_add(other.signatures);
         self.readable = self.readable.saturating_add(other.readable);
         self.timestamps = self.timestamps.saturating_add(other.timestamps);
+        self.timestamp_documents = self
+            .timestamp_documents
+            .saturating_add(other.timestamp_documents);
+        self.timestamp_documents_with_field_mdp = self
+            .timestamp_documents_with_field_mdp
+            .saturating_add(other.timestamp_documents_with_field_mdp);
+        self.timestamp_documents_with_usage_rights = self
+            .timestamp_documents_with_usage_rights
+            .saturating_add(other.timestamp_documents_with_usage_rights);
         self.revocation_material = self
             .revocation_material
             .saturating_add(other.revocation_material);
@@ -304,6 +351,9 @@ impl Counts {
         for (map, theirs) in [
             (&mut self.signing_certificate, other.signing_certificate),
             (&mut self.certifications, other.certifications),
+            (&mut self.transform_methods, other.transform_methods),
+            (&mut self.field_mdp_data, other.field_mdp_data),
+            (&mut self.field_mdp_judgements, other.field_mdp_judgements),
             (&mut self.format_versions, other.format_versions),
             (&mut self.unreadable, other.unreadable),
             (&mut self.sub_filters, other.sub_filters),
@@ -669,11 +719,13 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
 }
 
 /// §12.8.2.2's certification level, read from the permissions dictionary rather than from a
-/// signature.
+/// signature, and §12.8.2's other two transform methods beside it.
 ///
 /// `/Perms /DocMDP` is what §12.8.6 makes the transform *binding*, so a `/DocMDP` transform on a
 /// signature nothing points at asserts nothing and is not counted here.
 fn count_certification(path: &str, document: &Document, counts: &mut Counts) {
+    count_transforms(path, document, counts);
+    count_field_mdp(document, counts);
     if let Some(level) = permissions(document).doc_mdp {
         let named = format!("{level:?}");
         let slot = counts.certifications.entry(named).or_default();
@@ -681,6 +733,111 @@ fn count_certification(path: &str, document: &Document, counts: &mut Counts) {
         counts
             .witnesses
             .push(format!("{path}: §12.8.2.2 certification, /P {level:?}"));
+    }
+}
+
+/// §12.8.2's transform methods, and the cross-tab with §12.8.5's document timestamps.
+///
+/// Two methods take parameters that *select* — Table 259's `/Action` and `/Fields`, Table 256's
+/// `/Data` — and §12.8.2.1 makes selecting the whole of what a transform method is for:
+/// "[t]ransform methods, along with transform parameters, shall determine which objects are
+/// included and excluded in revision comparison". Whether that selection has any subject outside
+/// a fixture is what this counts, and the document-timestamp cross-tab is here because a
+/// timestamp update is the change Table 257 carves out: a document with both is one where the
+/// carve-out and the selection are asked of the same file.
+fn count_transforms(path: &str, document: &Document, counts: &mut Counts) {
+    let methods = pdf_signature::signature::transform_methods(document);
+    for method in &methods {
+        let slot = counts.transform_methods.entry(method.clone()).or_default();
+        *slot = slot.saturating_add(1);
+    }
+    if methods.iter().any(|method| method == "FieldMDP") {
+        counts
+            .witnesses
+            .push(format!("{path}: §12.8.2.4 FieldMDP transform"));
+    }
+    // `/UR3` is Table 263's permissions key rather than Table 256's method name, and producers
+    // write it where the method belongs; `signature::usage_rights` has read both spellings since
+    // ADR 0159, so a census that counted only one of them would report a population the rest of
+    // this crate does not have.
+    let usage_rights = |method: &String| method == "UR" || method == "UR3";
+    if methods.iter().any(usage_rights) {
+        counts
+            .witnesses
+            .push(format!("{path}: §12.8.2.3 UR transform"));
+    }
+    if !every_signature(document)
+        .iter()
+        .any(|signature| signature.timestamp)
+    {
+        return;
+    }
+    counts.timestamp_documents = 1;
+    if methods.iter().any(|method| method == "FieldMDP") {
+        counts.timestamp_documents_with_field_mdp = 1;
+    }
+    if methods.iter().any(usage_rights) {
+        counts.timestamp_documents_with_usage_rights = 1;
+    }
+}
+
+/// §12.8.2.4's transforms, with what scopes each and what each then answers.
+///
+/// Both halves of §12.8.2.1's sentence, over real files: Table 256's `/Data` says which object the
+/// analysis runs on, and Table 259's `/Action` and `/Fields` say which of that object's fields the
+/// transform covers. The judgement is taken against every signature the document carries, because
+/// which signature a transform sits on is the document's statement and not this walk's to guess.
+fn count_field_mdp(document: &Document, counts: &mut Counts) {
+    let transforms = pdf_signature::signature::field_mdp(document);
+    if transforms.is_empty() {
+        return;
+    }
+    let catalog = match document.xref().trailer().get("Root") {
+        Some(pdf_syntax::Object::Reference(id)) => Some(id.number),
+        _ => None,
+    };
+    let form = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| match catalog.get("AcroForm") {
+            Some(pdf_syntax::Object::Reference(id)) => Some(id.number),
+            _ => None,
+        });
+    let signatures = every_signature(document);
+    for transform in &transforms {
+        let named = match transform.data.map(|data| data.number) {
+            None => "no /Data, which Table 256 requires".to_owned(),
+            Some(number) if Some(number) == catalog => "the catalog".to_owned(),
+            Some(number) if Some(number) == form => "the interactive form dictionary".to_owned(),
+            Some(_) => "some other object".to_owned(),
+        };
+        let slot = counts.field_mdp_data.entry(named).or_default();
+        *slot = slot.saturating_add(1);
+        for signature in &signatures {
+            let answer = match Comparison::of(signature, document) {
+                Err(refusal) => format!("no comparison: {refusal}"),
+                Ok(comparison) => match comparison.against_transform(transform) {
+                    Err(refusal) => format!("not scoped: {refusal}"),
+                    Ok(judgement) => match judgement {
+                        FieldJudgement::NoChangeToRank => "nothing changed".to_owned(),
+                        FieldJudgement::CoveredFieldChanged { .. } => {
+                            "a covered field changed".to_owned()
+                        }
+                        FieldJudgement::NoCoveredFieldChanged { outside, .. } if outside > 0 => {
+                            "only fields outside the selection changed".to_owned()
+                        }
+                        FieldJudgement::NoCoveredFieldChanged { .. } => {
+                            "changes, none of them a form field".to_owned()
+                        }
+                        FieldJudgement::NotClassified { .. } => {
+                            "refused: a field unnamed".to_owned()
+                        }
+                    },
+                },
+            };
+            let slot = counts.field_mdp_judgements.entry(answer).or_default();
+            *slot = slot.saturating_add(1);
+        }
     }
 }
 
@@ -979,6 +1136,24 @@ fn main() {
     report(
         "§12.8.2.2 certification signatures, by Table 257 /P",
         &counts.certifications,
+    );
+    report(
+        "Table 256 /TransformMethod, by the documents naming each",
+        &counts.transform_methods,
+    );
+    report(
+        "Table 256 /Data, over every §12.8.2.4 transform a signed signature states",
+        &counts.field_mdp_data,
+    );
+    report(
+        "§12.8.2.4's transform against each signature of the documents that state one",
+        &counts.field_mdp_judgements,
+    );
+    println!(
+        "{} documents carry a §12.8.5 document timestamp; {} of those also name a FieldMDP          transform and {} a UR transform",
+        counts.timestamp_documents,
+        counts.timestamp_documents_with_field_mdp,
+        counts.timestamp_documents_with_usage_rights,
     );
     report(
         "Table 255 /V, the signature dictionary format version (1 = reference dictionary critical)",

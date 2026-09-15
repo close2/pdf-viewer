@@ -2493,7 +2493,7 @@ const TYPE_FIVE_NON_COLOURANT_KEYS: [&[u8]; 4] =
 ///
 /// **The `Default` entry.** §10.6.5.6 requires it to have a transfer function where the halftone
 /// has any nonprimary colourant, and says nothing about the case where it has none. Reading
-/// ISO 19005's "only as required" onto that silence would manufacture a failure out of an entry
+/// ISO 19005's as-required condition onto that silence would manufacture a failure out of an entry
 /// the base standard permits, and the direction of error this crate keeps is to under-report.
 ///
 /// **A halftone reached by neither route.** The requirement is about a halftone's *position* —
